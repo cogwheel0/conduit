@@ -9959,6 +9959,7 @@ Future<void> runQueuedCompletion(
   String? terminalId,
   bool enableWebSearch = false,
   bool enableImageGeneration = false,
+  bool isVoiceMode = false,
   String? sessionIdOverride,
   OpenWebUiCompletionOwner? completionOwner,
 }) async {
@@ -10103,6 +10104,7 @@ Future<void> runQueuedCompletion(
       filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
       enableWebSearch: enableWebSearch,
       enableImageGeneration: enableImageGeneration,
+      isVoiceMode: isVoiceMode,
       modelItem: modelItem,
       sessionIdOverride: socketSessionId,
       toolServers: toolServers,
@@ -10226,6 +10228,7 @@ Future<void> runHeadlessCompletion(
   String? terminalId,
   bool enableWebSearch = false,
   bool enableImageGeneration = false,
+  bool isVoiceMode = false,
   String? sessionIdOverride,
   OpenWebUiCompletionOwner? completionOwner,
 }) async {
@@ -10337,6 +10340,7 @@ Future<void> runHeadlessCompletion(
     filterIds: filterIds.isNotEmpty ? filterIds : null,
     enableWebSearch: enableWebSearch,
     enableImageGeneration: enableImageGeneration,
+    isVoiceMode: isVoiceMode,
     modelItem: modelItem,
     sessionIdOverride: socketSessionId,
     toolServers: toolServers,
@@ -11144,6 +11148,7 @@ Future<void> durableSend(
       terminalId: terminalIdForCompletion,
       enableWebSearch: webSearchEnabled,
       enableImageGeneration: imageGenerationEnabled,
+      isVoiceMode: isVoiceMode,
     );
 
     var activeConversation = activeAtSendStart;
@@ -11505,25 +11510,6 @@ Future<void> sendMessage(
   bool isVoiceMode = false,
 ]) async {
   await _sendMessageInternal(ref, message, attachments, toolIds, isVoiceMode);
-}
-
-// Service-friendly wrapper (accepts generic Ref)
-Future<void> sendMessageFromService(
-  Ref ref,
-  String message,
-  List<String>? attachments, [
-  List<String>? toolIds,
-  bool isVoiceMode = false,
-  String? pendingFolderIdOverride,
-]) async {
-  await _sendMessageInternal(
-    ref,
-    message,
-    attachments,
-    toolIds,
-    isVoiceMode,
-    pendingFolderIdOverride,
-  );
 }
 
 Future<void> sendMessageWithContainer(

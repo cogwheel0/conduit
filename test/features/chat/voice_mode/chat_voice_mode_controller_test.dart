@@ -927,6 +927,69 @@ void main() {
   );
 
   test(
+    'assistant response errors end voice mode without speaking emptiness',
+    () async {
+      final input = _FakeVoiceInputService();
+      final tts = _FakeTextToSpeechService();
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          selectedModelProvider.overrideWithValue(_model),
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          reviewerModeProvider.overrideWithValue(true),
+          voiceInputServiceProvider.overrideWithValue(input),
+          textToSpeechServiceProvider.overrideWithValue(tts),
+          callKitServiceProvider.overrideWithValue(
+            _UnavailableCallKitService(),
+          ),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceAudioSessionCoordinator(),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+
+      await controller.start(startNewConversation: false);
+      await input.completeCurrent('trigger a failed response');
+      await _until(
+        () =>
+            container.read(chatVoiceModeControllerProvider).phase ==
+            ChatVoiceModePhase.sending,
+      );
+      final assistant = container
+          .read(chatMessagesProvider)
+          .lastWhere((message) => message.role == 'assistant');
+      container
+          .read(chatMessagesProvider.notifier)
+          .failLastStreamingAssistant(
+            StateError('network unavailable'),
+            assistantMessageId: assistant.id,
+          );
+
+      await _until(
+        () =>
+            container.read(chatVoiceModeControllerProvider).phase ==
+            ChatVoiceModePhase.error,
+      );
+      check(container.read(chatVoiceModeControllerProvider).errorMessage)
+          .equals(
+            'An unexpected error occurred while processing your request. '
+            'Please try again or check your connection.',
+          );
+      check(tts.finishedTexts).isEmpty();
+    },
+  );
+
+  test(
     'does not send partial-only transcript when listening completes',
     () async {
       final input = _FakeVoiceInputService();

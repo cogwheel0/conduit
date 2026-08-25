@@ -162,6 +162,7 @@ class _GatedCompletionApi extends ApiService {
   Map<String, dynamic>? submittedModelItem;
   Map<String, dynamic>? submittedUserMessage;
   String? submittedSessionId;
+  bool? submittedVoiceMode;
 
   @override
   Future<Map<String, dynamic>> getUserSettings({Object? authSnapshot}) async =>
@@ -204,6 +205,7 @@ class _GatedCompletionApi extends ApiService {
         ? null
         : Map<String, dynamic>.from(userMessage);
     submittedSessionId = sessionIdOverride;
+    submittedVoiceMode = isVoiceMode;
     if (!postEntered.isCompleted) postEntered.complete();
     await releasePost.future;
     return ChatCompletionSession.jsonCompletion(
@@ -604,6 +606,82 @@ void main() {
   tearDown(() async {
     await db.close();
   });
+
+  test('completion runner preserves voice mode for a live request', () async {
+    const chatId = 'voice-live-chat';
+    const assistantId = 'voice-live-assistant';
+    await _seedChat(db, chatId, assistantId: assistantId);
+    final api = _GatedCompletionApi(Completer<void>()..complete());
+    final messages = <ChatMessage>[
+      _user('voice-live-user', 'hello by voice'),
+      _streamingAssistant(assistantId, ''),
+    ];
+    final container = _container(
+      db: db,
+      active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+      messages: messages,
+      api: api,
+      syncEngine: _PersistingSyncEngine(db, api),
+    );
+    addTearDown(container.dispose);
+    final runnerProvider = Provider<RequestCompletionRunner>(
+      (ref) => ChatRequestCompletionRunner(ref),
+    );
+
+    await container
+        .read(runnerProvider)
+        .run(
+          chatId: chatId,
+          payload: const RequestCompletionPayload(
+            assistantMessageId: assistantId,
+            model: 'model-1',
+            isVoiceMode: true,
+          ).toJson(),
+        );
+
+    check(api.submittedVoiceMode).equals(true);
+  });
+
+  test(
+    'completion runner preserves voice mode for a headless request',
+    () async {
+      const chatId = 'voice-headless-chat';
+      const assistantId = 'voice-headless-assistant';
+      await _seedChat(db, chatId, assistantId: assistantId);
+      final api = _GatedCompletionApi(Completer<void>()..complete());
+      final foregroundMessages = <ChatMessage>[
+        _user('foreground-user', 'different chat'),
+      ];
+      final container = _container(
+        db: db,
+        active: _conversation(
+          'foreground-chat',
+          foregroundMessages,
+          ChatStorageKind.openWebUi,
+        ),
+        messages: foregroundMessages,
+        api: api,
+        syncEngine: _PersistingSyncEngine(db, api),
+      );
+      addTearDown(container.dispose);
+      final runnerProvider = Provider<RequestCompletionRunner>(
+        (ref) => ChatRequestCompletionRunner(ref),
+      );
+
+      await container
+          .read(runnerProvider)
+          .run(
+            chatId: chatId,
+            payload: const RequestCompletionPayload(
+              assistantMessageId: assistantId,
+              model: 'model-1',
+              isVoiceMode: true,
+            ).toJson(),
+          );
+
+      check(api.submittedVoiceMode).equals(true);
+    },
+  );
 
   test(
     'Open WebUI direct send uses the server pipeline and upstream wire model',

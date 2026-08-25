@@ -1277,12 +1277,12 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
     try {
       final selectedToolIds = ref.read(selectedToolIdsProvider);
-      await sendMessageFromService(
+      await durableSend(
         ref,
         transcript,
         null,
-        selectedToolIds,
-        true,
+        toolIds: selectedToolIds,
+        isVoiceMode: true,
       );
       if (!_isCurrent(token)) return;
 
@@ -1372,6 +1372,14 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       return;
     }
     _activeAssistantMessageId ??= active.id;
+    final error = active.error;
+    if (error != null) {
+      _assistantFinalized = true;
+      unawaited(
+        _fail(error.content ?? 'The assistant response failed.', _token),
+      );
+      return;
+    }
     _handleAssistantContentChanged(messages);
     if (active.isStreaming) {
       return;

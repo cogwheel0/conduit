@@ -227,6 +227,7 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
         terminalId: decoded.terminalId,
         enableWebSearch: decoded.enableWebSearch,
         enableImageGeneration: decoded.enableImageGeneration,
+        isVoiceMode: decoded.isVoiceMode,
         sessionIdOverride: decoded.sessionIdOverride,
         completionOwner: owner,
       );
@@ -261,6 +262,7 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       terminalId: decoded.terminalId,
       enableWebSearch: decoded.enableWebSearch,
       enableImageGeneration: decoded.enableImageGeneration,
+      isVoiceMode: decoded.isVoiceMode,
       sessionIdOverride: decoded.sessionIdOverride,
       completionOwner: owner,
     );
