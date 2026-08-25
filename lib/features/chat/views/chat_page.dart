@@ -341,9 +341,11 @@ class _HermesBotActivityDotState extends State<_HermesBotActivityDot>
 List<String>? chatLocalFilePickerExtensions(
   Model? selectedModel, {
   bool desktopHermes = false,
+  bool hermesResponsesFiles = false,
 }) => localFilePickerExtensionsForModel(
   selectedModel,
   desktopHermes: desktopHermes,
+  hermesResponsesFiles: hermesResponsesFiles,
 );
 
 @visibleForTesting
@@ -1444,6 +1446,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           desktopHermes:
               ref.read(hermesConfigProvider).mode ==
               HermesBackendMode.desktopGateway,
+          hermesResponsesFiles:
+              ref.read(hermesCapabilitiesProvider).asData?.value.inputFiles ==
+              true,
         ),
       );
       if (attachments.isEmpty) return;

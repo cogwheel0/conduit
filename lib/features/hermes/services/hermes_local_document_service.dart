@@ -24,6 +24,10 @@ const List<String> kHermesLocalDocumentPickerExtensions =
 bool isHermesLocalDocumentFileNameSupported(String name) =>
     isLocalDocumentFileNameSupported(name);
 
+/// Whether [name] is a PDF eligible for Hermes Responses file input.
+bool isHermesResponsesPdfFileNameSupported(String name) =>
+    name.toLowerCase().endsWith('.pdf');
+
 String sanitizeHermesDocumentFilename(String input) =>
     sanitizeLocalDocumentFilename(input);
 

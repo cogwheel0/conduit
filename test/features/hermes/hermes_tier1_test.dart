@@ -58,6 +58,7 @@ void main() {
       check(caps.runApproval).isTrue();
       check(caps.toolsets).isTrue();
       check(caps.inputImages).isFalse();
+      check(caps.inputFiles).isFalse();
     });
 
     test('null feature values remain optimistic', () {
@@ -98,7 +99,10 @@ void main() {
 
       check(viaFeature.inputImages).isTrue();
       check(viaEndpoint.inputImages).isTrue();
+      check(viaFeature.inputFiles).isTrue();
+      check(viaEndpoint.inputFiles).isTrue();
       check(disabled.inputImages).isFalse();
+      check(disabled.inputFiles).isFalse();
       check(conflictingFlags.inputImages).isFalse();
       check(oldSessionOnly.inputImages).isFalse();
     });

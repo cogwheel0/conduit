@@ -50,6 +50,32 @@ void main() {
         .deepEquals(input.toResponsesJson() as List<Object?>);
   });
 
+  test('file input uses the Responses input_file wire shape', () {
+    final input = HermesChatInput.multimodal([
+      HermesInputTextPart('Read this'),
+      HermesInputFilePart(
+        filename: 'schedule.pdf',
+        mediaType: 'application/pdf',
+        base64Data: 'JVBERi0xLjQ=',
+      ),
+    ]);
+
+    check(input.toResponsesJson() as List).deepEquals([
+      {
+        'type': 'message',
+        'role': 'user',
+        'content': [
+          {'type': 'input_text', 'text': 'Read this'},
+          {
+            'type': 'input_file',
+            'file_data': 'data:application/pdf;base64,JVBERi0xLjQ=',
+            'filename': 'schedule.pdf',
+          },
+        ],
+      },
+    ]);
+  });
+
   test('rejects empty turns and unsupported image references', () {
     check(() => HermesChatInput.text('  ')).throws<ArgumentError>();
     check(() => HermesChatInput.multimodal(const [])).throws<ArgumentError>();

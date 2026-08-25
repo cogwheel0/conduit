@@ -39,6 +39,7 @@ void main() {
     check(caps.jobs).isTrue(); // list surface shown
     check(caps.jobsAdmin).isFalse(); // writes disabled
     check(caps.inputImages).isTrue();
+    check(caps.inputFiles).isTrue();
   });
 
   test('toolsets: real payload parses tools', () {
