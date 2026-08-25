@@ -1071,6 +1071,113 @@ void main() {
   });
 
   test(
+    'starts on the speakerphone when no audio accessory is attached',
+    () async {
+      final audioSession = _FakeChatVoiceAudioSessionCoordinator()
+        ..defaultsToSpeakerphone = true;
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          selectedModelProvider.overrideWithValue(_model),
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          reviewerModeProvider.overrideWithValue(true),
+          voiceInputServiceProvider.overrideWithValue(_FakeVoiceInputService()),
+          textToSpeechServiceProvider.overrideWithValue(
+            _FakeTextToSpeechService(),
+          ),
+          callKitServiceProvider.overrideWithValue(
+            _UnavailableCallKitService(),
+          ),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+            audioSession,
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+      await controller.start(startNewConversation: false);
+      await pumpEventQueue();
+
+      check(audioSession.defaultRouteCalls).equals(1);
+      check(
+        container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled,
+      ).isTrue();
+
+      // The default is only a starting point: the button still turns it off.
+      await controller.toggleSpeakerphone();
+      check(
+        container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled,
+      ).isFalse();
+      check(audioSession.speakerphoneCalls).deepEquals(<bool>[false]);
+
+      await controller.stop();
+    },
+  );
+
+  test('follows the audio route the coordinator picks mid-call', () async {
+    final audioSession = _FakeChatVoiceAudioSessionCoordinator()
+      ..defaultsToSpeakerphone = true;
+    final container = ProviderContainer(
+      overrides: [
+        ...openWebUiStorageOpenOverrides(),
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        selectedModelProvider.overrideWithValue(_model),
+        appSettingsProvider.overrideWithValue(const AppSettings()),
+        reviewerModeProvider.overrideWithValue(true),
+        voiceInputServiceProvider.overrideWithValue(_FakeVoiceInputService()),
+        textToSpeechServiceProvider.overrideWithValue(
+          _FakeTextToSpeechService(),
+        ),
+        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          audioSession,
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final controller = container.read(chatVoiceModeControllerProvider.notifier);
+    await controller.start(startNewConversation: false);
+    await pumpEventQueue();
+    check(container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled)
+        .isTrue();
+
+    // A headset connected mid-call takes playback off the loudspeaker, and the
+    // overlay's speaker button has to say so.
+    audioSession.routeChanges.add(false);
+    await pumpEventQueue();
+    check(container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled)
+        .isFalse();
+
+    audioSession.routeChanges.add(true);
+    await pumpEventQueue();
+    check(container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled)
+        .isTrue();
+
+    await controller.stop();
+
+    // A late event from a torn-down call cannot revive the speaker state.
+    audioSession.routeChanges.add(true);
+    await pumpEventQueue();
+    check(container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled)
+        .isFalse();
+  });
+
+  test(
     'speakerphone toggle drives the audio session on every platform',
     () async {
       final audioSession = _FakeChatVoiceAudioSessionCoordinator();
@@ -1121,6 +1228,46 @@ void main() {
       await controller.stop();
     },
   );
+
+  test('speakerphone toggle stays put when the platform refuses', () async {
+    final audioSession = _FakeChatVoiceAudioSessionCoordinator()
+      ..speakerphoneRouteApplies = false;
+    final container = ProviderContainer(
+      overrides: [
+        ...openWebUiStorageOpenOverrides(),
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        selectedModelProvider.overrideWithValue(_model),
+        appSettingsProvider.overrideWithValue(const AppSettings()),
+        reviewerModeProvider.overrideWithValue(true),
+        voiceInputServiceProvider.overrideWithValue(_FakeVoiceInputService()),
+        textToSpeechServiceProvider.overrideWithValue(
+          _FakeTextToSpeechService(),
+        ),
+        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          audioSession,
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final controller = container.read(chatVoiceModeControllerProvider.notifier);
+    await controller.start(startNewConversation: false);
+
+    await controller.toggleSpeakerphone();
+
+    // Audio is still coming out of the earpiece, so a button that flipped to
+    // speaker would be pointing at a route nobody is hearing.
+    check(container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled)
+        .isFalse();
+    check(audioSession.speakerphoneCalls).deepEquals(<bool>[true]);
+    await controller.stop();
+  });
 
   test(
     'queues final transcripts that arrive while the previous final is sending',
@@ -1444,7 +1591,9 @@ void main() {
     'stop completes every teardown step and ends CallKit after cleanup errors',
     () async {
       final input = _FakeVoiceInputService();
-      final tts = _FakeTextToSpeechService()..throwOnStopStreaming = true;
+      final tts = _FakeTextToSpeechService()
+        ..throwOnStopStreaming = true
+        ..throwOnStop = true;
       final callKit = _AvailableCallKitService()..throwOnEnd = true;
       final background = _FakeChatVoiceBackgroundCoordinator()
         ..throwOnStop = true;
@@ -1481,6 +1630,9 @@ void main() {
 
       check(tts.stopStreamingCalls).equals(1);
       check(tts.stopCalls).equals(1);
+      // A stop that throws must still hand the shared engine back to read
+      // aloud, which does not belong on the call route.
+      check(tts.voiceCallFlags).deepEquals(<bool>[true, false]);
       check(background.stopped).length.equals(1);
       check(background.externalAudioSessionOwners.last).isFalse();
       check(audioSession.deactivateCalls).equals(1);
@@ -1789,6 +1941,41 @@ void main() {
       check(uncaught).isEmpty();
     },
   );
+
+  test('provider disposal hands the tts engine back to read aloud', () async {
+    final tts = _FakeTextToSpeechService();
+    final container = ProviderContainer(
+      overrides: [
+        ...openWebUiStorageOpenOverrides(),
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        selectedModelProvider.overrideWithValue(_model),
+        appSettingsProvider.overrideWithValue(const AppSettings()),
+        reviewerModeProvider.overrideWithValue(true),
+        voiceInputServiceProvider.overrideWithValue(_FakeVoiceInputService()),
+        textToSpeechServiceProvider.overrideWithValue(tts),
+        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceAudioSessionCoordinator(),
+        ),
+      ],
+    );
+
+    final controller = container.read(chatVoiceModeControllerProvider.notifier);
+    await controller.start(startNewConversation: false);
+    check(tts.voiceCallFlags).deepEquals(<bool>[true]);
+
+    container.dispose();
+    await pumpEventQueue();
+
+    // The engine is shared with read-aloud. Left on the call route it speaks
+    // out of the earpiece at call volume.
+    check(tts.voiceCallFlags).deepEquals(<bool>[true, false]);
+  });
 }
 
 const _usableHermesConfig = HermesConfig(
@@ -2105,6 +2292,7 @@ class _FakeTextToSpeechService extends TextToSpeechService {
   final _events = StreamController<TtsEvent>.broadcast();
   final fedTexts = <String>[];
   final finishedTexts = <String?>[];
+  final voiceCallFlags = <bool>[];
   bool startedStreaming = false;
   bool holdCompletion = false;
   int pauseCalls = 0;
@@ -2112,11 +2300,17 @@ class _FakeTextToSpeechService extends TextToSpeechService {
   int stopStreamingCalls = 0;
   int stopCalls = 0;
   bool throwOnStopStreaming = false;
+  bool throwOnStop = false;
   Completer<void>? firstStopStreamingGate;
   bool _didStart = false;
 
   @override
   Stream<TtsEvent> get events => _events.stream;
+
+  @override
+  void setVoiceCallActive(bool active) {
+    voiceCallFlags.add(active);
+  }
 
   @override
   List<String> splitTextForSpeech(String text) {
@@ -2191,6 +2385,9 @@ class _FakeTextToSpeechService extends TextToSpeechService {
   Future<void> stop() async {
     stopCalls += 1;
     startedStreaming = false;
+    if (throwOnStop) {
+      throw StateError('stop TTS failed');
+    }
   }
 
   void emitError(String message) {
@@ -2303,17 +2500,36 @@ class _FakeChatVoiceAudioSessionCoordinator
   int listeningCalls = 0;
   int speakingCalls = 0;
   int deactivateCalls = 0;
+  int defaultRouteCalls = 0;
   bool throwOnDeactivate = false;
+  bool defaultsToSpeakerphone = false;
   final speakerphoneCalls = <bool>[];
+  bool speakerphoneRouteApplies = true;
+  final routeChanges = StreamController<bool>.broadcast();
 
   @override
-  Future<void> setSpeakerphoneEnabled(bool enabled) async {
+  Stream<bool> get speakerphoneRouteChanges => routeChanges.stream;
+
+  @override
+  Future<void> applyDefaultSpeakerphoneRoute() async {
+    defaultRouteCalls += 1;
+  }
+
+  @override
+  Future<bool> setSpeakerphoneEnabled(bool enabled) async {
     speakerphoneCalls.add(enabled);
+    return speakerphoneRouteApplies;
   }
 
   @override
   Future<void> configureForListening() async {
     listeningCalls += 1;
+    // The real coordinator only announces the default once a configure pass has
+    // moved the route, so the fake announces it from the same place.
+    if (defaultsToSpeakerphone && !routeChanges.isClosed) {
+      defaultsToSpeakerphone = false;
+      routeChanges.add(true);
+    }
   }
 
   @override
@@ -2327,6 +2543,11 @@ class _FakeChatVoiceAudioSessionCoordinator
     if (throwOnDeactivate) {
       throw StateError('audio session deactivation failed');
     }
+  }
+
+  @override
+  Future<void> dispose() async {
+    await routeChanges.close();
   }
 }
 

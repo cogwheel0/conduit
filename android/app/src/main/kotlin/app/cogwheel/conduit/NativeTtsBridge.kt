@@ -1,5 +1,7 @@
 package app.cogwheel.conduit
 
+import android.media.AudioAttributes
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -28,7 +30,8 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
         val voiceIdentifier: String?,
         val rate: Float,
         val pitch: Float,
-        val volume: Float
+        val volume: Float,
+        val voiceCall: Boolean
     )
 
     private data class ActiveUtterance(
@@ -48,6 +51,7 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
     private var lastProgressStart = 0
     private var suppressStopForUtteranceId: String? = null
     private val resumeUtteranceIds = mutableSetOf<String>()
+    private var appliedVoiceCallRouting: Boolean? = null
 
     fun setup(flutterEngine: FlutterEngine) {
         MethodChannel(
@@ -89,7 +93,8 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
                         ?.takeIf { it.isNotEmpty() },
                     rate = floatArgument(call, "rate", 0.5f, 0.1f, 3.0f),
                     pitch = floatArgument(call, "pitch", 1.0f, 0.1f, 2.0f),
-                    volume = floatArgument(call, "volume", 1.0f, 0.0f, 1.0f)
+                    volume = floatArgument(call, "volume", 1.0f, 0.0f, 1.0f),
+                    voiceCall = call.argument<Boolean>("voiceCall") == true
                 )
                 result.success(speakRequest(request, baseOffset = 0, isResume = false))
             }
@@ -120,6 +125,7 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
         tts?.shutdown()
         tts = null
         initState = InitState.NOT_STARTED
+        appliedVoiceCallRouting = null
         pendingInitCallbacks.clear()
     }
 
@@ -142,6 +148,9 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
         }
 
         initState = InitState.INITIALIZING
+        // A fresh engine starts on its default routing, so the next utterance
+        // has to set the attributes again rather than trust the cached value.
+        appliedVoiceCallRouting = null
         pendingInitCallbacks.add(callback)
         tts = TextToSpeech(activity.applicationContext) { status ->
             mainHandler.post {
@@ -249,6 +258,7 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
                 ?: parseLocale(requested)?.let { engine.language = it }
         }
 
+        applyAudioRouting(engine, request.voiceCall)
         engine.setSpeechRate(request.rate)
         engine.setPitch(request.pitch)
 
@@ -267,6 +277,16 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
 
         val params = Bundle().apply {
             putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, request.volume)
+            // Audio attributes win over the stream param on engines that honour
+            // them, but older ones only read the stream, so send both.
+            putInt(
+                TextToSpeech.Engine.KEY_PARAM_STREAM,
+                if (request.voiceCall) {
+                    AudioManager.STREAM_VOICE_CALL
+                } else {
+                    AudioManager.STREAM_MUSIC
+                }
+            )
         }
         val started = engine.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId) ==
             TextToSpeech.SUCCESS
@@ -275,6 +295,28 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
             resumeUtteranceIds.remove(utteranceId)
         }
         return started
+    }
+
+    // Puts the engine on the voice-communication stream for the duration of a
+    // voice call. Without this the engine speaks as USAGE_MEDIA while the call
+    // holds audio focus as USAGE_VOICE_COMMUNICATION in MODE_IN_COMMUNICATION.
+    // The two are routed separately, so setCommunicationDevice() never moves
+    // device TTS to the call's speakerphone choice, and the media stream goes
+    // quiet once the app is backgrounded during the call.
+    private fun applyAudioRouting(engine: TextToSpeech, voiceCall: Boolean) {
+        if (appliedVoiceCallRouting == voiceCall) return
+        val attributes = AudioAttributes.Builder()
+            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+            .setUsage(
+                if (voiceCall) {
+                    AudioAttributes.USAGE_VOICE_COMMUNICATION
+                } else {
+                    AudioAttributes.USAGE_MEDIA
+                }
+            )
+            .build()
+        engine.setAudioAttributes(attributes)
+        appliedVoiceCallRouting = voiceCall
     }
 
     private fun stopInternal(emitCancel: Boolean): Boolean {

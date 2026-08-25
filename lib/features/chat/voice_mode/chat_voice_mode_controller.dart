@@ -268,6 +268,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   StreamSubscription<int>? _intensitySub;
   StreamSubscription<TtsEvent>? _ttsSub;
   StreamSubscription<CallEvent>? _callKitSub;
+  StreamSubscription<bool>? _speakerphoneRouteSub;
   Timer? _elapsedTimer;
   Timer? _backgroundKeepAliveTimer;
 
@@ -336,6 +337,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       final intensitySub = _intensitySub;
       final ttsSub = _ttsSub;
       final callKitSub = _callKitSub;
+      final speakerphoneRouteSub = _speakerphoneRouteSub;
+      _speakerphoneRouteSub = null;
       final input = _voiceInput;
       final tts = _textToSpeech;
       final backgroundCoordinator = _backgroundCoordinator;
@@ -351,6 +354,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
               await _stopVoiceInputAfterDispose(input);
               await _cancelSubscriptionAfterDispose(ttsSub);
               await _stopTtsAfterDispose(tts);
+              // The engine is shared with read-aloud, which belongs on the
+              // media stream. Nothing survives provider disposal to hand it
+              // back, so it happens here.
+              tts?.setVoiceCallActive(false);
               await _stopBackgroundVoiceLeaseAfterDispose(
                 backgroundCoordinator,
               );
@@ -358,6 +365,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
                 audioSessionCoordinator,
               );
               await _cancelSubscriptionAfterDispose(callKitSub);
+              await _cancelSubscriptionAfterDispose(speakerphoneRouteSub);
               if (callId != null) {
                 await _endCallAfterDispose(callKit, callId);
               }
@@ -489,6 +497,9 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           await _requestAndroidVoiceRoutingPermission();
           if (lostOwnership()) return;
           cancelIfRequested();
+          await _applyDefaultSpeakerphoneRoute();
+          if (lostOwnership()) return;
+          cancelIfRequested();
           await _initializeTts(tts, settings);
           if (lostOwnership()) return;
           cancelIfRequested();
@@ -560,6 +571,26 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       }
     });
     return result;
+  }
+
+  /// Starts accessory-free calls on the loudspeaker, and follows the
+  /// coordinator when hardware comes and goes mid-call.
+  ///
+  /// The snapshot only ever moves on a route the coordinator confirms, so the
+  /// overlay's speaker button never lights up for a move the platform refused.
+  Future<void> _applyDefaultSpeakerphoneRoute() async {
+    final coordinator = _audioSessionCoordinator;
+    if (coordinator == null) {
+      return;
+    }
+    unawaited(_speakerphoneRouteSub?.cancel());
+    _speakerphoneRouteSub = coordinator.speakerphoneRouteChanges.listen((
+      enabled,
+    ) {
+      if (_disposed || !state.isActive) return;
+      state = state.copyWith(isSpeakerphoneEnabled: enabled);
+    });
+    await coordinator.applyDefaultSpeakerphoneRoute();
   }
 
   Future<void> _requestAndroidVoiceRoutingPermission() async {
@@ -677,9 +708,14 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   Future<void> toggleSpeakerphone() {
     return _enqueue(() async {
       if (!state.isActive) return;
+      final coordinator = _audioSessionCoordinator;
+      if (coordinator == null) return;
       final enabled = !state.isSpeakerphoneEnabled;
-      await _audioSessionCoordinator?.setSpeakerphoneEnabled(enabled);
+      final applied = await coordinator.setSpeakerphoneEnabled(enabled);
       if (_disposed) return;
+      // A route the platform refused leaves audio where it was, so the button
+      // stays where it was too rather than promising a route nobody is hearing.
+      if (!applied) return;
       state = state.copyWith(isSpeakerphoneEnabled: enabled);
     });
   }
@@ -718,6 +754,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   }
 
   Future<void> _initializeTts(TextToSpeechService tts, AppSettings settings) {
+    tts.setVoiceCallActive(true);
     return tts.initialize(
       deviceVoice: settings.ttsVoice,
       serverVoice: settings.ttsServerVoiceId,
@@ -1578,6 +1615,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     final intensitySub = _intensitySub;
     final ttsSub = _ttsSub;
     final callKitSub = _callKitSub;
+    final speakerphoneRouteSub = _speakerphoneRouteSub;
     final elapsedTimer = _elapsedTimer;
     final backgroundKeepAliveTimer = _backgroundKeepAliveTimer;
     final backgroundLeaseId = _backgroundLeaseId;
@@ -1594,6 +1632,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     _intensitySub = null;
     _ttsSub = null;
     _callKitSub = null;
+    _speakerphoneRouteSub = null;
     _backgroundKeepAliveTimer = null;
     _backgroundLeaseId = null;
     _voiceInput = null;
@@ -1640,6 +1679,13 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
             await tts?.stop();
           }
         });
+        // Its own step: a stop that throws must not leave the shared engine on
+        // the call route, where read-aloud does not belong.
+        await _runTeardownStep('tts-call-route-release', () async {
+          if (!replacementOwnsTts()) {
+            tts?.setVoiceCallActive(false);
+          }
+        });
         await _runTeardownStep('background-lease-stop', () async {
           if (backgroundLeaseId != null) {
             await backgroundCoordinator?.stopVoiceLease(backgroundLeaseId);
@@ -1658,6 +1704,12 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         await _runTeardownStep('callkit-subscription-cancel', () async {
           await callKitSub?.cancel();
         });
+        await _runTeardownStep(
+          'speakerphone-route-subscription-cancel',
+          () async {
+            await speakerphoneRouteSub?.cancel();
+          },
+        );
         if (endCallKit && callId != null) {
           await _runTeardownStep('callkit-end', () async {
             await callKit?.endCall(callId);
