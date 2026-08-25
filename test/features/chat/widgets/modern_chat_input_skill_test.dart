@@ -147,6 +147,28 @@ void main() {
     expect(sent, ['\$Code ReviewX']);
   });
 
+  testWidgets('deleting the skill delimiter preserves its identity', (
+    tester,
+  ) async {
+    final api = _SkillApi((_) async => _skills(_codeReview));
+    final sent = <String>[];
+    await _pumpComposer(tester, api: api, onSend: sent.add);
+
+    await tester.enterText(find.byType(TextField), '\$code');
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey('skill-suggestion-code-review')),
+    );
+    await tester.pump();
+
+    await tester.enterText(find.byType(TextField), '\$Code Review');
+    await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
+    await tester.pump();
+
+    expect(sent, ['<\$code-review|Code Review>']);
+  });
+
   testWidgets('Enter sends while skill suggestions are still loading', (
     tester,
   ) async {
