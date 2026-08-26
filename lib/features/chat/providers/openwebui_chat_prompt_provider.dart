@@ -68,17 +68,20 @@ class OpenWebUiLivePromptNotifier extends Notifier<OpenWebUiLivePromptState?> {
     }
 
     if (type == 'confirmation') {
-      final title = _bounded(data['title'], 120);
-      final message = _bounded(data['message'], 2000);
+      final prompt = OpenWebUiComposerPrompt(
+        identity: 'live:${DateTime.now().microsecondsSinceEpoch}',
+        kind: OpenWebUiComposerPromptKind.confirmation,
+        title: boundedOpenWebUiString(data['title'], 120),
+        message: boundedOpenWebUiString(data['message'], 2000),
+      );
       _acknowledge = acknowledge;
       state = OpenWebUiLivePromptState(
         conversationId: conversationId,
-        prompt: OpenWebUiComposerPrompt(
-          identity: 'live:${DateTime.now().microsecondsSinceEpoch}',
-          kind: OpenWebUiComposerPromptKind.confirmation,
-          title: title,
-          message: message,
-        ),
+        prompt: prompt,
+      );
+      _timeout = Timer(
+        debugOpenWebUiPromptTimeoutOverride ?? prompt.timeout,
+        cancel,
       );
       return;
     }
@@ -147,10 +150,5 @@ class OpenWebUiLivePromptNotifier extends Notifier<OpenWebUiLivePromptState?> {
     try {
       acknowledge(response);
     } catch (_) {}
-  }
-
-  String _bounded(Object? value, int maxLength) {
-    final text = value?.toString().trim() ?? '';
-    return text.length <= maxLength ? text : text.substring(0, maxLength);
   }
 }

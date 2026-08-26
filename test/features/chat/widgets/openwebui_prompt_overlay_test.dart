@@ -78,6 +78,26 @@ void main() {
     );
   });
 
+  testWidgets('announces the current question and fraction', (tester) async {
+    await _pump(
+      tester,
+      OpenWebUiPromptOverlay(
+        prompt: _askPrompt,
+        onAnswer: (_) {},
+        onDecision: (_) {},
+      ),
+    );
+
+    final overlay = tester.getSemantics(
+      find.byKey(const ValueKey('openwebui-prompt-overlay')),
+    );
+    expect(overlay.label, contains('Scope'));
+    expect(overlay.label, isNot(contains('Approval required')));
+    final progressLabel = tester.getSemantics(find.text('1/2')).label;
+    expect(progressLabel, contains('1/2'));
+    expect(progressLabel, isNot(contains('1 of 2')));
+  });
+
   testWidgets('attached overlay renders above the composer shell', (
     tester,
   ) async {

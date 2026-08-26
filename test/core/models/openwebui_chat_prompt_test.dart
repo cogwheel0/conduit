@@ -24,6 +24,8 @@ void main() {
 
     check(prompt).isNotNull();
     check(prompt!.questions.single.header.length).equals(48);
+    check(boundedOpenWebUiString('${List.filled(47, 'H').join()}😀', 48))
+        .equals(List.filled(47, 'H').join());
     check(prompt.questions.single.allowOther).isTrue();
     check(prompt.timeout).equals(const Duration(minutes: 2));
     check(
@@ -129,7 +131,7 @@ void main() {
       final output = <Map<String, dynamic>>[
         {
           'type': 'function_call',
-          'call_id': 'call-1',
+          'call_id': ' call-1 ',
           'name': 'ask_user',
           'status': 'pending',
         },

@@ -5249,6 +5249,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
         state.indexWhere((message) => message.id == messageId) == -1) {
       return;
     }
+    if (taskIds.isNotEmpty &&
+        (state.isEmpty ||
+            state.last.id != messageId ||
+            state.last.role != 'assistant')) {
+      return;
+    }
 
     updateMessageById(messageId, (message) {
       final output = message.output;
@@ -5286,11 +5292,6 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
       return;
     }
 
-    if (state.isEmpty ||
-        state.last.id != messageId ||
-        state.last.role != 'assistant') {
-      return;
-    }
     _reopenedStreamingMessageId = messageId;
     _observedRemoteTask = true;
     ref.read(activeChatIdsProvider.notifier).setActive(conversation.id);

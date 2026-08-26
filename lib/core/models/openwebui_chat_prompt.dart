@@ -67,7 +67,7 @@ class OpenWebUiPendingToolPrompt {
   final OpenWebUiComposerPrompt prompt;
 }
 
-String _boundedString(Object? value, int maxLength) {
+String boundedOpenWebUiString(Object? value, int maxLength) {
   final normalized = value?.toString().trim() ?? '';
   if (normalized.length <= maxLength) return normalized;
   var end = maxLength;
@@ -122,15 +122,15 @@ OpenWebUiComposerPrompt? parseOpenWebUiAskUserPrompt(
       return null;
     }
 
-    final id = _boundedString(rawQuestion['id'], 64);
-    final question = _boundedString(rawQuestion['question'], 500);
+    final id = boundedOpenWebUiString(rawQuestion['id'], 64);
+    final question = boundedOpenWebUiString(rawQuestion['question'], 500);
     if (id.isEmpty || question.isEmpty || !seenIds.add(id)) return null;
 
     final options = <OpenWebUiPromptOption>[];
     for (final rawOption in rawOptions) {
       final option = _stringMap(rawOption);
-      final label = _boundedString(option?['label'], 80);
-      final description = _boundedString(option?['description'], 240);
+      final label = boundedOpenWebUiString(option?['label'], 80);
+      final description = boundedOpenWebUiString(option?['description'], 240);
       if (option == null || label.isEmpty || description.isEmpty) return null;
       options.add(
         OpenWebUiPromptOption(label: label, description: description),
@@ -140,9 +140,9 @@ OpenWebUiComposerPrompt? parseOpenWebUiAskUserPrompt(
     questions.add(
       OpenWebUiPromptQuestion(
         id: id,
-        header: _boundedString(rawQuestion['header'], 48).isEmpty
+        header: boundedOpenWebUiString(rawQuestion['header'], 48).isEmpty
             ? 'Question ${index + 1}'
-            : _boundedString(rawQuestion['header'], 48),
+            : boundedOpenWebUiString(rawQuestion['header'], 48),
         question: question,
         options: List<OpenWebUiPromptOption>.unmodifiable(options),
         allowOther: rawQuestion['allow_other'] is bool
@@ -192,7 +192,7 @@ OpenWebUiPendingToolPrompt? findPendingOpenWebUiToolPrompt(
         continue;
       }
 
-      final name = _boundedString(item['name'], 80);
+      final name = boundedOpenWebUiString(item['name'], 80);
       if (name == 'ask_user') {
         final arguments = _decodeArguments(item['arguments']);
         final prompt = parseOpenWebUiAskUserPrompt(
@@ -240,7 +240,7 @@ String formatOpenWebUiToolArguments(Object? value) {
   } catch (_) {
     text = normalized.toString();
   }
-  return _boundedString(text, 2000);
+  return boundedOpenWebUiString(text, 2000);
 }
 
 List<Map<String, dynamic>> applyOpenWebUiToolCallResolution({
@@ -249,13 +249,16 @@ List<Map<String, dynamic>> applyOpenWebUiToolCallResolution({
   required String action,
   Map<String, dynamic>? answers,
 }) {
+  final normalizedCallId = callId.trim();
+  if (normalizedCallId.isEmpty) return output;
   final next = output
       .map((item) => Map<String, dynamic>.from(item))
       .toList(growable: true);
   final callIndex = next.indexWhere(
     (item) =>
         item['type']?.toString() == 'function_call' &&
-        (item['call_id']?.toString() ?? item['id']?.toString()) == callId,
+        (item['call_id']?.toString().trim() ?? item['id']?.toString().trim()) ==
+            normalizedCallId,
   );
   if (callIndex == -1) return output;
 

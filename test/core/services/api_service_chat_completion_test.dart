@@ -187,6 +187,43 @@ void main() {
     },
   );
 
+  test(
+    'tool approval actions omit answers and accept singular task ids',
+    () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({'status': true, 'task_id': 'task-3'}),
+        _FakeAdapter.json({'status': true}),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      final approved = await api.resolveChatMessageToolCall(
+        chatId: 'chat-1',
+        messageId: 'message-1',
+        callId: 'call-1',
+        action: OpenWebUiToolCallAction.approve,
+        answers: const {'ignored': true},
+      );
+      final rejected = await api.resolveChatMessageToolCall(
+        chatId: 'chat-1',
+        messageId: 'message-1',
+        callId: 'call-2',
+        action: OpenWebUiToolCallAction.reject,
+        answers: const {'ignored': true},
+      );
+
+      expect(adapter.requests[0].data, {
+        'call_id': 'call-1',
+        'action': 'approve',
+      });
+      expect(adapter.requests[1].data, {
+        'call_id': 'call-2',
+        'action': 'reject',
+      });
+      expect(approved, ['task-3']);
+      expect(rejected, isEmpty);
+    },
+  );
+
   // -----------------------------------------------------------------------
   // 1. taskSocket classification from JSON with task_id
   // -----------------------------------------------------------------------

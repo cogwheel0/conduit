@@ -158,6 +158,13 @@ void main() {
       ]);
       check(api.imported.single.single['base_model_id']).equals('base-2');
 
+      api.detailBaseModelId = null;
+      await check(
+        notifier.importItems(const [
+          {'id': 'model-1', 'name': 'No current base'},
+        ]),
+      ).throws<WorkspaceModelBaseRequiredException>();
+
       await check(
         notifier.importItems(const [
           {'id': 'new-model', 'name': 'No base'},
@@ -495,7 +502,7 @@ class _WorkspaceModelsApi extends ApiService {
       );
 
   Object? refreshError;
-  String detailBaseModelId = 'base-1';
+  String? detailBaseModelId = 'base-1';
   final deleted = <String>[];
   final created = <WorkspaceModelForm>[];
   final updated = <WorkspaceModelForm>[];

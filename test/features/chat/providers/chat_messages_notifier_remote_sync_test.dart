@@ -5,6 +5,7 @@ import 'package:conduit/core/database/chat_database_repository.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/model.dart';
+import 'package:conduit/core/models/openwebui_chat_prompt.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
@@ -342,6 +343,54 @@ void main() {
   });
 
   group('ChatMessagesNotifier remote sync', () {
+    test('tool-call resume ignores a non-tail assistant task', () async {
+      final timestamp = DateTime.now();
+      final assistant = ChatMessage(
+        id: 'assistant-1',
+        role: 'assistant',
+        content: 'Waiting for approval',
+        timestamp: timestamp,
+        output: const [
+          {
+            'type': 'function_call',
+            'call_id': 'call-1',
+            'name': 'filesystem',
+            'status': 'pending',
+          },
+        ],
+      );
+      final messages = [
+        assistant,
+        _userMessage('user-2', 'A newer turn', timestamp),
+      ];
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          activeConversationProvider.overrideWith(
+            _TestActiveConversationNotifier.new,
+          ),
+          socketServiceProvider.overrideWithValue(null),
+        ],
+      );
+      addTearDown(container.dispose);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', messages, timestamp));
+
+      await container
+          .read(chatMessagesProvider.notifier)
+          .resumeAfterOpenWebUiToolCall(
+            messageId: 'assistant-1',
+            callId: 'call-1',
+            action: OpenWebUiToolCallAction.approve,
+            taskIds: const ['task-1'],
+          );
+
+      final unchanged = container.read(chatMessagesProvider).first;
+      check(unchanged.isStreaming).isFalse();
+      check(unchanged.output!.single['status']).equals('pending');
+    });
+
     test(
       'a slower model lookup cannot overwrite a newer conversation',
       () async {

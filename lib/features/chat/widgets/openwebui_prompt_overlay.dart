@@ -127,10 +127,14 @@ class _OpenWebUiPromptOverlayState extends State<OpenWebUiPromptOverlay> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
+    final semanticsLabel =
+        widget.prompt.kind == OpenWebUiComposerPromptKind.askUser
+        ? widget.prompt.questions[_questionIndex].header
+        : l10n.hermesApprovalRequired;
     return Semantics(
       container: true,
       liveRegion: true,
-      label: l10n.hermesApprovalRequired,
+      label: semanticsLabel,
       child: Container(
         key: const ValueKey('openwebui-prompt-overlay'),
         padding: const EdgeInsets.all(Spacing.md),
@@ -178,8 +182,6 @@ class _OpenWebUiPromptOverlayState extends State<OpenWebUiPromptOverlay> {
             if (widget.prompt.questions.length > 1)
               Text(
                 '${_questionIndex + 1}/${widget.prompt.questions.length}',
-                semanticsLabel:
-                    '${_questionIndex + 1} of ${widget.prompt.questions.length}',
                 style: AppTypography.bodySmallStyle.copyWith(
                   color: theme.textSecondary,
                 ),

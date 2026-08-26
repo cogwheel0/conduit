@@ -303,10 +303,10 @@ class WorkspaceModels extends _$WorkspaceModels {
           copy['id']?.toString() ?? '',
         );
         final existingBase = _baseModelId(existing?.baseModelId);
-        if (existing == null) {
+        if (existingBase == null) {
           throw const WorkspaceModelBaseRequiredException();
         }
-        if (existingBase != null) copy['base_model_id'] = existingBase;
+        copy['base_model_id'] = existingBase;
       }
       secured.add(copy);
     }

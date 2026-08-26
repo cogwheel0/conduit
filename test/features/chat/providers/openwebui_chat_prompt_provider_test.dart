@@ -120,6 +120,28 @@ void main() {
     notifier.decide(prompt.identity, true);
     check(responses).deepEquals([true]);
   });
+
+  test('legacy confirmation bounds text and times out to false', () async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final responses = <dynamic>[];
+    final notifier = container.read(openWebUiLivePromptProvider.notifier);
+    debugOpenWebUiPromptTimeoutOverride = const Duration(milliseconds: 5);
+    notifier.handleSocketRequest(
+      conversationId: 'chat-1',
+      type: 'confirmation',
+      data: {
+        'title': '${List.filled(119, 'T').join()}😀',
+        'message': 'Run the tool?',
+      },
+      acknowledge: responses.add,
+    );
+
+    final prompt = container.read(openWebUiLivePromptProvider)!.prompt;
+    check(prompt.title).equals(List.filled(119, 'T').join());
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    check(responses).deepEquals([false]);
+  });
 }
 
 Map<String, dynamic> _questionData() => {
