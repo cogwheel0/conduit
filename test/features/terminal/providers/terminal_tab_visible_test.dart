@@ -22,6 +22,7 @@ void main() {
   test('live: a non-empty server list shows the tab', () async {
     final container = ProviderContainer(
       overrides: [
+        terminalServiceProvider.overrideWithValue(null),
         terminalAvailableServersProvider.overrideWith(
           (ref) async => [_server()],
         ),
@@ -38,6 +39,7 @@ void main() {
     () async {
       final container = ProviderContainer(
         overrides: [
+          terminalServiceProvider.overrideWithValue(null),
           terminalAvailableServersProvider.overrideWith(
             (ref) async => const <TerminalServerInfo>[],
           ),
@@ -58,6 +60,7 @@ void main() {
     () {
       final container = ProviderContainer(
         overrides: [
+          terminalServiceProvider.overrideWithValue(null),
           // Last-known state: terminal disabled.
           terminalFeatureEnabledProvider.overrideWith(
             () => _FixedTerminalFlag(false),
@@ -77,6 +80,7 @@ void main() {
   test('offline with a known-enabled cache shows the tab', () {
     final container = ProviderContainer(
       overrides: [
+        terminalServiceProvider.overrideWithValue(null),
         terminalFeatureEnabledProvider.overrideWith(
           () => _FixedTerminalFlag(true),
         ),
@@ -127,6 +131,44 @@ void main() {
       await oldScopeProbe;
       await Future<void>.delayed(Duration.zero);
       check(container.read(terminalFeatureEnabledProvider)).isFalse();
+    },
+  );
+
+  test(
+    'an unresolved new scope does not reuse the previous scope flag',
+    () async {
+      var scopeId = 'saved-chat';
+      final service = _DelayedTerminalService();
+      final container = ProviderContainer(
+        overrides: [
+          terminalServiceProvider.overrideWithValue(service),
+          terminalSessionScopeIdProvider.overrideWith((ref) => scopeId),
+          terminalFeatureEnabledProvider.overrideWith(
+            () => _FixedTerminalFlag(false),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final savedChatProbe = container.read(
+        terminalAvailableServersProvider.future,
+      );
+      await Future<void>.delayed(Duration.zero);
+      service.requests[0].complete([_savedChatServer()]);
+      await savedChatProbe;
+      await Future<void>.delayed(Duration.zero);
+      check(container.read(terminalTabVisibleProvider)).isTrue();
+
+      scopeId = 'sidebar-terminal';
+      container.invalidate(terminalSessionScopeIdProvider);
+      final sidebarProbe = container.read(
+        terminalAvailableServersProvider.future,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      check(container.read(terminalTabVisibleProvider)).isFalse();
+      service.requests[1].complete([_savedChatServer()]);
+      await sidebarProbe;
     },
   );
 }

@@ -57,14 +57,50 @@ Future<List<TerminalServerInfo>> _probeTerminalServers(
   // last-known state. Deferred — can't mutate a provider during build.
   Future.microtask(() {
     if (!ref.mounted ||
+        !identical(ref.read(terminalServiceProvider), service) ||
         ref.read(terminalSessionScopeIdProvider) != sessionScopeId) {
       return;
     }
+    final enabled = servers.isNotEmpty;
+    ref.read(terminalFeatureEnabledProvider.notifier).setEnabled(enabled);
     ref
-        .read(terminalFeatureEnabledProvider.notifier)
-        .setEnabled(servers.isNotEmpty);
+        .read(_terminalScopedAvailabilityProvider.notifier)
+        .setEnabled(service, sessionScopeId, enabled);
   });
   return servers;
+}
+
+typedef _TerminalAvailabilityScope = ({
+  TerminalService? service,
+  String sessionScopeId,
+});
+
+final _terminalScopedAvailabilityProvider =
+    NotifierProvider<
+      _TerminalScopedAvailabilityNotifier,
+      Map<_TerminalAvailabilityScope, bool>
+    >(_TerminalScopedAvailabilityNotifier.new);
+
+class _TerminalScopedAvailabilityNotifier
+    extends Notifier<Map<_TerminalAvailabilityScope, bool>> {
+  @override
+  Map<_TerminalAvailabilityScope, bool> build() {
+    final service = ref.watch(terminalServiceProvider);
+    final cached = ref.watch(terminalFeatureEnabledProvider);
+    final sessionScopeId = ref.read(terminalSessionScopeIdProvider);
+    return {(service: service, sessionScopeId: sessionScopeId): cached};
+  }
+
+  void setEnabled(
+    TerminalService service,
+    String sessionScopeId,
+    bool enabled,
+  ) {
+    state = {
+      ...state,
+      (service: service, sessionScopeId: sessionScopeId): enabled,
+    };
+  }
 }
 
 /// Whether the Terminal tab should be visible. When the server list resolves,
@@ -74,11 +110,15 @@ Future<List<TerminalServerInfo>> _probeTerminalServers(
 /// optimistically showing the tab — so a server with terminal disabled doesn't
 /// surface the tab offline (matching notes/channels).
 final terminalTabVisibleProvider = Provider<bool>((ref) {
-  final cached = ref.watch(terminalFeatureEnabledProvider);
+  final service = ref.watch(terminalServiceProvider);
+  final sessionScopeId = ref.watch(terminalSessionScopeIdProvider);
+  final cached = ref.watch(
+    _terminalScopedAvailabilityProvider,
+  )[(service: service, sessionScopeId: sessionScopeId)];
   final serversAsync = ref.watch(terminalAvailableServersProvider);
   return serversAsync.maybeWhen(
     data: (servers) => servers.isNotEmpty,
-    orElse: () => cached,
+    orElse: () => cached ?? false,
   );
 });
 
