@@ -134,43 +134,48 @@ void main() {
     },
   );
 
-  test(
-    'an unresolved new scope does not reuse the previous scope flag',
-    () async {
-      var scopeId = 'saved-chat';
-      final service = _DelayedTerminalService();
-      final container = ProviderContainer(
-        overrides: [
-          terminalServiceProvider.overrideWithValue(service),
-          terminalSessionScopeIdProvider.overrideWith((ref) => scopeId),
-          terminalFeatureEnabledProvider.overrideWith(
-            () => _FixedTerminalFlag(false),
-          ),
-        ],
-      );
-      addTearDown(container.dispose);
+  test('unresolved scopes use only their own cached flag', () async {
+    var scopeId = 'saved-chat';
+    final service = _DelayedTerminalService();
+    final container = ProviderContainer(
+      overrides: [
+        terminalServiceProvider.overrideWithValue(service),
+        terminalSessionScopeIdProvider.overrideWith((ref) => scopeId),
+        terminalFeatureEnabledProvider.overrideWith(
+          () => _FixedTerminalFlag(false),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
 
-      final savedChatProbe = container.read(
-        terminalAvailableServersProvider.future,
-      );
-      await Future<void>.delayed(Duration.zero);
-      service.requests[0].complete([_savedChatServer()]);
-      await savedChatProbe;
-      await Future<void>.delayed(Duration.zero);
-      check(container.read(terminalTabVisibleProvider)).isTrue();
+    final savedChatProbe = container.read(
+      terminalAvailableServersProvider.future,
+    );
+    await Future<void>.delayed(Duration.zero);
+    service.requests[0].complete([_savedChatServer()]);
+    await savedChatProbe;
+    await Future<void>.delayed(Duration.zero);
+    check(container.read(terminalTabVisibleProvider)).isTrue();
 
-      scopeId = 'sidebar-terminal';
-      container.invalidate(terminalSessionScopeIdProvider);
-      final sidebarProbe = container.read(
-        terminalAvailableServersProvider.future,
-      );
-      await Future<void>.delayed(Duration.zero);
+    scopeId = 'sidebar-terminal';
+    container.invalidate(terminalSessionScopeIdProvider);
+    final sidebarProbe = container.read(
+      terminalAvailableServersProvider.future,
+    );
+    await Future<void>.delayed(Duration.zero);
 
-      check(container.read(terminalTabVisibleProvider)).isFalse();
-      service.requests[1].complete([_savedChatServer()]);
-      await sidebarProbe;
-    },
-  );
+    check(container.read(terminalTabVisibleProvider)).isFalse();
+    service.requests[1].complete([_savedChatServer()]);
+    await sidebarProbe;
+    await Future<void>.delayed(Duration.zero);
+
+    scopeId = 'saved-chat';
+    container.invalidate(terminalSessionScopeIdProvider);
+    container.read(terminalAvailableServersProvider.future);
+    await Future<void>.delayed(Duration.zero);
+
+    check(container.read(terminalTabVisibleProvider)).isTrue();
+  });
 }
 
 TerminalServerInfo _savedChatServer() => TerminalServerInfo(

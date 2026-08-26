@@ -86,7 +86,7 @@ class _TerminalScopedAvailabilityNotifier
   @override
   Map<_TerminalAvailabilityScope, bool> build() {
     final service = ref.watch(terminalServiceProvider);
-    final cached = ref.watch(terminalFeatureEnabledProvider);
+    final cached = ref.read(terminalFeatureEnabledProvider);
     final sessionScopeId = ref.read(terminalSessionScopeIdProvider);
     return {(service: service, sessionScopeId: sessionScopeId): cached};
   }
