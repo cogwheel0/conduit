@@ -30,6 +30,7 @@ typedef _HermesApprovalBinding = ({
 
 ChatMessage? findPendingHermesComposerPrompt(List<ChatMessage> messages) {
   for (final message in messages.reversed) {
+    if (message.metadata?['archivedVariant'] == true) continue;
     if (message.metadata?['transport'] != kHermesTransport) continue;
     final approval = message.metadata?[kHermesApprovalMeta];
     if (approval is Map &&
@@ -81,16 +82,19 @@ class _HermesComposerPromptOverlayState
   Widget build(BuildContext context) {
     final messages = ref.watch(chatMessagesProvider);
     for (final message in messages.reversed) {
-      final card = _buildApprovalCard(message) ?? _buildDecisionCard(message);
+      final card = _buildPromptCard(message);
       if (card != null) return card;
     }
     if (messages.any((message) => message.id == widget.message.id)) {
       return const SizedBox.shrink();
     }
-    return _buildApprovalCard(widget.message) ??
-        _buildDecisionCard(widget.message) ??
-        const SizedBox.shrink();
+    return _buildPromptCard(widget.message) ?? const SizedBox.shrink();
   }
+
+  Widget? _buildPromptCard(ChatMessage message) =>
+      message.metadata?['archivedVariant'] == true
+      ? null
+      : _buildApprovalCard(message) ?? _buildDecisionCard(message);
 
   Widget? _buildApprovalCard(ChatMessage message) {
     final approval = message.metadata?['hermesApproval'];

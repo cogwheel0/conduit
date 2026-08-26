@@ -67,7 +67,7 @@ void main() {
     );
   });
 
-  test('skips an incomplete newer Hermes prompt', () {
+  test('skips incomplete and archived newer Hermes prompts', () {
     final older = ChatMessage(
       id: 'older',
       role: 'assistant',
@@ -92,8 +92,26 @@ void main() {
         kHermesApprovalMeta: {'state': 'pending'},
       },
     );
+    final archived = ChatMessage(
+      id: 'archived',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2026),
+      metadata: const {
+        'transport': kHermesTransport,
+        'archivedVariant': true,
+        kHermesApprovalMeta: {
+          'state': 'pending',
+          'runId': 'archived-run',
+          'approvalId': 'archived-approval',
+        },
+      },
+    );
 
-    expect(findPendingHermesComposerPrompt([older, incomplete]), same(older));
+    expect(
+      findPendingHermesComposerPrompt([older, incomplete, archived]),
+      same(older),
+    );
   });
 
   test('ignores resolved and expired Hermes prompts', () {
