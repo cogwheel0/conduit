@@ -242,6 +242,19 @@ Conversation _conversation(
 
 Future<void> pumpMicrotasks() => Future<void>.delayed(Duration.zero);
 
+Future<void> _waitForCondition(
+  bool Function() condition, {
+  Duration timeout = const Duration(seconds: 5),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) {
+      fail('Timed out waiting for asynchronous state');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+}
+
 Future<void> _drainRemoteTaskStatusCheck(ChatMessagesNotifier notifier) async {
   notifier.debugCancelRemoteTaskMonitorTimer();
   while (notifier.debugTaskStatusCheckInFlight) {
@@ -410,7 +423,11 @@ void main() {
               action: OpenWebUiToolCallAction.approve,
               taskIds: const ['task-1'],
             );
-        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await _waitForCondition(
+          () =>
+              container.read(chatMessagesProvider).first.content ==
+              'Continued after approval',
+        );
 
         final resolved = container.read(chatMessagesProvider).first;
         check(resolved.isStreaming).isFalse();
@@ -485,14 +502,13 @@ void main() {
         action: OpenWebUiToolCallAction.approve,
         taskIds: const ['task-2'],
       );
-      await pumpMicrotasks();
+      await _waitForCondition(() => api.taskIdRequests.length == 2);
       check(api.taskIdRequests.length).equals(2);
 
       for (final request in api.taskIdRequests) {
         request.complete(const ['task-1', 'task-2']);
       }
-      await pumpMicrotasks();
-      await pumpMicrotasks();
+      await _waitForCondition(() => api.getConversationCalls == 2);
 
       check(api.getConversationCalls).equals(2);
     });
