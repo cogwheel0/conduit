@@ -508,6 +508,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   void Function(String newTitle)? onChatTitleUpdated,
   void Function()? onChatTagsUpdated,
   void Function(String path)? onTerminalDisplayFile,
+  void Function(
+    String type,
+    Map<String, dynamic> data,
+    void Function(dynamic response) acknowledge,
+  )?
+  onInteractivePrompt,
 
   /// Called when a `chat:active` event is received, indicating a background
   /// task has started (active=true) or completed (active=false).
@@ -3490,6 +3496,24 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final content = map['content']?.toString() ?? '';
           _showSocketNotification(notifType, content);
         }
+      } else if (type == 'request:user_input' && payload != null) {
+        if (!matchesCurrentStreamSession(incomingSessionId)) {
+          return;
+        }
+        if (ack != null) {
+          final map = _asStringMap(payload);
+          if (map == null) {
+            ack(const <String, dynamic>{
+              'error': 'Invalid user input request.',
+            });
+          } else if (onInteractivePrompt != null) {
+            onInteractivePrompt(type.toString(), map, ack);
+          } else {
+            ack(const <String, dynamic>{
+              'error': 'User input is not available.',
+            });
+          }
+        }
       } else if (type == 'confirmation' && payload != null) {
         if (!matchesCurrentStreamSession(incomingSessionId)) {
           return;
@@ -3497,12 +3521,16 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         if (ack != null) {
           final map = _asStringMap(payload);
           if (map != null) {
-            () async {
-              final confirmed = await _showConfirmationDialog(map);
-              try {
-                ack(confirmed);
-              } catch (_) {}
-            }();
+            if (onInteractivePrompt != null) {
+              onInteractivePrompt(type.toString(), map, ack);
+            } else {
+              () async {
+                final confirmed = await _showConfirmationDialog(map);
+                try {
+                  ack(confirmed);
+                } catch (_) {}
+              }();
+            }
           } else {
             ack(false);
           }

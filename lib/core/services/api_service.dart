@@ -18,6 +18,7 @@ import '../models/file_info.dart';
 import '../models/knowledge_base.dart';
 import '../models/knowledge_base_file.dart';
 import '../models/model.dart';
+import '../models/openwebui_chat_prompt.dart';
 import '../models/prompt.dart';
 import '../models/server_about_info.dart';
 import '../models/server_config.dart';
@@ -8272,6 +8273,36 @@ class ApiService {
     } catch (e) {
       rethrow;
     }
+  }
+
+  Future<List<String>> resolveChatMessageToolCall({
+    required String chatId,
+    required String messageId,
+    required String callId,
+    required OpenWebUiToolCallAction action,
+    Map<String, dynamic>? answers,
+  }) async {
+    final response = await _dio.post(
+      '/api/v1/chats/${Uri.encodeComponent(chatId)}/messages/'
+      '${Uri.encodeComponent(messageId)}/resolve',
+      data: <String, dynamic>{
+        'call_id': callId,
+        'action': action.name,
+        if (action == OpenWebUiToolCallAction.answer) 'answers': answers,
+      },
+    );
+    final data = response.data;
+    if (data is! Map) return const <String>[];
+    final rawTaskIds = data['task_ids'];
+    final taskIds = rawTaskIds is List
+        ? rawTaskIds
+              .map((value) => value?.toString().trim() ?? '')
+              .where((value) => value.isNotEmpty)
+        : data['task_id'] == null
+        ? const Iterable<String>.empty()
+        : <String>[data['task_id'].toString().trim()]
+              .where((value) => value.isNotEmpty);
+    return taskIds.toSet().toList(growable: false);
   }
 
   /// Set once the bulk active-chats endpoint returns 404 or 405. Open WebUI

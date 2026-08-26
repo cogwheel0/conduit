@@ -14,11 +14,13 @@ final class WorkspaceModelBasicsSection extends StatelessWidget {
     super.key,
     required this.controller,
     required this.baseModels,
+    required this.baseModelRequired,
     required this.onAddTag,
   });
 
   final WorkspaceModelEditorController controller;
   final List<WorkspaceRelationshipOption> baseModels;
+  final bool baseModelRequired;
   final VoidCallback onAddTag;
 
   @override
@@ -81,19 +83,20 @@ final class WorkspaceModelBasicsSection extends StatelessWidget {
         selectedId == null ||
         baseModels.any((option) => option.id == selectedId);
     final options = <AdaptiveDropdownOption<String?>>[
-      AdaptiveDropdownOption<String?>(
-        value: null,
-        label: l10n.workspaceModelBaseModelNone,
-      ),
+      if (!baseModelRequired)
+        AdaptiveDropdownOption<String?>(
+          value: null,
+          label: l10n.workspaceModelBaseModelNone,
+        ),
       if (!hasSelectedOption)
         AdaptiveDropdownOption<String?>(value: selectedId, label: selectedId),
       for (final option in baseModels)
         AdaptiveDropdownOption<String?>(value: option.id, label: option.label),
     ];
     if (context.usesCupertinoChrome) {
-      final selectedLabel = options
-          .firstWhere((option) => option.value == selectedId)
-          .label;
+      final selectedLabel = selectedId == null
+          ? l10n.workspaceModelBaseModelNone
+          : options.firstWhere((option) => option.value == selectedId).label;
       final row = UtilityValueRow(
         key: const Key('workspace-model-base'),
         label: l10n.workspaceModelBaseModel,

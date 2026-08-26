@@ -1921,6 +1921,8 @@
     "description": "Label for the base-model selector."
   },
   "workspaceModelBaseModelNone": "None (custom)",
+  "workspaceModelBaseModelRequired": "Elige un modelo base.",
+  "@workspaceModelBaseModelRequired": {"description": "Validation shown when a non-admin model create or protected edit has no base model."},
   "@workspaceModelBaseModelNone": {
     "description": "Base-model option meaning no base model is used."
   },
@@ -2907,6 +2909,12 @@
   "backendChooserHermesSubtitle": "Conéctate directamente a un agente Hermes autohospedado; no necesitas un servidor Open WebUI.",
   "hermesApprovalRequired": "Se requiere aprobación",
   "hermesApprovalFallback": "El agente solicita permiso para continuar.",
+  "openWebUiPromptOther": "Otro",
+  "@openWebUiPromptOther": {"description": "Label for a free-form answer to an Open WebUI ask-user question."},
+  "openWebUiPromptAnswerHint": "Escribe tu respuesta",
+  "@openWebUiPromptAnswerHint": {"description": "Placeholder for a free-form Open WebUI ask-user answer."},
+  "openWebUiPromptSubmit": "Enviar",
+  "@openWebUiPromptSubmit": {"description": "Action that submits all answers to an Open WebUI ask-user prompt."},
   "hermesApprovalApproved": "Aprobado ✓",
   "hermesApprovalDenied": "Denegado",
   "hermesApprovalApproveAction": "Aprobar",

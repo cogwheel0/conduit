@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:conduit/core/models/user.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/network/conduit_user_agent.dart';
@@ -69,6 +70,7 @@ void main() {
       find.byKey(const Key('workspace-model-name')),
       'My Model',
     );
+    await _selectBaseModel(tester);
     await tester.tap(find.byKey(const Key('workspace-editor-save')));
     await tester.pump();
     await tester.pump();
@@ -92,6 +94,36 @@ void main() {
 
     expect(fake.createdForms, isEmpty);
     expect(find.byKey(const Key('workspace-editor-error')), findsOneWidget);
+  });
+
+  testWidgets('non-admin create requires a base model', (tester) async {
+    final fake = _FakeWorkspaceModels();
+    await tester.pumpWidget(
+      _harness(models: fake, mode: WorkspaceRouteMode.create),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('workspace-model-id')),
+      'my-model',
+    );
+    await tester.enterText(
+      find.byKey(const Key('workspace-model-name')),
+      'My Model',
+    );
+    await tester.tap(find.byKey(const Key('workspace-editor-save')));
+    await tester.pump();
+
+    expect(fake.createdForms, isEmpty);
+    expect(find.text('Choose a base model.'), findsOneWidget);
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const Key('workspace-model-base')),
+        matching: find.byType(DropdownButton<String?>),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('None (custom)'), findsNothing);
   });
 
   testWidgets('compact toolbar back confirms before discarding edits', (
@@ -305,6 +337,7 @@ void main() {
       find.byKey(const Key('workspace-model-name')),
       'Shared Model',
     );
+    await _selectBaseModel(tester);
     await tester.tap(find.byKey(const Key('workspace-editor-save')));
     await tester.pump();
     await tester.pump();
@@ -678,6 +711,18 @@ Future<void> _scrollTo(
   );
 }
 
+Future<void> _selectBaseModel(WidgetTester tester) async {
+  await tester.tap(
+    find.descendant(
+      of: find.byKey(const Key('workspace-model-base')),
+      matching: find.byType(DropdownButton<String?>),
+    ),
+  );
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Base One').last);
+  await tester.pumpAndSettle();
+}
+
 Widget _harness({
   required _FakeWorkspaceModels models,
   required WorkspaceRouteMode mode,
@@ -704,6 +749,14 @@ List<Override> _baseOverrides(
 }) {
   return [
     reviewerModeProvider.overrideWithValue(false),
+    currentUserProvider2.overrideWithValue(
+      const User(
+        id: 'user',
+        username: 'user',
+        email: 'user@example.com',
+        role: 'user',
+      ),
+    ),
     apiServiceProvider.overrideWithValue(api),
     authTokenProvider3.overrideWithValue(api == null ? null : 'token'),
     workspaceCapabilitiesProvider.overrideWith(

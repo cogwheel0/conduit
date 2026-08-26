@@ -1699,6 +1699,8 @@
     "description": "Label for the base-model selector."
   },
   "workspaceModelBaseModelNone": "None (custom)",
+  "workspaceModelBaseModelRequired": "기본 모델을 선택하세요.",
+  "@workspaceModelBaseModelRequired": {"description": "Validation shown when a non-admin model create or protected edit has no base model."},
   "@workspaceModelBaseModelNone": {
     "description": "Base-model option meaning no base model is used."
   },
@@ -2685,6 +2687,12 @@
   "backendChooserHermesSubtitle": "자체 호스팅 Hermes Agent에 직접 연결합니다. Open WebUI 서버가 필요하지 않습니다.",
   "hermesApprovalRequired": "승인 필요",
   "hermesApprovalFallback": "에이전트가 계속 진행할 권한을 요청하고 있습니다.",
+  "openWebUiPromptOther": "기타",
+  "@openWebUiPromptOther": {"description": "Label for a free-form answer to an Open WebUI ask-user question."},
+  "openWebUiPromptAnswerHint": "답변 입력",
+  "@openWebUiPromptAnswerHint": {"description": "Placeholder for a free-form Open WebUI ask-user answer."},
+  "openWebUiPromptSubmit": "제출",
+  "@openWebUiPromptSubmit": {"description": "Action that submits all answers to an Open WebUI ask-user prompt."},
   "hermesApprovalApproved": "승인됨 ✓",
   "hermesApprovalDenied": "거부됨",
   "hermesApprovalApproveAction": "승인",

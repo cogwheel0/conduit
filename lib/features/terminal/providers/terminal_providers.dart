@@ -28,6 +28,7 @@ final terminalServiceProvider = Provider<TerminalService?>((ref) {
 final terminalAvailableServersProvider =
     FutureProvider<List<TerminalServerInfo>>((ref) {
       final service = ref.watch(terminalServiceProvider);
+      final sessionScopeId = ref.watch(terminalSessionScopeIdProvider);
       if (service == null) {
         // No API/service yet (startup, auth/active-server rebuild). There is no
         // real probe to report: stay UNRESOLVED (loading) rather than resolving
@@ -40,23 +41,66 @@ final terminalAvailableServersProvider =
         return Completer<List<TerminalServerInfo>>().future;
       }
 
-      return _probeTerminalServers(ref, service);
+      return _probeTerminalServers(ref, service, sessionScopeId);
     });
 
 Future<List<TerminalServerInfo>> _probeTerminalServers(
   Ref ref,
   TerminalService service,
+  String sessionScopeId,
 ) async {
-  final servers = await service.getAvailableServers();
+  final servers = (await service.getAvailableServers())
+      .where((server) => server.isAvailableForChatScope(sessionScopeId))
+      .toList(growable: false);
   // A real probe succeeded for the current API/session: persist whether
   // terminal is enabled so the offline/error fallback reflects the true
   // last-known state. Deferred — can't mutate a provider during build.
-  Future.microtask(
-    () => ref
-        .read(terminalFeatureEnabledProvider.notifier)
-        .setEnabled(servers.isNotEmpty),
-  );
+  Future.microtask(() {
+    if (!ref.mounted ||
+        !identical(ref.read(terminalServiceProvider), service) ||
+        ref.read(terminalSessionScopeIdProvider) != sessionScopeId) {
+      return;
+    }
+    final enabled = servers.isNotEmpty;
+    ref.read(terminalFeatureEnabledProvider.notifier).setEnabled(enabled);
+    ref
+        .read(_terminalScopedAvailabilityProvider.notifier)
+        .setEnabled(service, sessionScopeId, enabled);
+  });
   return servers;
+}
+
+typedef _TerminalAvailabilityScope = ({
+  TerminalService? service,
+  String sessionScopeId,
+});
+
+final _terminalScopedAvailabilityProvider =
+    NotifierProvider<
+      _TerminalScopedAvailabilityNotifier,
+      Map<_TerminalAvailabilityScope, bool>
+    >(_TerminalScopedAvailabilityNotifier.new);
+
+class _TerminalScopedAvailabilityNotifier
+    extends Notifier<Map<_TerminalAvailabilityScope, bool>> {
+  @override
+  Map<_TerminalAvailabilityScope, bool> build() {
+    final service = ref.watch(terminalServiceProvider);
+    final cached = ref.read(terminalFeatureEnabledProvider);
+    final sessionScopeId = ref.read(terminalSessionScopeIdProvider);
+    return {(service: service, sessionScopeId: sessionScopeId): cached};
+  }
+
+  void setEnabled(
+    TerminalService service,
+    String sessionScopeId,
+    bool enabled,
+  ) {
+    state = {
+      ...state,
+      (service: service, sessionScopeId: sessionScopeId): enabled,
+    };
+  }
 }
 
 /// Whether the Terminal tab should be visible. When the server list resolves,
@@ -66,11 +110,15 @@ Future<List<TerminalServerInfo>> _probeTerminalServers(
 /// optimistically showing the tab — so a server with terminal disabled doesn't
 /// surface the tab offline (matching notes/channels).
 final terminalTabVisibleProvider = Provider<bool>((ref) {
-  final cached = ref.watch(terminalFeatureEnabledProvider);
+  final service = ref.watch(terminalServiceProvider);
+  final sessionScopeId = ref.watch(terminalSessionScopeIdProvider);
+  final cached = ref.watch(
+    _terminalScopedAvailabilityProvider,
+  )[(service: service, sessionScopeId: sessionScopeId)];
   final serversAsync = ref.watch(terminalAvailableServersProvider);
   return serversAsync.maybeWhen(
     data: (servers) => servers.isNotEmpty,
-    orElse: () => cached,
+    orElse: () => cached ?? false,
   );
 });
 

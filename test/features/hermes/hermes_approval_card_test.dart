@@ -5,6 +5,7 @@ import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -59,5 +60,27 @@ void main() {
 
     await tester.tap(find.text('Allow for session'));
     expect(choice, 'session');
+  });
+
+  testWidgets('renders in the shared Cupertino composer surface', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      CupertinoApp(
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Theme(
+          data: AppTheme.light(TweakcnThemes.t3Chat),
+          child: HermesApprovalCard(
+            state: HermesApprovalState.pending,
+            onDecision: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Approval required'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

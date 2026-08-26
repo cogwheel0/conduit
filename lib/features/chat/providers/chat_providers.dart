@@ -21,6 +21,7 @@ import '../../../core/auth/api_auth_interceptor.dart';
 import '../../../core/auth/openwebui_account_owner_marker.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/model.dart';
+import '../../../core/models/openwebui_chat_prompt.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/file_info.dart';
 import '../../../core/models/server_config.dart';
@@ -1571,6 +1572,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
   Timer? _passiveConversationRefreshTimer;
   bool _taskStatusCheckInFlight = false;
   int _taskStatusGeneration = 0;
+  final Set<Object> _nonTailToolTaskMonitors = <Object>{};
   bool _observedRemoteTask = false;
   // Feature C: number of consecutive polls that saw `tasksDone` while a socket
   // resume stream still held protection. The poll's force-adoption is deferred
@@ -1676,6 +1678,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
           _modelRebindGeneration += 1;
           _cancelMessageStream();
           _stopRemoteTaskMonitor();
+          _stopNonTailToolTaskMonitor();
           _teardownPassiveConversationSync();
           _cancelDbMessagesWatch();
           state = const <ChatMessage>[];
@@ -1734,6 +1737,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
         // Cancel any existing message stream when switching conversations
         _cancelMessageStream();
         _stopRemoteTaskMonitor();
+        _stopNonTailToolTaskMonitor();
         _cancelColdHermesRecovery();
 
         if (next != null) {
@@ -1801,6 +1805,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
         _cancelDbMessagesWatch();
         _cancelMessageStream(clearStreamingContent: false);
         _stopRemoteTaskMonitor();
+        _stopNonTailToolTaskMonitor();
         _cancelColdHermesRecovery();
         _streamingSyncTimer?.cancel();
         _streamingSyncTimer = null;
@@ -1927,6 +1932,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     // so equal raw ids cannot retain A's stream, DB watch, or socket callback.
     _cancelMessageStream();
     _stopRemoteTaskMonitor();
+    _stopNonTailToolTaskMonitor();
     _teardownPassiveConversationSync();
     _cancelDbMessagesWatch();
     state = const <ChatMessage>[];
@@ -4626,6 +4632,163 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     _clearBoundRemoteMessageId(ownedByMessageId: retiringMessageId);
   }
 
+  void _stopNonTailToolTaskMonitor() {
+    _nonTailToolTaskMonitors.clear();
+  }
+
+  bool _serverToolCallIsTerminal(
+    Conversation conversation, {
+    required String messageId,
+    required String callId,
+  }) {
+    final message = conversation.messages
+        .where((candidate) => candidate.id == messageId)
+        .firstOrNull;
+    final output = message?.output;
+    if (output == null) return false;
+    if (output.any(
+      (item) =>
+          item['type']?.toString() == 'function_call_output' &&
+          item['call_id']?.toString().trim() == callId,
+    )) {
+      return true;
+    }
+    final call = output
+        .where(
+          (item) =>
+              item['type']?.toString() == 'function_call' &&
+              (item['call_id']?.toString().trim() ??
+                      item['id']?.toString().trim()) ==
+                  callId,
+        )
+        .firstOrNull;
+    return const {
+      'completed',
+      'rejected',
+      'failed',
+      'cancelled',
+      'canceled',
+      'denied',
+      'done',
+    }.contains(call?['status']?.toString());
+  }
+
+  void _monitorNonTailToolTask({
+    required ApiService api,
+    required Conversation conversation,
+    required String messageId,
+    required String callId,
+    required List<String> taskIds,
+  }) {
+    final monitor = Object();
+    _nonTailToolTaskMonitors.add(monitor);
+    final owner = captureOpenWebUiCompletionOwner(
+      ref,
+      chatId: conversation.id,
+      api: api,
+    );
+    final expectedTaskIds = taskIds.toSet();
+    final activeChats = ref.read(activeChatIdsProvider.notifier);
+    activeChats.setActive(conversation.id);
+    final activationToken = activeChats.activationToken(conversation.id);
+
+    unawaited(() async {
+      try {
+        var fastPollsRemaining = _remoteTaskFastPollCount;
+        var consecutiveFailures = 0;
+        var hasActiveTask = true;
+
+        while (!_disposed && _nonTailToolTaskMonitors.contains(monitor)) {
+          if (!_isAppForeground) {
+            await Future<void>.delayed(const Duration(seconds: 3));
+            continue;
+          }
+
+          try {
+            final activeChatId = activeOpenWebUiChatIdForMutation(ref, owner);
+            if (activeChatId == null) return;
+            final activeTaskIds = await api.getTaskIdsByChat(activeChatId);
+            if (_disposed || !_nonTailToolTaskMonitors.contains(monitor)) {
+              return;
+            }
+            if (activeOpenWebUiChatIdForMutation(ref, owner) != activeChatId) {
+              return;
+            }
+            hasActiveTask = activeTaskIds.any(expectedTaskIds.contains);
+
+            final serverConversation = await api.getConversation(activeChatId);
+            if (_disposed || !_nonTailToolTaskMonitors.contains(monitor)) {
+              return;
+            }
+            if (activeOpenWebUiChatIdForMutation(ref, owner) != activeChatId) {
+              return;
+            }
+            // A returned task ID can remain absent from the registry for more
+            // than one poll, and multiple returned tasks can register in
+            // sequence. Only an authoritative terminal call result proves
+            // that monitoring can stop while none of them is active.
+            final awaitingTaskOrTerminal =
+                !hasActiveTask &&
+                !_serverToolCallIsTerminal(
+                  serverConversation,
+                  messageId: messageId,
+                  callId: callId,
+                );
+            if (!awaitingTaskOrTerminal) {
+              _adoptServerMessages(
+                serverConversation.messages,
+                source: 'non-tail tool task poll',
+              );
+            }
+            if (hasActiveTask) {
+              updateMessageById(messageId, (message) {
+                return message.copyWith(
+                  isStreaming: false,
+                  metadata: <String, dynamic>{
+                    ...?message.metadata,
+                    'taskId': taskIds.first,
+                    'taskConversationId': activeChatId,
+                  },
+                );
+              });
+            } else if (!awaitingTaskOrTerminal) {
+              if (activeTaskIds.isEmpty) {
+                activeChats.setInactiveIfUnchanged(
+                  activeChatId,
+                  activationToken,
+                );
+              }
+              schedulePullChatNow(ref, activeChatId);
+              return;
+            }
+
+            consecutiveFailures = 0;
+            if (fastPollsRemaining > 0) fastPollsRemaining--;
+          } catch (error, stack) {
+            consecutiveFailures++;
+            DebugLogger.error(
+              'non-tail-tool-task-poll-failed',
+              scope: 'chat/resume',
+              error: error,
+              stackTrace: stack,
+            );
+          }
+
+          await Future<void>.delayed(
+            debugRemoteTaskPollDelayForTesting(
+              fastPollsRemaining: fastPollsRemaining,
+              consecutiveFailures: consecutiveFailures,
+              consecutiveCompletionMisses: 0,
+              hasActiveTask: hasActiveTask,
+            ),
+          );
+        }
+      } finally {
+        _nonTailToolTaskMonitors.remove(monitor);
+      }
+    }());
+  }
+
   Future<void> _syncRemoteTaskStatus({bool scheduleNext = true}) async {
     if (_taskStatusCheckInFlight) {
       return;
@@ -5235,6 +5398,94 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     final next = [...state];
     next[index] = updated;
     state = next;
+  }
+
+  Future<void> resumeAfterOpenWebUiToolCall({
+    required String messageId,
+    required String callId,
+    required OpenWebUiToolCallAction action,
+    required List<String> taskIds,
+    Map<String, dynamic>? answers,
+  }) async {
+    final conversation = ref.read(activeConversationProvider);
+    if (_disposed ||
+        conversation == null ||
+        isTemporaryChat(conversation.id) ||
+        state.indexWhere((message) => message.id == messageId) == -1) {
+      return;
+    }
+    final resumeTailOwnsTask =
+        taskIds.isNotEmpty &&
+        state.isNotEmpty &&
+        state.last.id == messageId &&
+        state.last.role == 'assistant';
+
+    updateMessageById(messageId, (message) {
+      final output = message.output;
+      if (output == null) return message;
+      final metadata = _metadataWithoutResponseDone(message.metadata);
+      return message.copyWith(
+        output: applyOpenWebUiToolCallResolution(
+          output: output,
+          callId: callId,
+          action: action.name,
+          answers: answers,
+        ),
+        isStreaming: resumeTailOwnsTask,
+        metadata: taskIds.isNotEmpty
+            ? <String, dynamic>{
+                ...?metadata,
+                'taskId': taskIds.first,
+                'taskConversationId': conversation.id,
+              }
+            : metadata,
+      );
+    });
+
+    if (taskIds.isNotEmpty && !resumeTailOwnsTask) {
+      final api = ref.read(apiServiceProvider);
+      if (api != null) {
+        _monitorNonTailToolTask(
+          api: api,
+          conversation: conversation,
+          messageId: messageId,
+          callId: callId,
+          taskIds: taskIds,
+        );
+      }
+      return;
+    }
+
+    if (taskIds.isEmpty) {
+      try {
+        final pulled = await ref
+            .read(syncEngineProvider.notifier)
+            .pullChatNow(conversation.id);
+        if (!_disposed &&
+            ref.read(activeConversationProvider)?.id == conversation.id &&
+            pulled != null) {
+          _adoptServerMessages(pulled.messages, source: 'tool-call resolution');
+        }
+      } catch (_) {}
+      return;
+    }
+
+    _reopenedStreamingMessageId = messageId;
+    _observedRemoteTask = true;
+    ref.read(activeChatIdsProvider.notifier).setActive(conversation.id);
+    _engageReopenedTailMonitor(messageId);
+    await _attachResumeSocketStream(
+      conversation,
+      state.last,
+      taskId: taskIds.first,
+    );
+    if (!_disposed &&
+        ref.read(activeConversationProvider)?.id == conversation.id &&
+        state.isNotEmpty &&
+        state.last.id == messageId &&
+        state.last.isStreaming) {
+      _engageReopenedTailMonitor(messageId);
+    }
   }
 
   Map<String, dynamic>? _metadataWithoutResponseDone(

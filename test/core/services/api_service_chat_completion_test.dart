@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit/core/models/openwebui_chat_prompt.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/chat_completion_transport.dart';
 import 'package:conduit/core/models/server_config.dart';
@@ -154,6 +155,75 @@ Map<String, dynamic> _legacyChatPayload({
 }
 
 void main() {
+  test(
+    'tool-call resolution sends the 0.11.1 form and normalizes task ids',
+    () async {
+      final adapter = _FakeAdapter.json({
+        'status': true,
+        'task_ids': ['task-1', '', 'task-1', 'task-2'],
+      });
+      final api = _buildApiServiceForTest(adapter);
+
+      final taskIds = await api.resolveChatMessageToolCall(
+        chatId: 'chat/1',
+        messageId: 'message/1',
+        callId: 'call-1',
+        action: OpenWebUiToolCallAction.answer,
+        answers: const {
+          'scope': {'type': 'other', 'text': 'this chat'},
+        },
+      );
+
+      check(adapter.lastRequest?.path)
+          .equals('/api/v1/chats/chat%2F1/messages/message%2F1/resolve');
+      expect(adapter.lastRequest?.data, {
+        'call_id': 'call-1',
+        'action': 'answer',
+        'answers': {
+          'scope': {'type': 'other', 'text': 'this chat'},
+        },
+      });
+      expect(taskIds, ['task-1', 'task-2']);
+    },
+  );
+
+  test(
+    'tool approval actions omit answers and accept singular task ids',
+    () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({'status': true, 'task_id': 'task-3'}),
+        _FakeAdapter.json({'status': true}),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      final approved = await api.resolveChatMessageToolCall(
+        chatId: 'chat-1',
+        messageId: 'message-1',
+        callId: 'call-1',
+        action: OpenWebUiToolCallAction.approve,
+        answers: const {'ignored': true},
+      );
+      final rejected = await api.resolveChatMessageToolCall(
+        chatId: 'chat-1',
+        messageId: 'message-1',
+        callId: 'call-2',
+        action: OpenWebUiToolCallAction.reject,
+        answers: const {'ignored': true},
+      );
+
+      expect(adapter.requests[0].data, {
+        'call_id': 'call-1',
+        'action': 'approve',
+      });
+      expect(adapter.requests[1].data, {
+        'call_id': 'call-2',
+        'action': 'reject',
+      });
+      expect(approved, ['task-3']);
+      expect(rejected, isEmpty);
+    },
+  );
+
   // -----------------------------------------------------------------------
   // 1. taskSocket classification from JSON with task_id
   // -----------------------------------------------------------------------

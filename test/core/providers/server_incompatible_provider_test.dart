@@ -41,7 +41,7 @@ void main() {
     test('warns when the active server\'s config is unsupported', () async {
       final container = await _container(
         activeServer: _server('A'),
-        config: const BackendConfig(version: '0.11.1', serverId: 'A'),
+        config: const BackendConfig(version: '0.11.2', serverId: 'A'),
       );
       addTearDown(container.dispose);
 
@@ -51,7 +51,7 @@ void main() {
     test('does not warn when the active server is supported', () async {
       final container = await _container(
         activeServer: _server('A'),
-        config: const BackendConfig(version: '0.11.0', serverId: 'A'),
+        config: const BackendConfig(version: '0.11.1', serverId: 'A'),
       );
       addTearDown(container.dispose);
 
@@ -65,7 +65,7 @@ void main() {
         // the still-cached A config must not warn for B.
         final container = await _container(
           activeServer: _server('B'),
-          config: const BackendConfig(version: '0.11.1', serverId: 'A'),
+          config: const BackendConfig(version: '0.11.2', serverId: 'A'),
         );
         addTearDown(container.dispose);
 
@@ -80,7 +80,7 @@ void main() {
       // warning about a supported server because of a stale cache.
       final container = await _container(
         activeServer: _server('A'),
-        config: const BackendConfig(version: '0.11.1'),
+        config: const BackendConfig(version: '0.11.2'),
       );
       addTearDown(container.dispose);
 
@@ -90,7 +90,7 @@ void main() {
     test('fails open when there is no active server', () async {
       final container = await _container(
         activeServer: null,
-        config: const BackendConfig(version: '0.11.1', serverId: 'A'),
+        config: const BackendConfig(version: '0.11.2', serverId: 'A'),
       );
       addTearDown(container.dispose);
 

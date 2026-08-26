@@ -20,6 +20,8 @@ class TerminalServerInfo {
     this.name = '',
     this.raw = const <String, dynamic>{},
     this.selectedEnabled = false,
+    this.chatContextAvailable = true,
+    this.requiresSavedChatContext = false,
   });
 
   final TerminalServerKind kind;
@@ -30,10 +32,18 @@ class TerminalServerInfo {
   final String name;
   final Map<String, dynamic> raw;
   final bool selectedEnabled;
+  final bool chatContextAvailable;
+  final bool requiresSavedChatContext;
 
   bool get isDirect => kind == TerminalServerKind.direct;
 
   bool get isSystem => kind == TerminalServerKind.system;
+
+  bool isAvailableForChatScope(String sessionScopeId) {
+    if (!chatContextAvailable) return false;
+    return !requiresSavedChatContext ||
+        isSavedTerminalChatScopeId(sessionScopeId);
+  }
 
   String get displayName {
     final trimmedName = name.trim();
@@ -65,6 +75,15 @@ class TerminalServerInfo {
     final path = baseUrl.path == '/' ? '' : baseUrl.path;
     return sanitizeUtf16('$host$port$path');
   }
+}
+
+bool isSavedTerminalChatScopeId(String value) {
+  final id = value.trim();
+  return id.isNotEmpty &&
+      id != 'sidebar-terminal' &&
+      !id.startsWith('local:') &&
+      !id.startsWith('temporary:') &&
+      !id.startsWith('channel:');
 }
 
 class TerminalFileEntry {
