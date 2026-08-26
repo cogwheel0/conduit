@@ -20,7 +20,7 @@
       ]
     },
     {
-      "version": "4.1.1",
+      "version": "4.1.2",
       "title": "What's new",
       "intro": "Hi! Apple On-Device runs on the phone. Use it in Direct chats, or in Open WebUI chats when you're offline. Voice calls start on the speaker and speak the answer, not the thinking. Hermes comes back after sitting idle, and I cleaned up a few chat bugs.",
       "bullets": [

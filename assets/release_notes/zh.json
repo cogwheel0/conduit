@@ -20,7 +20,7 @@
       ]
     },
     {
-      "version": "4.1.1",
+      "version": "4.1.2",
       "title": "新变化",
       "intro": "你好！Apple On-Device 在手机上跑。Direct chats 能用，Open WebUI 聊天离线时也能用。语音通话从扬声器开始，读的是答案而不是思考。Hermes 闲置后会恢复，几个聊天问题也修了。",
       "bullets": [

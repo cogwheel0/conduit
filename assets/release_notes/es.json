@@ -20,7 +20,7 @@
       ]
     },
     {
-      "version": "4.1.1",
+      "version": "4.1.2",
       "title": "Novedades",
       "intro": "¡Hola! Apple On-Device corre en el teléfono. Úsalo en Direct chats, o en chats de Open WebUI cuando estés sin conexión. Las llamadas de voz salen por el altavoz y dicen la respuesta, no el razonamiento. Hermes vuelve después de quedarse inactivo, y quité unos errores de chat.",
       "bullets": [

@@ -20,7 +20,7 @@
       ]
     },
     {
-      "version": "4.1.1",
+      "version": "4.1.2",
       "title": "새로운 소식",
       "intro": "안녕하세요! Apple On-Device는 휴대폰에서 돌아갑니다. Direct chats에서 쓰거나, 오프라인일 때 Open WebUI 채팅에서도 쓸 수 있습니다. 음성 통화는 스피커로 시작하고, 생각이 아니라 답을 말합니다. Hermes는 가만히 있다 돌아오고, 채팅 버그 몇 가지도 고쳤습니다.",
       "bullets": [
