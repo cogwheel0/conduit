@@ -361,10 +361,25 @@ void main() {
             },
           ],
         );
-        final messages = [
-          assistant,
-          _userMessage('user-2', 'A newer turn', timestamp),
-        ];
+        final newerUser = _userMessage('user-2', 'A newer turn', timestamp);
+        final messages = [assistant, newerUser];
+        final api = _FakeApiService(
+          _conversation('chat-1', [
+            assistant.copyWith(
+              content: 'Continued after approval',
+              output: const [
+                {
+                  'type': 'function_call',
+                  'call_id': 'call-1',
+                  'name': 'filesystem',
+                  'status': 'queued',
+                  'approved': true,
+                },
+              ],
+            ),
+            newerUser,
+          ], timestamp),
+        )..taskIds = const ['task-1'];
         final container = ProviderContainer(
           overrides: [
             ...openWebUiStorageOpenOverrides(),
@@ -372,6 +387,7 @@ void main() {
               _TestActiveConversationNotifier.new,
             ),
             socketServiceProvider.overrideWithValue(null),
+            apiServiceProvider.overrideWithValue(api),
           ],
         );
         addTearDown(container.dispose);
@@ -387,12 +403,16 @@ void main() {
               action: OpenWebUiToolCallAction.approve,
               taskIds: const ['task-1'],
             );
+        await Future<void>.delayed(const Duration(milliseconds: 50));
 
         final resolved = container.read(chatMessagesProvider).first;
         check(resolved.isStreaming).isFalse();
+        check(resolved.content).equals('Continued after approval');
         check(resolved.output!.single['status']).equals('queued');
         check(resolved.output!.single['approved']).equals(true);
-        check(resolved.metadata?['taskId']).isNull();
+        check(resolved.metadata?['taskId']).equals('task-1');
+        check(api.getTaskIdsCalls).isGreaterOrEqual(1);
+        check(api.getConversationCalls).isGreaterOrEqual(1);
       },
     );
 
