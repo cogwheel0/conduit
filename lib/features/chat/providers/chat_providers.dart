@@ -1586,7 +1586,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
   // task lookup previously failed. Requiring a second empty observation keeps
   // a temporarily unregistered server task from being finalized immediately.
   int _unobservedReopenedEmptyPolls = 0;
-  static const int _unobservedReopenedEmptyPollGrace = 1;
+  static const int _unobservedTaskEmptyPollGrace = 1;
   bool _passiveConversationRefreshInFlight = false;
   int _passiveConversationGeneration = 0;
   int? _queuedPassiveConversationGeneration;
@@ -4659,6 +4659,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
         var fastPollsRemaining = _remoteTaskFastPollCount;
         var consecutiveFailures = 0;
         var hasActiveTask = true;
+        var observedExpectedTask = false;
+        var unobservedEmptyPolls = 0;
 
         while (!_disposed && _nonTailToolTaskMonitors.contains(monitor)) {
           if (!_isAppForeground) {
@@ -4677,6 +4679,19 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
               return;
             }
             hasActiveTask = activeTaskIds.any(expectedTaskIds.contains);
+            if (hasActiveTask) {
+              observedExpectedTask = true;
+              unobservedEmptyPolls = 0;
+            } else if (!observedExpectedTask) {
+              unobservedEmptyPolls++;
+            }
+            // The resolve endpoint can return a task ID just before the task
+            // registry exposes it. Keep the locally resolved prompt and poll
+            // once more instead of adopting a stale transcript and exiting.
+            final registrationGraceActive =
+                !hasActiveTask &&
+                !observedExpectedTask &&
+                unobservedEmptyPolls <= _unobservedTaskEmptyPollGrace;
 
             final serverConversation = await api.getConversation(activeChatId);
             if (_disposed || !_nonTailToolTaskMonitors.contains(monitor)) {
@@ -4685,10 +4700,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
             if (activeOpenWebUiChatIdForMutation(ref, owner) != activeChatId) {
               return;
             }
-            _adoptServerMessages(
-              serverConversation.messages,
-              source: 'non-tail tool task poll',
-            );
+            if (!registrationGraceActive) {
+              _adoptServerMessages(
+                serverConversation.messages,
+                source: 'non-tail tool task poll',
+              );
+            }
             if (hasActiveTask) {
               updateMessageById(messageId, (message) {
                 return message.copyWith(
@@ -4700,7 +4717,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
                   },
                 );
               });
-            } else {
+            } else if (!registrationGraceActive) {
               if (activeTaskIds.isEmpty) {
                 activeChats.setInactiveIfUnchanged(
                   activeChatId,
@@ -4795,7 +4812,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
           (_observedRemoteTask ||
               (reopenedTail &&
                   _unobservedReopenedEmptyPolls >
-                      _unobservedReopenedEmptyPollGrace));
+                      _unobservedTaskEmptyPollGrace));
       DebugLogger.log(
         'Remote task recovery status',
         scope: 'chat/resume',

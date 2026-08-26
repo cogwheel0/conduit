@@ -186,6 +186,7 @@ class _FakeApiService extends ApiService {
   set conversation(Conversation value) => _conversation = value;
 
   List<String> taskIds = const <String>[];
+  final List<List<String>> taskIdResponses = <List<String>>[];
   bool deferTaskIdRequests = false;
   final List<Completer<List<String>>> taskIdRequests = [];
   int taskIdFailuresRemaining = 0;
@@ -207,6 +208,7 @@ class _FakeApiService extends ApiService {
       taskIdRequests.add(request);
       return request.future;
     }
+    if (taskIdResponses.isNotEmpty) return taskIdResponses.removeAt(0);
     if (taskIdFailuresRemaining > 0) {
       taskIdFailuresRemaining--;
       throw StateError('transient task registry failure');
@@ -439,6 +441,76 @@ void main() {
         check(api.getConversationCalls).isGreaterOrEqual(1);
       },
     );
+
+    test('non-tail task monitor survives delayed task registration', () async {
+      final timestamp = DateTime.now();
+      final assistant = ChatMessage(
+        id: 'assistant-1',
+        role: 'assistant',
+        content: 'Waiting for approval',
+        timestamp: timestamp,
+        output: const [
+          {
+            'type': 'function_call',
+            'call_id': 'call-1',
+            'name': 'filesystem',
+            'status': 'pending',
+          },
+        ],
+      );
+      final newerUser = _userMessage('user-2', 'A newer turn', timestamp);
+      final api =
+          _FakeApiService(
+              _conversation('chat-1', [assistant, newerUser], timestamp),
+            )
+            ..taskIdResponses.addAll(const [
+              <String>[],
+              <String>['task-1'],
+            ]);
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          activeConversationProvider.overrideWith(
+            _TestActiveConversationNotifier.new,
+          ),
+          socketServiceProvider.overrideWithValue(null),
+          apiServiceProvider.overrideWithValue(api),
+        ],
+      );
+      addTearDown(container.dispose);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', [assistant, newerUser], timestamp));
+
+      await container
+          .read(chatMessagesProvider.notifier)
+          .resumeAfterOpenWebUiToolCall(
+            messageId: 'assistant-1',
+            callId: 'call-1',
+            action: OpenWebUiToolCallAction.approve,
+            taskIds: const ['task-1'],
+          );
+      await _waitForCondition(() => api.getConversationCalls == 1);
+      check(api.getTaskIdsCalls).equals(1);
+      final registrationGapMessage = container.read(chatMessagesProvider).first;
+      check(registrationGapMessage.output!.single['status']).equals('queued');
+      check(registrationGapMessage.output!.single['approved']).equals(true);
+
+      api.conversation = _conversation('chat-1', [
+        assistant.copyWith(content: 'Continued after approval'),
+        newerUser,
+      ], timestamp);
+      await _waitForCondition(() => api.getTaskIdsCalls >= 2);
+      await _waitForCondition(
+        () =>
+            container.read(chatMessagesProvider).first.content ==
+            'Continued after approval',
+      );
+
+      check(api.getTaskIdsCalls).isGreaterOrEqual(2);
+      check(container.read(chatMessagesProvider).first.metadata?['taskId'])
+          .equals('task-1');
+    });
 
     test('non-tail tool task monitors remain independently owned', () async {
       final timestamp = DateTime.now();
