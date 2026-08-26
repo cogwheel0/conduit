@@ -1,5 +1,8 @@
+import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/features/hermes/models/hermes_run_event.dart';
+import 'package:conduit/features/hermes/services/hermes_run_transport.dart';
 import 'package:conduit/features/hermes/widgets/hermes_decision_card.dart';
+import 'package:conduit/features/hermes/widgets/hermes_message_interactions.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
@@ -9,6 +12,69 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('selects the newest unresolved Hermes composer prompt', () {
+    final approval = ChatMessage(
+      id: 'approval',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2026),
+      metadata: const {
+        'transport': kHermesTransport,
+        kHermesApprovalMeta: {'state': 'resolving'},
+      },
+    );
+    final decision = ChatMessage(
+      id: 'decision',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2026),
+      metadata: {
+        'transport': kHermesTransport,
+        kHermesDecisionMeta: {
+          'state': 'pending',
+          'expiresAt': DateTime.now()
+              .add(const Duration(hours: 1))
+              .toUtc()
+              .toIso8601String(),
+        },
+      },
+    );
+
+    expect(
+      findPendingHermesComposerPrompt([approval, decision]),
+      same(decision),
+    );
+  });
+
+  test('ignores resolved and expired Hermes prompts', () {
+    ChatMessage message(String id, Map<String, dynamic> metadata) =>
+        ChatMessage(
+          id: id,
+          role: 'assistant',
+          content: '',
+          timestamp: DateTime(2026),
+          metadata: {'transport': kHermesTransport, ...metadata},
+        );
+
+    expect(
+      findPendingHermesComposerPrompt([
+        message('approval', const {
+          kHermesApprovalMeta: {'state': 'approved'},
+        }),
+        message('decision', {
+          kHermesDecisionMeta: {
+            'state': 'pending',
+            'expiresAt': DateTime.now()
+                .subtract(const Duration(minutes: 1))
+                .toUtc()
+                .toIso8601String(),
+          },
+        }),
+      ]),
+      isNull,
+    );
+  });
+
   testWidgets('renders its response field in a Cupertino tree', (tester) async {
     await tester.pumpWidget(
       CupertinoApp(

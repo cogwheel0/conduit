@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../../core/models/openwebui_chat_prompt.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/composer_prompt_surface.dart';
 import '../../../shared/widgets/conduit_components.dart';
 
 class OpenWebUiPromptOverlay extends StatefulWidget {
@@ -126,39 +127,24 @@ class _OpenWebUiPromptOverlayState extends State<OpenWebUiPromptOverlay> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
     final semanticsLabel =
         widget.prompt.kind == OpenWebUiComposerPromptKind.askUser
         ? widget.prompt.questions[_questionIndex].header
         : l10n.hermesApprovalRequired;
-    return Semantics(
-      container: true,
-      liveRegion: true,
-      label: semanticsLabel,
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          key: const ValueKey('openwebui-prompt-overlay'),
-          padding: const EdgeInsets.all(Spacing.md),
-          decoration: BoxDecoration(
-            color: theme.surfaceBackground,
-            borderRadius: BorderRadius.circular(AppBorderRadius.card),
-            border: Border.all(color: theme.cardBorder),
-            boxShadow: ConduitShadows.card(context),
-          ),
-          child: switch (widget.prompt.kind) {
-            OpenWebUiComposerPromptKind.askUser => _buildQuestions(context),
-            OpenWebUiComposerPromptKind.toolApproval => _buildDecision(
-              context,
-              approval: true,
-            ),
-            OpenWebUiComposerPromptKind.confirmation => _buildDecision(
-              context,
-              approval: false,
-            ),
-          },
+    return ComposerPromptSurface(
+      semanticsLabel: semanticsLabel,
+      surfaceKey: const ValueKey('openwebui-prompt-overlay'),
+      child: switch (widget.prompt.kind) {
+        OpenWebUiComposerPromptKind.askUser => _buildQuestions(context),
+        OpenWebUiComposerPromptKind.toolApproval => _buildDecision(
+          context,
+          approval: true,
         ),
-      ),
+        OpenWebUiComposerPromptKind.confirmation => _buildDecision(
+          context,
+          approval: false,
+        ),
+      },
     );
   }
 

@@ -49,6 +49,7 @@ import '../../hermes/services/hermes_message_mapper.dart';
 import '../../hermes/services/hermes_pending_decision_store.dart';
 import '../../hermes/services/hermes_session_provenance.dart';
 import '../../hermes/widgets/hermes_bot_avatar.dart';
+import '../../hermes/widgets/hermes_message_interactions.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/message_tree_utils.dart' as message_tree;
 import '../../../core/utils/user_display_name.dart';
@@ -3804,6 +3805,68 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           livePrompt.conversationId == activeConversationId
                       ? livePrompt
                       : null;
+                  final pendingHermesPrompt = composerRef.watch(
+                    chatMessagesProvider.select(
+                      findPendingHermesComposerPrompt,
+                    ),
+                  );
+                  final Widget? attachedOverlay;
+                  if (persistedPrompt != null) {
+                    attachedOverlay = OpenWebUiPromptOverlay(
+                      key: ValueKey(persistedPrompt.prompt.identity),
+                      prompt: persistedPrompt.prompt,
+                      onAnswer: (answers) => _resolvePersistedOpenWebUiPrompt(
+                        persistedPrompt,
+                        OpenWebUiToolCallAction.answer,
+                        answers: answers,
+                      ),
+                      onDecision: (approved) =>
+                          _resolvePersistedOpenWebUiPrompt(
+                            persistedPrompt,
+                            persistedPrompt.prompt.kind ==
+                                    OpenWebUiComposerPromptKind.askUser
+                                ? OpenWebUiToolCallAction.reject
+                                : approved
+                                ? OpenWebUiToolCallAction.approve
+                                : OpenWebUiToolCallAction.reject,
+                          ),
+                    );
+                  } else if (matchingLivePrompt != null) {
+                    attachedOverlay = OpenWebUiPromptOverlay(
+                      key: ValueKey(matchingLivePrompt.prompt.identity),
+                      prompt: matchingLivePrompt.prompt,
+                      onAnswer: (answers) {
+                        composerRef
+                            .read(openWebUiLivePromptProvider.notifier)
+                            .answer(
+                              matchingLivePrompt.prompt.identity,
+                              answers,
+                            );
+                      },
+                      onDecision: (approved) {
+                        final notifier = composerRef.read(
+                          openWebUiLivePromptProvider.notifier,
+                        );
+                        if (matchingLivePrompt.prompt.kind ==
+                            OpenWebUiComposerPromptKind.confirmation) {
+                          notifier.decide(
+                            matchingLivePrompt.prompt.identity,
+                            approved,
+                          );
+                        } else {
+                          notifier.cancel();
+                        }
+                      },
+                    );
+                  } else if (pendingHermesPrompt != null &&
+                      isNativeHermesConversation(activeConversation)) {
+                    attachedOverlay = HermesComposerPromptOverlay(
+                      key: ValueKey(pendingHermesPrompt.id),
+                      message: pendingHermesPrompt,
+                    );
+                  } else {
+                    attachedOverlay = null;
+                  }
                   return ModernChatInput(
                     onSendMessage: _handleMessageSend,
                     enabled: debugCanSubmitChatMessageForTesting(
@@ -3815,55 +3878,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     managesSystemKeyboardInset: Platform.isAndroid,
                     composerTextInsertionTargetId:
                         chatComposerTextInsertionTargetId,
-                    attachedOverlay: persistedPrompt != null
-                        ? OpenWebUiPromptOverlay(
-                            key: ValueKey(persistedPrompt.prompt.identity),
-                            prompt: persistedPrompt.prompt,
-                            onAnswer: (answers) =>
-                                _resolvePersistedOpenWebUiPrompt(
-                                  persistedPrompt,
-                                  OpenWebUiToolCallAction.answer,
-                                  answers: answers,
-                                ),
-                            onDecision: (approved) =>
-                                _resolvePersistedOpenWebUiPrompt(
-                                  persistedPrompt,
-                                  persistedPrompt.prompt.kind ==
-                                          OpenWebUiComposerPromptKind.askUser
-                                      ? OpenWebUiToolCallAction.reject
-                                      : approved
-                                      ? OpenWebUiToolCallAction.approve
-                                      : OpenWebUiToolCallAction.reject,
-                                ),
-                          )
-                        : matchingLivePrompt == null
-                        ? null
-                        : OpenWebUiPromptOverlay(
-                            key: ValueKey(matchingLivePrompt.prompt.identity),
-                            prompt: matchingLivePrompt.prompt,
-                            onAnswer: (answers) {
-                              composerRef
-                                  .read(openWebUiLivePromptProvider.notifier)
-                                  .answer(
-                                    matchingLivePrompt.prompt.identity,
-                                    answers,
-                                  );
-                            },
-                            onDecision: (approved) {
-                              final notifier = composerRef.read(
-                                openWebUiLivePromptProvider.notifier,
-                              );
-                              if (matchingLivePrompt.prompt.kind ==
-                                  OpenWebUiComposerPromptKind.confirmation) {
-                                notifier.decide(
-                                  matchingLivePrompt.prompt.identity,
-                                  approved,
-                                );
-                              } else {
-                                notifier.cancel();
-                              }
-                            },
-                          ),
+                    attachedOverlay: attachedOverlay,
                     onVoiceInput: null,
                     onVoiceCall: _handleVoiceCall,
                     onFileAttachment: _handleFileAttachment,
@@ -4768,7 +4783,6 @@ bool debugCanCollapseGroupedAssistantRowForTesting(
   required bool showModelHeader,
   required bool showActionBar,
 }) {
-  final metadata = message.metadata;
   return !showModelHeader &&
       !showActionBar &&
       message.content.trim().isEmpty &&
@@ -4780,9 +4794,7 @@ bool debugCanCollapseGroupedAssistantRowForTesting(
       message.followUps.isEmpty &&
       message.codeExecutions.isEmpty &&
       message.sources.isEmpty &&
-      message.error == null &&
-      metadata?['hermesApproval'] == null &&
-      metadata?['hermesDecision'] == null;
+      message.error == null;
 }
 
 @immutable
