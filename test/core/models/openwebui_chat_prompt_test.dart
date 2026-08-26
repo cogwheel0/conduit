@@ -75,7 +75,7 @@ void main() {
           },
           {
             'type': 'function_call_output',
-            'call_id': 'resolved-call',
+            'call_id': ' resolved-call ',
             'output': const [],
           },
           {

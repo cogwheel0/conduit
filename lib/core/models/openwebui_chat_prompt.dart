@@ -174,7 +174,7 @@ OpenWebUiPendingToolPrompt? findPendingOpenWebUiToolPrompt(
       for (final item in message.output!)
         if (item['type']?.toString() == 'function_call_output' &&
             (item['call_id']?.toString().isNotEmpty ?? false))
-          item['call_id'].toString(),
+          item['call_id'].toString().trim(),
     };
     for (final item in message.output!) {
       if (item['type']?.toString() != 'function_call') continue;
