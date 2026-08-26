@@ -37,6 +37,7 @@ import '../../auth/providers/unified_auth_providers.dart';
 import '../../direct_connections/providers/direct_connection_providers.dart';
 import '../../direct_connections/services/direct_model_registry.dart';
 import '../providers/chat_providers.dart';
+import '../providers/openwebui_chat_prompt_provider.dart';
 import '../../hermes/models/hermes_model.dart';
 import '../../hermes/models/hermes_bot.dart';
 import '../../hermes/models/hermes_config.dart';
@@ -76,6 +77,7 @@ import '../../../core/models/chat_message.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/folder.dart';
 import '../../../core/models/model.dart';
+import '../../../core/models/openwebui_chat_prompt.dart';
 import '../providers/context_attachments_provider.dart';
 import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
@@ -90,6 +92,7 @@ import 'chat_bottom_anchor_controller.dart';
 import 'chat_timeline_render_model.dart';
 import 'chat_turn_render_state.dart';
 import '../widgets/streaming_turn_footer.dart';
+import '../widgets/openwebui_prompt_overlay.dart';
 import '../widgets/chat_timeline_viewport.dart';
 
 /// Keeps the assistant row's element ancestry identical while it moves from
@@ -530,6 +533,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ProviderSubscription<AppDatabase?>? _databaseOwnerSub;
   ProviderSubscription<AsyncValue<String>>? _hermesTranscriptSub;
   ProviderSubscription<bool>? _hermesStreamingSub;
+  late final OpenWebUiLivePromptNotifier _livePromptNotifier;
   String? _pendingHermesTranscriptRefresh;
   int _hermesTranscriptRefreshGeneration = 0;
   bool _viewportOwnerChangeScheduled = false;
@@ -900,6 +904,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   @override
   void initState() {
     super.initState();
+    _livePromptNotifier = ref.read(openWebUiLivePromptProvider.notifier);
 
     _screenContextSub = ref.listenManual(screenContextProvider, (_, next) {
       if (next == null || next.isEmpty) {
@@ -943,11 +948,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       next,
     ) {
       if (!identical(previous, next)) {
+        _livePromptNotifier.cancel();
         _scheduleViewportOwnerChanged();
       }
     });
     _apiOwnerSub = ref.listenManual(apiServiceProvider, (previous, next) {
       if (!identical(previous, next)) {
+        _livePromptNotifier.cancel();
         _scheduleViewportOwnerChanged();
       }
     });
@@ -999,6 +1006,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   @override
   void dispose() {
     markConversationRead(ref, _lastConversationId);
+    _livePromptNotifier.cancel();
     _screenContextSub?.close();
     _conversationLoadingSub?.close();
     _reviewerModeSub?.close();
@@ -2331,6 +2339,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       markConversationRead(ref, conversationId);
       return;
     }
+
+    ref
+        .read(openWebUiLivePromptProvider.notifier)
+        .cancelForConversation(outgoingId);
 
     _conversationOwnerGeneration += 1;
     markConversationRead(ref, outgoingId);
@@ -3762,6 +3774,36 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   final isLoadingConversation = composerRef.watch(
                     isLoadingConversationProvider,
                   );
+                  final activeConversation = composerRef.watch(
+                    activeConversationProvider,
+                  );
+                  final pendingPromptIdentity = composerRef.watch(
+                    chatMessagesProvider.select(
+                      (messages) =>
+                          findPendingOpenWebUiToolPrompt(messages)
+                              ?.prompt
+                              .identity,
+                    ),
+                  );
+                  final persistedPrompt =
+                      pendingPromptIdentity != null &&
+                          conversationUsesOpenWebUiStorage(
+                            activeConversation,
+                          ) &&
+                          !isTemporaryChat(activeConversation?.id)
+                      ? findPendingOpenWebUiToolPrompt(
+                          composerRef.read(chatMessagesProvider),
+                        )
+                      : null;
+                  final livePrompt = composerRef.watch(
+                    openWebUiLivePromptProvider,
+                  );
+                  final activeConversationId = activeConversation?.id;
+                  final matchingLivePrompt =
+                      livePrompt != null &&
+                          livePrompt.conversationId == activeConversationId
+                      ? livePrompt
+                      : null;
                   return ModernChatInput(
                     onSendMessage: _handleMessageSend,
                     enabled: debugCanSubmitChatMessageForTesting(
@@ -3773,6 +3815,55 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     managesSystemKeyboardInset: Platform.isAndroid,
                     composerTextInsertionTargetId:
                         chatComposerTextInsertionTargetId,
+                    attachedOverlay: persistedPrompt != null
+                        ? OpenWebUiPromptOverlay(
+                            key: ValueKey(persistedPrompt.prompt.identity),
+                            prompt: persistedPrompt.prompt,
+                            onAnswer: (answers) =>
+                                _resolvePersistedOpenWebUiPrompt(
+                                  persistedPrompt,
+                                  OpenWebUiToolCallAction.answer,
+                                  answers: answers,
+                                ),
+                            onDecision: (approved) =>
+                                _resolvePersistedOpenWebUiPrompt(
+                                  persistedPrompt,
+                                  persistedPrompt.prompt.kind ==
+                                          OpenWebUiComposerPromptKind.askUser
+                                      ? OpenWebUiToolCallAction.reject
+                                      : approved
+                                      ? OpenWebUiToolCallAction.approve
+                                      : OpenWebUiToolCallAction.reject,
+                                ),
+                          )
+                        : matchingLivePrompt == null
+                        ? null
+                        : OpenWebUiPromptOverlay(
+                            key: ValueKey(matchingLivePrompt.prompt.identity),
+                            prompt: matchingLivePrompt.prompt,
+                            onAnswer: (answers) {
+                              composerRef
+                                  .read(openWebUiLivePromptProvider.notifier)
+                                  .answer(
+                                    matchingLivePrompt.prompt.identity,
+                                    answers,
+                                  );
+                            },
+                            onDecision: (approved) {
+                              final notifier = composerRef.read(
+                                openWebUiLivePromptProvider.notifier,
+                              );
+                              if (matchingLivePrompt.prompt.kind ==
+                                  OpenWebUiComposerPromptKind.confirmation) {
+                                notifier.decide(
+                                  matchingLivePrompt.prompt.identity,
+                                  approved,
+                                );
+                              } else {
+                                notifier.cancel();
+                              }
+                            },
+                          ),
                     onVoiceInput: null,
                     onVoiceCall: _handleVoiceCall,
                     onFileAttachment: _handleFileAttachment,
@@ -3790,6 +3881,45 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _resolvePersistedOpenWebUiPrompt(
+    OpenWebUiPendingToolPrompt pending,
+    OpenWebUiToolCallAction action, {
+    Map<String, dynamic>? answers,
+  }) async {
+    final api = ref.read(apiServiceProvider);
+    final conversation = ref.read(activeConversationProvider);
+    if (api == null ||
+        conversation == null ||
+        !conversationUsesOpenWebUiStorage(conversation) ||
+        isTemporaryChat(conversation.id)) {
+      throw StateError('Open WebUI chat is unavailable.');
+    }
+    final chatId = conversation.id;
+    final authEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+    final taskIds = await api.resolveChatMessageToolCall(
+      chatId: chatId,
+      messageId: pending.messageId,
+      callId: pending.callId,
+      action: action,
+      answers: answers,
+    );
+    if (!mounted ||
+        !identical(api, ref.read(apiServiceProvider)) ||
+        !identical(authEpoch, ref.read(openWebUiAuthSessionEpochProvider)) ||
+        ref.read(activeConversationProvider)?.id != chatId) {
+      return;
+    }
+    await ref
+        .read(chatMessagesProvider.notifier)
+        .resumeAfterOpenWebUiToolCall(
+          messageId: pending.messageId,
+          callId: pending.callId,
+          action: action,
+          taskIds: taskIds,
+          answers: answers,
+        );
   }
 
   @override

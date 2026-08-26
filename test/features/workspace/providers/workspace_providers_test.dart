@@ -108,6 +108,60 @@ void main() {
     check(state.items.map((item) => item.id)).deepEquals(['model-1']);
   });
 
+  test(
+    'non-admin create requires a base model while admin create does not',
+    () async {
+      final userApi = _WorkspaceModelsApi();
+      final userContainer = _container(userApi);
+      addTearDown(userContainer.dispose);
+      await userContainer.read(workspaceModelsProvider.future);
+
+      await check(
+        userContainer
+            .read(workspaceModelsProvider.notifier)
+            .create(
+              const WorkspaceModelForm(id: 'new-model', name: 'New model'),
+            ),
+      ).throws<WorkspaceModelBaseRequiredException>();
+      check(userApi.created).isEmpty();
+
+      final adminApi = _WorkspaceModelsApi();
+      final adminContainer = _container(adminApi, role: 'admin');
+      addTearDown(adminContainer.dispose);
+      await adminContainer.read(workspaceModelsProvider.future);
+      await adminContainer
+          .read(workspaceModelsProvider.notifier)
+          .create(
+            const WorkspaceModelForm(id: 'admin-model', name: 'Admin model'),
+          );
+      check(adminApi.created.single.baseModelId).isNull();
+    },
+  );
+
+  test('non-admin update and import preserve an existing base model', () async {
+    final api = _WorkspaceModelsApi();
+    final container = _container(api);
+    addTearDown(container.dispose);
+    await container.read(workspaceModelsProvider.future);
+    final notifier = container.read(workspaceModelsProvider.notifier);
+
+    await notifier.updateItem(
+      const WorkspaceModelForm(id: 'model-1', name: 'Updated'),
+    );
+    check(api.updated.single.baseModelId).equals('base-1');
+
+    await notifier.importItems(const [
+      {'id': 'model-1', 'name': 'Imported'},
+    ]);
+    check(api.imported.single.single['base_model_id']).equals('base-1');
+
+    await check(
+      notifier.importItems(const [
+        {'id': 'new-model', 'name': 'No base'},
+      ]),
+    ).throws<WorkspaceModelBaseRequiredException>();
+  });
+
   test('bool mutation (delete) succeeds when the post-write refresh fails', () async {
     final api = _WorkspaceModelsApi();
     final container = _container(api);
@@ -317,7 +371,7 @@ ProviderContainer _toolsContainer(
   );
 }
 
-ProviderContainer _container(ApiService api) {
+ProviderContainer _container(ApiService api, {String role = 'user'}) {
   return ProviderContainer(
     overrides: [
       reviewerModeProvider.overrideWithValue(false),
@@ -330,11 +384,11 @@ ProviderContainer _container(ApiService api) {
         ),
       ),
       currentUserProvider2.overrideWithValue(
-        const User(
+        User(
           id: 'user-1',
           username: 'user',
           email: 'user@example.com',
-          role: 'user',
+          role: role,
         ),
       ),
       authTokenProvider3.overrideWithValue('token-1'),
@@ -438,6 +492,52 @@ class _WorkspaceModelsApi extends ApiService {
 
   Object? refreshError;
   final deleted = <String>[];
+  final created = <WorkspaceModelForm>[];
+  final updated = <WorkspaceModelForm>[];
+  final imported = <List<Map<String, dynamic>>>[];
+
+  @override
+  Future<WorkspaceModelDetail?> createWorkspaceModel(
+    WorkspaceModelForm form,
+  ) async {
+    created.add(form);
+    return WorkspaceModelSummary(
+      id: form.id,
+      name: form.name,
+      userId: 'user-1',
+      baseModelId: form.baseModelId,
+    );
+  }
+
+  @override
+  Future<WorkspaceModelDetail?> updateWorkspaceModel(
+    WorkspaceModelForm form,
+  ) async {
+    updated.add(form);
+    return WorkspaceModelSummary(
+      id: form.id,
+      name: form.name,
+      userId: 'user-1',
+      baseModelId: form.baseModelId,
+    );
+  }
+
+  @override
+  Future<bool> importWorkspaceModels(List<Map<String, dynamic>> models) async {
+    imported.add(models);
+    return true;
+  }
+
+  @override
+  Future<WorkspaceModelDetail?> getWorkspaceModel(String id) async =>
+      id == 'model-1'
+      ? const WorkspaceModelSummary(
+          id: 'model-1',
+          name: 'Model 1',
+          userId: 'user-1',
+          baseModelId: 'base-1',
+        )
+      : null;
 
   @override
   Future<WorkspaceModelDetail?> toggleWorkspaceModel(String id) async {
@@ -475,7 +575,12 @@ class _WorkspaceModelsApi extends ApiService {
     }
     return const WorkspacePagedResponse(
       items: [
-        WorkspaceModelSummary(id: 'model-1', name: 'Model 1', userId: 'user-1'),
+        WorkspaceModelSummary(
+          id: 'model-1',
+          name: 'Model 1',
+          userId: 'user-1',
+          baseModelId: 'base-1',
+        ),
       ],
       total: 2,
     );

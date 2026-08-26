@@ -138,6 +138,18 @@ bool _isConfigEnabled(Map<String, dynamic> server) {
   return true;
 }
 
+({bool available, bool requiresSavedChat}) parseTerminalChatContextForTest(
+  Object? value,
+) {
+  final contexts = _coerceStringKeyedMap(value);
+  final chatContext = contexts['chat'];
+  final chatConfig = _coerceStringKeyedMap(chatContext);
+  return (
+    available: chatContext != false,
+    requiresSavedChat: chatConfig['context_id']?.toString() == 'chat_id',
+  );
+}
+
 String normalizeTerminalPath(String value) {
   var normalized = value.trim().replaceAll('\\', '/');
   normalized = normalized.replaceAll(RegExp(r'/+'), '/');
@@ -356,6 +368,7 @@ class TerminalService {
       if (systemId.isEmpty) {
         continue;
       }
+      final chatContext = parseTerminalChatContextForTest(server['contexts']);
 
       parsed.add(
         TerminalServerInfo(
@@ -367,6 +380,8 @@ class TerminalService {
           ),
           name: _stringValue(server['name']),
           raw: server,
+          chatContextAvailable: chatContext.available,
+          requiresSavedChatContext: chatContext.requiresSavedChat,
         ),
       );
     }

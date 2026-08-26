@@ -287,6 +287,7 @@ class ModernChatInput extends ConsumerStatefulWidget {
   /// Receives the button size so the replacement can match layout.
   /// When provided, the default [ComposerAttachmentKeyboard] is not used.
   final Widget Function(double size)? overflowButtonBuilder;
+  final Widget? attachedOverlay;
 
   final Function()? onVoiceInput;
   final Function()? onVoiceCall;
@@ -314,6 +315,7 @@ class ModernChatInput extends ConsumerStatefulWidget {
     this.managesSystemKeyboardInset = false,
     this.placeholder,
     this.overflowButtonBuilder,
+    this.attachedOverlay,
     this.onVoiceInput,
     this.onVoiceCall,
     this.onFileAttachment,
@@ -3559,7 +3561,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
-        children: [?compactPromptOverlay, shell],
+        children: [
+          if (widget.attachedOverlay != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: Spacing.xs),
+              child: widget.attachedOverlay!,
+            ),
+          ?compactPromptOverlay,
+          shell,
+        ],
       ),
     );
     return _wrapWithComposerLineMeasurement(

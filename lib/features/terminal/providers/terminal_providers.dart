@@ -28,6 +28,7 @@ final terminalServiceProvider = Provider<TerminalService?>((ref) {
 final terminalAvailableServersProvider =
     FutureProvider<List<TerminalServerInfo>>((ref) {
       final service = ref.watch(terminalServiceProvider);
+      final sessionScopeId = ref.watch(terminalSessionScopeIdProvider);
       if (service == null) {
         // No API/service yet (startup, auth/active-server rebuild). There is no
         // real probe to report: stay UNRESOLVED (loading) rather than resolving
@@ -40,14 +41,17 @@ final terminalAvailableServersProvider =
         return Completer<List<TerminalServerInfo>>().future;
       }
 
-      return _probeTerminalServers(ref, service);
+      return _probeTerminalServers(ref, service, sessionScopeId);
     });
 
 Future<List<TerminalServerInfo>> _probeTerminalServers(
   Ref ref,
   TerminalService service,
+  String sessionScopeId,
 ) async {
-  final servers = await service.getAvailableServers();
+  final servers = (await service.getAvailableServers())
+      .where((server) => server.isAvailableForChatScope(sessionScopeId))
+      .toList(growable: false);
   // A real probe succeeded for the current API/session: persist whether
   // terminal is enabled so the offline/error fallback reflects the true
   // last-known state. Deferred — can't mutate a provider during build.

@@ -6017,6 +6017,7 @@ class AccountProfile extends _$AccountProfile {
       password: password,
       newPassword: newPassword,
     );
+    await ref.read(authStateManagerProvider.notifier).logout();
   }
 
   Future<AccountMetadata?> _loadProfile() async {

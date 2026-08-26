@@ -1935,6 +1935,8 @@
     "description": "Label for the base-model selector."
   },
   "workspaceModelBaseModelNone": "None (custom)",
+  "workspaceModelBaseModelRequired": "Выберите базовую модель.",
+  "@workspaceModelBaseModelRequired": {"description": "Validation shown when a non-admin model create or protected edit has no base model."},
   "@workspaceModelBaseModelNone": {
     "description": "Base-model option meaning no base model is used."
   },
@@ -2927,6 +2929,12 @@
   "backendChooserHermesSubtitle": "Прямое подключение к собственному агенту Hermes — сервер Open WebUI не требуется.",
   "hermesApprovalRequired": "Требуется подтверждение",
   "hermesApprovalFallback": "Агент запрашивает разрешение на продолжение.",
+  "openWebUiPromptOther": "Другое",
+  "@openWebUiPromptOther": {"description": "Label for a free-form answer to an Open WebUI ask-user question."},
+  "openWebUiPromptAnswerHint": "Введите ответ",
+  "@openWebUiPromptAnswerHint": {"description": "Placeholder for a free-form Open WebUI ask-user answer."},
+  "openWebUiPromptSubmit": "Отправить",
+  "@openWebUiPromptSubmit": {"description": "Action that submits all answers to an Open WebUI ask-user prompt."},
   "hermesApprovalApproved": "Одобрено ✓",
   "hermesApprovalDenied": "Отклонено",
   "hermesApprovalApproveAction": "Одобрить",

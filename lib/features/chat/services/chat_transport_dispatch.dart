@@ -17,6 +17,7 @@ import '../../../core/sync/sync_engine.dart';
 import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../providers/chat_providers.dart';
+import '../providers/openwebui_chat_prompt_provider.dart';
 import '../../navigation/models/sidebar_navigation_model.dart';
 import '../../navigation/providers/sidebar_providers.dart';
 import '../../terminal/models/terminal_models.dart';
@@ -415,6 +416,27 @@ Future<bool> dispatchChatTransport({
           .read(terminalSidebarPanelProvider.notifier)
           .setPanel(TerminalSidebarPanel.files);
       ref.read(terminalDisplayFileProvider.notifier).show(path);
+    },
+    onInteractivePrompt: (type, data, acknowledge) {
+      final conversationId = activeConversationId;
+      if (!ownsConversation() ||
+          conversationId == null ||
+          conversationId.isEmpty) {
+        acknowledge(
+          type == 'confirmation'
+              ? false
+              : const <String, dynamic>{'status': 'cancelled', 'answers': {}},
+        );
+        return;
+      }
+      ref
+          .read(openWebUiLivePromptProvider.notifier)
+          .handleSocketRequest(
+            conversationId: conversationId,
+            type: type,
+            data: data,
+            acknowledge: acknowledge,
+          );
     },
     onRemoteMessageBound: (remoteMessageId) {
       if (!ownsConversation()) return;

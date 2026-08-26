@@ -4060,6 +4060,8 @@
   "workspaceModelBaseModel": "Base model",
   "@workspaceModelBaseModel": {"description":"Label for the base-model selector."},
   "workspaceModelBaseModelNone": "None (custom)",
+  "workspaceModelBaseModelRequired": "Choose a base model.",
+  "@workspaceModelBaseModelRequired": {"description": "Validation shown when a non-admin model create or protected edit has no base model."},
   "@workspaceModelBaseModelNone": {"description":"Base-model option meaning no base model is used."},
   "workspaceModelName": "Name",
   "@workspaceModelName": {"description":"Label for the model display-name field."},
@@ -5220,6 +5222,12 @@
   "@hermesApprovalFallback": {
     "description": "Fallback description for a Hermes approval request."
   },
+  "openWebUiPromptOther": "Other",
+  "@openWebUiPromptOther": {"description": "Label for a free-form answer to an Open WebUI ask-user question."},
+  "openWebUiPromptAnswerHint": "Type your answer",
+  "@openWebUiPromptAnswerHint": {"description": "Placeholder for a free-form Open WebUI ask-user answer."},
+  "openWebUiPromptSubmit": "Submit",
+  "@openWebUiPromptSubmit": {"description": "Action that submits all answers to an Open WebUI ask-user prompt."},
   "hermesApprovalApproved": "Approved ✓",
   "@hermesApprovalApproved": {
     "description": "Resolved status for an approved Hermes request."

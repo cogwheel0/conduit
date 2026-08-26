@@ -21,6 +21,7 @@ import '../../../core/auth/api_auth_interceptor.dart';
 import '../../../core/auth/openwebui_account_owner_marker.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/model.dart';
+import '../../../core/models/openwebui_chat_prompt.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/file_info.dart';
 import '../../../core/models/server_config.dart';
@@ -5232,6 +5233,80 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     final next = [...state];
     next[index] = updated;
     state = next;
+  }
+
+  Future<void> resumeAfterOpenWebUiToolCall({
+    required String messageId,
+    required String callId,
+    required OpenWebUiToolCallAction action,
+    required List<String> taskIds,
+    Map<String, dynamic>? answers,
+  }) async {
+    final conversation = ref.read(activeConversationProvider);
+    if (_disposed ||
+        conversation == null ||
+        isTemporaryChat(conversation.id) ||
+        state.indexWhere((message) => message.id == messageId) == -1) {
+      return;
+    }
+
+    updateMessageById(messageId, (message) {
+      final output = message.output;
+      if (output == null) return message;
+      final metadata = _metadataWithoutResponseDone(message.metadata);
+      return message.copyWith(
+        output: applyOpenWebUiToolCallResolution(
+          output: output,
+          callId: callId,
+          action: action.name,
+          answers: answers,
+        ),
+        isStreaming: taskIds.isNotEmpty,
+        metadata: taskIds.isEmpty
+            ? metadata
+            : <String, dynamic>{
+                ...?metadata,
+                'taskId': taskIds.first,
+                'taskConversationId': conversation.id,
+              },
+      );
+    });
+
+    if (taskIds.isEmpty) {
+      try {
+        final pulled = await ref
+            .read(syncEngineProvider.notifier)
+            .pullChatNow(conversation.id);
+        if (!_disposed &&
+            ref.read(activeConversationProvider)?.id == conversation.id &&
+            pulled != null) {
+          _adoptServerMessages(pulled.messages, source: 'tool-call resolution');
+        }
+      } catch (_) {}
+      return;
+    }
+
+    if (state.isEmpty ||
+        state.last.id != messageId ||
+        state.last.role != 'assistant') {
+      return;
+    }
+    _reopenedStreamingMessageId = messageId;
+    _observedRemoteTask = true;
+    ref.read(activeChatIdsProvider.notifier).setActive(conversation.id);
+    _engageReopenedTailMonitor(messageId);
+    await _attachResumeSocketStream(
+      conversation,
+      state.last,
+      taskId: taskIds.first,
+    );
+    if (!_disposed &&
+        ref.read(activeConversationProvider)?.id == conversation.id &&
+        state.isNotEmpty &&
+        state.last.id == messageId &&
+        state.last.isStreaming) {
+      _engageReopenedTailMonitor(messageId);
+    }
   }
 
   Map<String, dynamic>? _metadataWithoutResponseDone(
