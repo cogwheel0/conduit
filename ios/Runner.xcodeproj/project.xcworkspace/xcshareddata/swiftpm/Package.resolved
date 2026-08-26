@@ -1,39 +1,30 @@
 {
   "pins" : [
     {
-      "identity" : "cwlcatchexception",
+      "identity" : "cocoalumberjack",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/mattgallagher/CwlCatchException.git",
+      "location" : "https://github.com/CocoaLumberjack/CocoaLumberjack.git",
       "state" : {
-        "revision" : "07b2ba21d361c223e25e3c1e924288742923f08c",
-        "version" : "2.2.1"
+        "revision" : "c5f2ed4d219866117e135cf648180dc7b66739d3",
+        "version" : "3.9.1"
       }
     },
     {
-      "identity" : "dkcamera",
+      "identity" : "cryptoswift",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/zhangao0086/DKCamera",
+      "location" : "https://github.com/krzyzanowskim/CryptoSwift.git",
       "state" : {
-        "branch" : "master",
-        "revision" : "5c691d11014b910aff69f960475d70e65d9dcc96"
+        "revision" : "f2a627b84c1ff96f21ac2fcb623ab36142dd5512",
+        "version" : "1.10.0"
       }
     },
     {
-      "identity" : "dkimagepickercontroller",
+      "identity" : "libwebp-xcode",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/zhangao0086/DKImagePickerController",
+      "location" : "https://github.com/SDWebImage/libwebp-Xcode.git",
       "state" : {
-        "branch" : "4.3.9",
-        "revision" : "0bdfeacefa308545adde07bef86e349186335915"
-      }
-    },
-    {
-      "identity" : "dkphotogallery",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/zhangao0086/DKPhotoGallery",
-      "state" : {
-        "branch" : "master",
-        "revision" : "311c1bc7a94f1538f82773a79c84374b12a2ef3d"
+        "revision" : "2b5256c29ff4e20f2a0d5ee863b62b1a22144434",
+        "version" : "1.6.0"
       }
     },
     {
@@ -46,21 +37,39 @@
       }
     },
     {
-      "identity" : "swiftygif",
+      "identity" : "sdwebimagewebpcoder",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/kirualex/SwiftyGif.git",
+      "location" : "https://github.com/SDWebImage/SDWebImageWebPCoder.git",
       "state" : {
-        "revision" : "4430cbc148baa3907651d40562d96325426f409a",
-        "version" : "5.4.5"
+        "revision" : "12d83edbcc795fb7b5c0c3cb74d739108d3357d2",
+        "version" : "0.15.0"
       }
     },
     {
-      "identity" : "tocropviewcontroller",
+      "identity" : "svgkit",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/TimOliver/TOCropViewController",
+      "location" : "https://github.com/SVGKit/SVGKit.git",
       "state" : {
-        "revision" : "d4a6d8100f4b886fdbc8ae399bf144ff3e9afb7e",
-        "version" : "2.8.0"
+        "revision" : "58152b9f7c85eab239160b36ffdfd364aa43d666",
+        "version" : "3.0.0"
+      }
+    },
+    {
+      "identity" : "swift-collections",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-collections.git",
+      "state" : {
+        "revision" : "a0cb0954ecb21e4e31b0070e6ed5674e8556685a",
+        "version" : "1.6.0"
+      }
+    },
+    {
+      "identity" : "swift-log",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-log",
+      "state" : {
+        "revision" : "3ffafb9722d5d918c614feb496c8789a3b59d222",
+        "version" : "1.15.0"
       }
     }
   ],
