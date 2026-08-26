@@ -285,6 +285,8 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('No direct connections yet'), findsOneWidget);
+      expect(find.text('Apple On-Device'), findsOneWidget);
+      expect(find.text('Apple Private Cloud Compute'), findsOneWidget);
       expect(find.text('Direct Connections'), findsNothing);
       expect(
         find.byKey(const ValueKey<String>('finish-direct-onboarding-button')),
@@ -293,10 +295,10 @@ void main() {
       final navigationBarBottom = tester
           .getBottomLeft(find.byType(ConduitAdaptiveCupertinoNavigationBar))
           .dy;
-      final emptyTitleTop = tester
-          .getTopLeft(find.text('No direct connections yet'))
+      final firstSectionTop = tester
+          .getTopLeft(find.text('Apple Intelligence'))
           .dy;
-      check(emptyTitleTop - navigationBarBottom).isLessOrEqual(Spacing.xxxl);
+      check(firstSectionTop - navigationBarBottom).isLessOrEqual(Spacing.xxxl);
 
       await tester.tap(
         find.byKey(const ValueKey<String>('direct-onboarding-back-button')),

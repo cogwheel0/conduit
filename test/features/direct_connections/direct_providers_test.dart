@@ -141,7 +141,25 @@ void main() {
     );
   });
 
+  test('Apple profiles are enabled by default on supported iOS', () async {
+    final container = ProviderContainer(
+      overrides: [applePccPlatformSupportedProvider.overrideWithValue(true)],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(directConnectionProfilesProvider.future);
+    final profiles = container
+        .read(effectiveDirectConnectionProfilesProvider)
+        .requireValue;
+
+    expect(profiles.map((profile) => profile.id), {
+      kAppleOnDeviceProfileId,
+      kApplePccProfileId,
+    });
+  });
+
   test('enabled PCC is exposed as a built-in Direct profile on iOS', () async {
+    await PreferencesStore.put(PreferenceKeys.appleOnDeviceEnabled, false);
     await PreferencesStore.put(PreferenceKeys.applePccEnabled, true);
     final container = ProviderContainer(
       overrides: [applePccPlatformSupportedProvider.overrideWithValue(true)],
@@ -177,6 +195,7 @@ void main() {
     'enabled Apple On-Device is exposed as a built-in Direct profile',
     () async {
       await PreferencesStore.put(PreferenceKeys.appleOnDeviceEnabled, true);
+      await PreferencesStore.put(PreferenceKeys.applePccEnabled, false);
       final container = ProviderContainer(
         overrides: [applePccPlatformSupportedProvider.overrideWithValue(true)],
       );

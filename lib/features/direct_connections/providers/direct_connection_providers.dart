@@ -183,9 +183,10 @@ abstract class _QueuedBoolPreferenceController extends Notifier<bool> {
   Future<void> _mutationQueue = Future<void>.value();
 
   String get preferenceKey;
+  bool get defaultValue => false;
 
   @override
-  bool build() => PreferencesStore.getBool(preferenceKey) ?? false;
+  bool build() => PreferencesStore.getBool(preferenceKey) ?? defaultValue;
 
   Future<void> setEnabled(bool enabled) {
     final result = _mutationQueue.then<void>(
@@ -208,6 +209,9 @@ abstract class _QueuedBoolPreferenceController extends Notifier<bool> {
 class ApplePccEnabledController extends _QueuedBoolPreferenceController {
   @override
   String get preferenceKey => PreferenceKeys.applePccEnabled;
+
+  @override
+  bool get defaultValue => true;
 }
 
 final applePccEnabledProvider =
@@ -218,6 +222,9 @@ final applePccEnabledProvider =
 class AppleOnDeviceEnabledController extends _QueuedBoolPreferenceController {
   @override
   String get preferenceKey => PreferenceKeys.appleOnDeviceEnabled;
+
+  @override
+  bool get defaultValue => true;
 }
 
 final appleOnDeviceEnabledProvider =
