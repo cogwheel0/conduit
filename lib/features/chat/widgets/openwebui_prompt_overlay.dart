@@ -135,26 +135,29 @@ class _OpenWebUiPromptOverlayState extends State<OpenWebUiPromptOverlay> {
       container: true,
       liveRegion: true,
       label: semanticsLabel,
-      child: Container(
-        key: const ValueKey('openwebui-prompt-overlay'),
-        padding: const EdgeInsets.all(Spacing.md),
-        decoration: BoxDecoration(
-          color: theme.surfaceBackground,
-          borderRadius: BorderRadius.circular(AppBorderRadius.card),
-          border: Border.all(color: theme.cardBorder),
-          boxShadow: ConduitShadows.card(context),
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          key: const ValueKey('openwebui-prompt-overlay'),
+          padding: const EdgeInsets.all(Spacing.md),
+          decoration: BoxDecoration(
+            color: theme.surfaceBackground,
+            borderRadius: BorderRadius.circular(AppBorderRadius.card),
+            border: Border.all(color: theme.cardBorder),
+            boxShadow: ConduitShadows.card(context),
+          ),
+          child: switch (widget.prompt.kind) {
+            OpenWebUiComposerPromptKind.askUser => _buildQuestions(context),
+            OpenWebUiComposerPromptKind.toolApproval => _buildDecision(
+              context,
+              approval: true,
+            ),
+            OpenWebUiComposerPromptKind.confirmation => _buildDecision(
+              context,
+              approval: false,
+            ),
+          },
         ),
-        child: switch (widget.prompt.kind) {
-          OpenWebUiComposerPromptKind.askUser => _buildQuestions(context),
-          OpenWebUiComposerPromptKind.toolApproval => _buildDecision(
-            context,
-            approval: true,
-          ),
-          OpenWebUiComposerPromptKind.confirmation => _buildDecision(
-            context,
-            approval: false,
-          ),
-        },
       ),
     );
   }
