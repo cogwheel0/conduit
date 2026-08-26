@@ -1586,7 +1586,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
   // task lookup previously failed. Requiring a second empty observation keeps
   // a temporarily unregistered server task from being finalized immediately.
   int _unobservedReopenedEmptyPolls = 0;
-  static const int _unobservedTaskEmptyPollGrace = 1;
+  static const int _unobservedReopenedEmptyPollGrace = 1;
   bool _passiveConversationRefreshInFlight = false;
   int _passiveConversationGeneration = 0;
   int? _queuedPassiveConversationGeneration;
@@ -4636,10 +4636,48 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     _nonTailToolTaskMonitors.clear();
   }
 
+  bool _serverToolCallIsTerminal(
+    Conversation conversation, {
+    required String messageId,
+    required String callId,
+  }) {
+    final message = conversation.messages
+        .where((candidate) => candidate.id == messageId)
+        .firstOrNull;
+    final output = message?.output;
+    if (output == null) return false;
+    if (output.any(
+      (item) =>
+          item['type']?.toString() == 'function_call_output' &&
+          item['call_id']?.toString().trim() == callId,
+    )) {
+      return true;
+    }
+    final call = output
+        .where(
+          (item) =>
+              item['type']?.toString() == 'function_call' &&
+              (item['call_id']?.toString().trim() ??
+                      item['id']?.toString().trim()) ==
+                  callId,
+        )
+        .firstOrNull;
+    return const {
+      'completed',
+      'rejected',
+      'failed',
+      'cancelled',
+      'canceled',
+      'denied',
+      'done',
+    }.contains(call?['status']?.toString());
+  }
+
   void _monitorNonTailToolTask({
     required ApiService api,
     required Conversation conversation,
     required String messageId,
+    required String callId,
     required List<String> taskIds,
   }) {
     final monitor = Object();
@@ -4660,7 +4698,6 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
         var consecutiveFailures = 0;
         var hasActiveTask = true;
         var observedExpectedTask = false;
-        var unobservedEmptyPolls = 0;
 
         while (!_disposed && _nonTailToolTaskMonitors.contains(monitor)) {
           if (!_isAppForeground) {
@@ -4681,17 +4718,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
             hasActiveTask = activeTaskIds.any(expectedTaskIds.contains);
             if (hasActiveTask) {
               observedExpectedTask = true;
-              unobservedEmptyPolls = 0;
-            } else if (!observedExpectedTask) {
-              unobservedEmptyPolls++;
             }
-            // The resolve endpoint can return a task ID just before the task
-            // registry exposes it. Keep the locally resolved prompt and poll
-            // once more instead of adopting a stale transcript and exiting.
-            final registrationGraceActive =
-                !hasActiveTask &&
-                !observedExpectedTask &&
-                unobservedEmptyPolls <= _unobservedTaskEmptyPollGrace;
 
             final serverConversation = await api.getConversation(activeChatId);
             if (_disposed || !_nonTailToolTaskMonitors.contains(monitor)) {
@@ -4700,7 +4727,18 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
             if (activeOpenWebUiChatIdForMutation(ref, owner) != activeChatId) {
               return;
             }
-            if (!registrationGraceActive) {
+            // A returned task ID can remain absent from the registry for more
+            // than one poll. Until the task is observed, only an authoritative
+            // terminal call result proves that monitoring can stop.
+            final awaitingRegistration =
+                !hasActiveTask &&
+                !observedExpectedTask &&
+                !_serverToolCallIsTerminal(
+                  serverConversation,
+                  messageId: messageId,
+                  callId: callId,
+                );
+            if (!awaitingRegistration) {
               _adoptServerMessages(
                 serverConversation.messages,
                 source: 'non-tail tool task poll',
@@ -4717,7 +4755,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
                   },
                 );
               });
-            } else if (!registrationGraceActive) {
+            } else if (!awaitingRegistration) {
               if (activeTaskIds.isEmpty) {
                 activeChats.setInactiveIfUnchanged(
                   activeChatId,
@@ -4812,7 +4850,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
           (_observedRemoteTask ||
               (reopenedTail &&
                   _unobservedReopenedEmptyPolls >
-                      _unobservedTaskEmptyPollGrace));
+                      _unobservedReopenedEmptyPollGrace));
       DebugLogger.log(
         'Remote task recovery status',
         scope: 'chat/resume',
@@ -5412,6 +5450,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
           api: api,
           conversation: conversation,
           messageId: messageId,
+          callId: callId,
           taskIds: taskIds,
         );
       }

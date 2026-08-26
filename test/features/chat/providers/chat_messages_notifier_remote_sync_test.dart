@@ -465,6 +465,8 @@ void main() {
             )
             ..taskIdResponses.addAll(const [
               <String>[],
+              <String>[],
+              <String>[],
               <String>['task-1'],
             ]);
       final container = ProviderContainer(
@@ -500,14 +502,14 @@ void main() {
         assistant.copyWith(content: 'Continued after approval'),
         newerUser,
       ], timestamp);
-      await _waitForCondition(() => api.getTaskIdsCalls >= 2);
+      await _waitForCondition(() => api.getTaskIdsCalls >= 4);
       await _waitForCondition(
         () =>
             container.read(chatMessagesProvider).first.content ==
             'Continued after approval',
       );
 
-      check(api.getTaskIdsCalls).isGreaterOrEqual(2);
+      check(api.getTaskIdsCalls).isGreaterOrEqual(4);
       check(container.read(chatMessagesProvider).first.metadata?['taskId'])
           .equals('task-1');
     });
