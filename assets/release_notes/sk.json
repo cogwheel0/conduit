@@ -18,6 +18,25 @@
           "icon": "direct"
         }
       ]
+    },
+    {
+      "version": "4.1.1",
+      "title": "Novinky",
+      "intro": "Ahoj! Apple On-Device beží na telefóne. Použi ho v Direct chats, alebo v chatoch Open WebUI, keď si offline. Hlasové hovory idú z reproduktora a hovoria odpoveď, nie premýšľanie. Hermes sa vráti po nečinnosti a zopár chýb v chate som opravil.",
+      "bullets": [
+        {
+          "text": "Apple On-Device: Direct chats lokálne, a chaty Open WebUI keď si offline.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hlasové hovory: idú z reproduktora, keď nič nie je zapojené. Preskočia premýšľanie a povedia celú odpoveď.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: po nečinnosti obnoví dokončené behy a prijíma PDF. Skills sa dopĺňajú. Odkazy citácií, zoznamy v poznámkach a Open WebUI 0.11.1 fungujú.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

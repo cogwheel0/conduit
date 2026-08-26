@@ -18,6 +18,25 @@
           "icon": "direct"
         }
       ]
+    },
+    {
+      "version": "4.1.1",
+      "title": "新变化",
+      "intro": "你好！Apple On-Device 在手机上跑。Direct chats 能用，Open WebUI 聊天离线时也能用。语音通话从扬声器开始，读的是答案而不是思考。Hermes 闲置后会恢复，几个聊天问题也修了。",
+      "bullets": [
+        {
+          "text": "Apple On-Device: Direct chats 在本地跑，Open WebUI 聊天离线时也能用。",
+          "icon": "direct"
+        },
+        {
+          "text": "语音通话: 没插耳机时从扬声器开始，跳过思考，把整段答案读出来。",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: 闲置后会把已完成的任务找回来，并且能收 PDF。技能会边打边补全。引用链接、笔记清单和 Open WebUI 0.11.1 都能用。",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

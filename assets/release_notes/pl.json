@@ -18,6 +18,25 @@
           "icon": "direct"
         }
       ]
+    },
+    {
+      "version": "4.1.1",
+      "title": "Co nowego",
+      "intro": "Cześć! Apple On-Device działa na telefonie. Użyj go w Direct chats albo w czatach Open WebUI, gdy jesteś offline. Rozmowy głosowe idą przez głośnik i mówią odpowiedź, nie myślenie. Hermes wraca po bezczynności, i ogarnąłem kilka błędów czatu.",
+      "bullets": [
+        {
+          "text": "Apple On-Device: Direct chats lokalnie, i czaty Open WebUI gdy jesteś offline.",
+          "icon": "direct"
+        },
+        {
+          "text": "Rozmowy głosowe: idą przez głośnik, gdy nic nie jest podłączone. Pomijają myślenie i mówią całą odpowiedź.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: odzyskuje skończone przebiegi po bezczynności i przyjmuje PDF-y. Skills uzupełniają się same. Linki cytowań, listy w notatkach i Open WebUI 0.11.1 działają.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

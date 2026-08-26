@@ -18,6 +18,25 @@
           "icon": "direct"
         }
       ]
+    },
+    {
+      "version": "4.1.1",
+      "title": "Nieuw",
+      "intro": "Hoi! Apple On-Device draait op de telefoon. Gebruik het in Direct chats, of in Open WebUI-chats als je offline bent. Spraakgesprekken komen uit de speaker en zeggen het antwoord, niet het nadenken. Hermes komt terug na stilzitten, en ik heb een paar chatbugs weggewerkt.",
+      "bullets": [
+        {
+          "text": "Apple On-Device: Direct chats lokaal, en Open WebUI-chats als je offline bent.",
+          "icon": "direct"
+        },
+        {
+          "text": "Spraakgesprekken: starten op de speaker als er niets is aangesloten. Ze slaan het nadenken over en zeggen het hele antwoord.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: haalt afgeronde runs na stilzitten terug en accepteert pdf's. Skills vullen zich aan. Citatielinks, checklists in notities en Open WebUI 0.11.1 werken.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

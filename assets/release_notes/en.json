@@ -18,6 +18,25 @@
           "icon": "direct"
         }
       ]
+    },
+    {
+      "version": "4.1.1",
+      "title": "What's new",
+      "intro": "Hi! Apple On-Device runs on the phone. Use it in Direct chats, or in Open WebUI chats when you're offline. Voice calls start on the speaker and speak the answer, not the thinking. Hermes comes back after sitting idle, and I cleaned up a few chat bugs.",
+      "bullets": [
+        {
+          "text": "Apple On-Device: Direct chats locally, and Open WebUI chats when you're offline.",
+          "icon": "direct"
+        },
+        {
+          "text": "Voice calls: start on the speakerphone when nothing is plugged in. They skip reasoning and speak the whole answer.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: recovers finished runs after sitting idle and accepts PDFs. Skills autocomplete as you type. Citation links, note checklists, and Open WebUI 0.11.1 work.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

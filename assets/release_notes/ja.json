@@ -18,6 +18,25 @@
           "icon": "direct"
         }
       ]
+    },
+    {
+      "version": "4.1.1",
+      "title": "新機能",
+      "intro": "こんにちは！Apple On-Deviceは端末上で動きます。Direct chatsでも、オフライン時のOpen WebUIチャットでも使えます。音声通話はスピーカーから始まり、考えではなく答えを読み上げます。Hermesは放置しても復帰し、チャットの不具合もいくつか直しました。",
+      "bullets": [
+        {
+          "text": "Apple On-Device: Direct chatsは端末内で。オフラインならOpen WebUIチャットでも使えます。",
+          "icon": "direct"
+        },
+        {
+          "text": "音声通話: 何も繋がっていなければスピーカーから始まり、考えを飛ばして答えを最後まで読み上げます。",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: 放置したあとも終わった実行を取り戻し、PDFを受け取れます。スキルは入力中に補完されます。引用リンク、ノートのチェックリスト、Open WebUI 0.11.1が動きます。",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }
