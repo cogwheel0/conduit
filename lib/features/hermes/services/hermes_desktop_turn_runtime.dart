@@ -882,7 +882,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
               query: {
                 'limit': 20,
                 'offset': 0,
-                'order': 'recent',
+                'order': 'latest',
                 'include_compacted': true,
                 ..._sessionScope(storedId),
               },
