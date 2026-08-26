@@ -5249,12 +5249,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
         state.indexWhere((message) => message.id == messageId) == -1) {
       return;
     }
-    if (taskIds.isNotEmpty &&
-        (state.isEmpty ||
-            state.last.id != messageId ||
-            state.last.role != 'assistant')) {
-      return;
-    }
+    final resumeTailOwnsTask =
+        taskIds.isNotEmpty &&
+        state.isNotEmpty &&
+        state.last.id == messageId &&
+        state.last.role == 'assistant';
 
     updateMessageById(messageId, (message) {
       final output = message.output;
@@ -5267,16 +5266,20 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
           action: action.name,
           answers: answers,
         ),
-        isStreaming: taskIds.isNotEmpty,
-        metadata: taskIds.isEmpty
-            ? metadata
-            : <String, dynamic>{
+        isStreaming: resumeTailOwnsTask,
+        metadata: resumeTailOwnsTask
+            ? <String, dynamic>{
                 ...?metadata,
                 'taskId': taskIds.first,
                 'taskConversationId': conversation.id,
-              },
+              }
+            : taskIds.isEmpty
+            ? metadata
+            : message.metadata,
       );
     });
+
+    if (taskIds.isNotEmpty && !resumeTailOwnsTask) return;
 
     if (taskIds.isEmpty) {
       try {
