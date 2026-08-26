@@ -3778,6 +3778,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   final activeConversation = composerRef.watch(
                     activeConversationProvider,
                   );
+                  final activeConversationId = activeConversation?.id;
                   final pendingPromptIdentity = composerRef.watch(
                     chatMessagesProvider.select(
                       (messages) =>
@@ -3788,6 +3789,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   );
                   final persistedPrompt =
                       pendingPromptIdentity != null &&
+                          debugCanUsePersistedOpenWebUiPromptForTesting(
+                            isLoadingConversation: isLoadingConversation,
+                            ownerConversationId: activeConversationId,
+                            activeConversationId: activeConversationId,
+                          ) &&
                           conversationUsesOpenWebUiStorage(
                             activeConversation,
                           ) &&
@@ -3799,7 +3805,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   final livePrompt = composerRef.watch(
                     openWebUiLivePromptProvider,
                   );
-                  final activeConversationId = activeConversation?.id;
                   final matchingLivePrompt =
                       livePrompt != null &&
                           livePrompt.conversationId == activeConversationId
@@ -3816,12 +3821,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       key: ValueKey(persistedPrompt.prompt.identity),
                       prompt: persistedPrompt.prompt,
                       onAnswer: (answers) => _resolvePersistedOpenWebUiPrompt(
+                        activeConversationId!,
                         persistedPrompt,
                         OpenWebUiToolCallAction.answer,
                         answers: answers,
                       ),
                       onDecision: (approved) =>
                           _resolvePersistedOpenWebUiPrompt(
+                            activeConversationId!,
                             persistedPrompt,
                             persistedPrompt.prompt.kind ==
                                     OpenWebUiComposerPromptKind.askUser
@@ -3898,6 +3905,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   Future<void> _resolvePersistedOpenWebUiPrompt(
+    String ownerConversationId,
     OpenWebUiPendingToolPrompt pending,
     OpenWebUiToolCallAction action, {
     Map<String, dynamic>? answers,
@@ -3906,11 +3914,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final conversation = ref.read(activeConversationProvider);
     if (api == null ||
         conversation == null ||
+        !debugCanUsePersistedOpenWebUiPromptForTesting(
+          isLoadingConversation: ref.read(isLoadingConversationProvider),
+          ownerConversationId: ownerConversationId,
+          activeConversationId: conversation.id,
+        ) ||
         !conversationUsesOpenWebUiStorage(conversation) ||
         isTemporaryChat(conversation.id)) {
       throw StateError('Open WebUI chat is unavailable.');
     }
-    final chatId = conversation.id;
+    final chatId = ownerConversationId;
     final authEpoch = ref.read(openWebUiAuthSessionEpochProvider);
     final taskIds = await api.resolveChatMessageToolCall(
       chatId: chatId,
@@ -5250,6 +5263,17 @@ bool debugCanSubmitChatMessageForTesting({
   return !isLoadingConversation &&
       !isSavingTemporary &&
       !isPreparingMessageSend;
+}
+
+@visibleForTesting
+bool debugCanUsePersistedOpenWebUiPromptForTesting({
+  required bool isLoadingConversation,
+  required String? ownerConversationId,
+  required String? activeConversationId,
+}) {
+  return !isLoadingConversation &&
+      ownerConversationId != null &&
+      ownerConversationId == activeConversationId;
 }
 
 @visibleForTesting

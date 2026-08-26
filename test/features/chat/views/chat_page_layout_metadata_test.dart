@@ -243,6 +243,33 @@ void main() {
     );
   });
 
+  test('persisted prompts stay bound to their loaded conversation', () {
+    expect(
+      debugCanUsePersistedOpenWebUiPromptForTesting(
+        isLoadingConversation: false,
+        ownerConversationId: 'chat-a',
+        activeConversationId: 'chat-a',
+      ),
+      isTrue,
+    );
+    expect(
+      debugCanUsePersistedOpenWebUiPromptForTesting(
+        isLoadingConversation: true,
+        ownerConversationId: 'chat-a',
+        activeConversationId: 'chat-a',
+      ),
+      isFalse,
+    );
+    expect(
+      debugCanUsePersistedOpenWebUiPromptForTesting(
+        isLoadingConversation: false,
+        ownerConversationId: 'chat-a',
+        activeConversationId: 'chat-b',
+      ),
+      isFalse,
+    );
+  });
+
   test('older send cleanup cannot release a newer send admission', () {
     final guard = ChatMessageSendAdmissionGuard();
     final firstSend = guard.tryAcquire();

@@ -34,7 +34,11 @@ void main() {
       timestamp: DateTime(2026),
       metadata: const {
         'transport': kHermesTransport,
-        kHermesApprovalMeta: {'state': 'resolving'},
+        kHermesApprovalMeta: {
+          'state': 'resolving',
+          'runId': 'run',
+          'approvalId': 'approval',
+        },
       },
     );
     final decision = ChatMessage(
@@ -46,6 +50,9 @@ void main() {
         'transport': kHermesTransport,
         kHermesDecisionMeta: {
           'state': 'pending',
+          'requestId': 'request',
+          'runtimeId': 'runtime',
+          'storedSessionId': 'session',
           'expiresAt': DateTime.now()
               .add(const Duration(hours: 1))
               .toUtc()
@@ -58,6 +65,35 @@ void main() {
       findPendingHermesComposerPrompt([approval, decision]),
       same(decision),
     );
+  });
+
+  test('skips an incomplete newer Hermes prompt', () {
+    final older = ChatMessage(
+      id: 'older',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2026),
+      metadata: const {
+        'transport': kHermesTransport,
+        kHermesApprovalMeta: {
+          'state': 'pending',
+          'runId': 'run',
+          'approvalId': 'approval',
+        },
+      },
+    );
+    final incomplete = ChatMessage(
+      id: 'incomplete',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2026),
+      metadata: const {
+        'transport': kHermesTransport,
+        kHermesApprovalMeta: {'state': 'pending'},
+      },
+    );
+
+    expect(findPendingHermesComposerPrompt([older, incomplete]), same(older));
   });
 
   test('ignores resolved and expired Hermes prompts', () {
@@ -89,7 +125,7 @@ void main() {
     );
   });
 
-  testWidgets('a resolved approval cannot hide a pending decision', (
+  testWidgets('an unrenderable approval cannot hide a pending decision', (
     tester,
   ) async {
     final message = ChatMessage(
@@ -99,7 +135,11 @@ void main() {
       timestamp: DateTime(2026),
       metadata: {
         'transport': kHermesTransport,
-        kHermesApprovalMeta: const {'state': 'approved'},
+        kHermesApprovalMeta: const {
+          'state': 'pending',
+          'runId': 'missing-run',
+          'approvalId': 'approval',
+        },
         kHermesDecisionMeta: {
           'state': 'pending',
           'kind': HermesDecisionKind.clarification.name,
@@ -131,7 +171,7 @@ void main() {
     );
 
     expect(find.text('Hermes needs clarification'), findsOneWidget);
-    expect(find.text('Approved ✓'), findsNothing);
+    expect(find.text('Approve'), findsNothing);
   });
 
   testWidgets('renders its response field in a Cupertino tree', (tester) async {

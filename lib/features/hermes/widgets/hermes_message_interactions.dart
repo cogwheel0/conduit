@@ -35,7 +35,13 @@ ChatMessage? findPendingHermesComposerPrompt(List<ChatMessage> messages) {
     if (approval is Map &&
         (approval['state'] == null ||
             approval['state'] == 'pending' ||
-            approval['state'] == 'resolving')) {
+            approval['state'] == 'resolving') &&
+        approval['runId'] is String &&
+        (approval['runId'] as String).isNotEmpty &&
+        approval['approvalId'] is String &&
+        (approval['approvalId'] as String).isNotEmpty &&
+        (message.metadata?['restoredDesktopDecision'] != true ||
+            approval['storedSessionId']?.toString().isNotEmpty == true)) {
       return message;
     }
     final decision = message.metadata?[kHermesDecisionMeta];
@@ -43,7 +49,14 @@ ChatMessage? findPendingHermesComposerPrompt(List<ChatMessage> messages) {
     final expiresAt = DateTime.tryParse(
       decision['expiresAt']?.toString() ?? '',
     );
-    if (expiresAt != null && expiresAt.isAfter(DateTime.now().toUtc())) {
+    final storedSessionId =
+        decision['storedSessionId']?.toString() ??
+        message.metadata?['hermesSessionId']?.toString();
+    if (decision['requestId']?.toString().isNotEmpty == true &&
+        decision['runtimeId']?.toString().isNotEmpty == true &&
+        storedSessionId?.isNotEmpty == true &&
+        expiresAt != null &&
+        expiresAt.isAfter(DateTime.now().toUtc())) {
       return message;
     }
   }
@@ -65,11 +78,22 @@ class HermesComposerPromptOverlay extends ConsumerStatefulWidget {
 class _HermesComposerPromptOverlayState
     extends ConsumerState<HermesComposerPromptOverlay> {
   @override
-  Widget build(BuildContext context) =>
-      _buildApprovalCard() ?? _buildDecisionCard() ?? const SizedBox.shrink();
+  Widget build(BuildContext context) {
+    final messages = ref.watch(chatMessagesProvider);
+    for (final message in messages.reversed) {
+      final card = _buildApprovalCard(message) ?? _buildDecisionCard(message);
+      if (card != null) return card;
+    }
+    if (messages.any((message) => message.id == widget.message.id)) {
+      return const SizedBox.shrink();
+    }
+    return _buildApprovalCard(widget.message) ??
+        _buildDecisionCard(widget.message) ??
+        const SizedBox.shrink();
+  }
 
-  Widget? _buildApprovalCard() {
-    final approval = widget.message.metadata?['hermesApproval'];
+  Widget? _buildApprovalCard(ChatMessage message) {
+    final approval = message.metadata?['hermesApproval'];
     if (approval is! Map) return null;
     if (approval['state'] != null &&
         approval['state'] != 'pending' &&
@@ -83,7 +107,7 @@ class _HermesComposerPromptOverlayState
     final approvalId = approval['approvalId'] is String
         ? approval['approvalId'] as String
         : null;
-    final messageId = widget.message.id;
+    final messageId = message.id;
     final activeConversation = ref.read(activeConversationProvider);
     final state = switch (approval['state']) {
       'resolving' => HermesApprovalState.resolving,
@@ -93,9 +117,9 @@ class _HermesComposerPromptOverlayState
     };
     final storedSessionId = approval['storedSessionId']?.toString();
     final choices = _approvalChoices(approval['choices']);
-    if (widget.message.metadata?['restoredDesktopDecision'] == true) {
+    if (message.metadata?['restoredDesktopDecision'] == true) {
       final service = ref.read(hermesApiServiceProvider);
-      if (widget.message.metadata?['transport'] != kHermesTransport ||
+      if (message.metadata?['transport'] != kHermesTransport ||
           service is! HermesDesktopApiService ||
           runId == null ||
           approvalId == null ||
@@ -152,7 +176,7 @@ class _HermesComposerPromptOverlayState
             generationToken: generationToken,
             runId: runId,
           );
-    if (widget.message.metadata?['transport'] != kHermesTransport ||
+    if (message.metadata?['transport'] != kHermesTransport ||
         runId == null ||
         approvalId == null ||
         runKey == null ||
@@ -188,11 +212,11 @@ class _HermesComposerPromptOverlayState
     );
   }
 
-  Widget? _buildDecisionCard() {
-    if (widget.message.metadata?['transport'] != kHermesTransport) {
+  Widget? _buildDecisionCard(ChatMessage message) {
+    if (message.metadata?['transport'] != kHermesTransport) {
       return null;
     }
-    final decision = widget.message.metadata?[kHermesDecisionMeta];
+    final decision = message.metadata?[kHermesDecisionMeta];
     if (decision is! Map || decision['state'] != 'pending') {
       return null;
     }
@@ -215,7 +239,7 @@ class _HermesComposerPromptOverlayState
     final ownerConversationId = activeConversation?.id;
     final storedSessionId =
         decision['storedSessionId']?.toString() ??
-        widget.message.metadata?['hermesSessionId']?.toString();
+        message.metadata?['hermesSessionId']?.toString();
     if (ownerConversationId == null || storedSessionId == null) {
       return null;
     }
@@ -231,6 +255,7 @@ class _HermesComposerPromptOverlayState
       },
       multiSelect: decision['multiSelect'] == true,
       onSubmit: (value) async {
+        if (!expiresAt.isAfter(DateTime.now().toUtc())) return false;
         final service = ref.read(hermesApiServiceProvider);
         if (service is! HermesDesktopApiService) return false;
         final configController = ref.read(hermesConfigProvider.notifier);
@@ -262,7 +287,7 @@ class _HermesComposerPromptOverlayState
             return false;
           }
           ref.read(chatMessagesProvider.notifier).updateMessageById(
-            widget.message.id,
+            message.id,
             (message) {
               final metadata = Map<String, dynamic>.from(
                 message.metadata ?? const {},

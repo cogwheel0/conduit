@@ -442,7 +442,7 @@ void main() {
       },
     );
 
-    test('non-tail task monitor survives delayed task registration', () async {
+    test('staggered task registrations remain monitored', () async {
       final timestamp = DateTime.now();
       final assistant = ChatMessage(
         id: 'assistant-1',
@@ -465,9 +465,9 @@ void main() {
             )
             ..taskIdResponses.addAll(const [
               <String>[],
-              <String>[],
-              <String>[],
               <String>['task-1'],
+              <String>[],
+              <String>['task-2'],
             ]);
       final container = ProviderContainer(
         overrides: [
@@ -490,7 +490,7 @@ void main() {
             messageId: 'assistant-1',
             callId: 'call-1',
             action: OpenWebUiToolCallAction.approve,
-            taskIds: const ['task-1'],
+            taskIds: const ['task-1', 'task-2'],
           );
       await _waitForCondition(() => api.getConversationCalls == 1);
       check(api.getTaskIdsCalls).equals(1);

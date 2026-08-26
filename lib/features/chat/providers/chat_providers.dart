@@ -4697,7 +4697,6 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
         var fastPollsRemaining = _remoteTaskFastPollCount;
         var consecutiveFailures = 0;
         var hasActiveTask = true;
-        var observedExpectedTask = false;
 
         while (!_disposed && _nonTailToolTaskMonitors.contains(monitor)) {
           if (!_isAppForeground) {
@@ -4716,9 +4715,6 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
               return;
             }
             hasActiveTask = activeTaskIds.any(expectedTaskIds.contains);
-            if (hasActiveTask) {
-              observedExpectedTask = true;
-            }
 
             final serverConversation = await api.getConversation(activeChatId);
             if (_disposed || !_nonTailToolTaskMonitors.contains(monitor)) {
@@ -4728,17 +4724,17 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
               return;
             }
             // A returned task ID can remain absent from the registry for more
-            // than one poll. Until the task is observed, only an authoritative
-            // terminal call result proves that monitoring can stop.
-            final awaitingRegistration =
+            // than one poll, and multiple returned tasks can register in
+            // sequence. Only an authoritative terminal call result proves
+            // that monitoring can stop while none of them is active.
+            final awaitingTaskOrTerminal =
                 !hasActiveTask &&
-                !observedExpectedTask &&
                 !_serverToolCallIsTerminal(
                   serverConversation,
                   messageId: messageId,
                   callId: callId,
                 );
-            if (!awaitingRegistration) {
+            if (!awaitingTaskOrTerminal) {
               _adoptServerMessages(
                 serverConversation.messages,
                 source: 'non-tail tool task poll',
@@ -4755,7 +4751,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
                   },
                 );
               });
-            } else if (!awaitingRegistration) {
+            } else if (!awaitingTaskOrTerminal) {
               if (activeTaskIds.isEmpty) {
                 activeChats.setInactiveIfUnchanged(
                   activeChatId,
