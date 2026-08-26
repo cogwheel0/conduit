@@ -6013,10 +6013,16 @@ class AccountProfile extends _$AccountProfile {
     if (api == null) {
       throw StateError('No API service available');
     }
+    final authenticationEpoch = api.authenticationEpoch;
     await api.updateAccountPassword(
       password: password,
       newPassword: newPassword,
     );
+    if (!ref.mounted ||
+        !identical(api, ref.read(apiServiceProvider)) ||
+        api.authenticationEpoch != authenticationEpoch) {
+      return;
+    }
     await ref.read(authStateManagerProvider.notifier).logout();
   }
 

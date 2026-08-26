@@ -55,11 +55,15 @@ Future<List<TerminalServerInfo>> _probeTerminalServers(
   // A real probe succeeded for the current API/session: persist whether
   // terminal is enabled so the offline/error fallback reflects the true
   // last-known state. Deferred — can't mutate a provider during build.
-  Future.microtask(
-    () => ref
+  Future.microtask(() {
+    if (!ref.mounted ||
+        ref.read(terminalSessionScopeIdProvider) != sessionScopeId) {
+      return;
+    }
+    ref
         .read(terminalFeatureEnabledProvider.notifier)
-        .setEnabled(servers.isNotEmpty),
-  );
+        .setEnabled(servers.isNotEmpty);
+  });
   return servers;
 }
 

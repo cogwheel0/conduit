@@ -138,29 +138,33 @@ void main() {
     },
   );
 
-  test('non-admin update and import preserve an existing base model', () async {
-    final api = _WorkspaceModelsApi();
-    final container = _container(api);
-    addTearDown(container.dispose);
-    await container.read(workspaceModelsProvider.future);
-    final notifier = container.read(workspaceModelsProvider.notifier);
+  test(
+    'non-admin update and import preserve the current server base',
+    () async {
+      final api = _WorkspaceModelsApi();
+      final container = _container(api);
+      addTearDown(container.dispose);
+      await container.read(workspaceModelsProvider.future);
+      final notifier = container.read(workspaceModelsProvider.notifier);
 
-    await notifier.updateItem(
-      const WorkspaceModelForm(id: 'model-1', name: 'Updated'),
-    );
-    check(api.updated.single.baseModelId).equals('base-1');
+      await notifier.updateItem(
+        const WorkspaceModelForm(id: 'model-1', name: 'Updated'),
+      );
+      check(api.updated.single.baseModelId).equals('base-1');
 
-    await notifier.importItems(const [
-      {'id': 'model-1', 'name': 'Imported'},
-    ]);
-    check(api.imported.single.single['base_model_id']).equals('base-1');
+      api.detailBaseModelId = 'base-2';
+      await notifier.importItems(const [
+        {'id': 'model-1', 'name': 'Imported'},
+      ]);
+      check(api.imported.single.single['base_model_id']).equals('base-2');
 
-    await check(
-      notifier.importItems(const [
-        {'id': 'new-model', 'name': 'No base'},
-      ]),
-    ).throws<WorkspaceModelBaseRequiredException>();
-  });
+      await check(
+        notifier.importItems(const [
+          {'id': 'new-model', 'name': 'No base'},
+        ]),
+      ).throws<WorkspaceModelBaseRequiredException>();
+    },
+  );
 
   test('bool mutation (delete) succeeds when the post-write refresh fails', () async {
     final api = _WorkspaceModelsApi();
@@ -491,6 +495,7 @@ class _WorkspaceModelsApi extends ApiService {
       );
 
   Object? refreshError;
+  String detailBaseModelId = 'base-1';
   final deleted = <String>[];
   final created = <WorkspaceModelForm>[];
   final updated = <WorkspaceModelForm>[];
@@ -531,11 +536,11 @@ class _WorkspaceModelsApi extends ApiService {
   @override
   Future<WorkspaceModelDetail?> getWorkspaceModel(String id) async =>
       id == 'model-1'
-      ? const WorkspaceModelSummary(
+      ? WorkspaceModelSummary(
           id: 'model-1',
           name: 'Model 1',
           userId: 'user-1',
-          baseModelId: 'base-1',
+          baseModelId: detailBaseModelId,
         )
       : null;
 

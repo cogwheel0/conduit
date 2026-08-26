@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/core/auth/auth_state_manager.dart';
 import 'package:conduit/core/models/account_metadata.dart';
@@ -45,6 +47,34 @@ void main() {
     ) as _LogoutSpyAuthStateManager;
     check(auth.logoutCalls).equals(0);
   });
+
+  test('password update does not log out a replacement session', () async {
+    final originalApi = _PasswordApi()..updateGate = Completer<void>();
+    var currentApi = originalApi;
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWith((ref) => currentApi),
+        authStateManagerProvider.overrideWith(_LogoutSpyAuthStateManager.new),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final update = container
+        .read(accountProfileProvider.notifier)
+        .updatePassword(password: 'old-password', newPassword: 'new-password');
+    await Future<void>.delayed(Duration.zero);
+
+    currentApi = _PasswordApi();
+    container.invalidate(apiServiceProvider);
+    check(container.read(apiServiceProvider)).identicalTo(currentApi);
+    originalApi.updateGate!.complete();
+    await update;
+
+    final auth = container.read(
+      authStateManagerProvider.notifier,
+    ) as _LogoutSpyAuthStateManager;
+    check(auth.logoutCalls).equals(0);
+  });
 }
 
 ProviderContainer _container(_PasswordApi api) => ProviderContainer(
@@ -80,6 +110,7 @@ final class _PasswordApi extends ApiService {
 
   final updates = <({String password, String newPassword})>[];
   Object? failure;
+  Completer<void>? updateGate;
 
   @override
   Future<AccountMetadata> getAccountMetadata() async => const AccountMetadata(
@@ -97,6 +128,7 @@ final class _PasswordApi extends ApiService {
   }) async {
     final error = failure;
     if (error != null) throw error;
+    await updateGate?.future;
     updates.add((password: password, newPassword: newPassword));
   }
 }

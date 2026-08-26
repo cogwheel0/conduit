@@ -282,12 +282,6 @@ class WorkspaceModels extends _$WorkspaceModels {
     ApiService api,
     String id,
   ) async {
-    final current = state.asData?.value;
-    if (current != null) {
-      for (final item in current.items) {
-        if (item.id == id) return item;
-      }
-    }
     try {
       return await api.getWorkspaceModel(id);
     } on DioException catch (error) {
