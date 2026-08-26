@@ -20,6 +20,16 @@ class ChatVoiceAudioSessionCoordinator {
   static const MethodChannel _iosVoiceAudioRouteChannel = MethodChannel(
     'app.cogwheel.conduit/voice_audio_route',
   );
+  static ChatVoiceAudioSessionCoordinator? _iosFailureHandlerOwner;
+
+  ChatVoiceAudioSessionCoordinator() {
+    if (Platform.isIOS) {
+      _iosFailureHandlerOwner = this;
+      _iosVoiceAudioRouteChannel.setMethodCallHandler(
+        _handleIosVoiceAudioRouteCall,
+      );
+    }
+  }
 
   /// Device types that give a call somewhere to play other than the phone
   /// itself. Built-in earpiece, speaker and microphone are deliberately absent.
@@ -99,12 +109,35 @@ class ChatVoiceAudioSessionCoordinator {
   StreamSubscription<Set<AudioDevice>>? _devicesSub;
   final StreamController<bool> _speakerphoneRouteController =
       StreamController<bool>.broadcast();
+  final StreamController<Object> _responseCaptureFailureController =
+      StreamController<Object>.broadcast();
 
   /// Speakerphone changes this coordinator made on its own, so callers can keep
   /// their own view of the route in step. Manual toggles are not reported: the
   /// caller already knows about those.
   Stream<bool> get speakerphoneRouteChanges =>
       _speakerphoneRouteController.stream;
+  Stream<Object> get responseCaptureFailures =>
+      _responseCaptureFailureController.stream;
+
+  Future<Object?> _handleIosVoiceAudioRouteCall(MethodCall call) async {
+    if (call.method != 'responseWaitCaptureFailed') {
+      throw MissingPluginException('Unknown voice audio route callback');
+    }
+    if (_disposed || _responseCaptureFailureController.isClosed) {
+      return false;
+    }
+    final arguments = call.arguments;
+    final message = arguments is Map ? arguments['message'] as String? : null;
+    _responseCaptureFailureController.add(
+      StateError(
+        message?.trim().isNotEmpty == true
+            ? message!.trim()
+            : 'iOS response-wait audio capture stopped unexpectedly.',
+      ),
+    );
+    return true;
+  }
 
   Future<AudioSession> _ensureSession() async {
     final session = _session;
@@ -214,6 +247,45 @@ class ChatVoiceAudioSessionCoordinator {
     await _settleIosSpeakingRoute();
   }
 
+  Future<void> setActiveCallKitCallId(String callId) async {
+    if (!Platform.isIOS) return;
+    final accepted = await _iosVoiceAudioRouteChannel.invokeMethod<bool>(
+      'setActiveCallKitCallId',
+      <String, Object?>{'callId': callId},
+    );
+    if (accepted != true) {
+      throw StateError('iOS CallKit audio ownership registration failed');
+    }
+  }
+
+  Future<void> beginResponseWaitCapture({String? callKitCallId}) async {
+    if (!Platform.isIOS) return;
+    final accepted = await _iosVoiceAudioRouteChannel.invokeMethod<bool>(
+      'beginResponseWaitCapture',
+      <String, Object?>{'callKitCallId': callKitCallId},
+    );
+    if (accepted != true) {
+      throw StateError('iOS response-wait audio capture failed to start');
+    }
+  }
+
+  Future<void> endResponseWaitCapture() async {
+    if (!Platform.isIOS) return;
+    try {
+      final stopped = await _iosVoiceAudioRouteChannel.invokeMethod<bool>(
+        'endResponseWaitCapture',
+      );
+      if (stopped != true) {
+        throw StateError('iOS response-wait audio capture failed to stop');
+      }
+    } on MissingPluginException {
+      DebugLogger.warning(
+        'ios-response-wait-bridge-missing',
+        scope: 'chat/voice_audio',
+      );
+    }
+  }
+
   /// Activates the session and puts the call on the current route, and reports
   /// whether both platforms took it.
   ///
@@ -254,8 +326,13 @@ class ChatVoiceAudioSessionCoordinator {
     // already run. Running it again is cheap and leaves nothing behind; not
     // running it can leave the phone in communication mode after the call.
     _disposed = true;
+    if (Platform.isIOS && identical(_iosFailureHandlerOwner, this)) {
+      _iosFailureHandlerOwner = null;
+      _iosVoiceAudioRouteChannel.setMethodCallHandler(null);
+    }
     await _tearDownRoute(phase: 'dispose');
     await _speakerphoneRouteController.close();
+    await _responseCaptureFailureController.close();
   }
 
   /// Hands the route back to whatever had it before the call.

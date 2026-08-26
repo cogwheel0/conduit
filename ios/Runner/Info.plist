@@ -91,7 +91,7 @@
 		<key>NSCameraUsageDescription</key>
 		<string>Conduit uses the camera to take photos or videos you choose to share in chats. For example, you can snap a photo of a document and attach it to a message.</string>
 		<key>NSMicrophoneUsageDescription</key>
-		<string>Conduit uses the microphone to record voice messages and enable voice-to-text in chats. For example, when you hold the mic button in a conversation, we capture your speech to send as an audio message or transcript.</string>
+		<string>Conduit uses the microphone for voice messages, voice-to-text, and active voice calls. During a voice call, the microphone may remain active while Conduit waits for or speaks a response; audio is discarded unless Conduit is listening for your speech.</string>
 		<key>NSLocationWhenInUseUsageDescription</key>
 		<string>Conduit uses your location to keep location-aware chats and prompts up to date. When enabled, your current location may be sent to and stored with your account on your connected server.</string>
 		<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>

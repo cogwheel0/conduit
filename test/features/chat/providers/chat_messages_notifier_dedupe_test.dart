@@ -155,6 +155,26 @@ void main() {
       },
     );
 
+    test('background streaming bypasses frame and timer batching', () {
+      final container = buildContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(chatMessagesProvider.notifier);
+      notifier.setMessages([
+        _assistantMessage(content: 'Hello', isStreaming: true),
+      ]);
+
+      notifier.appendToLastMessage(' world');
+      expect(container.read(streamingContentProvider), isNull);
+
+      notifier.didChangeAppLifecycleState(AppLifecycleState.paused);
+      expect(container.read(streamingContentProvider), 'Hello world');
+
+      notifier.appendToLastMessage(' again');
+      expect(container.read(streamingContentProvider), 'Hello world again');
+
+      notifier.clearMessages();
+    });
+
     testWidgets('authoritative replacement bypasses the append cadence', (
       tester,
     ) async {

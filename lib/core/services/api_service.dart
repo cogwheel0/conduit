@@ -659,8 +659,8 @@ final class _SniffSse extends _SniffResult {
 final class _SniffJson extends _SniffResult {
   _SniffJson({required this.json});
 
-  /// The parsed JSON map.
-  final Map<String, dynamic> json;
+  /// The parsed JSON map, or `null` for a literal JSON null body.
+  final Map<String, dynamic>? json;
 }
 
 enum _ChatRequestMetadataFormat { modernV09, legacyPreV09 }
@@ -7828,6 +7828,7 @@ class ApiService {
   ///
   /// Classification precedence:
   /// 1. `application/json` content-type → buffer, parse, check `task_id`
+  ///    (`null` becomes an empty stream for persisted-chat recovery)
   /// 2. Body sniffing (handles missing / misleading content-type):
   ///    - `data:` prefix → httpStream (with replay stream)
   ///    - Valid JSON → taskSocket or jsonCompletion depending on `task_id`
@@ -7869,7 +7870,15 @@ class ApiService {
     // 1. Explicit application/json → buffer fully and classify
     // ------------------------------------------------------------------
     if (isJsonCt) {
-      final json = await _requireJsonMap(bodyStream);
+      final json = await _requireJsonMapOrNull(bodyStream);
+      if (json == null) {
+        return _recoverJsonNullChatCompletion(
+          messageId: messageId,
+          sessionId: sessionId,
+          conversationId: conversationId,
+          abort: abort,
+        );
+      }
       return _classifyJsonBody(
         json,
         messageId: messageId,
@@ -7896,6 +7905,14 @@ class ApiService {
         );
 
       case _SniffJson(:final json):
+        if (json == null) {
+          return _recoverJsonNullChatCompletion(
+            messageId: messageId,
+            sessionId: sessionId,
+            conversationId: conversationId,
+            abort: abort,
+          );
+        }
         return _classifyJsonBody(
           json,
           messageId: messageId,
@@ -7923,6 +7940,35 @@ class ApiService {
     throw StateError(
       'Unable to classify chat completion response '
       '(content-type=$ct)',
+    );
+  }
+
+  ChatCompletionSession _recoverJsonNullChatCompletion({
+    required String messageId,
+    String? sessionId,
+    String? conversationId,
+    required Future<void> Function() abort,
+  }) {
+    final persistedChatId = conversationId?.trim();
+    if (persistedChatId == null ||
+        persistedChatId.isEmpty ||
+        persistedChatId.startsWith('local:')) {
+      throw const FormatException(
+        'Cannot recover a JSON null chat completion without a persisted '
+        'conversation ID',
+      );
+    }
+    DebugLogger.warning(
+      'json-null-recovery',
+      scope: 'api/chat',
+      data: {'chatId': persistedChatId, 'messageId': messageId},
+    );
+    return ChatCompletionSession.httpStream(
+      messageId: messageId,
+      sessionId: sessionId,
+      conversationId: conversationId,
+      byteStream: const Stream<List<int>>.empty(),
+      abort: abort,
     );
   }
 
@@ -7993,11 +8039,14 @@ class ApiService {
     }
   }
 
-  /// Buffers the full stream into a single JSON map or throws.
-  Future<Map<String, dynamic>> _requireJsonMap(Stream<List<int>> stream) async {
+  /// Buffers the full stream into a JSON map, permits literal `null`, or throws.
+  Future<Map<String, dynamic>?> _requireJsonMapOrNull(
+    Stream<List<int>> stream,
+  ) async {
     final bytes = await _collectBytes(stream);
     final text = utf8.decode(bytes, allowMalformed: true);
     final decoded = jsonDecode(text);
+    if (decoded == null) return null;
     if (decoded is Map<String, dynamic>) {
       return decoded;
     }
@@ -8068,6 +8117,11 @@ class ApiService {
           completer.complete(_SniffJson(json: json));
           return;
         }
+        if (textSoFar.trim() == 'null') {
+          sub.cancel();
+          completer.complete(_SniffJson(json: null));
+          return;
+        }
       },
       onDone: () {
         if (!completer.isCompleted) {
@@ -8079,6 +8133,8 @@ class ApiService {
           final json = _tryParseJsonMap(text.trim());
           if (json != null) {
             completer.complete(_SniffJson(json: json));
+          } else if (text.trim() == 'null') {
+            completer.complete(_SniffJson(json: null));
           } else if (text.trimLeft().startsWith('data:')) {
             // Can't replay a done stream, but classify it correctly.
             completer.complete(_SniffSse(buffered: buffered, rest: null));

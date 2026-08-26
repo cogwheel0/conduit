@@ -217,6 +217,73 @@ void main() {
       check(session.taskId).isNull();
     });
 
+    test('JSON null uses an empty HTTP stream for recovery', () async {
+      final adapter = _FakeAdapter.raw(
+        bytes: utf8.encode('null'),
+        headers: {
+          'content-type': ['application/json'],
+        },
+      );
+      final api = _buildApiServiceForTest(adapter);
+
+      final session = await api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+        conversationId: 'chat-1',
+        responseMessageId: 'assistant-1',
+        sessionIdOverride: 'socket-1',
+      );
+
+      check(session.transport).equals(ChatCompletionTransport.httpStream);
+      check(session.messageId).equals('assistant-1');
+      check(session.sessionId).equals('socket-1');
+      check(session.conversationId).equals('chat-1');
+      check(await session.byteStream!.toList()).isEmpty();
+      check(session.taskId).isNull();
+      check(session.jsonPayload).isNull();
+      check(session.abort).isNotNull();
+    });
+
+    test('sniffed JSON null uses an empty HTTP stream for recovery', () async {
+      final adapter = _FakeAdapter.raw(bytes: utf8.encode('null'));
+      final api = _buildApiServiceForTest(adapter);
+
+      final session = await api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+        conversationId: 'chat-1',
+        responseMessageId: 'assistant-1',
+      );
+
+      check(session.transport).equals(ChatCompletionTransport.httpStream);
+      check(await session.byteStream!.toList()).isEmpty();
+    });
+
+    test('JSON null without a persisted chat is rejected', () async {
+      final adapter = _FakeAdapter.raw(
+        bytes: utf8.encode('null'),
+        headers: {
+          'content-type': ['application/json'],
+        },
+      );
+      final api = _buildApiServiceForTest(adapter);
+
+      await expectLater(
+        api.sendMessageSession(
+          messages: _minimalMessages,
+          model: _model,
+          conversationId: 'local:temp',
+        ),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            contains('persisted conversation ID'),
+          ),
+        ),
+      );
+    });
+
     // 3. httpStream classification from text/event-stream response
     test('httpStream classification from text/event-stream response', () async {
       final sseBody =

@@ -127,6 +127,7 @@ class NativeSttService {
 
   StreamSubscription<dynamic>? _eventSub;
   StreamController<NativeSttEvent>? _eventController;
+  bool _eventsDetachedWithoutStop = false;
 
   bool get isSupportedPlatform => Platform.isAndroid || Platform.isIOS;
 
@@ -192,7 +193,12 @@ class NativeSttService {
       throw const NativeSttException('Unsupported platform');
     }
 
-    await stopListening();
+    if (_eventsDetachedWithoutStop) {
+      _eventsDetachedWithoutStop = false;
+      await _closeEventDelivery();
+    } else {
+      await stopListening();
+    }
     final controller = StreamController<NativeSttEvent>.broadcast();
     _eventController = controller;
     _eventSub = _eventChannel.receiveBroadcastStream().listen(
@@ -235,6 +241,7 @@ class NativeSttService {
   }
 
   Future<void> stopListening() async {
+    _eventsDetachedWithoutStop = false;
     try {
       await _methodChannel.invokeMethod<void>('stop');
     } on MissingPluginException {
@@ -243,6 +250,17 @@ class NativeSttService {
       // Stop is best-effort because callers may already be unwinding errors.
     }
 
+    await _closeEventDelivery();
+  }
+
+  /// Detaches Dart delivery while leaving native capture alive for an
+  /// immediate native response-wait ownership transfer.
+  Future<void> detachListeningEvents() async {
+    _eventsDetachedWithoutStop = true;
+    await _closeEventDelivery();
+  }
+
+  Future<void> _closeEventDelivery() async {
     await _eventSub?.cancel();
     _eventSub = null;
     final controller = _eventController;

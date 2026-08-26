@@ -4888,6 +4888,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
       _isAppForeground = false;
+      if (_streamingContentFrameScheduled || _streamingContentTimer != null) {
+        _scheduleStreamingContentFrame(reason: _pendingStreamingFlushReason);
+      }
       _taskStatusTimer?.cancel();
       _taskStatusTimer = null;
       return;
@@ -5505,6 +5508,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     if (_disposed || _streamingBuffer == null) {
       return;
     }
+    if (!_isAppForeground) {
+      _scheduleStreamingContentFrame(reason: reason);
+      return;
+    }
     final currentVisible = ref.read(streamingContentProvider);
     if (currentVisible == null || currentVisible.isEmpty) {
       _scheduleStreamingContentFrame(
@@ -5558,9 +5565,17 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     _streamingContentTimer?.cancel();
     _streamingContentTimer = null;
     _pendingStreamingFlushReason = reason;
-    if (_disposed || _streamingContentFrameScheduled) {
+    if (_disposed) {
       return;
     }
+    if (!_isAppForeground) {
+      _streamingContentFrameScheduled = false;
+      final flushReason = _pendingStreamingFlushReason;
+      _pendingStreamingFlushReason = _StreamingContentFlushReason.cadence;
+      _flushStreamingContentUpdate(reason: flushReason);
+      return;
+    }
+    if (_streamingContentFrameScheduled) return;
     _streamingContentFrameScheduled = true;
     // Flush at the beginning of the requested frame so Riverpod can rebuild
     // the live tail in that same frame. A post-frame flush spends one frame

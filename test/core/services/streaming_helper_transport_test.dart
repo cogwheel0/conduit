@@ -4857,6 +4857,45 @@ void main() {
     // -----------------------------------------------------------------------
     // 7. httpStream premature end recovers from newer server state
     // -----------------------------------------------------------------------
+    test(
+      'empty httpStream adopts a persisted assistant error and finishes once',
+      () async {
+        final log = _CallbackLog();
+        final api = _buildFakeApi(
+          pollResponse: _serverConversationResponse(
+            messages: [
+              _serverAssistantMessage(
+                error: const {'content': 'Persisted backend error'},
+              ),
+            ],
+          ),
+        );
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            conversationId: 'conv-1',
+            byteStream: const Stream<List<int>>.empty(),
+            abort: () async {},
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+        );
+
+        await waitForCondition(() => log.finishCount == 1);
+        for (var index = 0; index < 5; index++) {
+          await pumpMicrotasks();
+        }
+
+        check(log.messages.last.error).isNotNull();
+        check(log.messages.last.error!.content)
+            .equals('Persisted backend error');
+        check(log.messages.last.isStreaming).isFalse();
+        check(log.finishCount).equals(1);
+      },
+    );
+
     test('httpStream premature end triggers recovery polling', () async {
       final log = _CallbackLog();
       // Stream ends without [DONE]

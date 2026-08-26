@@ -247,11 +247,14 @@ bool voiceCallCanResolveWithoutOpenWebUiAuth(Ref ref) {
         }) ??
         false;
   }
-  if (isHermesModel(model)) return true;
-  if (!isLocallyMintedDirectModel(model)) return false;
+  return !voiceCallUsesOpenWebUiTransport(ref, model);
+}
 
-  final binding = ref.read(directModelRegistryProvider).resolve(model);
-  return binding?.source == DirectModelSource.device;
+bool voiceCallUsesOpenWebUiTransport(Ref ref, Model model) {
+  if (isHermesModel(model)) return false;
+  if (!isLocallyMintedDirectModel(model)) return true;
+  return ref.read(directModelRegistryProvider).resolve(model)?.source !=
+      DirectModelSource.device;
 }
 
 bool _voiceCallNeedsHermesHydration(Ref ref) {
