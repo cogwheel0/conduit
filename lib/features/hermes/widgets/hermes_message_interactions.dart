@@ -71,6 +71,11 @@ class _HermesComposerPromptOverlayState
   Widget? _buildApprovalCard() {
     final approval = widget.message.metadata?['hermesApproval'];
     if (approval is! Map) return null;
+    if (approval['state'] != null &&
+        approval['state'] != 'pending' &&
+        approval['state'] != 'resolving') {
+      return null;
+    }
 
     final runId = approval['runId'] is String
         ? approval['runId'] as String

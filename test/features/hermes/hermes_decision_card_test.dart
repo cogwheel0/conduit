@@ -1,4 +1,6 @@
 import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit/core/models/conversation.dart';
+import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit/features/hermes/services/hermes_run_transport.dart';
 import 'package:conduit/features/hermes/widgets/hermes_decision_card.dart';
@@ -9,7 +11,19 @@ import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+class _DecisionConversation extends ActiveConversationNotifier {
+  @override
+  Conversation? build() => Conversation(
+    id: 'conversation',
+    title: 'Conversation',
+    createdAt: DateTime(2026),
+    updatedAt: DateTime(2026),
+    metadata: const {'hermesSessionId': 'session'},
+  );
+}
 
 void main() {
   test('selects the newest unresolved Hermes composer prompt', () {
@@ -73,6 +87,51 @@ void main() {
       ]),
       isNull,
     );
+  });
+
+  testWidgets('a resolved approval cannot hide a pending decision', (
+    tester,
+  ) async {
+    final message = ChatMessage(
+      id: 'decision',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2026),
+      metadata: {
+        'transport': kHermesTransport,
+        kHermesApprovalMeta: const {'state': 'approved'},
+        kHermesDecisionMeta: {
+          'state': 'pending',
+          'kind': HermesDecisionKind.clarification.name,
+          'requestId': 'request',
+          'runtimeId': 'runtime',
+          'storedSessionId': 'session',
+          'expiresAt': DateTime.now()
+              .add(const Duration(hours: 1))
+              .toUtc()
+              .toIso8601String(),
+        },
+      },
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          activeConversationProvider.overrideWith(_DecisionConversation.new),
+        ],
+        child: CupertinoApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Theme(
+            data: AppTheme.light(TweakcnThemes.t3Chat),
+            child: HermesComposerPromptOverlay(message: message),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Hermes needs clarification'), findsOneWidget);
+    expect(find.text('Approved ✓'), findsNothing);
   });
 
   testWidgets('renders its response field in a Cupertino tree', (tester) async {

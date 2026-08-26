@@ -3858,8 +3858,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         }
                       },
                     );
-                  } else if (pendingHermesPrompt != null &&
-                      isNativeHermesConversation(activeConversation)) {
+                  } else if (pendingHermesPrompt != null) {
                     attachedOverlay = HermesComposerPromptOverlay(
                       key: ValueKey(pendingHermesPrompt.id),
                       message: pendingHermesPrompt,
