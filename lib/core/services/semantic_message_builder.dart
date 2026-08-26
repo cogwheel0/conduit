@@ -158,8 +158,11 @@ String renderSemanticMessageBlocks(List<SemanticMessageBlock> blocks) {
 /// has no code delimiter; once one appears they must rebuild the authoritative
 /// value with [renderSemanticMessageBlocks] so [_escapeText] can parse the
 /// complete Markdown context.
-String renderSemanticPlainTextFragment(String value) =>
-    _semanticTextEscape.convert(value);
+String renderSemanticPlainTextFragment(String value) => _semanticTextEscape
+    .convert(value)
+    .split('\n')
+    .map(_restoreMarkdownBlockquotePrefix)
+    .join('\n');
 
 String _renderDetailsBlock(SemanticDetailsBlock block) {
   final attributes = <String, String>{
@@ -235,6 +238,12 @@ final _indentedCodeLine = RegExp(r'^(?:    | {0,3}\t)');
 final _semanticDetailsBlockStart = RegExp(
   r'^\s{0,3}<details(?:\s+[^>]*)?>',
   caseSensitive: false,
+);
+final _escapedMarkdownBlockquotePrefix = RegExp(r'^ {0,3}(?:&gt;[ \t]*)+');
+
+String _restoreMarkdownBlockquotePrefix(String line) => line.replaceFirstMapped(
+  _escapedMarkdownBlockquotePrefix,
+  (match) => match[0]!.replaceAll('&gt;', '>'),
 );
 
 // These alternatives mirror the Markdown package's line-local CodeSyntax,
@@ -443,6 +452,13 @@ String _escapeInlineMarkdownSegment(String value) => value.splitMapJoin(
   }
 
   final result = StringBuffer();
+  void writeEscaped(String value) {
+    final escaped = _escapeInlineMarkdownSegment(value);
+    result.write(
+      result.isEmpty ? _restoreMarkdownBlockquotePrefix(escaped) : escaped,
+    );
+  }
+
   var lineOffset = 0;
   var candidateIndex = nextSpanIndex;
   while (candidateIndex < protectedSpans.length) {
@@ -455,11 +471,7 @@ String _escapeInlineMarkdownSegment(String value) => value.splitMapJoin(
         ? line.length
         : span.end - sourceStart;
     if (protectedStart > lineOffset) {
-      result.write(
-        _escapeInlineMarkdownSegment(
-          line.substring(lineOffset, protectedStart),
-        ),
-      );
+      writeEscaped(line.substring(lineOffset, protectedStart));
     }
     if (protectedEnd > lineOffset) {
       result.write(line.substring(protectedStart, protectedEnd));
@@ -473,7 +485,7 @@ String _escapeInlineMarkdownSegment(String value) => value.splitMapJoin(
     }
   }
   if (lineOffset < line.length) {
-    result.write(_escapeInlineMarkdownSegment(line.substring(lineOffset)));
+    writeEscaped(line.substring(lineOffset));
   }
   return (text: result.toString(), nextSpanIndex: nextSpanIndex);
 }
