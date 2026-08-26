@@ -67,6 +67,28 @@ void main() {
       check(rendered).not((it) => it.contains('<details>'));
     });
 
+    test('preserves CommonMark blockquote prefixes', () {
+      const text =
+          '  > > **Author:** Quoted <source>.\n'
+          'Paragraph > comparison.';
+      final renderedValues = [
+        renderSemanticMessageBlocks([const SemanticTextBlock(text)]),
+        renderSemanticPlainTextFragment(text),
+      ];
+
+      for (final rendered in renderedValues) {
+        check(rendered).startsWith('  > > **Author:**');
+        check(rendered).contains('&lt;source&gt;');
+        check(rendered).contains('Paragraph &gt; comparison.');
+
+        final parsed = md.Document(
+          extensionSet: md.ExtensionSet.gitHubWeb,
+          encodeHtml: false,
+        ).parse(rendered);
+        check((parsed.first as md.Element).tag).equals('blockquote');
+      }
+    });
+
     // The markdown renderer never decodes entity references inside code spans
     // or fenced code blocks, so text-block escaping must leave those regions
     // untouched (same failure class as #549, extended to `<` `>` `&` `"`).
