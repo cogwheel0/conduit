@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
@@ -28,6 +30,11 @@ typedef _HermesApprovalBinding = ({
   String? storedSessionId,
 });
 
+String? _nonEmptyString(Object? value) {
+  final text = value?.toString();
+  return text == null || text.isEmpty ? null : text;
+}
+
 ChatMessage? findPendingHermesComposerPrompt(List<ChatMessage> messages) {
   for (final message in messages.reversed) {
     if (message.metadata?['archivedVariant'] == true) continue;
@@ -51,11 +58,11 @@ ChatMessage? findPendingHermesComposerPrompt(List<ChatMessage> messages) {
       decision['expiresAt']?.toString() ?? '',
     );
     final storedSessionId =
-        decision['storedSessionId']?.toString() ??
-        message.metadata?['hermesSessionId']?.toString();
-    if (decision['requestId']?.toString().isNotEmpty == true &&
-        decision['runtimeId']?.toString().isNotEmpty == true &&
-        storedSessionId?.isNotEmpty == true &&
+        _nonEmptyString(decision['storedSessionId']) ??
+        _nonEmptyString(message.metadata?['hermesSessionId']);
+    if (_nonEmptyString(decision['requestId']) != null &&
+        _nonEmptyString(decision['runtimeId']) != null &&
+        storedSessionId != null &&
         expiresAt != null &&
         expiresAt.isAfter(DateTime.now().toUtc())) {
       return message;
@@ -78,8 +85,12 @@ class HermesComposerPromptOverlay extends ConsumerStatefulWidget {
 
 class _HermesComposerPromptOverlayState
     extends ConsumerState<HermesComposerPromptOverlay> {
+  Timer? _expiryTimer;
+
   @override
   Widget build(BuildContext context) {
+    _expiryTimer?.cancel();
+    _expiryTimer = null;
     final messages = ref.watch(chatMessagesProvider);
     for (final message in messages.reversed) {
       final card = _buildPromptCard(message);
@@ -230,8 +241,8 @@ class _HermesComposerPromptOverlayState
     if (expiresAt == null || !expiresAt.isAfter(DateTime.now().toUtc())) {
       return null;
     }
-    final requestId = decision['requestId']?.toString();
-    final runtimeId = decision['runtimeId']?.toString();
+    final requestId = _nonEmptyString(decision['requestId']);
+    final runtimeId = _nonEmptyString(decision['runtimeId']);
     final kind = HermesDecisionKind.values.firstWhere(
       (value) => value.name == decision['kind'],
       orElse: () => HermesDecisionKind.clarification,
@@ -242,11 +253,14 @@ class _HermesComposerPromptOverlayState
     final activeConversation = ref.read(activeConversationProvider);
     final ownerConversationId = activeConversation?.id;
     final storedSessionId =
-        decision['storedSessionId']?.toString() ??
-        message.metadata?['hermesSessionId']?.toString();
+        _nonEmptyString(decision['storedSessionId']) ??
+        _nonEmptyString(message.metadata?['hermesSessionId']);
     if (ownerConversationId == null || storedSessionId == null) {
       return null;
     }
+    _expiryTimer = Timer(expiresAt.difference(DateTime.now().toUtc()), () {
+      if (mounted) setState(() {});
+    });
     return HermesDecisionCard(
       key: ValueKey('$runtimeId\u0000$requestId\u0000${kind.name}'),
       kind: kind,
@@ -312,6 +326,12 @@ class _HermesComposerPromptOverlayState
         }
       },
     );
+  }
+
+  @override
+  void dispose() {
+    _expiryTimer?.cancel();
+    super.dispose();
   }
 
   bool _ownsDesktopDecision({
