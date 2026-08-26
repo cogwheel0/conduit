@@ -186,6 +186,8 @@ class _FakeApiService extends ApiService {
   set conversation(Conversation value) => _conversation = value;
 
   List<String> taskIds = const <String>[];
+  bool deferTaskIdRequests = false;
+  final List<Completer<List<String>>> taskIdRequests = [];
   int taskIdFailuresRemaining = 0;
 
   int getConversationCalls = 0;
@@ -200,6 +202,11 @@ class _FakeApiService extends ApiService {
   @override
   Future<List<String>> getTaskIdsByChat(String chatId) async {
     getTaskIdsCalls++;
+    if (deferTaskIdRequests) {
+      final request = Completer<List<String>>();
+      taskIdRequests.add(request);
+      return request.future;
+    }
     if (taskIdFailuresRemaining > 0) {
       taskIdFailuresRemaining--;
       throw StateError('transient task registry failure');
@@ -415,6 +422,80 @@ void main() {
         check(api.getConversationCalls).isGreaterOrEqual(1);
       },
     );
+
+    test('non-tail tool task monitors remain independently owned', () async {
+      final timestamp = DateTime.now();
+      ChatMessage assistant(String id, String callId, {bool approved = false}) {
+        return ChatMessage(
+          id: id,
+          role: 'assistant',
+          content: 'Waiting for approval',
+          timestamp: timestamp,
+          output: [
+            {
+              'type': 'function_call',
+              'call_id': callId,
+              'name': 'filesystem',
+              'status': approved ? 'queued' : 'pending',
+              if (approved) 'approved': true,
+            },
+          ],
+        );
+      }
+
+      final messages = [
+        assistant('assistant-1', 'call-1'),
+        _userMessage('user-1', 'Newer turn one', timestamp),
+        assistant('assistant-2', 'call-2'),
+        _userMessage('user-2', 'Newer turn two', timestamp),
+      ];
+      final api = _FakeApiService(
+        _conversation('chat-1', [
+          assistant('assistant-1', 'call-1', approved: true),
+          messages[1],
+          assistant('assistant-2', 'call-2', approved: true),
+          messages[3],
+        ], timestamp),
+      )..deferTaskIdRequests = true;
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          activeConversationProvider.overrideWith(
+            _TestActiveConversationNotifier.new,
+          ),
+          socketServiceProvider.overrideWithValue(null),
+          apiServiceProvider.overrideWithValue(api),
+        ],
+      );
+      addTearDown(container.dispose);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', messages, timestamp));
+      final notifier = container.read(chatMessagesProvider.notifier);
+
+      await notifier.resumeAfterOpenWebUiToolCall(
+        messageId: 'assistant-1',
+        callId: 'call-1',
+        action: OpenWebUiToolCallAction.approve,
+        taskIds: const ['task-1'],
+      );
+      await notifier.resumeAfterOpenWebUiToolCall(
+        messageId: 'assistant-2',
+        callId: 'call-2',
+        action: OpenWebUiToolCallAction.approve,
+        taskIds: const ['task-2'],
+      );
+      await pumpMicrotasks();
+      check(api.taskIdRequests.length).equals(2);
+
+      for (final request in api.taskIdRequests) {
+        request.complete(const ['task-1', 'task-2']);
+      }
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+
+      check(api.getConversationCalls).equals(2);
+    });
 
     test(
       'a slower model lookup cannot overwrite a newer conversation',

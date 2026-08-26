@@ -1572,7 +1572,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
   Timer? _passiveConversationRefreshTimer;
   bool _taskStatusCheckInFlight = false;
   int _taskStatusGeneration = 0;
-  int _nonTailToolTaskGeneration = 0;
+  final Set<Object> _nonTailToolTaskMonitors = <Object>{};
   bool _observedRemoteTask = false;
   // Feature C: number of consecutive polls that saw `tasksDone` while a socket
   // resume stream still held protection. The poll's force-adoption is deferred
@@ -4633,7 +4633,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
   }
 
   void _stopNonTailToolTaskMonitor() {
-    _nonTailToolTaskGeneration++;
+    _nonTailToolTaskMonitors.clear();
   }
 
   void _monitorNonTailToolTask({
@@ -4642,7 +4642,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     required String messageId,
     required List<String> taskIds,
   }) {
-    final generation = ++_nonTailToolTaskGeneration;
+    final monitor = Object();
+    _nonTailToolTaskMonitors.add(monitor);
     final owner = captureOpenWebUiCompletionOwner(
       ref,
       chatId: conversation.id,
@@ -4654,74 +4655,85 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     final activationToken = activeChats.activationToken(conversation.id);
 
     unawaited(() async {
-      var fastPollsRemaining = _remoteTaskFastPollCount;
-      var consecutiveFailures = 0;
-      var hasActiveTask = true;
+      try {
+        var fastPollsRemaining = _remoteTaskFastPollCount;
+        var consecutiveFailures = 0;
+        var hasActiveTask = true;
 
-      while (!_disposed && generation == _nonTailToolTaskGeneration) {
-        if (!_isAppForeground) {
-          await Future<void>.delayed(const Duration(seconds: 3));
-          continue;
-        }
-
-        try {
-          final activeChatId = activeOpenWebUiChatIdForMutation(ref, owner);
-          if (activeChatId == null) return;
-          final activeTaskIds = await api.getTaskIdsByChat(activeChatId);
-          if (_disposed || generation != _nonTailToolTaskGeneration) return;
-          if (activeOpenWebUiChatIdForMutation(ref, owner) != activeChatId) {
-            return;
+        while (!_disposed && _nonTailToolTaskMonitors.contains(monitor)) {
+          if (!_isAppForeground) {
+            await Future<void>.delayed(const Duration(seconds: 3));
+            continue;
           }
-          hasActiveTask = activeTaskIds.any(expectedTaskIds.contains);
 
-          final serverConversation = await api.getConversation(activeChatId);
-          if (_disposed || generation != _nonTailToolTaskGeneration) return;
-          if (activeOpenWebUiChatIdForMutation(ref, owner) != activeChatId) {
-            return;
-          }
-          _adoptServerMessages(
-            serverConversation.messages,
-            source: 'non-tail tool task poll',
-          );
-          if (hasActiveTask) {
-            updateMessageById(messageId, (message) {
-              return message.copyWith(
-                isStreaming: false,
-                metadata: <String, dynamic>{
-                  ...?message.metadata,
-                  'taskId': taskIds.first,
-                  'taskConversationId': activeChatId,
-                },
-              );
-            });
-          } else {
-            if (activeTaskIds.isEmpty) {
-              activeChats.setInactiveIfUnchanged(activeChatId, activationToken);
+          try {
+            final activeChatId = activeOpenWebUiChatIdForMutation(ref, owner);
+            if (activeChatId == null) return;
+            final activeTaskIds = await api.getTaskIdsByChat(activeChatId);
+            if (_disposed || !_nonTailToolTaskMonitors.contains(monitor)) {
+              return;
             }
-            schedulePullChatNow(ref, activeChatId);
-            return;
+            if (activeOpenWebUiChatIdForMutation(ref, owner) != activeChatId) {
+              return;
+            }
+            hasActiveTask = activeTaskIds.any(expectedTaskIds.contains);
+
+            final serverConversation = await api.getConversation(activeChatId);
+            if (_disposed || !_nonTailToolTaskMonitors.contains(monitor)) {
+              return;
+            }
+            if (activeOpenWebUiChatIdForMutation(ref, owner) != activeChatId) {
+              return;
+            }
+            _adoptServerMessages(
+              serverConversation.messages,
+              source: 'non-tail tool task poll',
+            );
+            if (hasActiveTask) {
+              updateMessageById(messageId, (message) {
+                return message.copyWith(
+                  isStreaming: false,
+                  metadata: <String, dynamic>{
+                    ...?message.metadata,
+                    'taskId': taskIds.first,
+                    'taskConversationId': activeChatId,
+                  },
+                );
+              });
+            } else {
+              if (activeTaskIds.isEmpty) {
+                activeChats.setInactiveIfUnchanged(
+                  activeChatId,
+                  activationToken,
+                );
+              }
+              schedulePullChatNow(ref, activeChatId);
+              return;
+            }
+
+            consecutiveFailures = 0;
+            if (fastPollsRemaining > 0) fastPollsRemaining--;
+          } catch (error, stack) {
+            consecutiveFailures++;
+            DebugLogger.error(
+              'non-tail-tool-task-poll-failed',
+              scope: 'chat/resume',
+              error: error,
+              stackTrace: stack,
+            );
           }
 
-          consecutiveFailures = 0;
-          if (fastPollsRemaining > 0) fastPollsRemaining--;
-        } catch (error, stack) {
-          consecutiveFailures++;
-          DebugLogger.error(
-            'non-tail-tool-task-poll-failed',
-            scope: 'chat/resume',
-            error: error,
-            stackTrace: stack,
+          await Future<void>.delayed(
+            debugRemoteTaskPollDelayForTesting(
+              fastPollsRemaining: fastPollsRemaining,
+              consecutiveFailures: consecutiveFailures,
+              consecutiveCompletionMisses: 0,
+              hasActiveTask: hasActiveTask,
+            ),
           );
         }
-
-        await Future<void>.delayed(
-          debugRemoteTaskPollDelayForTesting(
-            fastPollsRemaining: fastPollsRemaining,
-            consecutiveFailures: consecutiveFailures,
-            consecutiveCompletionMisses: 0,
-            hasActiveTask: hasActiveTask,
-          ),
-        );
+      } finally {
+        _nonTailToolTaskMonitors.remove(monitor);
       }
     }());
   }
