@@ -1,5 +1,4 @@
 import Flutter
-import flutter_sharing_intent
 import UIKit
 
 @objc class ConduitSceneDelegate: FlutterSceneDelegate {
@@ -68,7 +67,7 @@ import UIKit
     openURLContexts URLContexts: Set<UIOpenURLContext>
   ) {
     let unhandledContexts = Set(URLContexts.filter { context in
-      !handleShareUrl(context.url, setInitialData: false)
+      !handleShareUrl(context.url)
     })
 
     if !unhandledContexts.isEmpty {
@@ -79,35 +78,16 @@ import UIKit
   private func handleInitialShareUrlContexts(
     _ urlContexts: Set<UIOpenURLContext>
   ) {
-    for context in urlContexts where handleShareUrl(
-      context.url,
-      setInitialData: true
-    ) {
+    for context in urlContexts where handleShareUrl(context.url) {
       return
     }
   }
 
-  private func handleShareUrl(_ url: URL, setInitialData: Bool) -> Bool {
-    let plugin = SwiftFlutterSharingIntentPlugin.instance
-    guard plugin.hasSameSchemePrefix(url: url) else { return false }
-    defer {
-      (UIApplication.shared.delegate as? AppDelegate)?.notifyShareImportEvent()
-    }
-
-    if setInitialData {
-      let launchOptions: [AnyHashable: Any] = [
-        UIApplication.LaunchOptionsKey.url: url,
-      ]
-      return plugin.application(
-        UIApplication.shared,
-        didFinishLaunchingWithOptions: launchOptions
-      )
-    }
-
-    return plugin.application(
-      UIApplication.shared,
-      open: url,
-      options: [:]
-    )
+  private func handleShareUrl(_ url: URL) -> Bool {
+    guard let bundleIdentifier = Bundle.main.bundleIdentifier,
+          url.absoluteString.hasPrefix("SharingMedia-\(bundleIdentifier)")
+    else { return false }
+    (UIApplication.shared.delegate as? AppDelegate)?.notifyShareImportEvent()
+    return true
   }
 }

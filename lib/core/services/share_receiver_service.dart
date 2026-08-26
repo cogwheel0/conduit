@@ -6,8 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_sharing_intent/flutter_sharing_intent.dart';
-import 'package:flutter_sharing_intent/model/sharing_file.dart';
+import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../features/auth/providers/unified_auth_providers.dart';
@@ -33,7 +32,6 @@ const int _nativeShareImportMaxPollAttempts = 240;
 const String _nativeShareImportTimedOutMessage =
     'Could not finish importing shared attachments. Please try sharing again.';
 const _androidShareTextChannel = MethodChannel('conduit/share_receiver_text');
-const _sharingIntentChannel = MethodChannel('flutter_sharing_intent');
 
 enum SharedPayloadProcessResult { processed, consumed, retry }
 
@@ -244,7 +242,7 @@ class SharedPayload {
   }
 
   factory SharedPayload.fromSharedFiles(
-    List<SharedFile> files, {
+    List<SharedMediaFile> files, {
     String? extraText,
   }) {
     final textParts = <String>[];
@@ -279,14 +277,14 @@ class SharedPayload {
     addText(extraText);
     for (final file in files) {
       addText(file.message);
-      final mainPath = _normalizeSharedFilePath(file.value);
+      final mainPath = _normalizeSharedFilePath(file.path);
       deleteIgnoredSidecar(file.thumbnail, mainPath);
       switch (_sharedFileKind(file)) {
         case _SharedFileKind.text:
-          addText(file.value);
+          addText(file.path);
           break;
         case _SharedFileKind.file:
-          addFilePath(file.value);
+          addFilePath(file.path);
           break;
       }
     }
@@ -589,7 +587,7 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
 
   Future<void> resetSharedIntent() async {
     try {
-      await _sharingIntentChannel.invokeMethod<void>('reset');
+      await ReceiveSharingIntent.instance.reset();
     } catch (error) {
       DebugLogger.log(
         'ShareReceiver: failed to reset shared intent',
@@ -946,7 +944,7 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
     }
   };
 
-  Future<void> setPendingFromSharedMedia(List<SharedFile> media) async {
+  Future<void> setPendingFromSharedMedia(List<SharedMediaFile> media) async {
     final extraText = await takePendingAndroidMultipleShareText();
     final payload = SharedPayload.fromSharedFiles(media, extraText: extraText);
     if (!payload.hasAnything) {
@@ -1114,7 +1112,7 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
       try {
         await maybeStartNativeShareImportPolling();
         if (Platform.isAndroid) {
-          final media = await FlutterSharingIntent.instance.getInitialSharing();
+          final media = await ReceiveSharingIntent.instance.getInitialMedia();
           await setPendingFromSharedMedia(media);
         }
       } catch (error) {
@@ -1127,8 +1125,9 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
     });
 
     // Handle subsequent shares while app is alive
-    final StreamSubscription<List<SharedFile>>? streamSub = Platform.isAndroid
-        ? FlutterSharingIntent.instance.getMediaStream().listen((media) {
+    final StreamSubscription<List<SharedMediaFile>>? streamSub =
+        Platform.isAndroid
+        ? ReceiveSharingIntent.instance.getMediaStream().listen((media) {
             unawaited(
               (() async {
                 try {
@@ -1155,24 +1154,14 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
 
 enum _SharedFileKind { text, file }
 
-_SharedFileKind _sharedFileKind(SharedFile file) {
+_SharedFileKind _sharedFileKind(SharedMediaFile file) {
   switch (file.type) {
-    case SharedMediaType.TEXT:
-    case SharedMediaType.URL:
-    case SharedMediaType.WEB_SEARCH:
+    case SharedMediaType.text:
+    case SharedMediaType.url:
       return _SharedFileKind.text;
-    case SharedMediaType.IMAGE:
-    case SharedMediaType.VIDEO:
-    case SharedMediaType.FILE:
-      return _SharedFileKind.file;
-    case SharedMediaType.OTHER:
-      final mimeType = file.mimeType?.toLowerCase();
-      final value = file.value?.trim();
-      if (mimeType?.startsWith('text/') == true ||
-          value?.startsWith('http://') == true ||
-          value?.startsWith('https://') == true) {
-        return _SharedFileKind.text;
-      }
+    case SharedMediaType.image:
+    case SharedMediaType.video:
+    case SharedMediaType.file:
       return _SharedFileKind.file;
   }
 }
@@ -1413,7 +1402,7 @@ Future<Directory?> _resolveLegacyPluginSourceRoot({
   NativeShareStagingRootResolver? nativeStagingRootResolver,
 }) async {
   if (Platform.isAndroid) {
-    // flutter_sharing_intent materializes Android content URIs into the app's
+    // receive_sharing_intent materializes Android content URIs into the app's
     // cache directory, exposed to Dart as Directory.systemTemp.
     return Directory.systemTemp;
   }
