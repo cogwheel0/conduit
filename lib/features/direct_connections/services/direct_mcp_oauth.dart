@@ -317,7 +317,10 @@ final class DirectMcpOAuthCoordinator {
       tokenEndpoint,
       ?authorization.registrationEndpoint,
     ]) {
-      _requireSecureUri(uri, allowLoopbackHttp: isDirectLoopbackHost(uri.host));
+      _requireSecureUri(
+        uri,
+        allowLoopbackHttp: isDirectLoopbackHost(issuer.host),
+      );
     }
     if (authorization.codeChallengeMethodsSupported?.contains('S256') != true) {
       throw const DirectMcpOAuthException(
@@ -396,16 +399,30 @@ final class DirectMcpOAuthCoordinator {
         'This OAuth server registered a confidential client, which Conduit does not support.',
       );
     }
+    final registeredRedirects = response['redirect_uris'];
+    if (registeredRedirects != null &&
+        (registeredRedirects is! List ||
+            registeredRedirects.any((value) => value is! String) ||
+            !registeredRedirects.contains(redirectUri.toString()))) {
+      throw const DirectMcpOAuthException(
+        'Dynamic client registration changed the OAuth callback URI.',
+      );
+    }
     return clientId;
   }
 
   Future<_OAuthCallback> _receiveCallback(_PendingOAuthFlow flow) async {
     final deadline = Stopwatch()..start();
-    HttpRequest request;
     try {
-      request = await Future.any([
-        flow.listener.first,
-        flow.cancelled.future.then<HttpRequest>(
+      return await Future.any([
+        flow.listener
+            .asyncMap(
+              (request) => _readCallbackRequest(flow, request, deadline),
+            )
+            .where((callback) => callback != null)
+            .cast<_OAuthCallback>()
+            .first,
+        flow.cancelled.future.then<_OAuthCallback>(
           (_) => throw const DirectMcpOAuthException(
             'The MCP OAuth connection was cancelled.',
           ),
@@ -415,7 +432,16 @@ final class DirectMcpOAuthCoordinator {
       throw const DirectMcpOAuthException(
         'The MCP OAuth connection timed out. Try again.',
       );
+    } finally {
+      await flow.listener.close(force: true);
     }
+  }
+
+  Future<_OAuthCallback?> _readCallbackRequest(
+    _PendingOAuthFlow flow,
+    HttpRequest request,
+    Stopwatch deadline,
+  ) async {
     var accepted = false;
     try {
       final callbackSize = utf8.encode(request.uri.toString()).length;
@@ -424,58 +450,7 @@ final class DirectMcpOAuthCoordinator {
           request.requestedUri.host != '127.0.0.1' ||
           request.requestedUri.port != flow.redirectUri.port ||
           callbackSize > _maxCallbackBytes) {
-        throw const DirectMcpOAuthException(
-          'The MCP OAuth callback was rejected.',
-        );
-      }
-      final all = request.uri.queryParametersAll;
-      if (all.values.any((values) => values.length != 1) ||
-          all.keys.any(
-            (key) => !const {
-              'code',
-              'state',
-              'iss',
-              'error',
-              'error_description',
-            }.contains(key),
-          )) {
-        throw const DirectMcpOAuthException(
-          'The MCP OAuth callback was rejected.',
-        );
-      }
-      if (all.containsKey('error')) {
-        throw const DirectMcpOAuthException(
-          'The OAuth server declined authorization.',
-        );
-      }
-      final state = request.uri.queryParameters['state'];
-      final code = request.uri.queryParameters['code'];
-      final issuer = request.uri.queryParameters['iss'];
-      final metadata = flow.metadata!;
-      if (state == null ||
-          state != flow.state ||
-          code == null ||
-          code.isEmpty) {
-        throw const DirectMcpOAuthException(
-          'The MCP OAuth callback did not match the pending connection.',
-        );
-      }
-      if (_now().toUtc().isAfter(flow.expiresAt)) {
-        throw const DirectMcpOAuthException(
-          'The MCP OAuth connection expired. Try again.',
-        );
-      }
-      if ((metadata.authorizationResponseIssParameterSupported &&
-              issuer == null) ||
-          (issuer != null && issuer != metadata.issuer.toString())) {
-        throw const DirectMcpOAuthException(
-          'The MCP OAuth callback issuer did not match.',
-        );
-      }
-      if (code.length > 4096 || containsForbiddenCredentialCharacter(code)) {
-        throw const DirectMcpOAuthException(
-          'The MCP OAuth callback code was invalid.',
-        );
+        return null;
       }
       final remaining = flowTimeout - deadline.elapsed;
       if (remaining <= Duration.zero) {
@@ -498,11 +473,7 @@ final class DirectMcpOAuthCoordinator {
       try {
         while (await iterator.moveNext()) {
           bodyBytes += iterator.current.length;
-          if (bodyBytes > _maxCallbackBytes) {
-            throw const DirectMcpOAuthException(
-              'The MCP OAuth callback was rejected.',
-            );
-          }
+          if (bodyBytes > _maxCallbackBytes) return null;
           if (deadline.elapsed >= flowTimeout) {
             throw const DirectMcpOAuthException(
               'The MCP OAuth connection timed out. Try again.',
@@ -514,9 +485,48 @@ final class DirectMcpOAuthCoordinator {
         await iterator.cancel();
       }
       if (bodyTimedOut) {
+        return null;
+      }
+      final all = request.uri.queryParametersAll;
+      if (all.values.any((values) => values.length != 1) ||
+          all.keys.any(
+            (key) => !const {
+              'code',
+              'state',
+              'iss',
+              'error',
+              'error_description',
+            }.contains(key),
+          )) {
+        return null;
+      }
+      if (all.containsKey('error')) {
         throw const DirectMcpOAuthException(
-          'The MCP OAuth connection timed out. Try again.',
+          'The OAuth server declined authorization.',
         );
+      }
+      final state = request.uri.queryParameters['state'];
+      final code = request.uri.queryParameters['code'];
+      final issuer = request.uri.queryParameters['iss'];
+      final metadata = flow.metadata!;
+      if (state == null ||
+          state != flow.state ||
+          code == null ||
+          code.isEmpty) {
+        return null;
+      }
+      if (_now().toUtc().isAfter(flow.expiresAt)) {
+        throw const DirectMcpOAuthException(
+          'The MCP OAuth connection expired. Try again.',
+        );
+      }
+      if ((metadata.authorizationResponseIssParameterSupported &&
+              issuer == null) ||
+          (issuer != null && issuer != metadata.issuer.toString())) {
+        return null;
+      }
+      if (code.length > 4096 || containsForbiddenCredentialCharacter(code)) {
+        return null;
       }
       accepted = true;
       return _OAuthCallback(code);
@@ -530,7 +540,6 @@ final class DirectMcpOAuthCoordinator {
               : 'Authorization rejected. Return to Conduit.',
         );
       await request.response.close();
-      await flow.listener.close(force: true);
     }
   }
 

@@ -192,6 +192,34 @@ void main() {
     expect(find.byKey(const Key('direct-mcp-prompt-explain')), findsOneWidget);
     expect(find.text('No insertion'), findsOneWidget);
   });
+
+  testWidgets('starting another preview aborts the previous request', (
+    tester,
+  ) async {
+    final firstAborted = Completer<void>();
+    final container = await _container(
+      inventoryLoader: (server) async =>
+          _inventory(server, arguments: const []),
+      promptLoader: (server, prompt, arguments, signal) {
+        signal.onAbort.first.then((_) => firstAborted.complete());
+        return Completer<DirectMcpPromptPreview>().future;
+      },
+      resourceLoader: (server, resource, signal) =>
+          Completer<DirectMcpResourcePreview>().future,
+    );
+    addTearDown(container.dispose);
+    await _pumpHost(tester, container);
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('direct-mcp-prompt-explain')));
+    await tester.tap(
+      find.byKey(const Key('direct-mcp-resource-file:///notes.txt')),
+    );
+    await tester.pump();
+
+    await firstAborted.future.timeout(const Duration(seconds: 2));
+  });
 }
 
 Future<ProviderContainer> _container({

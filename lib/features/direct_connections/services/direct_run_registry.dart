@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 
+import 'package:uuid/uuid.dart';
+
 import '../../../core/models/chat_message.dart';
 import '../models/direct_completion.dart';
 import '../models/direct_mcp_server.dart';
@@ -54,7 +56,6 @@ final class DirectRunRegistry {
   _retainedFinalizedOutputs = LinkedHashMap();
   int _retainedFinalizedOutputBytes = 0;
   bool _admissionBlocked = false;
-  int _nextApprovalId = 0;
 
   DirectCompletionRun? runFor(DirectRunKey key) => _runs[key];
 
@@ -364,6 +365,13 @@ final class DirectRunRegistry {
       );
   }
 
+  bool isMcpServerCurrent(DirectMcpServer expected) {
+    final current = _mcpServers[expected.id];
+    return current != null &&
+        current.enabled &&
+        sameDirectMcpApprovalConfiguration(current, expected);
+  }
+
   DirectToolApprovalHandle requestMcpApproval(
     DirectRunReservation reservation, {
     required String callId,
@@ -400,7 +408,7 @@ final class DirectRunRegistry {
         ? argumentsJson
         : '${argumentsJson.substring(0, kMaxDirectMcpApprovalArgumentCharacters - truncationMarker.length)}$truncationMarker';
     final request = DirectToolApprovalRequest(
-      id: 'mcp-approval-${++_nextApprovalId}',
+      id: 'mcp-approval-${const Uuid().v4()}',
       serverName: definition.serverName,
       toolName: definition.displayName,
       callId: callId,

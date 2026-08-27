@@ -2025,13 +2025,27 @@ void _appendChatToolCallFragments(
       return _ChatToolCallBuilder();
     });
     final id = call['id'];
-    if (id != null) builder.id.write(id.toString());
+    if (id != null) {
+      final fragment = id.toString();
+      builder.idBytes += utf8.encode(fragment).length;
+      if (builder.idBytes > _maxProviderToolCallIdentityBytes) {
+        throw const FormatException('Provider tool call identity is invalid.');
+      }
+      builder.id.write(fragment);
+    }
     final function = _stringMap(call['function']);
     if (function == null) {
       throw const FormatException('Provider tool call function is missing.');
     }
     final name = function['name'];
-    if (name != null) builder.name.write(name.toString());
+    if (name != null) {
+      final fragment = name.toString();
+      builder.nameBytes += utf8.encode(fragment).length;
+      if (builder.nameBytes > _maxProviderToolNameBytes) {
+        throw const FormatException('Provider tool call identity is invalid.');
+      }
+      builder.name.write(fragment);
+    }
     final rawArguments = function['arguments'];
     if (rawArguments != null) {
       final arguments = rawArguments is String
@@ -2066,6 +2080,8 @@ final class _ChatToolCallBuilder {
   final StringBuffer name = StringBuffer();
   final StringBuffer arguments = StringBuffer();
   int argumentBytes = 0;
+  int idBytes = 0;
+  int nameBytes = 0;
 
   _ChatToolCall build() {
     final callId = id.toString().trim();
@@ -2260,14 +2276,15 @@ final class _ResponsesToolCallBuilder {
   void setCallId(String value) => _callId = _setIdentity(_callId, value);
 
   void setName(String value) {
-    if (value.length > 64) {
+    if (utf8.encode(value).length > _maxProviderToolNameBytes) {
       throw const FormatException('Provider tool call identity is invalid.');
     }
     _name = _setIdentity(_name, value);
   }
 
   String _setIdentity(String? current, String value) {
-    if (value.trim().isEmpty || value.length > 512) {
+    if (value.trim().isEmpty ||
+        utf8.encode(value).length > _maxProviderToolCallIdentityBytes) {
       throw const FormatException('Provider tool call identity is invalid.');
     }
     if (current != null && current != value) {
@@ -2311,6 +2328,9 @@ final class _ResponsesToolCallBuilder {
     );
   }
 }
+
+const int _maxProviderToolCallIdentityBytes = 512;
+const int _maxProviderToolNameBytes = 64;
 
 final class _ResponsesReplayBudget {
   int _items = 0;

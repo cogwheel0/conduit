@@ -64,7 +64,7 @@ void main() {
     expect((await store.load()).single.oauthTokens?.accessToken, 'access-one');
   });
 
-  test('rejects a state mismatch before token exchange', () async {
+  test('ignores a state mismatch before the valid callback', () async {
     final fixture = await _OAuthFixture.start();
     addTearDown(fixture.close);
     final store = _store();
@@ -72,67 +72,52 @@ void main() {
     final coordinator = DirectMcpOAuthCoordinator(
       store: store,
       launchBrowser: (uri) async {
-        unawaited(
-          _deliverCallback(
-            uri,
-            state: 'wrong-state',
-            issuer: fixture.issuer.toString(),
-          ).catchError((_) {}),
-        );
+        unawaited(() async {
+          await expectLater(
+            _deliverCallback(
+              uri,
+              state: 'wrong-state',
+              issuer: fixture.issuer.toString(),
+            ),
+            throwsStateError,
+          );
+          await _deliverCallback(uri, issuer: fixture.issuer.toString());
+        }());
         return true;
       },
     );
     addTearDown(coordinator.close);
 
-    await expectLater(
-      coordinator.connect(server),
-      throwsA(
-        isA<DirectMcpOAuthException>().having(
-          (error) => error.message,
-          'message',
-          contains('did not match'),
-        ),
-      ),
-    );
+    final connected = await coordinator.connect(server);
 
-    expect(fixture.tokenForms, isEmpty);
-    expect((await store.load()).single.oauthTokens, isNull);
+    expect(connected.oauthTokens?.accessToken, 'access-one');
+    expect(fixture.tokenForms, hasLength(1));
   });
 
-  test(
-    'requires RFC 9207 iss when advertised and rejects a mismatch',
-    () async {
-      final fixture = await _OAuthFixture.start();
-      addTearDown(fixture.close);
-      final store = _store();
-      final server = await _saveOAuthServer(store, fixture.endpoint);
-      final coordinator = DirectMcpOAuthCoordinator(
-        store: store,
-        launchBrowser: (uri) async {
-          unawaited(
-            _deliverCallback(
-              uri,
-              issuer: 'https://wrong.example',
-            ).catchError((_) {}),
+  test('requires RFC 9207 iss and ignores a mismatched callback', () async {
+    final fixture = await _OAuthFixture.start();
+    addTearDown(fixture.close);
+    final store = _store();
+    final server = await _saveOAuthServer(store, fixture.endpoint);
+    final coordinator = DirectMcpOAuthCoordinator(
+      store: store,
+      launchBrowser: (uri) async {
+        unawaited(() async {
+          await expectLater(
+            _deliverCallback(uri, issuer: 'https://wrong.example'),
+            throwsStateError,
           );
-          return true;
-        },
-      );
-      addTearDown(coordinator.close);
+          await _deliverCallback(uri, issuer: fixture.issuer.toString());
+        }());
+        return true;
+      },
+    );
+    addTearDown(coordinator.close);
 
-      await expectLater(
-        coordinator.connect(server),
-        throwsA(
-          isA<DirectMcpOAuthException>().having(
-            (error) => error.message,
-            'message',
-            contains('issuer'),
-          ),
-        ),
-      );
-      expect(fixture.tokenForms, isEmpty);
-    },
-  );
+    final connected = await coordinator.connect(server);
+    expect(connected.oauthTokens?.accessToken, 'access-one');
+    expect(fixture.tokenForms, hasLength(1));
+  });
 
   test('rejects insecure authorization-server discovery', () async {
     final fixture = await _OAuthFixture.start(
@@ -291,6 +276,31 @@ void main() {
     expect(browserOpened, isFalse);
     expect(fixture.registrationBodies, hasLength(1));
     expect((await store.load()).single.oauthTokens, isNull);
+  });
+
+  test('rejects a registration that changes the callback URI', () async {
+    final fixture = await _OAuthFixture.start(
+      changeRegisteredRedirectUri: true,
+    );
+    addTearDown(fixture.close);
+    final store = _store();
+    final server = await _saveOAuthServer(store, fixture.endpoint);
+    var browserOpened = false;
+    final coordinator = DirectMcpOAuthCoordinator(
+      store: store,
+      launchBrowser: (_) async {
+        browserOpened = true;
+        return true;
+      },
+    );
+    addTearDown(coordinator.close);
+
+    await expectLater(
+      coordinator.connect(server),
+      throwsA(isA<DirectMcpOAuthException>()),
+    );
+    expect(browserOpened, isFalse);
+    expect(fixture.tokenForms, isEmpty);
   });
 
   test('requires explicit public-client token endpoint support', () async {
@@ -604,6 +614,7 @@ final class _OAuthFixture {
     required this.mismatchedMetadataIssuer,
     required this.omitTokenAuthMethods,
     required this.registeredAuthMethod,
+    required this.changeRegisteredRedirectUri,
     required this.invalidGrant,
     required this.holdRefresh,
     required this.rotateRefreshToken,
@@ -617,6 +628,7 @@ final class _OAuthFixture {
   final bool mismatchedMetadataIssuer;
   final bool omitTokenAuthMethods;
   final String registeredAuthMethod;
+  final bool changeRegisteredRedirectUri;
   final bool invalidGrant;
   final bool holdRefresh;
   final bool rotateRefreshToken;
@@ -638,6 +650,7 @@ final class _OAuthFixture {
     bool mismatchedMetadataIssuer = false,
     bool omitTokenAuthMethods = false,
     String registeredAuthMethod = 'none',
+    bool changeRegisteredRedirectUri = false,
     bool invalidGrant = false,
     bool holdRefresh = false,
     bool rotateRefreshToken = false,
@@ -654,6 +667,7 @@ final class _OAuthFixture {
       mismatchedMetadataIssuer: mismatchedMetadataIssuer,
       omitTokenAuthMethods: omitTokenAuthMethods,
       registeredAuthMethod: registeredAuthMethod,
+      changeRegisteredRedirectUri: changeRegisteredRedirectUri,
       invalidGrant: invalidGrant,
       holdRefresh: holdRefresh,
       rotateRefreshToken: rotateRefreshToken,
@@ -718,9 +732,9 @@ final class _OAuthFixture {
       return;
     }
     if (request.method == 'POST' && request.uri.path == '/register') {
-      registrationBodies.add(
-        jsonDecode(await utf8.decodeStream(request)) as Map<String, dynamic>,
-      );
+      final registration =
+          jsonDecode(await utf8.decodeStream(request)) as Map<String, dynamic>;
+      registrationBodies.add(registration);
       request.response
         ..statusCode = HttpStatus.created
         ..headers.contentType = ContentType.json
@@ -728,6 +742,9 @@ final class _OAuthFixture {
           jsonEncode({
             'client_id': 'public-client-id',
             'token_endpoint_auth_method': registeredAuthMethod,
+            'redirect_uris': changeRegisteredRedirectUri
+                ? ['http://127.0.0.1/wrong']
+                : registration['redirect_uris'],
           }),
         );
       await request.response.close();

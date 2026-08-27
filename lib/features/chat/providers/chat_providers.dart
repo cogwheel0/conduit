@@ -9017,13 +9017,16 @@ Future<void> _regenerateDirectMessage(
       ? null
       : _directRegenerationCompletedBase(visiblePreviousAssistant);
   final assistantId = previousAssistant?.id ?? const Uuid().v4();
-  final metadata = <String, dynamic>{
-    ...?previousAssistant?.metadata,
-    'parentId': existing[userIndex].id,
-    'childrenIds': const <String>[],
-    'transport': kDirectTransport,
-    'modelName': route.model.name,
-  }..remove('archivedVariant');
+  final metadata =
+      <String, dynamic>{
+          ...?previousAssistant?.metadata,
+          'parentId': existing[userIndex].id,
+          'childrenIds': const <String>[],
+          'transport': kDirectTransport,
+          'modelName': route.model.name,
+        }
+        ..remove('archivedVariant')
+        ..remove(kDirectMcpApprovalMetadataKey);
   final assistant = ChatMessage(
     id: assistantId,
     role: 'assistant',
@@ -16220,6 +16223,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     final serversById = <String, DirectMcpServer>{
       for (final server in servers) server.id: server,
     };
+    registry.synchronizeMcpServers(servers);
     final selectedServers = <DirectMcpServer>[];
     final seen = <String>{};
     for (final selection in localMcpToolIds) {
@@ -16256,6 +16260,10 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
       );
     }
     final session = mcpSession!;
+    final toolServersByName = {
+      for (final definition in session.definitions)
+        definition.modelName: serversById[definition.serverId]!,
+    };
     toolRuntime = DirectToolRuntime(
       definitions: <DirectToolDefinition>[
         for (final definition in session.definitions)
@@ -16270,15 +16278,29 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
             inputSchema: definition.inputSchema,
           ),
       ],
-      requestApproval: (callId, definition, arguments) =>
-          registry.requestMcpApproval(
-            reservation,
-            callId: callId,
-            definition: definition,
-            arguments: arguments,
-            expectedServer: serversById[definition.serverId]!,
-          ),
+      requestApproval: (callId, definition, arguments) {
+        final expectedServer = serversById[definition.serverId]!;
+        if (!registry.isMcpServerCurrent(expectedServer)) {
+          throw const DirectProviderException(
+            'The MCP server changed. Start a new model turn.',
+          );
+        }
+        return registry.requestMcpApproval(
+          reservation,
+          callId: callId,
+          definition: definition,
+          arguments: arguments,
+          expectedServer: expectedServer,
+        );
+      },
       execute: (name, arguments) async {
+        final expectedServer = toolServersByName[name];
+        if (expectedServer == null ||
+            !registry.isMcpServerCurrent(expectedServer)) {
+          throw const DirectProviderException(
+            'The MCP server changed. Start a new model turn.',
+          );
+        }
         final result = await session.execute(name, arguments);
         return DirectToolResult(text: result.text, isError: result.isError);
       },

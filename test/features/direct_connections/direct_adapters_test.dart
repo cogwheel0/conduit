@@ -5705,6 +5705,78 @@ void main() {
     }
   });
 
+  test('OpenAI Chat bounds streamed tool call identities', () async {
+    final fragment = 'x' * 300;
+    final replies = [
+      _Reply.stream([
+        for (var index = 0; index < 2; index++)
+          utf8.encode(
+            'data: ${jsonEncode({
+              'choices': [
+                {
+                  'delta': {
+                    'tool_calls': [
+                      {
+                        'index': 0,
+                        'id': fragment,
+                        'function': {'name': index == 0 ? 'mcp_deadbeef_weather' : null},
+                      },
+                    ],
+                  },
+                },
+              ],
+            })}\n\n',
+          ),
+      ], contentType: 'text/event-stream'),
+      _Reply.json({
+        'choices': [
+          {
+            'message': {
+              'role': 'assistant',
+              'tool_calls': [
+                {
+                  'id': 'call-1',
+                  'function': {'name': 'é' * 33, 'arguments': '{}'},
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    ];
+
+    for (final reply in replies) {
+      final http = _QueuedAdapter([reply]);
+      var executions = 0;
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+      final events = await adapter
+          .startCompletion(
+            _openAiProfile(),
+            DirectCompletionRequest(
+              remoteModelId: 'model',
+              messages: [DirectChatMessage.text(role: 'user', text: 'weather')],
+              tools: _localToolRuntime(
+                execute: (_) async {
+                  executions++;
+                  return const DirectToolResult(text: 'sunny');
+                },
+              ),
+            ),
+          )
+          .events
+          .toList();
+
+      expect(executions, 0);
+      expect(events.whereType<DirectToolCallStarted>(), isEmpty);
+      expect(events.whereType<DirectStreamDone>(), isEmpty);
+      expect(events.whereType<DirectStreamError>(), hasLength(1));
+      expect(http.requests, hasLength(1));
+    }
+  });
+
   test('OpenAI Chat denies a pending approval after its timeout', () async {
     final http = _QueuedAdapter([
       _Reply.json({

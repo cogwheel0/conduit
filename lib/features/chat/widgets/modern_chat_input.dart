@@ -1114,12 +1114,17 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   Future<void> _openDirectMcpContent() async {
+    if (!widget.enabled) return;
     final selection = _controller.selection;
     _dismissFallbackAttachmentPanel();
     await _hideNativeKeyboardAttachmentPanel();
     if (!mounted || _isDeactivated) return;
     final content = await DirectMcpContentSheet.show(context);
-    if (!mounted || _isDeactivated || content == null || content.isEmpty) {
+    if (!mounted ||
+        _isDeactivated ||
+        !widget.enabled ||
+        content == null ||
+        content.isEmpty) {
       return;
     }
     final restored = _controller.value.copyWith(selection: selection);
@@ -3076,7 +3081,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final directMcpToolsAsync = isDirectComposer
         ? ref.watch(directMcpToolsProvider)
         : const AsyncData<List<Tool>>([]);
-    if (isDirectComposer) ref.watch(directMcpServersProvider);
+    if (isDirectComposer) {
+      ref.listen<AsyncValue<List<Tool>>>(directMcpToolsProvider, (
+        previous,
+        next,
+      ) {
+        _scheduleNativeKeyboardAttachmentSync();
+      });
+      ref.watch(directMcpServersProvider);
+    }
     final bool showWebPill = selectedQuickPills.contains('web');
     final bool showImagePillPref = selectedQuickPills.contains('image');
     final voiceAvailableAsync = ref.watch(voiceInputAvailableProvider);

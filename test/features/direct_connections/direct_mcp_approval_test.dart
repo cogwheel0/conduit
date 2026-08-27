@@ -175,6 +175,34 @@ void main() {
     },
   );
 
+  test('approval identities are not reused across registries', () {
+    String requestId(DirectRunRegistry registry) => registry
+        .requestMcpApproval(
+          registry.reserve(key, 'profile'),
+          callId: 'call-1',
+          definition: definition,
+          arguments: const {},
+          expectedServer: server,
+        )
+        .request
+        .id;
+
+    expect(
+      requestId(DirectRunRegistry()),
+      isNot(requestId(DirectRunRegistry())),
+    );
+  });
+
+  test('current MCP server ownership rejects disabled or changed servers', () {
+    final registry = DirectRunRegistry()..synchronizeMcpServers([server]);
+
+    expect(registry.isMcpServerCurrent(server), isTrue);
+    registry.synchronizeMcpServers([server.copyWith(enabled: false)]);
+    expect(registry.isMcpServerCurrent(server), isFalse);
+    registry.synchronizeMcpServers(const []);
+    expect(registry.isMcpServerCurrent(server), isFalse);
+  });
+
   test('replacement and profile cancellation deny pending approvals', () async {
     final registry = DirectRunRegistry();
     final replaced = registry.reserve(key, 'profile');

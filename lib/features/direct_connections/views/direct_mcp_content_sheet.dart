@@ -116,6 +116,7 @@ class _DirectMcpContentSheetState extends ConsumerState<DirectMcpContentSheet> {
   ) async {
     final generation = ++_requestGeneration;
     final abort = mcp.BasicAbortController();
+    _abort?.abort();
     _abort = abort;
     setState(() {
       _loading = true;
