@@ -177,6 +177,10 @@ final class DirectMcpServerStore {
   });
 
   Future<List<DirectMcpServer>> _persist(List<DirectMcpServer> servers) async {
+    if (servers.where((server) => server.enabled).length >
+        kDirectMcpMaxServers) {
+      throw const FormatException('At most 8 MCP servers may be enabled.');
+    }
     final document = DirectMcpServersDocument(servers);
     await _storage.saveDirectMcpServers(document.encode());
     return document.servers;

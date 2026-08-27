@@ -244,6 +244,18 @@ void main() {
       ).validate(),
       throwsFormatException,
     );
+    expect(
+      () => DirectMcpServer(
+        id: 'wrong-resource-query',
+        name: 'Wrong resource query',
+        endpoint: 'https://resource.example/mcp?tenant=two',
+        authMode: DirectMcpAuthMode.oauth,
+        oauthTokens: _oauthTokens(
+          resource: 'https://resource.example/mcp?tenant=one',
+        ),
+      ).validate(),
+      throwsFormatException,
+    );
   });
 
   test('document rejects duplicate ids', () {
@@ -316,6 +328,15 @@ void main() {
         id: 'loopback',
         name: 'Loopback',
         endpoint: 'http://127.0.0.1:3000/mcp',
+        bearerToken: 'secret',
+      ).validate,
+      returnsNormally,
+    );
+    expect(
+      DirectMcpServer(
+        id: 'ipv6-loopback',
+        name: 'IPv6 loopback',
+        endpoint: 'http://[0:0:0:0:0:0:0:1]:3000/mcp',
         bearerToken: 'secret',
       ).validate,
       returnsNormally,
@@ -498,6 +519,34 @@ void main() {
     },
   );
 
+  test('store limits enabled MCP servers to the session maximum', () async {
+    final store = DirectMcpServerStore(
+      SecureCredentialStorage(instance: const FlutterSecureStorage()),
+    );
+
+    for (var index = 0; index < kDirectMcpMaxServers; index++) {
+      await store.upsert(
+        DirectMcpServer(
+          id: 'server_$index',
+          name: 'Server $index',
+          endpoint: 'https://server$index.example/mcp',
+        ),
+      );
+    }
+
+    await expectLater(
+      store.upsert(
+        DirectMcpServer(
+          id: 'overflow',
+          name: 'Overflow',
+          endpoint: 'https://overflow.example/mcp',
+        ),
+      ),
+      throwsFormatException,
+    );
+    expect(await store.load(), hasLength(kDirectMcpMaxServers));
+  });
+
   test(
     'store remembers, prunes, and conflicts on configuration drift',
     () async {
@@ -578,6 +627,28 @@ void main() {
     }
 
     expect(output.toString(), isNot(contains(secret)));
+  });
+
+  test('fractional schema versions are rejected', () {
+    final server = DirectMcpServer(
+      id: 'server',
+      name: 'Server',
+      endpoint: 'https://server.example/mcp',
+    ).toJson();
+
+    expect(
+      () => DirectMcpServer.fromJson({...server, 'schemaVersion': 3.5}),
+      throwsFormatException,
+    );
+    expect(
+      () => DirectMcpServersDocument.decode(
+        jsonEncode({
+          'version': 3.5,
+          'servers': [server],
+        }),
+      ),
+      throwsFormatException,
+    );
   });
 }
 

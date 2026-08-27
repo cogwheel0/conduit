@@ -987,7 +987,8 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
             );
           }
         }
-        usage = _mergeOpenRouterPipelineUsage(usage, payload['usage']);
+        final rawUsage = payload['usage'];
+        if (rawUsage is Map) usage = rawUsage.cast<String, dynamic>();
       }
     } on DirectStreamDrainException {
       if (!sawDone) rethrow;
@@ -2033,31 +2034,36 @@ void _appendChatToolCallFragments(
       }
       builder.id.write(fragment);
     }
-    final function = _stringMap(call['function']);
-    if (function == null) {
-      throw const FormatException('Provider tool call function is missing.');
-    }
-    final name = function['name'];
-    if (name != null) {
-      final fragment = name.toString();
-      builder.nameBytes += utf8.encode(fragment).length;
-      if (builder.nameBytes > _maxProviderToolNameBytes) {
-        throw const FormatException('Provider tool call identity is invalid.');
+    final rawFunction = call['function'];
+    if (rawFunction != null) {
+      final function = _stringMap(rawFunction);
+      if (function == null) {
+        throw const FormatException('Provider tool call function is invalid.');
       }
-      builder.name.write(fragment);
-    }
-    final rawArguments = function['arguments'];
-    if (rawArguments != null) {
-      final arguments = rawArguments is String
-          ? rawArguments
-          : jsonEncode(rawArguments);
-      builder.argumentBytes += utf8.encode(arguments).length;
-      if (builder.argumentBytes > kDirectMaxToolArgumentBytes) {
-        throw const DirectProviderException(
-          'Provider tool arguments are too large.',
-        );
+      final name = function['name'];
+      if (name != null) {
+        final fragment = name.toString();
+        builder.nameBytes += utf8.encode(fragment).length;
+        if (builder.nameBytes > _maxProviderToolNameBytes) {
+          throw const FormatException(
+            'Provider tool call identity is invalid.',
+          );
+        }
+        builder.name.write(fragment);
       }
-      builder.arguments.write(arguments);
+      final rawArguments = function['arguments'];
+      if (rawArguments != null) {
+        final arguments = rawArguments is String
+            ? rawArguments
+            : jsonEncode(rawArguments);
+        builder.argumentBytes += utf8.encode(arguments).length;
+        if (builder.argumentBytes > kDirectMaxToolArgumentBytes) {
+          throw const DirectProviderException(
+            'Provider tool arguments are too large.',
+          );
+        }
+        builder.arguments.write(arguments);
+      }
     }
     fallbackIndex += 1;
   }

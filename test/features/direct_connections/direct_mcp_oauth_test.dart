@@ -24,7 +24,13 @@ void main() {
       store: store,
       launchBrowser: (uri) async {
         authorizationUri = uri;
-        unawaited(_deliverCallback(uri, issuer: fixture.issuer.toString()));
+        unawaited(
+          _deliverCallback(
+            uri,
+            issuer: fixture.issuer.toString(),
+            extraQueryParameters: const {'session_state': 'browser-session'},
+          ),
+        );
         return true;
       },
     );
@@ -92,6 +98,27 @@ void main() {
 
     expect(connected.oauthTokens?.accessToken, 'access-one');
     expect(fixture.tokenForms, hasLength(1));
+  });
+
+  test('requests the exact scope advertised by the OAuth challenge', () async {
+    final fixture = await _OAuthFixture.start(challengeScope: 'tools.read');
+    addTearDown(fixture.close);
+    final store = _store();
+    final server = await _saveOAuthServer(store, fixture.endpoint);
+    late Uri authorizationUri;
+    final coordinator = DirectMcpOAuthCoordinator(
+      store: store,
+      launchBrowser: (uri) async {
+        authorizationUri = uri;
+        unawaited(_deliverCallback(uri, issuer: fixture.issuer.toString()));
+        return true;
+      },
+    );
+    addTearDown(coordinator.close);
+
+    await coordinator.connect(server);
+
+    expect(authorizationUri.queryParameters['scope'], 'tools.read');
   });
 
   test('requires RFC 9207 iss and ignores a mismatched callback', () async {
@@ -582,6 +609,7 @@ Future<void> _deliverCallback(
   Uri authorizationUri, {
   String? state,
   String? issuer,
+  Map<String, String> extraQueryParameters = const {},
 }) async {
   final redirectUri = Uri.parse(
     authorizationUri.queryParameters['redirect_uri']!,
@@ -589,6 +617,7 @@ Future<void> _deliverCallback(
   final response = await http.get(
     redirectUri.replace(
       queryParameters: {
+        ...extraQueryParameters,
         'code': 'authorization-code',
         'state': state ?? authorizationUri.queryParameters['state']!,
         'iss': ?issuer,
@@ -618,6 +647,7 @@ final class _OAuthFixture {
     required this.invalidGrant,
     required this.holdRefresh,
     required this.rotateRefreshToken,
+    required this.challengeScope,
   });
 
   final HttpServer server;
@@ -632,6 +662,7 @@ final class _OAuthFixture {
   final bool invalidGrant;
   final bool holdRefresh;
   final bool rotateRefreshToken;
+  final String? challengeScope;
   final List<String> discoveryPaths = [];
   final List<Map<String, dynamic>> registrationBodies = [];
   final List<Map<String, String>> tokenForms = [];
@@ -654,6 +685,7 @@ final class _OAuthFixture {
     bool invalidGrant = false,
     bool holdRefresh = false,
     bool rotateRefreshToken = false,
+    String? challengeScope,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     late _OAuthFixture fixture;
@@ -671,6 +703,7 @@ final class _OAuthFixture {
       invalidGrant: invalidGrant,
       holdRefresh: holdRefresh,
       rotateRefreshToken: rotateRefreshToken,
+      challengeScope: challengeScope,
     );
     return fixture;
   }
@@ -682,7 +715,7 @@ final class _OAuthFixture {
         ..statusCode = HttpStatus.unauthorized
         ..headers.set(
           HttpHeaders.wwwAuthenticateHeader,
-          'Bearer resource_metadata="${crossOriginProtectedMetadata ? 'https://attacker.example/prm' : origin.replace(path: '/prm')}"',
+          'Bearer resource_metadata="${crossOriginProtectedMetadata ? 'https://attacker.example/prm' : origin.replace(path: '/prm')}"${challengeScope == null ? '' : ', scope="$challengeScope"'}',
         );
       await request.response.close();
       return;

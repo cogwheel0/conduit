@@ -12,6 +12,7 @@ import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../models/direct_mcp_server.dart';
 import '../providers/direct_mcp_providers.dart';
+import '../services/direct_mcp_client.dart';
 import '../services/direct_mcp_oauth.dart';
 
 class DirectMcpServerEditorPage extends ConsumerStatefulWidget {
@@ -243,7 +244,19 @@ class _DirectMcpServerEditorPageState
       _message = l10n.directMcpTesting;
     });
     try {
-      final session = await ref.read(directMcpSessionBuilderProvider)([draft]);
+      final oauth = ref.read(directMcpOAuthCoordinatorProvider);
+      final credentialServer =
+          draft.authMode == DirectMcpAuthMode.oauth && draft.oauthTokens != null
+          ? _previous
+          : null;
+      final session = await DirectMcpToolSession.open(
+        [draft],
+        authorizationResolver: (server, {forceRefresh = false}) =>
+            oauth.accessTokenFor(
+              credentialServer ?? server,
+              forceRefresh: forceRefresh,
+            ),
+      );
       try {
         if (mounted) {
           setState(

@@ -220,6 +220,36 @@ void main() {
 
     await firstAborted.future.timeout(const Duration(seconds: 2));
   });
+
+  testWidgets('opening prompt arguments aborts an earlier preview', (
+    tester,
+  ) async {
+    final resourceAborted = Completer<void>();
+    final container = await _container(
+      inventoryLoader: (server) async => _inventory(server),
+      promptLoader: (server, prompt, arguments, signal) async =>
+          DirectMcpPromptPreview(messages: const []),
+      resourceLoader: (server, resource, signal) {
+        signal.onAbort.first.then((_) => resourceAborted.complete());
+        return Completer<DirectMcpResourcePreview>().future;
+      },
+    );
+    addTearDown(container.dispose);
+    await _pumpHost(tester, container);
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const Key('direct-mcp-resource-file:///notes.txt')),
+    );
+    await tester.tap(find.byKey(const Key('direct-mcp-prompt-explain')));
+    await tester.pump();
+
+    await resourceAborted.future.timeout(const Duration(seconds: 2));
+    expect(find.byKey(const Key('direct-mcp-argument-topic')), findsOneWidget);
+    expect(find.text('Continue'), findsOneWidget);
+    expect(find.text('Loading MCP content…'), findsNothing);
+  });
 }
 
 Future<ProviderContainer> _container({

@@ -55,6 +55,7 @@ class _DirectMcpContentSheetState extends ConsumerState<DirectMcpContentSheet> {
       unawaited(_loadPrompt(server, prompt, const {}));
       return;
     }
+    _cancelLoad();
     setState(() {
       _argumentServer = server;
       _argumentPrompt = prompt;

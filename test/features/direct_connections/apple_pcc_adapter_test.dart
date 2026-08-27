@@ -159,6 +159,30 @@ void main() {
     );
   });
 
+  test('PCC rejects local MCP tools before native dispatch', () {
+    final host = _FakePccHost();
+    final adapter = ApplePccAdapter(hostApi: host);
+
+    expect(
+      () => adapter.startCompletion(
+        DirectConnectionProfile.applePrivateCloudCompute(),
+        DirectCompletionRequest(
+          remoteModelId: kApplePccRemoteModelId,
+          messages: <DirectChatMessage>[
+            DirectChatMessage.text(role: 'user', text: 'Hello'),
+          ],
+          tools: DirectToolRuntime(
+            definitions: const [],
+            requestApproval: (_, _, _) => throw StateError('not called'),
+            execute: (_, _) => throw StateError('not called'),
+          ),
+        ),
+      ),
+      throwsA(isA<DirectProviderException>()),
+    );
+    expect(host.request, isNull);
+  });
+
   test('PCC reports a non-positive top_p accurately', () {
     final adapter = ApplePccAdapter(hostApi: _FakePccHost());
     expect(

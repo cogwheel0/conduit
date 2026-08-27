@@ -131,6 +131,9 @@ final class ApplePccAdapter implements DirectProviderAdapter, PccFlutterApi {
     }
     final name = _displayName(model);
     rejectUnsupportedDirectToolParameters(request.parameters);
+    if (request.tools != null) {
+      throw DirectProviderException('$name does not support local MCP tools.');
+    }
     if (request.enableWebSearch || request.enableImageGeneration) {
       throw DirectProviderException(
         '$name does not support that Direct capability.',

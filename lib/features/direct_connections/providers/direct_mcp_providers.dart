@@ -155,7 +155,14 @@ final class DirectMcpServersController
     final servers = await ref
         .read(directMcpServerStoreProvider)
         .pruneRememberedApprovals(expectedServers, validFingerprints);
-    _publish(servers, ref.read(directRunRegistryProvider));
+    final previous = state.asData?.value;
+    var changed = previous == null || previous.length != servers.length;
+    for (var index = 0; !changed && index < servers.length; index++) {
+      changed = !sameDirectMcpServerValues(previous![index], servers[index]);
+    }
+    if (changed) {
+      _publish(servers, ref.read(directRunRegistryProvider));
+    }
     return servers;
   });
 
@@ -360,20 +367,21 @@ final directMcpToolsProvider = FutureProvider<List<Tool>>((ref) async {
   try {
     return List.unmodifiable([
       for (final server in enabled)
-        Tool(
-          id: 'local_mcp:${server.id}',
-          name: server.name,
-          description: 'MCP tools available from this server.',
-          specs: [
-            for (final definition in session.definitions.where(
-              (tool) => tool.serverId == server.id,
-            ))
-              Map<String, dynamic>.from(
-                definition.toFunctionJson()['function']! as Map,
-              ),
-          ],
-          meta: const {'source': 'local_mcp'},
-        ),
+        if (session.definitions.any((tool) => tool.serverId == server.id))
+          Tool(
+            id: 'local_mcp:${server.id}',
+            name: server.name,
+            description: 'MCP tools available from this server.',
+            specs: [
+              for (final definition in session.definitions.where(
+                (tool) => tool.serverId == server.id,
+              ))
+                Map<String, dynamic>.from(
+                  definition.toFunctionJson()['function']! as Map,
+                ),
+            ],
+            meta: const {'source': 'local_mcp'},
+          ),
     ]);
   } finally {
     await session.close();

@@ -9,7 +9,6 @@ import '../models/direct_mcp_server.dart';
 import 'direct_mcp_apps_protocol.dart';
 import 'ollama_cloud_tools.dart';
 
-const int kDirectMcpMaxServers = 8;
 const int kDirectMcpMaxTools = 128;
 const int kDirectMcpMaxListPages = 32;
 const int kDirectMcpMaxInventoryBytes = 512 * 1024;

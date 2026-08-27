@@ -1,10 +1,12 @@
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:io';
 
 import 'direct_connection_profile.dart';
 
 enum DirectMcpAuthMode { none, bearer, oauth }
 
+const int kDirectMcpMaxServers = 8;
 const int kDirectMcpMaxRememberedApprovals = 256;
 const int kDirectMcpMaxRememberedRemoteNameCharacters = 128;
 const int kDirectMcpMaxRememberedDisplayNameCharacters = 128;
@@ -134,7 +136,8 @@ final class DirectMcpOAuthTokens {
     }
     final resourcePath = resourceUri.path.isEmpty ? '/' : resourceUri.path;
     final endpointPath = endpointUri.path.isEmpty ? '/' : endpointUri.path;
-    return resourcePath == '/' || resourcePath == endpointPath;
+    return (resourcePath == '/' || resourcePath == endpointPath) &&
+        resourceUri.query == endpointUri.query;
   }
 
   String? validateOrNull({required String serverEndpoint}) {
@@ -479,8 +482,13 @@ final class DirectMcpServer {
   };
 
   factory DirectMcpServer.fromJson(Map<String, dynamic> json) {
-    final sourceVersion = _readInt(json['schemaVersion']) ?? 1;
-    if (sourceVersion < 1 || sourceVersion > currentSchemaVersion) {
+    final rawSourceVersion = json['schemaVersion'];
+    final sourceVersion = rawSourceVersion == null
+        ? 1
+        : _readInt(rawSourceVersion);
+    if (sourceVersion == null ||
+        sourceVersion < 1 ||
+        sourceVersion > currentSchemaVersion) {
       throw const FormatException('Unsupported MCP server version.');
     }
     final bearerToken = _readOptionalString(json['bearerToken']);
@@ -702,7 +710,7 @@ String? _readOptionalString(Object? value) {
 
 int? _readInt(Object? value) => switch (value) {
   int() => value,
-  num() => value.toInt(),
+  num() => value % 1 == 0 ? value.toInt() : null,
   String() => int.tryParse(value),
   _ => null,
 };
@@ -734,11 +742,8 @@ Uri? _validOAuthUri(String value) {
 
 bool isDirectLoopbackHost(String host) {
   final normalized = host.toLowerCase();
-  if (normalized == 'localhost' || normalized == '::1') return true;
-  final octets = normalized.split('.').map(int.tryParse).toList();
-  return octets.length == 4 &&
-      octets.every((value) => value != null && value >= 0 && value <= 255) &&
-      octets.first == 127;
+  return normalized == 'localhost' ||
+      InternetAddress.tryParse(normalized)?.isLoopback == true;
 }
 
 String? directMcpOriginOf(String value) {

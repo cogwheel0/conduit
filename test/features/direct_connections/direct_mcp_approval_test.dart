@@ -325,6 +325,7 @@ void main() {
       );
       expect(await first.decision, DirectToolApprovalDecision.allowSession);
       await Future.wait(registry.cancelAll());
+      registry.resumeAdmissionAfterAppDataClearAbort();
 
       final second = registry.requestMcpApproval(
         registry.reserve((
@@ -361,6 +362,7 @@ void main() {
       );
       registry.blockAdmissionForAppDataClear();
       await Future.wait(registry.cancelAll());
+      registry.commitAppDataClear();
       registry.resumeAdmissionAfterAppDataClearAbort();
       final changedServer = server.copyWith(name: 'Changed');
       registry.synchronizeMcpServers([changedServer]);
@@ -377,6 +379,98 @@ void main() {
       expect(afterSignOut.requiresUserDecision, isTrue);
     },
   );
+
+  test('app-data clear denies pending approvals immediately', () async {
+    final registry = DirectRunRegistry()..synchronizeMcpServers([server]);
+    final handle = registry.requestMcpApproval(
+      registry.reserve(key, 'profile'),
+      callId: 'call-1',
+      definition: definition,
+      arguments: const {},
+      expectedServer: server,
+    );
+
+    registry.blockAdmissionForAppDataClear();
+
+    expect(await handle.decision, DirectToolApprovalDecision.deny);
+    expect(registry.hasLiveMcpApproval(handle.request.id), isFalse);
+    expect(
+      registry.resolveMcpApprovalById(
+        handle.request.id,
+        DirectToolApprovalDecision.allowOnce,
+      ),
+      isFalse,
+    );
+  });
+
+  test('aborted app-data clear restores cached approvals', () async {
+    final rememberedDefinition = DirectToolDefinition(
+      name: 'mcp_server_remembered',
+      serverId: server.id,
+      serverName: server.name,
+      remoteName: 'remembered',
+      displayName: 'Remembered',
+      description: '',
+      approvalFingerprint: 'b' * 64,
+      inputSchema: const {'type': 'object'},
+    );
+    final rememberedServer = server.copyWith(
+      rememberedApprovals: [
+        DirectMcpRememberedApproval(
+          digest: rememberedDefinition.approvalFingerprint,
+          remoteToolName: rememberedDefinition.remoteName,
+          displayName: rememberedDefinition.displayName,
+          createdAt: DateTime.utc(2026),
+        ),
+      ],
+    );
+    final registry = DirectRunRegistry()
+      ..synchronizeMcpServers([rememberedServer]);
+    final first = registry.requestMcpApproval(
+      registry.reserve(key, 'profile'),
+      callId: 'call-1',
+      definition: definition,
+      arguments: const {},
+      expectedServer: rememberedServer,
+    );
+    expect(
+      registry.resolveMcpApprovalById(
+        first.request.id,
+        DirectToolApprovalDecision.allowSession,
+      ),
+      isTrue,
+    );
+    expect(await first.decision, DirectToolApprovalDecision.allowSession);
+
+    registry.blockAdmissionForAppDataClear();
+    registry.resumeAdmissionAfterAppDataClearAbort();
+
+    final session = registry.requestMcpApproval(
+      registry.reserve((
+        ownerConversationId: 'direct-local:session',
+        assistantMessageId: 'assistant-2',
+      ), 'profile'),
+      callId: 'call-2',
+      definition: definition,
+      arguments: const {},
+      expectedServer: rememberedServer,
+    );
+    final remembered = registry.requestMcpApproval(
+      registry.reserve((
+        ownerConversationId: 'direct-local:remembered',
+        assistantMessageId: 'assistant-3',
+      ), 'profile'),
+      callId: 'call-3',
+      definition: rememberedDefinition,
+      arguments: const {},
+      expectedServer: rememberedServer,
+    );
+
+    expect(session.requiresUserDecision, isFalse);
+    expect(await session.decision, DirectToolApprovalDecision.allowSession);
+    expect(remembered.requiresUserDecision, isFalse);
+    expect(await remembered.decision, DirectToolApprovalDecision.allowAlways);
+  });
 
   test('fingerprint-backed remembered approval omits call arguments', () async {
     final remembered = server.copyWith(

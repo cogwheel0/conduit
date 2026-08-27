@@ -134,6 +134,26 @@ void main() {
     expect(await container.read(directMcpServerStoreProvider).load(), isEmpty);
   });
 
+  test('unchanged approval pruning does not republish servers', () async {
+    const storage = FlutterSecureStorage();
+    final container = ProviderContainer(
+      overrides: [secureStorageProvider.overrideWithValue(storage)],
+    );
+    addTearDown(container.dispose);
+    final notifier = container.read(directMcpServersProvider.notifier);
+    final server = _server('one');
+    await notifier.upsert(server);
+    final published = <AsyncValue<List<DirectMcpServer>>>[];
+    final subscription = container.listen(directMcpServersProvider, (_, next) {
+      published.add(next);
+    });
+    addTearDown(subscription.close);
+
+    await notifier.pruneRememberedApprovals([server], const {'one': {}});
+
+    expect(published, isEmpty);
+  });
+
   test(
     'secure reload clears session approval after configuration drift',
     () async {

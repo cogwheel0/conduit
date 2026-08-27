@@ -5490,11 +5490,7 @@ void main() {
               {
                 'delta': {
                   'tool_calls': [
-                    {
-                      'index': 0,
-                      'id': 'call_',
-                      'function': {'name': 'mcp_deadbeef_', 'arguments': '{"city":"'},
-                    },
+                    {'index': 0, 'id': 'call_'},
                   ],
                 },
               },
@@ -5510,7 +5506,7 @@ void main() {
                     {
                       'index': 0,
                       'id': '1',
-                      'function': {'name': 'weather', 'arguments': 'Paris"}'},
+                      'function': {'name': 'mcp_deadbeef_weather', 'arguments': '{"city":"Paris"}'},
                     },
                   ],
                 },
@@ -5583,6 +5579,54 @@ void main() {
       containsAllInOrder(['user', 'assistant', 'tool']),
     );
   });
+
+  test(
+    'OpenAI Chat keeps the latest cumulative usage within a round',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.stream([
+          utf8.encode(
+            'data: ${jsonEncode({
+              'choices': [
+                {
+                  'delta': {'content': 'Hi'},
+                },
+              ],
+              'usage': {'prompt_tokens': 2, 'completion_tokens': 1},
+            })}\n\n',
+          ),
+          utf8.encode(
+            'data: ${jsonEncode({
+              'choices': const [],
+              'usage': {'prompt_tokens': 2, 'completion_tokens': 2},
+            })}\n\n',
+          ),
+          utf8.encode('data: [DONE]\n\n'),
+        ], contentType: 'text/event-stream'),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final events = await adapter
+          .startCompletion(
+            _openAiProfile(),
+            DirectCompletionRequest(
+              remoteModelId: 'model',
+              messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+              tools: _localToolRuntime(),
+            ),
+          )
+          .events
+          .toList();
+
+      expect(events.whereType<DirectUsageUpdate>().single.usage, {
+        'prompt_tokens': 2,
+        'completion_tokens': 2,
+      });
+    },
+  );
 
   test('OpenAI Chat supports a JSON tool round', () async {
     final http = _QueuedAdapter([

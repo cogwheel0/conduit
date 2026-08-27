@@ -229,9 +229,9 @@ final class DirectMcpOAuthCoordinator {
 
   Future<_OAuthMetadata> _discover(DirectMcpServer server) async {
     final endpoint = server.endpointUri;
-    final challenged = await _challengeMetadataUri(endpoint);
+    final challenge = await _challenge(endpoint);
     final candidates = <Uri>[
-      ?challenged,
+      ?challenge.metadata,
       if (endpoint.path.isNotEmpty && endpoint.path != '/')
         _wellKnown(
           endpoint,
@@ -246,7 +246,7 @@ final class DirectMcpOAuthCoordinator {
         protectedJson = await _getJson(candidate);
         break;
       } on DirectMcpOAuthException {
-        if (candidate == challenged) rethrow;
+        if (candidate == challenge.metadata) rethrow;
       }
     }
     if (protectedJson == null) {
@@ -341,11 +341,11 @@ final class DirectMcpOAuthCoordinator {
       registrationEndpoint: authorization.registrationEndpoint,
       authorizationResponseIssParameterSupported:
           authorization.authorizationResponseIssParameterSupported == true,
-      scope: null,
+      scope: challenge.scope,
     );
   }
 
-  Future<Uri?> _challengeMetadataUri(Uri endpoint) async {
+  Future<({Uri? metadata, String? scope})> _challenge(Uri endpoint) async {
     final request = http.Request('POST', endpoint)
       ..followRedirects = false
       ..headers.addAll(const {
@@ -363,7 +363,18 @@ final class DirectMcpOAuthCoordinator {
       response.headers[HttpHeaders.wwwAuthenticateHeader],
     );
     await _readBytes(response);
-    return challenge?.resourceMetadata;
+    final rawScope = challenge?.scope?.trim();
+    if (rawScope != null &&
+        (rawScope.length > 4096 ||
+            containsForbiddenCredentialCharacter(rawScope))) {
+      throw const DirectMcpOAuthException(
+        'The MCP OAuth challenge scope is invalid.',
+      );
+    }
+    return (
+      metadata: challenge?.resourceMetadata,
+      scope: rawScope == null || rawScope.isEmpty ? null : rawScope,
+    );
   }
 
   Future<String> _registerPublicClient(
@@ -488,16 +499,7 @@ final class DirectMcpOAuthCoordinator {
         return null;
       }
       final all = request.uri.queryParametersAll;
-      if (all.values.any((values) => values.length != 1) ||
-          all.keys.any(
-            (key) => !const {
-              'code',
-              'state',
-              'iss',
-              'error',
-              'error_description',
-            }.contains(key),
-          )) {
+      if (all.values.any((values) => values.length != 1)) {
         return null;
       }
       if (all.containsKey('error')) {

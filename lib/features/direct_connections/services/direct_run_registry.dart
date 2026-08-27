@@ -52,6 +52,9 @@ final class DirectRunRegistry {
   final Map<String, String> _sessionMcpApprovals = {};
   final Map<String, Set<String>> _rememberedMcpApprovals = {};
   final Map<String, DirectMcpServer> _mcpServers = {};
+  Map<String, String>? _sessionMcpApprovalsBeforeAppDataClear;
+  Map<String, Set<String>>? _rememberedMcpApprovalsBeforeAppDataClear;
+  Map<String, DirectMcpServer>? _mcpServersBeforeAppDataClear;
   final LinkedHashMap<_DirectPersistenceKey, DirectFinalizedOutput>
   _retainedFinalizedOutputs = LinkedHashMap();
   int _retainedFinalizedOutputBytes = 0;
@@ -100,12 +103,46 @@ final class DirectRunRegistry {
   }
 
   void blockAdmissionForAppDataClear() {
+    if (!_admissionBlocked) {
+      _sessionMcpApprovalsBeforeAppDataClear = Map.of(_sessionMcpApprovals);
+      _rememberedMcpApprovalsBeforeAppDataClear = {
+        for (final entry in _rememberedMcpApprovals.entries)
+          entry.key: Set.of(entry.value),
+      };
+      _mcpServersBeforeAppDataClear = Map.of(_mcpServers);
+    }
     _admissionBlocked = true;
+    for (final pending in _mcpApprovals.values.toList(growable: false)) {
+      _settleMcpApproval(pending, DirectToolApprovalDecision.deny);
+    }
     _clearMcpApprovalCache();
   }
 
   void resumeAdmissionAfterAppDataClearAbort() {
     _admissionBlocked = false;
+    final sessionApprovals = _sessionMcpApprovalsBeforeAppDataClear;
+    if (sessionApprovals != null) {
+      _sessionMcpApprovals
+        ..clear()
+        ..addAll(sessionApprovals);
+      _rememberedMcpApprovals
+        ..clear()
+        ..addAll(_rememberedMcpApprovalsBeforeAppDataClear!);
+      _mcpServers
+        ..clear()
+        ..addAll(_mcpServersBeforeAppDataClear!);
+    }
+    _sessionMcpApprovalsBeforeAppDataClear = null;
+    _rememberedMcpApprovalsBeforeAppDataClear = null;
+    _mcpServersBeforeAppDataClear = null;
+  }
+
+  void commitAppDataClear() {
+    _admissionBlocked = true;
+    _sessionMcpApprovalsBeforeAppDataClear = null;
+    _rememberedMcpApprovalsBeforeAppDataClear = null;
+    _mcpServersBeforeAppDataClear = null;
+    _clearMcpApprovalCache();
   }
 
   /// Moves [reservation] when a new chat receives its durable id or an
@@ -379,7 +416,7 @@ final class DirectRunRegistry {
     required Map<String, dynamic> arguments,
     required DirectMcpServer expectedServer,
   }) {
-    if (isCancelled(reservation)) {
+    if (_admissionBlocked || isCancelled(reservation)) {
       return DirectToolApprovalHandle(
         request: DirectToolApprovalRequest(
           id: 'expired',
@@ -445,6 +482,7 @@ final class DirectRunRegistry {
     required String approvalId,
     required DirectToolApprovalDecision decision,
   }) {
+    if (_admissionBlocked) return false;
     final pending = _mcpApprovals[approvalId];
     if (pending == null ||
         pending.reservation._key != key ||
@@ -517,16 +555,19 @@ final class DirectRunRegistry {
   }
 
   bool _ownsMcpApproval(_PendingDirectMcpApproval pending) =>
+      !_admissionBlocked &&
       identical(_mcpApprovals[pending.request.id], pending) &&
       identical(_latest[pending.reservation._key], pending.reservation) &&
       !pending.reservation._cancelled;
 
   bool hasLiveMcpApproval(String approvalId) {
+    if (_admissionBlocked) return false;
     final pending = _mcpApprovals[approvalId];
     return pending != null && _ownsMcpApproval(pending);
   }
 
   bool hasPendingMcpApproval(DirectRunKey key, String approvalId) {
+    if (_admissionBlocked) return false;
     final pending = _mcpApprovals[approvalId];
     return pending != null &&
         pending.reservation._key == key &&

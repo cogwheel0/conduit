@@ -15977,6 +15977,11 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
   final notifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
   final DirectRunRegistry registry = ref.read(directRunRegistryProvider);
+  if (localMcpToolIds.isNotEmpty && enableImageGeneration) {
+    throw const DirectChatInputException(
+      'Local MCP tools cannot be combined with image generation.',
+    );
+  }
   final api = owner.sourceApi;
   final imageCache = <String, String?>{};
   Future<String?> resolveImage(String id, int maxBytes) async {
@@ -16207,13 +16212,14 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     }
   }
   DirectMcpToolSession? mcpSession;
+  Future<void> closeMcpSessionBestEffort() async {
+    try {
+      await mcpSession?.close();
+    } catch (_) {}
+  }
+
   DirectToolRuntime? toolRuntime;
   if (localMcpToolIds.isNotEmpty) {
-    if (enableImageGeneration) {
-      throw const DirectChatInputException(
-        'Local MCP tools cannot be combined with image generation.',
-      );
-    }
     final servers = await _awaitDirectPreflightOrCancellation(
       registry: registry,
       reservation: reservation,
@@ -16253,11 +16259,16 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
       cancelToken: preflightCancelToken,
       operation: () => sessionFuture,
     );
-    if (!_directRouteIsStillSelected(ref, route)) {
-      await mcpSession!.close();
-      throw const DirectChatInputException(
-        'The selected Direct connection changed before sending.',
-      );
+    try {
+      _requireDirectOwnerAuthSession(ref, owner);
+      if (!_directRouteIsStillSelected(ref, route)) {
+        throw const DirectChatInputException(
+          'The selected Direct connection changed before sending.',
+        );
+      }
+    } catch (_) {
+      await closeMcpSessionBestEffort();
+      rethrow;
     }
     final session = mcpSession!;
     final toolServersByName = {
@@ -16349,7 +16360,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     if (consumesImageGenerationAction) {
       ref.read(imageGenerationEnabledProvider.notifier).set(true);
     }
-    await mcpSession?.close();
+    await closeMcpSessionBestEffort();
     throw _normalizeDirectDispatcherFailure(
       error,
       sensitiveValues: sensitiveProviderValues,
@@ -16369,7 +16380,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
   if (!registry.register(reservation, run)) {
     // register() already revokes and observes cleanup. Transport cleanup is not
     // part of the caller contract: a hostile run.done must not hold preflight.
-    await mcpSession?.close();
+    await closeMcpSessionBestEffort();
     throw const _DirectRunStoppedDuringPreflight();
   }
   final accumulator = DirectStreamingAccumulator();
@@ -16743,11 +16754,19 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
         if ((projectedEvent is DirectMcpApprovalRequested ||
                 projectedEvent is DirectMcpApprovalResolved) &&
             accumulator.mcpApproval != null) {
-          final approvalSnapshot = assistantSeed.copyWith(
+          final approvalBase = _isDirectConversationOwnerActive(ref, owner)
+              ? (ref.read(chatMessagesProvider) as List<ChatMessage>)
+                    .where((message) => message.id == assistantMessageId)
+                    .firstOrNull
+              : null;
+          final base = approvalBase ?? assistantSeed;
+          final approvalSnapshot = base.copyWith(
             content: accumulator.render(done: false),
             output: accumulator.toolOutput,
+            usage: accumulator.usage,
+            sources: accumulator.sources,
             metadata: <String, dynamic>{
-              ...?assistantSeed.metadata,
+              ...?base.metadata,
               kDirectMcpApprovalMetadataKey: accumulator.mcpApproval,
             },
             isStreaming: true,
@@ -16951,7 +16970,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     }
   } finally {
     registry.complete(reservation, run);
-    await mcpSession?.close();
+    await closeMcpSessionBestEffort();
   }
 }
 

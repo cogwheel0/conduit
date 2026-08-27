@@ -189,6 +189,7 @@ final class SignOutCoordinator {
       switch (outcome) {
         case FullAppDataClearOutcome.cleared ||
             FullAppDataClearOutcome.localDataClearedSessionCleanupIncomplete:
+          directRuns.commitAppDataClear();
           // The auth transaction has committed and did not yield to a newer
           // session. Only now is it safe to destructively remove the
           // app-global direct-local database; beforeClear is a reversible
@@ -197,6 +198,7 @@ final class SignOutCoordinator {
           directLocalPurgeCompleted = true;
           _resetProvidersAfterFullAppDataClear(_ref);
         case FullAppDataClearOutcome.incomplete:
+          directRuns.commitAppDataClear();
           await Future.wait<void>([
             directProfiles.blockMutationsForAppDataClear(),
             hermesConfig.blockMutationsForAppDataClear(),
