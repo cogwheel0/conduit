@@ -148,6 +148,30 @@ void main() {
     }
   });
 
+  test('rejects prompt and resource responses with too many parts', () async {
+    for (final fixture in <_ContentFixture>[
+      await _ContentFixture.start(
+        promptMessageCount: kDirectMcpMaxContentParts + 1,
+      ),
+      await _ContentFixture.start(
+        resourceContentCount: kDirectMcpMaxContentParts + 1,
+      ),
+    ]) {
+      addTearDown(fixture.close);
+      final session = await DirectMcpContentSession.open(_server(fixture));
+      addTearDown(session.close);
+      final inventory = await session.loadInventory();
+      await expectLater(
+        fixture.promptMessageCount > 1
+            ? session.getPrompt(inventory.prompts.single, const {
+                'topic': 'MCP',
+              })
+            : session.readResource(inventory.resources.first),
+        throwsA(isA<DirectProviderException>()),
+      );
+    }
+  });
+
   test('cancels an in-flight prompt get', () async {
     final fixture = await _ContentFixture.start(holdPromptGet: true);
     addTearDown(fixture.close);
@@ -257,6 +281,8 @@ final class _ContentFixture {
     required this.binaryResource,
     required this.resourceMimeType,
     required this.resourceText,
+    required this.promptMessageCount,
+    required this.resourceContentCount,
     required this.holdPromptGet,
     required this.failPromptList,
     required this.requiredAuthorization,
@@ -270,6 +296,8 @@ final class _ContentFixture {
   final bool binaryResource;
   final String? resourceMimeType;
   final String resourceText;
+  final int promptMessageCount;
+  final int resourceContentCount;
   final bool holdPromptGet;
   final bool failPromptList;
   final String? requiredAuthorization;
@@ -291,6 +319,8 @@ final class _ContentFixture {
     bool binaryResource = false,
     String? resourceMimeType = 'text/plain',
     String resourceText = 'local resource',
+    int promptMessageCount = 1,
+    int resourceContentCount = 1,
     bool holdPromptGet = false,
     bool failPromptList = false,
     String? requiredAuthorization,
@@ -307,6 +337,8 @@ final class _ContentFixture {
       binaryResource: binaryResource,
       resourceMimeType: resourceMimeType,
       resourceText: resourceText,
+      promptMessageCount: promptMessageCount,
+      resourceContentCount: resourceContentCount,
       holdPromptGet: holdPromptGet,
       failPromptList: failPromptList,
       requiredAuthorization: requiredAuthorization,
@@ -407,13 +439,14 @@ final class _ContentFixture {
                 as Map<String, dynamic>;
         result = {
           'messages': [
-            {
-              'role': 'user',
-              'content': {
-                'type': 'text',
-                'text': 'Explain ${arguments['topic']}',
+            for (var index = 0; index < promptMessageCount; index++)
+              {
+                'role': 'user',
+                'content': {
+                  'type': 'text',
+                  'text': 'Explain ${arguments['topic']}',
+                },
               },
-            },
           ],
           'ttlMs': 0,
           'cacheScope': mcp.CacheScope.private,
@@ -422,18 +455,19 @@ final class _ContentFixture {
         resourceReadCount++;
         result = {
           'contents': [
-            if (binaryResource)
-              {
-                'uri': 'file:///notes/readme.txt',
-                'mimeType': 'application/octet-stream',
-                'blob': 'aGVsbG8=',
-              }
-            else
-              {
-                'uri': 'file:///notes/readme.txt',
-                if (resourceMimeType != null) 'mimeType': resourceMimeType,
-                'text': resourceText,
-              },
+            for (var index = 0; index < resourceContentCount; index++)
+              if (binaryResource)
+                {
+                  'uri': 'file:///notes/readme.txt',
+                  'mimeType': 'application/octet-stream',
+                  'blob': 'aGVsbG8=',
+                }
+              else
+                {
+                  'uri': 'file:///notes/readme.txt',
+                  if (resourceMimeType != null) 'mimeType': resourceMimeType,
+                  'text': resourceText,
+                },
           ],
           'ttlMs': 0,
           'cacheScope': mcp.CacheScope.private,

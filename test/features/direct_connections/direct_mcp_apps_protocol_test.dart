@@ -87,6 +87,19 @@ void main() {
       ),
       throwsA(isA<DirectMcpAppsProtocolException>()),
     );
+    expect(
+      () => directMcpAppToolPolicy(
+        mcp.Tool(
+          name: 'bad-meta',
+          inputSchema: mcp.JsonSchema.fromJson(const {'type': 'object'}),
+          meta: {
+            'ui': {1: 'invalid'},
+          },
+        ),
+        serverId: 'home',
+      ),
+      throwsA(isA<DirectMcpAppsProtocolException>()),
+    );
   });
 
   test('allows only same-server app-visible tool calls', () {
@@ -291,6 +304,9 @@ void main() {
     expect(policy.prefersBorder, isTrue);
 
     for (final meta in [
+      {
+        'ui': {1: 'invalid'},
+      },
       const {
         'ui': {'domain': 'dedicated.example'},
       },

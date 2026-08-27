@@ -28,6 +28,7 @@ const int kDirectMcpMaxPromptArgumentNameCharacters = 128;
 const int kDirectMcpMaxPromptArgumentValueBytes = 16 * 1024;
 const int kDirectMcpMaxContentItemBytes = 128 * 1024;
 const int kDirectMcpMaxInsertionBytes = 256 * 1024;
+const int kDirectMcpMaxContentParts = 512;
 
 String directMcpApprovalFingerprint({
   required String serverId,
@@ -405,10 +406,6 @@ String _contentIdentity(Map<String, dynamic> value) {
   }
 }
 
-void _validateBoundedJson(Map<String, dynamic> value) {
-  _contentIdentity(value);
-}
-
 void _requireBoundedLabel(String value, String message) {
   if (value.isEmpty || value.length > kDirectMcpMaxContentNameCharacters) {
     throw DirectProviderException(message);
@@ -539,7 +536,12 @@ final class DirectMcpContentSession {
       arguments,
       signal: signal,
     );
-    _validateBoundedJson(result.toJson());
+    if (result.messages.length > kDirectMcpMaxContentParts) {
+      throw const DirectProviderException(
+        'The MCP prompt has too many messages.',
+        reason: DirectProviderFailureReason.tooLarge,
+      );
+    }
     var totalBytes = 0;
     final messages = <DirectMcpPromptMessage>[];
     for (final message in result.messages) {
@@ -588,7 +590,12 @@ final class DirectMcpContentSession {
     }
     signal?.throwIfAborted();
     final result = await _client.readResource(selected.uri, signal: signal);
-    _validateBoundedJson(result.toJson());
+    if (result.contents.length > kDirectMcpMaxContentParts) {
+      throw const DirectProviderException(
+        'The MCP resource has too many items.',
+        reason: DirectProviderFailureReason.tooLarge,
+      );
+    }
     final parts = <String>[];
     var totalBytes = 0;
     for (final content in result.contents) {

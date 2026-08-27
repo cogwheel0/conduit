@@ -5642,6 +5642,69 @@ void main() {
     expect(events.whereType<DirectStreamError>(), isEmpty);
   });
 
+  test('OpenAI Chat rejects duplicate tool call identities', () async {
+    final payload = {
+      'choices': [
+        {
+          'message': {
+            'role': 'assistant',
+            'content': '',
+            'tool_calls': [
+              for (final index in [0, 1])
+                {
+                  'index': index,
+                  'id': 'duplicate',
+                  'type': 'function',
+                  'function': {
+                    'name': 'mcp_deadbeef_weather',
+                    'arguments': '{"city":"Paris"}',
+                  },
+                },
+            ],
+          },
+        },
+      ],
+    };
+    final replies = [
+      _Reply.json(payload),
+      _Reply.stream([
+        utf8.encode('data: ${jsonEncode(payload)}\n\n'),
+        utf8.encode('data: [DONE]\n\n'),
+      ], contentType: 'text/event-stream'),
+    ];
+
+    for (final reply in replies) {
+      final http = _QueuedAdapter([reply]);
+      var executions = 0;
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+      final events = await adapter
+          .startCompletion(
+            _openAiProfile(),
+            DirectCompletionRequest(
+              remoteModelId: 'model',
+              messages: [DirectChatMessage.text(role: 'user', text: 'weather')],
+              tools: _localToolRuntime(
+                execute: (_) async {
+                  executions++;
+                  return const DirectToolResult(text: 'sunny');
+                },
+              ),
+            ),
+          )
+          .events
+          .toList();
+
+      expect(executions, 0);
+      expect(events.whereType<DirectToolCallStarted>(), isEmpty);
+      expect(events.whereType<DirectStreamDone>(), isEmpty);
+      expect(events.whereType<DirectStreamError>(), hasLength(1));
+      expect(http.requests, hasLength(1));
+    }
+  });
+
   test('OpenAI Chat denies a pending approval after its timeout', () async {
     final http = _QueuedAdapter([
       _Reply.json({

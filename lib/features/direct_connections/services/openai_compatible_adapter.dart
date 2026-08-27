@@ -2053,9 +2053,12 @@ List<_ChatToolCall> _finishChatToolCalls(
   Map<int, _ChatToolCallBuilder> builders,
 ) {
   final indexes = builders.keys.toList()..sort();
-  return List.unmodifiable([
-    for (final index in indexes) builders[index]!.build(),
-  ]);
+  final calls = [for (final index in indexes) builders[index]!.build()];
+  final ids = <String>{};
+  if (calls.any((call) => !ids.add(call.id))) {
+    throw const FormatException('Provider tool call identity conflicts.');
+  }
+  return List.unmodifiable(calls);
 }
 
 final class _ChatToolCallBuilder {

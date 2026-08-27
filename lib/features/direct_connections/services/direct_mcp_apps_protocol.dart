@@ -295,7 +295,8 @@ DirectMcpAppToolPolicy directMcpAppToolPolicy(
   required String serverId,
 }) {
   final rawUi = tool.meta?['ui'];
-  if (rawUi != null && rawUi is! Map) {
+  if (rawUi != null &&
+      (rawUi is! Map || rawUi.keys.any((key) => key is! String))) {
     throw const DirectMcpAppsProtocolException(
       'The MCP App tool metadata is invalid.',
     );
@@ -344,7 +345,8 @@ DirectMcpAppResourcePolicy directMcpAppResourcePolicy(
   Map<String, dynamic>? meta,
 ) {
   final rawUi = meta?['ui'];
-  if (rawUi != null && rawUi is! Map) {
+  if (rawUi != null &&
+      (rawUi is! Map || rawUi.keys.any((key) => key is! String))) {
     throw const DirectMcpAppsProtocolException(
       'The MCP App resource metadata is invalid.',
     );
@@ -358,7 +360,8 @@ DirectMcpAppResourcePolicy directMcpAppResourcePolicy(
     );
   }
   final rawCsp = ui['csp'];
-  if (rawCsp != null && rawCsp is! Map) {
+  if (rawCsp != null &&
+      (rawCsp is! Map || rawCsp.keys.any((key) => key is! String))) {
     throw const DirectMcpAppsProtocolException(
       'The MCP App CSP metadata is invalid.',
     );
@@ -367,7 +370,9 @@ DirectMcpAppResourcePolicy directMcpAppResourcePolicy(
       ? const <String, dynamic>{}
       : Map<String, dynamic>.from(rawCsp as Map);
   final rawPermissions = ui['permissions'];
-  if (rawPermissions != null && rawPermissions is! Map) {
+  if (rawPermissions != null &&
+      (rawPermissions is! Map ||
+          rawPermissions.keys.any((key) => key is! String))) {
     throw const DirectMcpAppsProtocolException(
       'The MCP App permission metadata is invalid.',
     );
