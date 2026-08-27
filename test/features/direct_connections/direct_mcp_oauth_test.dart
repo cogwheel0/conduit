@@ -42,6 +42,7 @@ void main() {
     expect(query['code_challenge'], hasLength(43));
     expect(query['state'], hasLength(43));
     expect(query['resource'], fixture.endpoint.toString());
+    expect(query, isNot(contains('scope')));
     expect(fixture.registrationBodies.single['application_type'], 'native');
     expect(
       fixture.registrationBodies.single['token_endpoint_auth_method'],
@@ -53,6 +54,7 @@ void main() {
     expect(_challenge(verifier), query['code_challenge']);
     expect(tokenForm['resource'], fixture.endpoint.toString());
     expect(tokenForm['redirect_uri'], query['redirect_uri']);
+    expect(tokenForm, isNot(contains('scope')));
     expect(connected.oauthTokens?.accessToken, 'access-one');
     expect(connected.oauthTokens?.refreshToken, 'refresh-one');
     expect(
@@ -291,6 +293,29 @@ void main() {
     expect((await store.load()).single.oauthTokens, isNull);
   });
 
+  test('requires explicit public-client token endpoint support', () async {
+    final fixture = await _OAuthFixture.start(omitTokenAuthMethods: true);
+    addTearDown(fixture.close);
+    final store = _store();
+    final server = await _saveOAuthServer(store, fixture.endpoint);
+    var browserOpened = false;
+    final coordinator = DirectMcpOAuthCoordinator(
+      store: store,
+      launchBrowser: (_) async {
+        browserOpened = true;
+        return true;
+      },
+    );
+    addTearDown(coordinator.close);
+
+    await expectLater(
+      coordinator.connect(server),
+      throwsA(isA<DirectMcpOAuthException>()),
+    );
+    expect(browserOpened, isFalse);
+    expect(fixture.registrationBodies, isEmpty);
+  });
+
   test('replaced flow cannot persist and the callback is single use', () async {
     final fixture = await _OAuthFixture.start();
     addTearDown(fixture.close);
@@ -448,7 +473,18 @@ void main() {
     addTearDown(fixture.close);
     final store = _store();
     final staleServer = await _saveTokenServer(store, fixture, expired: false);
-    final rotatedServer = staleServer.copyWith(
+    final approvedServer = staleServer.copyWith(
+      rememberedApprovals: [
+        DirectMcpRememberedApproval(
+          digest: 'a' * 64,
+          remoteToolName: 'lookup',
+          displayName: 'Lookup',
+          createdAt: DateTime.utc(2026),
+        ),
+      ],
+    );
+    await store.upsert(approvedServer, expectedPrevious: staleServer);
+    final rotatedServer = approvedServer.copyWith(
       oauthTokens: staleServer.oauthTokens!.copyWith(
         accessToken: 'rotated-access',
         refreshToken: 'refresh-two',
@@ -456,15 +492,16 @@ void main() {
     );
     await store.upsert(
       rotatedServer,
-      expectedPrevious: staleServer,
+      expectedPrevious: approvedServer,
       oauthFlowCompletedForExactMutation: true,
     );
     final coordinator = DirectMcpOAuthCoordinator(store: store);
     addTearDown(coordinator.close);
 
-    final disconnected = await coordinator.disconnect(staleServer);
+    final disconnected = await coordinator.disconnect(approvedServer);
 
     expect(disconnected.oauthTokens, isNull);
+    expect(disconnected.rememberedApprovals, isEmpty);
     expect((await store.load()).single.oauthTokens, isNull);
   });
 
@@ -565,6 +602,7 @@ final class _OAuthFixture {
     required this.oversizedProtectedMetadata,
     required this.crossOriginProtectedMetadata,
     required this.mismatchedMetadataIssuer,
+    required this.omitTokenAuthMethods,
     required this.registeredAuthMethod,
     required this.invalidGrant,
     required this.holdRefresh,
@@ -577,6 +615,7 @@ final class _OAuthFixture {
   final bool oversizedProtectedMetadata;
   final bool crossOriginProtectedMetadata;
   final bool mismatchedMetadataIssuer;
+  final bool omitTokenAuthMethods;
   final String registeredAuthMethod;
   final bool invalidGrant;
   final bool holdRefresh;
@@ -597,6 +636,7 @@ final class _OAuthFixture {
     bool oversizedProtectedMetadata = false,
     bool crossOriginProtectedMetadata = false,
     bool mismatchedMetadataIssuer = false,
+    bool omitTokenAuthMethods = false,
     String registeredAuthMethod = 'none',
     bool invalidGrant = false,
     bool holdRefresh = false,
@@ -612,6 +652,7 @@ final class _OAuthFixture {
       oversizedProtectedMetadata: oversizedProtectedMetadata,
       crossOriginProtectedMetadata: crossOriginProtectedMetadata,
       mismatchedMetadataIssuer: mismatchedMetadataIssuer,
+      omitTokenAuthMethods: omitTokenAuthMethods,
       registeredAuthMethod: registeredAuthMethod,
       invalidGrant: invalidGrant,
       holdRefresh: holdRefresh,
@@ -668,7 +709,8 @@ final class _OAuthFixture {
                 .replace(path: '/register')
                 .toString(),
             'code_challenge_methods_supported': ['S256'],
-            'token_endpoint_auth_methods_supported': ['none'],
+            if (!omitTokenAuthMethods)
+              'token_endpoint_auth_methods_supported': ['none'],
             'authorization_response_iss_parameter_supported': true,
           }),
         );

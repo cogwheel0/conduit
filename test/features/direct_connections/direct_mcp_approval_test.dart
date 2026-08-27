@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/services/secure_credential_storage.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
@@ -389,6 +391,7 @@ void main() {
         registry.resolveMcpApprovalAlwaysById(
           handle.request.id,
           (_, _) => Future.error(StateError('write failed')),
+          (expected, _) async => [expected],
         ),
         throwsStateError,
       );
@@ -396,6 +399,7 @@ void main() {
       await expectLater(
         registry.resolveMcpApprovalAlwaysById(
           handle.request.id,
+          (expected, _) async => [expected],
           (expected, _) async => [expected],
         ),
         throwsStateError,
@@ -408,10 +412,56 @@ void main() {
           (expected, approval) async => [
             expected.copyWith(rememberedApprovals: [approval]),
           ],
+          (expected, _) async => [expected],
         ),
         isTrue,
       );
       expect(await handle.decision, DirectToolApprovalDecision.allowAlways);
+    },
+  );
+
+  test(
+    'always approval rolls back when ownership expires during write',
+    () async {
+      final registry = DirectRunRegistry()..synchronizeMcpServers([server]);
+      final reservation = registry.reserve(key, 'profile');
+      final handle = registry.requestMcpApproval(
+        reservation,
+        callId: 'call-1',
+        definition: definition,
+        arguments: const {},
+        expectedServer: server,
+      );
+      final writeStarted = Completer<void>();
+      final releaseWrite = Completer<void>();
+      var rolledBack = false;
+
+      final resolve = registry.resolveMcpApprovalAlwaysById(
+        handle.request.id,
+        (expected, approval) async {
+          writeStarted.complete();
+          await releaseWrite.future;
+          return [
+            expected.copyWith(rememberedApprovals: [approval]),
+          ];
+        },
+        (expected, digest) async {
+          rolledBack = expected.rememberedApprovals.any(
+            (approval) => approval.digest == digest,
+          );
+          return [expected.copyWith(rememberedApprovals: const [])];
+        },
+      );
+      await writeStarted.future;
+      registry.resolveMcpApprovalById(
+        handle.request.id,
+        DirectToolApprovalDecision.deny,
+      );
+      releaseWrite.complete();
+
+      expect(await resolve, isFalse);
+      expect(await handle.decision, DirectToolApprovalDecision.deny);
+      expect(rolledBack, isTrue);
     },
   );
 

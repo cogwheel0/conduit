@@ -63,6 +63,7 @@ final class _DirectMcpMessageInteractionsState
       final resolved = await registry.resolveMcpApprovalAlwaysById(
         id,
         servers.rememberApproval,
+        servers.revokeRememberedApproval,
       );
       if (resolved && mounted) {
         setState(() {

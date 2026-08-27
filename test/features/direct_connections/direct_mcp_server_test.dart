@@ -173,6 +173,7 @@ void main() {
       oauthTokens: _oauthTokens(
         accessToken: accessToken,
         refreshToken: refreshToken,
+        tokenEndpoint: 'https://tokens.example/token',
       ),
     );
 
@@ -585,6 +586,7 @@ DirectMcpOAuthTokens _oauthTokens({
   String? refreshToken = 'refresh-secret',
   String issuer = 'https://auth.example',
   String resource = 'https://resource.example/mcp',
+  String? tokenEndpoint,
 }) => DirectMcpOAuthTokens(
   accessToken: accessToken,
   refreshToken: refreshToken,
@@ -593,7 +595,7 @@ DirectMcpOAuthTokens _oauthTokens({
   authorizationServerIssuer: issuer,
   resource: resource,
   clientId: 'public-client-id',
-  tokenEndpoint: '$issuer/token',
+  tokenEndpoint: tokenEndpoint ?? '$issuer/token',
 );
 
 DirectMcpRememberedApproval _approval(String seed, {String tool = 'lookup'}) =>

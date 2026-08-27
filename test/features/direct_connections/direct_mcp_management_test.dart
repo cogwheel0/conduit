@@ -390,6 +390,37 @@ void main() {
 
     expect((await store.load()).single.oauthTokens, isNull);
   });
+
+  testWidgets('OAuth cancel during save never starts a browser flow', (
+    tester,
+  ) async {
+    final storage = _BlockingMcpSecureStorage();
+    final store = DirectMcpServerStore(
+      SecureCredentialStorage(instance: storage),
+    );
+    final server = await _saveManagementOAuthServer(
+      store,
+      Uri.parse('https://resource.example/mcp'),
+    );
+    final client = _BlockedHttpClient();
+    final coordinator = DirectMcpOAuthCoordinator(store: store, client: client);
+    addTearDown(coordinator.close);
+    await _pumpOAuthEditor(tester, store, coordinator, server.id);
+    storage.blockNextWrite();
+
+    await tester.tap(find.byKey(const ValueKey('direct-mcp-oauth-connect')));
+    await storage.writeStarted.future;
+    await tester.pump();
+    expect(find.text('Cancel'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('direct-mcp-oauth-connect')));
+    await tester.pump();
+    storage.releaseWrite();
+    await tester.pumpAndSettle();
+
+    expect(client.sendCount, 0);
+    expect(coordinator.isPending(server.id), isFalse);
+    expect(find.text('Cancel'), findsNothing);
+  });
 }
 
 DirectMcpServerStore _managementStore() => DirectMcpServerStore(
@@ -461,9 +492,11 @@ Future<void> _pumpOAuthEditor(
 final class _BlockedHttpClient extends http.BaseClient {
   final Completer<http.StreamedResponse> _response = Completer();
   bool _released = false;
+  int sendCount = 0;
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) {
+    sendCount++;
     if (_released) {
       return Future.value(http.StreamedResponse(const Stream.empty(), 404));
     }
@@ -478,4 +511,34 @@ final class _BlockedHttpClient extends http.BaseClient {
 
   @override
   void close() => release();
+}
+
+final class _BlockingMcpSecureStorage implements FlutterSecureStorage {
+  String? _source;
+  bool _block = false;
+  final writeStarted = Completer<void>();
+  final _writeRelease = Completer<void>();
+
+  void blockNextWrite() => _block = true;
+  void releaseWrite() => _writeRelease.complete();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    if (invocation.memberName == #read) return Future<String?>.value(_source);
+    if (invocation.memberName == #delete) {
+      _source = null;
+      return Future<void>.value();
+    }
+    if (invocation.memberName == #write) {
+      final value = invocation.namedArguments[#value] as String?;
+      if (!_block) {
+        _source = value;
+        return Future<void>.value();
+      }
+      _block = false;
+      writeStarted.complete();
+      return _writeRelease.future.then<void>((_) => _source = value);
+    }
+    return super.noSuchMethod(invocation);
+  }
 }

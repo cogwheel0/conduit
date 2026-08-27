@@ -37,6 +37,7 @@ class _DirectMcpServerEditorPageState
   bool _initialized = false;
   bool _busy = false;
   bool _oauthPending = false;
+  int _oauthAttempt = 0;
   String? _message;
 
   bool get _isNew => widget.serverId == 'new';
@@ -301,6 +302,22 @@ class _DirectMcpServerEditorPageState
     final previous = _previous;
     DirectMcpServer? interim;
     var oauthCompleted = false;
+    final oauthAttempt = ++_oauthAttempt;
+    Future<void> restorePreviousBearer() async {
+      if (previous?.authMode != DirectMcpAuthMode.bearer || interim == null) {
+        return;
+      }
+      try {
+        final restored = await servers.upsert(
+          previous!,
+          expectedPrevious: interim,
+        );
+        if (mounted) {
+          _previous = restored.firstWhere((server) => server.id == previous.id);
+        }
+      } catch (_) {}
+    }
+
     setState(() {
       _oauthPending = true;
       _message = l10n.directMcpOAuthPending;
@@ -317,6 +334,10 @@ class _DirectMcpServerEditorPageState
           extra: const NativeSheetNavigationOrigin(),
         );
       }
+      if (!mounted || oauthAttempt != _oauthAttempt || !_oauthPending) {
+        await restorePreviousBearer();
+        return;
+      }
       final connected = await oauth.connect(persisted);
       oauthCompleted = true;
       await servers.reload();
@@ -327,21 +348,7 @@ class _DirectMcpServerEditorPageState
         });
       }
     } catch (error) {
-      if (!oauthCompleted &&
-          previous?.authMode == DirectMcpAuthMode.bearer &&
-          interim != null) {
-        try {
-          final restored = await servers.upsert(
-            previous!,
-            expectedPrevious: interim,
-          );
-          if (mounted) {
-            _previous = restored.firstWhere(
-              (server) => server.id == previous.id,
-            );
-          }
-        } catch (_) {}
-      }
+      if (!oauthCompleted) await restorePreviousBearer();
       if (mounted) {
         setState(
           () => _message = switch (error) {
@@ -358,6 +365,7 @@ class _DirectMcpServerEditorPageState
 
   Future<void> _cancelOAuth() async {
     final oauth = ref.read(directMcpOAuthCoordinatorProvider);
+    _oauthAttempt++;
     await oauth.cancel(_isNew ? _newServerId : widget.serverId);
     if (mounted) {
       setState(() {

@@ -161,10 +161,7 @@ final class DirectMcpOAuthTokens {
     }
     final issuerUri = _validOAuthUri(authorizationServerIssuer);
     final tokenUri = _validOAuthUri(tokenEndpoint);
-    if (issuerUri == null ||
-        tokenUri == null ||
-        directMcpOriginOf(authorizationServerIssuer) !=
-            directMcpOriginOf(tokenEndpoint)) {
+    if (issuerUri == null || tokenUri == null) {
       return 'The OAuth authorization server is invalid.';
     }
     if (!appliesToEndpoint(serverEndpoint)) {

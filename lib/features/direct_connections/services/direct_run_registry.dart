@@ -473,6 +473,11 @@ final class DirectRunRegistry {
       DirectMcpRememberedApproval approval,
     )
     persist,
+    Future<List<DirectMcpServer>> Function(
+      DirectMcpServer expectedServer,
+      String digest,
+    )
+    revoke,
   ) async {
     final pending = _mcpApprovals[approvalId];
     if (pending == null || !_ownsMcpApproval(pending)) return false;
@@ -484,7 +489,6 @@ final class DirectRunRegistry {
     );
     final servers = await persist(pending.expectedServer, approval);
     // The durable user choice may outlive the run that requested it.
-    if (!_ownsMcpApproval(pending)) return false;
     final persisted = servers.where(
       (server) =>
           server.id == pending.definition.serverId &&
@@ -494,6 +498,10 @@ final class DirectRunRegistry {
     );
     if (persisted.isEmpty) {
       throw StateError('The MCP approval was not persisted.');
+    }
+    if (!_ownsMcpApproval(pending)) {
+      await revoke(persisted.single, pending.definition.approvalFingerprint);
+      return false;
     }
     synchronizeMcpServers(servers);
     _settleMcpApproval(pending, DirectToolApprovalDecision.allowAlways);

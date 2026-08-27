@@ -317,7 +317,7 @@ final class DirectMcpOAuthCoordinator {
       tokenEndpoint,
       ?authorization.registrationEndpoint,
     ]) {
-      _requireSameAuthorizationServer(uri, issuer);
+      _requireSecureUri(uri, allowLoopbackHttp: isDirectLoopbackHost(uri.host));
     }
     if (authorization.codeChallengeMethodsSupported?.contains('S256') != true) {
       throw const DirectMcpOAuthException(
@@ -325,15 +325,11 @@ final class DirectMcpOAuthCoordinator {
       );
     }
     final authMethods = authorization.tokenEndpointAuthMethodsSupported;
-    if (authMethods != null && !authMethods.contains('none')) {
+    if (authMethods?.contains('none') != true) {
       throw const DirectMcpOAuthException(
         'This OAuth server requires a confidential client, which Conduit does not support.',
       );
     }
-    final supportedScopes = protected.scopesSupported;
-    final scope = supportedScopes == null || supportedScopes.isEmpty
-        ? null
-        : supportedScopes.join(' ');
     return _OAuthMetadata(
       issuer: issuer,
       resource: protected.resource,
@@ -342,7 +338,7 @@ final class DirectMcpOAuthCoordinator {
       registrationEndpoint: authorization.registrationEndpoint,
       authorizationResponseIssParameterSupported:
           authorization.authorizationResponseIssParameterSupported == true,
-      scope: scope,
+      scope: null,
     );
   }
 
@@ -969,16 +965,6 @@ void _requireTrustedMetadataUri(Uri uri, Uri endpoint) {
       directMcpOriginOf(endpoint.toString())) {
     throw const DirectMcpOAuthException(
       'The OAuth protected-resource metadata is not owned by this MCP server.',
-    );
-  }
-}
-
-void _requireSameAuthorizationServer(Uri uri, Uri issuer) {
-  _requireSecureUri(uri, allowLoopbackHttp: isDirectLoopbackHost(issuer.host));
-  if (directMcpOriginOf(uri.toString()) !=
-      directMcpOriginOf(issuer.toString())) {
-    throw const DirectMcpOAuthException(
-      'The OAuth endpoint is not owned by the discovered authorization server.',
     );
   }
 }
