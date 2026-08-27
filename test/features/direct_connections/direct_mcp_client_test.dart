@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/models/direct_mcp_server.dart';
 import 'package:conduit/features/direct_connections/services/direct_mcp_client.dart';
+import 'package:conduit/features/direct_connections/services/ollama_cloud_tools.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mcp_dart/mcp_dart.dart' as mcp;
 
@@ -56,6 +57,16 @@ void main() {
       expect(fixture.customHeaders, everyElement('yes'));
     },
   );
+
+  test('requires confirmation before LAN HTTP credentials', () async {
+    final client = DirectMcpClient(
+      endpoint: Uri.parse('http://192.168.1.20/mcp'),
+      headers: const {HttpHeaders.authorizationHeader: 'Bearer secret'},
+    );
+    addTearDown(client.close);
+
+    await expectLater(client.connect(), throwsFormatException);
+  });
 
   test(
     'injects an OAuth token only through the selected server client',
@@ -271,7 +282,7 @@ void main() {
 
   test('truncates results and omits unsupported binary content', () async {
     final fixture = await _McpFixture.start(
-      resultText: 'x' * (128 * 1024 + 100),
+      resultText: 'x' * (kOllamaCloudMaxToolResultCharacters + 100),
       includeImage: true,
     );
     addTearDown(fixture.close);
@@ -283,7 +294,7 @@ void main() {
       const {'value': 'hello'},
     );
 
-    expect(result.text.length, 128 * 1024);
+    expect(result.text.length, kOllamaCloudMaxToolResultCharacters);
     expect(result.text, endsWith('[truncated]'));
     expect(result.text, isNot(contains('aGVsbG8=')));
   });

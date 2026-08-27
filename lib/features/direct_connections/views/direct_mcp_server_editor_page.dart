@@ -103,6 +103,7 @@ class _DirectMcpServerEditorPageState
   );
 
   DirectMcpServer _draft({bool forceEnabled = false}) {
+    final l10n = AppLocalizations.of(context)!;
     final id = _isNew ? _newServerId : widget.serverId;
     final customHeaders = <String, String>{};
     final normalizedHeaderNames = <String>{};
@@ -111,11 +112,11 @@ class _DirectMcpServerEditorPageState
       if (line.isEmpty) continue;
       final separator = line.indexOf(':');
       if (separator <= 0) {
-        throw const FormatException('Enter custom headers as Name: Value.');
+        throw FormatException(l10n.directMcpCustomHeadersHint);
       }
       final name = line.substring(0, separator).trim();
       if (!normalizedHeaderNames.add(name.toLowerCase())) {
-        throw const FormatException('Custom header names must be unique.');
+        throw FormatException(l10n.headerAlreadyExists(name));
       }
       customHeaders[name] = line.substring(separator + 1).trim();
     }

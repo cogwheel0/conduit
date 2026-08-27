@@ -1,4 +1,5 @@
 import '../../../core/services/secure_credential_storage.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../models/direct_mcp_server.dart';
 
 final class DirectMcpServerConflictException implements Exception {
@@ -21,7 +22,15 @@ final class DirectMcpServerStore {
   Future<List<DirectMcpServer>> load() async {
     final raw = await _storage.getDirectMcpServers();
     if (raw == null || raw.trim().isEmpty) return const [];
-    return DirectMcpServersDocument.decode(raw).servers;
+    final decoded = DirectMcpServersDocument.decodeLenient(raw);
+    if (decoded.dropped > 0) {
+      DebugLogger.warning(
+        'dropped-invalid-servers',
+        scope: 'direct-connections/mcp',
+        data: {'count': decoded.dropped},
+      );
+    }
+    return decoded.document.servers;
   }
 
   Future<List<DirectMcpServer>> save(

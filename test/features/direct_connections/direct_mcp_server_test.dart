@@ -106,6 +106,34 @@ void main() {
     expect(server.customHeaders, isEmpty);
   });
 
+  test('lenient document decode preserves valid unique servers', () {
+    final decoded = DirectMcpServersDocument.decodeLenient(
+      jsonEncode({
+        'version': DirectMcpServersDocument.currentVersion,
+        'servers': [
+          {
+            'schemaVersion': DirectMcpServer.currentSchemaVersion,
+            'id': 'valid',
+            'name': 'Valid',
+            'endpoint': 'https://example.test/mcp',
+            'authMode': 'none',
+          },
+          {'id': 'malformed'},
+          {
+            'schemaVersion': DirectMcpServer.currentSchemaVersion,
+            'id': 'valid',
+            'name': 'Duplicate',
+            'endpoint': 'https://example.test/other',
+            'authMode': 'none',
+          },
+        ],
+      }),
+    );
+
+    expect(decoded.document.servers.map((server) => server.name), ['Valid']);
+    expect(decoded.dropped, 2);
+  });
+
   test('remembered approvals enforce bounded valid records', () {
     expect(
       () => DirectMcpServer(

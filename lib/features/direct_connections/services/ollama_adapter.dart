@@ -590,6 +590,7 @@ final class OllamaAdapter
           final webToolSession = OllamaCloudToolSession();
           var totalToolCalls = 0;
 
+          rounds:
           for (var round = 0; round < kDirectMaxToolRounds; round++) {
             final roundContent = StringBuffer();
             final roundThinking = StringBuffer();
@@ -778,7 +779,7 @@ final class OllamaAdapter
                     transportCancelToken.whenCancel,
                   ],
                 );
-                if (decision == null) break;
+                if (decision == null) break rounds;
                 budget.add(
                   jsonEncode(
                     approval.request.toMetadata(
@@ -794,7 +795,7 @@ final class OllamaAdapter
                 );
                 if (cancelToken.isCancelled ||
                     transportCancelToken.isCancelled) {
-                  break;
+                  break rounds;
                 }
                 if (decision == DirectToolApprovalDecision.deny) {
                   result = const DirectToolResult(
@@ -816,13 +817,13 @@ final class OllamaAdapter
                       cancelToken.whenCancel.then((_) => null),
                       transportCancelToken.whenCancel.then((_) => null),
                     ]);
-                    if (executed == null) break;
+                    if (executed == null) break rounds;
                     result = executed;
                     eventResult = result.text;
                   } catch (_) {
                     if (cancelToken.isCancelled ||
                         transportCancelToken.isCancelled) {
-                      break;
+                      break rounds;
                     }
                     result = const DirectToolResult(
                       text: 'The local tool call failed.',

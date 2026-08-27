@@ -28,14 +28,14 @@ final class DirectMcpRememberedApproval {
     }
     if (remoteToolName.isEmpty ||
         remoteToolName.length > kDirectMcpMaxRememberedRemoteNameCharacters ||
-        _containsForbiddenCredentialCharacter(remoteToolName)) {
+        containsForbiddenCredentialCharacter(remoteToolName)) {
       throw const FormatException(
         'The remembered MCP remote tool name is invalid.',
       );
     }
     if (displayName.trim().isEmpty ||
         displayName.length > kDirectMcpMaxRememberedDisplayNameCharacters ||
-        _containsForbiddenCredentialCharacter(displayName)) {
+        containsForbiddenCredentialCharacter(displayName)) {
       throw const FormatException(
         'The remembered MCP display name is invalid.',
       );
@@ -98,7 +98,7 @@ final class DirectMcpOAuthTokens {
   final String clientId;
   final String tokenEndpoint;
 
-  String? get resourceOrigin => DirectMcpServer._originOf(resource);
+  String? get resourceOrigin => directMcpOriginOf(resource);
 
   DirectMcpOAuthTokens copyWith({
     String? accessToken,
@@ -129,8 +129,7 @@ final class DirectMcpOAuthTokens {
     final endpointUri = Uri.tryParse(endpoint.trim());
     if (resourceUri == null ||
         endpointUri == null ||
-        DirectMcpServer._originOf(resource) !=
-            DirectMcpServer._originOf(endpoint)) {
+        directMcpOriginOf(resource) != directMcpOriginOf(endpoint)) {
       return false;
     }
     final resourcePath = resourceUri.path.isEmpty ? '/' : resourceUri.path;
@@ -141,31 +140,31 @@ final class DirectMcpOAuthTokens {
   String? validateOrNull({required String serverEndpoint}) {
     if (accessToken.isEmpty ||
         accessToken.length > 16384 ||
-        _containsForbiddenCredentialCharacter(accessToken)) {
+        containsForbiddenCredentialCharacter(accessToken)) {
       return 'The OAuth access token is invalid.';
     }
     final refresh = refreshToken;
     if (refresh != null &&
         (refresh.isEmpty ||
             refresh.length > 16384 ||
-            _containsForbiddenCredentialCharacter(refresh))) {
+            containsForbiddenCredentialCharacter(refresh))) {
       return 'The OAuth refresh token is invalid.';
     }
     if (tokenType.toLowerCase() != 'bearer' ||
-        _containsForbiddenCredentialCharacter(tokenType)) {
+        containsForbiddenCredentialCharacter(tokenType)) {
       return 'The OAuth token type is unsupported.';
     }
     final scope = grantedScope;
     if (scope != null &&
-        (scope.length > 4096 || _containsForbiddenCredentialCharacter(scope))) {
+        (scope.length > 4096 || containsForbiddenCredentialCharacter(scope))) {
       return 'The OAuth scope is invalid.';
     }
     final issuerUri = _validOAuthUri(authorizationServerIssuer);
     final tokenUri = _validOAuthUri(tokenEndpoint);
     if (issuerUri == null ||
         tokenUri == null ||
-        DirectMcpServer._originOf(authorizationServerIssuer) !=
-            DirectMcpServer._originOf(tokenEndpoint)) {
+        directMcpOriginOf(authorizationServerIssuer) !=
+            directMcpOriginOf(tokenEndpoint)) {
       return 'The OAuth authorization server is invalid.';
     }
     if (!appliesToEndpoint(serverEndpoint)) {
@@ -173,7 +172,7 @@ final class DirectMcpOAuthTokens {
     }
     if (clientId.isEmpty ||
         clientId.length > 4096 ||
-        _containsForbiddenCredentialCharacter(clientId)) {
+        containsForbiddenCredentialCharacter(clientId)) {
       return 'The OAuth client registration is invalid.';
     }
     return null;
@@ -272,13 +271,13 @@ final class DirectMcpServer {
   final List<DirectMcpRememberedApproval> rememberedApprovals;
 
   Uri get endpointUri => Uri.parse(endpoint.trim());
-  String? get origin => _originOf(endpoint);
+  String? get origin => directMcpOriginOf(endpoint);
   bool get isUsable => enabled && validateOrNull() == null;
   bool get requiresInsecureCredentialConfirmation {
     final uri = Uri.tryParse(endpoint.trim());
     if (uri == null ||
         uri.scheme.toLowerCase() != 'http' ||
-        _isLoopbackHost(uri.host)) {
+        isDirectLoopbackHost(uri.host)) {
       return false;
     }
     return (authMode == DirectMcpAuthMode.bearer &&
@@ -309,11 +308,11 @@ final class DirectMcpServer {
     if (trimmedName.isEmpty || trimmedName.length > 128) {
       return 'MCP server name must contain 1 to 128 characters.';
     }
-    if (_originOf(endpoint) == null) {
+    if (directMcpOriginOf(endpoint) == null) {
       return 'Use a valid HTTP or HTTPS MCP endpoint.';
     }
     final token = bearerToken;
-    if (token != null && _containsForbiddenCredentialCharacter(token)) {
+    if (token != null && containsForbiddenCredentialCharacter(token)) {
       return 'The bearer token contains an invalid character.';
     }
     switch (authMode) {
@@ -540,21 +539,6 @@ final class DirectMcpServer {
 
   @override
   String toString() => 'DirectMcpServer(id: $id, name: $name)';
-
-  static String? _originOf(String value) {
-    final uri = Uri.tryParse(value.trim());
-    if (uri == null ||
-        !uri.isAbsolute ||
-        !const {'http', 'https'}.contains(uri.scheme.toLowerCase()) ||
-        uri.host.isEmpty ||
-        uri.userInfo.isNotEmpty ||
-        uri.hasFragment) {
-      return null;
-    }
-    final scheme = uri.scheme.toLowerCase();
-    final port = uri.hasPort ? uri.port : (scheme == 'https' ? 443 : 80);
-    return '$scheme://${uri.host.toLowerCase()}:$port';
-  }
 }
 
 final class DirectMcpServersDocument {
@@ -572,6 +556,41 @@ final class DirectMcpServersDocument {
   });
 
   factory DirectMcpServersDocument.decode(String source) {
+    final rawServers = _decodeRawServers(source);
+    final servers = <DirectMcpServer>[];
+    for (final raw in rawServers) {
+      if (raw is! Map) {
+        throw const FormatException('An MCP server is invalid.');
+      }
+      servers.add(DirectMcpServer.fromJson(raw.cast<String, dynamic>()));
+    }
+    return DirectMcpServersDocument(servers);
+  }
+
+  static ({DirectMcpServersDocument document, int dropped}) decodeLenient(
+    String source,
+  ) {
+    final servers = <DirectMcpServer>[];
+    final ids = <String>{};
+    var dropped = 0;
+    for (final raw in _decodeRawServers(source)) {
+      try {
+        if (raw is! Map) {
+          throw const FormatException('An MCP server is invalid.');
+        }
+        final server = DirectMcpServer.fromJson(raw.cast<String, dynamic>());
+        if (!ids.add(server.id)) {
+          throw const FormatException('MCP server ids must be unique.');
+        }
+        servers.add(server);
+      } on FormatException {
+        dropped++;
+      }
+    }
+    return (document: DirectMcpServersDocument(servers), dropped: dropped);
+  }
+
+  static List<dynamic> _decodeRawServers(String source) {
     final decoded = jsonDecode(source);
     if (decoded is! Map) {
       throw const FormatException('MCP server document is not an object.');
@@ -585,14 +604,7 @@ final class DirectMcpServersDocument {
     if (rawServers is! List) {
       throw const FormatException('MCP servers are missing.');
     }
-    final servers = <DirectMcpServer>[];
-    for (final raw in rawServers) {
-      if (raw is! Map) {
-        throw const FormatException('An MCP server is invalid.');
-      }
-      servers.add(DirectMcpServer.fromJson(raw.cast<String, dynamic>()));
-    }
-    return DirectMcpServersDocument(servers);
+    return rawServers;
   }
 
   static void _validateUniqueIds(Iterable<DirectMcpServer> servers) {
@@ -672,7 +684,7 @@ bool _sameOAuthApprovalBinding(
         left.clientId == right.clientId &&
         left.tokenEndpoint == right.tokenEndpoint);
 
-bool _containsForbiddenCredentialCharacter(String value) =>
+bool containsForbiddenCredentialCharacter(String value) =>
     value.contains('\r') || value.contains('\n') || value.contains('\u0000');
 
 String _readRequiredString(Map<String, dynamic> json, String key) {
@@ -710,7 +722,7 @@ DirectMcpAuthMode _readAuthMode(Object? value) {
 
 Uri? _validOAuthUri(String value) {
   final uri = Uri.tryParse(value);
-  final isLoopback = uri != null && _isLoopbackHost(uri.host);
+  final isLoopback = uri != null && isDirectLoopbackHost(uri.host);
   if (uri == null ||
       !uri.isAbsolute ||
       (uri.scheme.toLowerCase() != 'https' &&
@@ -723,13 +735,28 @@ Uri? _validOAuthUri(String value) {
   return uri;
 }
 
-bool _isLoopbackHost(String host) {
+bool isDirectLoopbackHost(String host) {
   final normalized = host.toLowerCase();
   if (normalized == 'localhost' || normalized == '::1') return true;
   final octets = normalized.split('.').map(int.tryParse).toList();
   return octets.length == 4 &&
       octets.every((value) => value != null && value >= 0 && value <= 255) &&
       octets.first == 127;
+}
+
+String? directMcpOriginOf(String value) {
+  final uri = Uri.tryParse(value.trim());
+  if (uri == null ||
+      !uri.isAbsolute ||
+      !const {'http', 'https'}.contains(uri.scheme.toLowerCase()) ||
+      uri.host.isEmpty ||
+      uri.userInfo.isNotEmpty ||
+      uri.hasFragment) {
+    return null;
+  }
+  final scheme = uri.scheme.toLowerCase();
+  final port = uri.hasPort ? uri.port : (scheme == 'https' ? 443 : 80);
+  return '$scheme://${uri.host.toLowerCase()}:$port';
 }
 
 bool _sameOAuthTokens(

@@ -793,6 +793,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
         .map((message) => Map<String, dynamic>.from(message as Map))
         .toList(growable: true);
     var totalCalls = 0;
+    Map<String, dynamic>? combinedUsage;
 
     for (var round = 0; round < kDirectMaxToolRounds; round++) {
       final response = await dio.post<ResponseBody>(
@@ -816,12 +817,17 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
       final result = contentType.toLowerCase().contains('json')
           ? await _consumeChatToolJson(body, emitter)
           : await _consumeChatToolStream(body, emitter);
+      combinedUsage = _mergeOpenRouterPipelineUsage(
+        combinedUsage,
+        result.usage,
+      );
       if (result.calls.isEmpty) {
         if (!result.hasCompletion) {
           throw const FormatException(
             'OpenAI-compatible response has no usable completion content.',
           );
         }
+        if (combinedUsage != null) emitter.usage(combinedUsage);
         emitter.done();
         return;
       }
@@ -917,6 +923,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     final calls = <int, _ChatToolCallBuilder>{};
     final content = StringBuffer();
     final reasoningContent = StringBuffer();
+    Map<String, dynamic>? usage;
     var hasCompletion = false;
     var sawDone = false;
     try {
@@ -980,8 +987,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
             );
           }
         }
-        final usage = payload['usage'];
-        if (usage is Map) emitter.usage(usage.cast<String, dynamic>());
+        usage = _mergeOpenRouterPipelineUsage(usage, payload['usage']);
       }
     } on DirectStreamDrainException {
       if (!sawDone) rethrow;
@@ -994,6 +1000,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     return _ChatToolRound(
       content: content.toString(),
       reasoning: _nonEmpty(reasoningContent.toString()),
+      usage: usage,
       calls: _finishChatToolCalls(calls),
       hasCompletion: hasCompletion,
     );
@@ -1981,10 +1988,10 @@ _ChatToolRound _chatToolRoundFromPayload(
   final calls = <int, _ChatToolCallBuilder>{};
   _appendChatToolCallFragments(calls, message['tool_calls']);
   final usage = payload['usage'];
-  if (usage is Map) emitter.usage(usage.cast<String, dynamic>());
   return _ChatToolRound(
     content: '$content${refusal ?? ''}',
     reasoning: reasoning,
+    usage: usage is Map ? usage.cast<String, dynamic>() : null,
     calls: _finishChatToolCalls(calls),
     hasCompletion: hasCompletion,
   );
@@ -2101,12 +2108,14 @@ final class _ChatToolRound {
   const _ChatToolRound({
     required this.content,
     required this.reasoning,
+    required this.usage,
     required this.calls,
     required this.hasCompletion,
   });
 
   final String content;
   final String? reasoning;
+  final Map<String, dynamic>? usage;
   final List<_ChatToolCall> calls;
   final bool hasCompletion;
 }

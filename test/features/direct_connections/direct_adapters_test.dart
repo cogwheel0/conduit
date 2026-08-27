@@ -5587,6 +5587,7 @@ void main() {
   test('OpenAI Chat supports a JSON tool round', () async {
     final http = _QueuedAdapter([
       _Reply.json({
+        'usage': {'prompt_tokens': 4, 'completion_tokens': 2},
         'choices': [
           {
             'message': {
@@ -5607,6 +5608,7 @@ void main() {
         ],
       }),
       _Reply.json({
+        'usage': {'prompt_tokens': 3, 'completion_tokens': 5},
         'choices': [
           {
             'message': {'role': 'assistant', 'content': 'Sunny.'},
@@ -5633,6 +5635,10 @@ void main() {
 
     expect(events.whereType<DirectToolCallCompleted>(), hasLength(1));
     expect(events.whereType<DirectContentDelta>().single.content, 'Sunny.');
+    expect(events.whereType<DirectUsageUpdate>().single.usage, {
+      'prompt_tokens': 7,
+      'completion_tokens': 7,
+    });
     expect(events.whereType<DirectStreamError>(), isEmpty);
   });
 
@@ -5977,6 +5983,59 @@ void main() {
       (messages.last as Map)['content'],
       'The user denied this tool call.',
     );
+  });
+
+  test('Ollama cancellation interrupts a pending local approval', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          '${jsonEncode({
+            'model': 'model',
+            'message': {
+              'role': 'assistant',
+              'content': '',
+              'tool_calls': [
+                {
+                  'function': {'name': 'mcp_deadbeef_weather', 'arguments': <String, dynamic>{}},
+                },
+              ],
+            },
+            'done': true,
+          })}\n',
+        ),
+      ], contentType: 'application/x-ndjson'),
+    ]);
+    final pendingDecision = Completer<DirectToolApprovalDecision>();
+    final run =
+        OllamaAdapter(
+          dioFactory: (_) => _dio(http),
+          closeClients: false,
+        ).startCompletion(
+          _ollamaProfile(),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'weather')],
+            tools: _localToolRuntime(approvalDecision: pendingDecision.future),
+          ),
+        );
+    final approvalRequested = Completer<void>();
+    final events = <DirectStreamEvent>[];
+    final subscription = run.events.listen((event) {
+      events.add(event);
+      if (event is DirectMcpApprovalRequested &&
+          !approvalRequested.isCompleted) {
+        approvalRequested.complete();
+      }
+    });
+    addTearDown(subscription.cancel);
+
+    await approvalRequested.future.timeout(const Duration(seconds: 1));
+    await run.cancel().timeout(const Duration(seconds: 1));
+
+    expect(events.whereType<DirectToolCallStarted>(), isEmpty);
+    expect(events.whereType<DirectToolCallCompleted>(), isEmpty);
+    expect(events.whereType<DirectStreamDone>(), isEmpty);
+    expect(http.requests, hasLength(1));
   });
 
   test('Ollama Cloud runs a bounded native web-search agent loop', () async {

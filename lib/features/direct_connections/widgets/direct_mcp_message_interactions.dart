@@ -23,6 +23,20 @@ final class _DirectMcpMessageInteractionsState
     extends ConsumerState<DirectMcpMessageInteractions> {
   bool _busy = false;
   String? _error;
+  String? _decidedApprovalId;
+  DirectToolApprovalDecision? _decision;
+
+  void _resolve(String id, DirectToolApprovalDecision decision) {
+    if (!ref
+        .read(directRunRegistryProvider)
+        .resolveMcpApprovalById(id, decision)) {
+      return;
+    }
+    setState(() {
+      _decidedApprovalId = id;
+      _decision = decision;
+    });
+  }
 
   Future<void> _allowAlways({
     required String id,
@@ -46,7 +60,16 @@ final class _DirectMcpMessageInteractionsState
       _error = null;
     });
     try {
-      await registry.resolveMcpApprovalAlwaysById(id, servers.rememberApproval);
+      final resolved = await registry.resolveMcpApprovalAlwaysById(
+        id,
+        servers.rememberApproval,
+      );
+      if (resolved && mounted) {
+        setState(() {
+          _decidedApprovalId = id;
+          _decision = DirectToolApprovalDecision.allowAlways;
+        });
+      }
     } catch (_) {
       if (mounted) setState(() => _error = l10n.directMcpApprovalSaveFailed);
     } finally {
@@ -63,7 +86,10 @@ final class _DirectMcpMessageInteractionsState
     final serverName = approval['serverName']?.toString() ?? '';
     final toolName = approval['toolName']?.toString() ?? '';
     final arguments = approval['arguments']?.toString() ?? '{}';
-    final state = approval['state']?.toString() ?? 'denied';
+    final persistedState = approval['state']?.toString() ?? 'denied';
+    final state = _decidedApprovalId == id && _decision != null
+        ? directToolApprovalState(_decision!)
+        : persistedState;
     if (id.isEmpty || serverName.isEmpty || toolName.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -113,7 +139,7 @@ final class _DirectMcpMessageInteractionsState
                       FilledButton(
                         onPressed: _busy
                             ? null
-                            : () => registry.resolveMcpApprovalById(
+                            : () => _resolve(
                                 id,
                                 DirectToolApprovalDecision.allowOnce,
                               ),
@@ -122,7 +148,7 @@ final class _DirectMcpMessageInteractionsState
                       OutlinedButton(
                         onPressed: _busy
                             ? null
-                            : () => registry.resolveMcpApprovalById(
+                            : () => _resolve(
                                 id,
                                 DirectToolApprovalDecision.allowSession,
                               ),
@@ -141,10 +167,8 @@ final class _DirectMcpMessageInteractionsState
                       TextButton(
                         onPressed: _busy
                             ? null
-                            : () => registry.resolveMcpApprovalById(
-                                id,
-                                DirectToolApprovalDecision.deny,
-                              ),
+                            : () =>
+                                  _resolve(id, DirectToolApprovalDecision.deny),
                         child: Text(l10n.directMcpApprovalDeny),
                       ),
                     ],

@@ -93,10 +93,12 @@ final class DirectMcpClient {
   DirectMcpClient({
     required this.endpoint,
     Map<String, String> headers = const {},
+    this.allowInsecureCredentials = false,
   }) : _headers = Map.unmodifiable(headers);
 
   final Uri endpoint;
   final Map<String, String> _headers;
+  final bool allowInsecureCredentials;
   mcp.McpClient? _client;
 
   bool get isConnected => _client != null;
@@ -113,6 +115,14 @@ final class DirectMcpClient {
         endpoint.host.isEmpty) {
       throw const FormatException(
         'MCP endpoint must be an absolute HTTP or HTTPS URL.',
+      );
+    }
+    if (_headers.isNotEmpty &&
+        endpoint.scheme == 'http' &&
+        !isDirectLoopbackHost(endpoint.host) &&
+        !allowInsecureCredentials) {
+      throw const FormatException(
+        'Confirm sending MCP credentials over unencrypted HTTP.',
       );
     }
 
@@ -519,6 +529,7 @@ final class DirectMcpContentSession {
         fresh.single.inventoryIdentity != selected.inventoryIdentity) {
       throw const DirectProviderException(
         'This MCP prompt changed. Refresh and try again.',
+        reason: DirectProviderFailureReason.changed,
       );
     }
     _validatePromptArguments(fresh.single, arguments);
@@ -536,18 +547,21 @@ final class DirectMcpContentSession {
       if (content is! mcp.TextContent) {
         throw const DirectProviderException(
           'This MCP prompt contains unsupported non-text content.',
+          reason: DirectProviderFailureReason.unsupported,
         );
       }
       final bytes = utf8.encode(content.text).length;
       if (bytes > kDirectMcpMaxContentItemBytes) {
         throw const DirectProviderException(
           'An MCP prompt message is larger than 128 KiB.',
+          reason: DirectProviderFailureReason.tooLarge,
         );
       }
       totalBytes += bytes;
       if (totalBytes > kDirectMcpMaxInsertionBytes) {
         throw const DirectProviderException(
           'The MCP prompt is larger than 256 KiB.',
+          reason: DirectProviderFailureReason.tooLarge,
         );
       }
       messages.add(
@@ -569,6 +583,7 @@ final class DirectMcpContentSession {
         fresh.single.inventoryIdentity != selected.inventoryIdentity) {
       throw const DirectProviderException(
         'This MCP resource changed. Refresh and try again.',
+        reason: DirectProviderFailureReason.changed,
       );
     }
     signal?.throwIfAborted();
@@ -582,18 +597,21 @@ final class DirectMcpContentSession {
           !_isTextMimeType(content.mimeType ?? selected.mimeType)) {
         throw const DirectProviderException(
           'This MCP resource is not supported text content.',
+          reason: DirectProviderFailureReason.unsupported,
         );
       }
       final bytes = utf8.encode(content.text).length;
       if (bytes > kDirectMcpMaxContentItemBytes) {
         throw const DirectProviderException(
           'An MCP resource item is larger than 128 KiB.',
+          reason: DirectProviderFailureReason.tooLarge,
         );
       }
       totalBytes += bytes;
       if (totalBytes > kDirectMcpMaxInsertionBytes) {
         throw const DirectProviderException(
           'The MCP resource is larger than 256 KiB.',
+          reason: DirectProviderFailureReason.tooLarge,
         );
       }
       parts.add(content.text);
@@ -894,6 +912,7 @@ Future<DirectMcpClient> _connectAuthorizedClient(
   final client = DirectMcpClient(
     endpoint: server.endpointUri,
     headers: headers,
+    allowInsecureCredentials: server.allowInsecureCredentials,
   );
   try {
     await client.connect();

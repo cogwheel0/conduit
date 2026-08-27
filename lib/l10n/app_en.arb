@@ -5868,7 +5868,7 @@
   "@directMcpTestConnection": {"description":"Button that lists tools from an MCP server without saving it."},
   "directMcpTesting": "Testing connection…",
   "@directMcpTesting": {"description":"Progress message while testing an MCP server."},
-  "directMcpTestSucceeded": "Connected — {count} tools found.",
+  "directMcpTestSucceeded": "{count, plural, =1{Connected — 1 tool found.} other{Connected — {count} tools found.}}",
   "@directMcpTestSucceeded": {"description":"Successful MCP connection test result with the listed tool count.","placeholders":{"count":{"type":"int"}}},
   "directMcpTestFailed": "Could not list tools from this MCP server.",
   "@directMcpTestFailed": {"description":"Error shown when an MCP connection test fails."},

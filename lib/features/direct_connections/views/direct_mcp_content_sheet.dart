@@ -157,17 +157,14 @@ class _DirectMcpContentSheetState extends ConsumerState<DirectMcpContentSheet> {
 
   String _messageFor(Object error) {
     final l10n = AppLocalizations.of(context)!;
-    final message = error is DirectProviderException
-        ? error.message.toLowerCase()
-        : '';
-    if (message.contains('changed')) return l10n.directMcpContentChanged;
-    if (message.contains('unsupported') || message.contains('not supported')) {
-      return l10n.directMcpContentUnsupported;
-    }
-    if (message.contains('too large') || message.contains('larger than')) {
-      return l10n.directMcpContentTooLarge;
-    }
-    return l10n.directMcpContentRequestFailed;
+    final reason = error is DirectProviderException ? error.reason : null;
+    return switch (reason) {
+      DirectProviderFailureReason.changed => l10n.directMcpContentChanged,
+      DirectProviderFailureReason.unsupported =>
+        l10n.directMcpContentUnsupported,
+      DirectProviderFailureReason.tooLarge => l10n.directMcpContentTooLarge,
+      null => l10n.directMcpContentRequestFailed,
+    };
   }
 
   @override

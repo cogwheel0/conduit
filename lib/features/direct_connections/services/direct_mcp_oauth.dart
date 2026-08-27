@@ -271,7 +271,10 @@ final class DirectMcpOAuthCoordinator {
       );
     }
     final issuer = protected.authorizationServers.first;
-    _requireSecureUri(issuer, allowLoopbackHttp: _isLoopback(endpoint.host));
+    _requireSecureUri(
+      issuer,
+      allowLoopbackHttp: isDirectLoopbackHost(endpoint.host),
+    );
 
     Map<String, dynamic>? authorizationJson;
     for (final candidate in _authorizationMetadataCandidates(issuer)) {
@@ -387,7 +390,7 @@ final class DirectMcpOAuthCoordinator {
     if (clientId is! String ||
         clientId.isEmpty ||
         clientId.length > 4096 ||
-        _hasForbiddenCharacter(clientId)) {
+        containsForbiddenCredentialCharacter(clientId)) {
       throw const DirectMcpOAuthException(
         'Dynamic client registration returned an invalid client ID.',
       );
@@ -473,7 +476,7 @@ final class DirectMcpOAuthCoordinator {
           'The MCP OAuth callback issuer did not match.',
         );
       }
-      if (code.length > 4096 || _hasForbiddenCharacter(code)) {
+      if (code.length > 4096 || containsForbiddenCredentialCharacter(code)) {
         throw const DirectMcpOAuthException(
           'The MCP OAuth callback code was invalid.',
         );
@@ -618,7 +621,7 @@ final class DirectMcpOAuthCoordinator {
     if (accessToken is! String ||
         accessToken.isEmpty ||
         accessToken.length > 16384 ||
-        _hasForbiddenCharacter(accessToken) ||
+        containsForbiddenCredentialCharacter(accessToken) ||
         refreshToken != null && refreshToken is! String ||
         tokenType is! String ||
         tokenType.toLowerCase() != 'bearer' ||
@@ -958,8 +961,12 @@ List<Uri> _authorizationMetadataCandidates(Uri issuer) {
 }
 
 void _requireTrustedMetadataUri(Uri uri, Uri endpoint) {
-  _requireSecureUri(uri, allowLoopbackHttp: _isLoopback(endpoint.host));
-  if (_origin(uri) != _origin(endpoint)) {
+  _requireSecureUri(
+    uri,
+    allowLoopbackHttp: isDirectLoopbackHost(endpoint.host),
+  );
+  if (directMcpOriginOf(uri.toString()) !=
+      directMcpOriginOf(endpoint.toString())) {
     throw const DirectMcpOAuthException(
       'The OAuth protected-resource metadata is not owned by this MCP server.',
     );
@@ -967,8 +974,9 @@ void _requireTrustedMetadataUri(Uri uri, Uri endpoint) {
 }
 
 void _requireSameAuthorizationServer(Uri uri, Uri issuer) {
-  _requireSecureUri(uri, allowLoopbackHttp: _isLoopback(issuer.host));
-  if (_origin(uri) != _origin(issuer)) {
+  _requireSecureUri(uri, allowLoopbackHttp: isDirectLoopbackHost(issuer.host));
+  if (directMcpOriginOf(uri.toString()) !=
+      directMcpOriginOf(issuer.toString())) {
     throw const DirectMcpOAuthException(
       'The OAuth endpoint is not owned by the discovered authorization server.',
     );
@@ -978,7 +986,9 @@ void _requireSameAuthorizationServer(Uri uri, Uri issuer) {
 void _requireSecureUri(Uri uri, {required bool allowLoopbackHttp}) {
   final validScheme =
       uri.scheme == 'https' ||
-      (uri.scheme == 'http' && allowLoopbackHttp && _isLoopback(uri.host));
+      (uri.scheme == 'http' &&
+          allowLoopbackHttp &&
+          isDirectLoopbackHost(uri.host));
   if (!uri.isAbsolute ||
       !validScheme ||
       uri.host.isEmpty ||
@@ -989,25 +999,11 @@ void _requireSecureUri(Uri uri, {required bool allowLoopbackHttp}) {
 }
 
 bool _resourceMatchesEndpoint(Uri resource, Uri endpoint) {
-  if (_origin(resource) != _origin(endpoint)) return false;
+  if (directMcpOriginOf(resource.toString()) !=
+      directMcpOriginOf(endpoint.toString())) {
+    return false;
+  }
   final resourcePath = resource.path.isEmpty ? '/' : resource.path;
   final endpointPath = endpoint.path.isEmpty ? '/' : endpoint.path;
   return resourcePath == '/' || resourcePath == endpointPath;
 }
-
-String _origin(Uri uri) {
-  final port = uri.hasPort ? uri.port : (uri.scheme == 'https' ? 443 : 80);
-  return '${uri.scheme.toLowerCase()}://${uri.host.toLowerCase()}:$port';
-}
-
-bool _isLoopback(String host) {
-  final normalized = host.toLowerCase();
-  if (normalized == 'localhost' || normalized == '::1') return true;
-  final octets = normalized.split('.').map(int.tryParse).toList();
-  return octets.length == 4 &&
-      octets.every((value) => value != null && value >= 0 && value <= 255) &&
-      octets.first == 127;
-}
-
-bool _hasForbiddenCharacter(String value) =>
-    value.contains('\r') || value.contains('\n') || value.contains('\u0000');

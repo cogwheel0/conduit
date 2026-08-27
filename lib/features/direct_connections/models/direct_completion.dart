@@ -382,12 +382,20 @@ final class DirectCompletionRun {
   }
 }
 
+enum DirectProviderFailureReason { changed, unsupported, tooLarge }
+
 final class DirectProviderException implements Exception {
-  const DirectProviderException(this.message, {this.statusCode, this.cause});
+  const DirectProviderException(
+    this.message, {
+    this.statusCode,
+    this.cause,
+    this.reason,
+  });
 
   final String message;
   final int? statusCode;
   final Object? cause;
+  final DirectProviderFailureReason? reason;
 
   @override
   String toString() => message;

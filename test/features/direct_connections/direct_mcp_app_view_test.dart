@@ -27,6 +27,18 @@ void main() {
     expect(html, contains("form-action 'none'"));
   });
 
+  test('uses none for empty CSP allowlists', () {
+    final html = directMcpAppContainedHtml(
+      '<p>contained</p>',
+      _policy(connect: const [], resource: const [], frame: const []),
+    );
+
+    expect(html, contains("img-src 'none'"));
+    expect(html, contains("connect-src 'none'"));
+    expect(html, contains("frame-src 'none'"));
+    expect(html, contains("base-uri 'none'"));
+  });
+
   test('allows only exact or validated wildcard network origins', () {
     const allowed = [
       'https://api.example',
@@ -76,12 +88,14 @@ void main() {
     JavaScriptHandlerFunctionData message({
       String token = 'token',
       String origin = 'https://app.mcp-app.invalid',
+      List<dynamic>? args,
+      String? requestOrigin,
       bool mainFrame = true,
     }) => JavaScriptHandlerFunctionData(
-      args: [token, '{"jsonrpc":"2.0","id":1,"method":"ping"}'],
+      args: args ?? [token, '{"jsonrpc":"2.0","id":1,"method":"ping"}'],
       isMainFrame: mainFrame,
       origin: WebUri(origin),
-      requestUrl: WebUri('$origin/index.html'),
+      requestUrl: WebUri('${requestOrigin ?? origin}/index.html'),
     );
 
     expect(
@@ -111,6 +125,27 @@ void main() {
     expect(
       directMcpAppBridgeMessageAllowed(
         message(mainFrame: false),
+        expectedOrigin: 'https://app.mcp-app.invalid',
+        expectedToken: 'token',
+      ),
+      isFalse,
+    );
+    for (final args in <List<dynamic>>[
+      ['token'],
+      ['token', 1],
+    ]) {
+      expect(
+        directMcpAppBridgeMessageAllowed(
+          message(args: args),
+          expectedOrigin: 'https://app.mcp-app.invalid',
+          expectedToken: 'token',
+        ),
+        isFalse,
+      );
+    }
+    expect(
+      directMcpAppBridgeMessageAllowed(
+        message(requestOrigin: 'https://spoof.mcp-app.invalid'),
         expectedOrigin: 'https://app.mcp-app.invalid',
         expectedToken: 'token',
       ),

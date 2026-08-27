@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart' as material_ui;
 
 void main() {
   const key = (
@@ -460,6 +461,9 @@ void main() {
     expect(registry.hasLiveMcpApproval(handle.request.id), isTrue);
     await tester.tap(find.text('Deny'));
     expect(await handle.decision, DirectToolApprovalDecision.deny);
+    await tester.pump();
+    expect(find.text('Denied'), findsOneWidget);
+    expect(find.text('Allow once'), findsNothing);
 
     await tester.pumpWidget(
       ProviderScope(
@@ -520,7 +524,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Always allow'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Always allow').last);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(material_ui.AlertDialog),
+        matching: find.text('Always allow'),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(

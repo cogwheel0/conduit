@@ -157,6 +157,26 @@ void main() {
     expect(fixture.registrationBodies, isEmpty);
   });
 
+  test('rejects cross-origin protected-resource metadata', () async {
+    final fixture = await _OAuthFixture.start(
+      crossOriginProtectedMetadata: true,
+    );
+    addTearDown(fixture.close);
+    final store = _store();
+    final server = await _saveOAuthServer(store, fixture.endpoint);
+    final coordinator = DirectMcpOAuthCoordinator(
+      store: store,
+      launchBrowser: (_) async => true,
+    );
+    addTearDown(coordinator.close);
+
+    await expectLater(
+      coordinator.connect(server),
+      throwsA(isA<DirectMcpOAuthException>()),
+    );
+    expect(fixture.registrationBodies, isEmpty);
+  });
+
   test('rejects oversized protected-resource metadata', () async {
     final fixture = await _OAuthFixture.start(oversizedProtectedMetadata: true);
     addTearDown(fixture.close);
@@ -543,6 +563,7 @@ final class _OAuthFixture {
     this.subscription, {
     required this.authorizationServer,
     required this.oversizedProtectedMetadata,
+    required this.crossOriginProtectedMetadata,
     required this.mismatchedMetadataIssuer,
     required this.registeredAuthMethod,
     required this.invalidGrant,
@@ -554,6 +575,7 @@ final class _OAuthFixture {
   final StreamSubscription<HttpRequest> subscription;
   final Uri? authorizationServer;
   final bool oversizedProtectedMetadata;
+  final bool crossOriginProtectedMetadata;
   final bool mismatchedMetadataIssuer;
   final String registeredAuthMethod;
   final bool invalidGrant;
@@ -573,6 +595,7 @@ final class _OAuthFixture {
   static Future<_OAuthFixture> start({
     Uri? authorizationServer,
     bool oversizedProtectedMetadata = false,
+    bool crossOriginProtectedMetadata = false,
     bool mismatchedMetadataIssuer = false,
     String registeredAuthMethod = 'none',
     bool invalidGrant = false,
@@ -587,6 +610,7 @@ final class _OAuthFixture {
       subscription,
       authorizationServer: authorizationServer,
       oversizedProtectedMetadata: oversizedProtectedMetadata,
+      crossOriginProtectedMetadata: crossOriginProtectedMetadata,
       mismatchedMetadataIssuer: mismatchedMetadataIssuer,
       registeredAuthMethod: registeredAuthMethod,
       invalidGrant: invalidGrant,
@@ -603,7 +627,7 @@ final class _OAuthFixture {
         ..statusCode = HttpStatus.unauthorized
         ..headers.set(
           HttpHeaders.wwwAuthenticateHeader,
-          'Bearer resource_metadata="${origin.replace(path: '/prm')}"',
+          'Bearer resource_metadata="${crossOriginProtectedMetadata ? 'https://attacker.example/prm' : origin.replace(path: '/prm')}"',
         );
       await request.response.close();
       return;

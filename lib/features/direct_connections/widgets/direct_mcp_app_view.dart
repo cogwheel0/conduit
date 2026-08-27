@@ -158,6 +158,10 @@ final class _DirectMcpAppViewState extends State<DirectMcpAppView> {
         widget.onRejected?.call('navigation');
         return NavigationActionPolicy.CANCEL;
       },
+      // XHR/fetch hooks cover page-issued requests on every platform. Native
+      // subresource interception is Android-only; WKWebView relies on the CSP
+      // above for images, scripts, styles, frames, and other subresources.
+      // Requests outside these callbacks cannot be reported through onRejected.
       shouldInterceptAjaxRequest: (_, request) async {
         if (!directMcpAppNetworkRequestAllowed(
           request.url?.uriValue,

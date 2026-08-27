@@ -234,9 +234,11 @@ final directMcpSessionBuilderProvider = Provider<DirectMcpSessionBuilder>((
               },
           });
       return session;
-    } catch (_) {
-      await session.close();
-      rethrow;
+    } catch (error, stackTrace) {
+      return runDirectMcpContentOperation(
+        operation: () => Error.throwWithStackTrace(error, stackTrace),
+        close: session.close,
+      );
     }
   };
 });
