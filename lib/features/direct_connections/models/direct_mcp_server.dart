@@ -421,11 +421,7 @@ final class DirectMcpServer {
             !oauthFlowCompletedForExactMutation) {
       return next.withoutAuthCredentials().withoutRememberedApprovals();
     }
-    final previousIssuer = previous.oauthTokens?.authorizationServerIssuer;
-    final nextIssuer = next.oauthTokens?.authorizationServerIssuer;
-    if (previousIssuer != null &&
-        nextIssuer != null &&
-        previousIssuer != nextIssuer) {
+    if (!_sameOAuthApprovalBinding(previous.oauthTokens, next.oauthTokens)) {
       return (oauthFlowCompletedForExactMutation
               ? next
               : next.withoutAuthCredentials())

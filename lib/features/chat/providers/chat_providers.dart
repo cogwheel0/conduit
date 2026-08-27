@@ -9199,7 +9199,7 @@ Future<void> _regenerateDirectMessage(
       ),
       reservation: reservation,
       preflightCancelToken: preflightCancelToken,
-      enableWebSearch: enableWebSearch,
+      enableWebSearch: localMcpToolIds.isEmpty && enableWebSearch,
       enableImageGeneration: enableImageGeneration,
       reasoningEffort: reasoningEffort,
       localMcpToolIds: localMcpToolIds,

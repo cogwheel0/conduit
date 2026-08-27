@@ -461,6 +461,14 @@ void main() {
         oauthTokens: _oauthTokens(issuer: 'https://new-auth.example'),
       ),
     );
+    final tokenEndpointChanged = DirectMcpServer.secureUpdate(
+      previous: previous,
+      next: previous.copyWith(
+        oauthTokens: _oauthTokens(
+          tokenEndpoint: 'https://auth.example/other-token',
+        ),
+      ),
+    );
     final modeChanged = DirectMcpServer.secureUpdate(
       previous: previous,
       next: previous.copyWith(
@@ -483,6 +491,7 @@ void main() {
     expect(pathMoved.customHeaders, {'X-Tenant': 'one'});
     expect(rootPathMoved.oauthTokens, isNotNull);
     expect(issuerChanged.oauthTokens, isNull);
+    expect(tokenEndpointChanged.oauthTokens, isNull);
     expect(modeChanged.authMode, DirectMcpAuthMode.none);
     expect(modeChanged.oauthTokens, isNull);
     expect(modeChanged.customHeaders, {'X-Tenant': 'one'});

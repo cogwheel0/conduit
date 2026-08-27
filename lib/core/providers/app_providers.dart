@@ -49,6 +49,7 @@ import '../../features/hermes/models/hermes_config.dart';
 import '../../features/hermes/providers/hermes_providers.dart';
 import '../../features/hermes/services/hermes_session_provenance.dart';
 import '../../features/direct_connections/direct_connections.dart';
+import '../../features/direct_connections/providers/direct_mcp_providers.dart';
 import 'backend_mode_providers.dart';
 import '../models/socket_transport_availability.dart';
 import 'storage_providers.dart';
@@ -89,6 +90,8 @@ void _resetProvidersAfterFullAppDataClear(Ref ref) {
   ref.invalidate(preferredBackendProvider);
 
   ref.invalidate(directConnectionProfilesProvider);
+  ref.invalidate(directMcpServersProvider);
+  ref.invalidate(directMcpOAuthCoordinatorProvider);
   ref.invalidate(directHistoryPolicyProvider);
   ref.invalidate(directDeviceTrustKeyProvider);
   ref.invalidate(directRunRegistryProvider);
@@ -143,6 +146,7 @@ final class SignOutCoordinator {
 
   Future<void> _signOut({required bool keepServerDetails}) async {
     final directProfiles = _ref.read(directConnectionProfilesProvider.notifier);
+    final directMcpServers = _ref.read(directMcpServersProvider.notifier);
     final hermesConfig = _ref.read(hermesConfigProvider.notifier);
     final directRuns = _ref.read(directRunRegistryProvider);
     FullAppDataClearOutcome? outcome;
@@ -161,6 +165,7 @@ final class SignOutCoordinator {
           PreferencesStore.blockWritesForAppDataClear(),
           SecureCredentialStorage.blockDirectIdentityWritesForAppDataClear(),
           directProfiles.blockMutationsForAppDataClear(),
+          directMcpServers.blockMutationsForAppDataClear(),
           hermesConfig.blockMutationsForAppDataClear(),
         ]);
         _ref.invalidate(directProviderAdapterRegistryProvider);
@@ -174,6 +179,7 @@ final class SignOutCoordinator {
       } catch (_) {
         resumeGlobalAdmission();
         directProfiles.resumeMutationsAfterAppDataClearAbort();
+        directMcpServers.resumeMutationsAfterAppDataClearAbort();
         hermesConfig.resumeMutationsAfterAppDataClearAbort();
         rethrow;
       }
@@ -201,6 +207,7 @@ final class SignOutCoordinator {
           directRuns.commitAppDataClear();
           await Future.wait<void>([
             directProfiles.blockMutationsForAppDataClear(),
+            directMcpServers.blockMutationsForAppDataClear(),
             hermesConfig.blockMutationsForAppDataClear(),
           ]);
           directProfiles.revokeRuntimeAfterIncompleteAppDataClear();
@@ -208,6 +215,7 @@ final class SignOutCoordinator {
         case FullAppDataClearOutcome.ownershipYielded:
           resumeGlobalAdmission();
           directProfiles.resumeMutationsAfterAppDataClearAbort();
+          directMcpServers.resumeMutationsAfterAppDataClearAbort();
           hermesConfig.resumeMutationsAfterAppDataClearAbort();
       }
     } finally {
@@ -224,6 +232,7 @@ final class SignOutCoordinator {
       if (outcome == null) {
         resumeGlobalAdmission();
         directProfiles.resumeMutationsAfterAppDataClearAbort();
+        directMcpServers.resumeMutationsAfterAppDataClearAbort();
         hermesConfig.resumeMutationsAfterAppDataClearAbort();
       }
     }

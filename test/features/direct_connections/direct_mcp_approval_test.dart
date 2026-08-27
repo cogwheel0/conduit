@@ -282,27 +282,25 @@ void main() {
     );
   });
 
-  test('approval display arguments are bounded', () {
+  test('oversized approval arguments are rejected instead of truncated', () {
     final registry = DirectRunRegistry();
     final reservation = registry.reserve(key, 'profile');
-    final handle = registry.requestMcpApproval(
-      reservation,
-      callId: 'call-1',
-      definition: definition,
-      arguments: {
-        'value': List.filled(
-          kMaxDirectMcpApprovalArgumentCharacters * 2,
-          'x',
-        ).join(),
-      },
-      expectedServer: server,
-    );
 
     expect(
-      handle.request.argumentsJson.length,
-      lessThanOrEqualTo(kMaxDirectMcpApprovalArgumentCharacters),
+      () => registry.requestMcpApproval(
+        reservation,
+        callId: 'call-1',
+        definition: definition,
+        arguments: {
+          'value': List.filled(
+            kMaxDirectMcpApprovalArgumentCharacters * 2,
+            'x',
+          ).join(),
+        },
+        expectedServer: server,
+      ),
+      throwsA(isA<DirectProviderException>()),
     );
-    expect(handle.request.argumentsJson, endsWith('[truncated]'));
   });
 
   test(

@@ -439,17 +439,17 @@ final class DirectRunRegistry {
     final argumentsJson = sessionAllowed || alwaysAllowed
         ? '{}'
         : jsonEncode(arguments);
-    const truncationMarker = '...[truncated]';
-    final boundedArguments =
-        argumentsJson.length <= kMaxDirectMcpApprovalArgumentCharacters
-        ? argumentsJson
-        : '${argumentsJson.substring(0, kMaxDirectMcpApprovalArgumentCharacters - truncationMarker.length)}$truncationMarker';
+    if (argumentsJson.length > kMaxDirectMcpApprovalArgumentCharacters) {
+      throw const DirectProviderException(
+        'The MCP tool arguments are too large to review safely.',
+      );
+    }
     final request = DirectToolApprovalRequest(
       id: 'mcp-approval-${const Uuid().v4()}',
       serverName: definition.serverName,
       toolName: definition.displayName,
       callId: callId,
-      argumentsJson: boundedArguments,
+      argumentsJson: argumentsJson,
     );
     if (sessionAllowed || alwaysAllowed) {
       return DirectToolApprovalHandle(

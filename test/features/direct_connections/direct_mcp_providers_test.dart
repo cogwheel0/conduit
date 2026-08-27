@@ -1,4 +1,6 @@
-import 'package:conduit/core/providers/storage_providers.dart';
+import 'dart:async';
+
+import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/models/direct_mcp_server.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
@@ -134,6 +136,44 @@ void main() {
     expect(await container.read(directMcpServerStoreProvider).load(), isEmpty);
   });
 
+  test('reload stays closed behind the durable logout fence', () async {
+    final container = ProviderContainer(
+      overrides: [incompleteLogoutFenceProvider.overrideWithValue(true)],
+    );
+    addTearDown(container.dispose);
+    expect(await container.read(directMcpServersProvider.future), isEmpty);
+
+    await expectLater(
+      container.read(directMcpServersProvider.notifier).reload(),
+      throwsStateError,
+    );
+  });
+
+  test('app-data clear drains an admitted MCP server write', () async {
+    final storage = _BlockingMcpSecureStorage();
+    final container = ProviderContainer(
+      overrides: [secureStorageProvider.overrideWithValue(storage)],
+    );
+    addTearDown(container.dispose);
+    await container.read(directMcpServersProvider.future);
+    final notifier = container.read(directMcpServersProvider.notifier);
+    storage.blockNextWrite();
+    final write = notifier.upsert(_server('one'));
+    await storage.writeStarted.future;
+
+    var blocked = false;
+    final barrier = notifier.blockMutationsForAppDataClear().then((_) {
+      blocked = true;
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(blocked, isFalse);
+    storage.releaseWrite();
+    await write;
+    await barrier;
+    expect(blocked, isTrue);
+    await expectLater(notifier.upsert(_server('two')), throwsStateError);
+  });
+
   test('unchanged approval pruning does not republish servers', () async {
     const storage = FlutterSecureStorage();
     final container = ProviderContainer(
@@ -218,3 +258,33 @@ DirectMcpServer _server(String id, {bool enabled = true}) => DirectMcpServer(
   endpoint: 'https://$id.example/mcp',
   enabled: enabled,
 );
+
+final class _BlockingMcpSecureStorage implements FlutterSecureStorage {
+  String? _source;
+  bool _block = false;
+  final writeStarted = Completer<void>();
+  final _writeRelease = Completer<void>();
+
+  void blockNextWrite() => _block = true;
+  void releaseWrite() => _writeRelease.complete();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    if (invocation.memberName == #read) return Future<String?>.value(_source);
+    if (invocation.memberName == #delete) {
+      _source = null;
+      return Future<void>.value();
+    }
+    if (invocation.memberName == #write) {
+      final value = invocation.namedArguments[#value] as String?;
+      if (!_block) {
+        _source = value;
+        return Future<void>.value();
+      }
+      _block = false;
+      writeStarted.complete();
+      return _writeRelease.future.then<void>((_) => _source = value);
+    }
+    return super.noSuchMethod(invocation);
+  }
+}

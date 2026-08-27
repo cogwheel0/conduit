@@ -15,6 +15,7 @@ import 'package:conduit/features/hermes/models/hermes_config.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -52,6 +53,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() async {
+    FlutterSecureStorage.setMockInitialValues({});
     PreferencesStore.debugReset();
     SharedPreferences.setMockInitialValues(const <String, Object>{});
     await PreferencesStore.ensureInitialized();

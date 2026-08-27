@@ -37,6 +37,7 @@ final directMcpOAuthCoordinatorProvider = Provider<DirectMcpOAuthCoordinator>((
 final class DirectMcpServersController
     extends AsyncNotifier<List<DirectMcpServer>> {
   Future<void> _mutationQueue = Future<void>.value();
+  bool _appDataClearBlocked = false;
 
   @override
   Future<List<DirectMcpServer>> build() async {
@@ -55,6 +56,7 @@ final class DirectMcpServersController
   }
 
   Future<void> reload() => _serialize(() async {
+    _requireMutationAdmission();
     final store = ref.read(directMcpServerStoreProvider);
     final registry = ref.read(directRunRegistryProvider);
     if (ref.mounted) state = const AsyncLoading();
@@ -176,6 +178,15 @@ final class DirectMcpServersController
     _sanitizeSelections(servers, ref.read(selectedToolIdsProvider));
   }
 
+  Future<void> blockMutationsForAppDataClear() async {
+    _appDataClearBlocked = true;
+    await _mutationQueue;
+  }
+
+  void resumeMutationsAfterAppDataClearAbort() {
+    _appDataClearBlocked = false;
+  }
+
   void _sanitizeSelections(
     List<DirectMcpServer> servers,
     List<String> selected,
@@ -205,7 +216,7 @@ final class DirectMcpServersController
   }
 
   void _requireMutationAdmission() {
-    if (ref.read(incompleteLogoutFenceProvider)) {
+    if (_appDataClearBlocked || ref.read(incompleteLogoutFenceProvider)) {
       throw StateError('MCP server changes are unavailable while signing out.');
     }
   }

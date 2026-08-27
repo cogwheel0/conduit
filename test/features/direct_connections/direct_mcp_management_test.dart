@@ -296,6 +296,34 @@ void main() {
     expect(find.text('Always allowed tools'), findsNothing);
   });
 
+  testWidgets('Test Connection confirms credential transfer on origin change', (
+    tester,
+  ) async {
+    final store = _managementStore();
+    final server = DirectMcpServer(
+      id: 'transfer-ui',
+      name: 'Transfer UI',
+      endpoint: 'http://127.0.0.1:1/mcp',
+      authMode: DirectMcpAuthMode.bearer,
+      bearerToken: 'bearer-secret',
+      allowInsecureCredentials: true,
+      customHeaders: const {'X-Tenant': 'tenant-secret'},
+    );
+    await store.upsert(server);
+    final coordinator = DirectMcpOAuthCoordinator(store: store);
+    addTearDown(coordinator.close);
+    await _pumpOAuthEditor(tester, store, coordinator, server.id);
+    await tester.enterText(
+      find.byKey(const ValueKey('direct-mcp-endpoint')),
+      'http://127.0.0.1:2/mcp',
+    );
+    final testConnection = find.byKey(const ValueKey('direct-mcp-test'));
+    await tester.ensureVisible(testConnection);
+    await tester.tap(testConnection);
+    await tester.pumpAndSettle();
+    expect(find.text('Use credentials with new server?'), findsOneWidget);
+  });
+
   testWidgets('OAuth editor adopts a token-only secure-store reload', (
     tester,
   ) async {

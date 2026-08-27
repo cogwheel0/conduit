@@ -181,6 +181,27 @@ class _DirectMcpServerEditorPageState
     return server.copyWith(allowInsecureCredentials: true);
   }
 
+  Future<({DirectMcpServer server, bool confirmed})> _confirmCredentialTransfer(
+    DirectMcpServer server,
+  ) async {
+    final previous = _previous;
+    if (previous == null || previous.origin == server.origin) {
+      return (server: server, confirmed: false);
+    }
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await ThemedDialogs.confirm(
+      context,
+      title: l10n.directMcpCredentialTransferTitle,
+      message: l10n.directMcpCredentialTransferMessage,
+      confirmText: l10n.directMcpCredentialTransferConfirm,
+      barrierDismissible: false,
+    );
+    return (
+      server: confirmed ? server : server.withoutSecrets(),
+      confirmed: confirmed,
+    );
+  }
+
   Future<void> _save() async {
     final l10n = AppLocalizations.of(context)!;
     DirectMcpServer draft;
@@ -191,19 +212,10 @@ class _DirectMcpServerEditorPageState
       return;
     }
 
-    var confirmed = false;
     final previous = _previous;
-    if (previous != null && previous.origin != draft.origin) {
-      confirmed = await ThemedDialogs.confirm(
-        context,
-        title: l10n.directMcpCredentialTransferTitle,
-        message: l10n.directMcpCredentialTransferMessage,
-        confirmText: l10n.directMcpCredentialTransferConfirm,
-        barrierDismissible: false,
-      );
-      if (!confirmed) draft = draft.withoutSecrets();
-    }
+    final transfer = await _confirmCredentialTransfer(draft);
     if (!mounted) return;
+    draft = transfer.server;
     final confirmedDraft = await _confirmInsecureTransport(draft);
     if (confirmedDraft == null || !mounted) return;
     draft = confirmedDraft;
@@ -217,7 +229,7 @@ class _DirectMcpServerEditorPageState
           .upsert(
             draft,
             expectedPrevious: previous,
-            secretsConfirmedForNewOrigin: confirmed,
+            secretsConfirmedForNewOrigin: transfer.confirmed,
           );
       if (mounted) context.pop(true);
     } catch (_) {
@@ -236,6 +248,9 @@ class _DirectMcpServerEditorPageState
       setState(() => _message = error.message);
       return;
     }
+    final transfer = await _confirmCredentialTransfer(draft);
+    if (!mounted) return;
+    draft = transfer.server;
     final confirmedDraft = await _confirmInsecureTransport(draft);
     if (confirmedDraft == null || !mounted) return;
     draft = confirmedDraft;
