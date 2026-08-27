@@ -5581,6 +5581,7 @@ void main() {
   });
 
   test('OpenAI Chat cancels a completed tool-round transport before replay', () async {
+    var executedCalls = 0;
     final http = _NeverEndingStreamAdapter(
       utf8.encode(
         'data: ${jsonEncode({
@@ -5598,7 +5599,22 @@ void main() {
             },
           ],
         })}\n\n'
-        'data: [DONE]\n\n',
+        'data: [DONE]\n\n'
+        'data: ${jsonEncode({
+          'choices': [
+            {
+              'delta': {
+                'tool_calls': [
+                  {
+                    'index': 1,
+                    'id': 'call-after-done',
+                    'function': {'name': 'mcp_deadbeef_weather', 'arguments': '{"city":"London"}'},
+                  },
+                ],
+              },
+            },
+          ],
+        })}\n\n',
       ),
       contentType: 'text/event-stream',
       next: _Reply.json({
@@ -5621,7 +5637,12 @@ void main() {
           DirectCompletionRequest(
             remoteModelId: 'model',
             messages: [DirectChatMessage.text(role: 'user', text: 'weather')],
-            tools: _localToolRuntime(),
+            tools: _localToolRuntime(
+              execute: (_) async {
+                executedCalls++;
+                return const DirectToolResult(text: 'sunny');
+              },
+            ),
           ),
         )
         .events
@@ -5630,6 +5651,8 @@ void main() {
 
     expect(http.requests, 2);
     expect(http.secondStartedAfterTransportCancel, isTrue);
+    expect(executedCalls, 1);
+    expect(events.whereType<DirectToolCallStarted>(), hasLength(1));
     expect(events.whereType<DirectStreamDone>(), hasLength(1));
   });
 

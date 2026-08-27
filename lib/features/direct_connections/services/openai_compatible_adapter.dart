@@ -953,6 +953,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
         maxLineCharacters: maxSseLineCharacters,
         maxFrameDataCharacters: maxSseFrameDataCharacters,
       )) {
+        if (sawDone) continue;
         emitter.protocolEvent();
         if (raw.isDone) {
           sawDone = true;
