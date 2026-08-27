@@ -211,6 +211,7 @@ final class SignOutCoordinator {
             hermesConfig.blockMutationsForAppDataClear(),
           ]);
           directProfiles.revokeRuntimeAfterIncompleteAppDataClear();
+          directMcpServers.revokeRuntimeAfterIncompleteAppDataClear();
           hermesConfig.revokeRuntimeAfterIncompleteAppDataClear();
         case FullAppDataClearOutcome.ownershipYielded:
           resumeGlobalAdmission();

@@ -187,6 +187,12 @@ final class DirectMcpServersController
     _appDataClearBlocked = false;
   }
 
+  void revokeRuntimeAfterIncompleteAppDataClear() {
+    if (!ref.mounted) return;
+    _appDataClearBlocked = false;
+    _publish(const [], ref.read(directRunRegistryProvider));
+  }
+
   void _sanitizeSelections(
     List<DirectMcpServer> servers,
     List<String> selected,

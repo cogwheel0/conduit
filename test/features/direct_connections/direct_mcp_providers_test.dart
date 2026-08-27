@@ -174,6 +174,21 @@ void main() {
     await expectLater(notifier.upsert(_server('two')), throwsStateError);
   });
 
+  test('incomplete clear leaves recovery owned by the durable fence', () async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final notifier = container.read(directMcpServersProvider.notifier);
+    await notifier.upsert(_server('one'));
+
+    await notifier.blockMutationsForAppDataClear();
+    container.read(incompleteLogoutFenceProvider.notifier).setSuppressed(true);
+    notifier.revokeRuntimeAfterIncompleteAppDataClear();
+    await expectLater(notifier.upsert(_server('two')), throwsStateError);
+
+    container.read(incompleteLogoutFenceProvider.notifier).setSuppressed(false);
+    await notifier.upsert(_server('two'));
+  });
+
   test('unchanged approval pruning does not republish servers', () async {
     const storage = FlutterSecureStorage();
     final container = ProviderContainer(
