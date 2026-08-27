@@ -14,7 +14,7 @@ import 'package:conduit/core/sync/id_remapper.dart';
 import 'package:conduit/core/sync/sync_engine.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
-import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
+import 'package:conduit/features/hermes/widgets/hermes_message_interactions.dart';
 import 'package:conduit/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
 import 'package:conduit/features/hermes/models/hermes_run_event.dart';
@@ -259,14 +259,7 @@ void main() {
           theme: AppTheme.light(TweakcnThemes.t3Chat),
           localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(
-            body: AssistantMessageWidget(
-              message: first,
-              isStreaming: false,
-              animateOnMount: false,
-              onDelete: () {},
-            ),
-          ),
+          home: Scaffold(body: HermesComposerPromptOverlay(message: first)),
         ),
       ),
     );
@@ -367,14 +360,7 @@ void main() {
           theme: AppTheme.light(TweakcnThemes.t3Chat),
           localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(
-            body: AssistantMessageWidget(
-              message: first,
-              isStreaming: false,
-              animateOnMount: false,
-              onDelete: () {},
-            ),
-          ),
+          home: Scaffold(body: HermesComposerPromptOverlay(message: first)),
         ),
       ),
     );
@@ -516,12 +502,7 @@ void main() {
               localizationsDelegates: conduitLocalizationsDelegates,
               supportedLocales: AppLocalizations.supportedLocales,
               home: Scaffold(
-                body: AssistantMessageWidget(
-                  message: pending,
-                  isStreaming: true,
-                  animateOnMount: false,
-                  onDelete: () {},
-                ),
+                body: HermesComposerPromptOverlay(message: pending),
               ),
             ),
           ),
@@ -680,12 +661,7 @@ void main() {
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: SingleChildScrollView(
-                child: AssistantMessageWidget(
-                  message: pending,
-                  isStreaming: true,
-                  animateOnMount: false,
-                  onDelete: () {},
-                ),
+                child: HermesComposerPromptOverlay(message: pending),
               ),
             ),
           ),
@@ -866,14 +842,7 @@ void main() {
           theme: AppTheme.light(TweakcnThemes.t3Chat),
           localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(
-            body: AssistantMessageWidget(
-              message: pending,
-              isStreaming: true,
-              animateOnMount: false,
-              onDelete: () {},
-            ),
-          ),
+          home: Scaffold(body: HermesComposerPromptOverlay(message: pending)),
         ),
       ),
     );

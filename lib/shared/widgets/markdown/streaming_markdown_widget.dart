@@ -12,9 +12,11 @@ import 'markdown_config.dart';
 import 'markdown_compile_service.dart';
 import 'markdown_display_part.dart';
 import 'markdown_document_controller.dart';
+import 'markdown_render_gate.dart';
 import 'markdown_loading_skeleton.dart';
 import 'streaming_markdown_preparation.dart';
 import 'renderer/block_renderer.dart';
+import 'renderer/chunked_block_column.dart';
 import 'renderer/conduit_markdown_widget.dart';
 
 const int _streamingDiagnosticsSampleInterval = 16;
@@ -198,6 +200,9 @@ class _StreamingMarkdownWidgetState
   bool _isAppForeground = true;
   bool _isRouteVisible = true;
   ImageBuilder? _adaptedImageBuilder;
+  // Chunked block inflation registers here while revealing; completion
+  // re-arms SelectionArea wrapping via the listener.
+  final MarkdownRenderGate _renderGate = MarkdownRenderGate();
 
   CompiledMarkdownDocument? get _compiledDocument =>
       _documentController.compiledDocument;
@@ -214,10 +219,21 @@ class _StreamingMarkdownWidgetState
         _documentController.compiledStreamingRevision == patch.revision;
   }
 
+  void _handleRenderGateChanged() {
+    if (!mounted) return;
+    // The gate flips to incomplete while a chunked descendant inflates —
+    // that is mid-build, where an ancestor setState is illegal. Both edges
+    // of the gate only need to take visual effect by the next frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _renderGate.addListener(_handleRenderGateChanged);
     _isAppForeground = _isLifecycleForeground(
       WidgetsBinding.instance.lifecycleState,
     );
@@ -229,51 +245,80 @@ class _StreamingMarkdownWidgetState
       onStateChanged: _applyCompiledDocumentState,
     );
     final compiler = _compileService;
-    if (!widget.isStreaming ||
-        compiler.shouldPrepareSynchronously(
-          widget.content,
-          widgetTest: _isWidgetTest,
-        )) {
-      // Settled rows must mount at their final extent. Deferring long settled
-      // preparation would mount a loading skeleton whose height differs from
-      // the real content, so rows built while scrolling up through history
-      // would change extent a few frames later and visibly jump the viewport.
-      // Only live streaming updates may take the async coalescing path below.
-      _snapshot = _buildMarkdownSnapshot(
-        widget.content,
-        streaming: widget.isStreaming,
-      );
-      if (widget.isStreaming) {
-        _resolveCompiledDocument(_snapshot);
-      } else {
-        // The first settled render must have its final structure and extent.
-        // An async compile would still replace this row with a loading skeleton
-        // before the real document arrives, recreating the scroll-up jump even
-        // though normalization above is synchronous. Later edits remain on the
-        // controller's coalesced async path.
-        final prepared = _snapshot.normalizedContent;
-        final document =
-            compiler.peekPrepared(prepared) ??
-            compiler.compilePreparedSynchronously(prepared);
-        _documentController.applyDirectDocument(document);
-      }
+    if (!widget.isStreaming) {
+      _mountSettledContent(compiler);
+    } else if (compiler.shouldPrepareSynchronously(
+      widget.content,
+      widgetTest: _isWidgetTest,
+    )) {
+      _snapshot = _buildMarkdownSnapshot(widget.content, streaming: true);
+      _resolveCompiledDocument(_snapshot);
     } else if (widget.content.trim().isNotEmpty) {
-      // Long normalization performs several full-string passes. For a row that
-      // mounts mid-stream, keep it off the first UI frame and let the existing
-      // generation checks reject stale results as the stream advances.
-      if (widget.content.length > markdownSynchronousPrepareThreshold) {
-        // Route a long initial snapshot through the same coalescing window as
-        // subsequent token updates. Starting it immediately would make the
-        // seed snapshot consume a worker slot even when a newer stream value
-        // arrives during the first frame.
-        _markPendingStreamingContent(widget.content);
-        _scheduleStreamingRefresh();
-      } else {
-        // Test doubles and platform-specific backends may still request the
-        // async path for small inputs. Those are cheap and should remain
-        // available on the initial frame.
-        unawaited(_refreshStreamingSnapshot(widget.content));
+      _initStreamingDeferredMount();
+    }
+  }
+
+  /// Above this size a settled mount never prepares/compiles synchronously:
+  /// the multi-pass normalization + parse of a very large body froze the UI
+  /// for over a second when opening a conversation cold. Over-cap bodies
+  /// mount an approximate skeleton and compile off-frame; the one-time
+  /// extent correction when the real document lands is absorbed by the
+  /// timeline's anchor maintenance / latest-follow, and is invisible next to
+  /// a freeze. Typical assistant messages stay well below this cap, so
+  /// scroll-up-through-history keeps its exact-extent mount guarantee.
+  static const int _settledSynchronousMountCharCap = 20000;
+
+  /// Resolves a settled body at mount time.
+  ///
+  /// Settled rows must mount at their final extent or the timeline jumps
+  /// while scrolling through history, so mounts are synchronous when cheap:
+  /// memoized prepare + cached compile apply directly with no string work,
+  /// and uncached bodies under [_settledSynchronousMountCharCap] prepare and
+  /// compile in-frame. Only over-cap giants go async behind a skeleton.
+  void _mountSettledContent(MarkdownCompileService compiler) {
+    final content = widget.content;
+    final memoizedPrepared = compiler.peekSettledPrepared(content);
+    if (memoizedPrepared != null) {
+      final cachedDocument = compiler.peekPrepared(memoizedPrepared);
+      if (cachedDocument != null) {
+        _snapshot = _MarkdownRenderSnapshot.full(memoizedPrepared);
+        _documentController.applyDirectDocument(cachedDocument);
+        return;
       }
+    }
+    // Widget tests stay on the synchronous deterministic path so settled
+    // fixtures render fully on the first pump regardless of size.
+    if (_isWidgetTest || content.length <= _settledSynchronousMountCharCap) {
+      final prepared =
+          memoizedPrepared ??
+          prepareMarkdownContent(content, streaming: false);
+      compiler.memoizeSettledPrepared(content, prepared);
+      _snapshot = _MarkdownRenderSnapshot.full(prepared);
+      final document =
+          compiler.peekPrepared(prepared) ??
+          compiler.compilePreparedSynchronously(prepared);
+      _documentController.applyDirectDocument(document);
+      return;
+    }
+    _queueSettledSnapshot(content, generation: _snapshotGeneration);
+  }
+
+  void _initStreamingDeferredMount() {
+    // Long normalization performs several full-string passes. For a row that
+    // mounts mid-stream, keep it off the first UI frame and let the existing
+    // generation checks reject stale results as the stream advances.
+    if (widget.content.length > markdownSynchronousPrepareThreshold) {
+      // Route a long initial snapshot through the same coalescing window as
+      // subsequent token updates. Starting it immediately would make the
+      // seed snapshot consume a worker slot even when a newer stream value
+      // arrives during the first frame.
+      _markPendingStreamingContent(widget.content);
+      _scheduleStreamingRefresh();
+    } else {
+      // Test doubles and platform-specific backends may still request the
+      // async path for small inputs. Those are cheap and should remain
+      // available on the initial frame.
+      unawaited(_refreshStreamingSnapshot(widget.content));
     }
   }
 
@@ -409,6 +454,9 @@ class _StreamingMarkdownWidgetState
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _renderGate
+      ..removeListener(_handleRenderGateChanged)
+      ..dispose();
     _debugStreamingDelayTimer?.cancel();
     _retirePreparationSession();
     _documentController.dispose();
@@ -750,7 +798,10 @@ class _StreamingMarkdownWidgetState
 
     final result = KeyedSubtree(
       key: _markdownContentKey,
-      child: _buildMarkdownDisplayParts(compiledDocument),
+      child: MarkdownRenderGateScope(
+        gate: _renderGate,
+        child: _buildMarkdownDisplayParts(compiledDocument),
+      ),
     );
 
     // Only wrap in SelectionArea when not streaming, no settled normalization
@@ -759,9 +810,11 @@ class _StreamingMarkdownWidgetState
     // responseDone-gap growing-content path that #540's fix now keeps on screen)
     // must not be made selectable: SelectionArea over rapidly-changing content
     // triggers concurrent-modification errors in Flutter's selection system.
+    // Chunked inflation mutates children per frame, so it also holds this off.
     if (widget.isStreaming ||
         _settledPreparationPending ||
-        !hasFreshCompiledDocument) {
+        !hasFreshCompiledDocument ||
+        !_renderGate.isComplete) {
       return result;
     }
 
@@ -810,26 +863,42 @@ class _StreamingMarkdownWidgetState
       );
     }
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        for (var index = 0; index < stableParts.length; index += 1)
-          KeyedSubtree(
-            key: ValueKey<String>(
-              'markdown-display-part:${stableParts[index].partId}',
-            ),
-            child: _buildMarkdownWithCitations(
-              document: stableParts[index].document,
-              stateScopeId: _stateScopeIdForPart(stableParts[index]),
-              enableStreamingTextFade:
-                  widget.isStreaming &&
-                  widget.enableStreamingTextFade &&
-                  stableParts[index].isMutableTail,
-              trimLastBlockBottomPadding: index == stableParts.length - 1,
-            ),
+    final partWidgets = <Widget>[
+      for (var index = 0; index < stableParts.length; index += 1)
+        KeyedSubtree(
+          key: ValueKey<String>(
+            'markdown-display-part:${stableParts[index].partId}',
           ),
-      ],
+          child: _buildMarkdownWithCitations(
+            document: stableParts[index].document,
+            stateScopeId: _stateScopeIdForPart(stableParts[index]),
+            enableStreamingTextFade:
+                widget.isStreaming &&
+                widget.enableStreamingTextFade &&
+                stableParts[index].isMutableTail,
+            trimLastBlockBottomPadding: index == stableParts.length - 1,
+          ),
+        ),
+    ];
+
+    // This column — not the per-part block columns — is where a giant
+    // settled message inflates: the display-part split produces one
+    // single-block sub-document per root block, so the sub-documents are
+    // always under ConduitMarkdownWidget's own chunk threshold and the
+    // freeze lives in inflating thousands of parts here in one frame.
+    //
+    // The chunked column is used unconditionally (it renders a plain Column
+    // when everything is revealed) so the body's widget type never changes.
+    // An earlier version latched a type choice on the first build, which
+    // left a body that mounted small and later grew past the threshold —
+    // e.g. a local stub replaced by full server content — on the plain
+    // column, re-creating the multi-second inflation freeze. Streaming
+    // reveals immediately (blocks arrive one at a time; the live tail must
+    // never trail the pin/extent math), and that progress is monotonic, so
+    // the streaming→settled flip re-inflates nothing.
+    return ChunkedBlockColumn(
+      revealImmediately: widget.isStreaming,
+      children: partWidgets,
     );
   }
 

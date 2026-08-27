@@ -143,6 +143,12 @@ class TextToSpeechService {
     return available;
   }
 
+  /// Marks playback as belonging to a voice call so device TTS uses the
+  /// call's audio route instead of the media stream.
+  void setVoiceCallActive(bool active) {
+    TtsManager.instance.setVoiceCallActive(active);
+  }
+
   /// Speaks the given text.
   Future<void> speak(String text) async {
     if (text.trim().isEmpty) {

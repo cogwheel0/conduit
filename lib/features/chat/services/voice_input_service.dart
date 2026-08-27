@@ -14,7 +14,6 @@ import 'package:vad/vad.dart' show VadHandler;
 
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
-import '../../../core/services/background_streaming_handler.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import 'native_stt_service.dart';
@@ -51,7 +50,6 @@ class VoiceInputService {
   static const double _vadPositiveSpeechThreshold = 0.6;
   static const double _vadNegativeSpeechThreshold = 0.35;
   static const Duration _localeFetchTimeout = Duration(seconds: 2);
-  static const String _backgroundSttStreamId = 'voice-input-stt';
   static const Duration _vadDisposeCooldown = Duration(milliseconds: 140);
   static const Duration _localRecognitionMaxDuration = Duration(minutes: 5);
   static const Duration _nativeDictationFinalSettleDelay = Duration(
@@ -104,7 +102,10 @@ class VoiceInputService {
   SttPreference _preference = SttPreference.deviceOnly;
   bool _usingServerStt = false;
   bool _usingNativeLocalStt = false;
+  bool _nativeCaptureDetachedForResponseWait = false;
   bool _nativeAccumulateResultsForCurrentListen = true;
+  bool _holdServerRecorderForResponseWait = false;
+  int _listenGeneration = 0;
   String? _configuredLocaleId;
   String? _selectedLocaleId;
   List<LocaleName> _locales = const [];
@@ -117,12 +118,15 @@ class VoiceInputService {
   bool _receivedFinalResult = false;
   bool _completedTranscriptIsSendable = false;
   StreamController<int>? _intensityController;
+  final StreamController<Object> _responseCaptureFailureController =
+      StreamController<Object>.broadcast();
+  Stream<Object> get responseCaptureFailures =>
+      _responseCaptureFailureController.stream;
   Stream<int> get intensityStream =>
       _intensityController?.stream ?? const Stream<int>.empty();
   int _lastIntensity = 0;
   Timer? _intensityDecayTimer;
   List<double>? _vadPendingSamples;
-  bool _backgroundMicPinned = false;
 
   Stream<String> get textStream =>
       _textStreamController?.stream ?? const Stream<String>.empty();
@@ -140,6 +144,8 @@ class VoiceInputService {
   bool get isSupportedPlatform => Platform.isAndroid || Platform.isIOS;
   @protected
   bool get usesAutomaticNativeLanguage => Platform.isAndroid;
+  @protected
+  bool get supportsNativeResponseWaitCapture => Platform.isIOS;
   @protected
   String get deviceLocaleTag =>
       WidgetsBinding.instance.platformDispatcher.locale.toLanguageTag();
@@ -244,6 +250,12 @@ class VoiceInputService {
       _isInitialized && (_localSttAvailable || hasServerStt);
   bool get hasLocalStt => _localSttAvailable;
   bool get isUsingNativeLocalStt => _usingNativeLocalStt;
+  bool get willUseNativeLocalStt =>
+      supportsNativeResponseWaitCapture &&
+      _nativeLocalSttAvailable &&
+      _preference != SttPreference.serverOnly;
+  bool get isHoldingServerRecorderForResponse =>
+      _serverVadRecorderSession?.isHoldingForResponse == true;
   bool get lastCompletedTranscriptSendable => _completedTranscriptIsSendable;
   bool get localeMetadataIncomplete => _usingFallbackLocales;
 
@@ -515,6 +527,7 @@ class VoiceInputService {
       accumulateResults: accumulateResults,
       allowOnlineFallback: allowOnlineFallback,
     );
+    _nativeCaptureDetachedForResponseWait = false;
     _nativeSttSub = stream.listen(
       _handleNativeSttEvent,
       onError: (Object error, StackTrace stackTrace) {
@@ -605,6 +618,7 @@ class VoiceInputService {
   Future<Stream<String>> startListening({
     bool iosAudioSessionManagedExternally = false,
     bool nativeAccumulateResults = true,
+    bool holdServerRecorderForResponseWait = false,
   }) async {
     final inFlight = _startListeningInFlight;
     if (inFlight != null) {
@@ -614,6 +628,7 @@ class VoiceInputService {
     final startFuture = _startListeningInternal(
       iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
       nativeAccumulateResults: nativeAccumulateResults,
+      holdServerRecorderForResponseWait: holdServerRecorderForResponseWait,
     );
     _startListeningInFlight = startFuture;
     try {
@@ -628,6 +643,7 @@ class VoiceInputService {
   Future<Stream<String>> _startListeningInternal({
     required bool iosAudioSessionManagedExternally,
     required bool nativeAccumulateResults,
+    required bool holdServerRecorderForResponseWait,
   }) async {
     if (!_isInitialized) {
       throw Exception('Voice input not initialized');
@@ -639,9 +655,27 @@ class VoiceInputService {
       } catch (_) {}
     }
 
+    final bool canUseLocal = _localSttAvailable;
+    final bool serverAvailable = hasServerStt;
+    final bool shouldUseLocal =
+        canUseLocal && _preference != SttPreference.serverOnly;
+    final bool shouldUseServer =
+        serverAvailable &&
+        (_preference == SttPreference.serverOnly ||
+            (!shouldUseLocal && _preference != SttPreference.deviceOnly));
+
     if (_isListening) {
       await stopListening();
     }
+    final resumeHeldServerRecorder =
+        shouldUseServer && isHoldingServerRecorderForResponse;
+    if (!resumeHeldServerRecorder && isHoldingServerRecorderForResponse) {
+      await stopListening();
+    }
+    if (!shouldUseLocal && _nativeCaptureDetachedForResponseWait) {
+      await _stopNativeLocalStt();
+    }
+    final listenGeneration = ++_listenGeneration;
 
     _textStreamController = StreamController<String>.broadcast();
     _transcriptEventController =
@@ -655,19 +689,11 @@ class VoiceInputService {
     _lastIntensity = 0;
     _usingServerStt = false;
     _nativeAccumulateResultsForCurrentListen = nativeAccumulateResults;
+    _holdServerRecorderForResponseWait = holdServerRecorderForResponseWait;
 
     ConduitHaptics.heavyImpact();
 
     _startIntensityDecayTimer();
-
-    final bool canUseLocal = _localSttAvailable;
-    final bool serverAvailable = hasServerStt;
-    final bool shouldUseLocal =
-        canUseLocal && _preference != SttPreference.serverOnly;
-    final bool shouldUseServer =
-        serverAvailable &&
-        (_preference == SttPreference.serverOnly ||
-            (!shouldUseLocal && _preference != SttPreference.deviceOnly));
 
     if (shouldUseLocal) {
       _autoStopTimer?.cancel();
@@ -702,11 +728,20 @@ class VoiceInputService {
       });
       Future(() async {
         try {
-          await _startServerRecording(
-            iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
-          );
+          final resumed =
+              resumeHeldServerRecorder &&
+              await _resumeHeldServerRecording(
+                listenGeneration: listenGeneration,
+              );
+          if (!resumed) {
+            await _startServerRecording(
+              iosAudioSessionManagedExternally:
+                  iosAudioSessionManagedExternally,
+              listenGeneration: listenGeneration,
+            );
+          }
         } catch (error) {
-          if (!_isListening) return;
+          if (!_isListening || listenGeneration != _listenGeneration) return;
           _reportRecognitionError(error);
           await _stopListening();
         }
@@ -736,6 +771,7 @@ class VoiceInputService {
   Future<Stream<String>> beginListening({
     bool iosAudioSessionManagedExternally = false,
     bool nativeAccumulateResults = true,
+    bool holdServerRecorderForResponseWait = false,
   }) async {
     await initialize();
     // For on-device STT we preflight the microphone permission so we can
@@ -754,6 +790,7 @@ class VoiceInputService {
     return await startListening(
       iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
       nativeAccumulateResults: nativeAccumulateResults,
+      holdServerRecorderForResponseWait: holdServerRecorderForResponseWait,
     );
   }
 
@@ -763,6 +800,7 @@ class VoiceInputService {
     await beginListening(
       iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
       nativeAccumulateResults: false,
+      holdServerRecorderForResponseWait: true,
     );
     return transcriptEvents;
   }
@@ -771,8 +809,53 @@ class VoiceInputService {
     await _stopListening();
   }
 
-  Future<void> _stopListening() async {
+  /// Prepares the current recognizer for a response-wait handoff. Returns true
+  /// when the live server recorder already owns discard-only capture.
+  Future<bool> prepareResponseWaitHandoff() async {
+    if (isHoldingServerRecorderForResponse) return true;
+    if (_nativeCaptureDetachedForResponseWait) return false;
+
+    if (supportsNativeResponseWaitCapture && _usingNativeLocalStt) {
+      ++_listenGeneration;
+      _autoStopTimer?.cancel();
+      _autoStopTimer = null;
+      _cancelNativeDictationSettle();
+      _intensityDecayTimer?.cancel();
+      _intensityDecayTimer = null;
+      _isListening = false;
+      _localSttActive = false;
+      _usingNativeLocalStt = false;
+      _completedTranscriptIsSendable =
+          _currentText.trim().isNotEmpty && _receivedFinalResult;
+      final nativeSubscription = _nativeSttSub;
+      _nativeSttSub = null;
+      await nativeSubscription?.cancel();
+      await _nativeStt.detachListeningEvents();
+      _nativeCaptureDetachedForResponseWait = true;
+      await _closeControllers();
+      return false;
+    }
+
+    await stopListening();
+    return false;
+  }
+
+  Future<void> _stopListening({
+    bool holdServerRecorderForResponseWait = false,
+  }) async {
+    ++_listenGeneration;
     if (!_isListening) {
+      if (_nativeCaptureDetachedForResponseWait) {
+        _nativeCaptureDetachedForResponseWait = false;
+        await _nativeStt.stopListening();
+      }
+      if (_usingServerStt ||
+          _serverVadRecorderSession?.isHoldingForResponse == true) {
+        await _stopVadRecording();
+        _usingServerStt = false;
+        _holdServerRecorderForResponseWait = false;
+        await _closeControllers();
+      }
       return;
     }
 
@@ -782,7 +865,9 @@ class VoiceInputService {
 
     if (_usingServerStt) {
       _isListening = false;
-      await _stopVadRecording();
+      await _stopVadRecording(
+        holdRecorderForResponse: holdServerRecorderForResponseWait,
+      );
       final samples = _vadPendingSamples;
       _vadPendingSamples = null;
       final shouldProcessSamples = _shouldProcessServerSamples(
@@ -811,8 +896,10 @@ class VoiceInputService {
 
     await _closeControllers();
 
-    _usingServerStt = false;
-    await _releaseBackgroundMicrophone();
+    if (_serverVadRecorderSession?.isHoldingForResponse != true) {
+      _usingServerStt = false;
+      _holdServerRecorderForResponseWait = false;
+    }
   }
 
   Future<void> _stopNativeLocalStt() async {
@@ -825,21 +912,12 @@ class VoiceInputService {
 
     _localSttActive = false;
     _usingNativeLocalStt = false;
+    _nativeCaptureDetachedForResponseWait = false;
     final subscription = _nativeSttSub;
     _nativeSttSub = null;
     await subscription?.cancel();
     try {
       await _nativeStt.stopListening();
-    } catch (_) {}
-  }
-
-  Future<void> _releaseBackgroundMicrophone() async {
-    if (!Platform.isIOS || !_backgroundMicPinned) return;
-    _backgroundMicPinned = false;
-    try {
-      await BackgroundStreamingHandler.instance.stopBackgroundExecution(const [
-        _backgroundSttStreamId,
-      ]);
     } catch (_) {}
   }
 
@@ -847,6 +925,7 @@ class VoiceInputService {
     _cancelNativeDictationSettle();
     _localSttActive = false;
     _usingNativeLocalStt = false;
+    _nativeCaptureDetachedForResponseWait = false;
     final subscription = _nativeSttSub;
     _nativeSttSub = null;
     await subscription?.cancel();
@@ -855,14 +934,48 @@ class VoiceInputService {
     } catch (_) {}
   }
 
+  Future<bool> _resumeHeldServerRecording({
+    required int listenGeneration,
+  }) async {
+    bool lostOwnership() =>
+        listenGeneration != _listenGeneration ||
+        !_isListening ||
+        !_usingServerStt;
+
+    final vad = _vadHandler;
+    final recorderSession = _serverVadRecorderSession;
+    if (lostOwnership() ||
+        vad == null ||
+        recorderSession == null ||
+        !recorderSession.isHoldingForResponse) {
+      return false;
+    }
+
+    _vadPendingSamples = null;
+    await _setupVadStreams(vad);
+    if (lostOwnership()) return false;
+    return recorderSession.resumeForwarding(
+      connectVad: (audioStream) => _connectServerVad(vad, audioStream),
+    );
+  }
+
   Future<void> _startServerRecording({
     required bool iosAudioSessionManagedExternally,
+    required int listenGeneration,
   }) async {
+    bool lostOwnership() =>
+        listenGeneration != _listenGeneration ||
+        !_isListening ||
+        !_usingServerStt;
+
     // Make sure any previous recorder session is fully stopped before we
     // dispose/create handlers. This avoids Android VAD races where internal
     // frame callbacks outlive immediate dispose().
+    if (lostOwnership()) return;
     await _stopVadRecording();
+    if (lostOwnership()) return;
     await _disposeVadHandler();
+    if (lostOwnership()) return;
     _vadPendingSamples = null;
 
     // Create fresh native resources for every session so audio-focus failures
@@ -874,14 +987,6 @@ class VoiceInputService {
     _vadHandler = vad;
     _serverVadRecorderSession = recorderSession;
     await _setupVadStreams(vad);
-    final settings = _ref?.read(appSettingsProvider);
-    final silenceMs =
-        settings?.voiceSilenceDuration ??
-        SettingsService.defaultVoiceSilenceDurationMs;
-    final redemptionFrames = silenceDurationToVadFrames(
-      silenceMs,
-      frameSamples: _vadFrameSamples,
-    );
 
     try {
       await recorderSession.start(
@@ -900,21 +1005,15 @@ class VoiceInputService {
           ),
           iosConfig: _iosServerVadRecordConfig,
         ),
-        connectVad: (audioStream) => vad.startListening(
-          frameSamples: _vadFrameSamples,
-          model: 'v5',
-          baseAssetPath: _bundledVadAssetBasePath,
-          minSpeechFrames: _vadMinSpeechFrames,
-          preSpeechPadFrames: _vadPreSpeechPadFrames,
-          redemptionFrames: redemptionFrames,
-          endSpeechPadFrames: _vadEndSpeechPadFrames,
-          positiveSpeechThreshold: _vadPositiveSpeechThreshold,
-          negativeSpeechThreshold: _vadNegativeSpeechThreshold,
-          submitUserSpeechOnPause: true,
-          audioStream: audioStream,
-        ),
+        connectVad: (audioStream) => _connectServerVad(vad, audioStream),
         onRecorderError: (error, stackTrace) {
-          if (!_isListening || !_usingServerStt) return;
+          if (!identical(_serverVadRecorderSession, recorderSession) ||
+              !_usingServerStt) {
+            return;
+          }
+          if (!_isListening && !_responseCaptureFailureController.isClosed) {
+            _responseCaptureFailureController.add(error);
+          }
           _reportRecognitionError(error);
           unawaited(_stopListening());
         },
@@ -964,6 +1063,33 @@ class VoiceInputService {
     }
   }
 
+  Future<void> _connectServerVad(
+    VadHandler vad,
+    Stream<Uint8List> audioStream,
+  ) {
+    final settings = _ref?.read(appSettingsProvider);
+    final silenceMs =
+        settings?.voiceSilenceDuration ??
+        SettingsService.defaultVoiceSilenceDurationMs;
+    final redemptionFrames = silenceDurationToVadFrames(
+      silenceMs,
+      frameSamples: _vadFrameSamples,
+    );
+    return vad.startListening(
+      frameSamples: _vadFrameSamples,
+      model: 'v5',
+      baseAssetPath: _bundledVadAssetBasePath,
+      minSpeechFrames: _vadMinSpeechFrames,
+      preSpeechPadFrames: _vadPreSpeechPadFrames,
+      redemptionFrames: redemptionFrames,
+      endSpeechPadFrames: _vadEndSpeechPadFrames,
+      positiveSpeechThreshold: _vadPositiveSpeechThreshold,
+      negativeSpeechThreshold: _vadNegativeSpeechThreshold,
+      submitUserSpeechOnPause: true,
+      audioStream: audioStream,
+    );
+  }
+
   Future<void> _setupVadStreams(VadHandler vad) async {
     await _vadSpeechEndSub?.cancel();
     _vadSpeechEndSub = vad.onSpeechEnd.listen((samples) {
@@ -971,7 +1097,12 @@ class VoiceInputService {
       if (samples.isEmpty) return;
       _vadPendingSamples = samples;
       if (_isListening) {
-        unawaited(_stopListening());
+        unawaited(
+          _stopListening(
+            holdServerRecorderForResponseWait:
+                _holdServerRecorderForResponseWait,
+          ),
+        );
       }
     });
 
@@ -994,20 +1125,29 @@ class VoiceInputService {
     });
   }
 
-  Future<void> _stopVadRecording() async {
+  Future<void> _stopVadRecording({bool holdRecorderForResponse = false}) async {
     final vad = _vadHandler;
     final recorderSession = _serverVadRecorderSession;
-    try {
-      await recorderSession?.stopForwarding();
-    } catch (_) {}
+    var recorderHeld = false;
+    if (holdRecorderForResponse) {
+      try {
+        recorderHeld = await recorderSession?.holdForResponse() ?? false;
+      } catch (_) {}
+    } else {
+      try {
+        await recorderSession?.stopForwarding();
+      } catch (_) {}
+    }
     if (vad != null) {
       try {
         await vad.stopListening();
       } catch (_) {}
     }
-    try {
-      await recorderSession?.stopRecorder();
-    } catch (_) {}
+    if (!recorderHeld) {
+      try {
+        await recorderSession?.stopRecorder();
+      } catch (_) {}
+    }
     await _vadSpeechEndSub?.cancel();
     _vadSpeechEndSub = null;
     await _vadFrameSub?.cancel();
@@ -1313,6 +1453,9 @@ class VoiceInputService {
     try {
       await _nativeStt.stopListening();
     } catch (_) {}
+    if (!_responseCaptureFailureController.isClosed) {
+      await _responseCaptureFailureController.close();
+    }
   }
 }
 

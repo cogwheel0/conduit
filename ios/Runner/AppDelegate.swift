@@ -274,9 +274,58 @@ final class VoiceAudioRouteBridge {
                 result(self.setSpeakerphoneEnabled(enabled))
             case "currentRoute":
                 result(self.currentRoutePayload(operation: "currentRoute"))
+            case "setActiveCallKitCallId":
+                guard let callId =
+                    (call.arguments as? [String: Any])?["callId"] as? String
+                else {
+                    result(false)
+                    return
+                }
+                result(NativeSttBridge.shared.setActiveCallKitCallId(callId))
+            case "beginResponseWaitCapture":
+                let callKitCallId =
+                    (call.arguments as? [String: Any])?["callKitCallId"] as? String
+                guard let transition = NativeSttBridge.shared
+                    .prepareResponseWaitCapture(callKitCallId: callKitCallId)
+                else {
+                    result(false)
+                    return
+                }
+                Task {
+                    let accepted = await NativeSttBridge.shared
+                        .finishResponseWaitCapture(transition)
+                    await MainActor.run {
+                        result(accepted)
+                    }
+                }
+            case "endResponseWaitCapture":
+                let shutdown = NativeSttBridge.shared
+                    .prepareEndResponseWaitCapture()
+                Task {
+                    let stopped = await NativeSttBridge.shared
+                        .finishEndResponseWaitCapture(shutdown)
+                    await MainActor.run {
+                        result(stopped)
+                    }
+                }
             default:
                 result(FlutterMethodNotImplemented)
             }
+        }
+    }
+
+    func responseWaitCaptureFailed(_ error: Error) {
+        let errorDomain = (error as NSError).domain
+        let errorCode = (error as NSError).code
+        DispatchQueue.main.async { [weak self] in
+            self?.methodChannel?.invokeMethod(
+                "responseWaitCaptureFailed",
+                arguments: [
+                    "message": "iOS response-wait audio capture stopped after an audio route change.",
+                    "domain": errorDomain,
+                    "code": errorCode,
+                ]
+            )
         }
     }
 
@@ -373,15 +422,90 @@ final class VoiceAudioRouteBridge {
     }
 }
 
+final class NativeIosTtsStartAcknowledgement {
+    private let lock = NSLock()
+    private var completion: FlutterResult?
+    private var timeoutTimer: Timer?
+
+    init(completion: @escaping FlutterResult) {
+        self.completion = completion
+    }
+
+    func armTimeout(after seconds: TimeInterval, onTimeout: @escaping () -> Void) {
+        let timer = Timer(timeInterval: seconds, repeats: false) { _ in
+            onTimeout()
+        }
+        lock.lock()
+        guard completion != nil else {
+            lock.unlock()
+            return
+        }
+        timeoutTimer = timer
+        lock.unlock()
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    @discardableResult
+    func resolve(started: Bool) -> Bool {
+        lock.lock()
+        guard let completion else {
+            lock.unlock()
+            return false
+        }
+        self.completion = nil
+        let timer = timeoutTimer
+        timeoutTimer = nil
+        lock.unlock()
+        timer?.invalidate()
+        completion(started)
+        return true
+    }
+}
+
+final class NativeIosTtsPendingStarts {
+    private let lock = NSLock()
+    private var acknowledgements: [
+        ObjectIdentifier: NativeIosTtsStartAcknowledgement
+    ] = [:]
+
+    func register(
+        _ acknowledgement: NativeIosTtsStartAcknowledgement,
+        for utteranceId: ObjectIdentifier
+    ) {
+        lock.lock()
+        acknowledgements[utteranceId] = acknowledgement
+        lock.unlock()
+    }
+
+    @discardableResult
+    func resolve(_ utteranceId: ObjectIdentifier, started: Bool) -> Bool {
+        lock.lock()
+        let acknowledgement = acknowledgements.removeValue(forKey: utteranceId)
+        lock.unlock()
+        return acknowledgement?.resolve(started: started) ?? false
+    }
+
+    func resolveAll(started: Bool) {
+        lock.lock()
+        let pending = Array(acknowledgements.values)
+        acknowledgements.removeAll(keepingCapacity: false)
+        lock.unlock()
+        pending.forEach { $0.resolve(started: started) }
+    }
+}
+
 final class NativeIosTtsBridge: NSObject, FlutterStreamHandler, AVSpeechSynthesizerDelegate {
     static let shared = NativeIosTtsBridge()
+    private static let startAcknowledgementTimeout: TimeInterval = 2
 
     private let synthesizer = AVSpeechSynthesizer()
+    private let pendingStarts = NativeIosTtsPendingStarts()
     private var methodChannel: FlutterMethodChannel?
     private var eventSink: FlutterEventSink?
 
     private override init() {
         super.init()
+        synthesizer.usesApplicationAudioSession = true
         synthesizer.delegate = self
     }
 
@@ -428,7 +552,24 @@ final class NativeIosTtsBridge: NSObject, FlutterStreamHandler, AVSpeechSynthesi
                 return
             }
 
+            if arguments["voiceCall"] as? Bool == true {
+                do {
+                    try AVAudioSession.sharedInstance().setActive(
+                        true,
+                        options: .notifyOthersOnDeactivation
+                    )
+                } catch {
+                    result(FlutterError(
+                        code: "AUDIO_SESSION_ACTIVATION_FAILED",
+                        message: "Unable to activate voice-call audio for speech",
+                        details: error.localizedDescription
+                    ))
+                    return
+                }
+            }
+
             if synthesizer.isSpeaking || synthesizer.isPaused {
+                resolveAllPendingStarts(started: false)
                 synthesizer.stopSpeaking(at: .immediate)
             }
 
@@ -451,9 +592,24 @@ final class NativeIosTtsBridge: NSObject, FlutterStreamHandler, AVSpeechSynthesi
                 min: 0.0,
                 max: 1.0
             )
+            let utteranceId = ObjectIdentifier(utterance)
+            let acknowledgement = NativeIosTtsStartAcknowledgement(
+                completion: result
+            )
+            pendingStarts.register(acknowledgement, for: utteranceId)
+            acknowledgement.armTimeout(
+                after: Self.startAcknowledgementTimeout
+            ) { [weak self] in
+                guard let self,
+                      self.pendingStarts.resolve(
+                        utteranceId,
+                        started: false
+                      ) else { return }
+                self.synthesizer.stopSpeaking(at: .immediate)
+            }
             synthesizer.speak(utterance)
-            result(true)
         case "stop":
+            resolveAllPendingStarts(started: false)
             result(synthesizer.stopSpeaking(at: .immediate))
         case "pause":
             result(synthesizer.pauseSpeaking(at: .word))
@@ -617,15 +773,31 @@ final class NativeIosTtsBridge: NSObject, FlutterStreamHandler, AVSpeechSynthesi
         }
     }
 
+    @discardableResult
+    private func resolvePendingStart(
+        _ utteranceId: ObjectIdentifier,
+        started: Bool
+    ) -> Bool {
+        pendingStarts.resolve(utteranceId, started: started)
+    }
+
+    private func resolveAllPendingStarts(started: Bool) {
+        pendingStarts.resolveAll(started: started)
+    }
+
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        guard resolvePendingStart(ObjectIdentifier(utterance), started: true)
+        else { return }
         emit(["type": "start"])
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        _ = resolvePendingStart(ObjectIdentifier(utterance), started: false)
         emit(["type": "complete"])
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        _ = resolvePendingStart(ObjectIdentifier(utterance), started: false)
         emit(["type": "cancel"])
     }
 
@@ -2443,6 +2615,8 @@ private func cookieIsPreferred(
     NativeSheetBridge.shared.configure(messenger: messenger)
     NativeDropdownBridge.shared.configure(messenger: messenger)
     NativeSttBridge.shared.configure(messenger: messenger)
+    DisplayBoostBridge.shared.configure(messenger: messenger)
+    PccBridge.shared.configure(messenger: messenger)
     VoiceAudioRouteBridge.shared.configure(messenger: messenger)
     NativeIosTtsBridge.shared.configure(messenger: messenger)
     backgroundStreamingHandler?.setup(messenger: messenger)

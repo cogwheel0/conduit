@@ -16,6 +16,7 @@ import 'package:conduit/features/direct_connections/models/direct_connection_pro
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -237,6 +238,33 @@ void main() {
         isLoadingConversation: false,
         isSavingTemporary: false,
         isPreparingMessageSend: true,
+      ),
+      isFalse,
+    );
+  });
+
+  test('persisted prompts stay bound to their loaded conversation', () {
+    expect(
+      debugCanUsePersistedOpenWebUiPromptForTesting(
+        isLoadingConversation: false,
+        ownerConversationId: 'chat-a',
+        activeConversationId: 'chat-a',
+      ),
+      isTrue,
+    );
+    expect(
+      debugCanUsePersistedOpenWebUiPromptForTesting(
+        isLoadingConversation: true,
+        ownerConversationId: 'chat-a',
+        activeConversationId: 'chat-a',
+      ),
+      isFalse,
+    );
+    expect(
+      debugCanUsePersistedOpenWebUiPromptForTesting(
+        isLoadingConversation: false,
+        ownerConversationId: 'chat-a',
+        activeConversationId: 'chat-b',
       ),
       isFalse,
     );
@@ -1164,6 +1192,39 @@ void main() {
     expect(indices, isEmpty);
   });
 
+  test('markdown prewarm retriggers when a new row enters the viewport', () {
+    expect(
+      debugVisibleMessageIdsGainedForTesting(
+        previous: const ['assistant-2', 'assistant-3'],
+        current: const ['assistant-3', 'assistant-4'],
+      ),
+      isTrue,
+    );
+    expect(
+      debugVisibleMessageIdsGainedForTesting(
+        previous: const ['assistant-2', 'assistant-3'],
+        current: const ['assistant-3'],
+      ),
+      isFalse,
+    );
+  });
+
+  test('markdown prewarm uses the latest batch queued during its throttle', () {
+    fakeAsync((async) {
+      final batches = <List<String>>[];
+      final throttle = MarkdownPrewarmThrottle();
+
+      throttle.schedule(const ['first'], batches.add);
+      throttle.schedule(const ['latest'], batches.add);
+      async.elapse(const Duration(milliseconds: 220));
+
+      check(batches).deepEquals([
+        ['latest'],
+      ]);
+      throttle.cancel();
+    });
+  });
+
   test('markdown prewarm skips still-streaming assistant messages', () {
     final messages = <ChatMessage>[
       ChatMessage(
@@ -1438,33 +1499,33 @@ void main() {
     ).isFalse();
   });
 
-  test('terminal lifecycle retires pin support without manual navigation', () {
+  test('terminal lifecycle settles pin follow without releasing support', () {
     check(
-      debugShouldRetirePinnedTurnForLifecycleForTesting(
+      debugShouldSettlePinnedTurnForLifecycleForTesting(
         pinActive: true,
         assistantPhase: ChatTurnPhase.running,
       ),
     ).isFalse();
     check(
-      debugShouldRetirePinnedTurnForLifecycleForTesting(
+      debugShouldSettlePinnedTurnForLifecycleForTesting(
         pinActive: true,
         assistantPhase: ChatTurnPhase.completed,
       ),
     ).isTrue();
     check(
-      debugShouldRetirePinnedTurnForLifecycleForTesting(
+      debugShouldSettlePinnedTurnForLifecycleForTesting(
         pinActive: true,
         assistantPhase: ChatTurnPhase.failed,
       ),
     ).isTrue();
     check(
-      debugShouldRetirePinnedTurnForLifecycleForTesting(
+      debugShouldSettlePinnedTurnForLifecycleForTesting(
         pinActive: true,
         assistantPhase: null,
       ),
     ).isTrue();
     check(
-      debugShouldRetirePinnedTurnForLifecycleForTesting(
+      debugShouldSettlePinnedTurnForLifecycleForTesting(
         pinActive: false,
         assistantPhase: ChatTurnPhase.completed,
       ),

@@ -528,6 +528,37 @@ class MainActivity : FlutterFragmentActivity() {
         val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
         windowInsetsController.isAppearanceLightStatusBars = false
         windowInsetsController.isAppearanceLightNavigationBars = false
+        requestHighestRefreshRate()
+    }
+
+    /**
+     * Many OEMs keep third-party apps at 60 Hz on high-refresh panels unless
+     * the app opts in. Samsung in particular ignores preferredRefreshRate but
+     * honors preferredDisplayModeId, so request the exact mode: highest
+     * refresh rate at the current resolution. The system still arbitrates
+     * (battery saver, thermal), so this is a request, not a demand.
+     */
+    private fun requestHighestRefreshRate() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        try {
+            @Suppress("DEPRECATION")
+            val activeDisplay =
+                (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) display
+                else windowManager.defaultDisplay) ?: return
+            val currentMode = activeDisplay.mode
+            val bestMode = activeDisplay.supportedModes
+                .filter {
+                    it.physicalWidth == currentMode.physicalWidth &&
+                        it.physicalHeight == currentMode.physicalHeight
+                }
+                .maxByOrNull { it.refreshRate } ?: return
+            if (bestMode.modeId == currentMode.modeId) return
+            window.attributes = window.attributes.apply {
+                preferredDisplayModeId = bestMode.modeId
+            }
+        } catch (e: Exception) {
+            Log.w("MainActivity", "requestHighestRefreshRate failed", e)
+        }
     }
     
     private val ASSISTANT_CHANNEL = "app.cogwheel.conduit/assistant"

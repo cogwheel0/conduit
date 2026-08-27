@@ -136,7 +136,7 @@ void main() {
       addTearDown(db.close);
 
       // Seed + build FTS so the messages AFTER INSERT trigger is live for the
-      // measured append (one INSERT into chat_fts), proving the trigger does
+      // measured appends (one INSERT into chat_fts), proving the trigger does
       // not blow the budget vs a full rebuild.
       final fixture = await seedAndBuildFts(db);
 
@@ -150,22 +150,32 @@ void main() {
         enqueueCompletion: false,
       );
 
-      final msg = appendCandidate(fixture.bigChatId);
-
-      final sw = Stopwatch()..start();
-      await db.chatsDao.appendMessagesWithUpdateOp(
-        chatId: fixture.bigChatId,
-        messages: [msg],
-        enqueueCompletion: false,
-      );
-      sw.stop();
+      // Use the median warmed sample so one scheduler spike or unusually fast
+      // run cannot decide the wall-clock budget.
+      final samples = <Duration>[];
+      for (var sample = 0; sample < 3; sample++) {
+        final msg = appendCandidate(
+          fixture.bigChatId,
+          suffix: 'sample-$sample',
+        );
+        final sw = Stopwatch()..start();
+        await db.chatsDao.appendMessagesWithUpdateOp(
+          chatId: fixture.bigChatId,
+          messages: [msg],
+          enqueueCompletion: false,
+        );
+        sw.stop();
+        samples.add(sw.elapsed);
+      }
+      samples.sort();
+      final elapsed = samples[1];
 
       DebugLogger.log(
         'append-ms',
         scope: 'perf/append',
-        data: {'ms': sw.elapsed.inMilliseconds},
+        data: {'ms': elapsed.inMilliseconds},
       );
-      check(sw.elapsed).isLessThan(_appendBudget);
+      check(elapsed).isLessThan(_appendBudget);
     },
   );
 

@@ -73,6 +73,16 @@ class WorkspaceModelForm {
   final List<WorkspaceAccessGrantInput> accessGrants;
   final bool isActive;
 
+  WorkspaceModelForm withBaseModelId(String value) => WorkspaceModelForm(
+    id: id,
+    name: name,
+    baseModelId: value,
+    meta: meta,
+    params: params,
+    accessGrants: accessGrants,
+    isActive: isActive,
+  );
+
   Map<String, dynamic> toJson() => <String, dynamic>{
     'id': id,
     'base_model_id': baseModelId,
@@ -82,6 +92,13 @@ class WorkspaceModelForm {
     'access_grants': workspaceGrantInputs(accessGrants),
     'is_active': isActive,
   };
+}
+
+final class WorkspaceModelBaseRequiredException implements Exception {
+  const WorkspaceModelBaseRequiredException();
+
+  @override
+  String toString() => 'A base model is required for this operation.';
 }
 
 @immutable

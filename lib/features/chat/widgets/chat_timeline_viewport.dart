@@ -4,7 +4,12 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show listEquals, visibleForTesting;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart'
-    show RenderBox, RenderObject, ScrollCacheExtent, ScrollDirection;
+    show
+        MatrixUtils,
+        RenderBox,
+        RenderObject,
+        ScrollCacheExtent,
+        ScrollDirection;
 
 import '../../../core/database/models/chat_transcript_window.dart';
 import '../../../core/utils/debug_logger.dart';
@@ -275,8 +280,14 @@ class ChatTimelineViewport extends StatefulWidget {
     this.liveFooter,
     this.trailingContent,
     this.hideUntilSettled = false,
+    this.rowRebuildKeys = const <Object?>[],
     super.key,
   }) : assert(
+         rowRebuildKeys.length == 0 ||
+             rowRebuildKeys.length == messageIds.length,
+         'Row rebuild keys must be empty or match the message count.',
+       ),
+       assert(
          !maintainVisibleAnchor || !followLatest,
          'Visible-anchor maintenance and latest-follow are exclusive.',
        );
@@ -284,6 +295,7 @@ class ChatTimelineViewport extends StatefulWidget {
   final ChatTimelineViewportController controller;
   final int ownerGeneration;
   final List<String> messageIds;
+  final List<Object?> rowRebuildKeys;
   final ChatScrollAnchor? initialAnchor;
   final ChatTimelineRowBuilder rowBuilder;
   final String? pinnedUserMessageId;
@@ -349,6 +361,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   final ValueNotifier<double> _pinSupportSpace = ValueNotifier<double>(0);
   final Map<String, GlobalKey> _rowKeys = <String, GlobalKey>{};
   final Map<String, int> _mountedRowCounts = <String, int>{};
+  final Map<String, ({int sourceIndex, Object? rebuildKey, Widget widget})>
+  _rowWidgetCache = {};
   Map<String, Rect>? _cachedFrameRowRects;
   int? _cachedRowRectFrameStamp;
   int _rowRectFrameStamp = 0;
@@ -356,7 +370,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   bool _geometryUnavailable = false;
   bool _geometryRecoveryCallbackScheduled = false;
 
-  late List<({String id, int sourceIndex})> _timelineEntries;
+  late List<({String id, int sourceIndex, Object? rebuildKey})>
+  _timelineEntries;
   late List<String> _messageIds;
   late Set<String> _messageIdSet;
   late Map<String, int> _messageIndexById;
@@ -424,6 +439,15 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       oldWidget.messageIds,
       widget.messageIds,
     );
+    final rowBuilderChanged = !identical(
+      oldWidget.rowBuilder,
+      widget.rowBuilder,
+    );
+    final entryConfigurationChanged =
+        messageIdsChanged ||
+        !identical(oldWidget.rowRebuildKeys, widget.rowRebuildKeys) ||
+        rowBuilderChanged;
+    if (rowBuilderChanged) _rowWidgetCache.clear();
     if ((oldWidget.maintainVisibleAnchor || widget.maintainVisibleAnchor) &&
         (_freeAnchor == null || _rowRect(_freeAnchor!.messageId) == null)) {
       // Capture before the new child configuration is laid out. This is the
@@ -434,8 +458,10 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       // complete render tree is measurable again.
       if (capturedAnchor != null) _freeAnchor = capturedAnchor;
     }
-    if (messageIdsChanged) {
+    if (entryConfigurationChanged) {
       _syncTimelineEntries();
+    }
+    if (messageIdsChanged) {
       _refreshCenterIndex();
     }
     if (!identical(oldWidget.controller, widget.controller)) {
@@ -482,6 +508,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     _centerRecoveryPending = false;
     _metricsSnapshot = null;
     _lastReportedMetrics = null;
+    _rowWidgetCache.clear();
     _anchorCorrectionAttempts = 0;
     _initialPositionResolved = false;
     _initialEmptyFallbackVisible = false;
@@ -612,10 +639,18 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
 
   void _syncTimelineEntries() {
     final seen = <String>{};
-    final entries = <({String id, int sourceIndex})>[];
+    final entries = <({String id, int sourceIndex, Object? rebuildKey})>[];
     for (var index = 0; index < widget.messageIds.length; index += 1) {
       final id = widget.messageIds[index];
-      if (seen.add(id)) entries.add((id: id, sourceIndex: index));
+      if (seen.add(id)) {
+        entries.add((
+          id: id,
+          sourceIndex: index,
+          rebuildKey: widget.rowRebuildKeys.isEmpty
+              ? widget.rowBuilder
+              : widget.rowRebuildKeys[index],
+        ));
+      }
     }
     _timelineEntries = List.unmodifiable(entries);
     _messageIds = List.unmodifiable(entries.map((entry) => entry.id));
@@ -624,6 +659,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       for (var index = 0; index < entries.length; index += 1)
         entries[index].id: index,
     });
+    _rowWidgetCache.removeWhere((id, _) => !seen.contains(id));
   }
 
   void _syncRowKeys() {
@@ -708,12 +744,22 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   }
 
   Map<String, Rect> _mountedRowRectSnapshot() {
+    final viewport = _renderBoxFor(_viewportKey);
+    final viewportRect = _viewportRect;
+    if (viewport == null || viewportRect == null) {
+      return const <String, Rect>{};
+    }
+    final viewportToGlobal = viewport.getTransformTo(null);
     final rects = <String, Rect>{};
     for (final id in _mountedRowCounts.keys) {
       final key = _rowKeys[id];
       if (key == null || key.currentContext == null) continue;
-      final rect = _globalRectFor(key);
-      if (rect != null) rects[id] = rect;
+      final box = _renderBoxFor(key);
+      if (box == null || !identical(box.owner, viewport.owner)) continue;
+      final transform = viewportToGlobal.clone()
+        ..multiply(box.getTransformTo(viewport));
+      final rect = MatrixUtils.transformRect(transform, Offset.zero & box.size);
+      if (rect.isFinite) rects[id] = rect;
     }
     return Map<String, Rect>.unmodifiable(rects);
   }
@@ -900,6 +946,15 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     // Per-tick consumers use only these lightweight pixel/extent values; the
     // scheduled callback refreshes row geometry exactly once per frame.
     final previous = _metricsSnapshot;
+    final position = _dimensionedPosition;
+    if (position == null) return;
+    if (previous != null &&
+        previous.pixels == position.pixels &&
+        previous.minScrollExtent == position.minScrollExtent &&
+        previous.maxScrollExtent == position.maxScrollExtent &&
+        previous.viewportDimension == position.viewportDimension) {
+      return;
+    }
     _metricsSnapshot =
         _metricsForCurrentPosition(
           visibleMessageIds: previous?.visibleMessageIds ?? const <String>[],
@@ -1742,6 +1797,12 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   Widget _buildRow(BuildContext context, int chronologicalIndex) {
     final entry = _timelineEntries[chronologicalIndex];
     final id = entry.id;
+    final cached = _rowWidgetCache[id];
+    if (cached != null &&
+        cached.sourceIndex == entry.sourceIndex &&
+        cached.rebuildKey == entry.rebuildKey) {
+      return cached.widget;
+    }
     final row = _MountedTimelineRow(
       key: _rowKeys[id],
       messageId: id,
@@ -1749,10 +1810,18 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       onUnmounted: _unregisterMountedRow,
       child: IndexedSemantics(
         index: chronologicalIndex,
-        child: widget.rowBuilder(context, entry.sourceIndex),
+        child: Builder(
+          builder: (context) => widget.rowBuilder(context, entry.sourceIndex),
+        ),
       ),
     );
-    return KeyedSubtree(key: _TimelineRowKey(id), child: row);
+    final builtRow = KeyedSubtree(key: _TimelineRowKey(id), child: row);
+    _rowWidgetCache[id] = (
+      sourceIndex: entry.sourceIndex,
+      rebuildKey: entry.rebuildKey,
+      widget: builtRow,
+    );
+    return builtRow;
   }
 
   int? _olderChildIndexForKey(Key key, int centerIndex) {
@@ -2004,7 +2073,7 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
   }) : super(addSemanticIndexes: false);
 
   final ChatTimelineRowBuilder rowBuilder;
-  final List<({String id, int sourceIndex})> entries;
+  final List<({String id, int sourceIndex, Object? rebuildKey})> entries;
   final int centerIndex;
 
   @override

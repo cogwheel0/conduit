@@ -1763,10 +1763,13 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       ),
     );
     final bool isPinned = conversation.pinned;
-    final activeChatIds = ref.watch(activeChatIdsProvider);
-    final bool isGenerating = _conversationIsActive(
-      conversation,
-      activeChatIds,
+    // Select this conversation's own membership rather than watching the
+    // whole set: any chat going active/inactive anywhere used to rebuild
+    // every mounted tile in the drawer.
+    final bool isGenerating = ref.watch(
+      activeChatIdsProvider.select(
+        (activeChatIds) => _conversationIsActive(conversation, activeChatIds),
+      ),
     );
     final bool unread = _conversationUnread(
       conversation,

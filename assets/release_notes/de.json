@@ -18,6 +18,25 @@
           "icon": "direct"
         }
       ]
+    },
+    {
+      "version": "4.1.2",
+      "title": "Neuigkeiten",
+      "intro": "Hallo! Apple On-Device läuft auf dem Telefon. Nutze es in Direct chats, oder in Open WebUI-Chats wenn du offline bist. Sprachanrufe kommen aus dem Lautsprecher und sprechen die Antwort, nicht das Nachdenken. Hermes kommt nach einer Pause zurück, und ich habe ein paar Chat-Fehler weggemacht.",
+      "bullets": [
+        {
+          "text": "Apple On-Device: Direct chats lokal, und Open WebUI-Chats wenn du offline bist.",
+          "icon": "direct"
+        },
+        {
+          "text": "Sprachanrufe: starten über den Lautsprecher, wenn nichts eingesteckt ist. Sie überspringen das Nachdenken und sprechen die ganze Antwort.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: holt fertige Durchläufe nach einer Pause zurück und nimmt PDFs. Skills vervollständigen sich beim Tippen. Zitat-Links, Checklisten in Notizen und Open WebUI 0.11.1 funktionieren.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

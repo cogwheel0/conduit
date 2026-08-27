@@ -5,6 +5,7 @@ import 'package:conduit/core/database/chat_database_repository.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/model.dart';
+import 'package:conduit/core/models/openwebui_chat_prompt.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
@@ -185,6 +186,9 @@ class _FakeApiService extends ApiService {
   set conversation(Conversation value) => _conversation = value;
 
   List<String> taskIds = const <String>[];
+  final List<List<String>> taskIdResponses = <List<String>>[];
+  bool deferTaskIdRequests = false;
+  final List<Completer<List<String>>> taskIdRequests = [];
   int taskIdFailuresRemaining = 0;
 
   int getConversationCalls = 0;
@@ -199,6 +203,12 @@ class _FakeApiService extends ApiService {
   @override
   Future<List<String>> getTaskIdsByChat(String chatId) async {
     getTaskIdsCalls++;
+    if (deferTaskIdRequests) {
+      final request = Completer<List<String>>();
+      taskIdRequests.add(request);
+      return request.future;
+    }
+    if (taskIdResponses.isNotEmpty) return taskIdResponses.removeAt(0);
     if (taskIdFailuresRemaining > 0) {
       taskIdFailuresRemaining--;
       throw StateError('transient task registry failure');
@@ -233,6 +243,19 @@ Conversation _conversation(
 }
 
 Future<void> pumpMicrotasks() => Future<void>.delayed(Duration.zero);
+
+Future<void> _waitForCondition(
+  bool Function() condition, {
+  Duration timeout = const Duration(seconds: 5),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) {
+      fail('Timed out waiting for asynchronous state');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+}
 
 Future<void> _drainRemoteTaskStatusCheck(ChatMessagesNotifier notifier) async {
   notifier.debugCancelRemoteTaskMonitorTimer();
@@ -342,6 +365,228 @@ void main() {
   });
 
   group('ChatMessagesNotifier remote sync', () {
+    test(
+      'tool-call resume resolves but does not stream a non-tail task',
+      () async {
+        final timestamp = DateTime.now();
+        final assistant = ChatMessage(
+          id: 'assistant-1',
+          role: 'assistant',
+          content: 'Waiting for approval',
+          timestamp: timestamp,
+          output: const [
+            {
+              'type': 'function_call',
+              'call_id': 'call-1',
+              'name': 'filesystem',
+              'status': 'pending',
+            },
+          ],
+        );
+        final newerUser = _userMessage('user-2', 'A newer turn', timestamp);
+        final messages = [assistant, newerUser];
+        final api = _FakeApiService(
+          _conversation('chat-1', [
+            assistant.copyWith(
+              content: 'Continued after approval',
+              output: const [
+                {
+                  'type': 'function_call',
+                  'call_id': 'call-1',
+                  'name': 'filesystem',
+                  'status': 'queued',
+                  'approved': true,
+                },
+              ],
+            ),
+            newerUser,
+          ], timestamp),
+        )..taskIds = const ['task-1'];
+        final container = ProviderContainer(
+          overrides: [
+            ...openWebUiStorageOpenOverrides(),
+            activeConversationProvider.overrideWith(
+              _TestActiveConversationNotifier.new,
+            ),
+            socketServiceProvider.overrideWithValue(null),
+            apiServiceProvider.overrideWithValue(api),
+          ],
+        );
+        addTearDown(container.dispose);
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', messages, timestamp));
+
+        await container
+            .read(chatMessagesProvider.notifier)
+            .resumeAfterOpenWebUiToolCall(
+              messageId: 'assistant-1',
+              callId: 'call-1',
+              action: OpenWebUiToolCallAction.approve,
+              taskIds: const ['task-1'],
+            );
+        await _waitForCondition(
+          () =>
+              container.read(chatMessagesProvider).first.content ==
+              'Continued after approval',
+        );
+
+        final resolved = container.read(chatMessagesProvider).first;
+        check(resolved.isStreaming).isFalse();
+        check(resolved.content).equals('Continued after approval');
+        check(resolved.output!.single['status']).equals('queued');
+        check(resolved.output!.single['approved']).equals(true);
+        check(resolved.metadata?['taskId']).equals('task-1');
+        check(api.getTaskIdsCalls).isGreaterOrEqual(1);
+        check(api.getConversationCalls).isGreaterOrEqual(1);
+      },
+    );
+
+    test('staggered task registrations remain monitored', () async {
+      final timestamp = DateTime.now();
+      final assistant = ChatMessage(
+        id: 'assistant-1',
+        role: 'assistant',
+        content: 'Waiting for approval',
+        timestamp: timestamp,
+        output: const [
+          {
+            'type': 'function_call',
+            'call_id': 'call-1',
+            'name': 'filesystem',
+            'status': 'pending',
+          },
+        ],
+      );
+      final newerUser = _userMessage('user-2', 'A newer turn', timestamp);
+      final api =
+          _FakeApiService(
+              _conversation('chat-1', [assistant, newerUser], timestamp),
+            )
+            ..taskIdResponses.addAll(const [
+              <String>[],
+              <String>['task-1'],
+              <String>[],
+              <String>['task-2'],
+            ]);
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          activeConversationProvider.overrideWith(
+            _TestActiveConversationNotifier.new,
+          ),
+          socketServiceProvider.overrideWithValue(null),
+          apiServiceProvider.overrideWithValue(api),
+        ],
+      );
+      addTearDown(container.dispose);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', [assistant, newerUser], timestamp));
+
+      await container
+          .read(chatMessagesProvider.notifier)
+          .resumeAfterOpenWebUiToolCall(
+            messageId: 'assistant-1',
+            callId: 'call-1',
+            action: OpenWebUiToolCallAction.approve,
+            taskIds: const ['task-1', 'task-2'],
+          );
+      await _waitForCondition(() => api.getConversationCalls == 1);
+      check(api.getTaskIdsCalls).equals(1);
+      final registrationGapMessage = container.read(chatMessagesProvider).first;
+      check(registrationGapMessage.output!.single['status']).equals('queued');
+      check(registrationGapMessage.output!.single['approved']).equals(true);
+
+      api.conversation = _conversation('chat-1', [
+        assistant.copyWith(content: 'Continued after approval'),
+        newerUser,
+      ], timestamp);
+      await _waitForCondition(() => api.getTaskIdsCalls >= 4);
+      await _waitForCondition(
+        () =>
+            container.read(chatMessagesProvider).first.content ==
+            'Continued after approval',
+      );
+
+      check(api.getTaskIdsCalls).isGreaterOrEqual(4);
+      check(container.read(chatMessagesProvider).first.metadata?['taskId'])
+          .equals('task-1');
+    });
+
+    test('non-tail tool task monitors remain independently owned', () async {
+      final timestamp = DateTime.now();
+      ChatMessage assistant(String id, String callId, {bool approved = false}) {
+        return ChatMessage(
+          id: id,
+          role: 'assistant',
+          content: 'Waiting for approval',
+          timestamp: timestamp,
+          output: [
+            {
+              'type': 'function_call',
+              'call_id': callId,
+              'name': 'filesystem',
+              'status': approved ? 'queued' : 'pending',
+              if (approved) 'approved': true,
+            },
+          ],
+        );
+      }
+
+      final messages = [
+        assistant('assistant-1', 'call-1'),
+        _userMessage('user-1', 'Newer turn one', timestamp),
+        assistant('assistant-2', 'call-2'),
+        _userMessage('user-2', 'Newer turn two', timestamp),
+      ];
+      final api = _FakeApiService(
+        _conversation('chat-1', [
+          assistant('assistant-1', 'call-1', approved: true),
+          messages[1],
+          assistant('assistant-2', 'call-2', approved: true),
+          messages[3],
+        ], timestamp),
+      )..deferTaskIdRequests = true;
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          activeConversationProvider.overrideWith(
+            _TestActiveConversationNotifier.new,
+          ),
+          socketServiceProvider.overrideWithValue(null),
+          apiServiceProvider.overrideWithValue(api),
+        ],
+      );
+      addTearDown(container.dispose);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', messages, timestamp));
+      final notifier = container.read(chatMessagesProvider.notifier);
+
+      await notifier.resumeAfterOpenWebUiToolCall(
+        messageId: 'assistant-1',
+        callId: 'call-1',
+        action: OpenWebUiToolCallAction.approve,
+        taskIds: const ['task-1'],
+      );
+      await notifier.resumeAfterOpenWebUiToolCall(
+        messageId: 'assistant-2',
+        callId: 'call-2',
+        action: OpenWebUiToolCallAction.approve,
+        taskIds: const ['task-2'],
+      );
+      await _waitForCondition(() => api.taskIdRequests.length == 2);
+      check(api.taskIdRequests.length).equals(2);
+
+      for (final request in api.taskIdRequests) {
+        request.complete(const ['task-1', 'task-2']);
+      }
+      await _waitForCondition(() => api.getConversationCalls == 2);
+
+      check(api.getConversationCalls).equals(2);
+    });
+
     test(
       'a slower model lookup cannot overwrite a newer conversation',
       () async {

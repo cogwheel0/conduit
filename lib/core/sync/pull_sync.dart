@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../database/app_database.dart';
 import '../database/mappers/chat_blob_mapper.dart';
 import '../database/mappers/conversation_assembler.dart';
@@ -72,6 +74,89 @@ int? _parseServerEpochSeconds(Object? value) {
   return null;
 }
 
+/// Cross-cycle memo of chats already fetched at an exact server stamp, so
+/// overlap-window items stop being re-downloaded on every cycle.
+///
+/// Any chat whose `updatedAt` lies in `(watermark - overlap, watermark]` is
+/// re-listed every cycle by design (same-second edits + clock skew, RFC
+/// §7.1) — and since the newest chat always sits exactly at the watermark,
+/// the most recently updated chat was full-fetched and re-merged on EVERY
+/// pull until some other chat advanced the watermark (observed stuck for
+/// 30+ hours on a quiet server).
+///
+/// Skip rule: an `(id, updatedAt)` pair must be fetched on first sight and
+/// fetched ONCE MORE in a later cycle before it becomes skippable. The
+/// confirming fetch closes the same-second race the overlap window guards
+/// against — a second server write stamped in the same second is confined
+/// to that second, so any later cycle's fetch observes the final state.
+/// The memo is in-memory only (engine-session-scoped): every app start or
+/// session rebind re-fetches once more, an additional self-heal. Callers
+/// must still verify the LOCAL row is clean/synced at the stamp before
+/// honoring a skip.
+class PullFetchMemo {
+  PullFetchMemo({@visibleForTesting int Function()? elapsedMs})
+    : _elapsedMs = elapsedMs ?? _monotonicElapsedMs();
+
+  static int Function() _monotonicElapsedMs() {
+    final stopwatch = Stopwatch()..start();
+    return () => stopwatch.elapsedMilliseconds;
+  }
+
+  static const int _maxEntries = 128;
+
+  /// Minimum monotonic spacing between the first and the confirming fetch.
+  ///
+  /// Cycle boundaries alone are NOT enough: back-to-back triggers (e.g. a
+  /// folders-warm request debounced right into a refresh) can run two full
+  /// cycles inside the same server second, and updatedAt has one-second
+  /// resolution — both fetches could then predate a third same-second write,
+  /// and a "confirmed" skip would hide that write until the chat changed
+  /// again. Requiring the overlap-window span of LOCAL monotonic time to
+  /// pass guarantees (under the same skew bound the overlap window itself
+  /// assumes, RFC §7.1) that the server's stamped second is over, so the
+  /// confirming fetch observed the final state of that second.
+  static const int _confirmSpacingMs = kPullOverlapSeconds * 1000;
+
+  final int Function() _elapsedMs;
+
+  // id -> (stamp, monotonic time of FIRST fetch at this stamp, confirmed).
+  // Insertion-ordered for cheap oldest-first eviction; the overlap window
+  // realistically holds a handful of items.
+  final Map<String, ({int updatedAt, int firstFetchedAtMs, bool confirmed})>
+  _entries = <String, ({int updatedAt, int firstFetchedAtMs, bool confirmed})>{};
+
+  /// Marks a cycle boundary; call once at the start of each pull cycle.
+  /// (Retained as the API seam; confirmation is time-based, not cycle-based.)
+  void beginCycle() {}
+
+  /// True when [id]@[updatedAt] was re-fetched at least [_confirmSpacingMs]
+  /// after its first fetch and can be skipped, assuming the local row still
+  /// matches.
+  bool isConfirmed(String id, int updatedAt) {
+    final entry = _entries[id];
+    return entry != null && entry.updatedAt == updatedAt && entry.confirmed;
+  }
+
+  /// Records a completed fetch+merge of [id]@[updatedAt]. A record made at
+  /// least [_confirmSpacingMs] of monotonic time after the FIRST record for
+  /// the same stamp confirms it.
+  void recordFetched(String id, int updatedAt) {
+    final now = _elapsedMs();
+    final entry = _entries.remove(id);
+    final sameStamp = entry != null && entry.updatedAt == updatedAt;
+    final confirmsPrior =
+        sameStamp && now - entry.firstFetchedAtMs >= _confirmSpacingMs;
+    _entries[id] = (
+      updatedAt: updatedAt,
+      firstFetchedAtMs: sameStamp ? entry.firstFetchedAtMs : now,
+      confirmed: confirmsPrior || (sameStamp && entry.confirmed),
+    );
+    while (_entries.length > _maxEntries) {
+      _entries.remove(_entries.keys.first);
+    }
+  }
+}
+
 /// Outcome of one pull cycle.
 class PullResult {
   const PullResult({
@@ -135,13 +220,15 @@ class PullSync {
     ConversationParseOffload? parseOffload,
     ChatRowsParseOffload? rowsParseOffload,
     SyncItemProgressCallback? onProgress,
+    PullFetchMemo? fetchMemo,
   }) : _client = client,
        _db = db,
        _locks = locks,
        _remapper = remapper,
        _parseOffload = parseOffload,
        _rowsParseOffload = rowsParseOffload,
-       _onProgress = onProgress;
+       _onProgress = onProgress,
+       _fetchMemo = fetchMemo;
 
   final SyncApiClient _client;
   final AppDatabase _db;
@@ -150,11 +237,40 @@ class PullSync {
   final ConversationParseOffload? _parseOffload;
   final ChatRowsParseOffload? _rowsParseOffload;
   final SyncItemProgressCallback? _onProgress;
+  final PullFetchMemo? _fetchMemo;
+
+  /// Whether the overlap-window fetch of [item] can be skipped this cycle:
+  /// the same `(id, updatedAt)` was already fetched in two earlier cycles
+  /// AND the local row is present, clean, body-synced, and stamped at that
+  /// exact `updatedAt` — so a re-fetch could only reproduce the merge the
+  /// database already holds. Any local divergence (dirty edit, remap,
+  /// stub) falls through to a normal fetch, as does a list envelope whose
+  /// lastReadAt is newer than the local row's (read-state changes on the
+  /// server do not bump updatedAt; the merge's max() rule must still see
+  /// them).
+  Future<bool> _canSkipOverlapFetch(_ChangedItem item) async {
+    final memo = _fetchMemo;
+    if (memo == null || !memo.isConfirmed(item.id, item.updatedAt)) {
+      return false;
+    }
+    final local = await _db.chatsDao.getChat(item.id);
+    if (local == null ||
+        local.dirty ||
+        local.deleted ||
+        !local.bodySynced ||
+        local.serverUpdatedAt != item.updatedAt) {
+      return false;
+    }
+    final listLastReadAt = item.lastReadAt;
+    return listLastReadAt == null ||
+        (local.lastReadAt ?? 0) >= listLastReadAt;
+  }
 
   /// Runs one pull cycle. The watermark advances only when every list page
   /// and every chat fetch succeeded (REQ 5); on any failure it stays frozen
   /// and the idempotent merge makes the next run safe.
   Future<PullResult> run() async {
+    _fetchMemo?.beginCycle();
     final watermark = await _db.syncMetaDao.getPullWatermark();
     final threshold = watermark - kPullOverlapSeconds;
     var maxSeen = watermark;
@@ -307,6 +423,11 @@ class PullSync {
         if (nextIndex >= toFetch.length) return;
         final item = toFetch[nextIndex++];
         try {
+          if (await _canSkipOverlapFetch(item)) {
+            // Skips count as success for the watermark rule: the local row
+            // provably holds this exact server state already.
+            continue;
+          }
           final resp = await _client.getChatRaw(item.id);
           if (resp == null) {
             // Server-deleted: counts as success; no local change in Phase 1
@@ -318,6 +439,7 @@ class PullSync {
             listLastReadAt: item.lastReadAt,
             hasPendingCreateHashes: hasPendingCreateHashes,
           );
+          _fetchMemo?.recordFetched(item.id, item.updatedAt);
         } catch (error, stackTrace) {
           failedFetches++;
           DebugLogger.error(

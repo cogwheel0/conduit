@@ -280,6 +280,19 @@ List<int> _sseDone() => utf8.encode('data: [DONE]\n\n');
 /// Pumps microtask queue by awaiting a zero-duration future.
 Future<void> pumpMicrotasks() => Future<void>.delayed(Duration.zero);
 
+Future<void> waitForCondition(
+  bool Function() condition, {
+  Duration timeout = const Duration(seconds: 1),
+}) async {
+  final stopwatch = Stopwatch()..start();
+  while (!condition()) {
+    if (stopwatch.elapsed > timeout) {
+      throw TimeoutException('Condition was not met before the test deadline');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Shared callback collector
 // ---------------------------------------------------------------------------
@@ -2889,7 +2902,7 @@ void main() {
         socketService: _MockSocketService(registrar),
       );
 
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await waitForCondition(() => log.finishCount == 1);
 
       check(adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'))
           .isGreaterThan(0);
@@ -2958,7 +2971,7 @@ void main() {
           socketService: _MockSocketService(registrar),
         );
 
-        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await waitForCondition(() => log.finishCount == 1);
 
         check(log.messages.last.content)
             .contains('Full answer with the tail intact.');
@@ -4844,6 +4857,45 @@ void main() {
     // -----------------------------------------------------------------------
     // 7. httpStream premature end recovers from newer server state
     // -----------------------------------------------------------------------
+    test(
+      'empty httpStream adopts a persisted assistant error and finishes once',
+      () async {
+        final log = _CallbackLog();
+        final api = _buildFakeApi(
+          pollResponse: _serverConversationResponse(
+            messages: [
+              _serverAssistantMessage(
+                error: const {'content': 'Persisted backend error'},
+              ),
+            ],
+          ),
+        );
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            conversationId: 'conv-1',
+            byteStream: const Stream<List<int>>.empty(),
+            abort: () async {},
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+        );
+
+        await waitForCondition(() => log.finishCount == 1);
+        for (var index = 0; index < 5; index++) {
+          await pumpMicrotasks();
+        }
+
+        check(log.messages.last.error).isNotNull();
+        check(log.messages.last.error!.content)
+            .equals('Persisted backend error');
+        check(log.messages.last.isStreaming).isFalse();
+        check(log.finishCount).equals(1);
+      },
+    );
+
     test('httpStream premature end triggers recovery polling', () async {
       final log = _CallbackLog();
       // Stream ends without [DONE]

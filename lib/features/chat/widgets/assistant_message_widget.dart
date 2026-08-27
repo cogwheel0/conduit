@@ -14,7 +14,6 @@ import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../providers/text_to_speech_provider.dart';
 import '../providers/queued_completion_provider.dart';
 import '../providers/streaming_haptic_memory.dart';
-import '../../hermes/widgets/hermes_message_interactions.dart';
 import '../../direct_connections/widgets/direct_mcp_message_interactions.dart';
 import 'enhanced_image_attachment.dart';
 
@@ -1152,9 +1151,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                     responseBuilder: responseBuilder,
                     activeSources: contentSources,
                   ),
-
-                if (_chatMessage case final message?)
-                  HermesMessageInteractions(message: message),
 
                 if (_chatMessage case final message?)
                   DirectMcpMessageInteractions(message: message),

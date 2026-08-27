@@ -18,6 +18,25 @@
           "icon": "direct"
         }
       ]
+    },
+    {
+      "version": "4.1.2",
+      "title": "Nouveautés",
+      "intro": "Bonjour ! Apple On-Device tourne sur le téléphone. Utilisez-le dans les Direct chats, ou dans les chats Open WebUI quand vous êtes hors ligne. Les appels vocaux sortent du haut-parleur et disent la réponse, pas le raisonnement. Hermes revient après une pause, et j'ai nettoyé quelques bugs de chat.",
+      "bullets": [
+        {
+          "text": "Apple On-Device : Direct chats en local, et chats Open WebUI hors ligne.",
+          "icon": "direct"
+        },
+        {
+          "text": "Appels vocaux : démarrent sur le haut-parleur si rien n'est branché. Ils sautent le raisonnement et disent toute la réponse.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes : récupère les exécutions terminées après une pause et accepte les PDF. Les skills s'autocomplètent. Les liens de citation, les listes dans les notes et Open WebUI 0.11.1 fonctionnent.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

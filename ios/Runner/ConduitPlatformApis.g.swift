@@ -199,6 +199,32 @@ enum PlatformNativePasteKind: Int, CaseIterable {
   case unsupported = 2
 }
 
+enum PlatformPccAvailability: Int, CaseIterable {
+  case available = 0
+  case unavailable = 1
+  case unsupported = 2
+}
+
+enum PlatformAppleModel: Int, CaseIterable {
+  case onDevice = 0
+  case privateCloudCompute = 1
+}
+
+enum PlatformPccQuotaStatus: Int, CaseIterable {
+  case belowLimit = 0
+  case approachingLimit = 1
+  case limitReached = 2
+  case unknown = 3
+}
+
+enum PlatformPccEventKind: Int, CaseIterable {
+  case content = 0
+  case usage = 1
+  case fallback = 2
+  case error = 3
+  case done = 4
+}
+
 enum PlatformNativeSheetItemKind: Int, CaseIterable {
   case navigation = 0
   case textField = 1
@@ -2620,6 +2646,321 @@ struct PlatformNativeSheetActionResult: Hashable, CustomStringConvertible {
   }
 }
 
+/// Generated class from Pigeon that represents data sent in messages.
+struct PlatformPccStatus: Hashable, CustomStringConvertible {
+  var availability: PlatformPccAvailability
+  var quotaStatus: PlatformPccQuotaStatus
+  var quotaLimitReached: Bool
+  var canIncreaseQuota: Bool
+  var message: String? = nil
+  var quotaResetAtMilliseconds: Int64? = nil
+  var contextSize: Int64? = nil
+  var supportsCurrentLocale: Bool? = nil
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> PlatformPccStatus? {
+    let availability = pigeonVar_list[0] as! PlatformPccAvailability
+    let quotaStatus = pigeonVar_list[1] as! PlatformPccQuotaStatus
+    let quotaLimitReached = pigeonVar_list[2] as! Bool
+    let canIncreaseQuota = pigeonVar_list[3] as! Bool
+    let message: String? = nilOrValue(pigeonVar_list[4])
+    let quotaResetAtMilliseconds: Int64? = nilOrValue(pigeonVar_list[5])
+    let contextSize: Int64? = nilOrValue(pigeonVar_list[6])
+    let supportsCurrentLocale: Bool? = nilOrValue(pigeonVar_list[7])
+
+    return PlatformPccStatus(
+      availability: availability,
+      quotaStatus: quotaStatus,
+      quotaLimitReached: quotaLimitReached,
+      canIncreaseQuota: canIncreaseQuota,
+      message: message,
+      quotaResetAtMilliseconds: quotaResetAtMilliseconds,
+      contextSize: contextSize,
+      supportsCurrentLocale: supportsCurrentLocale
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      availability,
+      quotaStatus,
+      quotaLimitReached,
+      canIncreaseQuota,
+      message,
+      quotaResetAtMilliseconds,
+      contextSize,
+      supportsCurrentLocale,
+    ]
+  }
+  static func == (lhs: PlatformPccStatus, rhs: PlatformPccStatus) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.availability, rhs.availability) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.quotaStatus, rhs.quotaStatus) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.quotaLimitReached, rhs.quotaLimitReached) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.canIncreaseQuota, rhs.canIncreaseQuota) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.message, rhs.message) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.quotaResetAtMilliseconds, rhs.quotaResetAtMilliseconds) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.contextSize, rhs.contextSize) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.supportsCurrentLocale, rhs.supportsCurrentLocale)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("PlatformPccStatus")
+    ConduitPlatformApisPigeonInternal.deepHash(value: availability, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: quotaStatus, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: quotaLimitReached, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: canIncreaseQuota, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: message, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: quotaResetAtMilliseconds, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: contextSize, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: supportsCurrentLocale, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "PlatformPccStatus(availability: \(String(describing: availability)), quotaStatus: \(String(describing: quotaStatus)), quotaLimitReached: \(String(describing: quotaLimitReached)), canIncreaseQuota: \(String(describing: canIncreaseQuota)), message: \(String(describing: message)), quotaResetAtMilliseconds: \(String(describing: quotaResetAtMilliseconds)), contextSize: \(String(describing: contextSize)), supportsCurrentLocale: \(String(describing: supportsCurrentLocale)))"
+  }
+}
+
+/// Generated class from Pigeon that represents data sent in messages.
+struct PlatformPccImage: Hashable, CustomStringConvertible {
+  var mimeType: String
+  var bytes: FlutterStandardTypedData
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> PlatformPccImage? {
+    let mimeType = pigeonVar_list[0] as! String
+    let bytes = pigeonVar_list[1] as! FlutterStandardTypedData
+
+    return PlatformPccImage(
+      mimeType: mimeType,
+      bytes: bytes
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      mimeType,
+      bytes,
+    ]
+  }
+  static func == (lhs: PlatformPccImage, rhs: PlatformPccImage) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.mimeType, rhs.mimeType) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.bytes, rhs.bytes)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("PlatformPccImage")
+    ConduitPlatformApisPigeonInternal.deepHash(value: mimeType, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: bytes, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "PlatformPccImage(mimeType: \(String(describing: mimeType)), bytes: \(String(describing: bytes)))"
+  }
+}
+
+/// Generated class from Pigeon that represents data sent in messages.
+struct PlatformPccMessage: Hashable, CustomStringConvertible {
+  var role: String
+  var content: String
+  var images: [PlatformPccImage]
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> PlatformPccMessage? {
+    let role = pigeonVar_list[0] as! String
+    let content = pigeonVar_list[1] as! String
+    let images = pigeonVar_list[2] as! [PlatformPccImage]
+
+    return PlatformPccMessage(
+      role: role,
+      content: content,
+      images: images
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      role,
+      content,
+      images,
+    ]
+  }
+  static func == (lhs: PlatformPccMessage, rhs: PlatformPccMessage) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.role, rhs.role) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.content, rhs.content) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.images, rhs.images)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("PlatformPccMessage")
+    ConduitPlatformApisPigeonInternal.deepHash(value: role, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: content, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: images, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "PlatformPccMessage(role: \(String(describing: role)), content: \(String(describing: content)), images: \(String(describing: images)))"
+  }
+}
+
+/// Generated class from Pigeon that represents data sent in messages.
+struct PlatformPccCompletionRequest: Hashable, CustomStringConvertible {
+  var runId: String
+  var model: PlatformAppleModel
+  var messages: [PlatformPccMessage]
+  var allowOnDeviceFallback: Bool
+  var reasoningLevel: String? = nil
+  var temperature: Double? = nil
+  var maximumResponseTokens: Int64? = nil
+  var topP: Double? = nil
+  var topK: Int64? = nil
+  var seed: Int64? = nil
+  var greedySampling: Bool? = nil
+  var responseSchemaName: String? = nil
+  var responseSchemaJson: String? = nil
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> PlatformPccCompletionRequest? {
+    let runId = pigeonVar_list[0] as! String
+    let model = pigeonVar_list[1] as! PlatformAppleModel
+    let messages = pigeonVar_list[2] as! [PlatformPccMessage]
+    let allowOnDeviceFallback = pigeonVar_list[3] as! Bool
+    let reasoningLevel: String? = nilOrValue(pigeonVar_list[4])
+    let temperature: Double? = nilOrValue(pigeonVar_list[5])
+    let maximumResponseTokens: Int64? = nilOrValue(pigeonVar_list[6])
+    let topP: Double? = nilOrValue(pigeonVar_list[7])
+    let topK: Int64? = nilOrValue(pigeonVar_list[8])
+    let seed: Int64? = nilOrValue(pigeonVar_list[9])
+    let greedySampling: Bool? = nilOrValue(pigeonVar_list[10])
+    let responseSchemaName: String? = nilOrValue(pigeonVar_list[11])
+    let responseSchemaJson: String? = nilOrValue(pigeonVar_list[12])
+
+    return PlatformPccCompletionRequest(
+      runId: runId,
+      model: model,
+      messages: messages,
+      allowOnDeviceFallback: allowOnDeviceFallback,
+      reasoningLevel: reasoningLevel,
+      temperature: temperature,
+      maximumResponseTokens: maximumResponseTokens,
+      topP: topP,
+      topK: topK,
+      seed: seed,
+      greedySampling: greedySampling,
+      responseSchemaName: responseSchemaName,
+      responseSchemaJson: responseSchemaJson
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      runId,
+      model,
+      messages,
+      allowOnDeviceFallback,
+      reasoningLevel,
+      temperature,
+      maximumResponseTokens,
+      topP,
+      topK,
+      seed,
+      greedySampling,
+      responseSchemaName,
+      responseSchemaJson,
+    ]
+  }
+  static func == (lhs: PlatformPccCompletionRequest, rhs: PlatformPccCompletionRequest) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.runId, rhs.runId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.model, rhs.model) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.messages, rhs.messages) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.allowOnDeviceFallback, rhs.allowOnDeviceFallback) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.reasoningLevel, rhs.reasoningLevel) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.temperature, rhs.temperature) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.maximumResponseTokens, rhs.maximumResponseTokens) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.topP, rhs.topP) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.topK, rhs.topK) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.seed, rhs.seed) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.greedySampling, rhs.greedySampling) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.responseSchemaName, rhs.responseSchemaName) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.responseSchemaJson, rhs.responseSchemaJson)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("PlatformPccCompletionRequest")
+    ConduitPlatformApisPigeonInternal.deepHash(value: runId, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: model, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: messages, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: allowOnDeviceFallback, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: reasoningLevel, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: temperature, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: maximumResponseTokens, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: topP, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: topK, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: seed, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: greedySampling, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: responseSchemaName, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: responseSchemaJson, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "PlatformPccCompletionRequest(runId: \(String(describing: runId)), model: \(String(describing: model)), messages: \(String(describing: messages)), allowOnDeviceFallback: \(String(describing: allowOnDeviceFallback)), reasoningLevel: \(String(describing: reasoningLevel)), temperature: \(String(describing: temperature)), maximumResponseTokens: \(String(describing: maximumResponseTokens)), topP: \(String(describing: topP)), topK: \(String(describing: topK)), seed: \(String(describing: seed)), greedySampling: \(String(describing: greedySampling)), responseSchemaName: \(String(describing: responseSchemaName)), responseSchemaJson: \(String(describing: responseSchemaJson)))"
+  }
+}
+
+/// Generated class from Pigeon that represents data sent in messages.
+struct PlatformPccStreamEvent: Hashable, CustomStringConvertible {
+  var runId: String
+  var kind: PlatformPccEventKind
+  var content: String? = nil
+  var inputTokenCount: Int64? = nil
+  var outputTokenCount: Int64? = nil
+  var reasoningTokenCount: Int64? = nil
+  var totalTokenCount: Int64? = nil
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> PlatformPccStreamEvent? {
+    let runId = pigeonVar_list[0] as! String
+    let kind = pigeonVar_list[1] as! PlatformPccEventKind
+    let content: String? = nilOrValue(pigeonVar_list[2])
+    let inputTokenCount: Int64? = nilOrValue(pigeonVar_list[3])
+    let outputTokenCount: Int64? = nilOrValue(pigeonVar_list[4])
+    let reasoningTokenCount: Int64? = nilOrValue(pigeonVar_list[5])
+    let totalTokenCount: Int64? = nilOrValue(pigeonVar_list[6])
+
+    return PlatformPccStreamEvent(
+      runId: runId,
+      kind: kind,
+      content: content,
+      inputTokenCount: inputTokenCount,
+      outputTokenCount: outputTokenCount,
+      reasoningTokenCount: reasoningTokenCount,
+      totalTokenCount: totalTokenCount
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      runId,
+      kind,
+      content,
+      inputTokenCount,
+      outputTokenCount,
+      reasoningTokenCount,
+      totalTokenCount,
+    ]
+  }
+  static func == (lhs: PlatformPccStreamEvent, rhs: PlatformPccStreamEvent) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.runId, rhs.runId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.kind, rhs.kind) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.content, rhs.content) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.inputTokenCount, rhs.inputTokenCount) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.outputTokenCount, rhs.outputTokenCount) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.reasoningTokenCount, rhs.reasoningTokenCount) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.totalTokenCount, rhs.totalTokenCount)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("PlatformPccStreamEvent")
+    ConduitPlatformApisPigeonInternal.deepHash(value: runId, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: kind, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: content, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: inputTokenCount, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: outputTokenCount, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: reasoningTokenCount, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: totalTokenCount, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "PlatformPccStreamEvent(runId: \(String(describing: runId)), kind: \(String(describing: kind)), content: \(String(describing: content)), inputTokenCount: \(String(describing: inputTokenCount)), outputTokenCount: \(String(describing: outputTokenCount)), reasoningTokenCount: \(String(describing: reasoningTokenCount)), totalTokenCount: \(String(describing: totalTokenCount)))"
+  }
+}
+
 private class ConduitPlatformApisPigeonCodecReader: FlutterStandardReader {
   override func readValue(ofType type: UInt8) -> Any? {
     switch type {
@@ -2638,93 +2979,127 @@ private class ConduitPlatformApisPigeonCodecReader: FlutterStandardReader {
     case 131:
       let enumResultAsInt: Int? = nilOrValue(self.readValue() as! Int?)
       if let enumResultAsInt = enumResultAsInt {
-        return PlatformNativeSheetItemKind(rawValue: enumResultAsInt)
+        return PlatformPccAvailability(rawValue: enumResultAsInt)
       }
       return nil
     case 132:
-      return PlatformBackgroundStreamLease.fromList(self.readValue() as! [Any?])
+      let enumResultAsInt: Int? = nilOrValue(self.readValue() as! Int?)
+      if let enumResultAsInt = enumResultAsInt {
+        return PlatformAppleModel(rawValue: enumResultAsInt)
+      }
+      return nil
     case 133:
-      return PlatformBackgroundStartRequest.fromList(self.readValue() as! [Any?])
+      let enumResultAsInt: Int? = nilOrValue(self.readValue() as! Int?)
+      if let enumResultAsInt = enumResultAsInt {
+        return PlatformPccQuotaStatus(rawValue: enumResultAsInt)
+      }
+      return nil
     case 134:
-      return PlatformBackgroundStopRequest.fromList(self.readValue() as! [Any?])
+      let enumResultAsInt: Int? = nilOrValue(self.readValue() as! Int?)
+      if let enumResultAsInt = enumResultAsInt {
+        return PlatformPccEventKind(rawValue: enumResultAsInt)
+      }
+      return nil
     case 135:
-      return PlatformBackgroundKeepAliveRequest.fromList(self.readValue() as! [Any?])
+      let enumResultAsInt: Int? = nilOrValue(self.readValue() as! Int?)
+      if let enumResultAsInt = enumResultAsInt {
+        return PlatformNativeSheetItemKind(rawValue: enumResultAsInt)
+      }
+      return nil
     case 136:
-      return PlatformBackgroundAudioSessionOwnerRequest.fromList(self.readValue() as! [Any?])
+      return PlatformBackgroundStreamLease.fromList(self.readValue() as! [Any?])
     case 137:
-      return PlatformServiceFailureEvent.fromList(self.readValue() as! [Any?])
+      return PlatformBackgroundStartRequest.fromList(self.readValue() as! [Any?])
     case 138:
-      return PlatformTimeLimitWarningEvent.fromList(self.readValue() as! [Any?])
+      return PlatformBackgroundStopRequest.fromList(self.readValue() as! [Any?])
     case 139:
-      return PlatformStreamsSuspendingEvent.fromList(self.readValue() as! [Any?])
+      return PlatformBackgroundKeepAliveRequest.fromList(self.readValue() as! [Any?])
     case 140:
-      return PlatformBackgroundTaskExtendedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformBackgroundAudioSessionOwnerRequest.fromList(self.readValue() as! [Any?])
     case 141:
-      return PlatformAppIntentImagePayload.fromList(self.readValue() as! [Any?])
+      return PlatformServiceFailureEvent.fromList(self.readValue() as! [Any?])
     case 142:
-      return PlatformAppIntentResponse.fromList(self.readValue() as! [Any?])
+      return PlatformTimeLimitWarningEvent.fromList(self.readValue() as! [Any?])
     case 143:
-      return PlatformNativePasteImageItem.fromList(self.readValue() as! [Any?])
+      return PlatformStreamsSuspendingEvent.fromList(self.readValue() as! [Any?])
     case 144:
-      return PlatformNativePastePayload.fromList(self.readValue() as! [Any?])
+      return PlatformBackgroundTaskExtendedEvent.fromList(self.readValue() as! [Any?])
     case 145:
-      return PlatformKeyboardAttachmentActionConfig.fromList(self.readValue() as! [Any?])
+      return PlatformAppIntentImagePayload.fromList(self.readValue() as! [Any?])
     case 146:
-      return PlatformKeyboardAttachmentConfig.fromList(self.readValue() as! [Any?])
+      return PlatformAppIntentResponse.fromList(self.readValue() as! [Any?])
     case 147:
-      return PlatformKeyboardAttachmentActionEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativePasteImageItem.fromList(self.readValue() as! [Any?])
     case 148:
-      return PlatformKeyboardAttachmentVisibilityEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativePastePayload.fromList(self.readValue() as! [Any?])
     case 149:
-      return PlatformRect.fromList(self.readValue() as! [Any?])
+      return PlatformKeyboardAttachmentActionConfig.fromList(self.readValue() as! [Any?])
     case 150:
-      return PlatformDropdownOption.fromList(self.readValue() as! [Any?])
+      return PlatformKeyboardAttachmentConfig.fromList(self.readValue() as! [Any?])
     case 151:
-      return PlatformDropdownRequest.fromList(self.readValue() as! [Any?])
+      return PlatformKeyboardAttachmentActionEvent.fromList(self.readValue() as! [Any?])
     case 152:
-      return PlatformNativeSheetOption.fromList(self.readValue() as! [Any?])
+      return PlatformKeyboardAttachmentVisibilityEvent.fromList(self.readValue() as! [Any?])
     case 153:
-      return PlatformNativeSheetTheme.fromList(self.readValue() as! [Any?])
+      return PlatformRect.fromList(self.readValue() as! [Any?])
     case 154:
-      return PlatformNativeSheetItem.fromList(self.readValue() as! [Any?])
+      return PlatformDropdownOption.fromList(self.readValue() as! [Any?])
     case 155:
-      return PlatformNativeSheetLink.fromList(self.readValue() as! [Any?])
+      return PlatformDropdownRequest.fromList(self.readValue() as! [Any?])
     case 156:
-      return PlatformNativeSheetSection.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetOption.fromList(self.readValue() as! [Any?])
     case 157:
-      return PlatformNativeEditProfileSheetConfig.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetTheme.fromList(self.readValue() as! [Any?])
     case 158:
-      return PlatformNativeProfileSheetUser.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetItem.fromList(self.readValue() as! [Any?])
     case 159:
-      return PlatformNativeSheetDetail.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetLink.fromList(self.readValue() as! [Any?])
     case 160:
-      return PlatformNativeProfileSheetConfig.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetSection.fromList(self.readValue() as! [Any?])
     case 161:
-      return PlatformNativeSheetModelOption.fromList(self.readValue() as! [Any?])
+      return PlatformNativeEditProfileSheetConfig.fromList(self.readValue() as! [Any?])
     case 162:
-      return PlatformNativeSheetModelSelectorRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeProfileSheetUser.fromList(self.readValue() as! [Any?])
     case 163:
-      return PlatformNativeSheetOptionsSelectorRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetDetail.fromList(self.readValue() as! [Any?])
     case 164:
-      return PlatformNativeSheetDatePickerRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeProfileSheetConfig.fromList(self.readValue() as! [Any?])
     case 165:
-      return PlatformNativeSheetTextEditorRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetModelOption.fromList(self.readValue() as! [Any?])
     case 166:
-      return PlatformNativeSheetResultRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetModelSelectorRequest.fromList(self.readValue() as! [Any?])
     case 167:
-      return PlatformNativeSheetApplyDetailPatchRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetOptionsSelectorRequest.fromList(self.readValue() as! [Any?])
     case 168:
-      return PlatformNativeSheetControlChangedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetDatePickerRequest.fromList(self.readValue() as! [Any?])
     case 169:
-      return PlatformNativeSheetDetailAppearedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetTextEditorRequest.fromList(self.readValue() as! [Any?])
     case 170:
-      return PlatformNativeSheetModelPinToggledEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetResultRequest.fromList(self.readValue() as! [Any?])
     case 171:
-      return PlatformNativeSheetReasoningEffortChangedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetApplyDetailPatchRequest.fromList(self.readValue() as! [Any?])
     case 172:
-      return PlatformNativeEditProfileCommittedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetControlChangedEvent.fromList(self.readValue() as! [Any?])
     case 173:
+      return PlatformNativeSheetDetailAppearedEvent.fromList(self.readValue() as! [Any?])
+    case 174:
+      return PlatformNativeSheetModelPinToggledEvent.fromList(self.readValue() as! [Any?])
+    case 175:
+      return PlatformNativeSheetReasoningEffortChangedEvent.fromList(self.readValue() as! [Any?])
+    case 176:
+      return PlatformNativeEditProfileCommittedEvent.fromList(self.readValue() as! [Any?])
+    case 177:
       return PlatformNativeSheetActionResult.fromList(self.readValue() as! [Any?])
+    case 178:
+      return PlatformPccStatus.fromList(self.readValue() as! [Any?])
+    case 179:
+      return PlatformPccImage.fromList(self.readValue() as! [Any?])
+    case 180:
+      return PlatformPccMessage.fromList(self.readValue() as! [Any?])
+    case 181:
+      return PlatformPccCompletionRequest.fromList(self.readValue() as! [Any?])
+    case 182:
+      return PlatformPccStreamEvent.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
     }
@@ -2739,134 +3114,161 @@ private class ConduitPlatformApisPigeonCodecWriter: FlutterStandardWriter {
     } else if let value = value as? PlatformNativePasteKind {
       super.writeByte(130)
       super.writeValue(value.rawValue)
-    } else if let value = value as? PlatformNativeSheetItemKind {
+    } else if let value = value as? PlatformPccAvailability {
       super.writeByte(131)
       super.writeValue(value.rawValue)
-    } else if let value = value as? PlatformBackgroundStreamLease {
+    } else if let value = value as? PlatformAppleModel {
       super.writeByte(132)
-      super.writeValue(value.toList())
-    } else if let value = value as? PlatformBackgroundStartRequest {
+      super.writeValue(value.rawValue)
+    } else if let value = value as? PlatformPccQuotaStatus {
       super.writeByte(133)
-      super.writeValue(value.toList())
-    } else if let value = value as? PlatformBackgroundStopRequest {
+      super.writeValue(value.rawValue)
+    } else if let value = value as? PlatformPccEventKind {
       super.writeByte(134)
-      super.writeValue(value.toList())
-    } else if let value = value as? PlatformBackgroundKeepAliveRequest {
+      super.writeValue(value.rawValue)
+    } else if let value = value as? PlatformNativeSheetItemKind {
       super.writeByte(135)
-      super.writeValue(value.toList())
-    } else if let value = value as? PlatformBackgroundAudioSessionOwnerRequest {
+      super.writeValue(value.rawValue)
+    } else if let value = value as? PlatformBackgroundStreamLease {
       super.writeByte(136)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformServiceFailureEvent {
+    } else if let value = value as? PlatformBackgroundStartRequest {
       super.writeByte(137)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformTimeLimitWarningEvent {
+    } else if let value = value as? PlatformBackgroundStopRequest {
       super.writeByte(138)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformStreamsSuspendingEvent {
+    } else if let value = value as? PlatformBackgroundKeepAliveRequest {
       super.writeByte(139)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformBackgroundTaskExtendedEvent {
+    } else if let value = value as? PlatformBackgroundAudioSessionOwnerRequest {
       super.writeByte(140)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformAppIntentImagePayload {
+    } else if let value = value as? PlatformServiceFailureEvent {
       super.writeByte(141)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformAppIntentResponse {
+    } else if let value = value as? PlatformTimeLimitWarningEvent {
       super.writeByte(142)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativePasteImageItem {
+    } else if let value = value as? PlatformStreamsSuspendingEvent {
       super.writeByte(143)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativePastePayload {
+    } else if let value = value as? PlatformBackgroundTaskExtendedEvent {
       super.writeByte(144)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformKeyboardAttachmentActionConfig {
+    } else if let value = value as? PlatformAppIntentImagePayload {
       super.writeByte(145)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformKeyboardAttachmentConfig {
+    } else if let value = value as? PlatformAppIntentResponse {
       super.writeByte(146)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformKeyboardAttachmentActionEvent {
+    } else if let value = value as? PlatformNativePasteImageItem {
       super.writeByte(147)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformKeyboardAttachmentVisibilityEvent {
+    } else if let value = value as? PlatformNativePastePayload {
       super.writeByte(148)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformRect {
+    } else if let value = value as? PlatformKeyboardAttachmentActionConfig {
       super.writeByte(149)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformDropdownOption {
+    } else if let value = value as? PlatformKeyboardAttachmentConfig {
       super.writeByte(150)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformDropdownRequest {
+    } else if let value = value as? PlatformKeyboardAttachmentActionEvent {
       super.writeByte(151)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetOption {
+    } else if let value = value as? PlatformKeyboardAttachmentVisibilityEvent {
       super.writeByte(152)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetTheme {
+    } else if let value = value as? PlatformRect {
       super.writeByte(153)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetItem {
+    } else if let value = value as? PlatformDropdownOption {
       super.writeByte(154)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetLink {
+    } else if let value = value as? PlatformDropdownRequest {
       super.writeByte(155)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetSection {
+    } else if let value = value as? PlatformNativeSheetOption {
       super.writeByte(156)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeEditProfileSheetConfig {
+    } else if let value = value as? PlatformNativeSheetTheme {
       super.writeByte(157)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeProfileSheetUser {
+    } else if let value = value as? PlatformNativeSheetItem {
       super.writeByte(158)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetDetail {
+    } else if let value = value as? PlatformNativeSheetLink {
       super.writeByte(159)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeProfileSheetConfig {
+    } else if let value = value as? PlatformNativeSheetSection {
       super.writeByte(160)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetModelOption {
+    } else if let value = value as? PlatformNativeEditProfileSheetConfig {
       super.writeByte(161)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetModelSelectorRequest {
+    } else if let value = value as? PlatformNativeProfileSheetUser {
       super.writeByte(162)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetOptionsSelectorRequest {
+    } else if let value = value as? PlatformNativeSheetDetail {
       super.writeByte(163)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetDatePickerRequest {
+    } else if let value = value as? PlatformNativeProfileSheetConfig {
       super.writeByte(164)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetTextEditorRequest {
+    } else if let value = value as? PlatformNativeSheetModelOption {
       super.writeByte(165)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetResultRequest {
+    } else if let value = value as? PlatformNativeSheetModelSelectorRequest {
       super.writeByte(166)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetApplyDetailPatchRequest {
+    } else if let value = value as? PlatformNativeSheetOptionsSelectorRequest {
       super.writeByte(167)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetControlChangedEvent {
+    } else if let value = value as? PlatformNativeSheetDatePickerRequest {
       super.writeByte(168)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetDetailAppearedEvent {
+    } else if let value = value as? PlatformNativeSheetTextEditorRequest {
       super.writeByte(169)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetModelPinToggledEvent {
+    } else if let value = value as? PlatformNativeSheetResultRequest {
       super.writeByte(170)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetReasoningEffortChangedEvent {
+    } else if let value = value as? PlatformNativeSheetApplyDetailPatchRequest {
       super.writeByte(171)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeEditProfileCommittedEvent {
+    } else if let value = value as? PlatformNativeSheetControlChangedEvent {
       super.writeByte(172)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetActionResult {
+    } else if let value = value as? PlatformNativeSheetDetailAppearedEvent {
       super.writeByte(173)
+      super.writeValue(value.toList())
+    } else if let value = value as? PlatformNativeSheetModelPinToggledEvent {
+      super.writeByte(174)
+      super.writeValue(value.toList())
+    } else if let value = value as? PlatformNativeSheetReasoningEffortChangedEvent {
+      super.writeByte(175)
+      super.writeValue(value.toList())
+    } else if let value = value as? PlatformNativeEditProfileCommittedEvent {
+      super.writeByte(176)
+      super.writeValue(value.toList())
+    } else if let value = value as? PlatformNativeSheetActionResult {
+      super.writeByte(177)
+      super.writeValue(value.toList())
+    } else if let value = value as? PlatformPccStatus {
+      super.writeByte(178)
+      super.writeValue(value.toList())
+    } else if let value = value as? PlatformPccImage {
+      super.writeByte(179)
+      super.writeValue(value.toList())
+    } else if let value = value as? PlatformPccMessage {
+      super.writeByte(180)
+      super.writeValue(value.toList())
+    } else if let value = value as? PlatformPccCompletionRequest {
+      super.writeByte(181)
+      super.writeValue(value.toList())
+    } else if let value = value as? PlatformPccStreamEvent {
+      super.writeByte(182)
       super.writeValue(value.toList())
     } else {
       super.writeValue(value)
@@ -3911,6 +4313,118 @@ class NativeSheetFlutterApi: NativeSheetFlutterApiProtocol {
   }
   func commitEditProfile(event eventArg: PlatformNativeEditProfileCommittedEvent, completion: @escaping (Result<Void, PigeonError>) -> Void) {
     let channelName: String = "dev.flutter.pigeon.conduit.NativeSheetFlutterApi.commitEditProfile\(messageChannelSuffix)"
+    let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
+    channel.sendMessage([eventArg] as [Any?]) { response in
+      guard let listResponse = response as? [Any?] else {
+        completion(.failure(createConnectionError(withChannelName: channelName)))
+        return
+      }
+      if listResponse.count > 1 {
+        let code: String = listResponse[0] as! String
+        let message: String? = nilOrValue(listResponse[1])
+        let details: String? = nilOrValue(listResponse[2])
+        completion(.failure(PigeonError(code: code, message: message, details: details)))
+      } else {
+        completion(.success(()))
+      }
+    }
+  }
+}
+/// Generated protocol from Pigeon that represents a handler of messages from Flutter.
+protocol PccHostApi {
+  func getStatus(model: PlatformAppleModel, completion: @escaping (Result<PlatformPccStatus, Error>) -> Void)
+  func showQuotaIncreaseSuggestion(completion: @escaping (Result<Bool, Error>) -> Void)
+  func start(request: PlatformPccCompletionRequest) throws
+  func cancel(runId: String) throws
+}
+
+/// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
+class PccHostApiSetup {
+  static var codec: FlutterStandardMessageCodec { ConduitPlatformApisPigeonCodec.shared }
+  /// Sets up an instance of `PccHostApi` to handle messages through the `binaryMessenger`.
+  static func setUp(binaryMessenger: FlutterBinaryMessenger, api: PccHostApi?, messageChannelSuffix: String = "") {
+    let channelSuffix = messageChannelSuffix.count > 0 ? ".\(messageChannelSuffix)" : ""
+    let getStatusChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.PccHostApi.getStatus\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      getStatusChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let modelArg = args[0] as! PlatformAppleModel
+        api.getStatus(model: modelArg) { result in
+          switch result {
+          case .success(let res):
+            reply(wrapResult(res))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      getStatusChannel.setMessageHandler(nil)
+    }
+    let showQuotaIncreaseSuggestionChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.PccHostApi.showQuotaIncreaseSuggestion\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      showQuotaIncreaseSuggestionChannel.setMessageHandler { _, reply in
+        api.showQuotaIncreaseSuggestion { result in
+          switch result {
+          case .success(let res):
+            reply(wrapResult(res))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      showQuotaIncreaseSuggestionChannel.setMessageHandler(nil)
+    }
+    let startChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.PccHostApi.start\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      startChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let requestArg = args[0] as! PlatformPccCompletionRequest
+        do {
+          try api.start(request: requestArg)
+          reply(wrapResult(nil))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      startChannel.setMessageHandler(nil)
+    }
+    let cancelChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.PccHostApi.cancel\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      cancelChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let runIdArg = args[0] as! String
+        do {
+          try api.cancel(runId: runIdArg)
+          reply(wrapResult(nil))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      cancelChannel.setMessageHandler(nil)
+    }
+  }
+}
+
+/// Generated protocol from Pigeon that represents Flutter messages that can be called from Swift.
+protocol PccFlutterApiProtocol {
+  func onEvent(event eventArg: PlatformPccStreamEvent, completion: @escaping (Result<Void, PigeonError>) -> Void)
+}
+class PccFlutterApi: PccFlutterApiProtocol {
+  private let binaryMessenger: FlutterBinaryMessenger
+  private let messageChannelSuffix: String
+  init(binaryMessenger: FlutterBinaryMessenger, messageChannelSuffix: String = "") {
+    self.binaryMessenger = binaryMessenger
+    self.messageChannelSuffix = messageChannelSuffix.count > 0 ? ".\(messageChannelSuffix)" : ""
+  }
+  var codec: ConduitPlatformApisPigeonCodec {
+    return ConduitPlatformApisPigeonCodec.shared
+  }
+  func onEvent(event eventArg: PlatformPccStreamEvent, completion: @escaping (Result<Void, PigeonError>) -> Void) {
+    let channelName: String = "dev.flutter.pigeon.conduit.PccFlutterApi.onEvent\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([eventArg] as [Any?]) { response in
       guard let listResponse = response as? [Any?] else {

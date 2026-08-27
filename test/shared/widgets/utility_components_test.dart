@@ -1,4 +1,5 @@
 import 'package:checks/checks.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -33,16 +34,22 @@ void main() {
     );
   });
 
-  testWidgets('UtilitySelectionRow supports keyboard activation', (
+  testWidgets('UtilitySelectionRow keeps native padding and keyboard access', (
     tester,
   ) async {
     var activations = 0;
+    const leadingKey = ValueKey<String>('selection-leading');
     await tester.pumpWidget(
       ProviderScope(
         child: MaterialApp(
+          theme: ThemeData(platform: TargetPlatform.iOS),
           home: Scaffold(
             body: UtilitySelectionRow(
-              leading: const Icon(Icons.cloud_outlined),
+              leading: const SizedBox.square(
+                key: leadingKey,
+                dimension: 40,
+                child: Icon(Icons.cloud_outlined),
+              ),
               title: 'Provider',
               subtitle: 'Connect directly',
               selected: false,
@@ -53,6 +60,7 @@ void main() {
       ),
     );
 
+    check(tester.getTopLeft(find.byKey(leadingKey)).dx).equals(Spacing.md);
     await tester.sendKeyEvent(LogicalKeyboardKey.tab);
     await tester.pump();
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);

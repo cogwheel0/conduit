@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
+import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/chat/services/native_stt_service.dart';
 import 'package:conduit/features/chat/services/server_vad_recorder.dart';
@@ -229,7 +230,71 @@ void main() {
     await nativeStt.dispose();
   });
 
+  test('hands native capture to response wait without a stop gap', () async {
+    final nativeStt = _FakeNativeSttService();
+    final service = _SupportedVoiceInputService(
+      nativeStt: nativeStt,
+      supportsNativeResponseWaitCapture: true,
+    );
+    await service.initialize(forceLocalStt: true);
+    await service.startListening();
+
+    check(await service.prepareResponseWaitHandoff()).isFalse();
+    check(nativeStt.detachCalls).equals(1);
+    check(nativeStt.stopCalls).equals(0);
+
+    await service.stopListening();
+    check(nativeStt.stopCalls).equals(1);
+    await nativeStt.dispose();
+  });
+
+  test('stops detached native capture before starting server STT', () async {
+    final nativeStt = _FakeNativeSttService();
+    final recorder = _FakeServerVadRecorder();
+    final service = _SupportedVoiceInputService(
+      nativeStt: nativeStt,
+      api: _MockApiService(),
+      serverVadRecorderFactory: () => recorder,
+      supportsNativeResponseWaitCapture: true,
+    );
+    await service.initialize(forceLocalStt: true);
+    await service.startListening();
+    await service.prepareResponseWaitHandoff();
+
+    service.updatePreference(SttPreference.serverOnly);
+    await service.startListening();
+
+    check(nativeStt.stopCalls).equals(1);
+    check(service.isUsingNativeLocalStt).isFalse();
+    await service.stopListening();
+    await pumpEventQueue();
+    check(recorder.calls).not((it) => it.contains('start-stream'));
+
+    await service.dispose();
+    await recorder.close();
+    await nativeStt.dispose();
+  });
+
   group('VoiceInputService server STT consumers', () {
+    test('cancels a queued server recorder start after stop', () async {
+      final recorder = _FakeServerVadRecorder();
+      final service = _SupportedVoiceInputService(
+        nativeStt: _FakeNativeSttService(),
+        api: _MockApiService(),
+        serverVadRecorderFactory: () => recorder,
+      );
+      service.updatePreference(SttPreference.serverOnly);
+      await service.initialize();
+
+      await service.startListening();
+      await service.stopListening();
+      await pumpEventQueue();
+
+      check(recorder.calls).not((it) => it.contains('start-stream'));
+      await service.dispose();
+      await recorder.close();
+    });
+
     test('processes samples for a live-mode event-only consumer', () {
       check(
         VoiceInputService.shouldProcessServerSamplesForTesting(
@@ -343,6 +408,88 @@ void main() {
       ]);
       await recorder.close();
     });
+
+    test('holds the recorder while discarding response-wait audio', () async {
+      final recorder = _FakeServerVadRecorder();
+      final session = ServerVadRecorderSession(recorder);
+      final received = <Uint8List>[];
+      StreamSubscription<Uint8List>? vadSubscription;
+
+      await session.start(
+        config: const RecordConfig(encoder: AudioEncoder.pcm16bits),
+        iosAudioSessionManagedExternally: true,
+        connectVad: (audioStream) async {
+          vadSubscription = audioStream.listen(received.add);
+        },
+        onRecorderError: (_, _) {},
+      );
+      recorder.audio.add(Uint8List.fromList([1]));
+      await Future<void>.delayed(Duration.zero);
+
+      check(await session.holdForResponse()).isTrue();
+      recorder.audio.add(Uint8List.fromList([2]));
+      await Future<void>.delayed(Duration.zero);
+      check(received).has((it) => it.length, 'length').equals(1);
+      check(session.isHoldingForResponse).isTrue();
+      check(recorder.calls).not((it) => it.contains('stop'));
+
+      final resumed = <Uint8List>[];
+      StreamSubscription<Uint8List>? resumedVadSubscription;
+      check(
+        await session.resumeForwarding(
+          connectVad: (audioStream) async {
+            resumedVadSubscription = audioStream.listen(resumed.add);
+          },
+        ),
+      ).isTrue();
+      recorder.audio.add(Uint8List.fromList([3]));
+      await Future<void>.delayed(Duration.zero);
+      check(resumed.single).deepEquals(Uint8List.fromList([3]));
+      check(recorder.calls.where((call) => call == 'start-stream').length)
+          .equals(1);
+
+      await session.stopForwarding();
+      await vadSubscription?.cancel();
+      await resumedVadSubscription?.cancel();
+      await session.stopRecorder();
+      await session.dispose();
+      check(session.isHoldingForResponse).isFalse();
+      check(recorder.calls.where((call) => call == 'stop').length).equals(1);
+      await recorder.close();
+    });
+
+    test(
+      'reports a recorder error while response audio is discarded',
+      () async {
+        final recorder = _FakeServerVadRecorder();
+        final session = ServerVadRecorderSession(recorder);
+        final reportedError = Completer<Object>();
+        StreamSubscription<Uint8List>? vadSubscription;
+
+        await session.start(
+          config: const RecordConfig(encoder: AudioEncoder.pcm16bits),
+          iosAudioSessionManagedExternally: true,
+          connectVad: (audioStream) async {
+            vadSubscription = audioStream.listen((_) {});
+          },
+          onRecorderError: (error, _) => reportedError.complete(error),
+        );
+        check(await session.holdForResponse()).isTrue();
+
+        recorder.audio.addError(StateError('microphone stream failed'));
+        final error = await reportedError.future.timeout(
+          const Duration(seconds: 1),
+        );
+        check(error.toString()).contains('microphone stream failed');
+
+        await session.stopForwarding();
+        await vadSubscription?.cancel();
+        await session.stopRecorder();
+        await session.dispose();
+        check(recorder.calls.where((call) => call == 'stop').length).equals(1);
+        await recorder.close();
+      },
+    );
 
     test(
       'leaves standalone iOS audio-session management at Record defaults',
@@ -589,6 +736,8 @@ class _MockPermissionHandlerPlatform extends Mock
     with MockPlatformInterfaceMixin
     implements PermissionHandlerPlatform {}
 
+class _MockApiService extends Mock implements ApiService {}
+
 class _FakeServerVadRecorder implements ServerVadRecorderClient {
   _FakeServerVadRecorder({
     this.permissionGranted = true,
@@ -638,8 +787,11 @@ class _FakeServerVadRecorder implements ServerVadRecorderClient {
 class _SupportedVoiceInputService extends VoiceInputService {
   _SupportedVoiceInputService({
     required super.nativeStt,
+    super.api,
+    super.serverVadRecorderFactory,
     this.deviceLocaleTag = 'en-US',
     this.usesAutomaticNativeLanguage = true,
+    this.supportsNativeResponseWaitCapture = false,
   });
 
   @override
@@ -647,6 +799,9 @@ class _SupportedVoiceInputService extends VoiceInputService {
 
   @override
   final bool usesAutomaticNativeLanguage;
+
+  @override
+  final bool supportsNativeResponseWaitCapture;
 
   @override
   bool get isSupportedPlatform => true;
@@ -661,6 +816,8 @@ class _FakeNativeSttService extends NativeSttService {
   String? availabilityLocaleId;
   final List<String?> availabilityLocaleIds = <String?>[];
   String? startLocaleId;
+  int detachCalls = 0;
+  int stopCalls = 0;
 
   void emit(NativeSttEvent event) => _events.add(event);
 
@@ -706,5 +863,12 @@ class _FakeNativeSttService extends NativeSttService {
   }
 
   @override
-  Future<void> stopListening() async {}
+  Future<void> detachListeningEvents() async {
+    detachCalls += 1;
+  }
+
+  @override
+  Future<void> stopListening() async {
+    stopCalls += 1;
+  }
 }

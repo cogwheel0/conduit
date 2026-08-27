@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/composer_prompt_surface.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../models/hermes_run_event.dart';
 
@@ -70,125 +71,116 @@ final class _HermesDecisionCardState extends State<HermesDecisionCard> {
       HermesDecisionKind.secret => l10n.hermesSecretTitle,
       HermesDecisionKind.mcpSetup => l10n.hermesMcpSetupTitle,
     };
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        margin: const EdgeInsets.only(top: Spacing.sm),
-        padding: const EdgeInsets.all(Spacing.md),
-        decoration: BoxDecoration(
-          color: theme.surfaceBackground,
-          borderRadius: BorderRadius.circular(AppBorderRadius.card),
-          border: Border.all(color: theme.cardBorder),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+    return ComposerPromptSurface(
+      semanticsLabel: title,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: AppTypography.standard.copyWith(
+              fontWeight: FontWeight.w600,
+              color: theme.textPrimary,
+            ),
+          ),
+          if (widget.prompt?.trim().isNotEmpty == true) ...[
+            const SizedBox(height: Spacing.xs),
             Text(
-              title,
-              style: AppTypography.standard.copyWith(
-                fontWeight: FontWeight.w600,
-                color: theme.textPrimary,
+              widget.prompt!,
+              style: AppTypography.bodySmallStyle.copyWith(
+                color: theme.textSecondary,
               ),
             ),
-            if (widget.prompt?.trim().isNotEmpty == true) ...[
-              const SizedBox(height: Spacing.xs),
+          ],
+          const SizedBox(height: Spacing.sm),
+          if (_resolved)
+            Text(
+              l10n.hermesResponseSent,
+              style: TextStyle(color: theme.success),
+            )
+          else ...[
+            if (widget.kind == HermesDecisionKind.mcpSetup) ...[
               Text(
-                widget.prompt!,
+                '${widget.mcpAction ?? 'Set up'} ${widget.mcpServer ?? 'MCP server'}',
                 style: AppTypography.bodySmallStyle.copyWith(
                   color: theme.textSecondary,
                 ),
               ),
-            ],
-            const SizedBox(height: Spacing.sm),
-            if (_resolved)
-              Text(
-                l10n.hermesResponseSent,
-                style: TextStyle(color: theme.success),
-              )
-            else ...[
-              if (widget.kind == HermesDecisionKind.mcpSetup) ...[
-                Text(
-                  '${widget.mcpAction ?? 'Set up'} ${widget.mcpServer ?? 'MCP server'}',
-                  style: AppTypography.bodySmallStyle.copyWith(
-                    color: theme.textSecondary,
+              const SizedBox(height: Spacing.sm),
+              Row(
+                children: [
+                  ConduitButton(
+                    text: l10n.hermesNotNow,
+                    isCompact: true,
+                    onPressed: _submitting ? null : () => _submit('decline'),
                   ),
-                ),
-                const SizedBox(height: Spacing.sm),
-                Row(
+                  const SizedBox(width: Spacing.sm),
+                  ConduitButton(
+                    text: l10n.hermesSetUp,
+                    isCompact: true,
+                    isLoading: _submitting,
+                    onPressed: _submitting ? null : () => _submit('approve'),
+                  ),
+                ],
+              ),
+            ] else ...[
+              if (widget.choices.isNotEmpty) ...[
+                Wrap(
+                  spacing: Spacing.xs,
+                  runSpacing: Spacing.xs,
                   children: [
-                    ConduitButton(
-                      text: l10n.hermesNotNow,
-                      isCompact: true,
-                      onPressed: _submitting ? null : () => _submit('decline'),
-                    ),
-                    const SizedBox(width: Spacing.sm),
-                    ConduitButton(
-                      text: l10n.hermesSetUp,
-                      isCompact: true,
-                      isLoading: _submitting,
-                      onPressed: _submitting ? null : () => _submit('approve'),
-                    ),
+                    for (final choice in widget.choices)
+                      FilterChip(
+                        label: Text(choice),
+                        selected: _selectedChoices.contains(choice),
+                        onSelected: _submitting
+                            ? null
+                            : (selected) {
+                                if (!widget.multiSelect && selected) {
+                                  _selectedChoices.clear();
+                                }
+                                setState(() {
+                                  selected
+                                      ? _selectedChoices.add(choice)
+                                      : _selectedChoices.remove(choice);
+                                });
+                              },
+                      ),
                   ],
                 ),
-              ] else ...[
-                if (widget.choices.isNotEmpty) ...[
-                  Wrap(
-                    spacing: Spacing.xs,
-                    runSpacing: Spacing.xs,
-                    children: [
-                      for (final choice in widget.choices)
-                        FilterChip(
-                          label: Text(choice),
-                          selected: _selectedChoices.contains(choice),
-                          onSelected: _submitting
-                              ? null
-                              : (selected) {
-                                  if (!widget.multiSelect && selected) {
-                                    _selectedChoices.clear();
-                                  }
-                                  setState(() {
-                                    selected
-                                        ? _selectedChoices.add(choice)
-                                        : _selectedChoices.remove(choice);
-                                  });
-                                },
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: Spacing.sm),
-                ],
-                TextField(
-                  controller: _controller,
-                  obscureText: _sensitive,
-                  enableSuggestions: !_sensitive,
-                  autocorrect: !_sensitive,
-                  enableIMEPersonalizedLearning: !_sensitive,
-                  decoration: InputDecoration(
-                    labelText: _sensitive
-                        ? l10n.hermesSensitiveResponse
-                        : l10n.hermesResponse,
-                  ),
-                  onSubmitted: (_) => _submit(),
-                ),
                 const SizedBox(height: Spacing.sm),
-                ConduitButton(
-                  text: l10n.hermesSendResponse,
-                  isCompact: true,
-                  isLoading: _submitting,
-                  onPressed: _submitting
-                      ? null
-                      : () => _submit(
-                          _selectedChoices.isEmpty
-                              ? null
-                              : widget.multiSelect
-                              ? jsonEncode(_selectedChoices.toList())
-                              : _selectedChoices.single,
-                        ),
-                ),
               ],
+              TextField(
+                controller: _controller,
+                obscureText: _sensitive,
+                enableSuggestions: !_sensitive,
+                autocorrect: !_sensitive,
+                enableIMEPersonalizedLearning: !_sensitive,
+                decoration: InputDecoration(
+                  labelText: _sensitive
+                      ? l10n.hermesSensitiveResponse
+                      : l10n.hermesResponse,
+                ),
+                onSubmitted: (_) => _submit(),
+              ),
+              const SizedBox(height: Spacing.sm),
+              ConduitButton(
+                text: l10n.hermesSendResponse,
+                isCompact: true,
+                isLoading: _submitting,
+                onPressed: _submitting
+                    ? null
+                    : () => _submit(
+                        _selectedChoices.isEmpty
+                            ? null
+                            : widget.multiSelect
+                            ? jsonEncode(_selectedChoices.toList())
+                            : _selectedChoices.single,
+                      ),
+              ),
             ],
           ],
-        ),
+        ],
       ),
     );
   }

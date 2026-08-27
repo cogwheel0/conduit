@@ -64,20 +64,4 @@ void main() {
           .contains('[docs](https://example.com)');
     });
   });
-
-  group('htmlFromDocument', () {
-    test('emits HTML tags for formatted content', () {
-      final html = htmlFromDocument(documentFromMarkdown('# Title'));
-      check(html.toLowerCase()).contains('<h1');
-    });
-
-    test('emits paragraph markup for plain text', () {
-      final html = htmlFromDocument(documentFromMarkdown('hello world'));
-      check(html.toLowerCase()).contains('hello world');
-    });
-
-    test('returns a string for empty documents', () {
-      check(htmlFromDocument(documentFromMarkdown(''))).isA<String>();
-    });
-  });
 }

@@ -52,7 +52,12 @@ class ServerVadRecorderSession {
   StreamSubscription<Uint8List>? _recorderSubscription;
   bool _stopping = false;
   bool _recorderStarted = false;
+  bool _forwarding = false;
+  bool _holdingForResponse = false;
   bool _disposed = false;
+
+  bool get isHoldingForResponse =>
+      _holdingForResponse && _recorderStarted && !_disposed;
 
   Future<void> start({
     required RecordConfig config,
@@ -72,6 +77,7 @@ class ServerVadRecorderSession {
 
       final controller = StreamController<Uint8List>();
       _audioController = controller;
+      _forwarding = true;
 
       // VAD initializes its model and subscribes before Record starts, so the
       // beginning of the microphone stream cannot be dropped during setup.
@@ -81,9 +87,22 @@ class ServerVadRecorderSession {
       _recorderStarted = true;
       _throwIfStopping();
       _recorderSubscription = recorderStream.listen(
-        controller.add,
-        onError: onRecorderError,
+        (bytes) {
+          final activeController = _audioController;
+          if (_forwarding &&
+              activeController != null &&
+              !activeController.isClosed) {
+            activeController.add(bytes);
+          }
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          _forwarding = false;
+          _holdingForResponse = false;
+          onRecorderError(error, stackTrace);
+        },
         onDone: () {
+          _forwarding = false;
+          _holdingForResponse = false;
           if (!_stopping) {
             onRecorderError(
               StateError('Microphone stream ended unexpectedly'),
@@ -101,12 +120,52 @@ class ServerVadRecorderSession {
 
   Future<void> stopForwarding() async {
     _stopping = true;
+    _forwarding = false;
+    _holdingForResponse = false;
     final subscription = _recorderSubscription;
     _recorderSubscription = null;
     await subscription?.cancel();
   }
 
+  Future<bool> holdForResponse() async {
+    if (_disposed || _stopping || !_recorderStarted) return false;
+    // Keep the call's real input I/O alive for iOS background execution, but
+    // detach VAD and discard every buffer while the assistant owns the turn.
+    _forwarding = false;
+    _holdingForResponse = true;
+    await _closeAudioController();
+    return isHoldingForResponse;
+  }
+
+  Future<bool> resumeForwarding({
+    required Future<void> Function(Stream<Uint8List> audioStream) connectVad,
+  }) async {
+    if (!isHoldingForResponse || _stopping) return false;
+
+    final controller = StreamController<Uint8List>();
+    _audioController = controller;
+    try {
+      await connectVad(controller.stream);
+      _throwIfStopping();
+      if (!identical(_audioController, controller) || !isHoldingForResponse) {
+        throw StateError('Response-wait recorder ownership changed');
+      }
+      _holdingForResponse = false;
+      _forwarding = true;
+      return true;
+    } catch (_) {
+      if (identical(_audioController, controller)) {
+        _audioController = null;
+      }
+      if (!controller.isClosed) {
+        await controller.close();
+      }
+      rethrow;
+    }
+  }
+
   Future<void> stopRecorder() async {
+    _holdingForResponse = false;
     try {
       if (_recorderStarted) {
         _recorderStarted = false;

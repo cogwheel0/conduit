@@ -1,11 +1,145 @@
 import AVFoundation
 import Darwin
 import Flutter
+import ImageIO
 import UIKit
 import XCTest
 @testable import Runner
 
 class RunnerTests: XCTestCase {
+
+  func testPccSnapshotDeltaEmitsOnlyNewContent() throws {
+    XCTAssertEqual(
+      try pccSnapshotDelta(previous: "Hello", snapshot: "Hello world"),
+      " world"
+    )
+    XCTAssertEqual(
+      try pccSnapshotDelta(previous: "Hello world", snapshot: "Hello world"),
+      ""
+    )
+  }
+
+  func testPccSnapshotDeltaRejectsRewrites() {
+    XCTAssertThrowsError(
+      try pccSnapshotDelta(previous: "Hello", snapshot: "Goodbye")
+    )
+  }
+
+  func testPccDecodedImageBytesRejectsUnsafeAllocations() {
+    XCTAssertEqual(
+      pccDecodedImageBytes(width: 2_048, height: 2_048, currentBytes: 0),
+      16 * 1_024 * 1_024
+    )
+    XCTAssertNil(
+      pccDecodedImageBytes(width: 50_000, height: 50_000, currentBytes: 0)
+    )
+    XCTAssertNil(
+      pccDecodedImageBytes(width: 4_097, height: 4_097, currentBytes: 0)
+    )
+    XCTAssertNil(
+      pccDecodedImageBytes(
+        width: 2_048,
+        height: 2_048,
+        currentBytes: 60 * 1_024 * 1_024
+      )
+    )
+    XCTAssertEqual(
+      pccDecodedImageBytes(bytesPerRow: 8_192, height: 2_048, currentBytes: 0),
+      16 * 1_024 * 1_024
+    )
+    XCTAssertNil(
+      pccDecodedImageBytes(bytesPerRow: 32_769, height: 2_048, currentBytes: 0)
+    )
+    XCTAssertTrue(pccImageMetadataIsSafe(
+      depth: 8,
+      colorModel: kCGImagePropertyColorModelRGB as String
+    ))
+    XCTAssertFalse(pccImageMetadataIsSafe(
+      depth: 16,
+      colorModel: kCGImagePropertyColorModelRGB as String
+    ))
+    XCTAssertFalse(pccImageMetadataIsSafe(
+      depth: 8,
+      colorModel: kCGImagePropertyColorModelCMYK as String
+    ))
+  }
+
+#if canImport(FoundationModels)
+  func testPccGenerationOptionsValidateNativeBoundary() throws {
+    guard #available(iOS 26.0, *) else { return }
+    let request = PlatformPccCompletionRequest(
+      runId: "options",
+      model: .onDevice,
+      messages: [],
+      allowOnDeviceFallback: false,
+      temperature: 0.4,
+      maximumResponseTokens: 512,
+      topP: 0.9,
+      seed: 42
+    )
+    let options = try pccGenerationOptions(request)
+    XCTAssertEqual(options.temperature, 0.4)
+    XCTAssertEqual(options.maximumResponseTokens, 512)
+
+    let invalid = PlatformPccCompletionRequest(
+      runId: "invalid",
+      model: .onDevice,
+      messages: [],
+      allowOnDeviceFallback: false,
+      topP: 0.9,
+      topK: 40
+    )
+    XCTAssertThrowsError(try pccGenerationOptions(invalid))
+  }
+
+  func testPccStructuredSchemaAcceptsBoundedJsonObject() throws {
+    guard #available(iOS 26.0, *) else { return }
+    XCTAssertNoThrow(try pccGenerationSchema(
+      json: #"{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}"#,
+      name: "Answer"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"object","properties":{"value":{"type":"file"}}}"#,
+      name: "Unsupported"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"object","properties":{},"required":["answer"]}"#,
+      name: "MissingRequiredProperty"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"string","enum":[]}"#,
+      name: "EmptyEnum"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"integer","minimum":0}"#,
+      name: "UnsupportedMinimum"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"number","maximum":1}"#,
+      name: "UnsupportedMaximum"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":[],"properties":{}}"#,
+      name: "EmptyTypeArray"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":["string","null"]}"#,
+      name: "NullableType"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"array","items":{"type":"string"},"minItems":"2"}"#,
+      name: "StringArrayBound"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"array","items":{"type":"string"},"minItems":true}"#,
+      name: "BooleanArrayBound"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":1}"#,
+      name: "ReversedArrayBounds"
+    ))
+  }
+#endif
 
   func testNativeDropdownCompletionIsExactlyOnce() {
     var selections: [String?] = []
@@ -2279,6 +2413,378 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(replacement.stopCount, 1)
   }
 
+  func testResponseWaitCaptureStartsOnlyAfterFullSttShutdown() async {
+    let lifecycle = NativeSttLifecycleState()
+    let sttTransition = lifecycle.beginStart()
+    await sttTransition.shutdownTask.value
+    let stt = TestNativeSttSession()
+    XCTAssertTrue(lifecycle.install(stt, generation: sttTransition.generation))
+
+    let capture = TestNativeResponseWaitCaptureSession(blocksStop: false)
+    let owner = NativeResponseWaitCaptureOwner(
+      lifecycle: lifecycle,
+      makeSession: { capture }
+    )
+    let responseTransition = owner.prepareBegin(callKitCallId: nil)
+    let finish = Task {
+      await owner.finishBegin(
+        responseTransition,
+        timeoutNanoseconds: 500_000_000
+      )
+    }
+
+    let sttStopStarted = await stt.stopStarted.wait(
+      timeoutNanoseconds: 500_000_000
+    )
+    XCTAssertTrue(sttStopStarted)
+    XCTAssertEqual(capture.startCount, 0)
+
+    stt.allowStop.complete()
+    let didStartCapture = await finish.value
+    XCTAssertTrue(didStartCapture)
+    XCTAssertEqual(capture.startCount, 1)
+
+    await owner.prepareEnd().value
+    XCTAssertEqual(capture.stopCount, 1)
+  }
+
+  func testResponseWaitCaptureSerializesReplacementSttStart() async {
+    let lifecycle = NativeSttLifecycleState()
+    let capture = TestNativeResponseWaitCaptureSession(blocksStop: true)
+    let owner = NativeResponseWaitCaptureOwner(
+      lifecycle: lifecycle,
+      makeSession: { capture }
+    )
+    let responseTransition = owner.prepareBegin(callKitCallId: nil)
+    let didStartCapture = await owner.finishBegin(
+      responseTransition,
+      timeoutNanoseconds: 500_000_000
+    )
+    XCTAssertTrue(didStartCapture)
+
+    owner.relinquishForSttStart()
+    let replacementTransition = lifecycle.beginStart()
+    let replacementInstalled = AsyncTestFlag()
+    let replacement = TestNativeSttSession()
+    let installReplacement = Task {
+      await replacementTransition.shutdownTask.value
+      let installed = lifecycle.install(
+        replacement,
+        generation: replacementTransition.generation
+      )
+      if installed {
+        await replacementInstalled.set()
+      }
+      return installed
+    }
+
+    let captureStopStarted = await capture.stopStarted.wait(
+      timeoutNanoseconds: 500_000_000
+    )
+    XCTAssertTrue(captureStopStarted)
+    let installedBeforeShutdown = await replacementInstalled.current()
+    XCTAssertFalse(installedBeforeShutdown)
+
+    capture.allowStop.complete()
+    let didInstallReplacement = await installReplacement.value
+    XCTAssertTrue(didInstallReplacement)
+    let installedAfterShutdown = await replacementInstalled.current()
+    XCTAssertTrue(installedAfterShutdown)
+
+    // A late response-wait end has no reference to the replacement and cannot
+    // retire it.
+    await owner.prepareEnd().value
+    XCTAssertEqual(replacement.stopCount, 0)
+
+    let cleanup = lifecycle.beginStop()
+    replacement.allowStop.complete()
+    await cleanup.shutdownTask.value
+  }
+
+  func testCallKitActivationSuspendsAndResumesLiveResponseWaitCapture() async {
+    let lifecycle = NativeSttLifecycleState()
+    let capture = TestNativeResponseWaitCaptureSession(blocksStop: false)
+    let owner = NativeResponseWaitCaptureOwner(
+      lifecycle: lifecycle,
+      makeSession: { capture }
+    )
+    let transition = owner.prepareBegin(
+      callKitCallId: "00000000-0000-0000-0000-000000000001"
+    )
+
+    // The request is accepted while CallKit activation is pending, but no mic
+    // engine starts before the system delegates didActivate.
+    let finish = Task {
+      await owner.finishBegin(
+        transition,
+        timeoutNanoseconds: 500_000_000
+      )
+    }
+    await Task.yield()
+    XCTAssertEqual(capture.startCount, 0)
+
+    owner.callKitDidActivate()
+    let didAcceptCapture = await finish.value
+    XCTAssertTrue(didAcceptCapture)
+    XCTAssertEqual(capture.startCount, 1)
+
+    owner.callKitDidDeactivate()
+    XCTAssertEqual(capture.suspendCount, 1)
+
+    owner.callKitDidActivate()
+    XCTAssertEqual(capture.startCount, 2)
+
+    await owner.prepareEnd().value
+    XCTAssertEqual(capture.stopCount, 1)
+    owner.callKitDidActivate()
+    XCTAssertEqual(capture.startCount, 2)
+  }
+
+  func testResponseWaitCaptureFailsWhenCallKitNeverActivates() async {
+    let lifecycle = NativeSttLifecycleState()
+    let capture = TestNativeResponseWaitCaptureSession(blocksStop: false)
+    let owner = NativeResponseWaitCaptureOwner(
+      lifecycle: lifecycle,
+      makeSession: { capture }
+    )
+    let transition = owner.prepareBegin(
+      callKitCallId: "00000000-0000-0000-0000-000000000001"
+    )
+
+    let didStart = await owner.finishBegin(
+      transition,
+      timeoutNanoseconds: 20_000_000
+    )
+
+    XCTAssertFalse(didStart)
+    XCTAssertEqual(capture.startCount, 0)
+    owner.callKitDidActivate()
+    XCTAssertEqual(capture.startCount, 0)
+  }
+
+  func testResponseWaitCaptureUsesSeparateCallKitActivationDeadline() async {
+    let lifecycle = NativeSttLifecycleState()
+    let capture = TestNativeResponseWaitCaptureSession(blocksStop: false)
+    let owner = NativeResponseWaitCaptureOwner(
+      lifecycle: lifecycle,
+      makeSession: { capture }
+    )
+    let transition = owner.prepareBegin(
+      callKitCallId: "00000000-0000-0000-0000-000000000001"
+    )
+    await transition.shutdownTask.value
+    let finished = AsyncTestFlag()
+    let finish = Task {
+      let didStart = await owner.finishBegin(
+        transition,
+        timeoutNanoseconds: 50_000_000,
+        activationTimeoutNanoseconds: 1_000_000_000
+      )
+      await finished.set()
+      return didStart
+    }
+
+    try? await Task.sleep(nanoseconds: 200_000_000)
+    let finishedBeforeActivation = await finished.current()
+    XCTAssertFalse(finishedBeforeActivation)
+    owner.callKitDidActivate()
+
+    let didStart = await finish.value
+    XCTAssertTrue(didStart)
+    XCTAssertEqual(capture.startCount, 1)
+    await owner.prepareEnd().value
+  }
+
+  func testLateCallKitEndCannotRetireReplacementOwnership() {
+    let ownership = NativeCallKitCallOwnership()
+    let first = "00000000-0000-0000-0000-000000000001"
+    let replacement = "00000000-0000-0000-0000-000000000002"
+
+    XCTAssertEqual(ownership.activate(first), .first)
+    XCTAssertEqual(ownership.activate(first), .unchanged)
+    XCTAssertEqual(ownership.activate(replacement), .replacement)
+    XCTAssertFalse(ownership.retireIfActive(first))
+    XCTAssertTrue(ownership.isActive(replacement))
+    XCTAssertTrue(ownership.retireIfActive(replacement))
+  }
+
+  func testReplacementCallKitOwnershipRetiresStaleResponseWaitCapture() async {
+    let lifecycle = NativeSttLifecycleState()
+    let capture = TestNativeResponseWaitCaptureSession(blocksStop: false)
+    let owner = NativeResponseWaitCaptureOwner(
+      lifecycle: lifecycle,
+      makeSession: { capture }
+    )
+    let ownership = NativeCallKitCallOwnership()
+    let first = "00000000-0000-0000-0000-000000000001"
+    let replacement = "00000000-0000-0000-0000-000000000002"
+
+    owner.callKitDidActivate()
+    XCTAssertEqual(ownership.activate(first), .first)
+    let transition = owner.prepareBegin(callKitCallId: first)
+    let didStart = await owner.finishBegin(
+      transition,
+      timeoutNanoseconds: 500_000_000
+    )
+    XCTAssertTrue(didStart)
+    XCTAssertEqual(capture.startCount, 1)
+
+    XCTAssertEqual(ownership.activate(replacement), .replacement)
+    await owner.callKitCallDidChange().value
+    XCTAssertEqual(capture.suspendCount, 1)
+    XCTAssertEqual(capture.stopCount, 1)
+
+    owner.callKitDidActivate()
+    XCTAssertEqual(capture.startCount, 1)
+  }
+
+  func testResponseWaitConfigurationChangeFailureRetiresAndReportsOnce() async {
+    let lifecycle = NativeSttLifecycleState()
+    let failedCapture = TestNativeResponseWaitCaptureSession(blocksStop: false)
+    let replacementCapture = TestNativeResponseWaitCaptureSession(
+      blocksStop: false
+    )
+    var sessions = [failedCapture, replacementCapture]
+    let reportedFailures = TestLockedCounter()
+    let owner = NativeResponseWaitCaptureOwner(
+      lifecycle: lifecycle,
+      makeSession: { sessions.removeFirst() },
+      onTerminalFailure: { _ in reportedFailures.increment() }
+    )
+
+    let firstTransition = owner.prepareBegin(callKitCallId: nil)
+    let firstStarted = await owner.finishBegin(
+      firstTransition,
+      timeoutNanoseconds: 500_000_000
+    )
+    XCTAssertTrue(firstStarted)
+
+    failedCapture.simulateConfigurationChangeFailure()
+    failedCapture.simulateConfigurationChangeFailure()
+    let failedCaptureStopped = await failedCapture.stopStarted.wait(
+      timeoutNanoseconds: 500_000_000
+    )
+    XCTAssertTrue(failedCaptureStopped)
+    XCTAssertEqual(reportedFailures.value, 1)
+    XCTAssertEqual(failedCapture.stopCount, 1)
+
+    let replacementTransition = owner.prepareBegin(callKitCallId: nil)
+    let replacementStarted = await owner.finishBegin(
+      replacementTransition,
+      timeoutNanoseconds: 500_000_000
+    )
+    XCTAssertTrue(replacementStarted)
+    XCTAssertEqual(replacementCapture.startCount, 1)
+    await owner.prepareEnd().value
+  }
+
+  func testResponseWaitPostAcknowledgementResumeFailureIsTerminal() async {
+    let lifecycle = NativeSttLifecycleState()
+    let capture = TestNativeResponseWaitCaptureSession(blocksStop: false)
+    let reportedFailures = TestLockedCounter()
+    let owner = NativeResponseWaitCaptureOwner(
+      lifecycle: lifecycle,
+      makeSession: { capture },
+      activateAudioSession: {},
+      onTerminalFailure: { _ in reportedFailures.increment() }
+    )
+    let transition = owner.prepareBegin(callKitCallId: nil)
+    let started = await owner.finishBegin(
+      transition,
+      timeoutNanoseconds: 500_000_000
+    )
+    XCTAssertTrue(started)
+
+    owner.interruptionBegan()
+    capture.failNextStart()
+    owner.interruptionEnded(shouldResume: true)
+
+    let stopped = await capture.stopStarted.wait(
+      timeoutNanoseconds: 500_000_000
+    )
+    XCTAssertTrue(stopped)
+    XCTAssertEqual(reportedFailures.value, 1)
+    XCTAssertEqual(capture.startCount, 2)
+    XCTAssertEqual(capture.stopCount, 1)
+  }
+
+  func testNativeIosTtsStartAcknowledgementTimesOutExactlyOnce() {
+    let resolved = expectation(description: "TTS start resolved")
+    var results: [Bool] = []
+    let acknowledgement = NativeIosTtsStartAcknowledgement { value in
+      results.append(value as? Bool ?? true)
+      resolved.fulfill()
+    }
+    acknowledgement.armTimeout(after: 0.01) {
+      acknowledgement.resolve(started: false)
+    }
+
+    wait(for: [resolved], timeout: 0.5)
+
+    XCTAssertEqual(results, [false])
+    XCTAssertFalse(acknowledgement.resolve(started: true))
+    XCTAssertEqual(results, [false])
+  }
+
+  func testNativeIosTtsPendingStartsResolveExactlyOnceAcrossQueues() {
+    let pendingStarts = NativeIosTtsPendingStarts()
+    let utterances = (0..<64).map { _ in NSObject() }
+    let resolved = TestLockedCounter()
+
+    for utterance in utterances {
+      pendingStarts.register(
+        NativeIosTtsStartAcknowledgement { _ in resolved.increment() },
+        for: ObjectIdentifier(utterance)
+      )
+    }
+
+    DispatchQueue.concurrentPerform(iterations: utterances.count) { index in
+      _ = pendingStarts.resolve(
+        ObjectIdentifier(utterances[index]),
+        started: true
+      )
+      pendingStarts.resolveAll(started: false)
+    }
+
+    XCTAssertEqual(resolved.value, utterances.count)
+  }
+
+  func testNonCallKitInterruptionReactivatesOnlyWhenSystemAllowsResume() async {
+    let lifecycle = NativeSttLifecycleState()
+    let capture = TestNativeResponseWaitCaptureSession(blocksStop: false)
+    let activationLock = NSLock()
+    var activationCount = 0
+    let owner = NativeResponseWaitCaptureOwner(
+      lifecycle: lifecycle,
+      makeSession: { capture },
+      activateAudioSession: {
+        activationLock.lock()
+        activationCount += 1
+        activationLock.unlock()
+      }
+    )
+    let transition = owner.prepareBegin(callKitCallId: nil)
+    let didStartCapture = await owner.finishBegin(
+      transition,
+      timeoutNanoseconds: 500_000_000
+    )
+    XCTAssertTrue(didStartCapture)
+
+    owner.interruptionBegan()
+    XCTAssertEqual(capture.suspendCount, 1)
+    owner.interruptionEnded(shouldResume: false)
+    XCTAssertEqual(capture.startCount, 1)
+
+    owner.interruptionEnded(shouldResume: true)
+    XCTAssertEqual(capture.startCount, 2)
+    activationLock.lock()
+    let activations = activationCount
+    activationLock.unlock()
+    XCTAssertEqual(activations, 1)
+
+    await owner.prepareEnd().value
+  }
+
   func testNativeSttCommandTransitionsHonorReceiptOrderBeforeAwaiting() async {
     let lifecycle = NativeSttLifecycleState()
     let start = lifecycle.beginStart()
@@ -2911,5 +3417,129 @@ private final class TestNativeSttSession: NativeSttSession {
     lock.lock()
     storedStopCount += 1
     lock.unlock()
+  }
+}
+
+private final class TestNativeResponseWaitCaptureSession:
+  NativeResponseWaitCaptureSession {
+  let stopStarted = NativeSttShutdownCompletion()
+  let allowStop = NativeSttShutdownCompletion()
+  private let lock = NSLock()
+  private var storedStartCount = 0
+  private var storedSuspendCount = 0
+  private var storedStopCount = 0
+  private var terminalFailureHandler: ((Error) -> Void)?
+  private var shouldFailNextStart = false
+  private var stopped = false
+
+  init(blocksStop: Bool) {
+    if !blocksStop {
+      allowStop.complete()
+    }
+  }
+
+  var startCount: Int {
+    lock.lock()
+    let value = storedStartCount
+    lock.unlock()
+    return value
+  }
+
+  var suspendCount: Int {
+    lock.lock()
+    let value = storedSuspendCount
+    lock.unlock()
+    return value
+  }
+
+  var stopCount: Int {
+    lock.lock()
+    let value = storedStopCount
+    lock.unlock()
+    return value
+  }
+
+  func startCapture() throws {
+    lock.lock()
+    if stopped {
+      lock.unlock()
+      throw NSError(
+        domain: "TestNativeResponseWaitCaptureSession",
+        code: 3,
+        userInfo: nil
+      )
+    }
+    storedStartCount += 1
+    let shouldFail = shouldFailNextStart
+    shouldFailNextStart = false
+    lock.unlock()
+    if shouldFail {
+      throw NSError(
+        domain: "TestNativeResponseWaitCaptureSession",
+        code: 2,
+        userInfo: nil
+      )
+    }
+  }
+
+  func failNextStart() {
+    lock.lock()
+    shouldFailNextStart = true
+    lock.unlock()
+  }
+
+  func suspendCapture() {
+    lock.lock()
+    storedSuspendCount += 1
+    lock.unlock()
+  }
+
+  func setTerminalFailureHandler(_ handler: @escaping (Error) -> Void) {
+    lock.lock()
+    if !stopped {
+      terminalFailureHandler = handler
+    }
+    lock.unlock()
+  }
+
+  func simulateConfigurationChangeFailure() {
+    lock.lock()
+    let handler = terminalFailureHandler
+    lock.unlock()
+    handler?(
+      NSError(
+        domain: "TestNativeResponseWaitCaptureSession",
+        code: 1,
+        userInfo: nil
+      )
+    )
+  }
+
+  func stop() async {
+    lock.lock()
+    storedStopCount += 1
+    stopped = true
+    terminalFailureHandler = nil
+    lock.unlock()
+    stopStarted.complete()
+    await allowStop.wait()
+  }
+}
+
+private final class TestLockedCounter {
+  private let lock = NSLock()
+  private var storedValue = 0
+
+  func increment() {
+    lock.lock()
+    storedValue += 1
+    lock.unlock()
+  }
+
+  var value: Int {
+    lock.lock()
+    let result = storedValue
+    lock.unlock()
+    return result
   }
 }

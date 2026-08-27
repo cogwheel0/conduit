@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart' show DioException;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/utils/debug_logger.dart';
+import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/providers/knowledge_cache_provider.dart';
 import 'package:conduit/features/prompts/providers/prompts_providers.dart';
 import 'package:conduit/features/tools/providers/tools_providers.dart';
@@ -224,11 +226,24 @@ class WorkspaceModels extends _$WorkspaceModels {
     }
   }
 
-  Future<WorkspaceModelDetail> create(WorkspaceModelForm form) =>
-      _mutate((api) => api.createWorkspaceModel(form), detailId: form.id);
+  Future<WorkspaceModelDetail> create(WorkspaceModelForm form) async {
+    if (!_isAdmin && _baseModelId(form.baseModelId) == null) {
+      throw const WorkspaceModelBaseRequiredException();
+    }
+    return _mutate((api) => api.createWorkspaceModel(form), detailId: form.id);
+  }
 
   Future<WorkspaceModelDetail> updateItem(WorkspaceModelForm form) =>
-      _mutate((api) => api.updateWorkspaceModel(form), detailId: form.id);
+      _mutate((api) async {
+        if (_isAdmin || _baseModelId(form.baseModelId) != null) {
+          return api.updateWorkspaceModel(form);
+        }
+        final existing = await _existingModel(api, form.id);
+        final existingBase = _baseModelId(existing?.baseModelId);
+        return api.updateWorkspaceModel(
+          existingBase == null ? form : form.withBaseModelId(existingBase),
+        );
+      }, detailId: form.id);
 
   Future<WorkspaceModelDetail> updateAccess(
     String id,
@@ -248,8 +263,54 @@ class WorkspaceModels extends _$WorkspaceModels {
   }
 
   Future<bool> importItems(List<Map<String, dynamic>> items) async {
-    await _mutateBool((api) => api.importWorkspaceModels(items));
+    await _mutateBool(
+      (api) async => api.importWorkspaceModels(
+        _isAdmin ? items : await _secureNonAdminImports(api, items),
+      ),
+    );
     return true;
+  }
+
+  bool get _isAdmin => ref.read(currentUserProvider2)?.role == 'admin';
+
+  String? _baseModelId(Object? value) {
+    final normalized = value?.toString().trim();
+    return normalized == null || normalized.isEmpty ? null : normalized;
+  }
+
+  Future<WorkspaceModelSummary?> _existingModel(
+    ApiService api,
+    String id,
+  ) async {
+    try {
+      return await api.getWorkspaceModel(id);
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _secureNonAdminImports(
+    ApiService api,
+    List<Map<String, dynamic>> items,
+  ) async {
+    final secured = <Map<String, dynamic>>[];
+    for (final item in items) {
+      final copy = Map<String, dynamic>.from(item);
+      if (_baseModelId(copy['base_model_id']) == null) {
+        final existing = await _existingModel(
+          api,
+          copy['id']?.toString() ?? '',
+        );
+        final existingBase = _baseModelId(existing?.baseModelId);
+        if (existingBase == null) {
+          throw const WorkspaceModelBaseRequiredException();
+        }
+        copy['base_model_id'] = existingBase;
+      }
+      secured.add(copy);
+    }
+    return secured;
   }
 
   /// Returns every readable model for export. Read-only: does not mutate state

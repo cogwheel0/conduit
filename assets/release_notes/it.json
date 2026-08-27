@@ -18,6 +18,25 @@
           "icon": "direct"
         }
       ]
+    },
+    {
+      "version": "4.1.2",
+      "title": "Novità",
+      "intro": "Ciao! Apple On-Device gira sul telefono. Usalo nelle Direct chats, o nelle chat Open WebUI quando sei offline. Le chiamate vocali escono dallo speaker e dicono la risposta, non il ragionamento. Hermes torna dopo essere rimasto fermo, e ho sistemato un po' di bug della chat.",
+      "bullets": [
+        {
+          "text": "Apple On-Device: Direct chats in locale, e chat Open WebUI quando sei offline.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chiamate vocali: partono dallo speaker se non c'è nulla di collegato. Saltano il ragionamento e dicono tutta la risposta.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: recupera le esecuzioni finite dopo essere rimasto fermo e accetta i PDF. Le skill si completano da sole. I link delle citazioni, le checklist nelle note e Open WebUI 0.11.1 funzionano.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

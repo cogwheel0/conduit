@@ -1721,9 +1721,17 @@ class MediaUploadController {
       final desktop =
           _ref.read(hermesConfigProvider).mode ==
           HermesBackendMode.desktopGateway;
-      if (!desktop && !isHermesLocalDocumentFileNameSupported(fileName)) {
+      final responsesPdf =
+          !desktop &&
+          hermesCapabilitiesNow(_ref).inputFiles &&
+          isHermesResponsesPdfFileNameSupported(fileName);
+      if (!desktop &&
+          !responsesPdf &&
+          !isHermesLocalDocumentFileNameSupported(fileName)) {
         throw HermesChatInputException(
-          'Hermes supports local UTF-8 text and DOCX documents.',
+          isHermesResponsesPdfFileNameSupported(fileName)
+              ? 'This Hermes server does not advertise Responses file input.'
+              : 'Hermes supports local UTF-8 text and DOCX documents.',
         );
       }
       final documentPaths = <String>{

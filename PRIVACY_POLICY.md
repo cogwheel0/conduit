@@ -1,6 +1,6 @@
 # Conduit Privacy Policy
 
-Effective date: 2026-07-11
+Effective date: 2026-08-21
 
 Conduit is an open‑source mobile client for Open‑WebUI and directly connected AI providers. This app acts as a client to services you choose and configure. This policy describes how the app itself handles data on your device. Open WebUI servers and AI providers may collect, process, and store data under their own policies; please review their privacy terms separately.
 
@@ -19,6 +19,8 @@ Conduit is an open‑source mobile client for Open‑WebUI and directly connecte
 - Local storage: preferences and credentials are stored on your device. Access tokens are stored using secure storage where available.
 - Network transfer: when you interact with the app, your data is sent to the Open WebUI server or direct AI provider you selected. Direct model requests are not relayed through Open WebUI or any developer‑controlled server.
 - Direct chat history: by default, a direct chat is also synchronized to your active Open WebUI server when you are signed in. You can instead keep direct chat history only on this device. Changing this setting applies to new chats and does not automatically upload existing on-device chats.
+- Apple On-Device: when you select Apple On-Device, model inference runs locally through Apple's Foundation Models framework. Prompt and response content is not sent to an AI provider by Conduit, though optional Open WebUI history synchronization remains a separate setting.
+- Apple Private Cloud Compute: when you select the Apple PCC provider, Conduit sends the conversation content and selected images needed for that request to Apple's Private Cloud Compute service. Conduit does not operate an intermediary server. If you enable on-device fallback, a PCC network failure may instead be retried with Apple's on-device model. Apple's processing and retention terms apply separately from Conduit's optional Open WebUI history synchronization.
 
 ## Permissions
 Depending on how you use Conduit, the app may request:
@@ -54,4 +56,3 @@ We may update this policy to reflect improvements or legal requirements. Materia
 
 ## Contact
 For questions or requests about this policy, please contact the app maintainer(s) through the project repository.
-

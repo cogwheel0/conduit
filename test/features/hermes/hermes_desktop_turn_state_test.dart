@@ -230,6 +230,55 @@ void main() {
         .equals(HermesDesktopTurnState.running);
   });
 
+  test('continued chats request the latest transcript page', () async {
+    SharedPreferences.setMockInitialValues({});
+    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    final harness = _GatewayHarness();
+    final adapter = _StubAdapter();
+    final rpc = HermesDesktopRpcClient(
+      channelFactory: (_, _, {httpClient}) => harness.channel,
+    );
+    final service = HermesDesktopApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+        desktopCredentials: HermesDesktopCredentials(
+          legacyToken: 'session-token',
+        ),
+      ),
+      dio: _statusDio(adapter),
+      rpc: rpc,
+    );
+    addTearDown(() async {
+      service.close();
+      await harness.dispose();
+    });
+
+    harness.responder = (method) => switch (method) {
+      'session.resume' => {
+        'session_id': 'runtime-existing',
+        'stored_session_id': 'stored-existing',
+        'running': false,
+      },
+      'config.get' => {'value': 'medium'},
+      _ => const {},
+    };
+
+    final response = await service.streamDesktopResponse(
+      HermesChatInput.text('second message'),
+      sessionId: 'stored-existing',
+      options: const HermesDesktopSessionOptions(),
+    );
+    harness.sessionInfo('runtime-existing', running: false);
+    await response.events.toList();
+
+    final historyRequest = adapter.requested.singleWhere(
+      (uri) => uri.path.endsWith('/messages'),
+    );
+    check(historyRequest.queryParameters['order']).equals('latest');
+  });
+
   test('a new bot chat opens before its first prompt is persisted', () async {
     SharedPreferences.setMockInitialValues({});
     PreferencesStore.debugOverride(await SharedPreferences.getInstance());

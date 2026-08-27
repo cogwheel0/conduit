@@ -606,6 +606,9 @@ class _FolderPageState extends ConsumerState<FolderPage> {
           desktopHermes:
               ref.read(hermesConfigProvider).mode ==
               HermesBackendMode.desktopGateway,
+          hermesResponsesFiles:
+              ref.read(hermesCapabilitiesProvider).asData?.value.inputFiles ==
+              true,
         ),
       );
       if (attachments.isEmpty) {

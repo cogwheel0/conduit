@@ -7,6 +7,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
 
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
@@ -21,6 +22,7 @@ import '../../../shared/widgets/sidebar_layout_contract.dart';
 import 'dart:async';
 
 import '../../../core/providers/app_providers.dart';
+import '../../../core/services/interaction_activity.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
 import '../../../core/services/performance_profiler.dart';
@@ -35,6 +37,7 @@ import '../../auth/providers/unified_auth_providers.dart';
 import '../../direct_connections/providers/direct_connection_providers.dart';
 import '../../direct_connections/services/direct_model_registry.dart';
 import '../providers/chat_providers.dart';
+import '../providers/openwebui_chat_prompt_provider.dart';
 import '../../hermes/models/hermes_model.dart';
 import '../../hermes/models/hermes_bot.dart';
 import '../../hermes/models/hermes_config.dart';
@@ -46,6 +49,7 @@ import '../../hermes/services/hermes_message_mapper.dart';
 import '../../hermes/services/hermes_pending_decision_store.dart';
 import '../../hermes/services/hermes_session_provenance.dart';
 import '../../hermes/widgets/hermes_bot_avatar.dart';
+import '../../hermes/widgets/hermes_message_interactions.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/message_tree_utils.dart' as message_tree;
 import '../../../core/utils/user_display_name.dart';
@@ -74,6 +78,7 @@ import '../../../core/models/chat_message.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/folder.dart';
 import '../../../core/models/model.dart';
+import '../../../core/models/openwebui_chat_prompt.dart';
 import '../providers/context_attachments_provider.dart';
 import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
@@ -88,6 +93,7 @@ import 'chat_bottom_anchor_controller.dart';
 import 'chat_timeline_render_model.dart';
 import 'chat_turn_render_state.dart';
 import '../widgets/streaming_turn_footer.dart';
+import '../widgets/openwebui_prompt_overlay.dart';
 import '../widgets/chat_timeline_viewport.dart';
 
 /// Keeps the assistant row's element ancestry identical while it moves from
@@ -163,8 +169,11 @@ class _ScrollableCenteredEmptyState extends StatelessWidget {
 
 // A 120 px streaming cache extent evicted rows almost immediately when
 // scrolling up mid-stream; remounting a settled row runs a synchronous
-// markdown compile, so the small extent bought hitches, not savings.
-const double _chatMessageScrollCachePixels = 600.0;
+// markdown compile, so the small extent bought hitches, not savings. Now that
+// remounts resolve from the prepared/compiled/extent caches (O(1) for
+// anything seen this session), a larger extent inflates rows further
+// off-screen instead of inside the visible fling.
+const double _chatMessageScrollCachePixels = 1200.0;
 
 @visibleForTesting
 bool shouldShowChatModelDropdown({
@@ -336,9 +345,11 @@ class _HermesBotActivityDotState extends State<_HermesBotActivityDot>
 List<String>? chatLocalFilePickerExtensions(
   Model? selectedModel, {
   bool desktopHermes = false,
+  bool hermesResponsesFiles = false,
 }) => localFilePickerExtensionsForModel(
   selectedModel,
   desktopHermes: desktopHermes,
+  hermesResponsesFiles: hermesResponsesFiles,
 );
 
 @visibleForTesting
@@ -477,10 +488,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   int? _timelineTailMetadataDesyncLogGeneration;
   final LinkedHashMap<String, ChatScrollAnchor> _savedScrollAnchors =
       LinkedHashMap<String, ChatScrollAnchor>();
-  Timer? _markdownPrewarmTimer;
-  int _markdownPrewarmGeneration = 0;
+  final MarkdownPrewarmThrottle _markdownPrewarmThrottle =
+      MarkdownPrewarmThrottle();
   String? _lastMarkdownPrewarmSignature;
   bool _hasPrewarmedAttachedViewport = false;
+  Set<String> _lastVisibleMessageIds = const <String>{};
   double? _lastBottomInset;
   String? _activeScrollProfileTaskKey;
   // Pin-to-top: scroll user message to top of viewport when sending
@@ -510,6 +522,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   _ChatListStableLayoutMetadata? _rowBuilderLayout;
   bool _rowBuilderSuppressHaptics = false;
   ChatTimelineRowBuilder? _rowBuilderMemo;
+  List<Object?> _rowRebuildKeysMemo = const <Object?>[];
   String? _cachedGreetingName;
   bool _greetingReady = false;
   ProviderSubscription<String?>? _screenContextSub;
@@ -521,6 +534,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ProviderSubscription<AppDatabase?>? _databaseOwnerSub;
   ProviderSubscription<AsyncValue<String>>? _hermesTranscriptSub;
   ProviderSubscription<bool>? _hermesStreamingSub;
+  late final OpenWebUiLivePromptNotifier _livePromptNotifier;
   String? _pendingHermesTranscriptRefresh;
   int _hermesTranscriptRefreshGeneration = 0;
   bool _viewportOwnerChangeScheduled = false;
@@ -604,8 +618,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         metrics.distanceFromLatest > _scrollButtonHideThreshold) {
       _bottomAnchorController.detachByUser();
     }
+    final visibleMessageIds = metrics.visibleMessageIds.toSet();
     final shouldPrewarm =
-        !_hasPrewarmedAttachedViewport && metrics.visibleMessageIds.isNotEmpty;
+        visibleMessageIds.isNotEmpty &&
+        (!_hasPrewarmedAttachedViewport ||
+            _visibleMessageIdsGained(
+              previous: _lastVisibleMessageIds,
+              current: visibleMessageIds,
+            ));
+    _lastVisibleMessageIds = visibleMessageIds;
     if (shouldPrewarm) _hasPrewarmedAttachedViewport = true;
     _scheduleScrollToBottomVisibilitySync(prewarm: shouldPrewarm);
   }
@@ -884,6 +905,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   @override
   void initState() {
     super.initState();
+    _livePromptNotifier = ref.read(openWebUiLivePromptProvider.notifier);
 
     _screenContextSub = ref.listenManual(screenContextProvider, (_, next) {
       if (next == null || next.isEmpty) {
@@ -927,11 +949,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       next,
     ) {
       if (!identical(previous, next)) {
+        _livePromptNotifier.cancel();
         _scheduleViewportOwnerChanged();
       }
     });
     _apiOwnerSub = ref.listenManual(apiServiceProvider, (previous, next) {
       if (!identical(previous, next)) {
+        _livePromptNotifier.cancel();
         _scheduleViewportOwnerChanged();
       }
     });
@@ -983,6 +1007,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   @override
   void dispose() {
     markConversationRead(ref, _lastConversationId);
+    _livePromptNotifier.cancel();
     _screenContextSub?.close();
     _conversationLoadingSub?.close();
     _reviewerModeSub?.close();
@@ -993,11 +1018,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _hermesTranscriptSub?.close();
     _hermesStreamingSub?.close();
     _hermesTranscriptRefreshGeneration++;
-    _markdownPrewarmTimer?.cancel();
+    _markdownPrewarmThrottle.cancel();
     _screenContextRetryTimer?.cancel();
     _cancelExplicitLatestNavigation();
     _cancelPendingViewportNavigation();
     _endScrollProfile(reason: 'disposed');
+    // A drag interrupted by page disposal never delivers onUserDragEnd;
+    // release the interaction hold so background work isn't deferred until
+    // the maxDeferral timeout.
+    if (_isUserInteractingWithScroll) {
+      InteractionActivity.instance.endInteraction();
+    }
     _timelineViewportController.dispose();
     super.dispose();
   }
@@ -1424,6 +1455,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           desktopHermes:
               ref.read(hermesConfigProvider).mode ==
               HermesBackendMode.desktopGateway,
+          hermesResponsesFiles:
+              ref.read(hermesCapabilitiesProvider).asData?.value.inputFiles ==
+              true,
         ),
       );
       if (attachments.isEmpty) return;
@@ -2252,6 +2286,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (_activeScrollProfileTaskKey != null) {
       return;
     }
+    PerformanceProfiler.instance.startFrameCadence();
     _activeScrollProfileTaskKey = PerformanceProfiler.instance.startTask(
       'chat_scroll',
       scope: 'chat',
@@ -2269,6 +2304,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return;
     }
     _activeScrollProfileTaskKey = null;
+    PerformanceProfiler.instance.stopFrameCadence(reason: reason);
     PerformanceProfiler.instance.finishTask(
       taskKey,
       data: {
@@ -2305,6 +2341,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return;
     }
 
+    ref
+        .read(openWebUiLivePromptProvider.notifier)
+        .cancelForConversation(outgoingId);
+
     _conversationOwnerGeneration += 1;
     markConversationRead(ref, outgoingId);
     markConversationRead(ref, conversationId);
@@ -2312,11 +2352,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     _lastConversationId = conversationId;
     _cancelPendingViewportNavigation();
-    _markdownPrewarmTimer?.cancel();
-    _markdownPrewarmTimer = null;
-    _markdownPrewarmGeneration++;
+    _markdownPrewarmThrottle.cancel();
     _lastMarkdownPrewarmSignature = null;
     _hasPrewarmedAttachedViewport = false;
+    _lastVisibleMessageIds = const <String>{};
     _clearPinToTopAnchor();
     _invalidateChatListStableLayoutMetadata();
     _hasUserScrolled = false;
@@ -2351,6 +2390,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _savedScrollAnchors.clear();
     _initialScrollAnchor = null;
     _hasPrewarmedAttachedViewport = false;
+    _lastVisibleMessageIds = const <String>{};
     _conversationOwnerGeneration += 1;
     _cancelExplicitLatestNavigation();
     _cancelPendingViewportNavigation();
@@ -2418,10 +2458,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void _schedulePinnedTurnLifecycleReconciliation(
     ChatTurnPhase? assistantPhase,
   ) {
-    if (!_wantsPinToTop) return;
+    if (!_shouldAutoFollowPinnedTurn) return;
     final assistantMessageId = _pinToTopState.streamingMessageId;
     if (assistantMessageId == null) return;
-    if (!debugShouldRetirePinnedTurnForLifecycleForTesting(
+    if (!debugShouldSettlePinnedTurnForLifecycleForTesting(
       pinActive: true,
       assistantPhase: assistantPhase,
     )) {
@@ -2450,19 +2490,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       final currentPhase = currentAssistant == null
           ? null
           : chatTurnPhaseForMessage(currentAssistant);
-      if (!debugShouldRetirePinnedTurnForLifecycleForTesting(
-        pinActive: _wantsPinToTop,
+      if (!debugShouldSettlePinnedTurnForLifecycleForTesting(
+        pinActive: _shouldAutoFollowPinnedTurn,
         assistantPhase: currentPhase,
       )) {
         return;
       }
 
-      // Completion retires synthetic support but never changes the reading
-      // position. Reaching the real footer is a manual latest action only.
+      // Keep the synthetic support that holds short turns at the prompt;
+      // manual navigation or the next turn releases or replaces the pin.
       _bottomAnchorController.detachByUser();
-      setState(() {
-        _clearPinToTopAnchor(nextMode: _ChatTimelineScrollMode.freeScrolling);
-      });
+      _cancelPinnedTurnAutomaticFollow();
       _scheduleScrollToBottomVisibilitySync(prewarm: true);
     });
     WidgetsBinding.instance.scheduleFrame();
@@ -2876,6 +2914,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     final messageIds = timeline.messageIds;
+    final rowBuilder = _resolveTimelineRowBuilder(
+      timeline: timeline,
+      layoutMetadata: layoutMetadata,
+      suppressStreamingHaptics: suppressAssistantStreamingHaptics,
+    );
     final hideForInitialPin = debugShouldHideTranscriptForInitialPinForTesting(
       settleImmediately: _pinShouldSettleImmediately,
       positionSettled: _pinToTopPositionSettled,
@@ -2885,6 +2928,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       controller: _timelineViewportController,
       ownerGeneration: _conversationOwnerGeneration,
       messageIds: messageIds,
+      rowRebuildKeys: _rowRebuildKeysMemo,
       initialAnchor: _initialScrollAnchor,
       pinnedUserMessageId: _wantsPinToTop ? _pinnedUserMessageId : null,
       liveFooter: timeline.runningFooterHost == null
@@ -2917,6 +2961,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       pinAutomatic: _shouldAutoFollowPinnedTurn,
       hideUntilSettled: hideForInitialPin,
       onPointerDown: () {
+        // Ramp the ProMotion panel before the drag even clears touch slop;
+        // waiting for drag-start leaves the fling's first stretch at 40 Hz.
+        InteractionActivity.instance.notifyTouchDown();
         if (_explicitLatestNavigationInFlight ||
             _timelineScrollMode == _ChatTimelineScrollMode.anchoringNewTurn ||
             _shouldAutoFollowPinnedTurn) {
@@ -2924,6 +2971,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         }
       },
       onUserDragStart: () {
+        InteractionActivity.instance.beginInteraction();
         final pinnedTurnWasActive = _wantsPinToTop;
         _hasUserScrolled = true;
         if (!_isUserInteractingWithScroll) {
@@ -2945,6 +2993,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         } catch (_) {}
       },
       onUserDragEnd: () {
+        InteractionActivity.instance.endInteraction();
         _endScrollProfile(reason: 'idle');
         _isUserInteractingWithScroll = false;
         _updateBottomAnchorTracking();
@@ -2964,11 +3013,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       onOldestThresholdReached: _maybeLoadOlderMessages,
       onTrailingRefresh: _refreshActiveConversation,
       onNativeScrollToTop: _handleNativeScrollToTop,
-      rowBuilder: _resolveTimelineRowBuilder(
-        timeline: timeline,
-        layoutMetadata: layoutMetadata,
-        suppressStreamingHaptics: suppressAssistantStreamingHaptics,
-      ),
+      rowBuilder: rowBuilder,
     );
   }
 
@@ -3051,6 +3096,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _rowBuilderTimeline = timeline;
     _rowBuilderLayout = layoutMetadata;
     _rowBuilderSuppressHaptics = suppressStreamingHaptics;
+    _rowRebuildKeysMemo = List<Object?>.unmodifiable([
+      for (var renderIndex = 0; renderIndex < messageIds.length; renderIndex++)
+        if (timeline.sourceIndexAtRenderIndex(renderIndex) case final index?)
+          (
+            layout: index < layoutMetadata.rows.length
+                ? layoutMetadata.rows[index]
+                : null,
+            isTail: timeline.tailAssistantRenderIndex == renderIndex,
+            suppressStreamingHaptics: suppressStreamingHaptics,
+          )
+        else
+          null,
+    ]);
     return _rowBuilderMemo = rowBuilder;
   }
 
@@ -3341,11 +3399,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     List<ChatMessage> messages, {
     required _ChatListStableLayoutMetadata layoutMetadata,
   }) {
+    // Twelve rows is roughly the visible window plus one fling of history in
+    // each direction. Prewarm work runs on worker isolates in bounded
+    // batches, so the wider net costs background time, not frames.
     final candidateIndices = _selectMarkdownPrewarmCandidatesFromVisibleIds(
       messages: messages,
       layoutMetadata: layoutMetadata,
       visibleMessageIds: _timelineViewportController.visibleMessageIds,
-      maxCount: 6,
+      maxCount: 12,
     );
     final filteredCandidateIndices = <int>[];
     final signatureParts = <String>[];
@@ -3365,8 +3426,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     if (filteredCandidateIndices.isEmpty) {
-      _markdownPrewarmTimer?.cancel();
-      _markdownPrewarmTimer = null;
+      _markdownPrewarmThrottle.cancel();
       _lastMarkdownPrewarmSignature = null;
       return;
     }
@@ -3380,17 +3440,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         .map((index) => messages[index].content.trim())
         .toList(growable: false);
     _lastMarkdownPrewarmSignature = signature;
-    _markdownPrewarmGeneration += 1;
-    final generation = _markdownPrewarmGeneration;
-    _markdownPrewarmTimer?.cancel();
-    _markdownPrewarmTimer = Timer(const Duration(milliseconds: 220), () {
-      if (!mounted || generation != _markdownPrewarmGeneration) {
-        return;
-      }
+    _markdownPrewarmThrottle.schedule(rawContents, (pendingContents) {
+      if (!mounted) return;
       unawaited(
         ref
             .read(markdownCompileServiceProvider)
-            .prewarmContents(rawContents, streaming: false),
+            .prewarmContents(pendingContents, streaming: false),
       );
     });
   }
@@ -3720,6 +3775,104 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   final isLoadingConversation = composerRef.watch(
                     isLoadingConversationProvider,
                   );
+                  final activeConversation = composerRef.watch(
+                    activeConversationProvider,
+                  );
+                  final activeConversationId = activeConversation?.id;
+                  final pendingPromptIdentity = composerRef.watch(
+                    chatMessagesProvider.select(
+                      (messages) =>
+                          findPendingOpenWebUiToolPrompt(messages)
+                              ?.prompt
+                              .identity,
+                    ),
+                  );
+                  final persistedPrompt =
+                      pendingPromptIdentity != null &&
+                          debugCanUsePersistedOpenWebUiPromptForTesting(
+                            isLoadingConversation: isLoadingConversation,
+                            ownerConversationId: activeConversationId,
+                            activeConversationId: activeConversationId,
+                          ) &&
+                          conversationUsesOpenWebUiStorage(
+                            activeConversation,
+                          ) &&
+                          !isTemporaryChat(activeConversation?.id)
+                      ? findPendingOpenWebUiToolPrompt(
+                          composerRef.read(chatMessagesProvider),
+                        )
+                      : null;
+                  final livePrompt = composerRef.watch(
+                    openWebUiLivePromptProvider,
+                  );
+                  final matchingLivePrompt =
+                      livePrompt != null &&
+                          livePrompt.conversationId == activeConversationId
+                      ? livePrompt
+                      : null;
+                  final pendingHermesPrompt = composerRef.watch(
+                    chatMessagesProvider.select(
+                      findPendingHermesComposerPrompt,
+                    ),
+                  );
+                  final Widget? attachedOverlay;
+                  if (persistedPrompt != null) {
+                    attachedOverlay = OpenWebUiPromptOverlay(
+                      key: ValueKey(persistedPrompt.prompt.identity),
+                      prompt: persistedPrompt.prompt,
+                      onAnswer: (answers) => _resolvePersistedOpenWebUiPrompt(
+                        activeConversationId!,
+                        persistedPrompt,
+                        OpenWebUiToolCallAction.answer,
+                        answers: answers,
+                      ),
+                      onDecision: (approved) =>
+                          _resolvePersistedOpenWebUiPrompt(
+                            activeConversationId!,
+                            persistedPrompt,
+                            persistedPrompt.prompt.kind ==
+                                    OpenWebUiComposerPromptKind.askUser
+                                ? OpenWebUiToolCallAction.reject
+                                : approved
+                                ? OpenWebUiToolCallAction.approve
+                                : OpenWebUiToolCallAction.reject,
+                          ),
+                    );
+                  } else if (matchingLivePrompt != null) {
+                    attachedOverlay = OpenWebUiPromptOverlay(
+                      key: ValueKey(matchingLivePrompt.prompt.identity),
+                      prompt: matchingLivePrompt.prompt,
+                      onAnswer: (answers) {
+                        composerRef
+                            .read(openWebUiLivePromptProvider.notifier)
+                            .answer(
+                              matchingLivePrompt.prompt.identity,
+                              answers,
+                            );
+                      },
+                      onDecision: (approved) {
+                        final notifier = composerRef.read(
+                          openWebUiLivePromptProvider.notifier,
+                        );
+                        if (matchingLivePrompt.prompt.kind ==
+                            OpenWebUiComposerPromptKind.confirmation) {
+                          notifier.decide(
+                            matchingLivePrompt.prompt.identity,
+                            approved,
+                          );
+                        } else {
+                          notifier.cancel();
+                        }
+                      },
+                    );
+                  } else if (pendingHermesPrompt != null) {
+                    attachedOverlay = HermesComposerPromptOverlay(
+                      key: ValueKey(pendingHermesPrompt.id),
+                      message: pendingHermesPrompt,
+                    );
+                  } else {
+                    attachedOverlay = null;
+                  }
                   return ModernChatInput(
                     onSendMessage: _handleMessageSend,
                     enabled: debugCanSubmitChatMessageForTesting(
@@ -3731,6 +3884,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     managesSystemKeyboardInset: Platform.isAndroid,
                     composerTextInsertionTargetId:
                         chatComposerTextInsertionTargetId,
+                    attachedOverlay: attachedOverlay,
                     onVoiceInput: null,
                     onVoiceCall: _handleVoiceCall,
                     onFileAttachment: _handleFileAttachment,
@@ -3748,6 +3902,51 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _resolvePersistedOpenWebUiPrompt(
+    String ownerConversationId,
+    OpenWebUiPendingToolPrompt pending,
+    OpenWebUiToolCallAction action, {
+    Map<String, dynamic>? answers,
+  }) async {
+    final api = ref.read(apiServiceProvider);
+    final conversation = ref.read(activeConversationProvider);
+    if (api == null ||
+        conversation == null ||
+        !debugCanUsePersistedOpenWebUiPromptForTesting(
+          isLoadingConversation: ref.read(isLoadingConversationProvider),
+          ownerConversationId: ownerConversationId,
+          activeConversationId: conversation.id,
+        ) ||
+        !conversationUsesOpenWebUiStorage(conversation) ||
+        isTemporaryChat(conversation.id)) {
+      throw StateError('Open WebUI chat is unavailable.');
+    }
+    final chatId = ownerConversationId;
+    final authEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+    final taskIds = await api.resolveChatMessageToolCall(
+      chatId: chatId,
+      messageId: pending.messageId,
+      callId: pending.callId,
+      action: action,
+      answers: answers,
+    );
+    if (!mounted ||
+        !identical(api, ref.read(apiServiceProvider)) ||
+        !identical(authEpoch, ref.read(openWebUiAuthSessionEpochProvider)) ||
+        ref.read(activeConversationProvider)?.id != chatId) {
+      return;
+    }
+    await ref
+        .read(chatMessagesProvider.notifier)
+        .resumeAfterOpenWebUiToolCall(
+          messageId: pending.messageId,
+          callId: pending.callId,
+          action: action,
+          taskIds: taskIds,
+          answers: answers,
+        );
   }
 
   @override
@@ -4596,7 +4795,6 @@ bool debugCanCollapseGroupedAssistantRowForTesting(
   required bool showModelHeader,
   required bool showActionBar,
 }) {
-  final metadata = message.metadata;
   return !showModelHeader &&
       !showActionBar &&
       message.content.trim().isEmpty &&
@@ -4608,9 +4806,7 @@ bool debugCanCollapseGroupedAssistantRowForTesting(
       message.followUps.isEmpty &&
       message.codeExecutions.isEmpty &&
       message.sources.isEmpty &&
-      message.error == null &&
-      metadata?['hermesApproval'] == null &&
-      metadata?['hermesDecision'] == null;
+      message.error == null;
 }
 
 @immutable
@@ -4658,6 +4854,37 @@ class _ChatRowLayoutMetadata {
   /// A single-element list for an ungrouped row, and empty for a row that owns
   /// no response of its own (user turns, archived variants, decision cards).
   final List<String> groupMessageIds;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _ChatRowLayoutMetadata &&
+          messageId == other.messageId &&
+          displayModelName == other.displayModelName &&
+          modelIconUrl == other.modelIconUrl &&
+          listEquals(versionModelNames, other.versionModelNames) &&
+          listEquals(versionModelIconUrls, other.versionModelIconUrls) &&
+          isArchivedVariant == other.isArchivedVariant &&
+          replacesArchivedAssistant == other.replacesArchivedAssistant &&
+          showFollowUps == other.showFollowUps &&
+          showModelHeader == other.showModelHeader &&
+          showActionBar == other.showActionBar &&
+          listEquals(groupMessageIds, other.groupMessageIds);
+
+  @override
+  int get hashCode => Object.hash(
+    messageId,
+    displayModelName,
+    modelIconUrl,
+    Object.hashAll(versionModelNames),
+    Object.hashAll(versionModelIconUrls),
+    isArchivedVariant,
+    replacesArchivedAssistant,
+    showFollowUps,
+    showModelHeader,
+    showActionBar,
+    Object.hashAll(groupMessageIds),
+  );
 }
 
 @immutable
@@ -5039,6 +5266,17 @@ bool debugCanSubmitChatMessageForTesting({
 }
 
 @visibleForTesting
+bool debugCanUsePersistedOpenWebUiPromptForTesting({
+  required bool isLoadingConversation,
+  required String? ownerConversationId,
+  required String? activeConversationId,
+}) {
+  return !isLoadingConversation &&
+      ownerConversationId != null &&
+      ownerConversationId == activeConversationId;
+}
+
+@visibleForTesting
 bool debugShouldConsumeScreenContextForTesting({
   required bool sendDispatched,
   required String submittedContext,
@@ -5146,7 +5384,7 @@ bool debugShouldPreservePinnedFirstTurnForConversationBindingForTesting({
 }
 
 @visibleForTesting
-bool debugShouldRetirePinnedTurnForLifecycleForTesting({
+bool debugShouldSettlePinnedTurnForLifecycleForTesting({
   required bool pinActive,
   required ChatTurnPhase? assistantPhase,
 }) {
@@ -5336,6 +5574,46 @@ bool debugShouldKeepConversationBottomAnchoredOnContentSizeChangeForTesting({
     isUserInteractingWithScroll: isUserInteractingWithScroll,
     wantsPinToTop: wantsPinToTop,
   );
+}
+
+@visibleForTesting
+bool debugVisibleMessageIdsGainedForTesting({
+  required Iterable<String> previous,
+  required Iterable<String> current,
+}) => _visibleMessageIdsGained(previous: previous, current: current);
+
+bool _visibleMessageIdsGained({
+  required Iterable<String> previous,
+  required Iterable<String> current,
+}) {
+  final previousSet = previous is Set<String> ? previous : previous.toSet();
+  return current.any((id) => !previousSet.contains(id));
+}
+
+@visibleForTesting
+class MarkdownPrewarmThrottle {
+  MarkdownPrewarmThrottle({this.delay = const Duration(milliseconds: 220)});
+
+  final Duration delay;
+  Timer? _timer;
+  List<String> _pendingContents = const <String>[];
+
+  void schedule(List<String> contents, ValueChanged<List<String>> onReady) {
+    _pendingContents = contents;
+    if (_timer?.isActive ?? false) return;
+    _timer = Timer(delay, () {
+      _timer = null;
+      final pendingContents = _pendingContents;
+      _pendingContents = const <String>[];
+      if (pendingContents.isNotEmpty) onReady(pendingContents);
+    });
+  }
+
+  void cancel() {
+    _timer?.cancel();
+    _timer = null;
+    _pendingContents = const <String>[];
+  }
 }
 
 @visibleForTesting

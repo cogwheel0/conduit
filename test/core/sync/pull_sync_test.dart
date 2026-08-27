@@ -1036,4 +1036,139 @@ void main() {
           .deepEquals([serverId]);
     });
   });
+
+  group('overlap-window fetch memo', () {
+    late int fakeElapsedMs;
+    late PullFetchMemo memo;
+    late PullSync memoPull;
+
+    // Advances the memo's monotonic clock past the confirm spacing, as real
+    // wall time between periodic pull cycles would.
+    void advancePastConfirmSpacing() {
+      fakeElapsedMs += kPullOverlapSeconds * 1000;
+    }
+
+    setUp(() {
+      fakeElapsedMs = 0;
+      memo = PullFetchMemo(elapsedMs: () => fakeElapsedMs);
+      memoPull = PullSync(
+        client: client,
+        db: db,
+        locks: locks,
+        fetchMemo: memo,
+      );
+    });
+
+    test(
+      'a chat pinned at the watermark stops being re-fetched after a '
+      'confirming cycle',
+      () async {
+        // The newest chat's updatedAt IS the watermark after cycle 1, so it
+        // sits inside the overlap window of every later cycle. Observed on
+        // device: re-downloaded + re-merged on every pull, indefinitely.
+        server.seedChat(
+          id: 'at-watermark',
+          blob: blobFor('at-watermark'),
+          createdAt: 100,
+          updatedAt: 200,
+        );
+
+        await memoPull.run(); // fetch 1: first sight
+        advancePastConfirmSpacing();
+        await memoPull.run(); // fetch 2: confirming re-fetch
+        check(client.chatFetchStarts.where((id) => id == 'at-watermark').length)
+            .equals(2);
+
+        advancePastConfirmSpacing();
+        await memoPull.run(); // skipped
+        await memoPull.run(); // skipped
+        check(client.chatFetchStarts.where((id) => id == 'at-watermark').length)
+            .equals(2);
+
+        // Local row is untouched by the skips.
+        final row = await db.chatsDao.getChat('at-watermark');
+        check(row!.bodySynced).isTrue();
+        check(row.serverUpdatedAt).equals(200);
+      },
+    );
+
+    test('a server edit at a new stamp is always re-fetched', () async {
+      server.seedChat(
+        id: 'edited',
+        blob: blobFor('edited'),
+        createdAt: 100,
+        updatedAt: 200,
+      );
+      await memoPull.run();
+      advancePastConfirmSpacing();
+      await memoPull.run();
+      check(client.chatFetchStarts.where((id) => id == 'edited').length)
+          .equals(2);
+
+      // Same-id edit with a bumped stamp: memo entry no longer matches.
+      server.seedChat(
+        id: 'edited',
+        blob: blobFor('edited', messageCount: 4),
+        createdAt: 100,
+        updatedAt: 300,
+      );
+      advancePastConfirmSpacing();
+      await memoPull.run();
+      check(client.chatFetchStarts.where((id) => id == 'edited').length)
+          .equals(3);
+      final row = await db.chatsDao.getChat('edited');
+      check(row!.serverUpdatedAt).equals(300);
+    });
+
+    test(
+      're-fetches inside the confirm spacing window never confirm a skip',
+      () {
+        // Two full cycles can run within the same server second (debounced
+        // back-to-back triggers); updatedAt has one-second resolution, so
+        // both fetches could predate a third same-second write. Only a
+        // re-fetch spaced past the overlap window proves the stamped second
+        // is over.
+        var clock = 0;
+        final spacedMemo = PullFetchMemo(elapsedMs: () => clock);
+        spacedMemo.recordFetched('a', 100);
+        clock += 10; // same-second back-to-back cycle
+        spacedMemo.recordFetched('a', 100);
+        check(spacedMemo.isConfirmed('a', 100)).isFalse();
+
+        clock += kPullOverlapSeconds * 1000;
+        spacedMemo.recordFetched('a', 100);
+        check(spacedMemo.isConfirmed('a', 100)).isTrue();
+        // A different stamp is never confirmed by the old one.
+        check(spacedMemo.isConfirmed('a', 200)).isFalse();
+        // And a new stamp restarts the spacing requirement.
+        spacedMemo.recordFetched('a', 200);
+        clock += 10;
+        spacedMemo.recordFetched('a', 200);
+        check(spacedMemo.isConfirmed('a', 200)).isFalse();
+      },
+    );
+
+    test('a locally dirty row is fetched despite a confirmed memo', () async {
+      server.seedChat(
+        id: 'dirtied',
+        blob: blobFor('dirtied'),
+        createdAt: 100,
+        updatedAt: 200,
+      );
+      await memoPull.run();
+      advancePastConfirmSpacing();
+      await memoPull.run();
+      final fetchesBefore =
+          client.chatFetchStarts.where((id) => id == 'dirtied').length;
+
+      // Local divergence invalidates the skip even though the memo matches.
+      await (db.update(db.chats)..where((t) => t.id.equals('dirtied'))).write(
+        const ChatsCompanion(dirty: Value(true)),
+      );
+      advancePastConfirmSpacing();
+      await memoPull.run();
+      check(client.chatFetchStarts.where((id) => id == 'dirtied').length)
+          .equals(fetchesBefore + 1);
+    });
+  });
 }

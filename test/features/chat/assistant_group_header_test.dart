@@ -105,6 +105,26 @@ void main() {
         ),
       ).isFalse();
     });
+
+    test('a composer-hosted Hermes prompt does not leave a message gap', () {
+      final message = ChatMessage(
+        id: 'prompt-only',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+        metadata: const {
+          'hermesDecision': {'state': 'pending'},
+        },
+      );
+
+      check(
+        debugCanCollapseGroupedAssistantRowForTesting(
+          message,
+          showModelHeader: false,
+          showActionBar: false,
+        ),
+      ).isTrue();
+    });
   });
 
   group('action bar placement', () {
@@ -158,7 +178,7 @@ void main() {
 
     test('skipped rows neither break a response nor host its bar', () {
       // Archived variants render as zero-size placeholders and restored
-      // decision cards carry no text of their own; a toolbar under either
+      // decision prompts carry no text of their own; a toolbar under either
       // would act on content it does not show.
       final placements = debugResolveAssistantGroupingForTesting([
         hermes,
@@ -243,7 +263,7 @@ const ChatGroupingRow versioned = (
 );
 
 /// A row that renders no response of its own: an archived variant (a zero-size
-/// placeholder) or a restored Hermes decision card. Both reach this seam as the
+/// placeholder) or a restored Hermes decision prompt. Both reach this seam as the
 /// same shape.
 const ChatGroupingRow skipped = (
   isUser: false,

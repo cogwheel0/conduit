@@ -1,7 +1,9 @@
 import AVFoundation
+import CallKit
 import Flutter
 import Speech
 import UIKit
+import flutter_callkit_incoming
 
 private let nativeSttMethodChannelName = "app.cogwheel.conduit/native_stt"
 private let nativeSttEventChannelName = "app.cogwheel.conduit/native_stt/events"
@@ -214,6 +216,561 @@ final class NativeSttLifecycleState {
     }
     pendingShutdown = task
     return task
+  }
+}
+
+protocol NativeResponseWaitCaptureSession: NativeSttSession {
+  func startCapture() throws
+  func suspendCapture()
+  func setTerminalFailureHandler(_ handler: @escaping (Error) -> Void)
+}
+
+/// Owns real microphone I/O while an active voice call is waiting for its
+/// response. Buffers are consumed only to keep the call's input side alive;
+/// they are never retained, recognized, or sent anywhere.
+final class NativeResponseWaitAudioEngineSession: NativeResponseWaitCaptureSession {
+  private let lock = NSLock()
+  private let notificationCenter: NotificationCenter
+  private let configurationChangeQueue = DispatchQueue(
+    label: "app.cogwheel.conduit.response-wait-configuration"
+  )
+  private var audioEngine: AVAudioEngine?
+  private var configurationChangeObserver: NSObjectProtocol?
+  private var terminalFailureHandler: ((Error) -> Void)?
+  private var stopped = false
+
+  init(notificationCenter: NotificationCenter = .default) {
+    self.notificationCenter = notificationCenter
+  }
+
+  deinit {
+    lock.lock()
+    stopEngineLocked()
+    lock.unlock()
+  }
+
+  func setTerminalFailureHandler(_ handler: @escaping (Error) -> Void) {
+    lock.lock()
+    if !stopped {
+      terminalFailureHandler = handler
+    }
+    lock.unlock()
+  }
+
+  func startCapture() throws {
+    lock.lock()
+    defer { lock.unlock() }
+
+    guard !stopped else {
+      throw NSError(
+        domain: "NativeSttBridge",
+        code: 21,
+        userInfo: [NSLocalizedDescriptionKey: "Response-wait capture is already stopped"]
+      )
+    }
+    if audioEngine?.isRunning == true { return }
+    if audioEngine != nil {
+      stopEngineLocked()
+    }
+    try startEngineLocked()
+  }
+
+  func suspendCapture() {
+    lock.lock()
+    stopEngineLocked()
+    lock.unlock()
+  }
+
+  func stop() async {
+    stopSynchronously()
+  }
+
+  private func stopSynchronously() {
+    lock.lock()
+    stopped = true
+    terminalFailureHandler = nil
+    stopEngineLocked()
+    lock.unlock()
+  }
+
+  private func startEngineLocked() throws {
+    guard AVAudioSession.sharedInstance().recordPermission == .granted else {
+      throw NSError(
+        domain: "NativeSttBridge",
+        code: 22,
+        userInfo: [NSLocalizedDescriptionKey: "Microphone permission is not granted"]
+      )
+    }
+
+    let engine = AVAudioEngine()
+    let inputNode = engine.inputNode
+    let inputFormat = inputNode.outputFormat(forBus: 0)
+    guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
+      throw NSError(
+        domain: "NativeSttBridge",
+        code: 23,
+        userInfo: [NSLocalizedDescriptionKey: "Microphone input format is unavailable"]
+      )
+    }
+
+    inputNode.installTap(
+      onBus: 0,
+      bufferSize: 1024,
+      format: inputFormat
+    ) { buffer, _ in
+      // Reading frameLength makes the capture intent explicit without copying
+      // or retaining the system-owned buffer.
+      _ = buffer.frameLength
+    }
+    let observer = notificationCenter.addObserver(
+      forName: .AVAudioEngineConfigurationChange,
+      object: engine,
+      queue: nil
+    ) { [weak self, weak engine] _ in
+      guard let self, let engine else { return }
+      self.configurationChangeQueue.async { [weak self, weak engine] in
+        guard let self, let engine else { return }
+        self.restartAfterConfigurationChange(engine)
+      }
+    }
+    do {
+      engine.prepare()
+      try engine.start()
+      audioEngine = engine
+      configurationChangeObserver = observer
+    } catch {
+      notificationCenter.removeObserver(observer)
+      inputNode.removeTap(onBus: 0)
+      engine.stop()
+      throw error
+    }
+  }
+
+  private func restartAfterConfigurationChange(_ changedEngine: AVAudioEngine) {
+    var failureHandler: ((Error) -> Void)?
+    var restartError: Error?
+    lock.lock()
+    guard !stopped, audioEngine === changedEngine else {
+      lock.unlock()
+      return
+    }
+    stopEngineLocked()
+    do {
+      try startEngineLocked()
+    } catch {
+      stopped = true
+      restartError = error
+      failureHandler = terminalFailureHandler
+      terminalFailureHandler = nil
+    }
+    lock.unlock()
+    if let restartError {
+      failureHandler?(restartError)
+    }
+  }
+
+  private func stopEngineLocked() {
+    if let observer = configurationChangeObserver {
+      notificationCenter.removeObserver(observer)
+      configurationChangeObserver = nil
+    }
+    guard let engine = audioEngine else { return }
+    engine.inputNode.removeTap(onBus: 0)
+    engine.stop()
+    audioEngine = nil
+  }
+}
+
+struct NativeResponseWaitCaptureTransition {
+  let requestId: UInt64
+  let lifecycleGeneration: Int
+  let shutdownTask: Task<Void, Never>
+}
+
+/// Serializes the response-wait microphone owner through the same lifecycle as
+/// native STT. No response-wait tap can start until the retiring recognizer has
+/// fully released its AVAudioEngine, and a later recognizer start retires this
+/// owner before installing its own tap.
+final class NativeResponseWaitCaptureOwner {
+  typealias SessionFactory = () -> NativeResponseWaitCaptureSession
+  typealias ActivateAudioSession = () throws -> Void
+  typealias TerminalFailureHandler = (Error) -> Void
+
+  private struct Request {
+    let id: UInt64
+    let generation: Int
+    let callKitCallId: String?
+    let startCompletion: NativeSttShutdownCompletion
+    var ready = false
+  }
+
+  private struct InstalledSession {
+    let generation: Int
+    let session: NativeResponseWaitCaptureSession
+  }
+
+  private let lock = NSLock()
+  private let lifecycle: NativeSttLifecycleState
+  private let makeSession: SessionFactory
+  private let activateAudioSession: ActivateAudioSession
+  private let onTerminalFailure: TerminalFailureHandler
+  private var nextRequestId: UInt64 = 0
+  private var request: Request?
+  private var installedSession: InstalledSession?
+  private var callKitAudioActive = false
+
+  init(
+    lifecycle: NativeSttLifecycleState,
+    makeSession: @escaping SessionFactory = { NativeResponseWaitAudioEngineSession() },
+    activateAudioSession: @escaping ActivateAudioSession = {
+      try AVAudioSession.sharedInstance().setActive(
+        true,
+        options: .notifyOthersOnDeactivation
+      )
+    },
+    onTerminalFailure: @escaping TerminalFailureHandler = { _ in }
+  ) {
+    self.lifecycle = lifecycle
+    self.makeSession = makeSession
+    self.activateAudioSession = activateAudioSession
+    self.onTerminalFailure = onTerminalFailure
+  }
+
+  /// Claims the lifecycle synchronously so command receipt order cannot be
+  /// reversed by the asynchronous recognizer teardown that follows.
+  func prepareBegin(callKitCallId: String?) -> NativeResponseWaitCaptureTransition {
+    let transition = lifecycle.beginStart()
+
+    lock.lock()
+    let replacedRequest = request
+    nextRequestId &+= 1
+    let requestId = nextRequestId
+    request = Request(
+      id: requestId,
+      generation: transition.generation,
+      callKitCallId: callKitCallId,
+      startCompletion: NativeSttShutdownCompletion()
+    )
+    installedSession = nil
+    lock.unlock()
+    replacedRequest?.startCompletion.complete()
+
+    return NativeResponseWaitCaptureTransition(
+      requestId: requestId,
+      lifecycleGeneration: transition.generation,
+      shutdownTask: transition.shutdownTask
+    )
+  }
+
+  /// Completes a prepared handoff after the previous STT engine has fully
+  /// stopped. A CallKit-managed request may remain pending until didActivate.
+  func finishBegin(
+    _ transition: NativeResponseWaitCaptureTransition,
+    timeoutNanoseconds shutdownTimeoutNanoseconds: UInt64,
+    activationTimeoutNanoseconds: UInt64? = nil
+  ) async -> Bool {
+    guard await waitForNativeSttTask(
+      transition.shutdownTask,
+      timeoutNanoseconds: shutdownTimeoutNanoseconds
+    ) else {
+      _ = cancelRequest(transition.requestId)
+      return false
+    }
+
+    lock.lock()
+    guard var current = request,
+          current.id == transition.requestId,
+          current.generation == transition.lifecycleGeneration,
+          lifecycle.isCurrent(transition.lifecycleGeneration) else {
+      lock.unlock()
+      return false
+    }
+    current.ready = true
+    request = current
+    let outcome = startIfEligibleLocked(current)
+    lock.unlock()
+    if let started = resolveStartOutcome(outcome, request: current) {
+      return started
+    }
+
+    let activated = await current.startCompletion.wait(
+      timeoutNanoseconds: activationTimeoutNanoseconds ?? shutdownTimeoutNanoseconds
+    )
+    lock.lock()
+    let started = activated &&
+      request?.id == current.id &&
+      installedSession?.generation == current.generation
+    lock.unlock()
+    if !started {
+      _ = cancelRequest(current.id)
+    }
+    return started
+  }
+
+  /// Clears a pending request and fully retires only the response-wait session
+  /// that belongs to it. A stale end can never stop a replacement recognizer.
+  func prepareEnd() -> Task<Void, Never> {
+    lock.lock()
+    nextRequestId &+= 1
+    let endingRequest = request
+    request = nil
+    let installed = installedSession
+    installedSession = nil
+    installed?.session.suspendCapture()
+    lock.unlock()
+    endingRequest?.startCompletion.complete()
+
+    guard let installed else { return Task {} }
+    return lifecycle.retireIfCurrent(
+      installed.session,
+      generation: installed.generation
+    )
+  }
+
+  /// Called immediately before a normal STT start takes lifecycle ownership.
+  /// The following beginStart transition performs the full async retirement.
+  func relinquishForSttStart() {
+    lock.lock()
+    nextRequestId &+= 1
+    let endingRequest = request
+    request = nil
+    let installed = installedSession
+    installedSession = nil
+    installed?.session.suspendCapture()
+    lock.unlock()
+    endingRequest?.startCompletion.complete()
+  }
+
+  func callKitCallDidChange() -> Task<Void, Never> {
+    lock.lock()
+    callKitAudioActive = false
+    nextRequestId &+= 1
+    let endingRequest = request
+    request = nil
+    let installed = installedSession
+    installedSession = nil
+    installed?.session.suspendCapture()
+    lock.unlock()
+    endingRequest?.startCompletion.complete()
+
+    guard let installed else { return Task {} }
+    return lifecycle.retireIfCurrent(
+      installed.session,
+      generation: installed.generation
+    )
+  }
+
+  func callKitDidActivate() {
+    lock.lock()
+    callKitAudioActive = true
+    var completedAttempt: (Request, StartOutcome)?
+    if let current = request, current.ready {
+      completedAttempt = (current, startIfEligibleLocked(current))
+    }
+    lock.unlock()
+    if let (current, outcome) = completedAttempt {
+      _ = resolveStartOutcome(outcome, request: current)
+    }
+  }
+
+  func callKitDidDeactivate() {
+    lock.lock()
+    callKitAudioActive = false
+    if request?.callKitCallId != nil {
+      installedSession?.session.suspendCapture()
+    }
+    lock.unlock()
+  }
+
+  func interruptionBegan() {
+    lock.lock()
+    installedSession?.session.suspendCapture()
+    lock.unlock()
+  }
+
+  func interruptionEnded(shouldResume: Bool) {
+    guard shouldResume else { return }
+
+    lock.lock()
+    guard let current = request, current.ready else {
+      lock.unlock()
+      return
+    }
+    if current.callKitCallId != nil {
+      var completedAttempt: (Request, StartOutcome)?
+      if callKitAudioActive {
+        completedAttempt = (current, startIfEligibleLocked(current))
+      }
+      lock.unlock()
+      if let (request, outcome) = completedAttempt {
+        _ = resolveStartOutcome(outcome, request: request)
+      }
+      return
+    }
+    lock.unlock()
+
+    do {
+      try activateAudioSession()
+    } catch {
+      lock.lock()
+      let failedSession = request?.id == current.id
+        ? installedSession?.session
+        : nil
+      lock.unlock()
+      if let failedSession {
+        captureSessionDidFail(
+          failedSession,
+          generation: current.generation,
+          error: error
+        )
+      }
+      return
+    }
+
+    lock.lock()
+    var completedAttempt: (Request, StartOutcome)?
+    if request?.id == current.id {
+      completedAttempt = (current, startIfEligibleLocked(current))
+    }
+    lock.unlock()
+    if let (request, outcome) = completedAttempt {
+      _ = resolveStartOutcome(outcome, request: request)
+    }
+  }
+
+  private enum StartOutcome {
+    case pending
+    case started
+    case failed
+    case terminalFailure(Error)
+  }
+
+  /// Resolves acknowledgements and externally visible terminal errors only
+  /// after the owner lock has been released.
+  private func resolveStartOutcome(
+    _ outcome: StartOutcome,
+    request: Request
+  ) -> Bool? {
+    switch outcome {
+    case .pending:
+      return nil
+    case .started:
+      request.startCompletion.complete()
+      return true
+    case .failed:
+      request.startCompletion.complete()
+      return false
+    case .terminalFailure(let error):
+      request.startCompletion.complete()
+      onTerminalFailure(error)
+      return false
+    }
+  }
+
+  private func startIfEligibleLocked(_ current: Request) -> StartOutcome {
+    guard request?.id == current.id,
+          lifecycle.isCurrent(current.generation) else {
+      return .failed
+    }
+    if current.callKitCallId != nil && !callKitAudioActive {
+      return .pending
+    }
+
+    if let installed = installedSession {
+      do {
+        try installed.session.startCapture()
+        return .started
+      } catch {
+        installed.session.suspendCapture()
+        request = nil
+        installedSession = nil
+        let shutdown = lifecycle.retireIfCurrent(
+          installed.session,
+          generation: installed.generation
+        )
+        Task { await shutdown.value }
+        return .terminalFailure(error)
+      }
+    }
+
+    let session = makeSession()
+    guard lifecycle.install(session, generation: current.generation) else {
+      return .failed
+    }
+    session.setTerminalFailureHandler { [weak self, weak session] error in
+      guard let self, let session else { return }
+      self.captureSessionDidFail(
+        session,
+        generation: current.generation,
+        error: error
+      )
+    }
+    installedSession = InstalledSession(
+      generation: current.generation,
+      session: session
+    )
+    do {
+      try session.startCapture()
+      return .started
+    } catch {
+      request = nil
+      installedSession = nil
+      let shutdown = lifecycle.retireIfCurrent(
+        session,
+        generation: current.generation
+      )
+      Task { await shutdown.value }
+      print("NativeSttBridge: Failed to start response-wait capture: \(error)")
+      return .failed
+    }
+  }
+
+  private func captureSessionDidFail(
+    _ failedSession: NativeResponseWaitCaptureSession,
+    generation: Int,
+    error: Error
+  ) {
+    lock.lock()
+    guard let installed = installedSession,
+          installed.generation == generation,
+          installed.session === failedSession else {
+      lock.unlock()
+      return
+    }
+    failedSession.suspendCapture()
+    let failedRequest = request
+    request = nil
+    installedSession = nil
+    lock.unlock()
+    failedRequest?.startCompletion.complete()
+
+    let shutdown = lifecycle.retireIfCurrent(
+      failedSession,
+      generation: generation
+    )
+    Task { await shutdown.value }
+    onTerminalFailure(error)
+  }
+
+  private func cancelRequest(_ requestId: UInt64) -> Task<Void, Never> {
+    lock.lock()
+    guard request?.id == requestId else {
+      lock.unlock()
+      return Task {}
+    }
+    let endingRequest = request
+    request = nil
+    let installed = installedSession
+    installedSession = nil
+    installed?.session.suspendCapture()
+    lock.unlock()
+    endingRequest?.startCompletion.complete()
+
+    guard let installed else { return Task {} }
+    return lifecycle.retireIfCurrent(
+      installed.session,
+      generation: installed.generation
+    )
   }
 }
 
@@ -627,20 +1184,100 @@ final class NativeSttPCMBufferPool {
   }
 }
 
+final class NativeCallKitCallOwnership {
+  enum Activation: Equatable {
+    case first
+    case unchanged
+    case replacement
+  }
+
+  private let lock = NSLock()
+  private var activeCallId: String?
+
+  /// Returns how ownership changed, or nil for an invalid UUID.
+  func activate(_ callId: String) -> Activation? {
+    guard let normalized = Self.normalize(callId) else { return nil }
+    lock.lock()
+    let activation: Activation
+    if activeCallId == nil {
+      activation = .first
+    } else if activeCallId == normalized {
+      activation = .unchanged
+    } else {
+      activation = .replacement
+    }
+    activeCallId = normalized
+    lock.unlock()
+    return activation
+  }
+
+  func isActive(_ callId: String) -> Bool {
+    guard let normalized = Self.normalize(callId) else { return false }
+    lock.lock()
+    let result = activeCallId == normalized
+    lock.unlock()
+    return result
+  }
+
+  func retireIfActive(_ callId: String) -> Bool {
+    guard let normalized = Self.normalize(callId) else { return false }
+    lock.lock()
+    guard activeCallId == normalized else {
+      lock.unlock()
+      return false
+    }
+    activeCallId = nil
+    lock.unlock()
+    return true
+  }
+
+  func retireAll() {
+    lock.lock()
+    activeCallId = nil
+    lock.unlock()
+  }
+
+  private static func normalize(_ callId: String) -> String? {
+    let trimmed = callId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let uuid = UUID(uuidString: trimmed) else { return nil }
+    return uuid.uuidString.lowercased()
+  }
+}
+
 final class NativeSttBridge: NSObject, FlutterStreamHandler {
   static let shared = NativeSttBridge()
   private static let stopAcknowledgementTimeoutNanoseconds: UInt64 =
     1_000_000_000
+  private static let callKitActivationTimeoutNanoseconds: UInt64 =
+    5_000_000_000
 
   private var methodChannel: FlutterMethodChannel?
-  private let lifecycle = NativeSttLifecycleState()
+  private let lifecycle: NativeSttLifecycleState
   private let eventDeliveryGate = NativeSttEventDeliveryGate()
+  private let callKitCallOwnership = NativeCallKitCallOwnership()
+  private let responseWaitCaptureOwner: NativeResponseWaitCaptureOwner
 
   private override init() {
+    let lifecycle = NativeSttLifecycleState()
+    self.lifecycle = lifecycle
+    responseWaitCaptureOwner = NativeResponseWaitCaptureOwner(
+      lifecycle: lifecycle,
+      onTerminalFailure: { error in
+        VoiceAudioRouteBridge.shared.responseWaitCaptureFailed(error)
+      }
+    )
     super.init()
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(audioSessionInterrupted(_:)),
+      name: AVAudioSession.interruptionNotification,
+      object: nil
+    )
   }
 
   deinit {
+    NotificationCenter.default.removeObserver(self)
+    _ = responseWaitCaptureOwner.prepareEnd()
     _ = lifecycle.beginStop()
   }
 
@@ -667,13 +1304,9 @@ final class NativeSttBridge: NSObject, FlutterStreamHandler {
 
   func onCancel(withArguments arguments: Any?) -> FlutterError? {
     eventDeliveryGate.cancelSubscription()
-    let transition = lifecycle.beginStop()
-    Task {
-      await waitForStopTransition(
-        transition,
-        waitForFullShutdown: false
-      )
-    }
+    // Capture ownership is controlled by explicit start/stop transitions.
+    // Dart may detach event delivery first so response-wait capture can take
+    // the live audio unit without a stop-to-start suspension gap.
     return nil
   }
 
@@ -703,6 +1336,7 @@ final class NativeSttBridge: NSObject, FlutterStreamHandler {
       // token, and teardown events from the prior session must not leak into
       // that gap.
       eventDeliveryGate.deactivate()
+      responseWaitCaptureOwner.relinquishForSttStart()
       let transition = lifecycle.beginStart()
       Task {
         let availability = await start(
@@ -727,6 +1361,107 @@ final class NativeSttBridge: NSObject, FlutterStreamHandler {
       }
     default:
       result(FlutterMethodNotImplemented)
+    }
+  }
+
+  func setActiveCallKitCallId(_ callId: String) -> Bool {
+    guard let activation = callKitCallOwnership.activate(callId) else {
+      return false
+    }
+    // startCall can return before CallKit's didActivate reaches us. Preserve
+    // that legitimate first-call activation, but never carry an old call's
+    // activation into a different replacement UUID.
+    if activation == .replacement {
+      _ = responseWaitCaptureOwner.callKitCallDidChange()
+    }
+    return true
+  }
+
+  func prepareResponseWaitCapture(
+    callKitCallId: String?
+  ) -> NativeResponseWaitCaptureTransition? {
+    let normalizedCallId: String?
+    if let callKitCallId {
+      guard callKitCallOwnership.isActive(callKitCallId) else {
+        return nil
+      }
+      normalizedCallId = callKitCallId
+    } else {
+      normalizedCallId = nil
+    }
+    eventDeliveryGate.deactivate()
+    return responseWaitCaptureOwner.prepareBegin(
+      callKitCallId: normalizedCallId
+    )
+  }
+
+  func finishResponseWaitCapture(
+    _ transition: NativeResponseWaitCaptureTransition
+  ) async -> Bool {
+    await responseWaitCaptureOwner.finishBegin(
+      transition,
+      timeoutNanoseconds: Self.stopAcknowledgementTimeoutNanoseconds,
+      activationTimeoutNanoseconds: Self.callKitActivationTimeoutNanoseconds
+    )
+  }
+
+  func prepareEndResponseWaitCapture() -> Task<Void, Never> {
+    responseWaitCaptureOwner.prepareEnd()
+  }
+
+  func finishEndResponseWaitCapture(_ shutdown: Task<Void, Never>) async -> Bool {
+    await waitForNativeSttTask(
+      shutdown,
+      timeoutNanoseconds: Self.stopAcknowledgementTimeoutNanoseconds
+    )
+  }
+
+  func callKitAudioSessionDidActivate() {
+    responseWaitCaptureOwner.callKitDidActivate()
+  }
+
+  func callKitAudioSessionDidDeactivate() {
+    responseWaitCaptureOwner.callKitDidDeactivate()
+  }
+
+  func callEnded(callId: String) {
+    guard callKitCallOwnership.retireIfActive(callId) else { return }
+    stopCallAudio()
+  }
+
+  func allCallsEnded() {
+    callKitCallOwnership.retireAll()
+    stopCallAudio()
+  }
+
+  private func stopCallAudio() {
+    eventDeliveryGate.deactivate()
+    responseWaitCaptureOwner.callKitDidDeactivate()
+    let responseWaitShutdown = responseWaitCaptureOwner.prepareEnd()
+    let sttShutdown = lifecycle.beginStop().shutdownTask
+    Task {
+      await responseWaitShutdown.value
+      await sttShutdown.value
+    }
+  }
+
+  @objc private func audioSessionInterrupted(_ notification: Notification) {
+    guard let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+          let type = AVAudioSession.InterruptionType(rawValue: rawType) else {
+      return
+    }
+
+    switch type {
+    case .began:
+      responseWaitCaptureOwner.interruptionBegan()
+    case .ended:
+      let rawOptions = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+      let options = AVAudioSession.InterruptionOptions(rawValue: rawOptions)
+      responseWaitCaptureOwner.interruptionEnded(
+        shouldResume: options.contains(.shouldResume)
+      )
+    @unknown default:
+      responseWaitCaptureOwner.interruptionBegan()
     }
   }
 
@@ -2104,5 +2839,49 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
         userInfo: [NSLocalizedDescriptionKey: "Microphone input format is unavailable"]
       )
     }
+  }
+}
+
+// CallKit invokes these callbacks natively even while Flutter is suspended.
+// Keep the response-wait microphone owner aligned with the system audio
+// session, and always fulfill actions that the plugin delegates to the app.
+extension AppDelegate: CallkitIncomingAppDelegate {
+  func onAccept(
+    _ call: flutter_callkit_incoming.Call,
+    _ action: CXAnswerCallAction
+  ) {
+    action.fulfill()
+  }
+
+  func onDecline(
+    _ call: flutter_callkit_incoming.Call,
+    _ action: CXEndCallAction
+  ) {
+    NativeSttBridge.shared.callEnded(callId: call.uuid.uuidString)
+    action.fulfill()
+  }
+
+  func onEnd(
+    _ call: flutter_callkit_incoming.Call,
+    _ action: CXEndCallAction
+  ) {
+    NativeSttBridge.shared.callEnded(callId: call.uuid.uuidString)
+    action.fulfill()
+  }
+
+  func onTimeOut(_ call: flutter_callkit_incoming.Call) {
+    NativeSttBridge.shared.callEnded(callId: call.uuid.uuidString)
+  }
+
+  func didActivateAudioSession(_ audioSession: AVAudioSession) {
+    NativeSttBridge.shared.callKitAudioSessionDidActivate()
+  }
+
+  func didDeactivateAudioSession(_ audioSession: AVAudioSession) {
+    NativeSttBridge.shared.callKitAudioSessionDidDeactivate()
+  }
+
+  func providerDidReset() {
+    NativeSttBridge.shared.allCallsEnded()
   }
 }

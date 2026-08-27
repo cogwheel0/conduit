@@ -86,6 +86,28 @@ void main() {
     });
   });
 
+  group('RequestCompletionPayload', () {
+    test('round-trips voice mode through persisted completion JSON', () {
+      final json = const RequestCompletionPayload(
+        assistantMessageId: 'assistant-voice',
+        model: 'voice-model',
+        isVoiceMode: true,
+      ).toJson();
+
+      check(json['isVoiceMode'] as bool).isTrue();
+      check(RequestCompletionPayload.fromJson(json).isVoiceMode).isTrue();
+    });
+
+    test('defaults legacy completion JSON to non-voice mode', () {
+      final payload = RequestCompletionPayload.fromJson({
+        'assistantMessageId': 'assistant-legacy',
+        'model': 'legacy-model',
+      });
+
+      check(payload.isVoiceMode).isFalse();
+    });
+  });
+
   group('enqueue payload validation (A1)', () {
     test('createChat requires empty payload + contentHash', () async {
       await check(

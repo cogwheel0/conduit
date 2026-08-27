@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit/core/models/openwebui_chat_prompt.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/chat_completion_transport.dart';
 import 'package:conduit/core/models/server_config.dart';
@@ -154,6 +155,75 @@ Map<String, dynamic> _legacyChatPayload({
 }
 
 void main() {
+  test(
+    'tool-call resolution sends the 0.11.1 form and normalizes task ids',
+    () async {
+      final adapter = _FakeAdapter.json({
+        'status': true,
+        'task_ids': ['task-1', '', 'task-1', 'task-2'],
+      });
+      final api = _buildApiServiceForTest(adapter);
+
+      final taskIds = await api.resolveChatMessageToolCall(
+        chatId: 'chat/1',
+        messageId: 'message/1',
+        callId: 'call-1',
+        action: OpenWebUiToolCallAction.answer,
+        answers: const {
+          'scope': {'type': 'other', 'text': 'this chat'},
+        },
+      );
+
+      check(adapter.lastRequest?.path)
+          .equals('/api/v1/chats/chat%2F1/messages/message%2F1/resolve');
+      expect(adapter.lastRequest?.data, {
+        'call_id': 'call-1',
+        'action': 'answer',
+        'answers': {
+          'scope': {'type': 'other', 'text': 'this chat'},
+        },
+      });
+      expect(taskIds, ['task-1', 'task-2']);
+    },
+  );
+
+  test(
+    'tool approval actions omit answers and accept singular task ids',
+    () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({'status': true, 'task_id': 'task-3'}),
+        _FakeAdapter.json({'status': true}),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      final approved = await api.resolveChatMessageToolCall(
+        chatId: 'chat-1',
+        messageId: 'message-1',
+        callId: 'call-1',
+        action: OpenWebUiToolCallAction.approve,
+        answers: const {'ignored': true},
+      );
+      final rejected = await api.resolveChatMessageToolCall(
+        chatId: 'chat-1',
+        messageId: 'message-1',
+        callId: 'call-2',
+        action: OpenWebUiToolCallAction.reject,
+        answers: const {'ignored': true},
+      );
+
+      expect(adapter.requests[0].data, {
+        'call_id': 'call-1',
+        'action': 'approve',
+      });
+      expect(adapter.requests[1].data, {
+        'call_id': 'call-2',
+        'action': 'reject',
+      });
+      expect(approved, ['task-3']);
+      expect(rejected, isEmpty);
+    },
+  );
+
   // -----------------------------------------------------------------------
   // 1. taskSocket classification from JSON with task_id
   // -----------------------------------------------------------------------
@@ -215,6 +285,73 @@ void main() {
       check(session.transport).equals(ChatCompletionTransport.jsonCompletion);
       check(session.jsonPayload).isNotNull();
       check(session.taskId).isNull();
+    });
+
+    test('JSON null uses an empty HTTP stream for recovery', () async {
+      final adapter = _FakeAdapter.raw(
+        bytes: utf8.encode('null'),
+        headers: {
+          'content-type': ['application/json'],
+        },
+      );
+      final api = _buildApiServiceForTest(adapter);
+
+      final session = await api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+        conversationId: 'chat-1',
+        responseMessageId: 'assistant-1',
+        sessionIdOverride: 'socket-1',
+      );
+
+      check(session.transport).equals(ChatCompletionTransport.httpStream);
+      check(session.messageId).equals('assistant-1');
+      check(session.sessionId).equals('socket-1');
+      check(session.conversationId).equals('chat-1');
+      check(await session.byteStream!.toList()).isEmpty();
+      check(session.taskId).isNull();
+      check(session.jsonPayload).isNull();
+      check(session.abort).isNotNull();
+    });
+
+    test('sniffed JSON null uses an empty HTTP stream for recovery', () async {
+      final adapter = _FakeAdapter.raw(bytes: utf8.encode('null'));
+      final api = _buildApiServiceForTest(adapter);
+
+      final session = await api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+        conversationId: 'chat-1',
+        responseMessageId: 'assistant-1',
+      );
+
+      check(session.transport).equals(ChatCompletionTransport.httpStream);
+      check(await session.byteStream!.toList()).isEmpty();
+    });
+
+    test('JSON null without a persisted chat is rejected', () async {
+      final adapter = _FakeAdapter.raw(
+        bytes: utf8.encode('null'),
+        headers: {
+          'content-type': ['application/json'],
+        },
+      );
+      final api = _buildApiServiceForTest(adapter);
+
+      await expectLater(
+        api.sendMessageSession(
+          messages: _minimalMessages,
+          model: _model,
+          conversationId: 'local:temp',
+        ),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            contains('persisted conversation ID'),
+          ),
+        ),
+      );
     });
 
     // 3. httpStream classification from text/event-stream response

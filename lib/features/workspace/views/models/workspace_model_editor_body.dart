@@ -18,6 +18,7 @@ final class WorkspaceModelEditorBody extends StatelessWidget {
     super.key,
     required this.controller,
     required this.baseModels,
+    required this.baseModelRequired,
     required this.onPickImage,
     required this.onAddTag,
     required this.onAddSuggestion,
@@ -27,6 +28,7 @@ final class WorkspaceModelEditorBody extends StatelessWidget {
 
   final WorkspaceModelEditorController controller;
   final List<WorkspaceRelationshipOption> baseModels;
+  final bool baseModelRequired;
   final VoidCallback onPickImage;
   final VoidCallback onAddTag;
   final VoidCallback onAddSuggestion;
@@ -45,6 +47,7 @@ final class WorkspaceModelEditorBody extends StatelessWidget {
         WorkspaceModelBasicsSection(
           controller: controller,
           baseModels: baseModels,
+          baseModelRequired: baseModelRequired,
           onAddTag: onAddTag,
         ),
         SizedBox(height: sectionGap),
@@ -80,10 +83,7 @@ final class WorkspaceModelEditorBody extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                l10n.workspaceModelProfileImage,
-                style: theme.label,
-              ),
+              Text(l10n.workspaceModelProfileImage, style: theme.label),
               const SizedBox(height: Spacing.xs),
               if (!controller.readOnly)
                 Wrap(

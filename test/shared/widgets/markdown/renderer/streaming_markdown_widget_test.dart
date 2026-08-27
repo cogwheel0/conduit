@@ -1064,6 +1064,32 @@ void main() {
     );
   }
 
+  testWidgets('large markdown tables render a bounded preview', (tester) async {
+    final content = <String>[
+      '| A | B |',
+      '| --- | --- |',
+      ...List<String>.generate(35, (index) => '| $index | value $index |'),
+    ].join('\n');
+
+    await tester.pumpWidget(buildHarness(content));
+    await tester.pumpAndSettle();
+
+    DataTable table() => tester.widget<DataTable>(find.byType(DataTable));
+    check(table().rows).length.equals(20);
+
+    final showMore = find.text('Show 15 more lines');
+    await tester.ensureVisible(showMore);
+    await tester.tap(showMore);
+    await tester.pump();
+    check(table().rows).length.equals(35);
+
+    final showLess = find.text('Show less');
+    await tester.ensureVisible(showLess);
+    await tester.tap(showLess);
+    await tester.pump();
+    check(table().rows).length.equals(20);
+  });
+
   testWidgets('renders correctly when a streaming display part is dropped', (
     tester,
   ) async {
@@ -1954,6 +1980,46 @@ graph TD
     await tester.pump(const Duration(milliseconds: 360));
     final settled = _textSpanLeaves(tailText().textSpan!).toList();
     expect(settled.every((span) => (span.style?.color?.a ?? 1) == 1), isTrue);
+  });
+
+  testWidgets('faded suffix begins after a collapsed table', (tester) async {
+    final table = <String>[
+      '| A | B |',
+      '| --- | --- |',
+      ...List<String>.generate(25, (index) => '| $index | value $index |'),
+    ].join('\n');
+    final prefix = '$table\n\nTail';
+
+    await tester.pumpWidget(
+      buildHarness(prefix, isStreaming: true, enableStreamingTextFade: true),
+    );
+    await tester.pump();
+    await tester.pumpWidget(
+      buildHarness(
+        '$prefix appended',
+        isStreaming: true,
+        enableStreamingTextFade: true,
+      ),
+    );
+    await tester.pump();
+
+    Text tailText() => tester.widget<Text>(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Text &&
+            (widget.textSpan?.toPlainText() ?? '') == 'Tail appended',
+      ),
+    );
+
+    final leaves = _textSpanLeaves(tailText().textSpan!).toList();
+    final stable = leaves.where((span) => span.text == 'Tail');
+    final faded = leaves.where((span) => (span.style?.color?.a ?? 1) < 1);
+    check(stable.every((span) => (span.style?.color?.a ?? 1) == 1)).isTrue();
+    check(faded.map((span) => span.text).join()).contains('appended');
+
+    await tester.pump(const Duration(milliseconds: 360));
+    final settled = _textSpanLeaves(tailText().textSpan!).toList();
+    check(settled.every((span) => (span.style?.color?.a ?? 1) == 1)).isTrue();
   });
 
   testWidgets('surrogate-pair boundary never splits mid-emoji while fading', (
@@ -3847,6 +3913,106 @@ Tail keeps growing
       check(compiler.preparedInputs).deepEquals([supersededSettled, streaming]);
       check(tester.any(find.textContaining('Superseded settled body')))
           .isFalse();
+    },
+  );
+
+  testWidgets(
+    'over-cap settled mount compiles off-frame behind a skeleton',
+    (tester) async {
+      // A settled body past the synchronous-mount cap must not prepare or
+      // parse on the mount frame (the conversation-open freeze); it shows the
+      // approximate skeleton while the compile runs and fills in after.
+      final longSettled = StringBuffer();
+      var index = 0;
+      while (longSettled.length < 30000) {
+        longSettled.writeln('Deferred giant line $index with padding words.');
+        index += 1;
+      }
+      final content = longSettled.toString();
+      final compiler = _GatedSettledPrepareMarkdownCompileService();
+      addTearDown(() {
+        compiler.releaseFirst();
+        compiler.dispose();
+      });
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            markdownCompileServiceProvider.overrideWithValue(compiler),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: StreamingMarkdownWidget(
+                  content: content,
+                  isStreaming: false,
+                  // Opt into the production mount path; the default
+                  // widget-test detection forces the synchronous path.
+                  debugTreatAsWidgetTest: false,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      check(tester.any(find.byType(MarkdownLoadingSkeleton))).isTrue();
+      check(
+        tester.any(find.textContaining('Deferred giant line 0')),
+      ).isFalse();
+
+      compiler.releaseFirst();
+      await tester.pumpAndSettle();
+
+      check(compiler.preparedInputs).deepEquals([content]);
+      check(tester.any(find.textContaining('Deferred giant line 0'))).isTrue();
+    },
+  );
+
+  testWidgets(
+    'below-cap settled mount renders synchronously on the first frame',
+    (tester) async {
+      // Control case for the over-cap test above, under the SAME fake
+      // compiler (whose async prepare is gated shut): a body under the cap
+      // must take the synchronous mount path — full content on the first
+      // pump, no skeleton, and no async prepareContent call. Together the
+      // two tests isolate the cap as the routing decision rather than the
+      // fake's universally-async prepare policy.
+      const content = 'Small settled body under the mount cap.';
+      final compiler = _GatedSettledPrepareMarkdownCompileService();
+      addTearDown(() {
+        compiler.releaseFirst();
+        compiler.dispose();
+      });
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            markdownCompileServiceProvider.overrideWithValue(compiler),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: StreamingMarkdownWidget(
+                  content: content,
+                  isStreaming: false,
+                  debugTreatAsWidgetTest: false,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      check(tester.any(find.byType(MarkdownLoadingSkeleton))).isFalse();
+      check(
+        tester.any(
+          find.textContaining('Small settled body', findRichText: true),
+        ),
+      ).isTrue();
+      check(compiler.preparedInputs).isEmpty();
     },
   );
 

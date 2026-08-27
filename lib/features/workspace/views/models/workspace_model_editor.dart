@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit/core/utils/debug_logger.dart';
+import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit/features/workspace/models/workspace_model_draft.dart';
 import 'package:conduit/features/workspace/models/workspace_resources.dart';
@@ -105,6 +106,11 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   WorkspaceModelDraft get _draft => _controller.draft;
   WorkspaceEditorSession get _session => _controller.session;
   bool get _readOnly => _controller.readOnly;
+  bool get _isAdmin => ref.read(currentUserProvider2)?.role == 'admin';
+  bool get _requiresBaseModel =>
+      !_isAdmin &&
+      (_session.isCreate ||
+          (widget.summary?.baseModelId?.trim().isNotEmpty ?? false));
 
   @override
   void initState() {
@@ -252,6 +258,10 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       );
       return;
     }
+    if (_requiresBaseModel && (_draft.baseModelId?.trim().isEmpty ?? true)) {
+      _session.setError(l10n.workspaceModelBaseModelRequired);
+      return;
+    }
 
     final notifier = ref.read(workspaceModelsProvider.notifier);
     final form = _draft.toForm();
@@ -278,6 +288,10 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     // form's actual contents, not stale draft values — matching _save and
     // _toggleHidden.
     if (!_syncDraftOrShowError()) return;
+    if (!_isAdmin && (_draft.baseModelId?.trim().isEmpty ?? true)) {
+      _session.setError(l10n.workspaceModelBaseModelRequired);
+      return;
+    }
     final clone = _controller.buildClone(l10n.workspaceModelCloneSuffix);
     await WorkspaceEditorMutationCoordinator.replaceWithClone<
       WorkspaceModelDetail
@@ -539,6 +553,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         child: WorkspaceModelEditorBody(
           controller: _controller,
           baseModels: baseModels,
+          baseModelRequired: _requiresBaseModel,
           onPickImage: _pickImage,
           onAddTag: () => _addTag(l10n),
           onAddSuggestion: () => _addSuggestion(l10n),

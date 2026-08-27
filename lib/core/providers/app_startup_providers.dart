@@ -14,6 +14,7 @@ import '../../features/hermes/services/hermes_session_provenance.dart';
 import '../providers/app_providers.dart';
 import '../sync/sync_triggers.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
+import '../services/interaction_activity.dart';
 import '../services/navigation_service.dart';
 import '../services/app_intents_service.dart';
 import '../services/carplay_service.dart';
@@ -1207,6 +1208,10 @@ void _scheduleConversationWarmup(
     if (delay > Duration.zero) {
       await Future.delayed(delay);
     }
+    // Warmup shares the UI isolate with frame production; starting it while
+    // the user is mid-fling turns a buttery 120 Hz scroll bimodal. Nothing
+    // here is urgent on a sub-second scale.
+    await InteractionActivity.instance.whenIdle;
     try {
       final outcome = await _runConversationWarmup(
         ref,

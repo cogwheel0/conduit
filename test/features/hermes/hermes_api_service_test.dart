@@ -733,11 +733,13 @@ void main() {
               cancelToken,
             ).timeout(const Duration(seconds: 1)),
             throwsA(
-              isA<HermesStreamGuardException>().having(
-                (error) => error.message,
-                'message',
-                contains('idle'),
-              ),
+              isA<HermesStreamGuardException>()
+                  .having((error) => error.message, 'message', contains('idle'))
+                  .having(
+                    (error) => error.allowsCheckpointRecovery,
+                    'allowsCheckpointRecovery',
+                    isTrue,
+                  ),
             ),
           );
 

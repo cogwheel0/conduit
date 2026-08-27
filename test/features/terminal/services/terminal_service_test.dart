@@ -1,4 +1,5 @@
 import 'package:conduit/features/terminal/models/terminal_models.dart';
+import 'package:conduit/features/terminal/controllers/terminal_session_controller.dart';
 import 'package:conduit/features/terminal/services/terminal_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -86,6 +87,80 @@ void main() {
       expect(ensureTerminalDirectoryPath('/tmp/data'), '/tmp/data/');
       expect(joinTerminalPath('/tmp/data', 'notes.md'), '/tmp/data/notes.md');
       expect(parentTerminalPath('/tmp/data/project/'), '/tmp/data/');
+    });
+
+    test('parses chat context availability and saved-chat scoping', () {
+      expect(parseTerminalChatContextForTest(null), (
+        available: true,
+        requiresSavedChat: false,
+      ));
+      expect(parseTerminalChatContextForTest(const {'chat': false}), (
+        available: false,
+        requiresSavedChat: false,
+      ));
+      expect(
+        parseTerminalChatContextForTest(const {
+          'chat': {'context_id': 'chat_id'},
+        }),
+        (available: true, requiresSavedChat: true),
+      );
+
+      final scoped = TerminalServerInfo(
+        kind: TerminalServerKind.system,
+        selectionId: 'scoped',
+        baseUrl: Uri.parse('https://example.test'),
+        requiresSavedChatContext: true,
+      );
+      expect(scoped.isAvailableForChatScope('sidebar-terminal'), isFalse);
+      expect(scoped.isAvailableForChatScope('local:draft'), isFalse);
+      expect(scoped.isAvailableForChatScope('temporary:socket'), isFalse);
+      expect(scoped.isAvailableForChatScope('channel:team'), isFalse);
+      expect(scoped.isAvailableForChatScope('saved-chat'), isTrue);
+    });
+
+    test('system websocket auth carries only a saved chat id', () {
+      final system = TerminalServerInfo(
+        kind: TerminalServerKind.system,
+        selectionId: 'system',
+        baseUrl: Uri.parse('https://example.test'),
+      );
+      final direct = TerminalServerInfo(
+        kind: TerminalServerKind.direct,
+        selectionId: 'direct',
+        baseUrl: Uri.parse('https://terminal.example.test'),
+      );
+
+      expect(
+        buildTerminalWebSocketAuthPayload(
+          system,
+          token: 'token',
+          sessionScopeId: 'saved-chat',
+        ),
+        {'type': 'auth', 'token': 'token', 'chat_id': 'saved-chat'},
+      );
+      expect(
+        buildTerminalWebSocketAuthPayload(
+          direct,
+          token: 'key',
+          sessionScopeId: 'saved-chat',
+        ),
+        {'type': 'auth', 'token': 'key'},
+      );
+      for (final unsavedId in [
+        'sidebar-terminal',
+        'local:draft',
+        'temporary:socket',
+        'channel:team',
+      ]) {
+        expect(
+          buildTerminalWebSocketAuthPayload(
+            system,
+            token: 'token',
+            sessionScopeId: unsavedId,
+          ),
+          {'type': 'auth', 'token': 'token'},
+        );
+      }
     });
   });
 }

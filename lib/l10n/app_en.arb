@@ -265,6 +265,18 @@
   "@reasoningEffortHigh": {
     "description": "High model reasoning effort option."
   },
+  "reasoningEffortLight": "Light",
+  "@reasoningEffortLight": {
+    "description": "Light Apple PCC reasoning effort option."
+  },
+  "reasoningEffortModerate": "Moderate",
+  "@reasoningEffortModerate": {
+    "description": "Moderate Apple PCC reasoning effort option."
+  },
+  "reasoningEffortDeep": "Deep",
+  "@reasoningEffortDeep": {
+    "description": "Deep Apple PCC reasoning effort option."
+  },
   "reasoningEffortMinimal": "Minimal",
   "@reasoningEffortMinimal": {
     "description": "Minimal model reasoning effort option."
@@ -4048,6 +4060,8 @@
   "workspaceModelBaseModel": "Base model",
   "@workspaceModelBaseModel": {"description":"Label for the base-model selector."},
   "workspaceModelBaseModelNone": "None (custom)",
+  "workspaceModelBaseModelRequired": "Choose a base model.",
+  "@workspaceModelBaseModelRequired": {"description": "Validation shown when a non-admin model create or protected edit has no base model."},
   "@workspaceModelBaseModelNone": {"description":"Base-model option meaning no base model is used."},
   "workspaceModelName": "Name",
   "@workspaceModelName": {"description":"Label for the model display-name field."},
@@ -5027,13 +5041,110 @@
   "@directHistoryLocalOnlySubtitle": {
     "description": "Description shown when direct chat history sync is disabled."
   },
+  "backendChooserSelfHostedSectionTitle": "Self-hosted services",
+  "@backendChooserSelfHostedSectionTitle": {
+    "description": "Section title for self-hosted backend choices on the first-run backend chooser."
+  },
+  "backendChooserAppleSectionTitle": "Apple Intelligence",
+  "@backendChooserAppleSectionTitle": {
+    "description": "Section title for available Apple model choices on the first-run backend chooser."
+  },
+  "backendChooserModelApisSectionTitle": "Model APIs",
+  "@backendChooserModelApisSectionTitle": {
+    "description": "Section title for direct model API choices on the first-run backend chooser."
+  },
   "backendChooserDirectTitle": "Connect directly",
   "@backendChooserDirectTitle": {
     "description": "Title of the direct provider option on the first-run backend chooser."
   },
-  "backendChooserDirectSubtitle": "Connect an API provider and keep its credentials on this device.",
+  "backendChooserDirectSubtitle": "Connect an OpenAI-compatible or Ollama API. Credentials stay on this device.",
   "@backendChooserDirectSubtitle": {
     "description": "Description of the direct provider option on the first-run backend chooser."
+  },
+  "backendChooserAppleOnDeviceTitle": "Apple On-Device",
+  "@backendChooserAppleOnDeviceTitle": {
+    "description": "Title of the Apple on-device model option on the first-run backend chooser."
+  },
+  "backendChooserAppleOnDeviceSubtitle": "Run Apple's private model on this device, even offline.",
+  "@backendChooserAppleOnDeviceSubtitle": {
+    "description": "Description of the Apple on-device model option on the first-run backend chooser."
+  },
+  "appleOnDeviceUnavailable": "Apple On-Device is not available on this device.",
+  "@appleOnDeviceUnavailable": {
+    "description": "Fallback shown when the Apple on-device model cannot be selected during onboarding."
+  },
+  "backendChooserApplePccTitle": "Apple Private Cloud Compute",
+  "@backendChooserApplePccTitle": {
+    "description": "Title of the Apple PCC option on the first-run backend chooser."
+  },
+  "backendChooserApplePccSubtitle": "Use Apple's private cloud model without an API key.",
+  "@backendChooserApplePccSubtitle": {
+    "description": "Description of the Apple PCC option on the first-run backend chooser."
+  },
+  "applePccUnavailable": "Apple Private Cloud Compute is not available on this device.",
+  "@applePccUnavailable": {
+    "description": "Fallback shown when Apple PCC cannot be selected during onboarding."
+  },
+  "applePccStatusAvailable": "Available",
+  "@applePccStatusAvailable": {
+    "description": "Apple PCC availability label."
+  },
+  "applePccQuotaApproaching": "Nearing the daily usage limit",
+  "@applePccQuotaApproaching": {
+    "description": "Apple PCC quota warning."
+  },
+  "applePccQuotaReached": "Daily usage limit reached",
+  "@applePccQuotaReached": {
+    "description": "Apple PCC exhausted quota label."
+  },
+  "applePccQuotaResetsAt": "Resets {time}",
+  "@applePccQuotaResetsAt": {
+    "description": "Apple PCC quota reset time.",
+    "placeholders": {
+      "time": {"type": "String"}
+    }
+  },
+  "applePccShowQuotaOptions": "Show usage options",
+  "@applePccShowQuotaOptions": {
+    "description": "Action that presents Apple's PCC quota increase flow."
+  },
+  "applePccOnDeviceFallback": "On-device fallback",
+  "@applePccOnDeviceFallback": {
+    "description": "Apple PCC network fallback preference."
+  },
+  "applePccOnDeviceFallbackSubtitle": "Use Apple's smaller on-device model when PCC cannot be reached. Reasoning requests never fall back.",
+  "@applePccOnDeviceFallbackSubtitle": {
+    "description": "Description of the Apple PCC network fallback preference."
+  },
+  "applePccCurrentLanguageUnsupported": "The current device language may not be supported.",
+  "@applePccCurrentLanguageUnsupported": {
+    "description": "Warning shown when PCC does not support the current locale."
+  },
+  "applePccContextSize": "{tokens} token context",
+  "@applePccContextSize": {
+    "description": "Apple PCC context size label.",
+    "placeholders": {
+      "tokens": {"type": "String"}
+    }
+  },
+  "directContextLimit": "Context limit: {tokens}",
+  "@directContextLimit": {
+    "description": "Provider-neutral model context limit label.",
+    "placeholders": {
+      "tokens": {"type": "String"}
+    }
+  },
+  "directContextCompactionTitle": "Context compaction",
+  "@directContextCompactionTitle": {
+    "description": "Section title for fallback context windows used by Direct models."
+  },
+  "directContextCompactionDescription": "These models do not report a context window. Conduit uses the selected limit to compact older messages before requests get too large.",
+  "@directContextCompactionDescription": {
+    "description": "Footer explaining per-model Direct context window fallbacks."
+  },
+  "directContextCompactionPickerDescription": "Choose the context window Conduit should use for automatic compaction.",
+  "@directContextCompactionPickerDescription": {
+    "description": "Description in the Direct context window fallback picker."
   },
   "testDirectConnection": "Test connection",
   "@testDirectConnection": {
@@ -5083,7 +5194,7 @@
   "@backendChooserWelcome": {
     "description": "Welcome heading on the first-run backend chooser."
   },
-  "backendChooserPrompt": "You can add other services later.",
+  "backendChooserPrompt": "Choose one to start. You can add more later.",
   "@backendChooserPrompt": {
     "description": "Prompt on the first-run backend chooser."
   },
@@ -5099,7 +5210,7 @@
   "@backendChooserHermesTitle": {
     "description": "Title of the Hermes Agent option on the backend chooser."
   },
-  "backendChooserHermesSubtitle": "Connect your self-hosted agent.",
+  "backendChooserHermesSubtitle": "Connect a self-hosted Hermes agent.",
   "@backendChooserHermesSubtitle": {
     "description": "Description of the Hermes Agent option on the backend chooser."
   },
@@ -5111,6 +5222,12 @@
   "@hermesApprovalFallback": {
     "description": "Fallback description for a Hermes approval request."
   },
+  "openWebUiPromptOther": "Other",
+  "@openWebUiPromptOther": {"description": "Label for a free-form answer to an Open WebUI ask-user question."},
+  "openWebUiPromptAnswerHint": "Type your answer",
+  "@openWebUiPromptAnswerHint": {"description": "Placeholder for a free-form Open WebUI ask-user answer."},
+  "openWebUiPromptSubmit": "Submit",
+  "@openWebUiPromptSubmit": {"description": "Action that submits all answers to an Open WebUI ask-user prompt."},
   "hermesApprovalApproved": "Approved ✓",
   "@hermesApprovalApproved": {
     "description": "Resolved status for an approved Hermes request."

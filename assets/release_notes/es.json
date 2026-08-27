@@ -18,6 +18,25 @@
           "icon": "direct"
         }
       ]
+    },
+    {
+      "version": "4.1.2",
+      "title": "Novedades",
+      "intro": "¡Hola! Apple On-Device corre en el teléfono. Úsalo en Direct chats, o en chats de Open WebUI cuando estés sin conexión. Las llamadas de voz salen por el altavoz y dicen la respuesta, no el razonamiento. Hermes vuelve después de quedarse inactivo, y quité unos errores de chat.",
+      "bullets": [
+        {
+          "text": "Apple On-Device: Direct chats en el teléfono, y chats de Open WebUI cuando estás sin conexión.",
+          "icon": "direct"
+        },
+        {
+          "text": "Llamadas de voz: salen por el altavoz si no hay nada enchufado. Se saltan el razonamiento y dicen la respuesta entera.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: recupera las ejecuciones terminadas tras quedarse inactivo y acepta PDFs. Las skills se autocompletan. Los enlaces de citas, las listas en notas y Open WebUI 0.11.1 funcionan.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

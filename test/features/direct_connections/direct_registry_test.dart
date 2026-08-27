@@ -75,6 +75,28 @@ void main() {
     );
   });
 
+  test('empty supported-parameter catalogs retain safe defaults', () {
+    final registry = DirectModelRegistry();
+    final model = registry.replaceProfileModels(
+      DirectConnectionProfile(
+        id: 'profile-one',
+        name: 'Example',
+        adapterKey: kOllamaAdapterKey,
+        baseUrl: 'http://localhost:11434',
+      ),
+      [
+        DirectRemoteModel(
+          id: 'model',
+          capabilities: const {
+            'supported_parameters': <String>['', '  '],
+          },
+        ),
+      ],
+    ).single;
+
+    expect(model.supportedParameters, isNull);
+  });
+
   test('only locally minted and currently registered models resolve', () {
     final registry = DirectModelRegistry();
     final profile = DirectConnectionProfile(

@@ -11,6 +11,7 @@ import '../../direct_connections/models/direct_connection_profile.dart';
 import '../../direct_connections/models/ollama_thinking.dart';
 import '../../direct_connections/models/openrouter_reasoning.dart';
 import '../../direct_connections/providers/direct_connection_providers.dart';
+import '../../direct_connections/services/apple_pcc_adapter.dart';
 import '../../hermes/models/hermes_model.dart';
 
 part 'reasoning_effort_provider.g.dart';
@@ -361,6 +362,18 @@ ReasoningEffortPolicy reasoningEffortPolicyForModel(
       allowsCustom: false,
       restrictsValues: true,
     );
+  }
+  if (binding.adapterKey == kApplePccAdapterKey &&
+      binding.profileId == kApplePccProfileId) {
+    return const ReasoningEffortPolicy(
+      visible: true,
+      options: kApplePccReasoningEfforts,
+      allowsCustom: false,
+      restrictsValues: true,
+    );
+  }
+  if (binding.adapterKey == kApplePccAdapterKey) {
+    return ReasoningEffortPolicy.unsupported;
   }
   if (model.capabilities?['openrouter'] != true) {
     return ReasoningEffortPolicy.generic;

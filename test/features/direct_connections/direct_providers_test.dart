@@ -84,6 +84,133 @@ void main() {
     );
   });
 
+  test('context length fallback persists by trusted Direct model id', () async {
+    final modelId = DirectModelId.encode('profile', 'model');
+    final container = ProviderContainer();
+    var containerDisposed = false;
+    addTearDown(() {
+      if (!containerDisposed) container.dispose();
+    });
+
+    await container
+        .read(directContextLengthOverridesProvider.notifier)
+        .set(modelId, 8192);
+    expect(container.read(directContextLengthOverridesProvider)[modelId], 8192);
+    container.dispose();
+    containerDisposed = true;
+
+    final restored = ProviderContainer();
+    addTearDown(restored.dispose);
+    expect(restored.read(directContextLengthOverridesProvider)[modelId], 8192);
+  });
+
+  test('concurrent context overrides preserve invocation order', () async {
+    final firstModelId = DirectModelId.encode('profile', 'first');
+    final secondModelId = DirectModelId.encode('profile', 'second');
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final controller = container.read(
+      directContextLengthOverridesProvider.notifier,
+    );
+
+    await Future.wait([
+      controller.set(firstModelId, 4096),
+      controller.set(secondModelId, 8192),
+    ]);
+
+    expect(container.read(directContextLengthOverridesProvider), {
+      firstModelId: 4096,
+      secondModelId: 8192,
+    });
+  });
+
+  test('concurrent Apple preferences apply the latest invocation', () async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final controller = container.read(appleOnDeviceEnabledProvider.notifier);
+
+    await Future.wait([
+      controller.setEnabled(true),
+      controller.setEnabled(false),
+    ]);
+
+    expect(container.read(appleOnDeviceEnabledProvider), isFalse);
+    expect(
+      PreferencesStore.getBool(PreferenceKeys.appleOnDeviceEnabled),
+      isFalse,
+    );
+  });
+
+  test('Apple profiles are enabled by default on supported iOS', () async {
+    final container = ProviderContainer(
+      overrides: [applePccPlatformSupportedProvider.overrideWithValue(true)],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(directConnectionProfilesProvider.future);
+    final profiles = container
+        .read(effectiveDirectConnectionProfilesProvider)
+        .requireValue;
+
+    expect(profiles.map((profile) => profile.id), {
+      kAppleOnDeviceProfileId,
+      kApplePccProfileId,
+    });
+  });
+
+  test('enabled PCC is exposed as a built-in Direct profile on iOS', () async {
+    await PreferencesStore.put(PreferenceKeys.appleOnDeviceEnabled, false);
+    await PreferencesStore.put(PreferenceKeys.applePccEnabled, true);
+    final container = ProviderContainer(
+      overrides: [applePccPlatformSupportedProvider.overrideWithValue(true)],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(directConnectionProfilesProvider.future);
+    final profiles = container
+        .read(effectiveDirectConnectionProfilesProvider)
+        .requireValue;
+
+    expect(profiles, hasLength(1));
+    expect(profiles.single.isApplePrivateCloudCompute, isTrue);
+  });
+
+  test('enabled Apple profiles stay hidden on unsupported platforms', () async {
+    await PreferencesStore.put(PreferenceKeys.appleOnDeviceEnabled, true);
+    await PreferencesStore.put(PreferenceKeys.applePccEnabled, true);
+    final container = ProviderContainer(
+      overrides: [applePccPlatformSupportedProvider.overrideWithValue(false)],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(directConnectionProfilesProvider.future);
+    final profiles = container
+        .read(effectiveDirectConnectionProfilesProvider)
+        .requireValue;
+
+    expect(profiles, isEmpty);
+  });
+
+  test(
+    'enabled Apple On-Device is exposed as a built-in Direct profile',
+    () async {
+      await PreferencesStore.put(PreferenceKeys.appleOnDeviceEnabled, true);
+      await PreferencesStore.put(PreferenceKeys.applePccEnabled, false);
+      final container = ProviderContainer(
+        overrides: [applePccPlatformSupportedProvider.overrideWithValue(true)],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(directConnectionProfilesProvider.future);
+      final profiles = container
+          .read(effectiveDirectConnectionProfilesProvider)
+          .requireValue;
+
+      expect(profiles, hasLength(1));
+      expect(profiles.single.isAppleOnDevice, isTrue);
+    },
+  );
+
   test('manual models bypass discovery network calls', () async {
     final adapter = _QueuedAdapter();
     final profile = _profile(

@@ -1,8 +1,8 @@
 /// Parsed `/v1/capabilities` feature flags.
 ///
 /// Existing management features are optimistic for compatibility with older
-/// servers. Image input is fail-closed: the client only enables it when the
-/// server advertises a compatible endpoint.
+/// servers. Image and file input are fail-closed: the client only enables them
+/// when the server advertises a compatible endpoint.
 class HermesCapabilities {
   const HermesCapabilities({
     this.runApproval = true,
@@ -12,6 +12,7 @@ class HermesCapabilities {
     this.jobsAdmin = true,
     this.sessions = true,
     this.inputImages = false,
+    this.inputFiles = false,
   });
 
   final bool runApproval;
@@ -34,6 +35,9 @@ class HermesCapabilities {
   /// remains false when discovery is unavailable or ambiguous.
   final bool inputImages;
 
+  /// Whether the server advertises the streaming Responses path used for files.
+  final bool inputFiles;
+
   /// The compatibility default used while loading or when discovery fails.
   static const HermesCapabilities enabledByDefault = HermesCapabilities();
 
@@ -45,6 +49,7 @@ class HermesCapabilities {
   );
 
   factory HermesCapabilities.fromJson(Map<String, dynamic> json) {
+    final responsesInput = _resolveResponsesInput(json);
     return HermesCapabilities(
       runApproval: _resolve(json, const [
         'run_approval_response',
@@ -63,7 +68,8 @@ class HermesCapabilities {
         'sessions',
         'session_key_header',
       ]),
-      inputImages: _resolveResponsesImageInput(json),
+      inputImages: json['desktop_uploads'] == true || responsesInput,
+      inputFiles: responsesInput,
     );
   }
 
@@ -85,9 +91,7 @@ class HermesCapabilities {
     return true;
   }
 
-  /// Accepts either the Responses image contract or Desktop upload contract.
-  static bool _resolveResponsesImageInput(Map<String, dynamic> json) {
-    if (json['desktop_uploads'] == true) return true;
+  static bool _resolveResponsesInput(Map<String, dynamic> json) {
     final topLevelApi = json['responses_api'];
     final topLevelStreaming = json['responses_streaming'];
     final features = json['features'];

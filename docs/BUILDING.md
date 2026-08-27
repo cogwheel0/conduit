@@ -15,6 +15,17 @@ instead.
 | iOS | Xcode with an iOS 16.0+ deployment target |
 | Backend | An Open WebUI instance, an OpenAI-compatible API, an Ollama endpoint, or a Hermes server |
 
+Apple On-Device requires Xcode 26 and an iOS 26 device that supports Apple
+Intelligence. It uses the local SystemLanguageModel with a 4K context window;
+image input, reasoning controls, and tool parameters are rejected.
+
+Apple Private Cloud Compute additionally requires Xcode 27, an iOS 27 device
+that supports Apple Intelligence, and Apple's managed PCC entitlement. The iOS
+build keeps PCC compiled out on older SDKs while retaining the iOS 16 deployment
+target. PCC accepts image data URLs and Direct generation parameters including
+`temperature`, `max_tokens`, `top_p`, `top_k`, `seed`, and OpenAI-style
+`response_format.json_schema`; tool parameters are rejected.
+
 ## Clone
 
 ```bash
@@ -61,12 +72,6 @@ isolated tool dependencies before regenerating platform bindings:
 ```bash
 dart pub get --directory tool/pigeon_codegen
 dart tool/pigeon_codegen/bin/generate.dart
-```
-
-Use `--delete-conflicting-outputs` when generated files fall out of sync:
-
-```bash
-dart run build_runner build --delete-conflicting-outputs
 ```
 
 `vad` 0.0.8 still declares Record 6.x support. The root pubspec temporarily

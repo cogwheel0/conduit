@@ -30,6 +30,7 @@ import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:flutter_callkit_incoming/entities/call_event.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/widgets.dart';
 
 import '../../../support/openwebui_storage_test_overrides.dart';
 
@@ -45,6 +46,10 @@ final _boundedVoiceReadinessTestProvider = FutureProvider<VoiceCallEligibility>(
     readinessTimeout: const Duration(milliseconds: 10),
   ),
 );
+final _voiceSocketTestProvider =
+    NotifierProvider<_VoiceSocketTestController, SocketService?>(
+      _VoiceSocketTestController.new,
+    );
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -111,6 +116,99 @@ void main() {
           .equals(ChatVoiceModePhase.error);
     },
   );
+
+  test('voice call follows model and socket ownership changes', () async {
+    final hermesModel = hermesSyntheticModel();
+    final firstSocket = SocketService(
+      serverConfig: const ServerConfig(
+        id: 'voice-socket-lease-a',
+        name: 'Voice socket lease A',
+        url: 'https://example.com',
+      ),
+    );
+    final replacementSocket = SocketService(
+      serverConfig: const ServerConfig(
+        id: 'voice-socket-lease-b',
+        name: 'Voice socket lease B',
+        url: 'https://example.com',
+      ),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        preferredBackendProvider.overrideWith(_DirectPreferredBackend.new),
+        selectedModelProvider.overrideWith(
+          () => _SeededSelectedModel(hermesModel),
+        ),
+        socketServiceProvider.overrideWith(
+          (ref) => ref.watch(_voiceSocketTestProvider),
+        ),
+        appSettingsProvider.overrideWithValue(const AppSettings()),
+        voiceInputServiceProvider.overrideWithValue(_FakeVoiceInputService()),
+        textToSpeechServiceProvider.overrideWithValue(
+          _FakeTextToSpeechService(),
+        ),
+        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceAudioSessionCoordinator(),
+        ),
+      ],
+    );
+    addTearDown(firstSocket.dispose);
+    addTearDown(replacementSocket.dispose);
+
+    final controller = container.read(chatVoiceModeControllerProvider.notifier);
+    check(
+      await controller.start(
+        startNewConversation: false,
+        admittedModel: hermesModel,
+      ),
+    ).equals(ChatVoiceModeStartResult.started);
+    check(firstSocket.backgroundActivityLeaseCount).equals(0);
+
+    container.read(_voiceSocketTestProvider.notifier).set(firstSocket);
+    await pumpEventQueue();
+    check(firstSocket.backgroundActivityLeaseCount).equals(0);
+
+    container
+        .read(selectedModelProvider.notifier)
+        .set(_model, allowHidden: true);
+    await pumpEventQueue();
+    check(firstSocket.backgroundActivityLeaseCount).equals(1);
+
+    container.read(_voiceSocketTestProvider.notifier).set(replacementSocket);
+    await pumpEventQueue();
+    check(firstSocket.backgroundActivityLeaseCount).equals(0);
+    check(replacementSocket.backgroundActivityLeaseCount).equals(1);
+
+    container
+        .read(selectedModelProvider.notifier)
+        .set(hermesModel, allowHidden: true);
+    await pumpEventQueue();
+    check(replacementSocket.backgroundActivityLeaseCount).equals(1);
+    container
+        .read(selectedModelProvider.notifier)
+        .set(_model, allowHidden: true);
+    await pumpEventQueue();
+    check(replacementSocket.backgroundActivityLeaseCount).equals(1);
+
+    await controller.pause();
+    check(replacementSocket.backgroundActivityLeaseCount).equals(1);
+    await controller.stop();
+    check(replacementSocket.backgroundActivityLeaseCount).equals(0);
+
+    check(
+      await controller.start(
+        startNewConversation: false,
+        admittedModel: _model,
+      ),
+    ).equals(ChatVoiceModeStartResult.started);
+    check(replacementSocket.backgroundActivityLeaseCount).equals(1);
+    container.dispose();
+    check(replacementSocket.backgroundActivityLeaseCount).equals(0);
+  });
 
   test('launcher starts voice mode for signed-out Hermes', () async {
     final input = _FakeVoiceInputService();
@@ -819,6 +917,7 @@ void main() {
     () async {
       final input = _FakeVoiceInputService();
       final tts = _FakeTextToSpeechService();
+      final background = _FakeChatVoiceBackgroundCoordinator();
       final audioSession = _FakeChatVoiceAudioSessionCoordinator();
       final container = ProviderContainer(
         overrides: [
@@ -835,7 +934,7 @@ void main() {
             _UnavailableCallKitService(),
           ),
           chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
-            _FakeChatVoiceBackgroundCoordinator(),
+            background,
           ),
           chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
             audioSession,
@@ -864,6 +963,7 @@ void main() {
       expect(messages.first.role, 'user');
       expect(messages.last.role, 'assistant');
       expect(messages.last.isStreaming, isFalse);
+      expect(background.keepAliveCalls, 1);
       expect(tts.startedStreaming, isTrue);
       expect(tts.fedTexts.join('\n'), contains('Conduit'));
 
@@ -925,6 +1025,114 @@ void main() {
       expect(secondSpoken, isNot(contains('alpha unique voice turn')));
     },
   );
+
+  test(
+    'assistant response errors end voice mode without speaking emptiness',
+    () async {
+      final input = _FakeVoiceInputService();
+      final tts = _FakeTextToSpeechService();
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          selectedModelProvider.overrideWithValue(_model),
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          reviewerModeProvider.overrideWithValue(true),
+          voiceInputServiceProvider.overrideWithValue(input),
+          textToSpeechServiceProvider.overrideWithValue(tts),
+          callKitServiceProvider.overrideWithValue(
+            _UnavailableCallKitService(),
+          ),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceAudioSessionCoordinator(),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+
+      await controller.start(startNewConversation: false);
+      await input.completeCurrent('trigger a failed response');
+      await _until(
+        () =>
+            container.read(chatVoiceModeControllerProvider).phase ==
+            ChatVoiceModePhase.sending,
+      );
+      final assistant = container
+          .read(chatMessagesProvider)
+          .lastWhere((message) => message.role == 'assistant');
+      container
+          .read(chatMessagesProvider.notifier)
+          .failLastStreamingAssistant(
+            StateError('network unavailable'),
+            assistantMessageId: assistant.id,
+          );
+
+      await _until(
+        () =>
+            container.read(chatVoiceModeControllerProvider).phase ==
+            ChatVoiceModePhase.error,
+      );
+      check(container.read(chatVoiceModeControllerProvider).errorMessage)
+          .equals(
+            'An unexpected error occurred while processing your request. '
+            'Please try again or check your connection.',
+          );
+      check(tts.finishedTexts).isEmpty();
+    },
+  );
+
+  test('response-wait capture failure ends and cleans up the call', () async {
+    final input = _FakeVoiceInputService();
+    final audioSession = _FakeChatVoiceAudioSessionCoordinator()
+      ..throwOnResponseWaitBegin = true;
+    final container = ProviderContainer(
+      overrides: [
+        ...openWebUiStorageOpenOverrides(),
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        selectedModelProvider.overrideWithValue(_model),
+        appSettingsProvider.overrideWithValue(const AppSettings()),
+        reviewerModeProvider.overrideWithValue(true),
+        voiceInputServiceProvider.overrideWithValue(input),
+        textToSpeechServiceProvider.overrideWithValue(
+          _FakeTextToSpeechService(),
+        ),
+        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          audioSession,
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(chatVoiceModeControllerProvider.notifier);
+
+    await controller.start(startNewConversation: false);
+    final responseWaitStopsBeforeTurn = audioSession.responseWaitEndCalls;
+    await input.completeCurrent('trigger capture failure');
+    await _until(
+      () =>
+          container.read(chatVoiceModeControllerProvider).phase ==
+          ChatVoiceModePhase.error,
+    );
+
+    check(container.read(chatVoiceModeControllerProvider).errorMessage)
+        .isNotNull()
+        .contains('response-wait capture failed');
+    check(audioSession.responseWaitEndCalls)
+        .isGreaterThan(responseWaitStopsBeforeTurn);
+  });
 
   test(
     'does not send partial-only transcript when listening completes',
@@ -1071,6 +1279,113 @@ void main() {
   });
 
   test(
+    'starts on the speakerphone when no audio accessory is attached',
+    () async {
+      final audioSession = _FakeChatVoiceAudioSessionCoordinator()
+        ..defaultsToSpeakerphone = true;
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          selectedModelProvider.overrideWithValue(_model),
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          reviewerModeProvider.overrideWithValue(true),
+          voiceInputServiceProvider.overrideWithValue(_FakeVoiceInputService()),
+          textToSpeechServiceProvider.overrideWithValue(
+            _FakeTextToSpeechService(),
+          ),
+          callKitServiceProvider.overrideWithValue(
+            _UnavailableCallKitService(),
+          ),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+            audioSession,
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+      await controller.start(startNewConversation: false);
+      await pumpEventQueue();
+
+      check(audioSession.defaultRouteCalls).equals(1);
+      check(
+        container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled,
+      ).isTrue();
+
+      // The default is only a starting point: the button still turns it off.
+      await controller.toggleSpeakerphone();
+      check(
+        container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled,
+      ).isFalse();
+      check(audioSession.speakerphoneCalls).deepEquals(<bool>[false]);
+
+      await controller.stop();
+    },
+  );
+
+  test('follows the audio route the coordinator picks mid-call', () async {
+    final audioSession = _FakeChatVoiceAudioSessionCoordinator()
+      ..defaultsToSpeakerphone = true;
+    final container = ProviderContainer(
+      overrides: [
+        ...openWebUiStorageOpenOverrides(),
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        selectedModelProvider.overrideWithValue(_model),
+        appSettingsProvider.overrideWithValue(const AppSettings()),
+        reviewerModeProvider.overrideWithValue(true),
+        voiceInputServiceProvider.overrideWithValue(_FakeVoiceInputService()),
+        textToSpeechServiceProvider.overrideWithValue(
+          _FakeTextToSpeechService(),
+        ),
+        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          audioSession,
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final controller = container.read(chatVoiceModeControllerProvider.notifier);
+    await controller.start(startNewConversation: false);
+    await pumpEventQueue();
+    check(container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled)
+        .isTrue();
+
+    // A headset connected mid-call takes playback off the loudspeaker, and the
+    // overlay's speaker button has to say so.
+    audioSession.routeChanges.add(false);
+    await pumpEventQueue();
+    check(container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled)
+        .isFalse();
+
+    audioSession.routeChanges.add(true);
+    await pumpEventQueue();
+    check(container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled)
+        .isTrue();
+
+    await controller.stop();
+
+    // A late event from a torn-down call cannot revive the speaker state.
+    audioSession.routeChanges.add(true);
+    await pumpEventQueue();
+    check(container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled)
+        .isFalse();
+  });
+
+  test(
     'speakerphone toggle drives the audio session on every platform',
     () async {
       final audioSession = _FakeChatVoiceAudioSessionCoordinator();
@@ -1121,6 +1436,46 @@ void main() {
       await controller.stop();
     },
   );
+
+  test('speakerphone toggle stays put when the platform refuses', () async {
+    final audioSession = _FakeChatVoiceAudioSessionCoordinator()
+      ..speakerphoneRouteApplies = false;
+    final container = ProviderContainer(
+      overrides: [
+        ...openWebUiStorageOpenOverrides(),
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        selectedModelProvider.overrideWithValue(_model),
+        appSettingsProvider.overrideWithValue(const AppSettings()),
+        reviewerModeProvider.overrideWithValue(true),
+        voiceInputServiceProvider.overrideWithValue(_FakeVoiceInputService()),
+        textToSpeechServiceProvider.overrideWithValue(
+          _FakeTextToSpeechService(),
+        ),
+        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          audioSession,
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final controller = container.read(chatVoiceModeControllerProvider.notifier);
+    await controller.start(startNewConversation: false);
+
+    await controller.toggleSpeakerphone();
+
+    // Audio is still coming out of the earpiece, so a button that flipped to
+    // speaker would be pointing at a route nobody is hearing.
+    check(container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled)
+        .isFalse();
+    check(audioSession.speakerphoneCalls).deepEquals(<bool>[true]);
+    await controller.stop();
+  });
 
   test(
     'queues final transcripts that arrive while the previous final is sending',
@@ -1326,15 +1681,326 @@ void main() {
     await controller.stop();
   });
 
-  test('holds a voice background lease and uses managed audio during CallKit session', () async {
+  test(
+    'keeps a CallKit response alive while the app is backgrounded',
+    () async {
+      final input = _FakeVoiceInputService()
+        ..localSttAvailable = false
+        ..serverSttAvailable = true
+        ..sttPreference = SttPreference.serverOnly;
+      final tts = _FakeTextToSpeechService()..holdCompletion = true;
+      final callKit = _AvailableCallKitService();
+      final background = _FakeChatVoiceBackgroundCoordinator();
+      final audioSession = _FakeChatVoiceAudioSessionCoordinator();
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          selectedModelProvider.overrideWithValue(_model),
+          appSettingsProvider.overrideWithValue(
+            const AppSettings(sttPreference: SttPreference.serverOnly),
+          ),
+          reviewerModeProvider.overrideWithValue(true),
+          voiceInputServiceProvider.overrideWithValue(input),
+          textToSpeechServiceProvider.overrideWithValue(tts),
+          callKitServiceProvider.overrideWithValue(callKit),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            background,
+          ),
+          chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+            audioSession,
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(callKit.dispose);
+
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+
+      await controller.start(startNewConversation: false);
+
+      expect(background.started, hasLength(1));
+      expect(background.started.single.leaseId, startsWith('chat-voice-mode-'));
+      expect(background.started.single.requiresMicrophone, isTrue);
+      expect(background.externalAudioSessionOwners, contains(false));
+      expect(input.managedAudioFlags, <bool>[true]);
+      expect(audioSession.listeningCalls, 1);
+      expect(audioSession.registeredCallIds, <String>['call-1']);
+      await _until(() => callKit.connectedCallIds.contains('call-1'));
+
+      final messages = container.read(chatMessagesProvider.notifier);
+      messages.didChangeAppLifecycleState(AppLifecycleState.paused);
+      final responseWaitStopsBeforeTurn = audioSession.responseWaitEndCalls;
+      await input.completeCurrent('background voice response');
+      await _until(() => tts.finishedTexts.isNotEmpty);
+
+      expect(tts.fedTexts.join('\n'), contains('background voice response'));
+      expect(audioSession.responseWaitCallIds, <String?>['call-1']);
+      expect(audioSession.responseWaitEndCalls, responseWaitStopsBeforeTurn);
+
+      tts.emitCompleted();
+      await _until(() => input.beginCalls == 2);
+      expect(
+        audioSession.responseWaitEndCalls,
+        greaterThan(responseWaitStopsBeforeTurn),
+      );
+
+      await controller.stop();
+
+      expect(background.stopped, <String>[background.started.single.leaseId]);
+      expect(callKit.endedCallIds, <String>['call-1']);
+      expect(background.externalAudioSessionOwners.last, isFalse);
+      expect(audioSession.deactivateCalls, 1);
+    },
+  );
+
+  test(
+    'muting keeps response-wait capture and surfaces runtime failure',
+    () async {
+      final input = _FakeVoiceInputService();
+      final tts = _FakeTextToSpeechService()..holdCompletion = true;
+      final audioSession = _FakeChatVoiceAudioSessionCoordinator();
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          selectedModelProvider.overrideWithValue(_model),
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          reviewerModeProvider.overrideWithValue(true),
+          voiceInputServiceProvider.overrideWithValue(input),
+          textToSpeechServiceProvider.overrideWithValue(tts),
+          callKitServiceProvider.overrideWithValue(
+            _UnavailableCallKitService(),
+          ),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+            audioSession,
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+
+      await controller.start(startNewConversation: false);
+      await input.completeCurrent('keep the muted response alive');
+      await _until(() => tts.finishedTexts.isNotEmpty);
+      final responseWaitStopsBeforeMute = audioSession.responseWaitEndCalls;
+
+      await controller.toggleMute();
+
+      check(container.read(chatVoiceModeControllerProvider).isMuted).isTrue();
+      check(audioSession.responseWaitCallIds).deepEquals(<String?>[null, null]);
+      check(audioSession.responseWaitEndCalls)
+          .equals(responseWaitStopsBeforeMute);
+
+      audioSession.emitResponseCaptureStreamError(
+        StateError('native response capture route failed'),
+      );
+      await _until(
+        () =>
+            container.read(chatVoiceModeControllerProvider).phase ==
+            ChatVoiceModePhase.error,
+      );
+      check(container.read(chatVoiceModeControllerProvider).errorMessage)
+          .isNotNull()
+          .contains('native response capture route failed');
+    },
+  );
+
+  test(
+    'stale response handoffs finish before teardown and replacement',
+    () async {
+      final handoffGate = Completer<void>();
+      final input = _FakeVoiceInputService();
+      final tts = _FakeTextToSpeechService()..holdCompletion = true;
+      final audioSession = _FakeChatVoiceAudioSessionCoordinator();
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          selectedModelProvider.overrideWithValue(_model),
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          reviewerModeProvider.overrideWithValue(true),
+          voiceInputServiceProvider.overrideWithValue(input),
+          textToSpeechServiceProvider.overrideWithValue(tts),
+          callKitServiceProvider.overrideWithValue(
+            _UnavailableCallKitService(),
+          ),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+            audioSession,
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+
+      await controller.start(startNewConversation: false);
+      await input.completeCurrent('keep the first response alive');
+      await _until(() => tts.finishedTexts.isNotEmpty);
+
+      input.nextResponseWaitHandoffGate = handoffGate;
+      final staleMute = controller.toggleMute();
+      await _until(() => input.responseWaitHandoffCalls == 2);
+
+      final responseWaitStopsBeforeTeardown = audioSession.responseWaitEndCalls;
+      final captureStartsBeforeTeardown =
+          audioSession.responseWaitCallIds.length;
+      container.invalidate(chatVoiceModeControllerProvider);
+      final replacement = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+      final replacementStart = replacement.start(startNewConversation: false);
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      check(audioSession.responseWaitEndCalls)
+          .equals(responseWaitStopsBeforeTeardown);
+      check(input.beginCalls).equals(1);
+
+      handoffGate.complete();
+      await staleMute;
+      await replacementStart;
+
+      check(audioSession.responseWaitCallIds.length)
+          .equals(captureStartsBeforeTeardown);
+      check(input.nativeCaptureDetachedForResponseWait).isFalse();
+      check(input.beginCalls).equals(2);
+
+      final sendHandoffGate = Completer<void>();
+      input.nextResponseWaitHandoffGate = sendHandoffGate;
+      await input.completeCurrent('stale replacement response');
+      await _until(() => input.responseWaitHandoffCalls == 3);
+
+      final responseWaitStopsBeforeSendTeardown =
+          audioSession.responseWaitEndCalls;
+      final captureStartsBeforeSendTeardown =
+          audioSession.responseWaitCallIds.length;
+      final speakingCallsBeforeSendTeardown = audioSession.speakingCalls;
+      container.invalidate(chatVoiceModeControllerProvider);
+      final secondReplacement = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+      final secondReplacementStart = secondReplacement.start(
+        startNewConversation: false,
+      );
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      check(audioSession.responseWaitEndCalls)
+          .equals(responseWaitStopsBeforeSendTeardown);
+      check(input.beginCalls).equals(2);
+
+      sendHandoffGate.complete();
+      await secondReplacementStart;
+
+      check(audioSession.responseWaitCallIds.length)
+          .equals(captureStartsBeforeSendTeardown);
+      check(audioSession.speakingCalls).equals(speakingCallsBeforeSendTeardown);
+      check(input.nativeCaptureDetachedForResponseWait).isFalse();
+      check(input.beginCalls).equals(3);
+      await secondReplacement.stop();
+    },
+  );
+
+  test(
+    'server recorder owns response wait and resumes without restart',
+    () async {
+      final input = _FakeVoiceInputService()
+        ..localSttAvailable = false
+        ..serverSttAvailable = true
+        ..sttPreference = SttPreference.serverOnly
+        ..holdServerRecorderOnComplete = true;
+      final tts = _FakeTextToSpeechService()..holdCompletion = true;
+      final audioSession = _FakeChatVoiceAudioSessionCoordinator();
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          selectedModelProvider.overrideWithValue(_model),
+          appSettingsProvider.overrideWithValue(
+            const AppSettings(sttPreference: SttPreference.serverOnly),
+          ),
+          reviewerModeProvider.overrideWithValue(true),
+          voiceInputServiceProvider.overrideWithValue(input),
+          textToSpeechServiceProvider.overrideWithValue(tts),
+          callKitServiceProvider.overrideWithValue(
+            _UnavailableCallKitService(),
+          ),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+            audioSession,
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+
+      await controller.start(startNewConversation: false);
+      final stopsBeforeTurn = input.stopCalls;
+      await input.completeCurrent('keep one live server recorder');
+      await _until(() => tts.finishedTexts.isNotEmpty);
+      await _until(
+        () =>
+            container.read(chatVoiceModeControllerProvider).phase ==
+            ChatVoiceModePhase.speaking,
+      );
+
+      check(input.responseWaitHandoffCalls).equals(1);
+      check(input.isHoldingServerRecorderForResponse).isTrue();
+      check(input.stopCalls).equals(stopsBeforeTurn);
+      check(audioSession.responseWaitCallIds).isEmpty();
+
+      await controller.toggleMute();
+      check(container.read(chatVoiceModeControllerProvider).phase)
+          .equals(ChatVoiceModePhase.muted);
+      await controller.toggleMute();
+      check(container.read(chatVoiceModeControllerProvider).isMuted).isFalse();
+      check(container.read(chatVoiceModeControllerProvider).phase)
+          .equals(ChatVoiceModePhase.speaking);
+      check(input.isHoldingServerRecorderForResponse).isTrue();
+      check(input.beginCalls).equals(1);
+      check(input.stopCalls).equals(stopsBeforeTurn);
+      check(audioSession.responseWaitCallIds).isEmpty();
+
+      tts.emitCompleted();
+      await _until(() => input.beginCalls == 2);
+      check(input.isHoldingServerRecorderForResponse).isFalse();
+      check(input.stopCalls).equals(stopsBeforeTurn);
+
+      await controller.stop();
+    },
+  );
+
+  test('fails the call when held server response capture dies', () async {
     final input = _FakeVoiceInputService()
       ..localSttAvailable = false
       ..serverSttAvailable = true
-      ..sttPreference = SttPreference.serverOnly;
-    final tts = _FakeTextToSpeechService();
-    final callKit = _AvailableCallKitService();
-    final background = _FakeChatVoiceBackgroundCoordinator();
-    final audioSession = _FakeChatVoiceAudioSessionCoordinator();
+      ..sttPreference = SttPreference.serverOnly
+      ..holdServerRecorderOnComplete = true;
+    final tts = _FakeTextToSpeechService()..holdCompletion = true;
     final container = ProviderContainer(
       overrides: [
         ...openWebUiStorageOpenOverrides(),
@@ -1348,36 +2014,39 @@ void main() {
         reviewerModeProvider.overrideWithValue(true),
         voiceInputServiceProvider.overrideWithValue(input),
         textToSpeechServiceProvider.overrideWithValue(tts),
-        callKitServiceProvider.overrideWithValue(callKit),
+        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
         chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
-          background,
+          _FakeChatVoiceBackgroundCoordinator(),
         ),
         chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
-          audioSession,
+          _FakeChatVoiceAudioSessionCoordinator(),
         ),
       ],
     );
     addTearDown(container.dispose);
-    addTearDown(callKit.dispose);
-
+    addTearDown(input.closeResponseCaptureFailures);
     final controller = container.read(chatVoiceModeControllerProvider.notifier);
 
     await controller.start(startNewConversation: false);
+    await input.completeCurrent('keep server capture failure visible');
+    await _until(
+      () =>
+          input.isHoldingServerRecorderForResponse &&
+          tts.finishedTexts.isNotEmpty,
+    );
 
-    expect(background.started, hasLength(1));
-    expect(background.started.single.leaseId, startsWith('chat-voice-mode-'));
-    expect(background.started.single.requiresMicrophone, isTrue);
-    expect(background.externalAudioSessionOwners, contains(false));
-    expect(input.managedAudioFlags, <bool>[true]);
-    expect(audioSession.listeningCalls, 1);
-    await _until(() => callKit.connectedCallIds.contains('call-1'));
+    input.emitResponseCaptureFailure(StateError('held microphone failed'));
+    await _until(
+      () =>
+          container.read(chatVoiceModeControllerProvider).phase ==
+          ChatVoiceModePhase.error,
+    );
 
-    await controller.stop();
-
-    expect(background.stopped, <String>[background.started.single.leaseId]);
-    expect(callKit.endedCallIds, <String>['call-1']);
-    expect(background.externalAudioSessionOwners.last, isFalse);
-    expect(audioSession.deactivateCalls, 1);
+    check(container.read(chatVoiceModeControllerProvider).errorMessage)
+        .isNotNull()
+        .contains('held microphone failed');
+    check(input.isHoldingServerRecorderForResponse).isFalse();
+    check(input.stopCalls).isGreaterThan(0);
   });
 
   test('pausing during sending defers assistant TTS until resume', () async {
@@ -1426,8 +2095,10 @@ void main() {
     expect(tts.pauseCalls, 1);
     expect(tts.fedTexts, isEmpty);
     expect(tts.finishedTexts, isEmpty);
+    expect(audioSession.responseWaitCallIds, <String?>[null]);
 
     await controller.resume();
+    expect(audioSession.responseWaitCallIds, <String?>[null, null]);
     await _until(() => tts.finishedTexts.isNotEmpty);
 
     expect(tts.finishedTexts.single, isNotEmpty);
@@ -1440,11 +2111,63 @@ void main() {
     await controller.stop();
   });
 
+  test('unmuting a paused assistant turn resumes its speech', () async {
+    final input = _FakeVoiceInputService();
+    final tts = _FakeTextToSpeechService()..holdCompletion = true;
+    final audioSession = _FakeChatVoiceAudioSessionCoordinator();
+    final container = ProviderContainer(
+      overrides: [
+        ...openWebUiStorageOpenOverrides(),
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        selectedModelProvider.overrideWithValue(_model),
+        appSettingsProvider.overrideWithValue(const AppSettings()),
+        reviewerModeProvider.overrideWithValue(true),
+        voiceInputServiceProvider.overrideWithValue(input),
+        textToSpeechServiceProvider.overrideWithValue(tts),
+        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          audioSession,
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(chatVoiceModeControllerProvider.notifier);
+
+    await controller.start(startNewConversation: false);
+    await input.completeCurrent('pause, mute, then resume this response');
+    await _until(
+      () =>
+          container.read(chatVoiceModeControllerProvider).phase ==
+          ChatVoiceModePhase.speaking,
+    );
+
+    await controller.pause();
+    await controller.toggleMute();
+    await controller.toggleMute();
+
+    check(container.read(chatVoiceModeControllerProvider).isMuted).isFalse();
+    check(container.read(chatVoiceModeControllerProvider).phase)
+        .equals(ChatVoiceModePhase.speaking);
+    check(tts.pauseCalls).equals(1);
+    check(tts.resumeCalls).equals(1);
+    check(audioSession.responseWaitCallIds).deepEquals(<String?>[null, null]);
+
+    await controller.stop();
+  });
+
   test(
     'stop completes every teardown step and ends CallKit after cleanup errors',
     () async {
-      final input = _FakeVoiceInputService();
-      final tts = _FakeTextToSpeechService()..throwOnStopStreaming = true;
+      final input = _FakeVoiceInputService()
+        ..throwOnResponseCaptureFailureCancel = true;
+      final tts = _FakeTextToSpeechService()
+        ..throwOnStopStreaming = true
+        ..throwOnStop = true;
       final callKit = _AvailableCallKitService()..throwOnEnd = true;
       final background = _FakeChatVoiceBackgroundCoordinator()
         ..throwOnStop = true;
@@ -1479,8 +2202,13 @@ void main() {
 
       await controller.stop();
 
+      check(input.responseCaptureFailureSubscriptionCancelled).isTrue();
+      check(audioSession.responseCaptureFailureEvents.hasListener).isFalse();
       check(tts.stopStreamingCalls).equals(1);
       check(tts.stopCalls).equals(1);
+      // A stop that throws must still hand the shared engine back to read
+      // aloud, which does not belong on the call route.
+      check(tts.voiceCallFlags).deepEquals(<bool>[true, false]);
       check(background.stopped).length.equals(1);
       check(background.externalAudioSessionOwners.last).isFalse();
       check(audioSession.deactivateCalls).equals(1);
@@ -1789,6 +2517,41 @@ void main() {
       check(uncaught).isEmpty();
     },
   );
+
+  test('provider disposal hands the tts engine back to read aloud', () async {
+    final tts = _FakeTextToSpeechService();
+    final container = ProviderContainer(
+      overrides: [
+        ...openWebUiStorageOpenOverrides(),
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        selectedModelProvider.overrideWithValue(_model),
+        appSettingsProvider.overrideWithValue(const AppSettings()),
+        reviewerModeProvider.overrideWithValue(true),
+        voiceInputServiceProvider.overrideWithValue(_FakeVoiceInputService()),
+        textToSpeechServiceProvider.overrideWithValue(tts),
+        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceAudioSessionCoordinator(),
+        ),
+      ],
+    );
+
+    final controller = container.read(chatVoiceModeControllerProvider.notifier);
+    await controller.start(startNewConversation: false);
+    check(tts.voiceCallFlags).deepEquals(<bool>[true]);
+
+    container.dispose();
+    await pumpEventQueue();
+
+    // The engine is shared with read-aloud. Left on the call route it speaks
+    // out of the earpiece at call volume.
+    check(tts.voiceCallFlags).deepEquals(<bool>[true, false]);
+  });
 }
 
 const _usableHermesConfig = HermesConfig(
@@ -1974,14 +2737,22 @@ class _FakeVoiceInputService extends VoiceInputService {
   SttPreference sttPreference = SttPreference.deviceOnly;
   bool completedTranscriptSendable = false;
   bool nativeLocalStt = false;
+  bool nativeCaptureDetachedForResponseWait = false;
+  bool holdServerRecorderForResponse = false;
+  bool holdServerRecorderOnComplete = false;
+  bool throwOnResponseCaptureFailureCancel = false;
+  bool responseCaptureFailureSubscriptionCancelled = false;
   bool listening = false;
   int stopCalls = 0;
+  int responseWaitHandoffCalls = 0;
   Completer<void>? nextStopListeningGate;
+  Completer<void>? nextResponseWaitHandoffGate;
   Object? beginListeningError;
   Object? bufferedErrorWhenIntensityStarts;
   String? bufferedFinalWhenIntensityStarts;
   bool _emittedBufferedTranscriptSignal = false;
   final managedAudioFlags = <bool>[];
+  final _responseCaptureFailures = StreamController<Object>.broadcast();
   StreamController<VoiceTranscriptEvent>? _transcriptController;
   StreamController<int>? _intensityController;
 
@@ -2007,7 +2778,19 @@ class _FakeVoiceInputService extends VoiceInputService {
   bool get isUsingNativeLocalStt => nativeLocalStt;
 
   @override
+  bool get isHoldingServerRecorderForResponse => holdServerRecorderForResponse;
+
+  @override
   bool get isListening => listening;
+
+  @override
+  Stream<Object> get responseCaptureFailures {
+    final stream = _responseCaptureFailures.stream;
+    if (!throwOnResponseCaptureFailureCancel) return stream;
+    return _FailingCancelStream<Object>(stream, () {
+      responseCaptureFailureSubscriptionCancelled = true;
+    });
+  }
 
   @override
   Future<bool> initialize({bool forceLocalStt = false}) async {
@@ -2031,6 +2814,8 @@ class _FakeVoiceInputService extends VoiceInputService {
       Error.throwWithStackTrace(error, StackTrace.current);
     }
     listening = true;
+    nativeCaptureDetachedForResponseWait = false;
+    holdServerRecorderForResponse = false;
     completedTranscriptSendable = false;
     managedAudioFlags.add(iosAudioSessionManagedExternally);
     _transcriptController = StreamController<VoiceTranscriptEvent>.broadcast(
@@ -2076,12 +2861,32 @@ class _FakeVoiceInputService extends VoiceInputService {
     completedTranscriptSendable = finalResult;
     if (close) {
       listening = false;
+      holdServerRecorderForResponse = holdServerRecorderOnComplete;
       await controller.close();
     }
   }
 
   void emitError(Object error) {
     _transcriptController?.addError(error, StackTrace.current);
+  }
+
+  void emitResponseCaptureFailure(Object error) {
+    _responseCaptureFailures.add(error);
+  }
+
+  Future<void> closeResponseCaptureFailures() =>
+      _responseCaptureFailures.close();
+
+  @override
+  Future<bool> prepareResponseWaitHandoff() async {
+    responseWaitHandoffCalls += 1;
+    if (holdServerRecorderForResponse) return true;
+    await stopListening();
+    final gate = nextResponseWaitHandoffGate;
+    nextResponseWaitHandoffGate = null;
+    await gate?.future;
+    nativeCaptureDetachedForResponseWait = true;
+    return false;
   }
 
   @override
@@ -2091,6 +2896,8 @@ class _FakeVoiceInputService extends VoiceInputService {
     nextStopListeningGate = null;
     await stopGate?.future;
     listening = false;
+    nativeCaptureDetachedForResponseWait = false;
+    holdServerRecorderForResponse = false;
     final controller = _transcriptController;
     _transcriptController = null;
     if (controller != null && !controller.isClosed) {
@@ -2105,6 +2912,7 @@ class _FakeTextToSpeechService extends TextToSpeechService {
   final _events = StreamController<TtsEvent>.broadcast();
   final fedTexts = <String>[];
   final finishedTexts = <String?>[];
+  final voiceCallFlags = <bool>[];
   bool startedStreaming = false;
   bool holdCompletion = false;
   int pauseCalls = 0;
@@ -2112,11 +2920,17 @@ class _FakeTextToSpeechService extends TextToSpeechService {
   int stopStreamingCalls = 0;
   int stopCalls = 0;
   bool throwOnStopStreaming = false;
+  bool throwOnStop = false;
   Completer<void>? firstStopStreamingGate;
   bool _didStart = false;
 
   @override
   Stream<TtsEvent> get events => _events.stream;
+
+  @override
+  void setVoiceCallActive(bool active) {
+    voiceCallFlags.add(active);
+  }
 
   @override
   List<String> splitTextForSpeech(String text) {
@@ -2191,10 +3005,17 @@ class _FakeTextToSpeechService extends TextToSpeechService {
   Future<void> stop() async {
     stopCalls += 1;
     startedStreaming = false;
+    if (throwOnStop) {
+      throw StateError('stop TTS failed');
+    }
   }
 
   void emitError(String message) {
     _events.add(TtsError(message));
+  }
+
+  void emitCompleted() {
+    _events.add(const TtsCompleted());
   }
 
   void emitChunkStarted(int index) {
@@ -2303,22 +3124,76 @@ class _FakeChatVoiceAudioSessionCoordinator
   int listeningCalls = 0;
   int speakingCalls = 0;
   int deactivateCalls = 0;
+  int defaultRouteCalls = 0;
   bool throwOnDeactivate = false;
+  bool throwOnResponseWaitBegin = false;
+  bool defaultsToSpeakerphone = false;
   final speakerphoneCalls = <bool>[];
+  final registeredCallIds = <String>[];
+  final responseWaitCallIds = <String?>[];
+  int responseWaitEndCalls = 0;
+  bool speakerphoneRouteApplies = true;
+  final routeChanges = StreamController<bool>.broadcast();
+  final responseCaptureFailureEvents = StreamController<Object>.broadcast();
 
   @override
-  Future<void> setSpeakerphoneEnabled(bool enabled) async {
+  Stream<bool> get speakerphoneRouteChanges => routeChanges.stream;
+
+  @override
+  Stream<Object> get responseCaptureFailures =>
+      responseCaptureFailureEvents.stream;
+
+  void emitResponseCaptureFailure(Object error) {
+    responseCaptureFailureEvents.add(error);
+  }
+
+  void emitResponseCaptureStreamError(Object error) {
+    responseCaptureFailureEvents.addError(error);
+  }
+
+  @override
+  Future<void> applyDefaultSpeakerphoneRoute() async {
+    defaultRouteCalls += 1;
+  }
+
+  @override
+  Future<bool> setSpeakerphoneEnabled(bool enabled) async {
     speakerphoneCalls.add(enabled);
+    return speakerphoneRouteApplies;
   }
 
   @override
   Future<void> configureForListening() async {
     listeningCalls += 1;
+    // The real coordinator only announces the default once a configure pass has
+    // moved the route, so the fake announces it from the same place.
+    if (defaultsToSpeakerphone && !routeChanges.isClosed) {
+      defaultsToSpeakerphone = false;
+      routeChanges.add(true);
+    }
   }
 
   @override
   Future<void> configureForSpeaking() async {
     speakingCalls += 1;
+  }
+
+  @override
+  Future<void> setActiveCallKitCallId(String callId) async {
+    registeredCallIds.add(callId);
+  }
+
+  @override
+  Future<void> beginResponseWaitCapture({String? callKitCallId}) async {
+    responseWaitCallIds.add(callKitCallId);
+    if (throwOnResponseWaitBegin) {
+      throw StateError('response-wait capture failed');
+    }
+  }
+
+  @override
+  Future<void> endResponseWaitCapture() async {
+    responseWaitEndCalls += 1;
   }
 
   @override
@@ -2328,6 +3203,80 @@ class _FakeChatVoiceAudioSessionCoordinator
       throw StateError('audio session deactivation failed');
     }
   }
+
+  @override
+  Future<void> dispose() async {
+    await routeChanges.close();
+    await responseCaptureFailureEvents.close();
+  }
+}
+
+class _FailingCancelStream<T> extends Stream<T> {
+  _FailingCancelStream(this._source, this._onCancel);
+
+  final Stream<T> _source;
+  final void Function() _onCancel;
+
+  @override
+  StreamSubscription<T> listen(
+    void Function(T event)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) {
+    return _FailingCancelSubscription<T>(
+      _source.listen(
+        onData,
+        onError: onError,
+        onDone: onDone,
+        cancelOnError: cancelOnError,
+      ),
+      _onCancel,
+    );
+  }
+}
+
+class _FailingCancelSubscription<T> implements StreamSubscription<T> {
+  _FailingCancelSubscription(this._delegate, this._onCancel);
+
+  final StreamSubscription<T> _delegate;
+  final void Function() _onCancel;
+
+  @override
+  Future<void> cancel() async {
+    await _delegate.cancel();
+    _onCancel();
+    throw StateError('response capture failure cancellation failed');
+  }
+
+  @override
+  void onData(void Function(T data)? handleData) =>
+      _delegate.onData(handleData);
+
+  @override
+  void onError(Function? handleError) => _delegate.onError(handleError);
+
+  @override
+  void onDone(void Function()? handleDone) => _delegate.onDone(handleDone);
+
+  @override
+  void pause([Future<void>? resumeSignal]) => _delegate.pause(resumeSignal);
+
+  @override
+  void resume() => _delegate.resume();
+
+  @override
+  bool get isPaused => _delegate.isPaused;
+
+  @override
+  Future<E> asFuture<E>([E? futureValue]) => _delegate.asFuture<E>(futureValue);
+}
+
+class _VoiceSocketTestController extends Notifier<SocketService?> {
+  @override
+  SocketService? build() => null;
+
+  void set(SocketService? socket) => state = socket;
 }
 
 Future<void> _until(bool Function() condition) async {

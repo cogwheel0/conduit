@@ -1,6 +1,6 @@
 name: conduit
 description: Open-source mobile client for Open-WebUI
-version: 4.1.0+141
+version: 4.1.2+143
 publish_to: 'none'
 
 environment:
@@ -69,7 +69,7 @@ dependencies:
   image_picker: ^1.2.3
   # Retained on beta: latest stable 11.0.2 conflicts with share_plus via win32 as of 2026-06-10.
   file_picker: ^12.0.0-beta.5
-  flutter_sharing_intent: ^2.0.4
+  receive_sharing_intent: ^1.9.0
   flutter_image_compress: ^2.5.1
   path_provider: ^2.1.4
   
@@ -147,7 +147,7 @@ dev_dependencies:
 
 flutter:
   config:
-    enable-swift-package-manager: false
+    enable-swift-package-manager: true
   uses-material-design: true
   generate: true
   # Localization

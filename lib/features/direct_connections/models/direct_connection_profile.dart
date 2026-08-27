@@ -10,6 +10,15 @@ const String kOpenAiCompatibleAdapterKey = 'openai-compatible';
 /// Built-in adapter key for Ollama's native HTTP API.
 const String kOllamaAdapterKey = 'ollama';
 
+/// App-owned adapter for Apple's Foundation Models framework.
+const String kApplePccAdapterKey = 'apple-pcc';
+const String kAppleOnDeviceProfileId = 'apple-on-device';
+const String kAppleOnDeviceBaseUrl = 'foundation-models://on-device';
+const String kAppleOnDeviceRemoteModelId = 'system-language-model';
+const String kApplePccProfileId = 'apple-pcc';
+const String kApplePccBaseUrl = 'pcc://apple';
+const String kApplePccRemoteModelId = 'private-cloud-compute';
+
 /// Canonical first-party OpenRouter API root.
 const String kOpenRouterApiBaseUrl = 'https://openrouter.ai/api/v1';
 
@@ -101,6 +110,21 @@ final class DirectConnectionProfile {
          normalizeOllamaThinkingByModel(ollamaThinkingByModel),
        );
 
+  factory DirectConnectionProfile.applePrivateCloudCompute() =>
+      DirectConnectionProfile(
+        id: kApplePccProfileId,
+        name: 'Apple Private Cloud Compute',
+        adapterKey: kApplePccAdapterKey,
+        baseUrl: kApplePccBaseUrl,
+      );
+
+  factory DirectConnectionProfile.appleOnDevice() => DirectConnectionProfile(
+    id: kAppleOnDeviceProfileId,
+    name: 'Apple On-Device',
+    adapterKey: kApplePccAdapterKey,
+    baseUrl: kAppleOnDeviceBaseUrl,
+  );
+
   static const int currentSchemaVersion = 1;
 
   final int schemaVersion;
@@ -165,6 +189,16 @@ final class DirectConnectionProfile {
   bool get supportsOllamaModelLifecycle =>
       adapterKey == kOllamaAdapterKey && !isOllamaCloudApiBaseUrl(baseUrl);
 
+  bool get isApplePrivateCloudCompute =>
+      id == kApplePccProfileId &&
+      adapterKey == kApplePccAdapterKey &&
+      baseUrl == kApplePccBaseUrl;
+
+  bool get isAppleOnDevice =>
+      id == kAppleOnDeviceProfileId &&
+      adapterKey == kApplePccAdapterKey &&
+      baseUrl == kAppleOnDeviceBaseUrl;
+
   final bool allowSelfSignedCertificates;
   final String? mtlsCertificateChainPem;
   final String? mtlsCertificateLabel;
@@ -197,6 +231,17 @@ final class DirectConnectionProfile {
     if (name.trim().isEmpty) return 'Profile name is required.';
     if (adapterKey.trim().isEmpty || adapterKey.contains(RegExp(r'\s'))) {
       return 'Adapter key is invalid.';
+    }
+    if (adapterKey == kApplePccAdapterKey) {
+      if ((!isApplePrivateCloudCompute && !isAppleOnDevice) ||
+          (apiKey ?? '').isNotEmpty ||
+          customHeaders.isNotEmpty ||
+          manualModelIds.isNotEmpty ||
+          allowSelfSignedCertificates ||
+          _hasTlsCredentialMaterial) {
+        return 'Apple Foundation Models are app-managed connections.';
+      }
+      return null;
     }
     if (originOf(baseUrl) == null) return 'Use a valid http(s) URL.';
     final uri = Uri.parse(baseUrl.trim());
