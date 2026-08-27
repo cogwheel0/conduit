@@ -796,6 +796,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     Map<String, dynamic>? combinedUsage;
 
     for (var round = 0; round < kDirectMaxToolRounds; round++) {
+      if (runCancelToken.isCancelled || cancelToken.isCancelled) return;
       final roundCancelToken = CancelToken();
       unawaited(
         cancelToken.whenCancel.then<void>((error) {

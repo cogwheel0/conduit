@@ -5481,6 +5481,76 @@ void main() {
     expect(http.requests, hasLength(1));
   });
 
+  test(
+    'OpenAI Chat cancellation after tool completion prevents another request',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'choices': [
+            {
+              'message': {
+                'role': 'assistant',
+                'content': '',
+                'tool_calls': [
+                  {
+                    'id': 'call-1',
+                    'type': 'function',
+                    'function': {
+                      'name': 'mcp_deadbeef_weather',
+                      'arguments': '{"city":"Paris"}',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        _Reply.json({
+          'choices': [
+            {
+              'message': {'role': 'assistant', 'content': 'Finished.'},
+            },
+          ],
+        }),
+      ]);
+      final pendingExecution = Completer<DirectToolResult>();
+      final dio = _CountingPostDio(http);
+      final run =
+          OpenAiCompatibleAdapter(
+            dioFactory: (_) => dio,
+            closeClients: false,
+          ).startCompletion(
+            _openAiProfile(),
+            DirectCompletionRequest(
+              remoteModelId: 'model',
+              messages: [DirectChatMessage.text(role: 'user', text: 'weather')],
+              tools: _localToolRuntime(execute: (_) => pendingExecution.future),
+            ),
+          );
+      final executionStarted = Completer<void>();
+      final streamDone = Completer<void>();
+      final events = <DirectStreamEvent>[];
+      final subscription = run.events.listen((event) {
+        events.add(event);
+        if (event is DirectToolCallStarted && !executionStarted.isCompleted) {
+          executionStarted.complete();
+        }
+      }, onDone: streamDone.complete);
+      addTearDown(subscription.cancel);
+
+      await executionStarted.future.timeout(const Duration(seconds: 1));
+      pendingExecution.complete(const DirectToolResult(text: 'sunny'));
+      final cancelFuture = run.cancel();
+      await cancelFuture.timeout(const Duration(seconds: 1));
+      await streamDone.future.timeout(const Duration(seconds: 1));
+
+      expect(events.whereType<DirectToolCallCompleted>(), hasLength(1));
+      expect(events.whereType<DirectStreamDone>(), isEmpty);
+      expect(dio.postCount, 1);
+      expect(http.requests, hasLength(1));
+    },
+  );
+
   test('OpenAI Chat executes fragmented local tool calls sequentially', () async {
     final http = _QueuedAdapter([
       _Reply.stream([
