@@ -796,9 +796,17 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     Map<String, dynamic>? combinedUsage;
 
     for (var round = 0; round < kDirectMaxToolRounds; round++) {
+      final roundCancelToken = CancelToken();
+      unawaited(
+        cancelToken.whenCancel.then<void>((error) {
+          if (!roundCancelToken.isCancelled) {
+            roundCancelToken.cancel(error.error ?? 'run cancelled');
+          }
+        }),
+      );
       final response = await dio.post<ResponseBody>(
         _completionEndpoint(profile),
-        cancelToken: cancelToken,
+        cancelToken: roundCancelToken,
         data: <String, dynamic>{...requestBody, 'messages': conversation},
         options: Options(
           responseType: ResponseType.stream,
@@ -817,6 +825,10 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
       final result = contentType.toLowerCase().contains('json')
           ? await _consumeChatToolJson(body, emitter)
           : await _consumeChatToolStream(body, emitter);
+      if (result.requiresTransportCancel && !roundCancelToken.isCancelled) {
+        roundCancelToken.cancel('completed response body did not close');
+        await Future<void>.delayed(Duration.zero);
+      }
       combinedUsage = _mergeOpenRouterPipelineUsage(
         combinedUsage,
         result.usage,
@@ -926,6 +938,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     Map<String, dynamic>? usage;
     var hasCompletion = false;
     var sawDone = false;
+    var requiresTransportCancel = false;
     try {
       await for (final raw in _parseBoundedSse(
         directStreamingResponseBytes(
@@ -992,19 +1005,21 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
       }
     } on DirectStreamDrainException {
       if (!sawDone) rethrow;
+      requiresTransportCancel = true;
     }
     if (!sawDone) {
       throw const DirectProviderException(
         'The provider stream ended before its completion marker.',
       );
     }
-    return _ChatToolRound(
+    final result = _ChatToolRound(
       content: content.toString(),
       reasoning: _nonEmpty(reasoningContent.toString()),
       usage: usage,
       calls: _finishChatToolCalls(calls),
       hasCompletion: hasCompletion,
     );
+    return requiresTransportCancel ? result.withTransportCancel() : result;
   }
 
   Future<void> _runResponsesRounds({
@@ -2137,6 +2152,7 @@ final class _ChatToolRound {
     required this.usage,
     required this.calls,
     required this.hasCompletion,
+    this.requiresTransportCancel = false,
   });
 
   final String content;
@@ -2144,6 +2160,16 @@ final class _ChatToolRound {
   final Map<String, dynamic>? usage;
   final List<_ChatToolCall> calls;
   final bool hasCompletion;
+  final bool requiresTransportCancel;
+
+  _ChatToolRound withTransportCancel() => _ChatToolRound(
+    content: content,
+    reasoning: reasoning,
+    usage: usage,
+    calls: calls,
+    hasCompletion: hasCompletion,
+    requiresTransportCancel: true,
+  );
 }
 
 final class _ResponsesToolRound {

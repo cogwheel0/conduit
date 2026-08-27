@@ -88,6 +88,29 @@ void main() {
     expect(actionIds(true).single, ComposerOverflowActionIds.mcpContent);
   });
 
+  test('Apple direct bindings do not expose local MCP tools', () {
+    expect(
+      directBindingSupportsLocalMcp(
+        const DirectModelBinding(
+          profileId: kApplePccProfileId,
+          adapterKey: kApplePccAdapterKey,
+          remoteModelId: kApplePccRemoteModelId,
+        ),
+      ),
+      isFalse,
+    );
+    expect(
+      directBindingSupportsLocalMcp(
+        const DirectModelBinding(
+          profileId: 'openai',
+          adapterKey: kOpenAiCompatibleAdapterKey,
+          remoteModelId: 'model',
+        ),
+      ),
+      isTrue,
+    );
+  });
+
   test('native composer glass uses non-animated cursor opacity', () {
     check(composerCursorOpacityAnimates(usesNativePlatformView: true))
         .equals(false);

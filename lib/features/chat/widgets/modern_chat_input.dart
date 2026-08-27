@@ -119,6 +119,10 @@ bool directMcpInsertionFitsComposer(TextEditingValue current, String content) =>
         .length <=
     kDirectMcpMaxInsertionBytes;
 
+@visibleForTesting
+bool directBindingSupportsLocalMcp(DirectModelBinding? binding) =>
+    binding != null && binding.adapterKey != kApplePccAdapterKey;
+
 /// Returns a stable UIKit edit-menu model for the composer.
 ///
 /// Keep composer actions limited to operations that mutate the editable field.
@@ -2748,12 +2752,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final selectedModel = ref.read(selectedModelProvider);
     final directMode =
         selectedModel != null && hasReservedDirectIdentity(selectedModel);
-    final availableTools = ref
-        .read(directMode ? directMcpToolsProvider : toolsListProvider)
-        .maybeWhen<List<Tool>>(
-          data: (tools) => tools,
-          orElse: () => const <Tool>[],
+    final directToolsAvailable =
+        directMode &&
+        directBindingSupportsLocalMcp(
+          ref.read(directModelRegistryProvider).resolve(selectedModel),
         );
+    final tools = directMode
+        ? (directToolsAvailable
+              ? ref.read(directMcpToolsProvider)
+              : const AsyncData<List<Tool>>([]))
+        : ref.read(toolsListProvider);
+    final availableTools = tools.maybeWhen<List<Tool>>(
+      data: (tools) => tools,
+      orElse: () => const <Tool>[],
+    );
 
     return _nativeKeyboardAttachmentActions(
       l10n: l10n,
@@ -3075,10 +3087,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final isDirectComposer =
         selectedComposerModel != null &&
         hasReservedDirectIdentity(selectedComposerModel);
+    final directToolsAvailable =
+        isDirectComposer &&
+        directBindingSupportsLocalMcp(
+          ref.watch(directModelRegistryProvider).resolve(selectedComposerModel),
+        );
     final toolsAsync = isDirectComposer
         ? const AsyncData<List<Tool>>([])
         : ref.watch(toolsListProvider);
-    final directMcpToolsAsync = isDirectComposer
+    final directMcpToolsAsync = directToolsAvailable
         ? ref.watch(directMcpToolsProvider)
         : const AsyncData<List<Tool>>([]);
     if (isDirectComposer) {

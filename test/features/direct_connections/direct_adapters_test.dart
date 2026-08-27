@@ -5580,6 +5580,59 @@ void main() {
     );
   });
 
+  test('OpenAI Chat cancels a completed tool-round transport before replay', () async {
+    final http = _NeverEndingStreamAdapter(
+      utf8.encode(
+        'data: ${jsonEncode({
+          'choices': [
+            {
+              'delta': {
+                'tool_calls': [
+                  {
+                    'index': 0,
+                    'id': 'call-1',
+                    'function': {'name': 'mcp_deadbeef_weather', 'arguments': '{"city":"Paris"}'},
+                  },
+                ],
+              },
+            },
+          ],
+        })}\n\n'
+        'data: [DONE]\n\n',
+      ),
+      contentType: 'text/event-stream',
+      next: _Reply.json({
+        'choices': [
+          {
+            'message': {'role': 'assistant', 'content': 'Sunny.'},
+          },
+        ],
+      }),
+    );
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+      successDrainTimeout: const Duration(milliseconds: 25),
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'weather')],
+            tools: _localToolRuntime(),
+          ),
+        )
+        .events
+        .toList()
+        .timeout(const Duration(seconds: 1));
+
+    expect(http.requests, 2);
+    expect(http.secondStartedAfterTransportCancel, isTrue);
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+  });
+
   test(
     'OpenAI Chat keeps the latest cumulative usage within a round',
     () async {
@@ -6700,11 +6753,15 @@ final class _QueuedAdapter implements HttpClientAdapter {
 }
 
 final class _NeverEndingStreamAdapter implements HttpClientAdapter {
-  _NeverEndingStreamAdapter(this.chunk, {required this.contentType});
+  _NeverEndingStreamAdapter(this.chunk, {required this.contentType, this.next});
 
   final List<int> chunk;
   final String contentType;
+  final _Reply? next;
   final Completer<void> sourceCancelled = Completer<void>();
+  final Completer<void> transportCancelled = Completer<void>();
+  int requests = 0;
+  bool secondStartedAfterTransportCancel = false;
 
   @override
   Future<ResponseBody> fetch(
@@ -6712,6 +6769,18 @@ final class _NeverEndingStreamAdapter implements HttpClientAdapter {
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
   ) async {
+    requests++;
+    if (requests > 1) {
+      secondStartedAfterTransportCancel = transportCancelled.isCompleted;
+      return next!.toBody();
+    }
+    if (cancelFuture != null) {
+      unawaited(
+        cancelFuture.then((_) {
+          if (!transportCancelled.isCompleted) transportCancelled.complete();
+        }),
+      );
+    }
     late final StreamController<Uint8List> controller;
     controller = StreamController<Uint8List>(
       onListen: () => controller.add(Uint8List.fromList(chunk)),

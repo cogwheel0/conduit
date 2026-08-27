@@ -140,6 +140,7 @@ void main() {
   testWidgets('management shows an MCP secure-storage load failure', (
     tester,
   ) async {
+    var additions = 0;
     await tester.pumpWidget(
       ProviderScope(
         child: MaterialApp(
@@ -153,6 +154,7 @@ void main() {
             onSyncChanged: (_) {},
             onAdd: () {},
             onEdit: (_) {},
+            onAddMcp: () => additions++,
           ),
         ),
       ),
@@ -164,6 +166,8 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('No MCP servers yet'), findsNothing);
+    await tester.tap(find.text('Add connection').last);
+    expect(additions, 1);
   });
 
   testWidgets('MCP editor hosts Material fields on an iOS utility route', (
@@ -372,12 +376,22 @@ void main() {
     tester,
   ) async {
     final store = _managementStore();
-    final server = await _saveManagementOAuthServer(
+    final saved = await _saveManagementOAuthServer(
       store,
       Uri.parse('https://resource.example/mcp'),
     );
+    final server = (await store.upsert(
+      saved.copyWith(
+        rememberedApprovals: [_managementApproval('a', 'lookup', 'Lookup')],
+      ),
+      expectedPrevious: saved,
+    )).single;
     final client = _BlockedHttpClient();
-    final coordinator = DirectMcpOAuthCoordinator(store: store, client: client);
+    final coordinator = DirectMcpOAuthCoordinator(
+      store: store,
+      client: client,
+      requestTimeout: const Duration(milliseconds: 10),
+    );
     addTearDown(coordinator.close);
     await _pumpOAuthEditor(
       tester,
@@ -399,6 +413,20 @@ void main() {
           .widget<TextField>(find.byKey(const ValueKey('direct-mcp-endpoint')))
           .enabled,
       isFalse,
+    );
+    expect(
+      tester
+          .widget<TextButton>(find.widgetWithText(TextButton, 'Revoke'))
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<TextButton>(
+            find.byKey(const ValueKey('direct-mcp-remembered-revoke-all')),
+          )
+          .onPressed,
+      isNull,
     );
 
     await _pumpOAuthEditor(

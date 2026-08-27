@@ -470,7 +470,7 @@ class _DirectMcpSection extends StatelessWidget {
       children: [
         _DirectConnectionSectionHeader(
           title: l10n.directMcpServersTitle,
-          onAdd: servers.isNotEmpty ? onAdd : null,
+          onAdd: loadFailed || servers.isNotEmpty ? onAdd : null,
         ),
         const SizedBox(height: Spacing.sm),
         if (loadFailed)

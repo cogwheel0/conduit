@@ -339,6 +339,7 @@ class _DirectMcpServerEditorPageState
         final restored = await servers.upsert(
           previous!,
           expectedPrevious: interim,
+          secretsConfirmedForNewOrigin: true,
         );
         if (mounted) {
           _previous = restored.firstWhere((server) => server.id == previous.id);
@@ -625,7 +626,7 @@ class _DirectMcpServerEditorPageState
                           '${approval.remoteToolName} · ${MaterialLocalizations.of(context).formatCompactDate(approval.createdAt.toLocal())}',
                         ),
                         trailing: TextButton(
-                          onPressed: _busy
+                          onPressed: _busy || oauthPending
                               ? null
                               : () =>
                                     _revokeRememberedApproval(approval.digest),
@@ -636,7 +637,7 @@ class _DirectMcpServerEditorPageState
                       alignment: AlignmentDirectional.centerStart,
                       child: TextButton(
                         key: const ValueKey('direct-mcp-remembered-revoke-all'),
-                        onPressed: _busy
+                        onPressed: _busy || oauthPending
                             ? null
                             : () => _revokeRememberedApproval(null),
                         child: Text(l10n.directMcpRememberedApprovalsRevokeAll),
