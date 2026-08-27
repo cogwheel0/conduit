@@ -227,6 +227,8 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
         onEdit: (id) => _openEditor(context, id),
         onAddMcp: () => _openMcpEditor(context, 'new'),
         onEditMcp: (id) => _openMcpEditor(context, id),
+        onRetryMcp: () =>
+            unawaited(ref.read(directMcpServersProvider.notifier).reload()),
         onEditOpenWebUi: (id) => _openEditor(context, id, isOpenWebUi: true),
         onRetryOpenWebUi: () => unawaited(_refreshOpenWebUiConnections()),
         onFinishOnboarding:
@@ -284,6 +286,7 @@ class DirectConnectionsContent extends StatelessWidget {
     required this.onEdit,
     this.onAddMcp = _noop,
     this.onEditMcp = _noopId,
+    this.onRetryMcp = _noop,
     this.onAddOpenWebUi,
     this.onEditOpenWebUi,
     this.onRetryOpenWebUi,
@@ -313,6 +316,7 @@ class DirectConnectionsContent extends StatelessWidget {
   final ValueChanged<String> onEdit;
   final VoidCallback onAddMcp;
   final ValueChanged<String> onEditMcp;
+  final VoidCallback onRetryMcp;
   final VoidCallback? onAddOpenWebUi;
   final ValueChanged<String>? onEditOpenWebUi;
   final VoidCallback? onRetryOpenWebUi;
@@ -422,6 +426,7 @@ class DirectConnectionsContent extends StatelessWidget {
         loadFailed: mcpLoadFailed,
         onAdd: onAddMcp,
         onEdit: onEditMcp,
+        onRetry: onRetryMcp,
         flat: isOnboarding,
       ),
     ];
@@ -446,6 +451,7 @@ class _DirectMcpSection extends StatelessWidget {
     required this.loadFailed,
     required this.onAdd,
     required this.onEdit,
+    required this.onRetry,
     required this.flat,
   });
 
@@ -453,6 +459,7 @@ class _DirectMcpSection extends StatelessWidget {
   final bool loadFailed;
   final VoidCallback onAdd;
   final ValueChanged<String> onEdit;
+  final VoidCallback onRetry;
   final bool flat;
 
   @override
@@ -467,7 +474,15 @@ class _DirectMcpSection extends StatelessWidget {
         ),
         const SizedBox(height: Spacing.sm),
         if (loadFailed)
-          InsetGroupedSection(child: Text(l10n.directMcpLoadFailed))
+          InsetGroupedSection(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(l10n.directMcpLoadFailed),
+                TextButton(onPressed: onRetry, child: Text(l10n.retry)),
+              ],
+            ),
+          )
         else if (servers.isEmpty)
           _DirectConnectionsEmptyState(
             title: l10n.directMcpEmptyTitle,

@@ -17,6 +17,7 @@ void main() {
         name: 'Home tools',
         endpoint: 'http://192.168.1.2:3000/mcp?tenant=one',
         bearerToken: 'secret',
+        allowInsecureCredentials: true,
         customHeaders: const {'X-Tenant': 'one'},
       ),
     ]).encode();
@@ -79,6 +80,30 @@ void main() {
     expect(migrated.rememberedApprovals, isEmpty);
     expect(decoded.rememberedApprovals.single.digest, approval.digest);
     expect(decoded.toString(), isNot(contains(approval.digest)));
+  });
+
+  test('version 3 drops credentials that would cross LAN HTTP', () {
+    final server = DirectMcpServersDocument.decode(
+      jsonEncode({
+        'version': 3,
+        'servers': [
+          {
+            'schemaVersion': 3,
+            'id': 'legacy-lan',
+            'name': 'Legacy LAN',
+            'endpoint': 'http://192.168.1.20/mcp',
+            'authMode': 'bearer',
+            'bearerToken': 'secret',
+            'customHeaders': {'X-Secret': 'header'},
+            'rememberedApprovals': [],
+          },
+        ],
+      }),
+    ).servers.single;
+
+    expect(server.authMode, DirectMcpAuthMode.none);
+    expect(server.bearerToken, isNull);
+    expect(server.customHeaders, isEmpty);
   });
 
   test('remembered approvals enforce bounded valid records', () {
@@ -244,6 +269,30 @@ void main() {
     expect(server.validate, throwsFormatException);
   });
 
+  test('credential-bearing LAN HTTP requires an explicit confirmation', () {
+    final insecure = DirectMcpServer(
+      id: 'lan',
+      name: 'LAN',
+      endpoint: 'http://192.168.1.20/mcp',
+      bearerToken: 'secret',
+    );
+
+    expect(insecure.validate, throwsFormatException);
+    expect(
+      insecure.copyWith(allowInsecureCredentials: true).validate,
+      returnsNormally,
+    );
+    expect(
+      DirectMcpServer(
+        id: 'loopback',
+        name: 'Loopback',
+        endpoint: 'http://127.0.0.1:3000/mcp',
+        bearerToken: 'secret',
+      ).validate,
+      returnsNormally,
+    );
+  });
+
   test('origin changes clear credentials unless explicitly confirmed', () {
     final previous = DirectMcpServer(
       id: 'server',
@@ -295,6 +344,10 @@ void main() {
       previous: previous,
       next: previous.copyWith(endpoint: 'https://other.example/mcp'),
     );
+    final pathMoved = DirectMcpServer.secureUpdate(
+      previous: previous,
+      next: previous.copyWith(endpoint: 'https://resource.example/other'),
+    );
     final issuerChanged = DirectMcpServer.secureUpdate(
       previous: previous,
       next: previous.copyWith(
@@ -305,7 +358,26 @@ void main() {
 
     expect(refreshed.rememberedApprovals, [approval]);
     expect(moved.rememberedApprovals, isEmpty);
+    expect(pathMoved.rememberedApprovals, isEmpty);
     expect(issuerChanged.rememberedApprovals, isEmpty);
+  });
+
+  test('switching to a supplied bearer token preserves that credential', () {
+    final previous = DirectMcpServer(
+      id: 'server',
+      name: 'Server',
+      endpoint: 'https://resource.example/mcp',
+    );
+    final updated = DirectMcpServer.secureUpdate(
+      previous: previous,
+      next: previous.copyWith(
+        authMode: DirectMcpAuthMode.bearer,
+        bearerToken: 'new-secret',
+      ),
+    );
+
+    expect(updated.authMode, DirectMcpAuthMode.bearer);
+    expect(updated.bearerToken, 'new-secret');
   });
 
   test('unsafe OAuth credential mutations are cleared', () {

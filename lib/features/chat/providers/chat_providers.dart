@@ -7150,7 +7150,7 @@ List _filterSelectedConfiguredToolServers(
   Iterable<String> selectedToolIds,
 ) {
   final selectedServerIds = selectedToolIds
-      .where(_isDirectServerToolSelection)
+      .where((id) => id.startsWith('direct_server:'))
       .map((id) => id.substring('direct_server:'.length).trim())
       .where((id) => id.isNotEmpty)
       .toSet();
@@ -16211,11 +16211,6 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
         'Local MCP tools cannot be combined with image generation.',
       );
     }
-    if (route.profile.openAiApiMode == DirectOpenAiApiMode.responses) {
-      throw const DirectChatInputException(
-        'Local MCP tools require Chat Completions mode.',
-      );
-    }
     final servers = await _awaitDirectPreflightOrCancellation(
       registry: registry,
       reservation: reservation,
@@ -16254,6 +16249,12 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
       cancelToken: preflightCancelToken,
       operation: () => sessionFuture,
     );
+    if (!_directRouteIsStillSelected(ref, route)) {
+      await mcpSession!.close();
+      throw const DirectChatInputException(
+        'The selected Direct connection changed before sending.',
+      );
+    }
     final session = mcpSession!;
     toolRuntime = DirectToolRuntime(
       definitions: <DirectToolDefinition>[
@@ -16716,6 +16717,30 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
           // before incremental appends can resume safely.
           uiProjectionIsCurrent = false;
           uiProjectionToken = null;
+        }
+        if ((projectedEvent is DirectMcpApprovalRequested ||
+                projectedEvent is DirectMcpApprovalResolved) &&
+            accumulator.mcpApproval != null) {
+          final approvalSnapshot = assistantSeed.copyWith(
+            content: accumulator.render(done: false),
+            output: accumulator.toolOutput,
+            metadata: <String, dynamic>{
+              ...?assistantSeed.metadata,
+              kDirectMcpApprovalMetadataKey: accumulator.mcpApproval,
+            },
+            isStreaming: true,
+          );
+          streamElapsed.stop();
+          try {
+            await _persistCompletedDirectAssistant(
+              ref,
+              owner: owner,
+              assistant: approvalSnapshot,
+              isCurrentGeneration: () => registry.isLatest(reservation),
+            );
+          } finally {
+            streamElapsed.start();
+          }
         }
         if (projectedEvent is DirectGeneratedImage) {
           final assetBase = _isDirectConversationOwnerActive(ref, owner)

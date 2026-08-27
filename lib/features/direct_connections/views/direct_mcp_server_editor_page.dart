@@ -119,6 +119,19 @@ class _DirectMcpServerEditorPageState
       }
       customHeaders[name] = line.substring(separator + 1).trim();
     }
+    final previous = _previous;
+    final keepsInsecureConfirmation =
+        previous?.allowInsecureCredentials == true &&
+        previous!.endpoint.trim() == _endpoint.text.trim() &&
+        previous.authMode == _authMode &&
+        previous.bearerToken ==
+            (_authMode == DirectMcpAuthMode.bearer
+                ? (_token.text.isEmpty ? null : _token.text)
+                : null) &&
+        previous.customHeaders.length == customHeaders.length &&
+        previous.customHeaders.entries.every(
+          (entry) => customHeaders[entry.key] == entry.value,
+        );
     final server = DirectMcpServer(
       id: id,
       name: _name.text.trim(),
@@ -133,11 +146,36 @@ class _DirectMcpServerEditorPageState
                 ? _previous!.oauthTokens
                 : null)
           : null,
+      allowInsecureCredentials: keepsInsecureConfirmation,
       customHeaders: customHeaders,
       rememberedApprovals: _previous?.rememberedApprovals ?? const [],
     );
-    server.validate();
+    if (server.requiresInsecureCredentialConfirmation &&
+        !server.allowInsecureCredentials) {
+      server.copyWith(allowInsecureCredentials: true).validate();
+    } else {
+      server.validate();
+    }
     return server;
+  }
+
+  Future<DirectMcpServer?> _confirmInsecureTransport(
+    DirectMcpServer server,
+  ) async {
+    if (!server.requiresInsecureCredentialConfirmation ||
+        server.allowInsecureCredentials) {
+      return server;
+    }
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await ThemedDialogs.confirm(
+      context,
+      title: l10n.directMcpInsecureCredentialsTitle,
+      message: l10n.directMcpInsecureCredentialsMessage,
+      confirmText: l10n.directMcpInsecureCredentialsConfirm,
+      barrierDismissible: false,
+    );
+    if (!confirmed || !mounted) return null;
+    return server.copyWith(allowInsecureCredentials: true);
   }
 
   Future<void> _save() async {
@@ -163,6 +201,9 @@ class _DirectMcpServerEditorPageState
       if (!confirmed) draft = draft.withoutSecrets();
     }
     if (!mounted) return;
+    final confirmedDraft = await _confirmInsecureTransport(draft);
+    if (confirmedDraft == null || !mounted) return;
+    draft = confirmedDraft;
     setState(() {
       _busy = true;
       _message = null;
@@ -192,6 +233,9 @@ class _DirectMcpServerEditorPageState
       setState(() => _message = error.message);
       return;
     }
+    final confirmedDraft = await _confirmInsecureTransport(draft);
+    if (confirmedDraft == null || !mounted) return;
+    draft = confirmedDraft;
     setState(() {
       _busy = true;
       _message = l10n.directMcpTesting;
@@ -250,6 +294,12 @@ class _DirectMcpServerEditorPageState
       setState(() => _message = error.message);
       return;
     }
+    final confirmedDraft = await _confirmInsecureTransport(draft);
+    if (confirmedDraft == null || !mounted) return;
+    draft = confirmedDraft;
+    final previous = _previous;
+    DirectMcpServer? interim;
+    var oauthCompleted = false;
     setState(() {
       _oauthPending = true;
       _message = l10n.directMcpOAuthPending;
@@ -257,6 +307,7 @@ class _DirectMcpServerEditorPageState
     try {
       final saved = await servers.upsert(draft, expectedPrevious: _previous);
       final persisted = saved.firstWhere((server) => server.id == draft.id);
+      interim = persisted;
       if (_isNew) {
         if (!mounted) return;
         context.replaceNamed(
@@ -266,6 +317,7 @@ class _DirectMcpServerEditorPageState
         );
       }
       final connected = await oauth.connect(persisted);
+      oauthCompleted = true;
       await servers.reload();
       if (mounted) {
         setState(() {
@@ -274,6 +326,21 @@ class _DirectMcpServerEditorPageState
         });
       }
     } catch (error) {
+      if (!oauthCompleted &&
+          previous?.authMode == DirectMcpAuthMode.bearer &&
+          interim != null) {
+        try {
+          final restored = await servers.upsert(
+            previous!,
+            expectedPrevious: interim,
+          );
+          if (mounted) {
+            _previous = restored.firstWhere(
+              (server) => server.id == previous.id,
+            );
+          }
+        } catch (_) {}
+      }
       if (mounted) {
         setState(
           () => _message = switch (error) {
@@ -404,7 +471,9 @@ class _DirectMcpServerEditorPageState
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<DirectMcpAuthMode>(
-                    key: const ValueKey('direct-mcp-auth-mode'),
+                    key: ValueKey(
+                      'direct-mcp-auth-mode-${widget.serverId}-${_authMode.name}',
+                    ),
                     initialValue: _authMode,
                     decoration: InputDecoration(
                       labelText: l10n.directMcpAuthMode,
@@ -563,7 +632,7 @@ class _DirectMcpServerEditorPageState
                     key: const ValueKey('direct-mcp-save'),
                     text: l10n.save,
                     isLoading: _busy,
-                    onPressed: _busy ? null : _save,
+                    onPressed: _busy || oauthPending ? null : _save,
                   ),
                   if (!_isNew) ...[
                     const SizedBox(height: 8),

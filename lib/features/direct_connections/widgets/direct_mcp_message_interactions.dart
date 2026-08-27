@@ -39,6 +39,7 @@ final class _DirectMcpMessageInteractionsState
     );
     if (!confirmed || !mounted) return;
     final registry = ref.read(directRunRegistryProvider);
+    if (!registry.hasLiveMcpApproval(id)) return;
     final servers = ref.read(directMcpServersProvider.notifier);
     setState(() {
       _busy = true;

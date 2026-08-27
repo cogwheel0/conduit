@@ -153,6 +153,42 @@ void main() {
     expect(container.read(selectedFilterIdsProvider), isEmpty);
   });
 
+  testWidgets('local MCP and provider features are mutually exclusive', (
+    tester,
+  ) async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    late WidgetRef ref;
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: Consumer(
+          builder: (context, widgetRef, child) {
+            ref = widgetRef;
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+
+    container.read(imageGenerationEnabledProvider.notifier).set(true);
+    container.read(webSearchEnabledProvider.notifier).set(true);
+    setComposerOverflowSelection(
+      ref,
+      actionId: ComposerOverflowActionIds.tool('local_mcp:home'),
+      selected: true,
+    );
+    expect(container.read(imageGenerationEnabledProvider), isFalse);
+    expect(container.read(webSearchEnabledProvider), isFalse);
+
+    setComposerOverflowSelection(
+      ref,
+      actionId: ComposerOverflowActionIds.imageGeneration,
+      selected: true,
+    );
+    expect(container.read(selectedToolIdsProvider), isEmpty);
+  });
+
   testWidgets('conversation boundary clears selected filters', (tester) async {
     final container = ProviderContainer();
     addTearDown(container.dispose);

@@ -311,9 +311,21 @@ void setComposerOverflowSelection(
   switch (actionId) {
     case ComposerOverflowActionIds.webSearch:
       ref.read(webSearchEnabledProvider.notifier).set(selected);
+      if (selected) {
+        final tools = ref.read(selectedToolIdsProvider);
+        ref
+            .read(selectedToolIdsProvider.notifier)
+            .set(tools.where((id) => !id.startsWith('local_mcp:')).toList());
+      }
       return;
     case ComposerOverflowActionIds.imageGeneration:
       ref.read(imageGenerationEnabledProvider.notifier).set(selected);
+      if (selected) {
+        final tools = ref.read(selectedToolIdsProvider);
+        ref
+            .read(selectedToolIdsProvider.notifier)
+            .set(tools.where((id) => !id.startsWith('local_mcp:')).toList());
+      }
       return;
   }
 
@@ -345,6 +357,10 @@ void setComposerOverflowSelection(
   if (selected) {
     if (!alreadySelected) {
       current.add(toolId);
+    }
+    if (toolId.startsWith('local_mcp:')) {
+      ref.read(imageGenerationEnabledProvider.notifier).set(false);
+      ref.read(webSearchEnabledProvider.notifier).set(false);
     }
   } else if (alreadySelected) {
     current.remove(toolId);

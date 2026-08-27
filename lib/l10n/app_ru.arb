@@ -3365,5 +3365,8 @@
   "workspaceToolsTitle": "Инструменты",
   "workspaceToolsSubtitle": "Пользовательские расширения и интеграции инструментов",
   "workspaceKnowledgeTitle": "База знаний",
-  "workspaceKnowledgeSubtitle": "Коллекции документов для семантического поиска"
+  "workspaceKnowledgeSubtitle": "Коллекции документов для семантического поиска",
+  "directMcpInsecureCredentialsTitle": "Send credentials without encryption?",
+  "directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network.",
+  "directMcpInsecureCredentialsConfirm": "Send without encryption"
 }

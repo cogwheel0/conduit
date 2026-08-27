@@ -3021,15 +3021,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     ref.listen<AsyncValue<List<Tool>>>(toolsListProvider, (previous, next) {
       _scheduleNativeKeyboardAttachmentSync();
     });
-    ref.listen<AsyncValue<List<Tool>>>(directMcpToolsProvider, (
-      previous,
-      next,
-    ) {
-      _scheduleNativeKeyboardAttachmentSync();
-    });
-    ref.listen(directMcpServersProvider, (previous, next) {
-      _scheduleNativeKeyboardAttachmentSync();
-    });
     ref.listen<Model?>(selectedModelProvider, (previous, next) {
       _scheduleNativeKeyboardAttachmentSync();
     });
@@ -3075,9 +3066,17 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final sendOnEnter = ref.watch(
       appSettingsProvider.select((s) => s.sendOnEnter),
     );
-    final toolsAsync = ref.watch(toolsListProvider);
-    final directMcpToolsAsync = ref.watch(directMcpToolsProvider);
-    ref.watch(directMcpServersProvider);
+    final selectedComposerModel = ref.watch(selectedModelProvider);
+    final isDirectComposer =
+        selectedComposerModel != null &&
+        hasReservedDirectIdentity(selectedComposerModel);
+    final toolsAsync = isDirectComposer
+        ? const AsyncData<List<Tool>>([])
+        : ref.watch(toolsListProvider);
+    final directMcpToolsAsync = isDirectComposer
+        ? ref.watch(directMcpToolsProvider)
+        : const AsyncData<List<Tool>>([]);
+    if (isDirectComposer) ref.watch(directMcpServersProvider);
     final bool showWebPill = selectedQuickPills.contains('web');
     final bool showImagePillPref = selectedQuickPills.contains('image');
     final voiceAvailableAsync = ref.watch(voiceInputAvailableProvider);
@@ -3118,13 +3117,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // Watching the capabilities value makes a loading -> data transition
     // rebuild the composer. Attachment access still fails closed below.
     ref.watch(hermesCapabilitiesProvider);
-    final selectedComposerModel = ref.watch(selectedModelProvider);
     final visionCapableModelIds = ref.watch(visionCapableModelsProvider);
     ref.watch(fileUploadCapableModelsProvider);
     final attachmentAvailability = _overflowAttachmentAvailability;
-    final bool isDirectComposer =
-        selectedComposerModel != null &&
-        hasReservedDirectIdentity(selectedComposerModel);
     final List<Tool> availableTools =
         (isDirectComposer ? directMcpToolsAsync : toolsAsync)
             .maybeWhen<List<Tool>>(
@@ -3229,8 +3224,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             ? CupertinoIcons.photo
             : Icons.image;
         void handleTap() {
-          final notifier = ref.read(imageGenerationEnabledProvider.notifier);
-          notifier.set(!imageGenEnabled);
+          setComposerOverflowSelection(
+            ref,
+            actionId: ComposerOverflowActionIds.imageGeneration,
+            selected: !imageGenEnabled,
+          );
         }
 
         quickPills.add(

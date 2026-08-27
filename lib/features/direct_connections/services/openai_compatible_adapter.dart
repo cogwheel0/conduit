@@ -839,6 +839,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
       conversation.add(<String, dynamic>{
         'role': 'assistant',
         'content': result.content,
+        if (result.reasoning != null) 'reasoning_content': result.reasoning,
         'tool_calls': [for (final call in result.calls) call.toJson()],
       });
       for (final call in result.calls) {
@@ -915,6 +916,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
   ) async {
     final calls = <int, _ChatToolCallBuilder>{};
     final content = StringBuffer();
+    final reasoningContent = StringBuffer();
     var hasCompletion = false;
     var sawDone = false;
     try {
@@ -956,6 +958,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
           final reasoning = _rawChatReasoning(delta);
           if (reasoning != null) {
             emitter.reasoning(reasoning);
+            reasoningContent.write(reasoning);
             hasCompletion = hasCompletion || reasoning.trim().isNotEmpty;
           }
           final text = _completionText(delta['content']);
@@ -990,6 +993,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     }
     return _ChatToolRound(
       content: content.toString(),
+      reasoning: _nonEmpty(reasoningContent.toString()),
       calls: _finishChatToolCalls(calls),
       hasCompletion: hasCompletion,
     );
@@ -1487,6 +1491,11 @@ Map<String, dynamic> _chatRequestBody(
   }
   final runtime = request.tools;
   if (runtime != null) {
+    if (request.enableWebSearch) {
+      throw const DirectProviderException(
+        'OpenRouter web search cannot be combined with local MCP tools.',
+      );
+    }
     final existingTools = body['tools'];
     body
       ..['tools'] = <Map<String, dynamic>>[
@@ -1927,9 +1936,9 @@ Map<String, dynamic>? _stringMap(Object? value) => value is Map
     : null;
 
 String? _rawChatReasoning(Map<String, dynamic> message) =>
-    _nonEmpty(message['reasoning_content']?.toString()) ??
-    _nonEmpty(message['reasoning']?.toString()) ??
-    _reasoningDetailsText(message['reasoning_details']);
+    _completionText(message['reasoning_content']) ??
+    _completionText(message['reasoning']) ??
+    _rawReasoningDetailsText(message['reasoning_details']);
 
 _ChatToolRound _chatToolRoundFromPayload(
   Map<String, dynamic> payload,
@@ -1975,6 +1984,7 @@ _ChatToolRound _chatToolRoundFromPayload(
   if (usage is Map) emitter.usage(usage.cast<String, dynamic>());
   return _ChatToolRound(
     content: '$content${refusal ?? ''}',
+    reasoning: reasoning,
     calls: _finishChatToolCalls(calls),
     hasCompletion: hasCompletion,
   );
@@ -2090,11 +2100,13 @@ final class _ChatToolCall {
 final class _ChatToolRound {
   const _ChatToolRound({
     required this.content,
+    required this.reasoning,
     required this.calls,
     required this.hasCompletion,
   });
 
   final String content;
+  final String? reasoning;
   final List<_ChatToolCall> calls;
   final bool hasCompletion;
 }
@@ -2545,6 +2557,15 @@ String? _reasoningDetailsText(List<openai.ReasoningDetail>? details) {
   return _nonEmpty(
     details.map((detail) => detail.text).whereType<String>().join(),
   );
+}
+
+String? _rawReasoningDetailsText(Object? details) {
+  if (details is! Iterable) return null;
+  final text = StringBuffer();
+  for (final detail in details) {
+    if (detail is Map) text.write(_completionText(detail['text']) ?? '');
+  }
+  return _nonEmpty(text.toString());
 }
 
 String? _nonEmpty(String? value) =>

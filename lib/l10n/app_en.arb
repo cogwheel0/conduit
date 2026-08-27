@@ -5995,5 +5995,11 @@
   "directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again.",
   "@directMcpContentComposerTooLarge": {"description":"Actionable error when MCP insertion would exceed the Direct composer limit."},
   "directMcpContentLoading": "Loading MCP content…",
-  "@directMcpContentLoading": {"description":"Status shown while an MCP prompt or resource is loading."}
+  "@directMcpContentLoading": {"description":"Status shown while an MCP prompt or resource is loading."},
+  "directMcpInsecureCredentialsTitle": "Send credentials without encryption?",
+  "@directMcpInsecureCredentialsTitle": {"description":"Title before sending MCP credentials over non-loopback HTTP."},
+  "directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network.",
+  "@directMcpInsecureCredentialsMessage": {"description":"Warning before allowing MCP credentials over non-loopback HTTP."},
+  "directMcpInsecureCredentialsConfirm": "Send without encryption",
+  "@directMcpInsecureCredentialsConfirm": {"description":"Action confirming MCP credentials may be sent over unencrypted HTTP."}
 }

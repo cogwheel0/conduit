@@ -401,6 +401,7 @@ final class DirectMcpOAuthCoordinator {
   }
 
   Future<_OAuthCallback> _receiveCallback(_PendingOAuthFlow flow) async {
+    final deadline = Stopwatch()..start();
     HttpRequest request;
     try {
       request = await Future.any([
@@ -427,15 +428,6 @@ final class DirectMcpOAuthCoordinator {
         throw const DirectMcpOAuthException(
           'The MCP OAuth callback was rejected.',
         );
-      }
-      var bodyBytes = 0;
-      await for (final chunk in request.timeout(const Duration(seconds: 2))) {
-        bodyBytes += chunk.length;
-        if (bodyBytes > _maxCallbackBytes) {
-          throw const DirectMcpOAuthException(
-            'The MCP OAuth callback was rejected.',
-          );
-        }
       }
       final all = request.uri.queryParametersAll;
       if (all.values.any((values) => values.length != 1) ||
@@ -484,6 +476,47 @@ final class DirectMcpOAuthCoordinator {
       if (code.length > 4096 || _hasForbiddenCharacter(code)) {
         throw const DirectMcpOAuthException(
           'The MCP OAuth callback code was invalid.',
+        );
+      }
+      final remaining = flowTimeout - deadline.elapsed;
+      if (remaining <= Duration.zero) {
+        throw const DirectMcpOAuthException(
+          'The MCP OAuth connection timed out. Try again.',
+        );
+      }
+      final iterator = StreamIterator<List<int>>(request);
+      var bodyTimedOut = false;
+      final timer = Timer(
+        remaining < const Duration(seconds: 2)
+            ? remaining
+            : const Duration(seconds: 2),
+        () {
+          bodyTimedOut = true;
+          unawaited(iterator.cancel());
+        },
+      );
+      var bodyBytes = 0;
+      try {
+        while (await iterator.moveNext()) {
+          bodyBytes += iterator.current.length;
+          if (bodyBytes > _maxCallbackBytes) {
+            throw const DirectMcpOAuthException(
+              'The MCP OAuth callback was rejected.',
+            );
+          }
+          if (deadline.elapsed >= flowTimeout) {
+            throw const DirectMcpOAuthException(
+              'The MCP OAuth connection timed out. Try again.',
+            );
+          }
+        }
+      } finally {
+        timer.cancel();
+        await iterator.cancel();
+      }
+      if (bodyTimedOut) {
+        throw const DirectMcpOAuthException(
+          'The MCP OAuth connection timed out. Try again.',
         );
       }
       accepted = true;
@@ -776,13 +809,27 @@ final class DirectMcpOAuthCoordinator {
       );
     }
     final bytes = <int>[];
-    await for (final chunk in response.stream.timeout(requestTimeout)) {
-      if (bytes.length + chunk.length > _maxOAuthDocumentBytes) {
-        throw const DirectMcpOAuthException(
-          'The OAuth metadata document is too large.',
-        );
+    final iterator = StreamIterator<List<int>>(response.stream);
+    var timedOut = false;
+    final timer = Timer(requestTimeout, () {
+      timedOut = true;
+      unawaited(iterator.cancel());
+    });
+    try {
+      while (await iterator.moveNext()) {
+        if (bytes.length + iterator.current.length > _maxOAuthDocumentBytes) {
+          throw const DirectMcpOAuthException(
+            'The OAuth metadata document is too large.',
+          );
+        }
+        bytes.addAll(iterator.current);
       }
-      bytes.addAll(chunk);
+    } finally {
+      timer.cancel();
+      await iterator.cancel();
+    }
+    if (timedOut) {
+      throw const DirectMcpOAuthException('The OAuth request timed out.');
     }
     return bytes;
   }

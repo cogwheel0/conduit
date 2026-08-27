@@ -3251,4 +3251,7 @@
   ,"directMcpContentTooLarge": "This content is too large to insert."
   ,"directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again."
   ,"directMcpContentLoading": "Loading MCP content…"
+  ,"directMcpInsecureCredentialsTitle": "Send credentials without encryption?"
+  ,"directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network."
+  ,"directMcpInsecureCredentialsConfirm": "Send without encryption"
 }

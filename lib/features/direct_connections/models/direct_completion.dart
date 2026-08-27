@@ -174,11 +174,13 @@ final class DirectToolApprovalHandle {
     required this.request,
     required this.decision,
     this.requiresUserDecision = true,
+    this.onTimeout,
   });
 
   final DirectToolApprovalRequest request;
   final Future<DirectToolApprovalDecision> decision;
   final bool requiresUserDecision;
+  final void Function()? onTimeout;
 }
 
 String directToolApprovalState(DirectToolApprovalDecision decision) =>
@@ -195,10 +197,10 @@ Future<DirectToolApprovalDecision?> waitForDirectToolApproval({
   required Iterable<Future<void>> cancellations,
 }) {
   final timedOut = Completer<DirectToolApprovalDecision>();
-  final timer = Timer(
-    timeout,
-    () => timedOut.complete(DirectToolApprovalDecision.deny),
-  );
+  final timer = Timer(timeout, () {
+    approval.onTimeout?.call();
+    timedOut.complete(DirectToolApprovalDecision.deny);
+  });
   return Future.any<DirectToolApprovalDecision?>([
     approval.decision,
     timedOut.future,

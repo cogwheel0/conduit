@@ -31,14 +31,14 @@ const int kDirectMcpMaxInsertionBytes = 256 * 1024;
 
 String directMcpApprovalFingerprint({
   required String serverId,
-  required String serverOrigin,
+  required String serverEndpoint,
   required String remoteToolName,
   required Map<String, dynamic> inputSchema,
 }) {
   final canonical = _CanonicalJsonEncoder().encode([
     'direct-mcp-approval-v1',
     serverId,
-    serverOrigin,
+    serverEndpoint,
     remoteToolName,
     inputSchema,
   ]);
@@ -48,7 +48,6 @@ String directMcpApprovalFingerprint({
 final class DirectMcpToolDefinition {
   DirectMcpToolDefinition({
     required this.serverId,
-    required this.serverOrigin,
     required this.serverName,
     required this.remoteName,
     required this.modelName,
@@ -59,7 +58,6 @@ final class DirectMcpToolDefinition {
   }) : inputSchema = Map.unmodifiable(inputSchema);
 
   final String serverId;
-  final String serverOrigin;
   final String serverName;
   final String remoteName;
   final String modelName;
@@ -762,7 +760,6 @@ final class DirectMcpToolSession {
           );
           final definition = DirectMcpToolDefinition(
             serverId: server.id,
-            serverOrigin: server.origin!,
             serverName: server.name,
             remoteName: tool.name,
             modelName: modelName,
@@ -775,7 +772,7 @@ final class DirectMcpToolSession {
             description: description,
             approvalFingerprint: directMcpApprovalFingerprint(
               serverId: server.id,
-              serverOrigin: server.origin!,
+              serverEndpoint: server.endpoint.trim(),
               remoteToolName: tool.name,
               inputSchema: schema,
             ),
@@ -945,9 +942,21 @@ Future<void> _closeClients(
 }
 
 String _normalizeResult(mcp.CallToolResult result) {
-  final parts = <String>[];
+  const bufferLimit = kOllamaCloudMaxToolResultCharacters + 1;
+  final output = StringBuffer();
+  void append(String value) {
+    if (value.isEmpty || output.length >= bufferLimit) {
+      return;
+    }
+    if (output.isNotEmpty) output.write('\n');
+    final remaining = bufferLimit - output.length;
+    output.write(
+      value.length <= remaining ? value : value.substring(0, remaining),
+    );
+  }
+
   for (final content in result.content) {
-    parts.add(switch (content) {
+    append(switch (content) {
       mcp.TextContent() => content.text,
       mcp.ImageContent() => '[image content omitted: ${content.mimeType}]',
       mcp.AudioContent() => '[audio content omitted: ${content.mimeType}]',
@@ -956,13 +965,37 @@ String _normalizeResult(mcp.CallToolResult result) {
       _ => '[unsupported MCP content omitted]',
     });
   }
-  if (result.hasStructuredContent) {
-    parts.add(jsonEncode(result.structuredContentJson!.toJson()));
+  if (result.hasStructuredContent && output.length < bufferLimit) {
+    final sink = _BoundedStringSink(
+      bufferLimit - output.length - (output.isEmpty ? 0 : 1),
+    );
+    final encoder = json.encoder.startChunkedConversion(sink);
+    encoder.add(result.structuredContentJson!.toJson());
+    encoder.close();
+    append(sink.value);
   }
-  return _truncate(
-    parts.where((part) => part.isNotEmpty).join('\n'),
-    kOllamaCloudMaxToolResultCharacters,
-  );
+  return _truncate(output.toString(), kOllamaCloudMaxToolResultCharacters);
+}
+
+final class _BoundedStringSink implements ChunkedConversionSink<String> {
+  _BoundedStringSink(this.limit);
+
+  final int limit;
+  final StringBuffer _buffer = StringBuffer();
+  String get value => _buffer.toString();
+
+  @override
+  void add(String chunk) {
+    final remaining = limit - _buffer.length;
+    if (remaining > 0) {
+      _buffer.write(
+        chunk.length <= remaining ? chunk : chunk.substring(0, remaining),
+      );
+    }
+  }
+
+  @override
+  void close() {}
 }
 
 String _baseModelName(String serverId, String remoteName) {

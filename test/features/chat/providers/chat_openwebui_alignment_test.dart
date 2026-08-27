@@ -74,6 +74,12 @@ void main() {
             'config': {'enable': true},
           },
         ]);
+        check(
+          filterSelectedConfiguredToolServersForTest(
+            rawServers: const [],
+            selectedToolIds: const ['local_mcp:a'],
+          ),
+        ).isEmpty();
       },
     );
 

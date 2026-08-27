@@ -339,6 +339,12 @@ final class DirectRunRegistry {
         _sessionMcpApprovals.removeWhere(
           (digest, serverId) => serverId == entry.key,
         );
+        for (final pending
+            in _mcpApprovals.values
+                .where((approval) => approval.definition.serverId == entry.key)
+                .toList(growable: false)) {
+          _settleMcpApproval(pending, DirectToolApprovalDecision.deny);
+        }
       }
     }
     _mcpServers
@@ -421,6 +427,8 @@ final class DirectRunRegistry {
     return DirectToolApprovalHandle(
       request: request,
       decision: pending.decision.future,
+      onTimeout: () =>
+          _settleMcpApproval(pending, DirectToolApprovalDecision.deny),
     );
   }
 

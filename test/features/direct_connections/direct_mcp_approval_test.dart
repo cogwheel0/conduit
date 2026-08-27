@@ -42,7 +42,7 @@ void main() {
     () {
       final first = directMcpApprovalFingerprint(
         serverId: 'home',
-        serverOrigin: 'https://example.test:443',
+        serverEndpoint: 'https://example.test/mcp',
         remoteToolName: 'lookup',
         inputSchema: const {
           'required': ['city', 'unit'],
@@ -52,7 +52,19 @@ void main() {
       expect(
         directMcpApprovalFingerprint(
           serverId: 'home',
-          serverOrigin: 'https://example.test:443',
+          serverEndpoint: 'https://example.test/other-mcp',
+          remoteToolName: 'lookup',
+          inputSchema: const {
+            'required': ['city', 'unit'],
+            'type': 'object',
+          },
+        ),
+        isNot(first),
+      );
+      expect(
+        directMcpApprovalFingerprint(
+          serverId: 'home',
+          serverEndpoint: 'https://example.test/mcp',
           remoteToolName: 'lookup',
           inputSchema: const {
             'type': 'object',
@@ -90,7 +102,7 @@ void main() {
         expect(
           directMcpApprovalFingerprint(
             serverId: changed.serverId,
-            serverOrigin: changed.origin,
+            serverEndpoint: changed.origin,
             remoteToolName: changed.tool,
             inputSchema: {'type': 'object', 'required': changed.required},
           ),
@@ -104,7 +116,7 @@ void main() {
     String fingerprint(Map<String, dynamic> schema) =>
         directMcpApprovalFingerprint(
           serverId: 'home',
-          serverOrigin: 'https://example.test:443',
+          serverEndpoint: 'https://example.test/mcp',
           remoteToolName: 'lookup',
           inputSchema: schema,
         );

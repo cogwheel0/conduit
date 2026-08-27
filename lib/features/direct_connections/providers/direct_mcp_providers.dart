@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show listEquals, visibleForTesting;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mcp_dart/mcp_dart.dart' as mcp;
 
@@ -13,6 +13,8 @@ import '../models/direct_mcp_content.dart';
 import '../services/direct_mcp_client.dart';
 import '../services/direct_mcp_oauth.dart';
 import '../services/direct_mcp_server_store.dart';
+import '../services/direct_run_registry.dart';
+import '../../tools/providers/tools_providers.dart';
 import 'direct_connection_providers.dart';
 
 final directMcpServerStoreProvider = Provider<DirectMcpServerStore>((ref) {
@@ -38,23 +40,32 @@ final class DirectMcpServersController
 
   @override
   Future<List<DirectMcpServer>> build() async {
+    ref.listen<List<String>>(selectedToolIdsProvider, (_, selected) {
+      final servers = state.asData?.value;
+      if (servers == null) return;
+      Future.microtask(() {
+        if (ref.mounted) _sanitizeSelections(servers, selected);
+      });
+    });
     if (ref.watch(incompleteLogoutFenceProvider)) return Future.value(const []);
     final registry = ref.read(directRunRegistryProvider);
     final servers = await ref.watch(directMcpServerStoreProvider).load();
-    registry.synchronizeMcpServers(servers);
+    _synchronize(servers, registry);
     return servers;
   }
 
-  Future<void> reload() async {
+  Future<void> reload() => _serialize(() async {
     final store = ref.read(directMcpServerStoreProvider);
     final registry = ref.read(directRunRegistryProvider);
-    state = const AsyncLoading();
-    state = await AsyncValue.guard(() async {
+    if (ref.mounted) state = const AsyncLoading();
+    try {
       final servers = await store.load();
-      registry.synchronizeMcpServers(servers);
-      return servers;
-    });
-  }
+      _publish(servers, registry);
+    } catch (error, stack) {
+      if (ref.mounted) state = AsyncError(error, stack);
+      rethrow;
+    }
+  });
 
   Future<List<DirectMcpServer>> upsert(
     DirectMcpServer server, {
@@ -73,8 +84,7 @@ final class DirectMcpServersController
       secretsConfirmedForNewOrigin: secretsConfirmedForNewOrigin,
       oauthFlowCompletedForExactMutation: oauthFlowCompletedForExactMutation,
     );
-    if (ref.mounted) state = AsyncData(servers);
-    registry.synchronizeMcpServers(servers);
+    _publish(servers, registry);
     return servers;
   });
 
@@ -85,8 +95,7 @@ final class DirectMcpServersController
     final store = ref.read(directMcpServerStoreProvider);
     await oauth.cancel(id);
     final servers = await store.remove(id);
-    if (ref.mounted) state = AsyncData(servers);
-    registry.synchronizeMcpServers(servers);
+    _publish(servers, registry);
     return servers;
   });
 
@@ -97,8 +106,7 @@ final class DirectMcpServersController
     final store = ref.read(directMcpServerStoreProvider);
     await oauth.cancelAll();
     await store.clear();
-    if (ref.mounted) state = const AsyncData([]);
-    registry.synchronizeMcpServers(const []);
+    _publish(const [], registry);
   });
 
   Future<List<DirectMcpServer>> rememberApproval(
@@ -109,8 +117,7 @@ final class DirectMcpServersController
     final registry = ref.read(directRunRegistryProvider);
     final store = ref.read(directMcpServerStoreProvider);
     final servers = await store.rememberApproval(expectedServer, approval);
-    if (ref.mounted) state = AsyncData(servers);
-    registry.synchronizeMcpServers(servers);
+    _publish(servers, registry);
     return servers;
   });
 
@@ -125,8 +132,7 @@ final class DirectMcpServersController
       expectedServer,
       digest,
     );
-    if (ref.mounted) state = AsyncData(servers);
-    registry.synchronizeMcpServers(servers);
+    _publish(servers, registry);
     return servers;
   });
 
@@ -137,10 +143,47 @@ final class DirectMcpServersController
     final registry = ref.read(directRunRegistryProvider);
     final store = ref.read(directMcpServerStoreProvider);
     final servers = await store.revokeAllRememberedApprovals(expectedServer);
-    if (ref.mounted) state = AsyncData(servers);
-    registry.synchronizeMcpServers(servers);
+    _publish(servers, registry);
     return servers;
   });
+
+  Future<List<DirectMcpServer>> pruneRememberedApprovals(
+    List<DirectMcpServer> expectedServers,
+    Map<String, Set<String>> validFingerprints,
+  ) => _serialize(() async {
+    _requireMutationAdmission();
+    final servers = await ref
+        .read(directMcpServerStoreProvider)
+        .pruneRememberedApprovals(expectedServers, validFingerprints);
+    _publish(servers, ref.read(directRunRegistryProvider));
+    return servers;
+  });
+
+  void _publish(List<DirectMcpServer> servers, DirectRunRegistry registry) {
+    if (ref.mounted) state = AsyncData(servers);
+    _synchronize(servers, registry);
+  }
+
+  void _synchronize(List<DirectMcpServer> servers, DirectRunRegistry registry) {
+    registry.synchronizeMcpServers(servers);
+    _sanitizeSelections(servers, ref.read(selectedToolIdsProvider));
+  }
+
+  void _sanitizeSelections(
+    List<DirectMcpServer> servers,
+    List<String> selected,
+  ) {
+    final valid = {
+      for (final server in servers)
+        if (server.enabled) 'local_mcp:${server.id}',
+    };
+    final sanitized = selected
+        .where((id) => !id.startsWith('local_mcp:') || valid.contains(id))
+        .toList(growable: false);
+    if (!listEquals(selected, sanitized)) {
+      ref.read(selectedToolIdsProvider.notifier).set(sanitized);
+    }
+  }
 
   Future<T> _serialize<T>(Future<T> Function() operation) {
     final result = _mutationQueue.then<T>(
@@ -174,23 +217,22 @@ final directMcpSessionBuilderProvider = Provider<DirectMcpSessionBuilder>((
   ref,
 ) {
   final oauth = ref.watch(directMcpOAuthCoordinatorProvider);
-  final store = ref.watch(directMcpServerStoreProvider);
-  final registry = ref.watch(directRunRegistryProvider);
   return (servers) async {
     final session = await DirectMcpToolSession.open(
       servers,
       authorizationResolver: oauth.accessTokenFor,
     );
     try {
-      final persisted = await store.pruneRememberedApprovals(servers, {
-        for (final server in servers)
-          server.id: {
-            for (final definition in session.definitions)
-              if (definition.serverId == server.id)
-                definition.approvalFingerprint,
-          },
-      });
-      registry.synchronizeMcpServers(persisted);
+      await ref
+          .read(directMcpServersProvider.notifier)
+          .pruneRememberedApprovals(servers, {
+            for (final server in servers)
+              server.id: {
+                for (final definition in session.definitions)
+                  if (definition.serverId == server.id)
+                    definition.approvalFingerprint,
+              },
+          });
       return session;
     } catch (_) {
       await session.close();

@@ -6,6 +6,7 @@ import 'package:conduit/features/direct_connections/providers/direct_mcp_provide
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:conduit/features/tools/providers/tools_providers.dart';
 
 void main() {
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
@@ -50,6 +51,71 @@ void main() {
         .upsert(_server('disabled', enabled: false));
 
     expect(await container.read(directMcpToolsProvider.future), isEmpty);
+  });
+
+  test(
+    'disabled and deleted servers are removed from composer selection',
+    () async {
+      const storage = FlutterSecureStorage();
+      final container = ProviderContainer(
+        overrides: [secureStorageProvider.overrideWithValue(storage)],
+      );
+      addTearDown(container.dispose);
+      final notifier = container.read(directMcpServersProvider.notifier);
+      await notifier.upsert(_server('one'));
+      container.read(selectedToolIdsProvider.notifier).set(const [
+        'calculator',
+        'local_mcp:one',
+        'local_mcp:missing',
+      ]);
+      await Future<void>.delayed(Duration.zero);
+      expect(container.read(selectedToolIdsProvider), [
+        'calculator',
+        'local_mcp:one',
+      ]);
+
+      await notifier.upsert(_server('one', enabled: false));
+      expect(container.read(selectedToolIdsProvider), ['calculator']);
+    },
+  );
+
+  test('server configuration changes deny pending approvals', () async {
+    const storage = FlutterSecureStorage();
+    final container = ProviderContainer(
+      overrides: [secureStorageProvider.overrideWithValue(storage)],
+    );
+    addTearDown(container.dispose);
+    final notifier = container.read(directMcpServersProvider.notifier);
+    final server = _server('one');
+    await notifier.upsert(server);
+    final registry = container.read(directRunRegistryProvider);
+    final approval = registry.requestMcpApproval(
+      registry.reserve((
+        ownerConversationId: 'direct-local:chat',
+        assistantMessageId: 'assistant',
+      ), 'profile'),
+      callId: 'call',
+      definition: DirectToolDefinition(
+        name: 'mcp_one_lookup',
+        serverId: server.id,
+        serverName: server.name,
+        remoteName: 'lookup',
+        displayName: 'Lookup',
+        description: '',
+        approvalFingerprint: 'a' * 64,
+        inputSchema: const {'type': 'object'},
+      ),
+      arguments: const {},
+      expectedServer: server,
+    );
+
+    await notifier.upsert(
+      server.copyWith(enabled: false),
+      expectedPrevious: server,
+    );
+
+    expect(await approval.decision, DirectToolApprovalDecision.deny);
+    expect(registry.hasLiveMcpApproval(approval.request.id), isFalse);
   });
 
   test('clear removes the secure document and in-memory state', () async {
