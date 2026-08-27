@@ -236,8 +236,13 @@ final class DirectMcpOAuthCoordinator {
         _wellKnown(
           endpoint,
           '/.well-known/oauth-protected-resource${endpoint.path}',
+          preserveQuery: true,
         ),
-      _wellKnown(endpoint, '/.well-known/oauth-protected-resource'),
+      _wellKnown(
+        endpoint,
+        '/.well-known/oauth-protected-resource',
+        preserveQuery: true,
+      ),
     ];
     Map<String, dynamic>? protectedJson;
     for (final candidate in _uniqueUris(candidates)) {
@@ -940,11 +945,12 @@ String _pkceChallenge(String verifier) =>
     base64UrlEncode(sha256.convert(utf8.encode(verifier)).bytes)
         .replaceAll('=', '');
 
-Uri _wellKnown(Uri base, String path) => Uri(
+Uri _wellKnown(Uri base, String path, {bool preserveQuery = false}) => Uri(
   scheme: base.scheme,
   host: base.host,
   port: base.hasPort ? base.port : null,
   path: path,
+  query: preserveQuery && base.query.isNotEmpty ? base.query : null,
 );
 
 List<Uri> _uniqueUris(Iterable<Uri> values) {

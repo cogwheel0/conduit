@@ -27,9 +27,8 @@ final directMcpOAuthCoordinatorProvider = Provider<DirectMcpOAuthCoordinator>((
   ref,
 ) {
   ref.watch(incompleteLogoutFenceProvider);
-  final coordinator = DirectMcpOAuthCoordinator(
-    store: ref.watch(directMcpServerStoreProvider),
-  );
+  final store = ref.watch(directMcpServerStoreProvider);
+  final coordinator = DirectMcpOAuthCoordinator(store: store);
   ref.onDispose(() => unawaited(coordinator.close()));
   return coordinator;
 });
@@ -50,7 +49,9 @@ final class DirectMcpServersController
     });
     if (ref.watch(incompleteLogoutFenceProvider)) return Future.value(const []);
     final registry = ref.read(directRunRegistryProvider);
-    final servers = await ref.watch(directMcpServerStoreProvider).load();
+    final store = ref.watch(directMcpServerStoreProvider)
+      ..resumeMutationsAfterAppDataClearAbort();
+    final servers = await store.load();
     _synchronize(servers, registry);
     return servers;
   }
@@ -181,10 +182,17 @@ final class DirectMcpServersController
   Future<void> blockMutationsForAppDataClear() async {
     _appDataClearBlocked = true;
     await _mutationQueue;
+    await Future.wait<void>([
+      ref.read(directMcpServerStoreProvider).blockMutationsForAppDataClear(),
+      ref.read(directMcpOAuthCoordinatorProvider).cancelAll(),
+    ]);
   }
 
   void resumeMutationsAfterAppDataClearAbort() {
     _appDataClearBlocked = false;
+    ref
+        .read(directMcpServerStoreProvider)
+        .resumeMutationsAfterAppDataClearAbort();
   }
 
   void revokeRuntimeAfterIncompleteAppDataClear() {

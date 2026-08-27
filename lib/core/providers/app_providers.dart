@@ -90,6 +90,7 @@ void _resetProvidersAfterFullAppDataClear(Ref ref) {
   ref.invalidate(preferredBackendProvider);
 
   ref.invalidate(directConnectionProfilesProvider);
+  ref.invalidate(directMcpServerStoreProvider);
   ref.invalidate(directMcpServersProvider);
   ref.invalidate(directMcpOAuthCoordinatorProvider);
   ref.invalidate(directHistoryPolicyProvider);

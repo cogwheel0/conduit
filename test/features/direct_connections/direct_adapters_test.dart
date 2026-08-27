@@ -5636,6 +5636,7 @@ void main() {
           {
             'message': {
               'role': 'assistant',
+              'thinking': 'I should check.',
               'content': '',
               'tool_calls': [
                 {
@@ -5678,11 +5679,20 @@ void main() {
         .toList();
 
     expect(events.whereType<DirectToolCallCompleted>(), hasLength(1));
+    expect(
+      events.whereType<DirectReasoningDelta>().single.content,
+      'I should check.',
+    );
     expect(events.whereType<DirectContentDelta>().single.content, 'Sunny.');
     expect(events.whereType<DirectUsageUpdate>().single.usage, {
       'prompt_tokens': 7,
       'completion_tokens': 7,
     });
+    final replay = http.requests.last.data as Map<String, dynamic>;
+    expect(
+      ((replay['messages'] as List)[1] as Map)['reasoning_content'],
+      'I should check.',
+    );
     expect(events.whereType<DirectStreamError>(), isEmpty);
   });
 

@@ -121,6 +121,27 @@ void main() {
     expect(authorizationUri.queryParameters['scope'], 'tools.read');
   });
 
+  test('preserves the endpoint query in fallback metadata discovery', () async {
+    final fixture = await _OAuthFixture.start(
+      useWellKnownProtectedMetadata: true,
+    );
+    addTearDown(fixture.close);
+    final store = _store();
+    final server = await _saveOAuthServer(store, fixture.endpoint);
+    final coordinator = DirectMcpOAuthCoordinator(
+      store: store,
+      launchBrowser: (uri) async {
+        unawaited(_deliverCallback(uri, issuer: fixture.issuer.toString()));
+        return true;
+      },
+    );
+    addTearDown(coordinator.close);
+
+    await coordinator.connect(server);
+
+    expect(fixture.protectedMetadataQueries.single, 'tenant=a');
+  });
+
   test('requires RFC 9207 iss and ignores a mismatched callback', () async {
     final fixture = await _OAuthFixture.start();
     addTearDown(fixture.close);
@@ -648,6 +669,7 @@ final class _OAuthFixture {
     required this.holdRefresh,
     required this.rotateRefreshToken,
     required this.challengeScope,
+    required this.useWellKnownProtectedMetadata,
   });
 
   final HttpServer server;
@@ -663,7 +685,9 @@ final class _OAuthFixture {
   final bool holdRefresh;
   final bool rotateRefreshToken;
   final String? challengeScope;
+  final bool useWellKnownProtectedMetadata;
   final List<String> discoveryPaths = [];
+  final List<String> protectedMetadataQueries = [];
   final List<Map<String, dynamic>> registrationBodies = [];
   final List<Map<String, String>> tokenForms = [];
   final Completer<void> refreshReceived = Completer<void>();
@@ -671,7 +695,10 @@ final class _OAuthFixture {
 
   Uri get origin =>
       Uri.parse('http://${server.address.address}:${server.port}');
-  Uri get endpoint => origin.replace(path: '/mcp');
+  Uri get endpoint => origin.replace(
+    path: '/mcp',
+    query: useWellKnownProtectedMetadata ? 'tenant=a' : null,
+  );
   Uri get issuer => origin.replace(path: '/issuer');
 
   static Future<_OAuthFixture> start({
@@ -686,6 +713,7 @@ final class _OAuthFixture {
     bool holdRefresh = false,
     bool rotateRefreshToken = false,
     String? challengeScope,
+    bool useWellKnownProtectedMetadata = false,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     late _OAuthFixture fixture;
@@ -704,6 +732,7 @@ final class _OAuthFixture {
       holdRefresh: holdRefresh,
       rotateRefreshToken: rotateRefreshToken,
       challengeScope: challengeScope,
+      useWellKnownProtectedMetadata: useWellKnownProtectedMetadata,
     );
     return fixture;
   }
@@ -711,16 +740,20 @@ final class _OAuthFixture {
   Future<void> _handle(HttpRequest request) async {
     if (request.method == 'POST' && request.uri.path == '/mcp') {
       await request.drain<void>();
-      request.response
-        ..statusCode = HttpStatus.unauthorized
-        ..headers.set(
+      request.response.statusCode = HttpStatus.unauthorized;
+      if (!useWellKnownProtectedMetadata) {
+        request.response.headers.set(
           HttpHeaders.wwwAuthenticateHeader,
           'Bearer resource_metadata="${crossOriginProtectedMetadata ? 'https://attacker.example/prm' : origin.replace(path: '/prm')}"${challengeScope == null ? '' : ', scope="$challengeScope"'}',
         );
+      }
       await request.response.close();
       return;
     }
-    if (request.method == 'GET' && request.uri.path == '/prm') {
+    if (request.method == 'GET' &&
+        (request.uri.path == '/prm' ||
+            request.uri.path == '/.well-known/oauth-protected-resource/mcp')) {
+      protectedMetadataQueries.add(request.uri.query);
       request.response.headers.contentType = ContentType.json;
       if (oversizedProtectedMetadata) {
         request.response.write(jsonEncode({'padding': 'x' * (300 * 1024)}));

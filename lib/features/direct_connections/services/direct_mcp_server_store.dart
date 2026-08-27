@@ -18,6 +18,7 @@ final class DirectMcpServerStore {
 
   final SecureCredentialStorage _storage;
   Future<void> _mutationQueue = Future<void>.value();
+  bool _appDataClearBlocked = false;
 
   Future<List<DirectMcpServer>> load() async {
     final raw = await _storage.getDirectMcpServers();
@@ -31,6 +32,15 @@ final class DirectMcpServerStore {
       );
     }
     return decoded.document.servers;
+  }
+
+  Future<void> blockMutationsForAppDataClear() async {
+    _appDataClearBlocked = true;
+    await _mutationQueue;
+  }
+
+  void resumeMutationsAfterAppDataClearAbort() {
+    _appDataClearBlocked = false;
   }
 
   Future<List<DirectMcpServer>> save(
@@ -187,6 +197,11 @@ final class DirectMcpServerStore {
   }
 
   Future<T> _serializeMutation<T>(Future<T> Function() operation) {
+    if (_appDataClearBlocked) {
+      return Future.error(
+        StateError('MCP server changes are unavailable while signing out.'),
+      );
+    }
     final result = _mutationQueue.then<T>(
       (_) => operation(),
       onError: (Object _, StackTrace _) => operation(),

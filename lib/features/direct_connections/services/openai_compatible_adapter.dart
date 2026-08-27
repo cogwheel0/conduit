@@ -1946,6 +1946,7 @@ Map<String, dynamic>? _stringMap(Object? value) => value is Map
 String? _rawChatReasoning(Map<String, dynamic> message) =>
     _completionText(message['reasoning_content']) ??
     _completionText(message['reasoning']) ??
+    _completionText(message['thinking']) ??
     _rawReasoningDetailsText(message['reasoning_details']);
 
 _ChatToolRound _chatToolRoundFromPayload(

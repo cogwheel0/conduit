@@ -499,7 +499,7 @@ class _DirectMcpServerEditorPageState
                   TextField(
                     key: const ValueKey('direct-mcp-endpoint'),
                     controller: _endpoint,
-                    enabled: !_busy,
+                    enabled: !_busy && !oauthPending,
                     keyboardType: TextInputType.url,
                     autocorrect: false,
                     decoration: InputDecoration(

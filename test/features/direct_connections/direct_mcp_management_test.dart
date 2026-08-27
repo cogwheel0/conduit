@@ -394,6 +394,12 @@ void main() {
     await tester.pump();
     expect(find.text('Cancel'), findsOneWidget);
     expect(coordinator.isPending(server.id), isTrue);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('direct-mcp-endpoint')))
+          .enabled,
+      isFalse,
+    );
 
     await _pumpOAuthEditor(
       tester,

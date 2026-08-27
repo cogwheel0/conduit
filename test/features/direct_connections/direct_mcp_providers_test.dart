@@ -186,8 +186,26 @@ void main() {
     await expectLater(notifier.upsert(_server('two')), throwsStateError);
 
     container.read(incompleteLogoutFenceProvider.notifier).setSuppressed(false);
+    await container.read(directMcpServersProvider.future);
     await notifier.upsert(_server('two'));
   });
+
+  test(
+    'app-data clear rejects OAuth store writes outside the controller',
+    () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(directMcpServersProvider.notifier);
+      await container.read(directMcpServersProvider.future);
+
+      await notifier.blockMutationsForAppDataClear();
+      final store = container.read(directMcpServerStoreProvider);
+      await expectLater(store.upsert(_server('late')), throwsStateError);
+
+      notifier.resumeMutationsAfterAppDataClearAbort();
+      await store.upsert(_server('recovered'));
+    },
+  );
 
   test('unchanged approval pruning does not republish servers', () async {
     const storage = FlutterSecureStorage();
