@@ -121,25 +121,25 @@ void main() {
       for (final changed in [
         (
           serverId: 'home',
-          origin: 'https://example.test:443',
+          endpoint: 'https://example.test/mcp',
           tool: 'lookup',
           required: ['unit', 'city'],
         ),
         (
           serverId: 'other',
-          origin: 'https://example.test:443',
+          endpoint: 'https://example.test/mcp',
           tool: 'lookup',
           required: ['city', 'unit'],
         ),
         (
           serverId: 'home',
-          origin: 'https://other.test:443',
+          endpoint: 'https://other.test/mcp',
           tool: 'lookup',
           required: ['city', 'unit'],
         ),
         (
           serverId: 'home',
-          origin: 'https://example.test:443',
+          endpoint: 'https://example.test/mcp',
           tool: 'other',
           required: ['city', 'unit'],
         ),
@@ -147,7 +147,7 @@ void main() {
         expect(
           directMcpApprovalFingerprint(
             serverId: changed.serverId,
-            serverEndpoint: changed.origin,
+            serverEndpoint: changed.endpoint,
             remoteToolName: changed.tool,
             inputSchema: {'type': 'object', 'required': changed.required},
           ),
