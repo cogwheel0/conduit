@@ -1,0 +1,96 @@
+# Hermes Agent CI — invoked on push and PRs.
+# Invokes `hermes` to run a task defined by the repo's own instructions.
+#
+# Prerequisites (one-time setup in this repo's Settings → Secrets):
+#   HERMES_HOME           path to a Hermes installation inside the runner
+#   HERMES_API_KEY        your LLM provider key (or HERMES_OATH_TOKEN etc.)
+#   HERMES_TASK           the prompt Hermes should run on each CI trigger
+#
+# Optional: pin a specific agent by adding HERMES_SESSION or HERMES_SESSION_TAG.
+# The task can read HERMES_TRIGGER (= push|pr), the branch/ref, and
+# GH_EVENT_PATH (the raw GitHub event JSON) from the environment.
+
+name: Hermes Agent
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      hermes_task:
+        description: "Hermes task prompt (overrides HERMES_TASK secret)"
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hermes-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hermes:
+    name: Hermes Agent
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      HERMES_TRIGGER: ${{ github.event_name }}
+      HERMES_REF: ${{ github.ref_name }}
+      HERMES_SHA: ${{ github.sha }}
+      GH_EVENT_PATH: ${{ github.event_path }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install Hermes Agent
+        run: |
+          curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Configure Hermes (non-secret settings only)
+        env:
+          HERMES_HOME: ${{ secrets.HERMES_HOME || '$HOME/.hermes' }}
+        run: |
+          mkdir -p "$HERMES_HOME"
+          # Secrets (API keys, OAuth tokens) MUST live in .env, never in config.yaml.
+          # If you have a pre-baked .env for the runner, drop it in here:
+          #   cp .hermes-runner-env "$HERMES_HOME/.env"
+          # Otherwise set provider keys as repository secrets and write them now:
+          if [ -n "${{ secrets.HERMES_API_KEY }}" ]; then
+            cat > "$HERMES_HOME/.env" <<'ENV'
+            HERMES_API_KEY=${{ secrets.HERMES_API_KEY }}
+            ENV
+          fi
+
+      - name: Run Hermes task
+        env:
+          HERMES_HOME: ${{ secrets.HERMES_HOME || '$HOME/.hermes' }}
+          HERMES_TASK: ${{ inputs.hermes_task || secrets.HERMES_TASK }}
+        run: |
+          if [ -z "$HERMES_TASK" ]; then
+            echo "::error::HERMES_TASK is empty — set the secret or pass via workflow_dispatch"
+            exit 1
+          fi
+          hermes chat -q "$HERMES_TASK"
+
+      # Optional: surface Hermes stdout as a PR comment or job summary.
+      # Uncomment and adapt when you want Hermes output attached to the run.
+      #
+      # - name: Post Hermes summary
+      #   if: always() && github.event_name == 'pull_request'
+      #   uses: actions/github-script@v7
+      #   with:
+      #     script: |
+      #       const fs = require('fs');
+      #       const log = fs.readFileSync(process.env.GITHUB_STEP_SUMMARY, 'utf8');
+      #       await github.rest.issues.createComment({
+      #         owner: context.repo.owner,
+      #         repo: context.repo.repo,
+      #         issue_number: context.issue.number,
+      #         body: '## Hermes Agent\n\n' + log,
+      #       });
