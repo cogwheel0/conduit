@@ -71,6 +71,7 @@ class RunnerTests: XCTestCase {
       runId: "options",
       model: .onDevice,
       messages: [],
+      tools: [],
       allowOnDeviceFallback: false,
       temperature: 0.4,
       maximumResponseTokens: 512,
@@ -85,6 +86,7 @@ class RunnerTests: XCTestCase {
       runId: "invalid",
       model: .onDevice,
       messages: [],
+      tools: [],
       allowOnDeviceFallback: false,
       topP: 0.9,
       topK: 40

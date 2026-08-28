@@ -2802,10 +2802,146 @@ struct PlatformPccMessage: Hashable, CustomStringConvertible {
 }
 
 /// Generated class from Pigeon that represents data sent in messages.
+struct PlatformPccToolDefinition: Hashable, CustomStringConvertible {
+  var name: String
+  var toolDescription: String
+  var inputSchemaJson: String
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> PlatformPccToolDefinition? {
+    let name = pigeonVar_list[0] as! String
+    let toolDescription = pigeonVar_list[1] as! String
+    let inputSchemaJson = pigeonVar_list[2] as! String
+
+    return PlatformPccToolDefinition(
+      name: name,
+      toolDescription: toolDescription,
+      inputSchemaJson: inputSchemaJson
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      name,
+      toolDescription,
+      inputSchemaJson,
+    ]
+  }
+  static func == (lhs: PlatformPccToolDefinition, rhs: PlatformPccToolDefinition) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.name, rhs.name) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.toolDescription, rhs.toolDescription) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.inputSchemaJson, rhs.inputSchemaJson)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("PlatformPccToolDefinition")
+    ConduitPlatformApisPigeonInternal.deepHash(value: name, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: toolDescription, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: inputSchemaJson, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "PlatformPccToolDefinition(name: \(String(describing: name)), toolDescription: \(String(describing: toolDescription)), inputSchemaJson: \(String(describing: inputSchemaJson)))"
+  }
+}
+
+/// Generated class from Pigeon that represents data sent in messages.
+struct PlatformPccToolCall: Hashable, CustomStringConvertible {
+  var runId: String
+  var callId: String
+  var name: String
+  var argumentsJson: String
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> PlatformPccToolCall? {
+    let runId = pigeonVar_list[0] as! String
+    let callId = pigeonVar_list[1] as! String
+    let name = pigeonVar_list[2] as! String
+    let argumentsJson = pigeonVar_list[3] as! String
+
+    return PlatformPccToolCall(
+      runId: runId,
+      callId: callId,
+      name: name,
+      argumentsJson: argumentsJson
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      runId,
+      callId,
+      name,
+      argumentsJson,
+    ]
+  }
+  static func == (lhs: PlatformPccToolCall, rhs: PlatformPccToolCall) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.runId, rhs.runId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.callId, rhs.callId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.name, rhs.name) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.argumentsJson, rhs.argumentsJson)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("PlatformPccToolCall")
+    ConduitPlatformApisPigeonInternal.deepHash(value: runId, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: callId, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: name, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: argumentsJson, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "PlatformPccToolCall(runId: \(String(describing: runId)), callId: \(String(describing: callId)), name: \(String(describing: name)), argumentsJson: \(String(describing: argumentsJson)))"
+  }
+}
+
+/// Generated class from Pigeon that represents data sent in messages.
+struct PlatformPccToolResult: Hashable, CustomStringConvertible {
+  var content: String
+  var cancelled: Bool
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> PlatformPccToolResult? {
+    let content = pigeonVar_list[0] as! String
+    let cancelled = pigeonVar_list[1] as! Bool
+
+    return PlatformPccToolResult(
+      content: content,
+      cancelled: cancelled
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      content,
+      cancelled,
+    ]
+  }
+  static func == (lhs: PlatformPccToolResult, rhs: PlatformPccToolResult) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.content, rhs.content) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.cancelled, rhs.cancelled)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("PlatformPccToolResult")
+    ConduitPlatformApisPigeonInternal.deepHash(value: content, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: cancelled, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "PlatformPccToolResult(content: \(String(describing: content)), cancelled: \(String(describing: cancelled)))"
+  }
+}
+
+/// Generated class from Pigeon that represents data sent in messages.
 struct PlatformPccCompletionRequest: Hashable, CustomStringConvertible {
   var runId: String
   var model: PlatformAppleModel
   var messages: [PlatformPccMessage]
+  var tools: [PlatformPccToolDefinition]
   var allowOnDeviceFallback: Bool
   var reasoningLevel: String? = nil
   var temperature: Double? = nil
@@ -2823,21 +2959,23 @@ struct PlatformPccCompletionRequest: Hashable, CustomStringConvertible {
     let runId = pigeonVar_list[0] as! String
     let model = pigeonVar_list[1] as! PlatformAppleModel
     let messages = pigeonVar_list[2] as! [PlatformPccMessage]
-    let allowOnDeviceFallback = pigeonVar_list[3] as! Bool
-    let reasoningLevel: String? = nilOrValue(pigeonVar_list[4])
-    let temperature: Double? = nilOrValue(pigeonVar_list[5])
-    let maximumResponseTokens: Int64? = nilOrValue(pigeonVar_list[6])
-    let topP: Double? = nilOrValue(pigeonVar_list[7])
-    let topK: Int64? = nilOrValue(pigeonVar_list[8])
-    let seed: Int64? = nilOrValue(pigeonVar_list[9])
-    let greedySampling: Bool? = nilOrValue(pigeonVar_list[10])
-    let responseSchemaName: String? = nilOrValue(pigeonVar_list[11])
-    let responseSchemaJson: String? = nilOrValue(pigeonVar_list[12])
+    let tools = pigeonVar_list[3] as! [PlatformPccToolDefinition]
+    let allowOnDeviceFallback = pigeonVar_list[4] as! Bool
+    let reasoningLevel: String? = nilOrValue(pigeonVar_list[5])
+    let temperature: Double? = nilOrValue(pigeonVar_list[6])
+    let maximumResponseTokens: Int64? = nilOrValue(pigeonVar_list[7])
+    let topP: Double? = nilOrValue(pigeonVar_list[8])
+    let topK: Int64? = nilOrValue(pigeonVar_list[9])
+    let seed: Int64? = nilOrValue(pigeonVar_list[10])
+    let greedySampling: Bool? = nilOrValue(pigeonVar_list[11])
+    let responseSchemaName: String? = nilOrValue(pigeonVar_list[12])
+    let responseSchemaJson: String? = nilOrValue(pigeonVar_list[13])
 
     return PlatformPccCompletionRequest(
       runId: runId,
       model: model,
       messages: messages,
+      tools: tools,
       allowOnDeviceFallback: allowOnDeviceFallback,
       reasoningLevel: reasoningLevel,
       temperature: temperature,
@@ -2855,6 +2993,7 @@ struct PlatformPccCompletionRequest: Hashable, CustomStringConvertible {
       runId,
       model,
       messages,
+      tools,
       allowOnDeviceFallback,
       reasoningLevel,
       temperature,
@@ -2871,7 +3010,7 @@ struct PlatformPccCompletionRequest: Hashable, CustomStringConvertible {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.runId, rhs.runId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.model, rhs.model) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.messages, rhs.messages) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.allowOnDeviceFallback, rhs.allowOnDeviceFallback) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.reasoningLevel, rhs.reasoningLevel) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.temperature, rhs.temperature) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.maximumResponseTokens, rhs.maximumResponseTokens) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.topP, rhs.topP) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.topK, rhs.topK) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.seed, rhs.seed) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.greedySampling, rhs.greedySampling) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.responseSchemaName, rhs.responseSchemaName) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.responseSchemaJson, rhs.responseSchemaJson)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.runId, rhs.runId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.model, rhs.model) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.messages, rhs.messages) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.tools, rhs.tools) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.allowOnDeviceFallback, rhs.allowOnDeviceFallback) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.reasoningLevel, rhs.reasoningLevel) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.temperature, rhs.temperature) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.maximumResponseTokens, rhs.maximumResponseTokens) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.topP, rhs.topP) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.topK, rhs.topK) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.seed, rhs.seed) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.greedySampling, rhs.greedySampling) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.responseSchemaName, rhs.responseSchemaName) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.responseSchemaJson, rhs.responseSchemaJson)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -2879,6 +3018,7 @@ struct PlatformPccCompletionRequest: Hashable, CustomStringConvertible {
     ConduitPlatformApisPigeonInternal.deepHash(value: runId, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: model, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: messages, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: tools, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: allowOnDeviceFallback, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: reasoningLevel, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: temperature, hasher: &hasher)
@@ -2892,7 +3032,7 @@ struct PlatformPccCompletionRequest: Hashable, CustomStringConvertible {
   }
 
   public var description: String {
-    return "PlatformPccCompletionRequest(runId: \(String(describing: runId)), model: \(String(describing: model)), messages: \(String(describing: messages)), allowOnDeviceFallback: \(String(describing: allowOnDeviceFallback)), reasoningLevel: \(String(describing: reasoningLevel)), temperature: \(String(describing: temperature)), maximumResponseTokens: \(String(describing: maximumResponseTokens)), topP: \(String(describing: topP)), topK: \(String(describing: topK)), seed: \(String(describing: seed)), greedySampling: \(String(describing: greedySampling)), responseSchemaName: \(String(describing: responseSchemaName)), responseSchemaJson: \(String(describing: responseSchemaJson)))"
+    return "PlatformPccCompletionRequest(runId: \(String(describing: runId)), model: \(String(describing: model)), messages: \(String(describing: messages)), tools: \(String(describing: tools)), allowOnDeviceFallback: \(String(describing: allowOnDeviceFallback)), reasoningLevel: \(String(describing: reasoningLevel)), temperature: \(String(describing: temperature)), maximumResponseTokens: \(String(describing: maximumResponseTokens)), topP: \(String(describing: topP)), topK: \(String(describing: topK)), seed: \(String(describing: seed)), greedySampling: \(String(describing: greedySampling)), responseSchemaName: \(String(describing: responseSchemaName)), responseSchemaJson: \(String(describing: responseSchemaJson)))"
   }
 }
 
@@ -3097,8 +3237,14 @@ private class ConduitPlatformApisPigeonCodecReader: FlutterStandardReader {
     case 180:
       return PlatformPccMessage.fromList(self.readValue() as! [Any?])
     case 181:
-      return PlatformPccCompletionRequest.fromList(self.readValue() as! [Any?])
+      return PlatformPccToolDefinition.fromList(self.readValue() as! [Any?])
     case 182:
+      return PlatformPccToolCall.fromList(self.readValue() as! [Any?])
+    case 183:
+      return PlatformPccToolResult.fromList(self.readValue() as! [Any?])
+    case 184:
+      return PlatformPccCompletionRequest.fromList(self.readValue() as! [Any?])
+    case 185:
       return PlatformPccStreamEvent.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
@@ -3264,11 +3410,20 @@ private class ConduitPlatformApisPigeonCodecWriter: FlutterStandardWriter {
     } else if let value = value as? PlatformPccMessage {
       super.writeByte(180)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccCompletionRequest {
+    } else if let value = value as? PlatformPccToolDefinition {
       super.writeByte(181)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccStreamEvent {
+    } else if let value = value as? PlatformPccToolCall {
       super.writeByte(182)
+      super.writeValue(value.toList())
+    } else if let value = value as? PlatformPccToolResult {
+      super.writeByte(183)
+      super.writeValue(value.toList())
+    } else if let value = value as? PlatformPccCompletionRequest {
+      super.writeByte(184)
+      super.writeValue(value.toList())
+    } else if let value = value as? PlatformPccStreamEvent {
+      super.writeByte(185)
       super.writeValue(value.toList())
     } else {
       super.writeValue(value)
@@ -4412,6 +4567,7 @@ class PccHostApiSetup {
 /// Generated protocol from Pigeon that represents Flutter messages that can be called from Swift.
 protocol PccFlutterApiProtocol {
   func onEvent(event eventArg: PlatformPccStreamEvent, completion: @escaping (Result<Void, PigeonError>) -> Void)
+  func onToolCall(call callArg: PlatformPccToolCall, completion: @escaping (Result<PlatformPccToolResult, PigeonError>) -> Void)
 }
 class PccFlutterApi: PccFlutterApiProtocol {
   private let binaryMessenger: FlutterBinaryMessenger
@@ -4438,6 +4594,27 @@ class PccFlutterApi: PccFlutterApiProtocol {
         completion(.failure(PigeonError(code: code, message: message, details: details)))
       } else {
         completion(.success(()))
+      }
+    }
+  }
+  func onToolCall(call callArg: PlatformPccToolCall, completion: @escaping (Result<PlatformPccToolResult, PigeonError>) -> Void) {
+    let channelName: String = "dev.flutter.pigeon.conduit.PccFlutterApi.onToolCall\(messageChannelSuffix)"
+    let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
+    channel.sendMessage([callArg] as [Any?]) { response in
+      guard let listResponse = response as? [Any?] else {
+        completion(.failure(createConnectionError(withChannelName: channelName)))
+        return
+      }
+      if listResponse.count > 1 {
+        let code: String = listResponse[0] as! String
+        let message: String? = nilOrValue(listResponse[1])
+        let details: String? = nilOrValue(listResponse[2])
+        completion(.failure(PigeonError(code: code, message: message, details: details)))
+      } else if listResponse[0] == nil {
+        completion(.failure(PigeonError(code: "null-error", message: "Flutter api returned null value for non-null return value.", details: "")))
+      } else {
+        let result = listResponse[0] as! PlatformPccToolResult
+        completion(.success(result))
       }
     }
   }

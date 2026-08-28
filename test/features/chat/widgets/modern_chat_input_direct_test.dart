@@ -90,7 +90,7 @@ void main() {
     expect(actionIds(true).single, ComposerOverflowActionIds.mcpContent);
   });
 
-  test('Apple direct bindings do not expose local MCP tools', () {
+  test('Apple direct bindings expose local MCP tools', () {
     expect(
       directBindingSupportsLocalMcp(
         const DirectModelBinding(
@@ -99,7 +99,7 @@ void main() {
           remoteModelId: kApplePccRemoteModelId,
         ),
       ),
-      isFalse,
+      isTrue,
     );
     expect(
       directBindingSupportsLocalMcp(
@@ -123,8 +123,8 @@ void main() {
       enableWebSearch: true,
       localMcpToolIds: const ['local_mcp:home'],
     );
-    expect(apple.localMcpToolIds, isEmpty);
-    expect(apple.enableWebSearch, isTrue);
+    expect(apple.localMcpToolIds, ['local_mcp:home']);
+    expect(apple.enableWebSearch, isFalse);
 
     final openRouter = normalizeDirectToolSelectionForBinding(
       binding: const DirectModelBinding(
@@ -457,9 +457,7 @@ void main() {
     expect(api.userSettingsCalls, 0);
   });
 
-  testWidgets('Apple direct overflow does not load local MCP tools', (
-    tester,
-  ) async {
+  testWidgets('Apple direct overflow loads local MCP tools', (tester) async {
     final registry = DirectModelRegistry();
     final appleModel = registry.replaceProfileModels(
       DirectConnectionProfile.applePrivateCloudCompute(),
@@ -486,8 +484,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(toolLoads, 0);
-    expect(find.text('Home MCP'), findsNothing);
+    expect(toolLoads, 1);
+    expect(find.text('Home MCP'), findsOneWidget);
   });
 
   testWidgets(
