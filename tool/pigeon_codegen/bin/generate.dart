@@ -19,10 +19,14 @@ Future<void> main() async {
     'ConduitPlatformApis.g.kt',
   );
   final generated = await kotlinOutput.readAsString();
-  final normalized = generated.replaceAll(
-    RegExp(r'[ \t]+$', multiLine: true),
-    '',
-  );
+  final normalized = generated
+      .replaceAll(RegExp(r'[ \t]+$', multiLine: true), '')
+      // Pigeon 27.3 narrows nullable messages and structured details in Kotlin
+      // FlutterApi error replies even though FlutterError accepts both.
+      .replaceAll(
+        'FlutterError(it[0] as String, it[1] as String, it[2] as String?)',
+        'FlutterError(it[0] as String, it[1] as? String, it[2])',
+      );
   if (generated != normalized) {
     await kotlinOutput.writeAsString(normalized);
   }

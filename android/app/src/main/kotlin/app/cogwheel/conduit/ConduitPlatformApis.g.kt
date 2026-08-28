@@ -3742,7 +3742,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
     channel.send(null) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else if (it[0] == null) {
           callback(Result.failure(FlutterError("null-error", "Flutter api returned null value for non-null return value.", "")))
         } else {
@@ -3762,7 +3762,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -3779,7 +3779,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
     channel.send(null) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -3796,7 +3796,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -3813,7 +3813,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
     channel.send(null) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -3830,7 +3830,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -3847,7 +3847,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -3864,7 +3864,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
     channel.send(null) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -3890,7 +3890,7 @@ class AppIntentFlutterApi(private val binaryMessenger: BinaryMessenger, private 
     channel.send(listOf(invocationIdArg, promptArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else if (it[0] == null) {
           callback(Result.failure(FlutterError("null-error", "Flutter api returned null value for non-null return value.", "")))
         } else {
@@ -3910,7 +3910,7 @@ class AppIntentFlutterApi(private val binaryMessenger: BinaryMessenger, private 
     channel.send(listOf(invocationIdArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else if (it[0] == null) {
           callback(Result.failure(FlutterError("null-error", "Flutter api returned null value for non-null return value.", "")))
         } else {
@@ -3930,7 +3930,7 @@ class AppIntentFlutterApi(private val binaryMessenger: BinaryMessenger, private 
     channel.send(listOf(invocationIdArg, textArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else if (it[0] == null) {
           callback(Result.failure(FlutterError("null-error", "Flutter api returned null value for non-null return value.", "")))
         } else {
@@ -3950,7 +3950,7 @@ class AppIntentFlutterApi(private val binaryMessenger: BinaryMessenger, private 
     channel.send(listOf(invocationIdArg, urlArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else if (it[0] == null) {
           callback(Result.failure(FlutterError("null-error", "Flutter api returned null value for non-null return value.", "")))
         } else {
@@ -3970,7 +3970,7 @@ class AppIntentFlutterApi(private val binaryMessenger: BinaryMessenger, private 
     channel.send(listOf(invocationIdArg, payloadArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else if (it[0] == null) {
           callback(Result.failure(FlutterError("null-error", "Flutter api returned null value for non-null return value.", "")))
         } else {
@@ -4067,7 +4067,7 @@ class NativePasteFlutterApi(private val binaryMessenger: BinaryMessenger, privat
     channel.send(listOf(payloadArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else if (it[0] == null) {
           callback(Result.failure(FlutterError("null-error", "Flutter api returned null value for non-null return value.", "")))
         } else {
@@ -4165,7 +4165,7 @@ class NativeKeyboardAttachmentFlutterApi(private val binaryMessenger: BinaryMess
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -4182,7 +4182,7 @@ class NativeKeyboardAttachmentFlutterApi(private val binaryMessenger: BinaryMess
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -4496,7 +4496,7 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
     channel.send(null) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -4513,7 +4513,7 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
     channel.send(null) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -4530,7 +4530,7 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -4547,7 +4547,7 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -4564,7 +4564,7 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -4581,7 +4581,7 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -4598,7 +4598,7 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -4717,7 +4717,7 @@ class PccFlutterApi(private val binaryMessenger: BinaryMessenger, private val me
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -4734,7 +4734,7 @@ class PccFlutterApi(private val binaryMessenger: BinaryMessenger, private val me
     channel.send(listOf(callArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else if (it[0] == null) {
           callback(Result.failure(FlutterError("null-error", "Flutter api returned null value for non-null return value.", "")))
         } else {
