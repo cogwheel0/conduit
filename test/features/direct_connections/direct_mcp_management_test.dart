@@ -13,6 +13,7 @@ import 'package:conduit/features/direct_connections/views/direct_mcp_server_edit
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -114,26 +115,38 @@ void main() {
 
   test('server mutation refreshes its dependent tool inventory', () async {
     final store = _managementStore();
+    final server = DirectMcpServer(
+      id: 'refresh-smoke',
+      name: 'Refresh smoke server',
+      endpoint: 'http://127.0.0.1:1234/mcp',
+    );
+    await store.upsert(server);
     final container = ProviderContainer(
-      overrides: [directMcpServerStoreProvider.overrideWithValue(store)],
+      overrides: [
+        directMcpServerStoreProvider.overrideWithValue(store),
+        directMcpToolsProvider.overrideWith((ref) async {
+          final servers = await ref.watch(directMcpServersProvider.future);
+          return [
+            for (final server in servers)
+              if (server.enabled)
+                Tool(id: 'local_mcp:${server.id}', name: server.name),
+          ];
+        }),
+      ],
     );
     addTearDown(container.dispose);
     final subscription = container.listen(directMcpToolsProvider, (_, _) {});
     addTearDown(subscription.close);
 
-    expect(await container.read(directMcpToolsProvider.future), isEmpty);
+    expect(
+      (await container.read(directMcpToolsProvider.future)).single.id,
+      'local_mcp:refresh-smoke',
+    );
     final servers = await container
         .read(directMcpServersProvider.notifier)
-        .upsert(
-          DirectMcpServer(
-            id: 'disabled-smoke',
-            name: 'Disabled smoke server',
-            endpoint: 'http://127.0.0.1:1234/mcp',
-            enabled: false,
-          ),
-        );
+        .upsert(server.copyWith(enabled: false), expectedPrevious: server);
 
-    expect(servers.single.id, 'disabled-smoke');
+    expect(servers.single.enabled, isFalse);
     expect(await container.read(directMcpToolsProvider.future), isEmpty);
   });
 
@@ -300,7 +313,7 @@ void main() {
     expect(find.text('Always allowed tools'), findsNothing);
   });
 
-  testWidgets('Test Connection confirms credential transfer on path change', (
+  testWidgets('Save strips credentials when path transfer is declined', (
     tester,
   ) async {
     final store = _managementStore();
@@ -321,11 +334,19 @@ void main() {
       find.byKey(const ValueKey('direct-mcp-endpoint')),
       'http://127.0.0.1:1/other-mcp',
     );
-    final testConnection = find.byKey(const ValueKey('direct-mcp-test'));
-    await tester.ensureVisible(testConnection);
-    await tester.tap(testConnection);
+    final save = find.byKey(const ValueKey('direct-mcp-save'));
+    tester.widget<ConduitButton>(save).onPressed!();
     await tester.pumpAndSettle();
     expect(find.text('Use credentials with new server?'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    final persisted = (await store.load()).single;
+    expect(persisted.endpoint, 'http://127.0.0.1:1/other-mcp');
+    expect(persisted.authMode, DirectMcpAuthMode.none);
+    expect(persisted.bearerToken, isNull);
+    expect(persisted.customHeaders, isEmpty);
+    expect(persisted.requestHeaders, isEmpty);
   });
 
   testWidgets('OAuth editor adopts a token-only secure-store reload', (
