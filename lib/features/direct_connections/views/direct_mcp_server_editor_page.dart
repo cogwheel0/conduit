@@ -185,7 +185,9 @@ class _DirectMcpServerEditorPageState
     DirectMcpServer server,
   ) async {
     final previous = _previous;
-    if (previous == null || previous.origin == server.origin) {
+    if (previous == null ||
+        !server.hasEndpointBoundCredentials ||
+        sameDirectMcpCredentialEndpoint(previous.endpoint, server.endpoint)) {
       return (server: server, confirmed: false);
     }
     final l10n = AppLocalizations.of(context)!;
@@ -229,7 +231,7 @@ class _DirectMcpServerEditorPageState
           .upsert(
             draft,
             expectedPrevious: previous,
-            secretsConfirmedForNewOrigin: transfer.confirmed,
+            endpointCredentialsConfirmed: transfer.confirmed,
           );
       if (mounted) context.pop(true);
     } catch (_) {
@@ -339,7 +341,7 @@ class _DirectMcpServerEditorPageState
         final restored = await servers.upsert(
           previous!,
           expectedPrevious: interim,
-          secretsConfirmedForNewOrigin: true,
+          endpointCredentialsConfirmed: true,
         );
         if (mounted) {
           _previous = restored.firstWhere((server) => server.id == previous.id);

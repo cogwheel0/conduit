@@ -220,7 +220,7 @@ final class DirectMcpOAuthTokens {
       'DirectMcpOAuthTokens(issuer: $authorizationServerIssuer)';
 }
 
-/// A Streamable HTTP MCP server and its origin-bound credentials.
+/// A Streamable HTTP MCP server and its endpoint-bound credentials.
 final class DirectMcpServer {
   DirectMcpServer({
     this.schemaVersion = currentSchemaVersion,
@@ -271,8 +271,11 @@ final class DirectMcpServer {
   final List<DirectMcpRememberedApproval> rememberedApprovals;
 
   Uri get endpointUri => Uri.parse(endpoint.trim());
-  String? get origin => directMcpOriginOf(endpoint);
   bool get isUsable => enabled && validateOrNull() == null;
+  bool get hasEndpointBoundCredentials =>
+      (authMode == DirectMcpAuthMode.bearer &&
+          (bearerToken?.isNotEmpty ?? false)) ||
+      customHeaders.isNotEmpty;
   bool get requiresInsecureCredentialConfirmation {
     final uri = Uri.tryParse(endpoint.trim());
     if (uri == null ||
@@ -395,41 +398,60 @@ final class DirectMcpServer {
         customHeaders: customHeaders,
       );
 
+  DirectMcpServer _withoutEndpointBoundCredentials() => DirectMcpServer(
+    schemaVersion: schemaVersion,
+    id: id,
+    name: name,
+    endpoint: endpoint,
+    enabled: enabled,
+    authMode: authMode == DirectMcpAuthMode.bearer
+        ? DirectMcpAuthMode.none
+        : authMode,
+    oauthTokens: oauthTokens,
+    allowInsecureCredentials: allowInsecureCredentials,
+    rememberedApprovals: rememberedApprovals,
+  );
+
   DirectMcpServer withoutRememberedApprovals() =>
       copyWith(rememberedApprovals: const []);
 
   static DirectMcpServer secureUpdate({
     required DirectMcpServer previous,
     required DirectMcpServer next,
-    bool secretsConfirmedForNewOrigin = false,
+    bool endpointCredentialsConfirmed = false,
     bool oauthFlowCompletedForExactMutation = false,
   }) {
-    if (previous.origin != next.origin) {
-      return (secretsConfirmedForNewOrigin ? next : next.withoutSecrets())
-          .withoutRememberedApprovals();
+    var safeNext = next;
+    if (!sameDirectMcpCredentialEndpoint(previous.endpoint, next.endpoint) &&
+        !endpointCredentialsConfirmed) {
+      safeNext = next._withoutEndpointBoundCredentials();
     }
-    if (previous.authMode != next.authMode) {
-      final updated = switch (next.authMode) {
-        DirectMcpAuthMode.bearer => next,
-        DirectMcpAuthMode.oauth when oauthFlowCompletedForExactMutation => next,
-        _ => next.withoutAuthCredentials(),
+    if (previous.authMode != safeNext.authMode) {
+      final updated = switch (safeNext.authMode) {
+        DirectMcpAuthMode.bearer => safeNext,
+        DirectMcpAuthMode.oauth when oauthFlowCompletedForExactMutation =>
+          safeNext,
+        _ => safeNext.withoutAuthCredentials(),
       };
       return updated.withoutRememberedApprovals();
     }
-    if (next.oauthTokens case final oauth?
-        when !oauth.appliesToEndpoint(next.endpoint) &&
+    if (safeNext.oauthTokens case final oauth?
+        when !oauth.appliesToEndpoint(safeNext.endpoint) &&
             !oauthFlowCompletedForExactMutation) {
-      return next.withoutAuthCredentials().withoutRememberedApprovals();
+      return safeNext.withoutAuthCredentials().withoutRememberedApprovals();
     }
-    if (!_sameOAuthApprovalBinding(previous.oauthTokens, next.oauthTokens)) {
+    if (!_sameOAuthApprovalBinding(
+      previous.oauthTokens,
+      safeNext.oauthTokens,
+    )) {
       return (oauthFlowCompletedForExactMutation
-              ? next
-              : next.withoutAuthCredentials())
+              ? safeNext
+              : safeNext.withoutAuthCredentials())
           .withoutRememberedApprovals();
     }
-    return sameDirectMcpApprovalConfiguration(previous, next)
-        ? next
-        : next.withoutRememberedApprovals();
+    return sameDirectMcpApprovalConfiguration(previous, safeNext)
+        ? safeNext
+        : safeNext.withoutRememberedApprovals();
   }
 
   DirectMcpServer copyWith({
@@ -755,6 +777,22 @@ String? directMcpOriginOf(String value) {
   final scheme = uri.scheme.toLowerCase();
   final port = uri.hasPort ? uri.port : (scheme == 'https' ? 443 : 80);
   return '$scheme://${uri.host.toLowerCase()}:$port';
+}
+
+bool sameDirectMcpCredentialEndpoint(String left, String right) {
+  final leftUri = Uri.tryParse(left.trim());
+  final rightUri = Uri.tryParse(right.trim());
+  final leftOrigin = directMcpOriginOf(left);
+  final rightOrigin = directMcpOriginOf(right);
+  if (leftUri == null ||
+      rightUri == null ||
+      leftOrigin == null ||
+      leftOrigin != rightOrigin) {
+    return false;
+  }
+  final leftPath = leftUri.path.isEmpty ? '/' : leftUri.path;
+  final rightPath = rightUri.path.isEmpty ? '/' : rightUri.path;
+  return leftPath == rightPath && leftUri.query == rightUri.query;
 }
 
 bool _sameOAuthTokens(

@@ -75,7 +75,7 @@ final class DirectMcpServersController
   Future<List<DirectMcpServer>> upsert(
     DirectMcpServer server, {
     DirectMcpServer? expectedPrevious,
-    bool secretsConfirmedForNewOrigin = false,
+    bool endpointCredentialsConfirmed = false,
     bool oauthFlowCompletedForExactMutation = false,
   }) => _serialize(() async {
     _requireMutationAdmission();
@@ -86,7 +86,7 @@ final class DirectMcpServersController
     final servers = await store.upsert(
       server,
       expectedPrevious: expectedPrevious,
-      secretsConfirmedForNewOrigin: secretsConfirmedForNewOrigin,
+      endpointCredentialsConfirmed: endpointCredentialsConfirmed,
       oauthFlowCompletedForExactMutation: oauthFlowCompletedForExactMutation,
     );
     _publish(servers, registry);

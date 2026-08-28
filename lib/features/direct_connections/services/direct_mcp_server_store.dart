@@ -45,7 +45,7 @@ final class DirectMcpServerStore {
 
   Future<List<DirectMcpServer>> save(
     Iterable<DirectMcpServer> servers, {
-    Set<String> secretsConfirmedForNewOrigin = const {},
+    Set<String> endpointCredentialsConfirmed = const {},
   }) => _serializeMutation(() async {
     final previousById = {for (final server in await load()) server.id: server};
     final safe = [
@@ -54,7 +54,7 @@ final class DirectMcpServerStore {
           DirectMcpServer.secureUpdate(
             previous: previous,
             next: server,
-            secretsConfirmedForNewOrigin: secretsConfirmedForNewOrigin.contains(
+            endpointCredentialsConfirmed: endpointCredentialsConfirmed.contains(
               server.id,
             ),
           )
@@ -67,7 +67,7 @@ final class DirectMcpServerStore {
   Future<List<DirectMcpServer>> upsert(
     DirectMcpServer server, {
     DirectMcpServer? expectedPrevious,
-    bool secretsConfirmedForNewOrigin = false,
+    bool endpointCredentialsConfirmed = false,
     bool oauthFlowCompletedForExactMutation = false,
   }) => _serializeMutation(() async {
     final current = await load();
@@ -83,7 +83,7 @@ final class DirectMcpServerStore {
         : DirectMcpServer.secureUpdate(
             previous: previous,
             next: server,
-            secretsConfirmedForNewOrigin: secretsConfirmedForNewOrigin,
+            endpointCredentialsConfirmed: endpointCredentialsConfirmed,
             oauthFlowCompletedForExactMutation:
                 oauthFlowCompletedForExactMutation,
           );

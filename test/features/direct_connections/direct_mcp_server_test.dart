@@ -343,7 +343,7 @@ void main() {
     );
   });
 
-  test('origin changes clear credentials unless explicitly confirmed', () {
+  test('endpoint changes clear credentials unless explicitly confirmed', () {
     final previous = DirectMcpServer(
       id: 'server',
       name: 'Server',
@@ -364,13 +364,37 @@ void main() {
     final confirmed = DirectMcpServer.secureUpdate(
       previous: previous,
       next: next,
-      secretsConfirmedForNewOrigin: true,
+      endpointCredentialsConfirmed: true,
     );
 
     expect(cleared.bearerToken, isNull);
     expect(cleared.customHeaders, isEmpty);
     expect(confirmed.bearerToken, 'new-secret');
     expect(confirmed.customHeaders['X-Secret'], 'new-header');
+
+    final pathNext = previous.copyWith(
+      endpoint: 'https://old.example/other?tenant=two',
+    );
+    final pathCleared = DirectMcpServer.secureUpdate(
+      previous: previous,
+      next: pathNext,
+    );
+    final pathConfirmed = DirectMcpServer.secureUpdate(
+      previous: previous,
+      next: pathNext,
+      endpointCredentialsConfirmed: true,
+    );
+    expect(pathCleared.bearerToken, isNull);
+    expect(pathCleared.customHeaders, isEmpty);
+    expect(pathConfirmed.bearerToken, 'old-secret');
+    expect(pathConfirmed.customHeaders['X-Secret'], 'old-header');
+
+    final queryCleared = DirectMcpServer.secureUpdate(
+      previous: previous,
+      next: previous.copyWith(endpoint: 'https://old.example/mcp?tenant=two'),
+    );
+    expect(queryCleared.bearerToken, isNull);
+    expect(queryCleared.customHeaders, isEmpty);
   });
 
   test('security mutations clear grants while token refresh retains them', () {
@@ -488,8 +512,9 @@ void main() {
     expect(moved.oauthTokens, isNull);
     expect(moved.customHeaders, isEmpty);
     expect(pathMoved.oauthTokens, isNull);
-    expect(pathMoved.customHeaders, {'X-Tenant': 'one'});
+    expect(pathMoved.customHeaders, isEmpty);
     expect(rootPathMoved.oauthTokens, isNotNull);
+    expect(rootPathMoved.customHeaders, isEmpty);
     expect(issuerChanged.oauthTokens, isNull);
     expect(tokenEndpointChanged.oauthTokens, isNull);
     expect(modeChanged.authMode, DirectMcpAuthMode.none);
