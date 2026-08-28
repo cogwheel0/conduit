@@ -113,6 +113,32 @@ void main() {
     );
   });
 
+  test('direct send policy filters unsupported tools and search conflicts', () {
+    final apple = normalizeDirectToolSelectionForBinding(
+      binding: const DirectModelBinding(
+        profileId: kApplePccProfileId,
+        adapterKey: kApplePccAdapterKey,
+        remoteModelId: kApplePccRemoteModelId,
+      ),
+      enableWebSearch: true,
+      localMcpToolIds: const ['local_mcp:home'],
+    );
+    expect(apple.localMcpToolIds, isEmpty);
+    expect(apple.enableWebSearch, isTrue);
+
+    final openRouter = normalizeDirectToolSelectionForBinding(
+      binding: const DirectModelBinding(
+        profileId: 'openrouter',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        remoteModelId: 'model',
+      ),
+      enableWebSearch: true,
+      localMcpToolIds: const ['local_mcp:home'],
+    );
+    expect(openRouter.localMcpToolIds, ['local_mcp:home']);
+    expect(openRouter.enableWebSearch, isFalse);
+  });
+
   test('native composer glass uses non-animated cursor opacity', () {
     check(composerCursorOpacityAnimates(usesNativePlatformView: true))
         .equals(false);

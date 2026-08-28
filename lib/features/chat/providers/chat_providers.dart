@@ -9200,7 +9200,7 @@ Future<void> _regenerateDirectMessage(
       ),
       reservation: reservation,
       preflightCancelToken: preflightCancelToken,
-      enableWebSearch: localMcpToolIds.isEmpty && enableWebSearch,
+      enableWebSearch: enableWebSearch,
       enableImageGeneration: enableImageGeneration,
       reasoningEffort: reasoningEffort,
       localMcpToolIds: localMcpToolIds,
@@ -15857,6 +15857,22 @@ Future<bool> _refreshDirectConversationOwner(
   return rebound;
 }
 
+@visibleForTesting
+({bool enableWebSearch, List<String> localMcpToolIds})
+normalizeDirectToolSelectionForBinding({
+  required DirectModelBinding binding,
+  required bool enableWebSearch,
+  required List<String> localMcpToolIds,
+}) {
+  final effectiveToolIds = directBindingSupportsLocalMcp(binding)
+      ? localMcpToolIds
+      : const <String>[];
+  return (
+    enableWebSearch: enableWebSearch && effectiveToolIds.isEmpty,
+    localMcpToolIds: effectiveToolIds,
+  );
+}
+
 Future<void> _dispatchDirectRunFromChat(
   dynamic ref, {
   required _ResolvedDirectRoute route,
@@ -15873,6 +15889,11 @@ Future<void> _dispatchDirectRunFromChat(
   Map<String, DirectFilePart> ephemeralFilePartsByAttachmentId = const {},
   ChatSendPlaceholderHandle? sendHandle,
 }) async {
+  final toolSelection = normalizeDirectToolSelectionForBinding(
+    binding: route.binding,
+    enableWebSearch: enableWebSearch,
+    localMcpToolIds: localMcpToolIds,
+  );
   final DirectRunRegistry registry = ref.read(directRunRegistryProvider);
   final stopIndex = ref.read(_directRunStopIndexProvider);
   var indexedRunKey = _directRunKeyForOwner(
@@ -15932,10 +15953,10 @@ Future<void> _dispatchDirectRunFromChat(
       owner: owner,
       reservation: reservation,
       preflightCancelToken: preflightCancelToken,
-      enableWebSearch: enableWebSearch,
+      enableWebSearch: toolSelection.enableWebSearch,
       enableImageGeneration: enableImageGeneration,
       reasoningEffort: reasoningEffort,
-      localMcpToolIds: localMcpToolIds,
+      localMcpToolIds: toolSelection.localMcpToolIds,
       ephemeralFilePartsByAttachmentId: ephemeralFilePartsByAttachmentId,
     );
   } finally {
