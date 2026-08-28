@@ -7092,7 +7092,8 @@ List<Map<String, dynamic>>? _extractTopLevelRequestFiles(
 }
 
 bool _isDirectServerToolSelection(String id) {
-  return id.startsWith('direct_server:') || id.startsWith('local_mcp:');
+  return id.startsWith('direct_server:') ||
+      id.startsWith(kDirectMcpToolIdPrefix);
 }
 
 List<String> _extractToolIdsForApi(Iterable<String> selectedToolIds) {
@@ -8974,7 +8975,7 @@ Future<void> _regenerateDirectMessage(
       ref.read(imageGenerationAvailableProvider);
   final localMcpToolIds =
       (ref.read(selectedToolIdsProvider) as Iterable<String>)
-          .where((id) => id.startsWith('local_mcp:'))
+          .where((id) => id.startsWith(kDirectMcpToolIdPrefix))
           .toList(growable: false);
   final active = ref.read(activeConversationProvider) as Conversation?;
   if (active == null) throw StateError('No active conversation');
@@ -16233,7 +16234,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     final selectedServers = <DirectMcpServer>[];
     final seen = <String>{};
     for (final selection in localMcpToolIds) {
-      final id = selection.substring('local_mcp:'.length);
+      final id = selection.substring(kDirectMcpToolIdPrefix.length);
       final server = serversById[id];
       if (id.isEmpty || server == null || !server.enabled) {
         throw const DirectChatInputException(
@@ -17012,7 +17013,7 @@ Future<void> _sendMessageInternal(
       ref.read(imageGenerationEnabledProvider) &&
       ref.read(imageGenerationAvailableProvider);
   final localMcpToolIdsAtSendStart = (toolIds ?? const <String>[])
-      .where((id) => id.startsWith('local_mcp:'))
+      .where((id) => id.startsWith(kDirectMcpToolIdPrefix))
       .toList(growable: false);
   final usesHermes =
       selectedModelCandidate != null && isHermesModel(selectedModelCandidate);

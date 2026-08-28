@@ -119,10 +119,6 @@ bool directMcpInsertionFitsComposer(TextEditingValue current, String content) =>
         .length <=
     kDirectMcpMaxInsertionBytes;
 
-@visibleForTesting
-bool directBindingSupportsLocalMcp(DirectModelBinding? binding) =>
-    binding != null && binding.adapterKey != kApplePccAdapterKey;
-
 /// Returns a stable UIKit edit-menu model for the composer.
 ///
 /// Keep composer actions limited to operations that mutate the editable field.

@@ -17,6 +17,8 @@ import '../services/direct_run_registry.dart';
 import '../../tools/providers/tools_providers.dart';
 import 'direct_connection_providers.dart';
 
+const String kDirectMcpToolIdPrefix = 'local_mcp:';
+
 final directMcpServerStoreProvider = Provider<DirectMcpServerStore>((ref) {
   return DirectMcpServerStore(
     SecureCredentialStorage(instance: ref.watch(secureStorageProvider)),
@@ -207,10 +209,12 @@ final class DirectMcpServersController
   ) {
     final valid = {
       for (final server in servers)
-        if (server.enabled) 'local_mcp:${server.id}',
+        if (server.enabled) '$kDirectMcpToolIdPrefix${server.id}',
     };
     final sanitized = selected
-        .where((id) => !id.startsWith('local_mcp:') || valid.contains(id))
+        .where(
+          (id) => !id.startsWith(kDirectMcpToolIdPrefix) || valid.contains(id),
+        )
         .toList(growable: false);
     if (!listEquals(selected, sanitized)) {
       ref.read(selectedToolIdsProvider.notifier).set(sanitized);
@@ -394,7 +398,7 @@ final directMcpToolsProvider = FutureProvider<List<Tool>>((ref) async {
       for (final server in enabled)
         if (session.definitions.any((tool) => tool.serverId == server.id))
           Tool(
-            id: 'local_mcp:${server.id}',
+            id: '$kDirectMcpToolIdPrefix${server.id}',
             name: server.name,
             description: 'MCP tools available from this server.',
             specs: [

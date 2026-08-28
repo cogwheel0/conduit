@@ -12,6 +12,7 @@ import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/horizontal_overflow_fade.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../core/models/toggle_filter.dart';
+import '../../../core/models/tool.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../../terminal/providers/terminal_providers.dart';
@@ -178,9 +179,11 @@ class _ComposerAttachmentKeyboardState
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final selectedModel = ref.watch(selectedModelProvider);
-    final directMode =
-        selectedModel != null &&
-        ref.watch(directModelRegistryProvider).resolve(selectedModel) != null;
+    final directBinding = selectedModel == null
+        ? null
+        : ref.watch(directModelRegistryProvider).resolve(selectedModel);
+    final directMode = directBinding != null;
+    final directToolsAvailable = directBindingSupportsLocalMcp(directBinding);
     final restrictedMode = directMode || widget.localAttachmentsOnly;
     // Direct and local-only backends have no OpenWebUI integrations to
     // discover. Resolve the request lazily because direct provenance is only
@@ -268,7 +271,9 @@ class _ComposerAttachmentKeyboardState
     final toolsAsync = widget.localAttachmentsOnly
         ? null
         : directMode
-        ? ref.watch(directMcpToolsProvider)
+        ? directToolsAvailable
+              ? ref.watch(directMcpToolsProvider)
+              : const AsyncData<List<Tool>>([])
         : ref.watch(toolsListProvider);
     final toolsSection = widget.localAttachmentsOnly
         ? const SizedBox.shrink()

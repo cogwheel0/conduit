@@ -2706,7 +2706,8 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
       return ids
           .where(
             (id) =>
-                id.startsWith('direct_server:') || id.startsWith('local_mcp:'),
+                id.startsWith('direct_server:') ||
+                id.startsWith(kDirectMcpToolIdPrefix),
           )
           .toList();
     }

@@ -89,6 +89,9 @@ final class DirectModelBinding {
   );
 }
 
+bool directBindingSupportsLocalMcp(DirectModelBinding? binding) =>
+    binding != null && binding.adapterKey != kApplePccAdapterKey;
+
 final Expando<DirectModelBinding> _trustedBindings =
     Expando<DirectModelBinding>('locally-minted-direct-model');
 

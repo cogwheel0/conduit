@@ -2,6 +2,7 @@ import 'dart:ui' show SemanticsAction;
 
 import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit/core/models/tool.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/settings_service.dart';
@@ -12,6 +13,7 @@ import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_items.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/direct_connections/direct_connections.dart';
+import 'package:conduit/features/direct_connections/providers/direct_mcp_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -427,6 +429,39 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.userSettingsCalls, 0);
+  });
+
+  testWidgets('Apple direct overflow does not load local MCP tools', (
+    tester,
+  ) async {
+    final registry = DirectModelRegistry();
+    final appleModel = registry.replaceProfileModels(
+      DirectConnectionProfile.applePrivateCloudCompute(),
+      [DirectRemoteModel(id: kApplePccRemoteModelId)],
+    ).single;
+    var toolLoads = 0;
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          directModelRegistryProvider.overrideWithValue(registry),
+          selectedModelProvider.overrideWithValue(appleModel),
+          directMcpToolsProvider.overrideWith((ref) async {
+            toolLoads++;
+            return const [Tool(id: 'local_mcp:home', name: 'Home MCP')];
+          }),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const Scaffold(body: ComposerAttachmentKeyboard()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(toolLoads, 0);
+    expect(find.text('Home MCP'), findsNothing);
   });
 
   testWidgets(
