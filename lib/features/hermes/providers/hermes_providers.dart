@@ -2072,7 +2072,8 @@ class HermesRunRegistry {
     final run = _runs[key];
     if (run == null ||
         run.cancelled ||
-        !identical(run.cancelToken, cancelToken)) {
+        !identical(run.cancelToken, cancelToken) ||
+        (run.runId != null && run.runId != runId)) {
       return false;
     }
     run.runId = runId;

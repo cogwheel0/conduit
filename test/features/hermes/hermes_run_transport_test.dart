@@ -392,6 +392,10 @@ void main() {
       registry.bindRunId(key, cancelToken: currentToken, runId: 'current-run'),
     ).isTrue();
     check(registry.runIdFor(key)).equals('current-run');
+    check(
+      registry.bindRunId(key, cancelToken: currentToken, runId: 'other-run'),
+    ).isFalse();
+    check(registry.runIdFor(key)).equals('current-run');
   });
 
   group('dispatchHermesResponse', () {

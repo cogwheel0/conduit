@@ -2175,7 +2175,7 @@ After
         'arguments="{&quot;url&quot;:&quot;https://example.com&quot;}" '
         'result="&quot;done&quot;">\n</details>';
 
-    await tester.pumpWidget(buildHarness(content));
+    await tester.pumpWidget(buildHarness(content, isStreaming: true));
 
     expect(find.text('View Result from fetch_url'), findsOneWidget);
     expect(find.textContaining('<details'), findsNothing);

@@ -74,7 +74,9 @@ List<ChatMessage> restoreHermesDesktopRunningMessage(
 
   final restored = List<ChatMessage>.of(messages);
   final tail = restored.lastOrNull;
-  if (tail?.role == 'assistant' && tail?.error == null) {
+  if (tail?.role == 'assistant' &&
+      tail?.error == null &&
+      tail?.metadata?['restoredDesktopDecision'] != true) {
     restored[restored.length - 1] = tail!.copyWith(
       isStreaming: true,
       metadata: <String, dynamic>{

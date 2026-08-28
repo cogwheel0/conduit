@@ -310,6 +310,18 @@ void main() {
         modelId: 'hermes:agent:default',
         isRunning: true,
       );
+      final restoredDecision = restoreHermesDesktopRunningMessage(
+        [
+          hermesMessagesToChatMessages([
+            {'id': 'decision-1', 'role': 'assistant', 'content': 'Approve?'},
+          ]).single.copyWith(
+            metadata: const <String, dynamic>{'restoredDesktopDecision': true},
+          ),
+        ],
+        sessionId: 'session-3',
+        modelId: 'hermes:agent:default',
+        isRunning: true,
+      );
 
       check(restoredAssistant.single.isStreaming).isTrue();
       check(isRestoredHermesDesktopRunningMessage(restoredAssistant.single))
@@ -321,6 +333,12 @@ void main() {
       check(restoredPlaceholder.last.content).isEmpty();
       check(restoredPlaceholder.last.isStreaming).isTrue();
       check(isRestoredHermesDesktopRunningPlaceholder(restoredPlaceholder.last))
+          .isTrue();
+      check(restoredDecision)
+          .has((messages) => messages.length, 'length')
+          .equals(2);
+      check(restoredDecision.first.isStreaming).isFalse();
+      check(isRestoredHermesDesktopRunningPlaceholder(restoredDecision.last))
           .isTrue();
     });
 
