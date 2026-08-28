@@ -32,7 +32,11 @@ void main() {
     expect(
       bindings.keys,
       containsAll(<ShortcutActivator>[
-        const SingleActivator(LogicalKeyboardKey.keyN, meta: true),
+        const SingleActivator(
+          LogicalKeyboardKey.keyN,
+          meta: true,
+          includeRepeats: false,
+        ),
         const SingleActivator(LogicalKeyboardKey.keyK, meta: true),
         const SingleActivator(LogicalKeyboardKey.digit1, meta: true),
         const SingleActivator(LogicalKeyboardKey.digit2, meta: true),
@@ -43,6 +47,53 @@ void main() {
         const SingleActivator(LogicalKeyboardKey.escape),
       ]),
     );
+  });
+
+  testWidgets('Command-N accepts an initial press but ignores repeats', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSAppOnMacOverride = true;
+
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(
+          home: MacDesktopShortcuts(child: Focus(child: Text('Content'))),
+        ),
+      ),
+    );
+
+    final bindings = tester
+        .widget<CallbackShortcuts>(find.byType(CallbackShortcuts))
+        .bindings;
+    final commandN = bindings.keys.whereType<SingleActivator>().singleWhere(
+      (activator) => activator.trigger == LogicalKeyboardKey.keyN,
+    );
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    expect(
+      commandN.accepts(
+        const KeyDownEvent(
+          physicalKey: PhysicalKeyboardKey.keyN,
+          logicalKey: LogicalKeyboardKey.keyN,
+          timeStamp: Duration.zero,
+        ),
+        HardwareKeyboard.instance,
+      ),
+      true,
+    );
+    expect(
+      commandN.accepts(
+        const KeyRepeatEvent(
+          physicalKey: PhysicalKeyboardKey.keyN,
+          logicalKey: LogicalKeyboardKey.keyN,
+          timeStamp: Duration.zero,
+        ),
+        HardwareKeyboard.instance,
+      ),
+      false,
+    );
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
   });
 
   testWidgets('Command-K focuses search and Escape closes it', (tester) async {

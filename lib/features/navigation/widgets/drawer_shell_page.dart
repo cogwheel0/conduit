@@ -122,8 +122,11 @@ class MacDesktopShortcuts extends ConsumerWidget {
 
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
-        const SingleActivator(LogicalKeyboardKey.keyN, meta: true):
-            createForActiveTab,
+        const SingleActivator(
+          LogicalKeyboardKey.keyN,
+          meta: true,
+          includeRepeats: false,
+        ): createForActiveTab,
         const SingleActivator(LogicalKeyboardKey.keyK, meta: true):
             focusSidebarSearch,
         const SingleActivator(LogicalKeyboardKey.digit1, meta: true): () =>
