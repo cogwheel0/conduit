@@ -73,6 +73,9 @@ import '../../hermes/services/hermes_message_mapper.dart';
 import '../../hermes/services/hermes_run_transport.dart';
 import '../../hermes/services/hermes_session_provenance.dart';
 import '../../direct_connections/direct_connections.dart';
+import '../../direct_connections/providers/direct_mcp_providers.dart';
+import '../../direct_connections/models/direct_mcp_server.dart';
+import '../../direct_connections/services/direct_mcp_client.dart';
 import '../models/chat_context_attachment.dart';
 import '../providers/context_attachments_provider.dart';
 import '../providers/reasoning_effort_provider.dart';
@@ -7090,7 +7093,8 @@ List<Map<String, dynamic>>? _extractTopLevelRequestFiles(
 }
 
 bool _isDirectServerToolSelection(String id) {
-  return id.startsWith('direct_server:');
+  return id.startsWith('direct_server:') ||
+      id.startsWith(kDirectMcpToolIdPrefix);
 }
 
 List<String> _extractToolIdsForApi(Iterable<String> selectedToolIds) {
@@ -7148,7 +7152,7 @@ List _filterSelectedConfiguredToolServers(
   Iterable<String> selectedToolIds,
 ) {
   final selectedServerIds = selectedToolIds
-      .where(_isDirectServerToolSelection)
+      .where((id) => id.startsWith('direct_server:'))
       .map((id) => id.substring('direct_server:'.length).trim())
       .where((id) => id.isNotEmpty)
       .toSet();
@@ -8970,6 +8974,10 @@ Future<void> _regenerateDirectMessage(
   final enableImageGeneration =
       ref.read(imageGenerationEnabledProvider) &&
       ref.read(imageGenerationAvailableProvider);
+  final localMcpToolIds =
+      (ref.read(selectedToolIdsProvider) as Iterable<String>)
+          .where((id) => id.startsWith(kDirectMcpToolIdPrefix))
+          .toList(growable: false);
   final active = ref.read(activeConversationProvider) as Conversation?;
   if (active == null) throw StateError('No active conversation');
   final directMutationOwner = captureChatMutationOwner(ref, active);
@@ -9011,13 +9019,16 @@ Future<void> _regenerateDirectMessage(
       ? null
       : _directRegenerationCompletedBase(visiblePreviousAssistant);
   final assistantId = previousAssistant?.id ?? const Uuid().v4();
-  final metadata = <String, dynamic>{
-    ...?previousAssistant?.metadata,
-    'parentId': existing[userIndex].id,
-    'childrenIds': const <String>[],
-    'transport': kDirectTransport,
-    'modelName': route.model.name,
-  }..remove('archivedVariant');
+  final metadata =
+      <String, dynamic>{
+          ...?previousAssistant?.metadata,
+          'parentId': existing[userIndex].id,
+          'childrenIds': const <String>[],
+          'transport': kDirectTransport,
+          'modelName': route.model.name,
+        }
+        ..remove('archivedVariant')
+        ..remove(kDirectMcpApprovalMetadataKey);
   final assistant = ChatMessage(
     id: assistantId,
     role: 'assistant',
@@ -9193,6 +9204,7 @@ Future<void> _regenerateDirectMessage(
       enableWebSearch: enableWebSearch,
       enableImageGeneration: enableImageGeneration,
       reasoningEffort: reasoningEffort,
+      localMcpToolIds: localMcpToolIds,
     );
   } on _DirectOpenWebUiAuthSessionChanged {
     registry.discardFinalizedOutput(reservation);
@@ -15846,6 +15858,22 @@ Future<bool> _refreshDirectConversationOwner(
   return rebound;
 }
 
+@visibleForTesting
+({bool enableWebSearch, List<String> localMcpToolIds})
+normalizeDirectToolSelectionForBinding({
+  required DirectModelBinding binding,
+  required bool enableWebSearch,
+  required List<String> localMcpToolIds,
+}) {
+  final effectiveToolIds = directBindingSupportsLocalMcp(binding)
+      ? localMcpToolIds
+      : const <String>[];
+  return (
+    enableWebSearch: enableWebSearch && effectiveToolIds.isEmpty,
+    localMcpToolIds: effectiveToolIds,
+  );
+}
+
 Future<void> _dispatchDirectRunFromChat(
   dynamic ref, {
   required _ResolvedDirectRoute route,
@@ -15858,9 +15886,15 @@ Future<void> _dispatchDirectRunFromChat(
   required bool enableWebSearch,
   required bool enableImageGeneration,
   required String? reasoningEffort,
+  required List<String> localMcpToolIds,
   Map<String, DirectFilePart> ephemeralFilePartsByAttachmentId = const {},
   ChatSendPlaceholderHandle? sendHandle,
 }) async {
+  final toolSelection = normalizeDirectToolSelectionForBinding(
+    binding: route.binding,
+    enableWebSearch: enableWebSearch,
+    localMcpToolIds: localMcpToolIds,
+  );
   final DirectRunRegistry registry = ref.read(directRunRegistryProvider);
   final stopIndex = ref.read(_directRunStopIndexProvider);
   var indexedRunKey = _directRunKeyForOwner(
@@ -15920,9 +15954,10 @@ Future<void> _dispatchDirectRunFromChat(
       owner: owner,
       reservation: reservation,
       preflightCancelToken: preflightCancelToken,
-      enableWebSearch: enableWebSearch,
+      enableWebSearch: toolSelection.enableWebSearch,
       enableImageGeneration: enableImageGeneration,
       reasoningEffort: reasoningEffort,
+      localMcpToolIds: toolSelection.localMcpToolIds,
       ephemeralFilePartsByAttachmentId: ephemeralFilePartsByAttachmentId,
     );
   } finally {
@@ -15959,11 +15994,17 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
   required bool enableWebSearch,
   required bool enableImageGeneration,
   required String? reasoningEffort,
+  required List<String> localMcpToolIds,
   Map<String, DirectFilePart> ephemeralFilePartsByAttachmentId = const {},
 }) async {
   final notifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
   final DirectRunRegistry registry = ref.read(directRunRegistryProvider);
+  if (localMcpToolIds.isNotEmpty && enableImageGeneration) {
+    throw const DirectChatInputException(
+      'Local MCP tools cannot be combined with image generation.',
+    );
+  }
   final api = owner.sourceApi;
   final imageCache = <String, String?>{};
   Future<String?> resolveImage(String id, int maxBytes) async {
@@ -16193,6 +16234,112 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
       );
     }
   }
+  DirectMcpToolSession? mcpSession;
+  Future<void> closeMcpSessionBestEffort() async {
+    try {
+      await mcpSession?.close();
+    } catch (_) {}
+  }
+
+  DirectToolRuntime? toolRuntime;
+  if (localMcpToolIds.isNotEmpty) {
+    final servers = await _awaitDirectPreflightOrCancellation(
+      registry: registry,
+      reservation: reservation,
+      cancelToken: preflightCancelToken,
+      operation: () => ref.read(directMcpServersProvider.future),
+    );
+    final serversById = <String, DirectMcpServer>{
+      for (final server in servers) server.id: server,
+    };
+    registry.synchronizeMcpServers(servers);
+    final selectedServers = <DirectMcpServer>[];
+    final seen = <String>{};
+    for (final selection in localMcpToolIds) {
+      final id = selection.substring(kDirectMcpToolIdPrefix.length);
+      final server = serversById[id];
+      if (id.isEmpty || server == null || !server.enabled) {
+        throw const DirectChatInputException(
+          'A selected MCP server is unavailable.',
+        );
+      }
+      server.validate();
+      if (seen.add(id)) selectedServers.add(server);
+    }
+    final sessionFuture = ref.read(directMcpSessionBuilderProvider)(
+      selectedServers,
+    );
+    unawaited(
+      registry.cancellationSignal(reservation).then((_) async {
+        try {
+          await (await sessionFuture).close();
+        } catch (_) {}
+      }),
+    );
+    mcpSession = await _awaitDirectPreflightOrCancellation(
+      registry: registry,
+      reservation: reservation,
+      cancelToken: preflightCancelToken,
+      operation: () => sessionFuture,
+    );
+    try {
+      _requireDirectOwnerAuthSession(ref, owner);
+      if (!_directRouteIsStillSelected(ref, route)) {
+        throw const DirectChatInputException(
+          'The selected Direct connection changed before sending.',
+        );
+      }
+    } catch (_) {
+      await closeMcpSessionBestEffort();
+      rethrow;
+    }
+    final session = mcpSession!;
+    final toolServersByName = {
+      for (final definition in session.definitions)
+        definition.modelName: serversById[definition.serverId]!,
+    };
+    toolRuntime = DirectToolRuntime(
+      definitions: <DirectToolDefinition>[
+        for (final definition in session.definitions)
+          DirectToolDefinition(
+            name: definition.modelName,
+            serverId: definition.serverId,
+            serverName: definition.serverName,
+            remoteName: definition.remoteName,
+            displayName: definition.displayName,
+            description: definition.description,
+            approvalFingerprint: definition.approvalFingerprint,
+            inputSchema: definition.inputSchema,
+          ),
+      ],
+      requestApproval: (callId, definition, arguments) {
+        final expectedServer = serversById[definition.serverId]!;
+        if (!registry.isMcpServerCurrent(expectedServer)) {
+          throw const DirectProviderException(
+            'The MCP server changed. Start a new model turn.',
+          );
+        }
+        return registry.requestMcpApproval(
+          reservation,
+          callId: callId,
+          definition: definition,
+          arguments: arguments,
+          expectedServer: expectedServer,
+        );
+      },
+      execute: (name, arguments) async {
+        final expectedServer = toolServersByName[name];
+        if (expectedServer == null ||
+            !registry.isMcpServerCurrent(expectedServer)) {
+          throw const DirectProviderException(
+            'The MCP server changed. Start a new model turn.',
+          );
+        }
+        final result = await session.execute(name, arguments);
+        return DirectToolResult(text: result.text, isError: result.isError);
+      },
+    );
+  }
   final normalizedBudget = DirectStreamBudget(
     maxCharacters: streamLimits.maxCharacters,
     maxEvents: streamLimits.maxEvents,
@@ -16221,6 +16368,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
             route.profile.isOpenRouter && enableImageGeneration
             ? ref.read(appSettingsProvider).openRouterImageGenerationModel
             : null,
+        tools: toolRuntime,
         parameters:
             route.profile.adapterKey == kOllamaAdapterKey ||
                 reasoningEffort == null
@@ -16235,6 +16383,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     if (consumesImageGenerationAction) {
       ref.read(imageGenerationEnabledProvider.notifier).set(true);
     }
+    await closeMcpSessionBestEffort();
     throw _normalizeDirectDispatcherFailure(
       error,
       sensitiveValues: sensitiveProviderValues,
@@ -16254,6 +16403,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
   if (!registry.register(reservation, run)) {
     // register() already revokes and observes cleanup. Transport cleanup is not
     // part of the caller contract: a hostile run.done must not hold preflight.
+    await closeMcpSessionBestEffort();
     throw const _DirectRunStoppedDuringPreflight();
   }
   final accumulator = DirectStreamingAccumulator();
@@ -16425,6 +16575,22 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
               ..add(jsonEncode(event.arguments))
               ..add(jsonEncode(event.result));
             break;
+          case DirectMcpApprovalRequested():
+            normalizedBudget
+              ..add(event.request.id)
+              ..add(event.request.serverName)
+              ..add(event.request.toolName)
+              ..add(event.request.callId)
+              ..add(event.request.argumentsJson);
+            break;
+          case DirectMcpApprovalResolved():
+            normalizedBudget
+              ..add(event.request.id)
+              ..add(event.request.serverName)
+              ..add(event.request.toolName)
+              ..add(event.request.callId)
+              ..add(event.request.argumentsJson);
+            break;
           case DirectStreamError():
             normalizedBudget.add(event.message);
             normalizedEvent = DirectStreamError(
@@ -16526,6 +16692,18 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
                 },
               ),
             );
+          } else if (projectedEvent is DirectMcpApprovalRequested ||
+              projectedEvent is DirectMcpApprovalResolved) {
+            notifier.updateMessageById(
+              assistantMessageId,
+              (current) => current.copyWith(
+                metadata: <String, dynamic>{
+                  ...?current.metadata,
+                  if (accumulator.mcpApproval != null)
+                    kDirectMcpApprovalMetadataKey: accumulator.mcpApproval,
+                },
+              ),
+            );
           } else if (projectedEvent is DirectStreamError) {
             notifier.updateMessageById(
               assistantMessageId,
@@ -16595,6 +16773,38 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
           // before incremental appends can resume safely.
           uiProjectionIsCurrent = false;
           uiProjectionToken = null;
+        }
+        if ((projectedEvent is DirectMcpApprovalRequested ||
+                projectedEvent is DirectMcpApprovalResolved) &&
+            accumulator.mcpApproval != null) {
+          final approvalBase = _isDirectConversationOwnerActive(ref, owner)
+              ? (ref.read(chatMessagesProvider) as List<ChatMessage>)
+                    .where((message) => message.id == assistantMessageId)
+                    .firstOrNull
+              : null;
+          final base = approvalBase ?? assistantSeed;
+          final approvalSnapshot = base.copyWith(
+            content: accumulator.render(done: false),
+            output: accumulator.toolOutput,
+            usage: accumulator.usage,
+            sources: accumulator.sources,
+            metadata: <String, dynamic>{
+              ...?base.metadata,
+              kDirectMcpApprovalMetadataKey: accumulator.mcpApproval,
+            },
+            isStreaming: true,
+          );
+          streamElapsed.stop();
+          try {
+            await _persistCompletedDirectAssistant(
+              ref,
+              owner: owner,
+              assistant: approvalSnapshot,
+              isCurrentGeneration: () => registry.isLatest(reservation),
+            );
+          } finally {
+            streamElapsed.start();
+          }
         }
         if (projectedEvent is DirectGeneratedImage) {
           final assetBase = _isDirectConversationOwnerActive(ref, owner)
@@ -16708,6 +16918,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
             kDirectRawAssistantContentMetadataKey: accumulator.text,
           }
           ..remove(kDirectProviderMetadataKey)
+          ..remove(kDirectMcpApprovalMetadataKey)
           ..remove(kOpenRouterFileAnnotationsMetadataKey);
     if (accumulator.providerMetadata != null) {
       completedMetadata[kDirectProviderMetadataKey] =
@@ -16716,6 +16927,10 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     if (signedFileAnnotations != null) {
       completedMetadata[kOpenRouterFileAnnotationsMetadataKey] =
           signedFileAnnotations;
+    }
+    if (accumulator.mcpApproval != null) {
+      completedMetadata[kDirectMcpApprovalMetadataKey] =
+          accumulator.mcpApproval;
     }
     final completed = base.copyWith(
       content: completedContent,
@@ -16778,6 +16993,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     }
   } finally {
     registry.complete(reservation, run);
+    await closeMcpSessionBestEffort();
   }
 }
 
@@ -16818,6 +17034,9 @@ Future<void> _sendMessageInternal(
   final imageGenerationAtSendStart =
       ref.read(imageGenerationEnabledProvider) &&
       ref.read(imageGenerationAvailableProvider);
+  final localMcpToolIdsAtSendStart = (toolIds ?? const <String>[])
+      .where((id) => id.startsWith(kDirectMcpToolIdPrefix))
+      .toList(growable: false);
   final usesHermes =
       selectedModelCandidate != null && isHermesModel(selectedModelCandidate);
   final HermesConfigController? hermesConfigController = usesHermes
@@ -17451,6 +17670,7 @@ Future<void> _sendMessageInternal(
         enableWebSearch: webSearchAtSendStart,
         enableImageGeneration: imageGenerationAtSendStart,
         reasoningEffort: reasoningEffortAtSendStart,
+        localMcpToolIds: localMcpToolIdsAtSendStart,
         ephemeralFilePartsByAttachmentId:
             preparedDirectDocuments?.ephemeralFilePartsByAttachmentId ??
             const <String, DirectFilePart>{},

@@ -17,6 +17,7 @@ const String kDirectTransport = kConduitDirectTransport;
 const String kDirectRawAssistantContentMetadataKey =
     kConduitDirectRawAssistantContentMetadataKey;
 const String kDirectProviderMetadataKey = 'directProviderMetadata';
+const String kDirectMcpApprovalMetadataKey = 'directMcpApproval';
 const String kDirectContextSummaryMetadataKey = 'directContextSummaryV1';
 const int kDefaultDirectContextLength = 4096;
 const String kDirectGeneratedImageReplayText =
@@ -914,6 +915,7 @@ final class DirectStreamingAccumulator {
   final Stopwatch _reasoningWatch;
   Map<String, dynamic>? _usage;
   Map<String, dynamic>? _providerMetadata;
+  Map<String, dynamic>? _mcpApproval;
   final List<Map<String, dynamic>> _fileAnnotations = [];
   final Set<String> _fileAnnotationHashes = <String>{};
   DirectStreamError? _error;
@@ -934,6 +936,7 @@ final class DirectStreamingAccumulator {
   String get reasoning => _reasoning.toString();
   Map<String, dynamic>? get usage => _usage;
   Map<String, dynamic>? get providerMetadata => _providerMetadata;
+  Map<String, dynamic>? get mcpApproval => _mcpApproval;
   List<Map<String, dynamic>> get fileAnnotations =>
       List.unmodifiable(_fileAnnotations);
   DirectStreamError? get error => _error;
@@ -1059,6 +1062,21 @@ final class DirectStreamingAccumulator {
         }
         _hasUsableOutput = true;
         return true;
+      case DirectMcpApprovalRequested():
+        _mcpApproval = event.request.toMetadata('pending');
+        return true;
+      case DirectMcpApprovalResolved():
+        if (_mcpApproval?['id'] == event.request.id) {
+          _mcpApproval = <String, dynamic>{
+            ..._mcpApproval!,
+            'state': directToolApprovalState(event.decision),
+          };
+        } else {
+          _mcpApproval = event.request.toMetadata(
+            directToolApprovalState(event.decision),
+          );
+        }
+        return true;
       case DirectStreamError():
         _error = event;
         return true;
@@ -1127,6 +1145,8 @@ final class DirectStreamingAccumulator {
         return null;
       case DirectToolCallStarted() || DirectToolCallCompleted():
         return _fullStreamingProjection(logicalLength);
+      case DirectMcpApprovalRequested() || DirectMcpApprovalResolved():
+        return null;
       case DirectUsageUpdate() ||
           DirectProviderMetadataUpdate() ||
           DirectFileAnnotationsUpdate() ||

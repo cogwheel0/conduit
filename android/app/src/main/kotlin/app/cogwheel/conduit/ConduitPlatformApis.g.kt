@@ -2744,10 +2744,146 @@ data class PlatformPccMessage (
 }
 
 /** Generated class from Pigeon that represents data sent in messages. */
+data class PlatformPccToolDefinition (
+  val name: String,
+  val toolDescription: String,
+  val inputSchemaJson: String
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): PlatformPccToolDefinition {
+      val name = pigeonVar_list[0] as String
+      val toolDescription = pigeonVar_list[1] as String
+      val inputSchemaJson = pigeonVar_list[2] as String
+      return PlatformPccToolDefinition(name, toolDescription, inputSchemaJson)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      name,
+      toolDescription,
+      inputSchemaJson,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as PlatformPccToolDefinition
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.name, other.name) && ConduitPlatformApisPigeonUtils.deepEquals(this.toolDescription, other.toolDescription) && ConduitPlatformApisPigeonUtils.deepEquals(this.inputSchemaJson, other.inputSchemaJson)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.name)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.toolDescription)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.inputSchemaJson)
+    return result
+  }
+  override fun toString(): String {
+    return "PlatformPccToolDefinition(name=$name, toolDescription=$toolDescription, inputSchemaJson=$inputSchemaJson)"
+  }
+}
+
+/** Generated class from Pigeon that represents data sent in messages. */
+data class PlatformPccToolCall (
+  val runId: String,
+  val callId: String,
+  val name: String,
+  val argumentsJson: String
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): PlatformPccToolCall {
+      val runId = pigeonVar_list[0] as String
+      val callId = pigeonVar_list[1] as String
+      val name = pigeonVar_list[2] as String
+      val argumentsJson = pigeonVar_list[3] as String
+      return PlatformPccToolCall(runId, callId, name, argumentsJson)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      runId,
+      callId,
+      name,
+      argumentsJson,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as PlatformPccToolCall
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.runId, other.runId) && ConduitPlatformApisPigeonUtils.deepEquals(this.callId, other.callId) && ConduitPlatformApisPigeonUtils.deepEquals(this.name, other.name) && ConduitPlatformApisPigeonUtils.deepEquals(this.argumentsJson, other.argumentsJson)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.runId)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.callId)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.name)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.argumentsJson)
+    return result
+  }
+  override fun toString(): String {
+    return "PlatformPccToolCall(runId=$runId, callId=$callId, name=$name, argumentsJson=$argumentsJson)"
+  }
+}
+
+/** Generated class from Pigeon that represents data sent in messages. */
+data class PlatformPccToolResult (
+  val content: String,
+  val cancelled: Boolean
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): PlatformPccToolResult {
+      val content = pigeonVar_list[0] as String
+      val cancelled = pigeonVar_list[1] as Boolean
+      return PlatformPccToolResult(content, cancelled)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      content,
+      cancelled,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as PlatformPccToolResult
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.content, other.content) && ConduitPlatformApisPigeonUtils.deepEquals(this.cancelled, other.cancelled)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.content)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.cancelled)
+    return result
+  }
+  override fun toString(): String {
+    return "PlatformPccToolResult(content=$content, cancelled=$cancelled)"
+  }
+}
+
+/** Generated class from Pigeon that represents data sent in messages. */
 data class PlatformPccCompletionRequest (
   val runId: String,
   val model: PlatformAppleModel,
   val messages: List<PlatformPccMessage>,
+  val tools: List<PlatformPccToolDefinition>,
   val allowOnDeviceFallback: Boolean,
   val reasoningLevel: String? = null,
   val temperature: Double? = null,
@@ -2765,17 +2901,18 @@ data class PlatformPccCompletionRequest (
       val runId = pigeonVar_list[0] as String
       val model = pigeonVar_list[1] as PlatformAppleModel
       val messages = pigeonVar_list[2] as List<PlatformPccMessage>
-      val allowOnDeviceFallback = pigeonVar_list[3] as Boolean
-      val reasoningLevel = pigeonVar_list[4] as String?
-      val temperature = pigeonVar_list[5] as Double?
-      val maximumResponseTokens = pigeonVar_list[6] as Long?
-      val topP = pigeonVar_list[7] as Double?
-      val topK = pigeonVar_list[8] as Long?
-      val seed = pigeonVar_list[9] as Long?
-      val greedySampling = pigeonVar_list[10] as Boolean?
-      val responseSchemaName = pigeonVar_list[11] as String?
-      val responseSchemaJson = pigeonVar_list[12] as String?
-      return PlatformPccCompletionRequest(runId, model, messages, allowOnDeviceFallback, reasoningLevel, temperature, maximumResponseTokens, topP, topK, seed, greedySampling, responseSchemaName, responseSchemaJson)
+      val tools = pigeonVar_list[3] as List<PlatformPccToolDefinition>
+      val allowOnDeviceFallback = pigeonVar_list[4] as Boolean
+      val reasoningLevel = pigeonVar_list[5] as String?
+      val temperature = pigeonVar_list[6] as Double?
+      val maximumResponseTokens = pigeonVar_list[7] as Long?
+      val topP = pigeonVar_list[8] as Double?
+      val topK = pigeonVar_list[9] as Long?
+      val seed = pigeonVar_list[10] as Long?
+      val greedySampling = pigeonVar_list[11] as Boolean?
+      val responseSchemaName = pigeonVar_list[12] as String?
+      val responseSchemaJson = pigeonVar_list[13] as String?
+      return PlatformPccCompletionRequest(runId, model, messages, tools, allowOnDeviceFallback, reasoningLevel, temperature, maximumResponseTokens, topP, topK, seed, greedySampling, responseSchemaName, responseSchemaJson)
     }
   }
   fun toList(): List<Any?> {
@@ -2783,6 +2920,7 @@ data class PlatformPccCompletionRequest (
       runId,
       model,
       messages,
+      tools,
       allowOnDeviceFallback,
       reasoningLevel,
       temperature,
@@ -2803,7 +2941,7 @@ data class PlatformPccCompletionRequest (
       return true
     }
     val other = other as PlatformPccCompletionRequest
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.runId, other.runId) && ConduitPlatformApisPigeonUtils.deepEquals(this.model, other.model) && ConduitPlatformApisPigeonUtils.deepEquals(this.messages, other.messages) && ConduitPlatformApisPigeonUtils.deepEquals(this.allowOnDeviceFallback, other.allowOnDeviceFallback) && ConduitPlatformApisPigeonUtils.deepEquals(this.reasoningLevel, other.reasoningLevel) && ConduitPlatformApisPigeonUtils.deepEquals(this.temperature, other.temperature) && ConduitPlatformApisPigeonUtils.deepEquals(this.maximumResponseTokens, other.maximumResponseTokens) && ConduitPlatformApisPigeonUtils.deepEquals(this.topP, other.topP) && ConduitPlatformApisPigeonUtils.deepEquals(this.topK, other.topK) && ConduitPlatformApisPigeonUtils.deepEquals(this.seed, other.seed) && ConduitPlatformApisPigeonUtils.deepEquals(this.greedySampling, other.greedySampling) && ConduitPlatformApisPigeonUtils.deepEquals(this.responseSchemaName, other.responseSchemaName) && ConduitPlatformApisPigeonUtils.deepEquals(this.responseSchemaJson, other.responseSchemaJson)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.runId, other.runId) && ConduitPlatformApisPigeonUtils.deepEquals(this.model, other.model) && ConduitPlatformApisPigeonUtils.deepEquals(this.messages, other.messages) && ConduitPlatformApisPigeonUtils.deepEquals(this.tools, other.tools) && ConduitPlatformApisPigeonUtils.deepEquals(this.allowOnDeviceFallback, other.allowOnDeviceFallback) && ConduitPlatformApisPigeonUtils.deepEquals(this.reasoningLevel, other.reasoningLevel) && ConduitPlatformApisPigeonUtils.deepEquals(this.temperature, other.temperature) && ConduitPlatformApisPigeonUtils.deepEquals(this.maximumResponseTokens, other.maximumResponseTokens) && ConduitPlatformApisPigeonUtils.deepEquals(this.topP, other.topP) && ConduitPlatformApisPigeonUtils.deepEquals(this.topK, other.topK) && ConduitPlatformApisPigeonUtils.deepEquals(this.seed, other.seed) && ConduitPlatformApisPigeonUtils.deepEquals(this.greedySampling, other.greedySampling) && ConduitPlatformApisPigeonUtils.deepEquals(this.responseSchemaName, other.responseSchemaName) && ConduitPlatformApisPigeonUtils.deepEquals(this.responseSchemaJson, other.responseSchemaJson)
   }
 
   override fun hashCode(): Int {
@@ -2811,6 +2949,7 @@ data class PlatformPccCompletionRequest (
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.runId)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.model)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.messages)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.tools)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.allowOnDeviceFallback)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.reasoningLevel)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.temperature)
@@ -2824,7 +2963,7 @@ data class PlatformPccCompletionRequest (
     return result
   }
   override fun toString(): String {
-    return "PlatformPccCompletionRequest(runId=$runId, model=$model, messages=$messages, allowOnDeviceFallback=$allowOnDeviceFallback, reasoningLevel=$reasoningLevel, temperature=$temperature, maximumResponseTokens=$maximumResponseTokens, topP=$topP, topK=$topK, seed=$seed, greedySampling=$greedySampling, responseSchemaName=$responseSchemaName, responseSchemaJson=$responseSchemaJson)"
+    return "PlatformPccCompletionRequest(runId=$runId, model=$model, messages=$messages, tools=$tools, allowOnDeviceFallback=$allowOnDeviceFallback, reasoningLevel=$reasoningLevel, temperature=$temperature, maximumResponseTokens=$maximumResponseTokens, topP=$topP, topK=$topK, seed=$seed, greedySampling=$greedySampling, responseSchemaName=$responseSchemaName, responseSchemaJson=$responseSchemaJson)"
   }
 }
 
@@ -3153,10 +3292,25 @@ private open class ConduitPlatformApisPigeonCodec : StandardMessageCodec() {
       }
       181.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccCompletionRequest.fromList(it)
+          PlatformPccToolDefinition.fromList(it)
         }
       }
       182.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          PlatformPccToolCall.fromList(it)
+        }
+      }
+      183.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          PlatformPccToolResult.fromList(it)
+        }
+      }
+      184.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          PlatformPccCompletionRequest.fromList(it)
+        }
+      }
+      185.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
           PlatformPccStreamEvent.fromList(it)
         }
@@ -3374,12 +3528,24 @@ private open class ConduitPlatformApisPigeonCodec : StandardMessageCodec() {
         stream.write(180)
         writeValue(stream, value.toList())
       }
-      is PlatformPccCompletionRequest -> {
+      is PlatformPccToolDefinition -> {
         stream.write(181)
         writeValue(stream, value.toList())
       }
-      is PlatformPccStreamEvent -> {
+      is PlatformPccToolCall -> {
         stream.write(182)
+        writeValue(stream, value.toList())
+      }
+      is PlatformPccToolResult -> {
+        stream.write(183)
+        writeValue(stream, value.toList())
+      }
+      is PlatformPccCompletionRequest -> {
+        stream.write(184)
+        writeValue(stream, value.toList())
+      }
+      is PlatformPccStreamEvent -> {
+        stream.write(185)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -3576,7 +3742,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
     channel.send(null) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else if (it[0] == null) {
           callback(Result.failure(FlutterError("null-error", "Flutter api returned null value for non-null return value.", "")))
         } else {
@@ -3596,7 +3762,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -3613,7 +3779,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
     channel.send(null) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -3630,7 +3796,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -3647,7 +3813,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
     channel.send(null) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -3664,7 +3830,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -3681,7 +3847,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -3698,7 +3864,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
     channel.send(null) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -3724,7 +3890,7 @@ class AppIntentFlutterApi(private val binaryMessenger: BinaryMessenger, private 
     channel.send(listOf(invocationIdArg, promptArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else if (it[0] == null) {
           callback(Result.failure(FlutterError("null-error", "Flutter api returned null value for non-null return value.", "")))
         } else {
@@ -3744,7 +3910,7 @@ class AppIntentFlutterApi(private val binaryMessenger: BinaryMessenger, private 
     channel.send(listOf(invocationIdArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else if (it[0] == null) {
           callback(Result.failure(FlutterError("null-error", "Flutter api returned null value for non-null return value.", "")))
         } else {
@@ -3764,7 +3930,7 @@ class AppIntentFlutterApi(private val binaryMessenger: BinaryMessenger, private 
     channel.send(listOf(invocationIdArg, textArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else if (it[0] == null) {
           callback(Result.failure(FlutterError("null-error", "Flutter api returned null value for non-null return value.", "")))
         } else {
@@ -3784,7 +3950,7 @@ class AppIntentFlutterApi(private val binaryMessenger: BinaryMessenger, private 
     channel.send(listOf(invocationIdArg, urlArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else if (it[0] == null) {
           callback(Result.failure(FlutterError("null-error", "Flutter api returned null value for non-null return value.", "")))
         } else {
@@ -3804,7 +3970,7 @@ class AppIntentFlutterApi(private val binaryMessenger: BinaryMessenger, private 
     channel.send(listOf(invocationIdArg, payloadArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else if (it[0] == null) {
           callback(Result.failure(FlutterError("null-error", "Flutter api returned null value for non-null return value.", "")))
         } else {
@@ -3901,7 +4067,7 @@ class NativePasteFlutterApi(private val binaryMessenger: BinaryMessenger, privat
     channel.send(listOf(payloadArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else if (it[0] == null) {
           callback(Result.failure(FlutterError("null-error", "Flutter api returned null value for non-null return value.", "")))
         } else {
@@ -3999,7 +4165,7 @@ class NativeKeyboardAttachmentFlutterApi(private val binaryMessenger: BinaryMess
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -4016,7 +4182,7 @@ class NativeKeyboardAttachmentFlutterApi(private val binaryMessenger: BinaryMess
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -4330,7 +4496,7 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
     channel.send(null) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -4347,7 +4513,7 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
     channel.send(null) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -4364,7 +4530,7 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -4381,7 +4547,7 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -4398,7 +4564,7 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -4415,7 +4581,7 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -4432,7 +4598,7 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
         }
@@ -4551,9 +4717,29 @@ class PccFlutterApi(private val binaryMessenger: BinaryMessenger, private val me
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
+        }
+      } else {
+        callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
+      }
+    }
+  }
+  fun onToolCall(callArg: PlatformPccToolCall, callback: (Result<PlatformPccToolResult>) -> Unit)
+{
+    val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+    val channelName = "dev.flutter.pigeon.conduit.PccFlutterApi.onToolCall$separatedMessageChannelSuffix"
+    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+    channel.send(listOf(callArg)) {
+      if (it is List<*>) {
+        if (it.size > 1) {
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
+        } else if (it[0] == null) {
+          callback(Result.failure(FlutterError("null-error", "Flutter api returned null value for non-null return value.", "")))
+        } else {
+          val output = it[0] as PlatformPccToolResult
+          callback(Result.success(output))
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))

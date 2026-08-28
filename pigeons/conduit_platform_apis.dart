@@ -766,11 +766,45 @@ class PlatformPccMessage {
   List<PlatformPccImage> images;
 }
 
+class PlatformPccToolDefinition {
+  PlatformPccToolDefinition({
+    required this.name,
+    required this.toolDescription,
+    required this.inputSchemaJson,
+  });
+
+  String name;
+  String toolDescription;
+  String inputSchemaJson;
+}
+
+class PlatformPccToolCall {
+  PlatformPccToolCall({
+    required this.runId,
+    required this.callId,
+    required this.name,
+    required this.argumentsJson,
+  });
+
+  String runId;
+  String callId;
+  String name;
+  String argumentsJson;
+}
+
+class PlatformPccToolResult {
+  PlatformPccToolResult({required this.content, required this.cancelled});
+
+  String content;
+  bool cancelled;
+}
+
 class PlatformPccCompletionRequest {
   PlatformPccCompletionRequest({
     required this.runId,
     required this.model,
     required this.messages,
+    required this.tools,
     required this.allowOnDeviceFallback,
     this.reasoningLevel,
     this.temperature,
@@ -786,6 +820,7 @@ class PlatformPccCompletionRequest {
   String runId;
   PlatformAppleModel model;
   List<PlatformPccMessage> messages;
+  List<PlatformPccToolDefinition> tools;
   bool allowOnDeviceFallback;
   String? reasoningLevel;
   double? temperature;
@@ -977,4 +1012,7 @@ abstract class PccHostApi {
 @FlutterApi()
 abstract class PccFlutterApi {
   void onEvent(PlatformPccStreamEvent event);
+
+  @async
+  PlatformPccToolResult onToolCall(PlatformPccToolCall call);
 }

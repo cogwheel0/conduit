@@ -2,6 +2,7 @@ import 'dart:ui' show SemanticsAction;
 
 import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit/core/models/tool.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/settings_service.dart';
@@ -9,9 +10,12 @@ import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
+import 'package:conduit/features/chat/widgets/composer_overflow_items.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/direct_connections/direct_connections.dart';
+import 'package:conduit/features/direct_connections/providers/direct_mcp_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
@@ -24,6 +28,117 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'composer insertion replaces selection and preserves surrounding draft',
+    () {
+      const current = TextEditingValue(
+        text: 'before OLD after',
+        selection: TextSelection(baseOffset: 7, extentOffset: 10),
+        composing: TextRange(start: 7, end: 10),
+      );
+
+      final inserted = composerTextValueAfterInsertion(current, 'MCP');
+
+      expect(inserted.text, 'before MCP after');
+      expect(inserted.selection, const TextSelection.collapsed(offset: 10));
+      expect(inserted.composing, TextRange.empty);
+    },
+  );
+
+  test('MCP insertion enforces the final UTF-8 composer limit', () {
+    expect(
+      directMcpInsertionFitsComposer(
+        const TextEditingValue(text: 'draft'),
+        'x' * (256 * 1024 - 5),
+      ),
+      isTrue,
+    );
+    expect(
+      directMcpInsertionFitsComposer(
+        const TextEditingValue(text: 'draft'),
+        'é' * (128 * 1024),
+      ),
+      isFalse,
+    );
+  });
+
+  test('MCP content native action is Direct-only', () {
+    Iterable<String> actionIds(bool directMode) =>
+        buildIosKeyboardAttachmentActions(
+          l10n: AppLocalizationsEn(),
+          attachmentAvailability: const ComposerOverflowAttachmentAvailability(
+            mcpContent: true,
+          ),
+          hermesMode: false,
+          directMode: directMode,
+          webSearchAvailable: false,
+          webSearchEnabled: false,
+          imageGenerationAvailable: false,
+          imageGenerationEnabled: false,
+          availableTools: const [],
+          selectedToolIds: const [],
+          availableFilters: const [],
+          selectedFilterIds: const [],
+        ).map((action) => action.id);
+
+    expect(
+      actionIds(
+        false,
+      ).where((actionId) => actionId == ComposerOverflowActionIds.mcpContent),
+      isEmpty,
+    );
+    expect(actionIds(true).single, ComposerOverflowActionIds.mcpContent);
+  });
+
+  test('Apple direct bindings expose local MCP tools', () {
+    expect(
+      directBindingSupportsLocalMcp(
+        const DirectModelBinding(
+          profileId: kApplePccProfileId,
+          adapterKey: kApplePccAdapterKey,
+          remoteModelId: kApplePccRemoteModelId,
+        ),
+      ),
+      isTrue,
+    );
+    expect(
+      directBindingSupportsLocalMcp(
+        const DirectModelBinding(
+          profileId: 'openai',
+          adapterKey: kOpenAiCompatibleAdapterKey,
+          remoteModelId: 'model',
+        ),
+      ),
+      isTrue,
+    );
+  });
+
+  test('direct send policy filters unsupported tools and search conflicts', () {
+    final apple = normalizeDirectToolSelectionForBinding(
+      binding: const DirectModelBinding(
+        profileId: kApplePccProfileId,
+        adapterKey: kApplePccAdapterKey,
+        remoteModelId: kApplePccRemoteModelId,
+      ),
+      enableWebSearch: true,
+      localMcpToolIds: const ['local_mcp:home'],
+    );
+    expect(apple.localMcpToolIds, ['local_mcp:home']);
+    expect(apple.enableWebSearch, isFalse);
+
+    final openRouter = normalizeDirectToolSelectionForBinding(
+      binding: const DirectModelBinding(
+        profileId: 'openrouter',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        remoteModelId: 'model',
+      ),
+      enableWebSearch: true,
+      localMcpToolIds: const ['local_mcp:home'],
+    );
+    expect(openRouter.localMcpToolIds, ['local_mcp:home']);
+    expect(openRouter.enableWebSearch, isFalse);
+  });
+
   test('native composer glass uses non-animated cursor opacity', () {
     check(composerCursorOpacityAnimates(usesNativePlatformView: true))
         .equals(false);
@@ -340,6 +455,37 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.userSettingsCalls, 0);
+  });
+
+  testWidgets('Apple direct overflow loads local MCP tools', (tester) async {
+    final registry = DirectModelRegistry();
+    final appleModel = registry.replaceProfileModels(
+      DirectConnectionProfile.applePrivateCloudCompute(),
+      [DirectRemoteModel(id: kApplePccRemoteModelId)],
+    ).single;
+    var toolLoads = 0;
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          directModelRegistryProvider.overrideWithValue(registry),
+          selectedModelProvider.overrideWithValue(appleModel),
+          directMcpToolsProvider.overrideWith((ref) async {
+            toolLoads++;
+            return const [Tool(id: 'local_mcp:home', name: 'Home MCP')];
+          }),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const Scaffold(body: ComposerAttachmentKeyboard()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(toolLoads, 1);
+    expect(find.text('Home MCP'), findsOneWidget);
   });
 
   testWidgets(

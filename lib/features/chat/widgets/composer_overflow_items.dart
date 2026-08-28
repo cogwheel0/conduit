@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/toggle_filter.dart';
 import '../../../core/models/tool.dart';
+import '../../direct_connections/providers/direct_mcp_providers.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../providers/chat_providers.dart';
 
@@ -16,6 +17,7 @@ class ComposerOverflowActionIds {
   static const photo = 'photo';
   static const camera = 'camera';
   static const web = 'web';
+  static const mcpContent = 'mcpContent';
   static const webSearch = 'webSearch';
   static const imageGeneration = 'imageGeneration';
   static const _filterPrefix = 'filter:';
@@ -64,6 +66,7 @@ class ComposerOverflowAttachmentAvailability {
     this.photo = false,
     this.camera = false,
     this.web = false,
+    this.mcpContent = false,
   });
 
   final bool file;
@@ -71,6 +74,7 @@ class ComposerOverflowAttachmentAvailability {
   final bool photo;
   final bool camera;
   final bool web;
+  final bool mcpContent;
 }
 
 class ComposerOverflowItem {
@@ -195,6 +199,16 @@ List<ComposerOverflowItem> buildComposerOverflowAttachmentItems({
       sfSymbol: 'globe',
       enabled: attachmentAvailability.web,
     ),
+    if (attachmentAvailability.mcpContent)
+      ComposerOverflowItem(
+        id: ComposerOverflowActionIds.mcpContent,
+        kind: ComposerOverflowItemKind.attachment,
+        section: ComposerOverflowSection.attachments,
+        label: l10n.directMcpContentAction,
+        cupertinoIcon: CupertinoIcons.text_quote,
+        materialIcon: Icons.text_snippet_outlined,
+        sfSymbol: 'text.quote',
+      ),
   ];
 }
 
@@ -298,9 +312,11 @@ void setComposerOverflowSelection(
   switch (actionId) {
     case ComposerOverflowActionIds.webSearch:
       ref.read(webSearchEnabledProvider.notifier).set(selected);
+      if (selected) _clearLocalMcpTools(ref);
       return;
     case ComposerOverflowActionIds.imageGeneration:
       ref.read(imageGenerationEnabledProvider.notifier).set(selected);
+      if (selected) _clearLocalMcpTools(ref);
       return;
   }
 
@@ -333,11 +349,24 @@ void setComposerOverflowSelection(
     if (!alreadySelected) {
       current.add(toolId);
     }
+    if (toolId.startsWith(kDirectMcpToolIdPrefix)) {
+      ref.read(imageGenerationEnabledProvider.notifier).set(false);
+      ref.read(webSearchEnabledProvider.notifier).set(false);
+    }
   } else if (alreadySelected) {
     current.remove(toolId);
   }
 
   ref.read(selectedToolIdsProvider.notifier).set(current);
+}
+
+void _clearLocalMcpTools(WidgetRef ref) {
+  final tools = ref.read(selectedToolIdsProvider);
+  ref
+      .read(selectedToolIdsProvider.notifier)
+      .set(
+        tools.where((id) => !id.startsWith(kDirectMcpToolIdPrefix)).toList(),
+      );
 }
 
 void toggleComposerOverflowSelection(WidgetRef ref, String actionId) {

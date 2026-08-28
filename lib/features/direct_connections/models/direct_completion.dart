@@ -76,6 +76,7 @@ final class DirectCompletionRequest {
     this.enableWebSearch = false,
     this.enableImageGeneration = false,
     this.imageGenerationModel,
+    this.tools,
   }) : messages = List.unmodifiable(messages),
        parameters = Map.unmodifiable(parameters) {
     if (remoteModelId.trim().isEmpty) {
@@ -88,6 +89,7 @@ final class DirectCompletionRequest {
   final bool enableWebSearch;
   final bool enableImageGeneration;
   final String? imageGenerationModel;
+  final DirectToolRuntime? tools;
 
   /// Provider-compatible optional sampling/output parameters.
   ///
@@ -98,6 +100,143 @@ final class DirectCompletionRequest {
   /// Transport-owned keys (`model`, `messages`, `stream`) are overwritten by
   /// adapters and cannot redirect a request to another registered model.
   final Map<String, dynamic> parameters;
+}
+
+final class DirectToolDefinition {
+  DirectToolDefinition({
+    required this.name,
+    required this.serverId,
+    required this.serverName,
+    required this.remoteName,
+    required this.displayName,
+    required this.description,
+    required this.approvalFingerprint,
+    required Map<String, dynamic> inputSchema,
+  }) : inputSchema = Map.unmodifiable(inputSchema);
+
+  final String name;
+  final String serverId;
+  final String serverName;
+  final String remoteName;
+  final String displayName;
+  final String description;
+  final String approvalFingerprint;
+  final Map<String, dynamic> inputSchema;
+
+  Map<String, dynamic> toFunctionJson() => <String, dynamic>{
+    'type': 'function',
+    'function': <String, dynamic>{
+      'name': name,
+      if (description.isNotEmpty) 'description': description,
+      'parameters': inputSchema,
+    },
+  };
+}
+
+final class DirectToolResult {
+  const DirectToolResult({required this.text, this.isError = false});
+
+  final String text;
+  final bool isError;
+}
+
+enum DirectToolApprovalDecision { allowOnce, allowSession, allowAlways, deny }
+
+const Duration kDirectToolApprovalTimeout = Duration(minutes: 5);
+
+final class DirectToolApprovalRequest {
+  const DirectToolApprovalRequest({
+    required this.id,
+    required this.serverName,
+    required this.toolName,
+    required this.callId,
+    required this.argumentsJson,
+  });
+
+  final String id;
+  final String serverName;
+  final String toolName;
+  final String callId;
+  final String argumentsJson;
+
+  Map<String, dynamic> toMetadata(String state) => <String, dynamic>{
+    'id': id,
+    'serverName': serverName,
+    'toolName': toolName,
+    'callId': callId,
+    'arguments': argumentsJson,
+    'state': state,
+  };
+}
+
+final class DirectToolApprovalHandle {
+  const DirectToolApprovalHandle({
+    required this.request,
+    required this.decision,
+    this.requiresUserDecision = true,
+    this.onTimeout,
+  });
+
+  final DirectToolApprovalRequest request;
+  final Future<DirectToolApprovalDecision> decision;
+  final bool requiresUserDecision;
+  final void Function()? onTimeout;
+}
+
+String directToolApprovalState(DirectToolApprovalDecision decision) =>
+    switch (decision) {
+      DirectToolApprovalDecision.allowOnce => 'allowed_once',
+      DirectToolApprovalDecision.allowSession => 'allowed_session',
+      DirectToolApprovalDecision.allowAlways => 'allowed_always',
+      DirectToolApprovalDecision.deny => 'denied',
+    };
+
+Future<DirectToolApprovalDecision?> waitForDirectToolApproval({
+  required DirectToolApprovalHandle approval,
+  required Duration timeout,
+  required Iterable<Future<void>> cancellations,
+}) {
+  final timedOut = Completer<DirectToolApprovalDecision>();
+  final timer = Timer(timeout, () {
+    approval.onTimeout?.call();
+    timedOut.complete(DirectToolApprovalDecision.deny);
+  });
+  return Future.any<DirectToolApprovalDecision?>([
+    approval.decision,
+    timedOut.future,
+    for (final cancellation in cancellations)
+      cancellation.then<DirectToolApprovalDecision?>((_) => null),
+  ]).whenComplete(timer.cancel);
+}
+
+typedef DirectToolApprovalCallback = DirectToolApprovalHandle Function(
+  String callId,
+  DirectToolDefinition definition,
+  Map<String, dynamic> arguments,
+);
+typedef DirectToolExecutionCallback = Future<DirectToolResult> Function(
+  String name,
+  Map<String, dynamic> arguments,
+);
+
+/// Trusted callbacks owned by one in-memory Direct run.
+final class DirectToolRuntime {
+  DirectToolRuntime({
+    required Iterable<DirectToolDefinition> definitions,
+    required this.requestApproval,
+    required this.execute,
+  }) : definitions = List.unmodifiable(definitions);
+
+  final List<DirectToolDefinition> definitions;
+  final DirectToolApprovalCallback requestApproval;
+  final DirectToolExecutionCallback execute;
+
+  DirectToolDefinition definition(String name) => definitions.firstWhere(
+    (definition) => definition.name == name,
+    orElse: () => throw const DirectProviderException(
+      'The model requested an unavailable local tool.',
+    ),
+  );
 }
 
 sealed class DirectStreamEvent {
@@ -189,6 +328,22 @@ final class DirectToolCallCompleted extends DirectStreamEvent {
   final bool isError;
 }
 
+final class DirectMcpApprovalRequested extends DirectStreamEvent {
+  const DirectMcpApprovalRequested(this.request);
+
+  final DirectToolApprovalRequest request;
+}
+
+final class DirectMcpApprovalResolved extends DirectStreamEvent {
+  const DirectMcpApprovalResolved({
+    required this.request,
+    required this.decision,
+  });
+
+  final DirectToolApprovalRequest request;
+  final DirectToolApprovalDecision decision;
+}
+
 final class DirectStreamError extends DirectStreamEvent {
   const DirectStreamError(this.message, {this.statusCode});
   final String message;
@@ -227,12 +382,20 @@ final class DirectCompletionRun {
   }
 }
 
+enum DirectProviderFailureReason { changed, unsupported, tooLarge }
+
 final class DirectProviderException implements Exception {
-  const DirectProviderException(this.message, {this.statusCode, this.cause});
+  const DirectProviderException(
+    this.message, {
+    this.statusCode,
+    this.cause,
+    this.reason,
+  });
 
   final String message;
   final int? statusCode;
   final Object? cause;
+  final DirectProviderFailureReason? reason;
 
   @override
   String toString() => message;

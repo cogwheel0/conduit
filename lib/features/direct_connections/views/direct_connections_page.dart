@@ -19,8 +19,10 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
 import '../models/direct_connection_profile.dart';
+import '../models/direct_mcp_server.dart';
 import '../models/openwebui_direct_connection.dart';
 import '../providers/direct_connection_providers.dart';
+import '../providers/direct_mcp_providers.dart';
 import '../services/direct_chat_bridge.dart';
 
 const List<int> _directContextLengthOptions = <int>[
@@ -120,6 +122,7 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final profiles = ref.watch(directConnectionProfilesProvider);
+    final mcpServers = ref.watch(directMcpServersProvider);
     final openWebUiConnections = ref.watch(openWebUiDirectConnectionsProvider);
     final showOpenWebUi = ref.watch(
       openWebUiDirectConnectionsAvailableProvider,
@@ -176,6 +179,8 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
       ),
       data: (items) => DirectConnectionsContent(
         profiles: items,
+        mcpServers: mcpServers.value ?? const [],
+        mcpLoadFailed: mcpServers.hasError,
         appleOnDeviceStatus: appleOnDeviceStatus,
         applePccStatus: applePccStatus,
         applePccOnDeviceFallback: applePccOnDeviceFallback,
@@ -220,6 +225,10 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
         onAdd: () => _openEditor(context, 'new'),
         onAddOpenWebUi: () => _openEditor(context, 'new', isOpenWebUi: true),
         onEdit: (id) => _openEditor(context, id),
+        onAddMcp: () => _openMcpEditor(context, 'new'),
+        onEditMcp: (id) => _openMcpEditor(context, id),
+        onRetryMcp: () =>
+            unawaited(ref.read(directMcpServersProvider.notifier).reload()),
         onEditOpenWebUi: (id) => _openEditor(context, id, isOpenWebUi: true),
         onRetryOpenWebUi: () => unawaited(_refreshOpenWebUiConnections()),
         onFinishOnboarding:
@@ -233,6 +242,14 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
               }
             : null,
       ),
+    );
+  }
+
+  Future<void> _openMcpEditor(BuildContext context, String id) async {
+    await context.pushNamed(
+      RouteNames.directMcpServerEditor,
+      pathParameters: {'id': id},
+      extra: const NativeSheetNavigationOrigin(),
     );
   }
 
@@ -257,6 +274,8 @@ class DirectConnectionsContent extends StatelessWidget {
   const DirectConnectionsContent({
     super.key,
     required this.profiles,
+    this.mcpServers = const [],
+    this.mcpLoadFailed = false,
     this.openWebUiConnections = const AsyncValue.data(null),
     this.showOpenWebUi = false,
     this.showHistorySync = false,
@@ -265,6 +284,9 @@ class DirectConnectionsContent extends StatelessWidget {
     required this.onSyncChanged,
     required this.onAdd,
     required this.onEdit,
+    this.onAddMcp = _noop,
+    this.onEditMcp = _noopId,
+    this.onRetryMcp = _noop,
     this.onAddOpenWebUi,
     this.onEditOpenWebUi,
     this.onRetryOpenWebUi,
@@ -282,6 +304,8 @@ class DirectConnectionsContent extends StatelessWidget {
   });
 
   final List<DirectConnectionProfile> profiles;
+  final List<DirectMcpServer> mcpServers;
+  final bool mcpLoadFailed;
   final AsyncValue<OpenWebUiDirectConnectionsSnapshot?> openWebUiConnections;
   final bool showOpenWebUi;
   final bool showHistorySync;
@@ -290,6 +314,9 @@ class DirectConnectionsContent extends StatelessWidget {
   final ValueChanged<bool> onSyncChanged;
   final VoidCallback onAdd;
   final ValueChanged<String> onEdit;
+  final VoidCallback onAddMcp;
+  final ValueChanged<String> onEditMcp;
+  final VoidCallback onRetryMcp;
   final VoidCallback? onAddOpenWebUi;
   final ValueChanged<String>? onEditOpenWebUi;
   final VoidCallback? onRetryOpenWebUi;
@@ -393,6 +420,15 @@ class DirectConnectionsContent extends StatelessWidget {
         onEdit: onEdit,
         flat: isOnboarding,
       ),
+      const SizedBox(height: Spacing.xl),
+      _DirectMcpSection(
+        servers: mcpServers,
+        loadFailed: mcpLoadFailed,
+        onAdd: onAddMcp,
+        onEdit: onEditMcp,
+        onRetry: onRetryMcp,
+        flat: isOnboarding,
+      ),
     ];
 
     return _buildDirectConnectionsScaffold(
@@ -408,6 +444,84 @@ class DirectConnectionsContent extends StatelessWidget {
     );
   }
 }
+
+class _DirectMcpSection extends StatelessWidget {
+  const _DirectMcpSection({
+    required this.servers,
+    required this.loadFailed,
+    required this.onAdd,
+    required this.onEdit,
+    required this.onRetry,
+    required this.flat,
+  });
+
+  final List<DirectMcpServer> servers;
+  final bool loadFailed;
+  final VoidCallback onAdd;
+  final ValueChanged<String> onEdit;
+  final VoidCallback onRetry;
+  final bool flat;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _DirectConnectionSectionHeader(
+          title: l10n.directMcpServersTitle,
+          onAdd: loadFailed || servers.isNotEmpty ? onAdd : null,
+        ),
+        const SizedBox(height: Spacing.sm),
+        if (loadFailed)
+          InsetGroupedSection(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(l10n.directMcpLoadFailed),
+                TextButton(onPressed: onRetry, child: Text(l10n.retry)),
+              ],
+            ),
+          )
+        else if (servers.isEmpty)
+          _DirectConnectionsEmptyState(
+            title: l10n.directMcpEmptyTitle,
+            subtitle: l10n.directMcpReachabilityHelp,
+            onAdd: onAdd,
+            flat: flat,
+          )
+        else
+          _DirectConnectionListSurface(
+            flat: flat,
+            children: [
+              for (var index = 0; index < servers.length; index++)
+                UtilityRow(
+                  title: servers[index].name,
+                  subtitle:
+                      '${servers[index].enabled ? l10n.enabledLabel : l10n.disabledLabel}\n${_publicEndpoint(servers[index])}',
+                  subtitleMaxLines: 2,
+                  showChevron: true,
+                  onTap: () => onEdit(servers[index].id),
+                ),
+            ],
+          ),
+      ],
+    );
+  }
+}
+
+String _publicEndpoint(DirectMcpServer server) {
+  final uri = server.endpointUri;
+  return Uri(
+    scheme: uri.scheme,
+    host: uri.host,
+    port: uri.hasPort ? uri.port : null,
+    path: uri.path,
+  ).toString();
+}
+
+void _noop() {}
+void _noopId(String _) {}
 
 class _AppleModelSection extends StatelessWidget {
   const _AppleModelSection({

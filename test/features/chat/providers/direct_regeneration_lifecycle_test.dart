@@ -489,6 +489,9 @@ void main() {
         content: 'Previous answer',
         timestamp: now,
         model: model.id,
+        metadata: const {
+          kDirectMcpApprovalMetadataKey: {'id': 'stale-approval'},
+        },
       );
       final conversation = Conversation(
         id: 'local:direct-regeneration',
@@ -519,6 +522,7 @@ void main() {
       expect(failed.error, isNotNull);
       expect(failed.versions, hasLength(1));
       expect(failed.versions.single.content, previousAssistant.content);
+      expect(failed.metadata, isNot(contains(kDirectMcpApprovalMetadataKey)));
       final key = (
         ownerConversationId: chatMutationOwnerScopeForConversation(
           conversation,

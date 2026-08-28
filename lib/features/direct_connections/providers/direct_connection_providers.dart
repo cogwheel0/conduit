@@ -370,8 +370,14 @@ final openWebUiDirectConnectionsAvailableProvider = Provider<bool>(
   (ref) => ref.watch(openWebUiDirectConnectionStoreProvider) != null,
 );
 
-final directRunRegistryProvider = Provider<DirectRunRegistry>(
-  (ref) => DirectRunRegistry(),
+final directRunRegistryProvider = Provider<DirectRunRegistry>((ref) {
+  final registry = DirectRunRegistry();
+  ref.onDispose(registry.dispose);
+  return registry;
+});
+
+final directMcpApprovalRevisionProvider = StreamProvider<int>(
+  (ref) => ref.watch(directRunRegistryProvider).mcpApprovalRevisions,
 );
 
 /// Provider-independent guardrails for normalized completion events.

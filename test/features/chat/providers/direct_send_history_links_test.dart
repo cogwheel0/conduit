@@ -3986,6 +3986,64 @@ void main() {
     check(reloadedSource.type).equals('web');
   });
 
+  test('MCP approval checkpoint keeps usage and sources', () async {
+    final harness = await _createGatedDirectHarness('mcp-approval-checkpoint');
+    final started = harness.adapter.nextRun();
+    final send = sendMessageWithContainer(
+      harness.container,
+      'Use the local tool',
+      null,
+    );
+    final run = await started.timeout(const Duration(seconds: 1));
+    addTearDown(run.close);
+    const approval = DirectToolApprovalRequest(
+      id: 'approval-1',
+      serverName: 'Local server',
+      toolName: 'Lookup',
+      callId: 'call-1',
+      argumentsJson: '{}',
+    );
+
+    run
+      ..add(DirectUsageUpdate(const {'total_tokens': 5}))
+      ..add(
+        const DirectSourceFound(
+          url: 'https://example.com/source',
+          title: 'Source',
+          snippet: 'Evidence',
+        ),
+      )
+      ..add(const DirectMcpApprovalRequested(approval));
+
+    ChatMessage? checkpoint;
+    await _waitUntil(() async {
+      final reloaded = await harness.container
+          .read(chatDatabaseRepositoryProvider)
+          .loadConversation(
+            harness.chat.id,
+            preferred: ChatStorageKind.directLocal,
+          );
+      checkpoint = reloaded?.conversation.messages.last;
+      return checkpoint?.metadata?[kDirectMcpApprovalMetadataKey] != null;
+    });
+    expect(checkpoint?.usage, const {'total_tokens': 5});
+    expect(checkpoint?.sources.single.title, 'Source');
+    expect(checkpoint?.sources.single.url, 'https://example.com/source');
+    expect(checkpoint?.sources.single.snippet, 'Evidence');
+    expect(checkpoint?.sources.single.type, 'web');
+
+    run
+      ..add(
+        const DirectMcpApprovalResolved(
+          request: approval,
+          decision: DirectToolApprovalDecision.deny,
+        ),
+      )
+      ..add(const DirectContentDelta('Done.'))
+      ..add(const DirectStreamDone());
+    await send.timeout(const Duration(seconds: 1));
+  });
+
   test('whitespace-only direct response preserves bytes but fails', () async {
     final harness = await _createGatedDirectHarness('whitespace-only');
     final started = harness.adapter.nextRun();

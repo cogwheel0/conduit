@@ -3170,11 +3170,177 @@ class PlatformPccMessage {
   }
 }
 
+class PlatformPccToolDefinition {
+  PlatformPccToolDefinition({
+    required this.name,
+    required this.toolDescription,
+    required this.inputSchemaJson,
+  });
+
+  String name;
+
+  String toolDescription;
+
+  String inputSchemaJson;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      name,
+      toolDescription,
+      inputSchemaJson,
+    ];
+  }
+
+  Object encode() {
+    return _toList();  }
+
+  static PlatformPccToolDefinition decode(Object result) {
+    result as List<Object?>;
+    return PlatformPccToolDefinition(
+      name: result[0]! as String,
+      toolDescription: result[1]! as String,
+      inputSchemaJson: result[2]! as String,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! PlatformPccToolDefinition || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(name, other.name) && _deepEquals(toolDescription, other.toolDescription) && _deepEquals(inputSchemaJson, other.inputSchemaJson);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'PlatformPccToolDefinition(name: $name, toolDescription: $toolDescription, inputSchemaJson: $inputSchemaJson)';
+  }
+}
+
+class PlatformPccToolCall {
+  PlatformPccToolCall({
+    required this.runId,
+    required this.callId,
+    required this.name,
+    required this.argumentsJson,
+  });
+
+  String runId;
+
+  String callId;
+
+  String name;
+
+  String argumentsJson;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      runId,
+      callId,
+      name,
+      argumentsJson,
+    ];
+  }
+
+  Object encode() {
+    return _toList();  }
+
+  static PlatformPccToolCall decode(Object result) {
+    result as List<Object?>;
+    return PlatformPccToolCall(
+      runId: result[0]! as String,
+      callId: result[1]! as String,
+      name: result[2]! as String,
+      argumentsJson: result[3]! as String,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! PlatformPccToolCall || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(runId, other.runId) && _deepEquals(callId, other.callId) && _deepEquals(name, other.name) && _deepEquals(argumentsJson, other.argumentsJson);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'PlatformPccToolCall(runId: $runId, callId: $callId, name: $name, argumentsJson: $argumentsJson)';
+  }
+}
+
+class PlatformPccToolResult {
+  PlatformPccToolResult({
+    required this.content,
+    required this.cancelled,
+  });
+
+  String content;
+
+  bool cancelled;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      content,
+      cancelled,
+    ];
+  }
+
+  Object encode() {
+    return _toList();  }
+
+  static PlatformPccToolResult decode(Object result) {
+    result as List<Object?>;
+    return PlatformPccToolResult(
+      content: result[0]! as String,
+      cancelled: result[1]! as bool,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! PlatformPccToolResult || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(content, other.content) && _deepEquals(cancelled, other.cancelled);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'PlatformPccToolResult(content: $content, cancelled: $cancelled)';
+  }
+}
+
 class PlatformPccCompletionRequest {
   PlatformPccCompletionRequest({
     required this.runId,
     required this.model,
     required this.messages,
+    required this.tools,
     required this.allowOnDeviceFallback,
     this.reasoningLevel,
     this.temperature,
@@ -3192,6 +3358,8 @@ class PlatformPccCompletionRequest {
   PlatformAppleModel model;
 
   List<PlatformPccMessage> messages;
+
+  List<PlatformPccToolDefinition> tools;
 
   bool allowOnDeviceFallback;
 
@@ -3218,6 +3386,7 @@ class PlatformPccCompletionRequest {
       runId,
       model,
       messages,
+      tools,
       allowOnDeviceFallback,
       reasoningLevel,
       temperature,
@@ -3240,16 +3409,17 @@ class PlatformPccCompletionRequest {
       runId: result[0]! as String,
       model: result[1]! as PlatformAppleModel,
       messages: (result[2]! as List<Object?>).cast<PlatformPccMessage>(),
-      allowOnDeviceFallback: result[3]! as bool,
-      reasoningLevel: result[4] as String?,
-      temperature: result[5] as double?,
-      maximumResponseTokens: result[6] as int?,
-      topP: result[7] as double?,
-      topK: result[8] as int?,
-      seed: result[9] as int?,
-      greedySampling: result[10] as bool?,
-      responseSchemaName: result[11] as String?,
-      responseSchemaJson: result[12] as String?,
+      tools: (result[3]! as List<Object?>).cast<PlatformPccToolDefinition>(),
+      allowOnDeviceFallback: result[4]! as bool,
+      reasoningLevel: result[5] as String?,
+      temperature: result[6] as double?,
+      maximumResponseTokens: result[7] as int?,
+      topP: result[8] as double?,
+      topK: result[9] as int?,
+      seed: result[10] as int?,
+      greedySampling: result[11] as bool?,
+      responseSchemaName: result[12] as String?,
+      responseSchemaJson: result[13] as String?,
     );
   }
 
@@ -3262,7 +3432,7 @@ class PlatformPccCompletionRequest {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(runId, other.runId) && _deepEquals(model, other.model) && _deepEquals(messages, other.messages) && _deepEquals(allowOnDeviceFallback, other.allowOnDeviceFallback) && _deepEquals(reasoningLevel, other.reasoningLevel) && _deepEquals(temperature, other.temperature) && _deepEquals(maximumResponseTokens, other.maximumResponseTokens) && _deepEquals(topP, other.topP) && _deepEquals(topK, other.topK) && _deepEquals(seed, other.seed) && _deepEquals(greedySampling, other.greedySampling) && _deepEquals(responseSchemaName, other.responseSchemaName) && _deepEquals(responseSchemaJson, other.responseSchemaJson);
+    return _deepEquals(runId, other.runId) && _deepEquals(model, other.model) && _deepEquals(messages, other.messages) && _deepEquals(tools, other.tools) && _deepEquals(allowOnDeviceFallback, other.allowOnDeviceFallback) && _deepEquals(reasoningLevel, other.reasoningLevel) && _deepEquals(temperature, other.temperature) && _deepEquals(maximumResponseTokens, other.maximumResponseTokens) && _deepEquals(topP, other.topP) && _deepEquals(topK, other.topK) && _deepEquals(seed, other.seed) && _deepEquals(greedySampling, other.greedySampling) && _deepEquals(responseSchemaName, other.responseSchemaName) && _deepEquals(responseSchemaJson, other.responseSchemaJson);
   }
 
   @override
@@ -3271,7 +3441,7 @@ class PlatformPccCompletionRequest {
 
   @override
   String toString() {
-    return 'PlatformPccCompletionRequest(runId: $runId, model: $model, messages: $messages, allowOnDeviceFallback: $allowOnDeviceFallback, reasoningLevel: $reasoningLevel, temperature: $temperature, maximumResponseTokens: $maximumResponseTokens, topP: $topP, topK: $topK, seed: $seed, greedySampling: $greedySampling, responseSchemaName: $responseSchemaName, responseSchemaJson: $responseSchemaJson)';
+    return 'PlatformPccCompletionRequest(runId: $runId, model: $model, messages: $messages, tools: $tools, allowOnDeviceFallback: $allowOnDeviceFallback, reasoningLevel: $reasoningLevel, temperature: $temperature, maximumResponseTokens: $maximumResponseTokens, topP: $topP, topK: $topK, seed: $seed, greedySampling: $greedySampling, responseSchemaName: $responseSchemaName, responseSchemaJson: $responseSchemaJson)';
   }
 }
 
@@ -3514,11 +3684,20 @@ class _PigeonCodec extends StandardMessageCodec {
     }    else if (value is PlatformPccMessage) {
       buffer.putUint8(180);
       writeValue(buffer, value.encode());
-    }    else if (value is PlatformPccCompletionRequest) {
+    }    else if (value is PlatformPccToolDefinition) {
       buffer.putUint8(181);
       writeValue(buffer, value.encode());
-    }    else if (value is PlatformPccStreamEvent) {
+    }    else if (value is PlatformPccToolCall) {
       buffer.putUint8(182);
+      writeValue(buffer, value.encode());
+    }    else if (value is PlatformPccToolResult) {
+      buffer.putUint8(183);
+      writeValue(buffer, value.encode());
+    }    else if (value is PlatformPccCompletionRequest) {
+      buffer.putUint8(184);
+      writeValue(buffer, value.encode());
+    }    else if (value is PlatformPccStreamEvent) {
+      buffer.putUint8(185);
       writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
@@ -3640,8 +3819,14 @@ class _PigeonCodec extends StandardMessageCodec {
       case 180:
         return PlatformPccMessage.decode(readValue(buffer)!);
       case 181:
-        return PlatformPccCompletionRequest.decode(readValue(buffer)!);
+        return PlatformPccToolDefinition.decode(readValue(buffer)!);
       case 182:
+        return PlatformPccToolCall.decode(readValue(buffer)!);
+      case 183:
+        return PlatformPccToolResult.decode(readValue(buffer)!);
+      case 184:
+        return PlatformPccCompletionRequest.decode(readValue(buffer)!);
+      case 185:
         return PlatformPccStreamEvent.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
@@ -4889,6 +5074,8 @@ abstract class PccFlutterApi {
 
   void onEvent(PlatformPccStreamEvent event);
 
+  Future<PlatformPccToolResult> onToolCall(PlatformPccToolCall call);
+
   static void setUp(PccFlutterApi? api, {BinaryMessenger? binaryMessenger, String messageChannelSuffix = '',}) {
     messageChannelSuffix = messageChannelSuffix.isNotEmpty ? '.$messageChannelSuffix' : '';
     {
@@ -4904,6 +5091,27 @@ abstract class PccFlutterApi {
           try {
             api.onEvent(arg_event);
             return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.conduit.PccFlutterApi.onToolCall$messageChannelSuffix', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          final List<Object?> args = message! as List<Object?>;
+          final PlatformPccToolCall arg_call = args[0]! as PlatformPccToolCall;
+          try {
+            final PlatformPccToolResult output = await api.onToolCall(arg_call);
+            return wrapResponse(result: output);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);
           }          catch (e) {

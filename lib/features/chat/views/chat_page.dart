@@ -35,7 +35,9 @@ import '../../../core/database/chat_database_repository.dart';
 import '../../../core/database/models/chat_transcript_window.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../direct_connections/providers/direct_connection_providers.dart';
+import '../../direct_connections/services/direct_chat_bridge.dart';
 import '../../direct_connections/services/direct_model_registry.dart';
+import '../../direct_connections/widgets/direct_mcp_message_interactions.dart';
 import '../providers/chat_providers.dart';
 import '../providers/openwebui_chat_prompt_provider.dart';
 import '../../hermes/models/hermes_model.dart';
@@ -3834,6 +3836,21 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       findPendingHermesComposerPrompt,
                     ),
                   );
+                  final pendingDirectMcpMetadata = composerRef.watch(
+                    chatMessagesProvider.select(
+                      findPendingDirectMcpComposerPrompt,
+                    ),
+                  );
+                  composerRef.watch(directMcpApprovalRevisionProvider);
+                  final pendingDirectMcpPrompt =
+                      pendingDirectMcpMetadata == null
+                      ? null
+                      : findPendingDirectMcpComposerPrompt(
+                          composerRef.read(chatMessagesProvider),
+                          isLive: composerRef
+                              .read(directRunRegistryProvider)
+                              .hasLiveMcpApproval,
+                        );
                   final Widget? attachedOverlay;
                   if (persistedPrompt != null) {
                     attachedOverlay = OpenWebUiPromptOverlay(
@@ -3888,6 +3905,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     attachedOverlay = HermesComposerPromptOverlay(
                       key: ValueKey(pendingHermesPrompt.id),
                       message: pendingHermesPrompt,
+                    );
+                  } else if (pendingDirectMcpPrompt != null) {
+                    final approval =
+                        pendingDirectMcpPrompt
+                                .metadata![kDirectMcpApprovalMetadataKey]
+                            as Map;
+                    attachedOverlay = DirectMcpComposerPromptOverlay(
+                      key: ValueKey(approval['id']),
+                      message: pendingDirectMcpPrompt,
                     );
                   } else {
                     attachedOverlay = null;

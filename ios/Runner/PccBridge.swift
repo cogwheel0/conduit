@@ -1,6 +1,7 @@
 import Flutter
 import Foundation
 import ImageIO
+import OSLog
 
 #if canImport(FoundationModels)
 import FoundationModels
@@ -62,6 +63,7 @@ private enum PccBridgeError: LocalizedError {
     case invalidRequest
     case invalidImage
     case invalidSchema
+    case invalidToolSchema
 
     var errorDescription: String? {
         switch self {
@@ -71,6 +73,8 @@ private enum PccBridgeError: LocalizedError {
             "Apple Foundation Models received an invalid image."
         case .invalidSchema:
             "Apple Foundation Models received an unsupported response schema."
+        case .invalidToolSchema:
+            "Apple Foundation Models received an unsupported MCP tool schema."
         }
     }
 }
@@ -255,6 +259,38 @@ func pccGenerationSchema(json: String, name: String) throws -> GenerationSchema 
 
     return try GenerationSchema(root: build(rootObject, depth: 0), dependencies: [])
 }
+
+@available(iOS 26.0, *)
+private final class PccNativeTool: Tool, @unchecked Sendable {
+    init(
+        name: String,
+        description: String,
+        parameters: GenerationSchema,
+        runId: String,
+        bridge: PccBridge
+    ) {
+        self.name = name
+        self.description = description
+        self.parameters = parameters
+        self.runId = runId
+        self.bridge = bridge
+    }
+
+    let name: String
+    let description: String
+    let parameters: GenerationSchema
+    private let runId: String
+    private weak var bridge: PccBridge?
+
+    func call(arguments: GeneratedContent) async throws -> String {
+        guard let bridge else { throw CancellationError() }
+        return try await bridge.callTool(
+            runId: runId,
+            name: name,
+            argumentsJson: arguments.jsonString
+        )
+    }
+}
 #endif
 
 private final class PccTaskBox {
@@ -268,6 +304,11 @@ private final class PccResponseState {
 
 final class PccBridge: PccHostApi {
     static let shared = PccBridge()
+
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "app.cogwheel.conduit",
+        category: "apple-foundation-models"
+    )
 
     private let lock = NSLock()
     private var tasks: [String: PccTaskBox] = [:]
@@ -417,6 +458,43 @@ final class PccBridge: PccHostApi {
         ))
     }
 
+#if canImport(FoundationModels)
+    @available(iOS 26.0, *)
+    fileprivate func callTool(
+        runId: String,
+        name: String,
+        argumentsJson: String
+    ) async throws -> String {
+        try Task.checkCancellation()
+        let call = PlatformPccToolCall(
+            runId: runId,
+            callId: UUID().uuidString,
+            name: name,
+            argumentsJson: argumentsJson
+        )
+        let result: PlatformPccToolResult = try await withCheckedThrowingContinuation {
+            continuation in
+            DispatchQueue.main.async { [weak self] in
+                guard let flutterApi = self?.flutterApi else {
+                    continuation.resume(throwing: PccBridgeError.invalidRequest)
+                    return
+                }
+                flutterApi.onToolCall(call: call) { result in
+                    switch result {
+                    case .success(let value):
+                        continuation.resume(returning: value)
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+        }
+        if result.cancelled { throw CancellationError() }
+        try Task.checkCancellation()
+        return result.content
+    }
+#endif
+
     private static let pccUnsupportedStatus = PlatformPccStatus(
         availability: .unsupported,
         quotaStatus: .unknown,
@@ -445,6 +523,65 @@ private struct OnDeviceSessionInput {
 
 @available(iOS 26.0, *)
 private extension PccBridge {
+    func nativeTools(
+        for request: PlatformPccCompletionRequest
+    ) throws -> [any Tool] {
+        guard request.tools.count <= 128 else {
+            throw PccBridgeError.invalidToolSchema
+        }
+        var names: Set<String> = []
+        var totalBytes = 0
+        return try request.tools.enumerated().compactMap { index, definition in
+            let schemaBytes = definition.inputSchemaJson.utf8.count
+            let descriptionBytes = definition.toolDescription.utf8.count
+            let schemaObject = try? JSONSerialization.jsonObject(
+                with: Data(definition.inputSchemaJson.utf8)
+            ) as? [String: Any]
+            let isObjectSchema = schemaObject?["type"] as? String == "object" ||
+                (schemaObject?["type"] == nil &&
+                    schemaObject?["properties"] is [String: Any])
+            totalBytes += definition.name.utf8.count
+                + descriptionBytes
+                + schemaBytes
+            guard definition.name.range(
+                of: #"^[A-Za-z_][A-Za-z0-9_-]{0,63}$"#,
+                options: .regularExpression
+            ) != nil,
+            names.insert(definition.name).inserted,
+            descriptionBytes <= 4_096,
+            schemaBytes <= 64 * 1_024,
+            totalBytes <= 512 * 1_024
+            else {
+                throw PccBridgeError.invalidToolSchema
+            }
+            guard isObjectSchema else {
+                Self.logger.notice(
+                    "Skipping MCP tool with a non-object schema: \(definition.name, privacy: .private(mask: .hash))"
+                )
+                return nil
+            }
+            let parameters: GenerationSchema
+            do {
+                parameters = try pccGenerationSchema(
+                    json: definition.inputSchemaJson,
+                    name: "McpToolArguments_\(index + 1)"
+                )
+            } catch {
+                Self.logger.notice(
+                    "Skipping MCP tool with an unsupported schema: \(definition.name, privacy: .private(mask: .hash))"
+                )
+                return nil
+            }
+            return PccNativeTool(
+                name: definition.name,
+                description: definition.toolDescription,
+                parameters: parameters,
+                runId: request.runId,
+                bridge: self
+            )
+        }
+    }
+
     func onDeviceStatus() -> PlatformPccStatus {
         let model = SystemLanguageModel.default
         let message: String?
@@ -484,7 +621,7 @@ private extension PccBridge {
             let input = try onDeviceSessionInput(request)
             let session = LanguageModelSession(
                 model: model,
-                tools: [],
+                tools: try nativeTools(for: request),
                 transcript: input.transcript
             )
             try await performOnDevice(
@@ -739,7 +876,7 @@ private extension PccBridge {
             let input = try sessionInput(request)
             let session = LanguageModelSession(
                 model: model,
-                tools: [],
+                tools: try nativeTools(for: request),
                 transcript: input.transcript
             )
             try await perform(
@@ -794,7 +931,7 @@ private extension PccBridge {
             let input = try onDeviceSessionInput(request)
             let session = LanguageModelSession(
                 model: model,
-                tools: [],
+                tools: try nativeTools(for: request),
                 transcript: input.transcript
             )
             await emit(PlatformPccStreamEvent(

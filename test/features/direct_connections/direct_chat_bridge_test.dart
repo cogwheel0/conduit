@@ -1267,6 +1267,35 @@ void main() {
   });
 
   group('DirectStreamingAccumulator', () {
+    test('projects automatic MCP approvals without a pending event', () {
+      final accumulator = DirectStreamingAccumulator();
+      const request = DirectToolApprovalRequest(
+        id: 'approval-1',
+        serverName: 'Home',
+        toolName: 'Lookup',
+        callId: 'call-1',
+        argumentsJson: '{}',
+      );
+
+      expect(
+        accumulator.apply(
+          const DirectMcpApprovalResolved(
+            request: request,
+            decision: DirectToolApprovalDecision.allowAlways,
+          ),
+        ),
+        isTrue,
+      );
+      expect(accumulator.mcpApproval, {
+        'id': 'approval-1',
+        'serverName': 'Home',
+        'toolName': 'Lookup',
+        'callId': 'call-1',
+        'arguments': '{}',
+        'state': 'allowed_always',
+      });
+    });
+
     test('combines reasoning, content, usage, completion, and error', () {
       final accumulator = DirectStreamingAccumulator();
 

@@ -16,6 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dart:io' show Platform;
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -35,6 +36,9 @@ import '../../hermes/models/hermes_config.dart';
 import '../../hermes/providers/hermes_providers.dart';
 import '../../hermes/services/hermes_local_document_service.dart';
 import '../../direct_connections/direct_connections.dart';
+import '../../direct_connections/providers/direct_mcp_providers.dart';
+import '../../direct_connections/services/direct_mcp_client.dart';
+import '../../direct_connections/views/direct_mcp_content_sheet.dart';
 import '../../workspace/models/workspace_resources.dart';
 import '../../../core/models/tool.dart';
 import '../../../core/models/model.dart';
@@ -86,6 +90,34 @@ bool composerUsesNativeSystemSelectionMenu({
   required bool isIOS,
   required bool systemMenuSupported,
 }) => isIOS && systemMenuSupported;
+
+@visibleForTesting
+TextEditingValue composerTextValueAfterInsertion(
+  TextEditingValue current,
+  String content,
+) {
+  final text = current.text;
+  final selection = current.selection;
+  final start = selection.isValid
+      ? selection.start.clamp(0, text.length).toInt()
+      : text.length;
+  final end = selection.isValid
+      ? selection.end.clamp(0, text.length).toInt()
+      : text.length;
+  final before = text.substring(0, start);
+  return TextEditingValue(
+    text: '$before$content${text.substring(end)}',
+    selection: TextSelection.collapsed(offset: before.length + content.length),
+    composing: TextRange.empty,
+  );
+}
+
+@visibleForTesting
+bool directMcpInsertionFitsComposer(TextEditingValue current, String content) =>
+    utf8
+        .encode(composerTextValueAfterInsertion(current, content).text)
+        .length <=
+    kDirectMcpMaxInsertionBytes;
 
 /// Returns a stable UIKit edit-menu model for the composer.
 ///
@@ -220,7 +252,6 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
   required List<ToggleFilter> availableFilters,
   required List<String> selectedFilterIds,
 }) {
-  final restrictedMode = hermesMode || directMode;
   final items = buildComposerOverflowItems(
     l10n: l10n,
     attachmentAvailability: attachmentAvailability,
@@ -230,9 +261,9 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
     webSearchEnabled: webSearchEnabled,
     imageGenerationAvailable: !hermesMode && imageGenerationAvailable,
     imageGenerationEnabled: imageGenerationEnabled,
-    availableTools: restrictedMode ? const <Tool>[] : availableTools,
+    availableTools: hermesMode ? const <Tool>[] : availableTools,
     selectedToolIds: selectedToolIds,
-    availableFilters: restrictedMode
+    availableFilters: hermesMode || directMode
         ? const <ToggleFilter>[]
         : availableFilters,
     selectedFilterIds: selectedFilterIds,
@@ -246,12 +277,17 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
                   item.id == ComposerOverflowActionIds.photo ||
                   item.id == ComposerOverflowActionIds.camera);
         }
-        return !directMode ||
-            item.id == ComposerOverflowActionIds.file ||
-            item.id == ComposerOverflowActionIds.photo ||
-            item.id == ComposerOverflowActionIds.camera ||
-            item.id == ComposerOverflowActionIds.webSearch ||
-            item.id == ComposerOverflowActionIds.imageGeneration;
+        if (!directMode) {
+          return item.id != ComposerOverflowActionIds.mcpContent;
+        }
+        return item.enabled &&
+            (item.section == ComposerOverflowSection.tools ||
+                item.id == ComposerOverflowActionIds.file ||
+                item.id == ComposerOverflowActionIds.photo ||
+                item.id == ComposerOverflowActionIds.camera ||
+                item.id == ComposerOverflowActionIds.mcpContent ||
+                item.id == ComposerOverflowActionIds.webSearch ||
+                item.id == ComposerOverflowActionIds.imageGeneration);
       })
       .map(
         (item) => IosKeyboardAttachmentActionConfig(
@@ -812,6 +848,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       case ComposerOverflowActionIds.web:
         if (availability.web) widget.onWebAttachment?.call();
         return;
+      case ComposerOverflowActionIds.mcpContent:
+        if (availability.mcpContent) unawaited(_openDirectMcpContent());
+        return;
       default:
         toggleComposerOverflowSelection(ref, id);
         return;
@@ -1067,23 +1106,37 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       return;
     }
 
-    final text = _controller.text;
-    final selection = _controller.selection;
-    final int start = selection.isValid
-        ? selection.start.clamp(0, text.length).toInt()
-        : text.length;
-    final int end = selection.isValid
-        ? selection.end.clamp(0, text.length).toInt()
-        : text.length;
-    final before = text.substring(0, start);
-    final after = text.substring(end);
-    final caret = before.length + content.length;
-
-    _controller.value = TextEditingValue(
-      text: '$before$content$after',
-      selection: TextSelection.collapsed(offset: caret),
-      composing: TextRange.empty,
+    _controller.value = composerTextValueAfterInsertion(
+      _controller.value,
+      content,
     );
+    _ensureFocusedIfEnabled();
+  }
+
+  Future<void> _openDirectMcpContent() async {
+    if (!widget.enabled) return;
+    final selection = _controller.selection;
+    _dismissFallbackAttachmentPanel();
+    await _hideNativeKeyboardAttachmentPanel();
+    if (!mounted || _isDeactivated) return;
+    final content = await DirectMcpContentSheet.show(context);
+    if (!mounted ||
+        _isDeactivated ||
+        !widget.enabled ||
+        content == null ||
+        content.isEmpty) {
+      return;
+    }
+    final restored = _controller.value.copyWith(selection: selection);
+    if (!directMcpInsertionFitsComposer(restored, content)) {
+      AdaptiveSnackBar.show(
+        context,
+        message: AppLocalizations.of(context)!.directMcpContentComposerTooLarge,
+        type: AdaptiveSnackBarType.error,
+      );
+      return;
+    }
+    _controller.value = composerTextValueAfterInsertion(restored, content);
     _ensureFocusedIfEnabled();
   }
 
@@ -2632,6 +2685,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final fileInputAvailable =
         model != null &&
         ref.read(fileUploadCapableModelsProvider).contains(model.id);
+    final mcpContentAvailable =
+        directMode &&
+        ref
+            .read(directMcpServersProvider)
+            .maybeWhen(
+              data: (servers) => servers.any((server) => server.enabled),
+              orElse: () => false,
+            );
     return ComposerOverflowAttachmentAvailability(
       file: fileInputAvailable && widget.onFileAttachment != null,
       serverFile:
@@ -2641,6 +2702,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       photo: imageInputAvailable && widget.onImageAttachment != null,
       camera: imageInputAvailable && widget.onCameraCapture != null,
       web: !directMode && widget.onWebAttachment != null,
+      mcpContent: mcpContentAvailable,
     );
   }
 
@@ -2683,12 +2745,23 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   List<IosKeyboardAttachmentActionConfig>
   _currentNativeKeyboardAttachmentActions({required AppLocalizations l10n}) {
-    final availableTools = ref
-        .read(toolsListProvider)
-        .maybeWhen<List<Tool>>(
-          data: (tools) => tools,
-          orElse: () => const <Tool>[],
+    final selectedModel = ref.read(selectedModelProvider);
+    final directMode =
+        selectedModel != null && hasReservedDirectIdentity(selectedModel);
+    final directToolsAvailable =
+        directMode &&
+        directBindingSupportsLocalMcp(
+          ref.read(directModelRegistryProvider).resolve(selectedModel),
         );
+    final tools = directMode
+        ? (directToolsAvailable
+              ? ref.read(directMcpToolsProvider)
+              : const AsyncData<List<Tool>>([]))
+        : ref.read(toolsListProvider);
+    final availableTools = tools.maybeWhen<List<Tool>>(
+      data: (tools) => tools,
+      orElse: () => const <Tool>[],
+    );
 
     return _nativeKeyboardAttachmentActions(
       l10n: l10n,
@@ -3006,11 +3079,30 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final sendOnEnter = ref.watch(
       appSettingsProvider.select((s) => s.sendOnEnter),
     );
-    final toolsAsync = ref.watch(toolsListProvider);
-    final List<Tool> availableTools = toolsAsync.maybeWhen<List<Tool>>(
-      data: (t) => t,
-      orElse: () => const <Tool>[],
-    );
+    final selectedComposerModel = ref.watch(selectedModelProvider);
+    final isDirectComposer =
+        selectedComposerModel != null &&
+        hasReservedDirectIdentity(selectedComposerModel);
+    final directToolsAvailable =
+        isDirectComposer &&
+        directBindingSupportsLocalMcp(
+          ref.watch(directModelRegistryProvider).resolve(selectedComposerModel),
+        );
+    final toolsAsync = isDirectComposer
+        ? const AsyncData<List<Tool>>([])
+        : ref.watch(toolsListProvider);
+    final directMcpToolsAsync = directToolsAvailable
+        ? ref.watch(directMcpToolsProvider)
+        : const AsyncData<List<Tool>>([]);
+    if (isDirectComposer) {
+      ref.listen<AsyncValue<List<Tool>>>(directMcpToolsProvider, (
+        previous,
+        next,
+      ) {
+        _scheduleNativeKeyboardAttachmentSync();
+      });
+      ref.watch(directMcpServersProvider);
+    }
     final bool showWebPill = selectedQuickPills.contains('web');
     final bool showImagePillPref = selectedQuickPills.contains('image');
     final voiceAvailableAsync = ref.watch(voiceInputAvailableProvider);
@@ -3051,13 +3143,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // Watching the capabilities value makes a loading -> data transition
     // rebuild the composer. Attachment access still fails closed below.
     ref.watch(hermesCapabilitiesProvider);
-    final selectedComposerModel = ref.watch(selectedModelProvider);
     final visionCapableModelIds = ref.watch(visionCapableModelsProvider);
     ref.watch(fileUploadCapableModelsProvider);
     final attachmentAvailability = _overflowAttachmentAvailability;
-    final bool isDirectComposer =
-        selectedComposerModel != null &&
-        hasReservedDirectIdentity(selectedComposerModel);
+    final List<Tool> availableTools =
+        (isDirectComposer ? directMcpToolsAsync : toolsAsync)
+            .maybeWhen<List<Tool>>(
+              data: (tools) => tools,
+              orElse: () => const <Tool>[],
+            );
     final directSupportsImages =
         !isDirectComposer ||
         (visionCapableModelIds.contains(selectedComposerModel.id) &&
@@ -3068,8 +3162,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       directSupportsImages: directSupportsImages,
       directHasOverflowActions:
           attachmentAvailability.file ||
+          attachmentAvailability.mcpContent ||
           webSearchAvailable ||
-          imageGenAvailable,
+          imageGenAvailable ||
+          (isDirectComposer && availableTools.isNotEmpty),
       hermesHasLocalAttachmentActions:
           attachmentAvailability.file ||
           attachmentAvailability.photo ||
@@ -3154,8 +3250,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             ? CupertinoIcons.photo
             : Icons.image;
         void handleTap() {
-          final notifier = ref.read(imageGenerationEnabledProvider.notifier);
-          notifier.set(!imageGenEnabled);
+          setComposerOverflowSelection(
+            ref,
+            actionId: ComposerOverflowActionIds.imageGeneration,
+            selected: !imageGenEnabled,
+          );
         }
 
         quickPills.add(
@@ -3633,6 +3732,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           : null,
       onWebAttachment: attachmentAvailability.web
           ? widget.onWebAttachment
+          : null,
+      onMcpContent: attachmentAvailability.mcpContent
+          ? _openDirectMcpContent
           : null,
     );
 

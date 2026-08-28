@@ -25,14 +25,21 @@ const Duration _kAppleStatusTimeout = Duration(seconds: 10);
 
 /// Adapts Apple's native Foundation Models stream to Conduit's Direct events.
 final class ApplePccAdapter implements DirectProviderAdapter, PccFlutterApi {
-  ApplePccAdapter({PccHostApi? hostApi, bool Function()? allowOnDeviceFallback})
-    : _hostApi = hostApi ?? PccHostApi(),
-      _allowOnDeviceFallback = allowOnDeviceFallback ?? (() => false) {
+  ApplePccAdapter({
+    PccHostApi? hostApi,
+    bool Function()? allowOnDeviceFallback,
+    this.toolApprovalTimeout = kDirectToolApprovalTimeout,
+  }) : _hostApi = hostApi ?? PccHostApi(),
+       _allowOnDeviceFallback = allowOnDeviceFallback ?? (() => false) {
+    if (toolApprovalTimeout <= Duration.zero) {
+      throw ArgumentError.value(toolApprovalTimeout, 'toolApprovalTimeout');
+    }
     PccFlutterApi.setUp(this);
   }
 
   final PccHostApi _hostApi;
   final bool Function() _allowOnDeviceFallback;
+  final Duration toolApprovalTimeout;
   final Map<String, _ApplePccRun> _runs = <String, _ApplePccRun>{};
 
   @override
@@ -159,7 +166,7 @@ final class ApplePccAdapter implements DirectProviderAdapter, PccFlutterApi {
     final runId = const Uuid().v4();
     final cancelToken = CancelToken();
     final controller = StreamController<DirectStreamEvent>();
-    final run = _ApplePccRun(controller, name);
+    final run = _ApplePccRun(controller, name, request.tools, cancelToken);
     _runs[runId] = run;
 
     controller.onCancel = () {
@@ -174,6 +181,16 @@ final class ApplePccAdapter implements DirectProviderAdapter, PccFlutterApi {
               runId: runId,
               model: model,
               messages: platformMessages,
+              tools: <PlatformPccToolDefinition>[
+                for (final definition
+                    in request.tools?.definitions ??
+                        const <DirectToolDefinition>[])
+                  PlatformPccToolDefinition(
+                    name: definition.name,
+                    toolDescription: definition.description,
+                    inputSchemaJson: jsonEncode(definition.inputSchema),
+                  ),
+              ],
               allowOnDeviceFallback: isPcc && _allowOnDeviceFallback(),
               reasoningLevel: reasoningLevel,
               temperature: options.temperature,
@@ -242,6 +259,118 @@ final class ApplePccAdapter implements DirectProviderAdapter, PccFlutterApi {
         );
       case PlatformPccEventKind.done:
         _finish(event.runId, const DirectStreamDone());
+    }
+  }
+
+  @override
+  Future<PlatformPccToolResult> onToolCall(PlatformPccToolCall call) async {
+    final run = _runs[call.runId];
+    if (run == null ||
+        run.terminal ||
+        run.tools == null ||
+        run.cancelToken.isCancelled) {
+      return _cancelledToolResult;
+    }
+    try {
+      // ponytail: Foundation Models does not expose native round IDs. Counting
+      // each callback as a round keeps Apple stricter than the shared limits.
+      if (++run.toolCallCount > kDirectMaxToolRounds) {
+        throw const DirectProviderException(
+          'Apple Foundation Models exceeded Conduit\'s tool-call limit.',
+        );
+      }
+      if (utf8.encode(call.argumentsJson).length >
+          kDirectMaxToolArgumentBytes) {
+        throw const DirectProviderException(
+          'Apple Foundation Models returned oversized tool arguments.',
+        );
+      }
+      final decoded = jsonDecode(call.argumentsJson);
+      if (decoded is! Map<String, dynamic>) {
+        throw const DirectProviderException(
+          'Apple Foundation Models returned invalid tool arguments.',
+        );
+      }
+      final definition = run.tools!.definition(call.name);
+      final approval = run.tools!.requestApproval(
+        call.callId,
+        definition,
+        decoded,
+      );
+      if (approval.requiresUserDecision) {
+        run.controller.add(DirectMcpApprovalRequested(approval.request));
+      }
+      final decision = await waitForDirectToolApproval(
+        approval: approval,
+        timeout: toolApprovalTimeout,
+        cancellations: <Future<void>>[run.cancelToken.whenCancel],
+      );
+      if (decision == null || !_isCurrentToolRun(call.runId, run)) {
+        return _cancelledToolResult;
+      }
+      run.controller.add(
+        DirectMcpApprovalResolved(
+          request: approval.request,
+          decision: decision,
+        ),
+      );
+
+      DirectToolResult result;
+      if (decision == DirectToolApprovalDecision.deny) {
+        result = const DirectToolResult(
+          text: 'The user denied this tool call.',
+          isError: true,
+        );
+      } else {
+        run.controller.add(
+          DirectToolCallStarted(
+            id: call.callId,
+            name: call.name,
+            arguments: decoded,
+          ),
+        );
+        try {
+          final executed = await Future.any<DirectToolResult?>(
+            <Future<DirectToolResult?>>[
+              run.tools!.execute(call.name, decoded),
+              run.cancelToken.whenCancel.then((_) => null),
+            ],
+          );
+          if (executed == null || !_isCurrentToolRun(call.runId, run)) {
+            return _cancelledToolResult;
+          }
+          result = executed;
+        } catch (_) {
+          if (!_isCurrentToolRun(call.runId, run)) return _cancelledToolResult;
+          result = const DirectToolResult(
+            text: 'The local tool call failed.',
+            isError: true,
+          );
+        }
+      }
+      run.controller.add(
+        DirectToolCallCompleted(
+          id: call.callId,
+          name: call.name,
+          arguments: decoded,
+          result: result.text,
+          isError: result.isError,
+        ),
+      );
+      return PlatformPccToolResult(content: result.text, cancelled: false);
+    } on DirectProviderException catch (error) {
+      _abortToolRun(call.runId, run, error.message);
+      return _cancelledToolResult;
+    } on FormatException {
+      _abortToolRun(
+        call.runId,
+        run,
+        'Apple Foundation Models returned invalid tool arguments.',
+      );
+      return _cancelledToolResult;
+    } catch (_) {
+      _abortToolRun(call.runId, run, 'The Apple MCP tool call failed.');
+      return _cancelledToolResult;
     }
   }
 
@@ -333,6 +462,17 @@ final class ApplePccAdapter implements DirectProviderAdapter, PccFlutterApi {
 
   void _finishWithError(String runId, String message) {
     _finish(runId, DirectStreamError(message));
+  }
+
+  bool _isCurrentToolRun(String runId, _ApplePccRun run) =>
+      identical(_runs[runId], run) &&
+      !run.terminal &&
+      !run.cancelToken.isCancelled;
+
+  void _abortToolRun(String runId, _ApplePccRun run, String message) {
+    if (!_isCurrentToolRun(runId, run)) return;
+    _finishWithError(runId, message);
+    run.cancelToken.cancel(message);
   }
 
   void _finish(String runId, DirectStreamEvent terminal) {
@@ -491,12 +631,18 @@ final class _ApplePccRequestOptions {
 }
 
 final class _ApplePccRun {
-  _ApplePccRun(this.controller, this.displayName);
+  _ApplePccRun(this.controller, this.displayName, this.tools, this.cancelToken);
 
   final StreamController<DirectStreamEvent> controller;
   final String displayName;
+  final DirectToolRuntime? tools;
+  final CancelToken cancelToken;
+  int toolCallCount = 0;
   bool terminal = false;
 }
+
+PlatformPccToolResult get _cancelledToolResult =>
+    PlatformPccToolResult(content: '', cancelled: true);
 
 PlatformAppleModel? _platformModel(DirectConnectionProfile profile) {
   if (profile.isAppleOnDevice) return PlatformAppleModel.onDevice;

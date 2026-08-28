@@ -12,10 +12,12 @@ import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/horizontal_overflow_fade.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../core/models/toggle_filter.dart';
+import '../../../core/models/tool.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../../terminal/providers/terminal_providers.dart';
 import '../../direct_connections/direct_connections.dart';
+import '../../direct_connections/providers/direct_mcp_providers.dart';
 import '../providers/chat_providers.dart';
 import 'composer_overflow_items.dart';
 
@@ -134,6 +136,7 @@ class ComposerAttachmentKeyboard extends ConsumerStatefulWidget {
     this.onImageAttachment,
     this.onCameraCapture,
     this.onWebAttachment,
+    this.onMcpContent,
   });
 
   /// Restricts the sheet to device-local attachment actions supplied by the
@@ -147,6 +150,7 @@ class ComposerAttachmentKeyboard extends ConsumerStatefulWidget {
   final VoidCallback? onImageAttachment;
   final VoidCallback? onCameraCapture;
   final VoidCallback? onWebAttachment;
+  final VoidCallback? onMcpContent;
 
   @override
   ConsumerState<ComposerAttachmentKeyboard> createState() =>
@@ -175,9 +179,11 @@ class _ComposerAttachmentKeyboardState
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final selectedModel = ref.watch(selectedModelProvider);
-    final directMode =
-        selectedModel != null &&
-        ref.watch(directModelRegistryProvider).resolve(selectedModel) != null;
+    final directBinding = selectedModel == null
+        ? null
+        : ref.watch(directModelRegistryProvider).resolve(selectedModel);
+    final directMode = directBinding != null;
+    final directToolsAvailable = directBindingSupportsLocalMcp(directBinding);
     final restrictedMode = directMode || widget.localAttachmentsOnly;
     // Direct and local-only backends have no OpenWebUI integrations to
     // discover. Resolve the request lazily because direct provenance is only
@@ -195,6 +201,7 @@ class _ComposerAttachmentKeyboardState
             photo: widget.onImageAttachment != null,
             camera: widget.onCameraCapture != null,
             web: !restrictedMode && widget.onWebAttachment != null,
+            mcpContent: directMode && widget.onMcpContent != null,
           ),
         ).where((item) {
           if (widget.localAttachmentsOnly) {
@@ -209,7 +216,8 @@ class _ComposerAttachmentKeyboardState
           return item.enabled &&
               (item.id == ComposerOverflowActionIds.file ||
                   item.id == ComposerOverflowActionIds.photo ||
-                  item.id == ComposerOverflowActionIds.camera);
+                  item.id == ComposerOverflowActionIds.camera ||
+                  item.id == ComposerOverflowActionIds.mcpContent);
         });
 
     final attachments = attachmentItems
@@ -251,7 +259,7 @@ class _ComposerAttachmentKeyboardState
           );
         }).toList();
 
-    final selectedToolIds = restrictedMode
+    final selectedToolIds = widget.localAttachmentsOnly
         ? const <String>[]
         : ref.watch(selectedToolIdsProvider);
     final selectedTerminalId = restrictedMode
@@ -260,8 +268,14 @@ class _ComposerAttachmentKeyboardState
     final availableTerminalServersAsync = restrictedMode
         ? null
         : ref.watch(terminalAvailableServersProvider);
-    final toolsAsync = restrictedMode ? null : ref.watch(toolsListProvider);
-    final toolsSection = restrictedMode
+    final toolsAsync = widget.localAttachmentsOnly
+        ? null
+        : directMode
+        ? directToolsAvailable
+              ? ref.watch(directMcpToolsProvider)
+              : const AsyncData<List<Tool>>([])
+        : ref.watch(toolsListProvider);
+    final toolsSection = widget.localAttachmentsOnly
         ? const SizedBox.shrink()
         : toolsAsync!.when(
             data: (tools) {
@@ -286,13 +300,17 @@ class _ComposerAttachmentKeyboardState
               }).toList();
               return Column(children: withVerticalSpacing(tiles, Spacing.xxs));
             },
-            loading: () => Center(
-              child: SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: BorderWidth.thin),
-              ),
-            ),
+            loading: () => directMode
+                ? const SizedBox.shrink()
+                : Center(
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: BorderWidth.thin,
+                      ),
+                    ),
+                  ),
             error: (_, _) => _buildInfoCard(l10n.failedToLoadTools),
           );
     final integrationsSection = restrictedMode
@@ -421,12 +439,12 @@ class _ComposerAttachmentKeyboardState
         const SizedBox(height: Spacing.xs),
         ...withVerticalSpacing(featureTiles, Spacing.xxs),
       ],
-      if (!restrictedMode) ...[
+      if (!widget.localAttachmentsOnly) ...[
         const SizedBox(height: Spacing.sm),
         _buildSectionLabel(l10n.tools),
         toolsSection,
-        integrationsSection,
       ],
+      if (!restrictedMode) ...[integrationsSection],
     ];
 
     final toggleFilters = selectedModel?.filters ?? const <ToggleFilter>[];
@@ -613,6 +631,8 @@ class _ComposerAttachmentKeyboardState
         return widget.onCameraCapture;
       case ComposerOverflowActionIds.web:
         return widget.onWebAttachment;
+      case ComposerOverflowActionIds.mcpContent:
+        return widget.onMcpContent;
       default:
         return null;
     }
