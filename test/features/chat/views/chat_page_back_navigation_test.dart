@@ -2,6 +2,21 @@ import 'package:conduit/features/chat/views/chat_page.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('Mac hardware keyboards do not resize the chat scaffold', () {
+    expect(
+      chatResizeToAvoidBottomInset(isAndroid: false, isIOSAppOnMac: true),
+      false,
+    );
+    expect(
+      chatResizeToAvoidBottomInset(isAndroid: false, isIOSAppOnMac: false),
+      isNull,
+    );
+    expect(
+      chatResizeToAvoidBottomInset(isAndroid: true, isIOSAppOnMac: false),
+      false,
+    );
+  });
+
   test('cancelling root exit leaves an active stream untouched', () async {
     final events = <String>[];
 

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart' show listEquals, visibleForTesting;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart'
@@ -2021,6 +2023,10 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       ),
     );
 
+    final scrollableTranscript = PlatformInfo.isIOS
+        ? CupertinoScrollbar(controller: _scrollController, child: transcript)
+        : Scrollbar(controller: _scrollController, child: transcript);
+
     return Stack(
       key: _viewportKey,
       children: [
@@ -2033,7 +2039,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
               child: IgnorePointer(
                 key: const ValueKey<String>('sliver-transcript-interaction'),
                 ignoring: shouldHide,
-                child: transcript,
+                child: scrollableTranscript,
               ),
             ),
           ),

@@ -10,6 +10,7 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -23,6 +24,66 @@ void main() {
   });
 
   group('PlatformUiCapabilities', () {
+    test('detects and caches the iOS app running on Mac', () async {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      const channel = MethodChannel(
+        'app.cogwheel.conduit/platform_environment',
+      );
+      var calls = 0;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls++;
+        expect(call.method, 'isIOSAppOnMac');
+        return true;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+      await PlatformUiCapabilities.initialize();
+      await PlatformUiCapabilities.initialize();
+
+      check(PlatformUiCapabilities.isIOSAppOnMac).isTrue();
+      check(PlatformInfo.isIOSAppOnMac).isTrue();
+      check(calls).equals(1);
+    });
+
+    test('falls back when the native Mac capability is unavailable', () async {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+
+      await PlatformUiCapabilities.initialize();
+
+      check(PlatformUiCapabilities.isIOSAppOnMac).isFalse();
+    });
+
+    test('debug reset clears the cached Mac capability', () async {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      const channel = MethodChannel(
+        'app.cogwheel.conduit/platform_environment',
+      );
+      var calls = 0;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (_) async => calls++ == 0);
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+      await PlatformUiCapabilities.initialize();
+      check(PlatformUiCapabilities.isIOSAppOnMac).isTrue();
+
+      PlatformUiCapabilities.resetDebugOverrides();
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      await PlatformUiCapabilities.initialize();
+
+      check(PlatformUiCapabilities.isIOSAppOnMac).isFalse();
+      check(calls).equals(2);
+    });
+
+    test('never reports an iOS app on Mac for another platform', () {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
+      PlatformUiCapabilities.debugIOSAppOnMacOverride = true;
+
+      check(PlatformUiCapabilities.isIOSAppOnMac).isFalse();
+    });
+
     test('selects Flutter Material on Android regardless of iOS override', () {
       PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
       PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;

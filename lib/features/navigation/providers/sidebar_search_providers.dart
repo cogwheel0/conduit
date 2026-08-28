@@ -1,4 +1,5 @@
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'sidebar_search_providers.g.dart';
@@ -25,4 +26,18 @@ FocusNode sidebarSearchFieldFocusNode(Ref ref) {
   final node = FocusNode(debugLabel: 'sidebar_header_search');
   ref.onDispose(node.dispose);
   return node;
+}
+
+void openSidebarSearch(WidgetRef ref) {
+  ref.read(sidebarHeaderSearchExpandedProvider.notifier).setExpanded(true);
+  final focusNode = ref.read(sidebarSearchFieldFocusNodeProvider);
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (focusNode.context != null) focusNode.requestFocus();
+  });
+}
+
+void closeSidebarSearch(WidgetRef ref) {
+  ref.read(sidebarSearchFieldControllerProvider).clear();
+  ref.read(sidebarSearchFieldFocusNodeProvider).unfocus();
+  ref.read(sidebarHeaderSearchExpandedProvider.notifier).setExpanded(false);
 }

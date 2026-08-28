@@ -28,6 +28,25 @@ import 'package:flutter_test/flutter_test.dart';
 import 'sidebar_page_test_support.dart';
 
 void main() {
+  test('Mac windows do not reserve the iPad window-control inset', () {
+    expect(
+      resolveSidebarWindowedLeadingInset(
+        usesNativeIOS26Chrome: true,
+        isWindowed: true,
+        isIOSAppOnMac: true,
+      ),
+      0,
+    );
+    expect(
+      resolveSidebarWindowedLeadingInset(
+        usesNativeIOS26Chrome: true,
+        isWindowed: true,
+        isIOSAppOnMac: false,
+      ),
+      62,
+    );
+  });
+
   testWidgets('native glass profile avatar uses one compact native button', (
     tester,
   ) async {

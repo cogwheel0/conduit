@@ -1,17 +1,22 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 
+import '../../../core/services/navigation_service.dart';
 import '../../../core/services/haptic_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/sidebar_layout_constants.dart';
+import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../chat/providers/chat_providers.dart';
 import '../providers/sidebar_providers.dart';
 import 'responsive_drawer_layout.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import 'sidebar_page.dart';
+import 'sidebar_tab_registry.dart';
 
 /// Shell widget that wraps child routes with a persistent
 /// [ResponsiveDrawerLayout] + [SidebarPage] drawer.
@@ -66,6 +71,78 @@ class DrawerShellPage extends ConsumerWidget {
         } catch (_) {}
       },
       drawer: const SidebarPage(),
+      layoutBuilder: (layout) => MacDesktopShortcuts(child: layout),
+      child: child,
+    );
+  }
+}
+
+class MacDesktopShortcuts extends ConsumerWidget {
+  const MacDesktopShortcuts({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!PlatformInfo.isIOSAppOnMac) return child;
+
+    void createForActiveTab() {
+      final navigation = ref.read(sidebarNavigationSnapshotProvider);
+      final action = sidebarTabDescriptor(navigation.selectedTab).createAction;
+      if (action != null) unawaited(action.run(context, ref));
+    }
+
+    void focusSidebarSearch() {
+      final drawer = SidebarDrawerControllerScope.maybeOf(context);
+      if (drawer?.isOpen == false) drawer?.open();
+      openSidebarSearch(ref);
+    }
+
+    void dismissDesktopLayer() {
+      if (ref.read(sidebarHeaderSearchExpandedProvider)) {
+        closeSidebarSearch(ref);
+        return;
+      }
+      final drawer = SidebarDrawerControllerScope.maybeOf(context);
+      if (!usesPersistentTabletSidebar(context) && drawer?.isOpen == true) {
+        drawer?.close();
+        return;
+      }
+      FocusManager.instance.primaryFocus?.unfocus();
+    }
+
+    void openSettings() {
+      final path = Uri.tryParse(NavigationService.currentRoute ?? '')?.path;
+      if (path == Routes.profile ||
+          path?.startsWith('${Routes.profile}/') == true) {
+        return;
+      }
+      unawaited(NavigationService.pushTo(Routes.profile));
+    }
+
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(
+          LogicalKeyboardKey.keyN,
+          meta: true,
+          includeRepeats: false,
+        ): createForActiveTab,
+        const SingleActivator(LogicalKeyboardKey.keyK, meta: true):
+            focusSidebarSearch,
+        const SingleActivator(LogicalKeyboardKey.digit1, meta: true): () =>
+            selectSidebarTab(context, ref, 0),
+        const SingleActivator(LogicalKeyboardKey.digit2, meta: true): () =>
+            selectSidebarTab(context, ref, 1),
+        const SingleActivator(LogicalKeyboardKey.digit3, meta: true): () =>
+            selectSidebarTab(context, ref, 2),
+        const SingleActivator(LogicalKeyboardKey.digit4, meta: true): () =>
+            selectSidebarTab(context, ref, 3),
+        const SingleActivator(LogicalKeyboardKey.digit5, meta: true): () =>
+            selectSidebarTab(context, ref, 4),
+        const SingleActivator(LogicalKeyboardKey.comma, meta: true):
+            openSettings,
+        const SingleActivator(LogicalKeyboardKey.escape): dismissDesktopLayer,
+      },
       child: child,
     );
   }

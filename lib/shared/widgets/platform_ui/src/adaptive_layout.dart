@@ -746,6 +746,38 @@ class AdaptiveContextMenuAction {
   final bool isDisabled;
 }
 
+Future<void> showAdaptiveContextMenu({
+  required BuildContext context,
+  required List<AdaptiveContextMenuAction> actions,
+  required Rect globalAnchor,
+}) async {
+  final overlayObject = Overlay.of(context).context.findRenderObject();
+  if (overlayObject is! RenderBox || !overlayObject.attached) return;
+
+  final anchor = Rect.fromPoints(
+    overlayObject.globalToLocal(globalAnchor.topLeft),
+    overlayObject.globalToLocal(globalAnchor.bottomRight),
+  );
+  final selected = await showMenu<int>(
+    context: context,
+    position: RelativeRect.fromRect(anchor, Offset.zero & overlayObject.size),
+    items: [
+      for (var index = 0; index < actions.length; index++)
+        PopupMenuItem<int>(
+          value: index,
+          enabled: !actions[index].isDisabled,
+          child: Text(
+            actions[index].title,
+            style: actions[index].isDestructive
+                ? const TextStyle(color: Colors.red)
+                : null,
+          ),
+        ),
+    ],
+  );
+  if (selected != null) actions[selected].onPressed();
+}
+
 class AdaptiveContextMenu extends StatelessWidget {
   const AdaptiveContextMenu({
     super.key,
@@ -782,44 +814,30 @@ class AdaptiveContextMenu extends StatelessWidget {
       );
     }
     return GestureDetector(
-      onLongPress: () async {
+      onSecondaryTapDown: (details) => showAdaptiveContextMenu(
+        context: context,
+        actions: actions,
+        globalAnchor: Rect.fromLTWH(
+          details.globalPosition.dx,
+          details.globalPosition.dy,
+          0,
+          0,
+        ),
+      ),
+      onLongPress: () {
         final renderObject = context.findRenderObject();
-        final overlayObject = Overlay.of(context).context.findRenderObject();
-        if (renderObject is! RenderBox ||
-            overlayObject is! RenderBox ||
-            !renderObject.attached ||
-            !overlayObject.attached) {
+        if (renderObject is! RenderBox || !renderObject.attached) {
           return;
         }
-        final topLeft = renderObject.localToGlobal(
-          Offset.zero,
-          ancestor: overlayObject,
-        );
+        final topLeft = renderObject.localToGlobal(Offset.zero);
         final bottomRight = renderObject.localToGlobal(
           renderObject.size.bottomRight(Offset.zero),
-          ancestor: overlayObject,
         );
-        final selected = await showMenu<int>(
+        showAdaptiveContextMenu(
           context: context,
-          position: RelativeRect.fromRect(
-            Rect.fromPoints(topLeft, bottomRight),
-            Offset.zero & overlayObject.size,
-          ),
-          items: [
-            for (var index = 0; index < actions.length; index++)
-              PopupMenuItem<int>(
-                value: index,
-                enabled: !actions[index].isDisabled,
-                child: Text(
-                  actions[index].title,
-                  style: actions[index].isDestructive
-                      ? const TextStyle(color: Colors.red)
-                      : null,
-                ),
-              ),
-          ],
+          actions: actions,
+          globalAnchor: Rect.fromPoints(topLeft, bottomRight),
         );
-        if (selected != null) actions[selected].onPressed();
       },
       child: child,
     );

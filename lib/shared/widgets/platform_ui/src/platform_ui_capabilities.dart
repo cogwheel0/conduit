@@ -1,11 +1,19 @@
 import 'package:cupertino_native_better/cupertino_native_better.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import 'operating_system_version_stub.dart'
     if (dart.library.io) 'operating_system_version_io.dart';
 
 /// Central capability gate for Conduit's platform UI compatibility layer.
 abstract final class PlatformUiCapabilities {
+  static const _platformEnvironmentChannel = MethodChannel(
+    'app.cogwheel.conduit/platform_environment',
+  );
+
+  static Future<void>? _initialization;
+  static bool _isIOSAppOnMac = false;
+
   @visibleForTesting
   static TargetPlatform? debugPlatformOverride;
 
@@ -15,11 +23,33 @@ abstract final class PlatformUiCapabilities {
   @visibleForTesting
   static bool? debugNativeIOS26Override;
 
+  @visibleForTesting
+  static bool? debugIOSAppOnMacOverride;
+
   static TargetPlatform get platform =>
       debugPlatformOverride ?? defaultTargetPlatform;
 
   static bool get isIOS => !kIsWeb && platform == TargetPlatform.iOS;
   static bool get isAndroid => !kIsWeb && platform == TargetPlatform.android;
+
+  static bool get isIOSAppOnMac =>
+      isIOS && (debugIOSAppOnMacOverride ?? _isIOSAppOnMac);
+
+  static Future<void> initialize() =>
+      _initialization ??= _initializePlatformEnvironment();
+
+  static Future<void> _initializePlatformEnvironment() async {
+    if (!isIOS) return;
+    try {
+      _isIOSAppOnMac =
+          await _platformEnvironmentChannel.invokeMethod<bool>(
+            'isIOSAppOnMac',
+          ) ??
+          false;
+    } catch (_) {
+      _isIOSAppOnMac = false;
+    }
+  }
 
   static int get iOSMajorVersion {
     if (!isIOS) return 0;
@@ -61,6 +91,9 @@ abstract final class PlatformUiCapabilities {
     debugPlatformOverride = null;
     debugIOSMajorVersionOverride = null;
     debugNativeIOS26Override = null;
+    debugIOSAppOnMacOverride = null;
+    _isIOSAppOnMac = false;
+    _initialization = null;
   }
 }
 
@@ -68,6 +101,7 @@ abstract final class PlatformUiCapabilities {
 abstract final class PlatformInfo {
   static bool get isIOS => PlatformUiCapabilities.isIOS;
   static bool get isAndroid => PlatformUiCapabilities.isAndroid;
+  static bool get isIOSAppOnMac => PlatformUiCapabilities.isIOSAppOnMac;
   static bool get isMacOS =>
       !kIsWeb && PlatformUiCapabilities.platform == TargetPlatform.macOS;
   static bool get isWindows =>
