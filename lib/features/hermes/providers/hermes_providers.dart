@@ -2063,6 +2063,23 @@ class HermesRunRegistry {
     return true;
   }
 
+  /// Associates an inline stream with a run announced by one of its events.
+  bool bindRunId(
+    HermesRunKey key, {
+    required CancelToken cancelToken,
+    required String runId,
+  }) {
+    final run = _runs[key];
+    if (run == null ||
+        run.cancelled ||
+        !identical(run.cancelToken, cancelToken) ||
+        (run.runId != null && run.runId != runId)) {
+      return false;
+    }
+    run.runId = runId;
+    return true;
+  }
+
   /// Compatibility helper for callers that already have a live run.
   void register(
     HermesRunKey key, {

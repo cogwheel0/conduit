@@ -21,6 +21,9 @@ const int kHermesMaxHistoryInlineImageDataUrlCharacters =
 const int kHermesMaxHistoryImageUrlCharacters =
     kHermesMaxHistoryInlineImageDataUrlCharacters +
     (kHermesMaxHistoryImages * kHermesMaxHistoryRemoteImageUrlCharacters);
+const String kHermesRestoredDesktopRunningMetadataKey =
+    'restoredDesktopRunning';
+const String _hermesRestoredDesktopPlaceholder = 'placeholder';
 
 final Expando<bool> _trustedLocalDocumentDescriptors = Expando<bool>();
 
@@ -50,6 +53,58 @@ bool isTrustedHermesLocalDocumentDescriptor(Map<String, dynamic> descriptor) =>
 /// Object-identity provenance is intentionally lost on serialization.
 void markTrustedHermesLocalDocumentDescriptor(Map<String, dynamic> descriptor) {
   _trustedLocalDocumentDescriptors[descriptor] = true;
+}
+
+bool isRestoredHermesDesktopRunningMessage(ChatMessage? message) =>
+    message?.metadata?[kHermesRestoredDesktopRunningMetadataKey] != null;
+
+bool isRestoredHermesDesktopRunningPlaceholder(ChatMessage message) =>
+    message.metadata?[kHermesRestoredDesktopRunningMetadataKey] ==
+    _hermesRestoredDesktopPlaceholder;
+
+/// Reinstates the live assistant row for a Desktop session whose authoritative
+/// gateway state says it is still running after its transcript was restored.
+List<ChatMessage> restoreHermesDesktopRunningMessage(
+  List<ChatMessage> messages, {
+  required String sessionId,
+  required String modelId,
+  required bool isRunning,
+}) {
+  if (!isRunning) return messages;
+
+  final restored = List<ChatMessage>.of(messages);
+  final tail = restored.lastOrNull;
+  if (tail?.role == 'assistant' &&
+      tail?.error == null &&
+      tail?.metadata?['restoredDesktopDecision'] != true) {
+    restored[restored.length - 1] = tail!.copyWith(
+      isStreaming: true,
+      metadata: <String, dynamic>{
+        ...?tail.metadata,
+        kHermesRestoredDesktopRunningMetadataKey: true,
+      },
+    );
+    return restored;
+  }
+
+  restored.add(
+    ChatMessage(
+      id: const Uuid().v5(
+        Namespace.url.value,
+        'conduit:hermes-desktop:$sessionId:running',
+      ),
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.now(),
+      model: modelId,
+      isStreaming: true,
+      metadata: const <String, dynamic>{
+        kHermesRestoredDesktopRunningMetadataKey:
+            _hermesRestoredDesktopPlaceholder,
+      },
+    ),
+  );
+  return restored;
 }
 
 /// Maps a Hermes session's raw message history (`GET /api/sessions/{id}/messages`)

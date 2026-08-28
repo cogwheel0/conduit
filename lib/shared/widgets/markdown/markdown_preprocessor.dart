@@ -64,6 +64,10 @@ class ConduitMarkdownPreprocessor {
     multiLine: true,
     dotAll: true,
   );
+  static final _attachedToolCallDetailsOpen = RegExp(
+    r'''([^\n])(<details\b(?=[^>]*\btype\s*=\s*["']tool_calls["']))''',
+    caseSensitive: false,
+  );
   static final _codeSpanOrFence = RegExp(r'(`+)([\s\S]*?)\1');
   static final _allDetailsBlocks = RegExp(
     r'<details[^>]*>[\s\S]*?</details>',
@@ -155,6 +159,17 @@ class ConduitMarkdownPreprocessor {
     // Separate consecutive links
     output = _separateConsecutiveLinks(output);
 
+    // Raw model output can attach Open WebUI's tool-call block directly to
+    // answer text. Put it on a Markdown block boundary without rewriting
+    // literal examples inside code spans or fences.
+    if (_attachedToolCallDetailsOpen.hasMatch(output)) {
+      output = _replaceMatchesOutsideCode(
+        output,
+        _attachedToolCallDetailsOpen,
+        (match) => '${match[1]}\n\n${match[2]}',
+      );
+    }
+
     return output;
   }
 
@@ -181,7 +196,8 @@ class ConduitMarkdownPreprocessor {
         .replaceAll('\r\n', '\n')
         .transform(_stripLinkReferenceDefinitions)
         .transform(
-          (content) => _removeMatchesOutsideCode(content, _reasoningBlocks),
+          (content) =>
+              _replaceMatchesOutsideCode(content, _reasoningBlocks, (_) => ''),
         )
         .replaceAll(_multipleNewlines, '\n\n')
         .trim();
@@ -196,7 +212,7 @@ class ConduitMarkdownPreprocessor {
     if (input.isEmpty) return input;
 
     final sanitized = sanitize(input);
-    return _removeMatchesOutsideCode(sanitized, _toolCallBlocks)
+    return _replaceMatchesOutsideCode(sanitized, _toolCallBlocks, (_) => '')
         // Stored assistant content is HTML-escaped for the renderer; the
         // clipboard needs the literal text back (`"` not `&quot;`). API
         // replay deliberately does NOT decode — it cannot distinguish
@@ -252,7 +268,7 @@ class ConduitMarkdownPreprocessor {
   static String removeAllDetails(String input) {
     if (input.isEmpty) return input;
 
-    return _removeMatchesOutsideCode(input, _allDetailsBlocks);
+    return _replaceMatchesOutsideCode(input, _allDetailsBlocks, (_) => '');
   }
 
   /// Breaks long inline code spans for better wrapping.
@@ -338,7 +354,11 @@ class ConduitMarkdownPreprocessor {
   static String _stripLinkReferenceDefinitions(String input) {
     if (!hasLinkReferenceDefinitionLine(input)) return input;
 
-    final stripped = _removeMatchesOutsideCode(input, _linkReferenceDefinition);
+    final stripped = _replaceMatchesOutsideCode(
+      input,
+      _linkReferenceDefinition,
+      (_) => '',
+    );
     return stripped.replaceAll(_multipleNewlines, '\n\n').trim();
   }
 
@@ -346,7 +366,11 @@ class ConduitMarkdownPreprocessor {
     return _openWebUiRemoveFormattings(_removeEmojis(input.trim()));
   }
 
-  static String _removeMatchesOutsideCode(String input, RegExp pattern) {
+  static String _replaceMatchesOutsideCode(
+    String input,
+    RegExp pattern,
+    String Function(Match) replace,
+  ) {
     final codeSpans = <String>[];
     var marker = '\u0000conduit-code-span-';
     while (input.contains(marker)) {
@@ -358,7 +382,7 @@ class ConduitMarkdownPreprocessor {
       codeSpans.add(match[0] ?? '');
       return '$marker$index\u0000';
     });
-    var output = masked.replaceAll(pattern, '');
+    var output = masked.replaceAllMapped(pattern, replace);
 
     // Placeholders inside removed matches no longer exist, so only code from
     // the retained content is restored.

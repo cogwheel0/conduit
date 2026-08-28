@@ -65,6 +65,16 @@ void main() {
       // Should add a blank line between the bold text and the dashes.
       check(result).contains('**Bold**\n\n');
     });
+
+    test('separates attached tool-call details outside code', () {
+      const details = '<details type="tool_calls" done="true"></details>';
+      final result = ConduitMarkdownPreprocessor.normalize(
+        'Answer$details\n\n`Example$details`',
+      );
+
+      check(result).contains('Answer\n\n$details');
+      check(result).contains('`Example$details`');
+    });
   });
 
   group('ConduitMarkdownPreprocessor.sanitize', () {

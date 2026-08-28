@@ -2167,6 +2167,20 @@ After
     },
   );
 
+  testWidgets('renders a tool-call block attached to raw streamed text', (
+    tester,
+  ) async {
+    const content =
+        'Before<details type="tool_calls" done="true" name="fetch_url" '
+        'arguments="{&quot;url&quot;:&quot;https://example.com&quot;}" '
+        'result="&quot;done&quot;">\n</details>';
+
+    await tester.pumpWidget(buildHarness(content, isStreaming: true));
+
+    expect(find.text('View Result from fetch_url'), findsOneWidget);
+    expect(find.textContaining('<details'), findsNothing);
+  });
+
   testWidgets(
     'uses tool call body content as structured output without leaking raw text',
     (tester) async {

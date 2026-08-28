@@ -3010,6 +3010,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     if (checkpoint.role != 'assistant' ||
         (expectedMessageId != null && checkpoint.id != expectedMessageId) ||
         !checkpoint.isStreaming ||
+        isRestoredHermesDesktopRunningMessage(checkpoint) ||
         checkpoint.metadata?['transport'] != kHermesTransport ||
         _hasLiveHermesProjection(conversation, checkpoint) ||
         _coldHermesRecoveryMessageId == checkpoint.id) {

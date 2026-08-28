@@ -14,6 +14,7 @@ import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../chat/providers/chat_providers.dart' show isChatStreamingProvider;
 import '../../navigation/widgets/conversation_tile.dart';
+import '../models/hermes_config.dart';
 import '../models/hermes_model.dart';
 import '../models/hermes_session.dart';
 import '../models/hermes_bot.dart';
@@ -326,7 +327,7 @@ Future<void> openHermesSession(
           connectionIdentity: connectionIdentity,
           sessionId: session.id,
         );
-  final messages =
+  var messages =
       hermesMessagesToChatMessages(
         raw,
         modelId: hermesModel.id,
@@ -337,6 +338,15 @@ Future<void> openHermesSession(
           modelId: hermesModel.id,
         ),
       );
+  if (service is HermesDesktopApiService) {
+    messages = restoreHermesDesktopRunningMessage(
+      messages,
+      sessionId: session.id,
+      modelId: hermesModel.id,
+      isRunning:
+          service.turnStateFor(session.id) == HermesDesktopTurnState.running,
+    );
+  }
 
   ref.read(hermesActiveSessionProvider.notifier).set(session.id);
   // Mark as a manual selection (same as startNewHermesChat) so the default-

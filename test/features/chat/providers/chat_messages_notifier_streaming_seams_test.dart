@@ -5794,6 +5794,46 @@ void main() {
     );
 
     test(
+      'restored Desktop running row stays owned by transcript reconciliation',
+      () async {
+        final service = _RecoveredHermesApi();
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesApiServiceProvider.overrideWithValue(service),
+          ],
+        );
+        addTearDown(container.dispose);
+        final assistant = _assistantMessage(
+          id: 'desktop-running-row',
+          content: 'Still working',
+          isStreaming: true,
+          metadata: const <String, dynamic>{
+            'transport': kHermesTransport,
+            'hermesRunId': 'run-desktop',
+            kHermesRestoredDesktopRunningMetadataKey: true,
+          },
+        );
+        final conversation = markNativeHermesConversation(
+          withChatStorageProvenance(
+            _conversation('local:hermes_desktop', <ChatMessage>[assistant]),
+            ChatStorageKind.directLocal,
+          ),
+        );
+
+        container.read(activeConversationProvider.notifier).set(conversation);
+        await pumpEventQueue();
+
+        check(container.read(chatMessagesProvider).single.isStreaming).isTrue();
+        check(service.getRunCalls).equals(0);
+      },
+    );
+
+    test(
       'cold Hermes checkpoint settles when its recovery service is unavailable',
       () async {
         final container = _buildContainer();

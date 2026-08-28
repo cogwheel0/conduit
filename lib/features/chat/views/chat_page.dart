@@ -1058,7 +1058,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         active.metadata['hermesSessionId'] != storedId) {
       return;
     }
-    if (ref.read(isChatStreamingProvider)) {
+    final visibleTail = ref.read(chatMessagesProvider).lastOrNull;
+    if (ref.read(isChatStreamingProvider) &&
+        !isRestoredHermesDesktopRunningMessage(visibleTail)) {
       _pendingHermesTranscriptRefresh = storedId;
       return;
     }
@@ -1106,7 +1108,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               connectionIdentity: connectionIdentity,
               sessionId: storedId,
             );
-      final messages =
+      var messages =
           hermesMessagesToChatMessages(
             raw,
             modelId: model.id,
@@ -1114,15 +1116,26 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           )..addAll(
             hermesPendingDesktopDecisionMessages(pending, modelId: model.id),
           );
+      messages = restoreHermesDesktopRunningMessage(
+        messages,
+        sessionId: storedId,
+        modelId: model.id,
+        isRunning:
+            service.turnStateFor(storedId) == HermesDesktopTurnState.running,
+      );
       final currentMessages = ref.read(chatMessagesProvider);
       final currentAuthoritativeCount = currentMessages
           .where(
-            (message) => message.metadata?['restoredDesktopDecision'] != true,
+            (message) =>
+                message.metadata?['restoredDesktopDecision'] != true &&
+                !isRestoredHermesDesktopRunningPlaceholder(message),
           )
           .length;
       final candidateAuthoritativeCount = messages
           .where(
-            (message) => message.metadata?['restoredDesktopDecision'] != true,
+            (message) =>
+                message.metadata?['restoredDesktopDecision'] != true &&
+                !isRestoredHermesDesktopRunningPlaceholder(message),
           )
           .length;
       if (currentAuthoritativeCount > 0 &&

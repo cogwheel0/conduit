@@ -261,9 +261,25 @@ Future<bool> dispatchHermesTurn({
           sensitiveValues: sensitiveProviderValues,
         );
       }
+      var eventRunId = responseId;
+      if (event case HermesApprovalRequested(:final raw)) {
+        final rawRunId = raw.containsKey('run_id') ? raw['run_id'] : responseId;
+        eventRunId = _validatedHermesOpaqueIdentifier(
+          rawRunId is String ? rawRunId : null,
+          sensitiveValues: sensitiveProviderValues,
+        );
+        if (eventRunId != null &&
+            !registry.bindRunId(
+              registryKey(),
+              cancelToken: responseCancelToken,
+              runId: eventRunId,
+            )) {
+          eventRunId = null;
+        }
+      }
       _handleEvent(
         event,
-        runId: responseId,
+        runId: eventRunId,
         storedSessionId: responseStream.sessionId,
         sensitiveValues: sensitiveProviderValues,
         appendContent: appendContent,
@@ -1312,8 +1328,8 @@ void _handleEvent(
       :final approvalId,
       :final summary,
       :final choices,
+      :final raw,
     ):
-      if (runId == null) break;
       final safeApprovalId = _validatedHermesOpaqueIdentifier(
         approvalId,
         sensitiveValues: sensitiveValues,
@@ -1342,7 +1358,9 @@ void _handleEvent(
               summary,
               sensitiveValues: sensitiveValues,
             );
-      final safeChoices = _boundedHermesDecisionChoices(choices);
+      final safeChoices = _boundedHermesDecisionChoices(
+        choices.isEmpty ? raw['choices'] : choices,
+      );
       updateMessage((m) {
         final meta = Map<String, dynamic>.from(m.metadata ?? const {});
         meta[kHermesApprovalMeta] = {
