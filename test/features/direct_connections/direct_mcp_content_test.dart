@@ -284,7 +284,6 @@ final class _ContentFixture {
     required this.promptMessageCount,
     required this.resourceContentCount,
     required this.holdPromptGet,
-    required this.failPromptList,
     required this.requiredAuthorization,
   });
 
@@ -299,7 +298,6 @@ final class _ContentFixture {
   final int promptMessageCount;
   final int resourceContentCount;
   final bool holdPromptGet;
-  final bool failPromptList;
   final String? requiredAuthorization;
   final List<String?> authorizationHeaders = [];
   final Completer<void> promptGetReceived = Completer<void>();
@@ -322,7 +320,6 @@ final class _ContentFixture {
     int promptMessageCount = 1,
     int resourceContentCount = 1,
     bool holdPromptGet = false,
-    bool failPromptList = false,
     String? requiredAuthorization,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -340,7 +337,6 @@ final class _ContentFixture {
       promptMessageCount: promptMessageCount,
       resourceContentCount: resourceContentCount,
       holdPromptGet: holdPromptGet,
-      failPromptList: failPromptList,
       requiredAuthorization: requiredAuthorization,
     );
     return fixture;
@@ -380,23 +376,6 @@ final class _ContentFixture {
         ).toJson();
       case mcp.Method.promptsList:
         promptListCount++;
-        if (failPromptList) {
-          request.response
-            ..headers.contentType = ContentType.json
-            ..write(
-              jsonEncode(
-                mcp.JsonRpcError(
-                  id: id,
-                  error: const mcp.JsonRpcErrorData(
-                    code: -32603,
-                    message: 'fixture failure',
-                  ),
-                ).toJson(),
-              ),
-            );
-          await request.response.close();
-          return;
-        }
         result = {
           'prompts': [
             for (var index = 0; index < promptCount; index++)

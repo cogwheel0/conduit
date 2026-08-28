@@ -178,6 +178,7 @@ void main() {
       actionId: ComposerOverflowActionIds.tool('local_mcp:home'),
       selected: true,
     );
+    expect(container.read(selectedToolIdsProvider), ['local_mcp:home']);
     expect(container.read(imageGenerationEnabledProvider), isFalse);
     expect(container.read(webSearchEnabledProvider), isFalse);
 

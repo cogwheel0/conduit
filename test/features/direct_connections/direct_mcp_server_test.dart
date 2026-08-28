@@ -551,7 +551,13 @@ void main() {
           endpoint: 'https://overflow.example/mcp',
         ),
       ),
-      throwsFormatException,
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          contains('$kDirectMcpMaxServers'),
+        ),
+      ),
     );
     expect(await store.load(), hasLength(kDirectMcpMaxServers));
   });

@@ -259,6 +259,13 @@ final class DirectMcpOAuthCoordinator {
         'This MCP server did not publish OAuth protected-resource metadata.',
       );
     }
+    final rawAuthorizationServers = protectedJson['authorization_servers'];
+    final rawIssuer =
+        rawAuthorizationServers is List &&
+            rawAuthorizationServers.isNotEmpty &&
+            rawAuthorizationServers.first is String
+        ? rawAuthorizationServers.first as String
+        : null;
 
     mcp.OAuthProtectedResourceMetadataDocument protected;
     try {
@@ -273,6 +280,11 @@ final class DirectMcpOAuthCoordinator {
     if (!_resourceMatchesEndpoint(protected.resource, endpoint)) {
       throw const DirectMcpOAuthException(
         'The MCP OAuth resource does not match this server.',
+      );
+    }
+    if (rawIssuer == null || protected.authorizationServers.isEmpty) {
+      throw const DirectMcpOAuthException(
+        'The MCP protected-resource metadata is invalid.',
       );
     }
     final issuer = protected.authorizationServers.first;
@@ -305,7 +317,7 @@ final class DirectMcpOAuthCoordinator {
         'The OAuth authorization server metadata is invalid.',
       );
     }
-    if (authorizationJson['issuer'] != issuer.toString()) {
+    if (authorizationJson['issuer'] != rawIssuer) {
       throw const DirectMcpOAuthException(
         'The OAuth authorization server issuer did not match discovery.',
       );
@@ -339,7 +351,7 @@ final class DirectMcpOAuthCoordinator {
       );
     }
     return _OAuthMetadata(
-      issuer: issuer,
+      issuer: rawIssuer,
       resource: protected.resource,
       authorizationEndpoint: authorizationEndpoint,
       tokenEndpoint: tokenEndpoint,
@@ -529,7 +541,7 @@ final class DirectMcpOAuthCoordinator {
       }
       if ((metadata.authorizationResponseIssParameterSupported &&
               issuer == null) ||
-          (issuer != null && issuer != metadata.issuer.toString())) {
+          (issuer != null && issuer != metadata.issuer)) {
         return null;
       }
       if (code.length > 4096 || containsForbiddenCredentialCharacter(code)) {
@@ -581,7 +593,7 @@ final class DirectMcpOAuthCoordinator {
     }, invalidGrant: () => _clearInvalidGrant(server, generation));
     _requireGeneration(server.id, generation);
     final metadata = _OAuthMetadata(
-      issuer: Uri.parse(previous.authorizationServerIssuer),
+      issuer: previous.authorizationServerIssuer,
       resource: Uri.parse(previous.resource),
       authorizationEndpoint: Uri(),
       tokenEndpoint: Uri.parse(previous.tokenEndpoint),
@@ -638,18 +650,21 @@ final class DirectMcpOAuthCoordinator {
         tokenType is! String ||
         tokenType.toLowerCase() != 'bearer' ||
         scope != null && scope is! String ||
-        expiresIn != null && (expiresIn is! num || !expiresIn.isFinite)) {
+        expiresIn != null && expiresIn is! num) {
       throw const DirectMcpOAuthException(
         'The OAuth token response was invalid.',
       );
     }
-    final expirySeconds = expiresIn == null ? null : (expiresIn as num).toInt();
-    if (expirySeconds != null &&
-        (expirySeconds <= 0 || expirySeconds > 315360000)) {
+    final expiryValue = expiresIn as num?;
+    if (expiryValue != null &&
+        (!expiryValue.isFinite ||
+            expiryValue <= 0 ||
+            expiryValue > 315360000)) {
       throw const DirectMcpOAuthException(
         'The OAuth token expiry was invalid.',
       );
     }
+    final expirySeconds = expiryValue?.toInt();
     final tokens = DirectMcpOAuthTokens(
       accessToken: accessToken,
       refreshToken: refreshToken as String? ?? previous?.refreshToken,
@@ -659,7 +674,7 @@ final class DirectMcpOAuthCoordinator {
       expiresAt: expirySeconds == null
           ? null
           : _now().toUtc().add(Duration(seconds: expirySeconds)),
-      authorizationServerIssuer: metadata.issuer.toString(),
+      authorizationServerIssuer: metadata.issuer,
       resource: metadata.resource.toString(),
       clientId: clientId,
       tokenEndpoint: metadata.tokenEndpoint.toString(),
@@ -916,7 +931,7 @@ final class _OAuthMetadata {
     this.scope,
   });
 
-  final Uri issuer;
+  final String issuer;
   final Uri resource;
   final Uri authorizationEndpoint;
   final Uri tokenEndpoint;

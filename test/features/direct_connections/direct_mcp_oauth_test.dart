@@ -293,6 +293,85 @@ void main() {
     expect(fixture.registrationBodies, isEmpty);
   });
 
+  test(
+    'preserves the raw authorization-server issuer for exact matching',
+    () async {
+      final fixture = await _OAuthFixture.start(nonCanonicalIssuer: true);
+      addTearDown(fixture.close);
+      final store = _store();
+      final server = await _saveOAuthServer(store, fixture.endpoint);
+      final coordinator = DirectMcpOAuthCoordinator(
+        store: store,
+        launchBrowser: (uri) async {
+          unawaited(_deliverCallback(uri, issuer: fixture.advertisedIssuer));
+          return true;
+        },
+      );
+      addTearDown(coordinator.close);
+
+      final connected = await coordinator.connect(server);
+
+      expect(
+        connected.oauthTokens?.authorizationServerIssuer,
+        fixture.advertisedIssuer,
+      );
+    },
+  );
+
+  test(
+    'rejects an empty authorization-server list with a typed error',
+    () async {
+      final fixture = await _OAuthFixture.start(
+        emptyAuthorizationServers: true,
+      );
+      addTearDown(fixture.close);
+      final store = _store();
+      final server = await _saveOAuthServer(store, fixture.endpoint);
+      final coordinator = DirectMcpOAuthCoordinator(
+        store: store,
+        launchBrowser: (_) async => true,
+      );
+      addTearDown(coordinator.close);
+
+      await expectLater(
+        coordinator.connect(server),
+        throwsA(
+          isA<DirectMcpOAuthException>().having(
+            (error) => error.message,
+            'message',
+            contains('protected-resource metadata'),
+          ),
+        ),
+      );
+    },
+  );
+
+  test('rejects an out-of-range token expiry with a typed error', () async {
+    final fixture = await _OAuthFixture.start(tokenExpiresIn: 1e100);
+    addTearDown(fixture.close);
+    final store = _store();
+    final server = await _saveOAuthServer(store, fixture.endpoint);
+    final coordinator = DirectMcpOAuthCoordinator(
+      store: store,
+      launchBrowser: (uri) async {
+        unawaited(_deliverCallback(uri, issuer: fixture.advertisedIssuer));
+        return true;
+      },
+    );
+    addTearDown(coordinator.close);
+
+    await expectLater(
+      coordinator.connect(server),
+      throwsA(
+        isA<DirectMcpOAuthException>().having(
+          (error) => error.message,
+          'message',
+          contains('expiry'),
+        ),
+      ),
+    );
+  });
+
   test('rejects confidential client registration', () async {
     final fixture = await _OAuthFixture.start(
       registeredAuthMethod: 'client_secret_basic',
@@ -457,7 +536,11 @@ void main() {
       final fixture = await _OAuthFixture.start(holdRefresh: true);
       addTearDown(fixture.close);
       final store = _store();
-      final server = await _saveTokenServer(store, fixture, expired: true);
+      final server = await _saveTokenServer(
+        store,
+        fixture,
+        withinRefreshWindow: true,
+      );
       final coordinator = DirectMcpOAuthCoordinator(store: store);
       addTearDown(coordinator.close);
 
@@ -483,7 +566,11 @@ void main() {
     final fixture = await _OAuthFixture.start(rotateRefreshToken: true);
     addTearDown(fixture.close);
     final store = _store();
-    final staleServer = await _saveTokenServer(store, fixture, expired: true);
+    final staleServer = await _saveTokenServer(
+      store,
+      fixture,
+      withinRefreshWindow: true,
+    );
     final coordinator = DirectMcpOAuthCoordinator(store: store);
     addTearDown(coordinator.close);
 
@@ -508,7 +595,11 @@ void main() {
     final fixture = await _OAuthFixture.start(invalidGrant: true);
     addTearDown(fixture.close);
     final store = _store();
-    final server = await _saveTokenServer(store, fixture, expired: true);
+    final server = await _saveTokenServer(
+      store,
+      fixture,
+      withinRefreshWindow: true,
+    );
     final coordinator = DirectMcpOAuthCoordinator(store: store);
     addTearDown(coordinator.close);
 
@@ -530,7 +621,11 @@ void main() {
     final fixture = await _OAuthFixture.start();
     addTearDown(fixture.close);
     final store = _store();
-    final staleServer = await _saveTokenServer(store, fixture, expired: false);
+    final staleServer = await _saveTokenServer(
+      store,
+      fixture,
+      withinRefreshWindow: false,
+    );
     final approvedServer = staleServer.copyWith(
       rememberedApprovals: [
         DirectMcpRememberedApproval(
@@ -567,7 +662,11 @@ void main() {
     final fixture = await _OAuthFixture.start(holdRefresh: true);
     addTearDown(fixture.close);
     final store = _store();
-    final server = await _saveTokenServer(store, fixture, expired: true);
+    final server = await _saveTokenServer(
+      store,
+      fixture,
+      withinRefreshWindow: true,
+    );
     final coordinator = DirectMcpOAuthCoordinator(store: store);
     addTearDown(coordinator.close);
 
@@ -602,7 +701,7 @@ Future<DirectMcpServer> _saveOAuthServer(
 Future<DirectMcpServer> _saveTokenServer(
   DirectMcpServerStore store,
   _OAuthFixture fixture, {
-  required bool expired,
+  required bool withinRefreshWindow,
 }) async {
   final server = DirectMcpServer(
     id: 'oauth-server',
@@ -614,7 +713,9 @@ Future<DirectMcpServer> _saveTokenServer(
       refreshToken: 'refresh-one',
       grantedScope: 'tools.read',
       expiresAt: DateTime.now().toUtc().add(
-        expired ? const Duration(seconds: 10) : const Duration(hours: 1),
+        withinRefreshWindow
+            ? const Duration(seconds: 10)
+            : const Duration(hours: 1),
       ),
       authorizationServerIssuer: fixture.issuer.toString(),
       resource: fixture.endpoint.toString(),
@@ -662,6 +763,8 @@ final class _OAuthFixture {
     required this.oversizedProtectedMetadata,
     required this.crossOriginProtectedMetadata,
     required this.mismatchedMetadataIssuer,
+    required this.nonCanonicalIssuer,
+    required this.emptyAuthorizationServers,
     required this.omitTokenAuthMethods,
     required this.registeredAuthMethod,
     required this.changeRegisteredRedirectUri,
@@ -670,6 +773,7 @@ final class _OAuthFixture {
     required this.rotateRefreshToken,
     required this.challengeScope,
     required this.useWellKnownProtectedMetadata,
+    required this.tokenExpiresIn,
   });
 
   final HttpServer server;
@@ -678,6 +782,8 @@ final class _OAuthFixture {
   final bool oversizedProtectedMetadata;
   final bool crossOriginProtectedMetadata;
   final bool mismatchedMetadataIssuer;
+  final bool nonCanonicalIssuer;
+  final bool emptyAuthorizationServers;
   final bool omitTokenAuthMethods;
   final String registeredAuthMethod;
   final bool changeRegisteredRedirectUri;
@@ -686,6 +792,7 @@ final class _OAuthFixture {
   final bool rotateRefreshToken;
   final String? challengeScope;
   final bool useWellKnownProtectedMetadata;
+  final num tokenExpiresIn;
   final List<String> discoveryPaths = [];
   final List<String> protectedMetadataQueries = [];
   final List<Map<String, dynamic>> registrationBodies = [];
@@ -700,12 +807,17 @@ final class _OAuthFixture {
     query: useWellKnownProtectedMetadata ? 'tenant=a' : null,
   );
   Uri get issuer => origin.replace(path: '/issuer');
+  String get advertisedIssuer => nonCanonicalIssuer
+      ? 'HTTP://${server.address.address}:${server.port}/issuer'
+      : issuer.toString();
 
   static Future<_OAuthFixture> start({
     Uri? authorizationServer,
     bool oversizedProtectedMetadata = false,
     bool crossOriginProtectedMetadata = false,
     bool mismatchedMetadataIssuer = false,
+    bool nonCanonicalIssuer = false,
+    bool emptyAuthorizationServers = false,
     bool omitTokenAuthMethods = false,
     String registeredAuthMethod = 'none',
     bool changeRegisteredRedirectUri = false,
@@ -714,6 +826,7 @@ final class _OAuthFixture {
     bool rotateRefreshToken = false,
     String? challengeScope,
     bool useWellKnownProtectedMetadata = false,
+    num tokenExpiresIn = 3600,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     late _OAuthFixture fixture;
@@ -725,6 +838,8 @@ final class _OAuthFixture {
       oversizedProtectedMetadata: oversizedProtectedMetadata,
       crossOriginProtectedMetadata: crossOriginProtectedMetadata,
       mismatchedMetadataIssuer: mismatchedMetadataIssuer,
+      nonCanonicalIssuer: nonCanonicalIssuer,
+      emptyAuthorizationServers: emptyAuthorizationServers,
       omitTokenAuthMethods: omitTokenAuthMethods,
       registeredAuthMethod: registeredAuthMethod,
       changeRegisteredRedirectUri: changeRegisteredRedirectUri,
@@ -733,6 +848,7 @@ final class _OAuthFixture {
       rotateRefreshToken: rotateRefreshToken,
       challengeScope: challengeScope,
       useWellKnownProtectedMetadata: useWellKnownProtectedMetadata,
+      tokenExpiresIn: tokenExpiresIn,
     );
     return fixture;
   }
@@ -761,9 +877,9 @@ final class _OAuthFixture {
         request.response.write(
           jsonEncode({
             'resource': endpoint.toString(),
-            'authorization_servers': [
-              (authorizationServer ?? issuer).toString(),
-            ],
+            'authorization_servers': emptyAuthorizationServers
+                ? const <String>[]
+                : [(authorizationServer?.toString() ?? advertisedIssuer)],
             'scopes_supported': ['tools.read', 'tools.call'],
           }),
         );
@@ -780,7 +896,7 @@ final class _OAuthFixture {
           jsonEncode({
             'issuer': mismatchedMetadataIssuer
                 ? origin.replace(path: '/different-issuer').toString()
-                : issuer.toString(),
+                : advertisedIssuer,
             'authorization_endpoint': origin
                 .replace(path: '/authorize')
                 .toString(),
@@ -852,7 +968,7 @@ final class _OAuthFixture {
             'refresh_token': 'refresh-one',
             'token_type': 'Bearer',
             'scope': 'tools.read tools.call',
-            'expires_in': 3600,
+            'expires_in': tokenExpiresIn,
           }),
         );
       await request.response.close();

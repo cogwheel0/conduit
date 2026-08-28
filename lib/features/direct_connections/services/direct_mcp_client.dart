@@ -148,47 +148,22 @@ final class DirectMcpClient {
     }
   }
 
-  Future<List<mcp.Tool>> listTools() async {
-    final client = _requireClient();
-    final tools = <mcp.Tool>[];
-    final seenCursors = <String>{};
-    String? cursor;
-    var pageCount = 0;
-    var inventoryBytes = 0;
-    do {
-      if (pageCount >= kDirectMcpMaxListPages) {
-        throw const DirectProviderException(
-          'The MCP tool inventory has too many pages.',
-        );
-      }
-      pageCount++;
-      final result = await client.listTools(
+  Future<List<mcp.Tool>> listTools() => _listBounded<mcp.Tool>(
+    maxPages: kDirectMcpMaxListPages,
+    maxItems: kDirectMcpMaxTools,
+    tooManyPages: 'The MCP tool inventory has too many pages.',
+    tooManyItems: 'The MCP server exposes more than 128 tools.',
+    tooLarge: 'The MCP tool inventory is too large.',
+    tooComplex: 'The MCP tool inventory is too complex.',
+    repeatedCursor: 'The MCP tool inventory repeated a pagination cursor.',
+    loadPage: (cursor) async {
+      final result = await _requireClient().listTools(
         params: cursor == null ? null : mcp.ListToolsRequest(cursor: cursor),
       );
-      if (tools.length + result.tools.length > kDirectMcpMaxTools) {
-        throw const DirectProviderException(
-          'The MCP server exposes more than 128 tools.',
-        );
-      }
-      for (final tool in result.tools) {
-        inventoryBytes += utf8.encode(jsonEncode(tool.toJson())).length;
-        if (inventoryBytes > kDirectMcpMaxInventoryBytes) {
-          throw const DirectProviderException(
-            'The MCP tool inventory is too large.',
-          );
-        }
-      }
-      tools.addAll(result.tools);
-      final nextCursor = result.nextCursor;
-      if (nextCursor != null && !seenCursors.add(nextCursor)) {
-        throw const DirectProviderException(
-          'The MCP tool inventory repeated a pagination cursor.',
-        );
-      }
-      cursor = nextCursor;
-    } while (cursor != null);
-    return List.unmodifiable(tools);
-  }
+      return (items: result.tools, nextCursor: result.nextCursor);
+    },
+    toJson: (tool) => tool.toJson(),
+  );
 
   Future<mcp.CallToolResult> callTool(
     String name,
@@ -260,6 +235,7 @@ final class DirectMcpClient {
     required String tooManyPages,
     required String tooManyItems,
     required String tooLarge,
+    String tooComplex = 'The MCP content inventory is too complex.',
     required String repeatedCursor,
     required Future<({List<T> items, String? nextCursor})> Function(
       String? cursor,
@@ -284,9 +260,7 @@ final class DirectMcpClient {
               .encode(_CanonicalJsonEncoder().encode(toJson(item)))
               .length;
         } on FormatException {
-          throw const DirectProviderException(
-            'The MCP content inventory is too complex.',
-          );
+          throw DirectProviderException(tooComplex);
         }
         if (bytes > kDirectMcpMaxInventoryBytes) {
           throw DirectProviderException(tooLarge);
@@ -702,8 +676,8 @@ final class DirectMcpToolSession {
       throw const DirectProviderException('No MCP servers were selected.');
     }
     if (servers.length > kDirectMcpMaxServers) {
-      throw const DirectProviderException(
-        'At most 8 MCP servers may be selected.',
+      throw DirectProviderException(
+        'At most $kDirectMcpMaxServers MCP servers may be selected.',
       );
     }
 

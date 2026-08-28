@@ -1,6 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 
+String _truncateForLog(String value, int maxLength) {
+  if (value.length <= maxLength) return value;
+  var end = maxLength;
+  if ((value.codeUnitAt(end - 1) & 0xFC00) == 0xD800) end--;
+  return value.substring(0, end);
+}
+
 Future<void> main(List<String> arguments) async {
   final logArgument = arguments
       .where((value) => value.startsWith('--log='))
@@ -20,7 +27,7 @@ Future<void> main(List<String> arguments) async {
       headers[name] = values.join(', ');
     });
     await log.writeAsString(
-      '${jsonEncode({'method': request.method, 'path': request.uri.toString(), 'headers': headers, 'body': body.length <= 4096 ? body : body.substring(0, 4096)})}\n',
+      '${jsonEncode({'method': request.method, 'path': request.uri.toString(), 'headers': headers, 'body': _truncateForLog(body, 4096)})}\n',
       mode: FileMode.append,
       flush: true,
     );

@@ -5719,7 +5719,7 @@ void main() {
         .toList()
         .timeout(const Duration(seconds: 1));
 
-    expect(http.requests, 2);
+    expect(http.requestCount, 2);
     expect(http.secondStartedAfterTransportCancel, isTrue);
     expect(executedCalls, 1);
     expect(events.whereType<DirectToolCallStarted>(), hasLength(1));
@@ -6853,7 +6853,7 @@ final class _NeverEndingStreamAdapter implements HttpClientAdapter {
   final _Reply? next;
   final Completer<void> sourceCancelled = Completer<void>();
   final Completer<void> transportCancelled = Completer<void>();
-  int requests = 0;
+  int requestCount = 0;
   bool secondStartedAfterTransportCancel = false;
 
   @override
@@ -6862,8 +6862,8 @@ final class _NeverEndingStreamAdapter implements HttpClientAdapter {
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
   ) async {
-    requests++;
-    if (requests > 1) {
+    requestCount++;
+    if (requestCount > 1) {
       secondStartedAfterTransportCancel = transportCancelled.isCompleted;
       return next!.toBody();
     }

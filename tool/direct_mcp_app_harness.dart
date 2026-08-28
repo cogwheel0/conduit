@@ -50,6 +50,12 @@ final class _HarnessState extends State<_Harness> {
   }
 
   @override
+  void dispose() {
+    _protocol.close();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('MCP App containment harness')),
     body: Column(
@@ -61,11 +67,15 @@ final class _HarnessState extends State<_Harness> {
         Wrap(
           children: [
             TextButton(
-              onPressed: () => setState(() => _visible = false),
+              onPressed: () {
+                _protocol.close();
+                setState(() => _visible = false);
+              },
               child: const Text('Dispose app'),
             ),
             TextButton(
               onPressed: () {
+                _protocol.close();
                 setState(() {
                   _visible = true;
                   _generation++;
