@@ -378,6 +378,22 @@ void main() {
     expect(identityA, isNot(identityB));
   });
 
+  test('inline run id binding rejects stale response generations', () {
+    final registry = HermesRunRegistry();
+    final key = legacyHermesRunKey('response-message');
+    final staleToken = registry.registerPending(key, onCancelled: () {});
+    final currentToken = registry.registerPending(key, onCancelled: () {});
+
+    check(
+      registry.bindRunId(key, cancelToken: staleToken, runId: 'stale-run'),
+    ).isFalse();
+    check(registry.runIdFor(key)).isNull();
+    check(
+      registry.bindRunId(key, cancelToken: currentToken, runId: 'current-run'),
+    ).isTrue();
+    check(registry.runIdFor(key)).equals('current-run');
+  });
+
   group('dispatchHermesResponse', () {
     test('forwards typed input and response chain context', () async {
       final input = HermesChatInput.multimodal([
@@ -479,6 +495,62 @@ void main() {
           .equals(kHermesResponsesMode);
       check(message.metadata?['hermesResponseId']).equals('resp-1');
       check(message.metadata?['hermesRunId']).isNull();
+    });
+
+    test('binds inline approvals to their run id', () async {
+      final registry = HermesRunRegistry();
+      final runKey = hermesRunKey(
+        ownerConversationId: 'conversation-1',
+        assistantMessageId: 'm',
+      );
+      var message = ChatMessage(
+        id: 'm',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+      Object? approvalGeneration;
+      final fake = _FakeHermesApiService(
+        const [],
+        responseEvents: const [
+          HermesApprovalRequested(
+            approvalId: 'approval-1',
+            summary: 'Write the file?',
+            raw: {
+              'run_id': 'run-attachment',
+              'choices': ['once', 'deny'],
+            },
+          ),
+          HermesRunDone(),
+        ],
+      );
+
+      await _dispatchFakeHermesResponse(
+        service: fake,
+        registry: registry,
+        assistantMessageId: message.id,
+        runKey: runKey,
+        input: HermesChatInput.text('hello'),
+        appendContent: (_) {},
+        appendStatus: (_) {},
+        updateMessage: (updater) {
+          message = updater(message);
+          if (message.metadata?[kHermesApprovalMeta] != null) {
+            approvalGeneration = registry.generationTokenFor(
+              runKey,
+              runId: 'run-attachment',
+            );
+          }
+        },
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+
+      final approval = message.metadata?[kHermesApprovalMeta] as Map;
+      check(approval['runId']).equals('run-attachment');
+      check(approval['approvalId']).equals('approval-1');
+      check(approval['choices'] as List<Object?>).deepEquals(['once', 'deny']);
+      check(approvalGeneration).isNotNull();
     });
 
     test('routes Desktop slash prefill back to the composer', () async {
