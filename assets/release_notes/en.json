@@ -37,6 +37,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.3",
+      "title": "What's new",
+      "intro": "Hi! Direct chats can call MCP servers from the phone. You approve each tool. Mac gets keyboard shortcuts and chat scrollbars. I also fixed Hermes approvals and Markdown quotes.",
+      "bullets": [
+        {
+          "text": "MCP servers: add them for Direct chats, including Apple On-Device. Approve tools once, for the session, or always. Insert prompts and resources into the chat.",
+          "icon": "direct"
+        },
+        {
+          "text": "Mac: keyboard shortcuts, sidebar hover, and right-click menus. Chats get fading scrollbars. Blockquotes render as quotes.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: streamed tool calls render as blocks. Approvals stick to the right run. Reopen a running Desktop session and the spinner is still there.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

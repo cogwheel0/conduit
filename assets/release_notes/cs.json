@@ -37,6 +37,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.3",
+      "title": "Novinky",
+      "intro": "Ahoj! Direct chats můžou volat MCP servery z telefonu. Každý nástroj schvaluješ ty. Na Macu jsou klávesové zkratky a posuvníky v chatu. Opravil jsem taky schvalování u Hermes a Markdown citace.",
+      "bullets": [
+        {
+          "text": "MCP servery: přidej je pro Direct chats, včetně Apple On-Device. Nástroje schval jednou, na relaci, nebo vždy. Prompty a zdroje vlož do chatu.",
+          "icon": "direct"
+        },
+        {
+          "text": "Mac: klávesové zkratky, přejetí v postranním panelu a nabídky pravým tlačítkem. Chaty mají posuvníky. Blockquote se vykreslí jako citace.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: streamované volání nástrojů se zobrazí jako bloky. Schválení drží u správného běhu. Znovu otevři běžící Desktop relaci a spinner tam pořád je.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

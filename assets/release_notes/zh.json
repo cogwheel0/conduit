@@ -37,6 +37,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.3",
+      "title": "新变化",
+      "intro": "你好！Direct chats 能从手机调用 MCP 服务器。每个工具都要你批准。Mac 上有键盘快捷键和聊天滚动条。Hermes 的批准和 Markdown 引用也修了。",
+      "bullets": [
+        {
+          "text": "MCP 服务器: 给 Direct chats 添加，Apple On-Device 也能用。工具可以批准一次、本次会话、或始终允许。把提示词和资源插入聊天。",
+          "icon": "direct"
+        },
+        {
+          "text": "Mac: 键盘快捷键、侧边栏悬停、右键菜单。聊天有滚动条。引用块会按引用显示。",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: 流式工具调用会画成块。批准会留在对应的那次运行上。重新打开正在跑的 Desktop 会话，转圈还在。",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

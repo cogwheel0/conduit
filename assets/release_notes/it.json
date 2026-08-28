@@ -37,6 +37,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.3",
+      "title": "Novità",
+      "intro": "Ciao! Le Direct chats possono chiamare server MCP dal telefono. Approvi ogni strumento. Su Mac ci sono scorciatoie da tastiera e barre di scorrimento in chat. Ho anche sistemato le approvazioni Hermes e le citazioni Markdown.",
+      "bullets": [
+        {
+          "text": "Server MCP: aggiungili per le Direct chats, incluso Apple On-Device. Approva gli strumenti una volta, per la sessione, o sempre. Inserisci prompt e risorse nella chat.",
+          "icon": "direct"
+        },
+        {
+          "text": "Mac: scorciatoie da tastiera, passaggio del cursore sulla barra laterale e menu col tasto destro. Le chat hanno barre di scorrimento. Le citazioni Markdown si vedono come citazioni.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: le chiamate agli strumenti in streaming diventano blocchi. Le approvazioni restano sull'esecuzione giusta. Riapri una sessione Desktop in corso e lo spinner c'è ancora.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

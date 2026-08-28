@@ -37,6 +37,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.3",
+      "title": "Neuigkeiten",
+      "intro": "Hallo! Direct chats können MCP-Server vom Telefon aus aufrufen. Du genehmigst jedes Tool. Am Mac gibt es Tastaturkürzel und Chat-Scrollbalken. Hermes-Freigaben und Markdown-Zitate habe ich auch repariert.",
+      "bullets": [
+        {
+          "text": "MCP-Server: füge sie für Direct chats hinzu, auch für Apple On-Device. Tools einmal, für die Sitzung oder immer genehmigen. Prompts und Ressourcen in den Chat einfügen.",
+          "icon": "direct"
+        },
+        {
+          "text": "Mac: Tastaturkürzel, Hover in der Seitenleiste und Rechtsklick-Menüs. Chats bekommen Scrollbalken. Blockzitate werden als Zitate dargestellt.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: gestreamte Tool-Aufrufe erscheinen als Blöcke. Freigaben bleiben am richtigen Durchlauf. Öffne eine laufende Desktop-Sitzung wieder, und der Spinner ist noch da.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

@@ -37,6 +37,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.3",
+      "title": "Co nowego",
+      "intro": "Cześć! Direct chats mogą wołać serwery MCP z telefonu. Zatwierdzasz każde narzędzie. Na Macu są skróty klawiszowe i paski przewijania w czacie. Ogarnąłem też zatwierdzenia Hermes i cytaty Markdown.",
+      "bullets": [
+        {
+          "text": "Serwery MCP: dodaj je dla Direct chats, w tym Apple On-Device. Zatwierdź narzędzia raz, na sesję albo zawsze. Wstawiaj prompty i zasoby do czatu.",
+          "icon": "direct"
+        },
+        {
+          "text": "Mac: skróty klawiszowe, najechanie na pasek boczny i menu prawym przyciskiem. Czaty mają paski przewijania. Cytaty Markdown wyświetlają się jako cytaty.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: wywołania narzędzi ze streamu renderują się jako bloki. Zatwierdzenia trzymają się właściwego przebiegu. Otwórz ponownie działającą sesję Desktop, a spinner nadal tam jest.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

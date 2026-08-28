@@ -37,6 +37,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.3",
+      "title": "Nieuw",
+      "intro": "Hoi! Direct chats kunnen MCP-servers vanaf de telefoon aanroepen. Jij keurt elk tool goed. Op de Mac krijg je toetsenbordsnelkoppelingen en chat-scrollbalken. Ik heb ook Hermes-goedkeuringen en Markdown-citaten gerepareerd.",
+      "bullets": [
+        {
+          "text": "MCP-servers: voeg ze toe voor Direct chats, inclusief Apple On-Device. Keur tools eenmalig goed, voor de sessie, of altijd. Voeg prompts en resources in de chat in.",
+          "icon": "direct"
+        },
+        {
+          "text": "Mac: toetsenbordsnelkoppelingen, aanwijzen in de zijbalk en rechtermuisklikmenu's. Chats krijgen scrollbalken. Blockquotes worden als citaten weergegeven.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: gestreamde tool-aanroepen worden blokken. Goedkeuringen blijven bij de juiste run. Open een draaiende Desktop-sessie opnieuw en de spinner staat er nog.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }
