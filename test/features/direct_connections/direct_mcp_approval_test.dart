@@ -40,6 +40,48 @@ void main() {
     inputSchema: const <String, dynamic>{'type': 'object'},
   );
 
+  test('selects the newest live-shaped Direct MCP composer prompt', () {
+    ChatMessage message(String id, String state, {bool archived = false}) =>
+        ChatMessage(
+          id: id,
+          role: 'assistant',
+          content: '',
+          timestamp: DateTime(2026),
+          metadata: {
+            if (archived) 'archivedVariant': true,
+            kDirectMcpApprovalMetadataKey: {
+              'id': 'approval-$id',
+              'serverName': 'Home server',
+              'toolName': 'Lookup',
+              'state': state,
+            },
+          },
+        );
+
+    final olderPending = message('older-pending', 'pending');
+    final newerPending = message('newer-pending', 'pending');
+    expect(
+      findPendingDirectMcpComposerPrompt([
+        olderPending,
+        message('resolved', 'denied'),
+        newerPending,
+        message('archived', 'pending', archived: true),
+      ]),
+      same(newerPending),
+    );
+    expect(
+      findPendingDirectMcpComposerPrompt([
+        olderPending,
+        newerPending,
+      ], isLive: (id) => id == 'approval-older-pending'),
+      same(olderPending),
+    );
+    expect(
+      findPendingDirectMcpComposerPrompt([message('resolved', 'allowed')]),
+      isNull,
+    );
+  });
+
   test(
     'fingerprint canonicalizes maps but binds ordered schema and identity',
     () {
@@ -613,7 +655,9 @@ void main() {
         child: MaterialApp(
           localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(body: DirectMcpMessageInteractions(message: message)),
+          home: Scaffold(
+            body: DirectMcpComposerPromptOverlay(message: message),
+          ),
         ),
       ),
     );
@@ -622,6 +666,10 @@ void main() {
     expect(find.text('Allow for session'), findsOneWidget);
     expect(find.text('Always allow'), findsOneWidget);
     expect(find.text('Deny'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('direct-mcp-approval-overlay')),
+      findsOneWidget,
+    );
     await tester.tap(find.text('Always allow'));
     await tester.pumpAndSettle();
     expect(find.text('Always allow this tool?'), findsOneWidget);
@@ -632,7 +680,10 @@ void main() {
     await tester.tap(find.text('Deny'));
     expect(await handle.decision, DirectToolApprovalDecision.deny);
     await tester.pump();
-    expect(find.text('Denied'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('direct-mcp-approval-overlay')),
+      findsNothing,
+    );
     expect(find.text('Allow once'), findsNothing);
 
     await tester.pumpWidget(
@@ -641,12 +692,17 @@ void main() {
         child: MaterialApp(
           localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(body: DirectMcpMessageInteractions(message: message)),
+          home: Scaffold(
+            body: DirectMcpComposerPromptOverlay(message: message),
+          ),
         ),
       ),
     );
     await tester.pump();
-    expect(find.text('Approval expired'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('direct-mcp-approval-overlay')),
+      findsNothing,
+    );
     expect(find.text('Allow once'), findsNothing);
   });
 
@@ -687,7 +743,9 @@ void main() {
         child: MaterialApp(
           localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(body: DirectMcpMessageInteractions(message: message)),
+          home: Scaffold(
+            body: DirectMcpComposerPromptOverlay(message: message),
+          ),
         ),
       ),
     );
@@ -710,6 +768,54 @@ void main() {
     );
     expect(registry.hasLiveMcpApproval(handle.request.id), isTrue);
     expect(find.text('Allow once'), findsOneWidget);
+  });
+
+  testWidgets('cancellation removes a mounted composer approval', (
+    tester,
+  ) async {
+    final registry = DirectRunRegistry();
+    final handle = registry.requestMcpApproval(
+      registry.reserve(key, 'profile'),
+      callId: 'call-1',
+      definition: definition,
+      arguments: const {},
+      expectedServer: server,
+    );
+    final message = ChatMessage(
+      id: key.assistantMessageId,
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2026),
+      metadata: {
+        kDirectMcpApprovalMetadataKey: handle.request.toMetadata('pending'),
+      },
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [directRunRegistryProvider.overrideWithValue(registry)],
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: DirectMcpComposerPromptOverlay(message: message),
+          ),
+        ),
+      ),
+    );
+    expect(
+      find.byKey(const ValueKey('direct-mcp-approval-overlay')),
+      findsOneWidget,
+    );
+
+    await registry.cancel(key);
+    await tester.pump();
+
+    expect(await handle.decision, DirectToolApprovalDecision.deny);
+    expect(
+      find.byKey(const ValueKey('direct-mcp-approval-overlay')),
+      findsNothing,
+    );
   });
 }
 

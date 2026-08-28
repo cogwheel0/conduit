@@ -49,6 +49,9 @@ final class DirectRunRegistry {
   final Map<DirectRunKey, DirectRunReservation> _active = {};
   final Map<DirectRunKey, DirectRunReservation> _latest = {};
   final Map<String, _PendingDirectMcpApproval> _mcpApprovals = {};
+  final StreamController<int> _mcpApprovalRevisions =
+      StreamController<int>.broadcast(sync: true);
+  int _mcpApprovalRevision = 0;
   final Map<String, String> _sessionMcpApprovals = {};
   final Map<String, Set<String>> _rememberedMcpApprovals = {};
   final Map<String, DirectMcpServer> _mcpServers = {};
@@ -59,6 +62,10 @@ final class DirectRunRegistry {
   _retainedFinalizedOutputs = LinkedHashMap();
   int _retainedFinalizedOutputBytes = 0;
   bool _admissionBlocked = false;
+
+  Stream<int> get mcpApprovalRevisions => _mcpApprovalRevisions.stream;
+
+  void dispose() => _mcpApprovalRevisions.close();
 
   DirectCompletionRun? runFor(DirectRunKey key) => _runs[key];
 
@@ -469,6 +476,7 @@ final class DirectRunRegistry {
       expectedServer,
     );
     _mcpApprovals[request.id] = pending;
+    _notifyMcpApprovalChanged();
     return DirectToolApprovalHandle(
       request: request,
       decision: pending.decision.future,
@@ -582,6 +590,13 @@ final class DirectRunRegistry {
     if (!identical(_mcpApprovals[pending.request.id], pending)) return;
     _mcpApprovals.remove(pending.request.id);
     if (!pending.decision.isCompleted) pending.decision.complete(decision);
+    _notifyMcpApprovalChanged();
+  }
+
+  void _notifyMcpApprovalChanged() {
+    if (!_mcpApprovalRevisions.isClosed) {
+      _mcpApprovalRevisions.add(++_mcpApprovalRevision);
+    }
   }
 
   void _denyMcpApprovals(DirectRunReservation reservation) {

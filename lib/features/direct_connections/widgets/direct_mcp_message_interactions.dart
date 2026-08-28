@@ -1,30 +1,52 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../../core/models/chat_message.dart';
 import '../../../l10n/app_localizations.dart';
+import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/composer_prompt_surface.dart';
+import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../models/direct_completion.dart';
 import '../providers/direct_connection_providers.dart';
 import '../providers/direct_mcp_providers.dart';
 import '../services/direct_chat_bridge.dart';
 
-final class DirectMcpMessageInteractions extends ConsumerStatefulWidget {
-  const DirectMcpMessageInteractions({super.key, required this.message});
+ChatMessage? findPendingDirectMcpComposerPrompt(
+  List<ChatMessage> messages, {
+  bool Function(String approvalId)? isLive,
+}) {
+  for (final message in messages.reversed) {
+    if (message.metadata?['archivedVariant'] == true) continue;
+    final approval = message.metadata?[kDirectMcpApprovalMetadataKey];
+    final approvalId = approval is Map ? approval['id']?.toString() : null;
+    if (approval is Map &&
+        approval['state'] == 'pending' &&
+        approvalId?.isNotEmpty == true &&
+        approval['serverName']?.toString().isNotEmpty == true &&
+        approval['toolName']?.toString().isNotEmpty == true &&
+        (isLive == null || isLive(approvalId!))) {
+      return message;
+    }
+  }
+  return null;
+}
+
+final class DirectMcpComposerPromptOverlay extends ConsumerStatefulWidget {
+  const DirectMcpComposerPromptOverlay({super.key, required this.message});
 
   final ChatMessage message;
 
   @override
-  ConsumerState<DirectMcpMessageInteractions> createState() =>
-      _DirectMcpMessageInteractionsState();
+  ConsumerState<DirectMcpComposerPromptOverlay> createState() =>
+      _DirectMcpComposerPromptOverlayState();
 }
 
-final class _DirectMcpMessageInteractionsState
-    extends ConsumerState<DirectMcpMessageInteractions> {
+final class _DirectMcpComposerPromptOverlayState
+    extends ConsumerState<DirectMcpComposerPromptOverlay> {
   bool _busy = false;
   String? _error;
-  String? _decidedApprovalId;
-  DirectToolApprovalDecision? _decision;
+  String? _resolvedApprovalId;
 
   void _resolve(String id, DirectToolApprovalDecision decision) {
     if (!ref
@@ -32,10 +54,7 @@ final class _DirectMcpMessageInteractionsState
         .resolveMcpApprovalById(id, decision)) {
       return;
     }
-    setState(() {
-      _decidedApprovalId = id;
-      _decision = decision;
-    });
+    setState(() => _resolvedApprovalId = id);
   }
 
   Future<void> _allowAlways({
@@ -66,10 +85,7 @@ final class _DirectMcpMessageInteractionsState
         servers.revokeRememberedApproval,
       );
       if (resolved && mounted) {
-        setState(() {
-          _decidedApprovalId = id;
-          _decision = DirectToolApprovalDecision.allowAlways;
-        });
+        setState(() => _resolvedApprovalId = id);
       }
     } catch (_) {
       if (mounted) setState(() => _error = l10n.directMcpApprovalSaveFailed);
@@ -80,6 +96,7 @@ final class _DirectMcpMessageInteractionsState
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(directMcpApprovalRevisionProvider);
     final raw = widget.message.metadata?[kDirectMcpApprovalMetadataKey];
     if (raw is! Map) return const SizedBox.shrink();
     final approval = raw.map((key, value) => MapEntry(key.toString(), value));
@@ -87,105 +104,116 @@ final class _DirectMcpMessageInteractionsState
     final serverName = approval['serverName']?.toString() ?? '';
     final toolName = approval['toolName']?.toString() ?? '';
     final arguments = approval['arguments']?.toString() ?? '{}';
-    final persistedState = approval['state']?.toString() ?? 'denied';
-    final state = _decidedApprovalId == id && _decision != null
-        ? directToolApprovalState(_decision!)
-        : persistedState;
-    if (id.isEmpty || serverName.isEmpty || toolName.isEmpty) {
+    if (approval['state'] != 'pending' ||
+        id.isEmpty ||
+        serverName.isEmpty ||
+        toolName.isEmpty ||
+        _resolvedApprovalId == id) {
       return const SizedBox.shrink();
     }
 
     final registry = ref.read(directRunRegistryProvider);
-    final live = state == 'pending' && registry.hasLiveMcpApproval(id);
+    final live = registry.hasLiveMcpApproval(id);
+    if (!live) return const SizedBox.shrink();
     final l10n = AppLocalizations.of(context)!;
-    final status = switch (state) {
-      'allowed' || 'allowed_once' => l10n.directMcpApprovalAllowed,
-      'allowed_session' => l10n.directMcpApprovalAllowedSession,
-      'allowed_always' => l10n.directMcpApprovalAllowedAlways,
-      'denied' => l10n.directMcpApprovalDenied,
-      _ when !live => l10n.directMcpApprovalExpired,
-      _ => null,
-    };
+    final theme = context.conduitTheme;
 
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Semantics(
-        container: true,
-        label: l10n.directMcpApprovalTitle,
-        child: Card(
-          margin: EdgeInsets.zero,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  l10n.directMcpApprovalTitle,
-                  style: Theme.of(context).textTheme.titleSmall,
+    return ComposerPromptSurface(
+      semanticsLabel: l10n.directMcpApprovalTitle,
+      surfaceKey: const ValueKey('direct-mcp-approval-overlay'),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.verified_user_outlined,
+                size: 18,
+                color: theme.buttonPrimary,
+              ),
+              const SizedBox(width: Spacing.sm),
+              Text(
+                l10n.directMcpApprovalTitle,
+                style: AppTypography.standard.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: theme.textPrimary,
                 ),
-                const SizedBox(height: 4),
-                Text('$serverName · $toolName'),
-                const SizedBox(height: 8),
-                SelectableText(
-                  arguments,
-                  style: Theme.of(context).textTheme.bodySmall
-                      ?.copyWith(fontFamily: 'monospace'),
-                ),
-                if (live) ...[
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      FilledButton(
-                        onPressed: _busy
-                            ? null
-                            : () => _resolve(
-                                id,
-                                DirectToolApprovalDecision.allowOnce,
-                              ),
-                        child: Text(l10n.directMcpApprovalAllowOnce),
-                      ),
-                      OutlinedButton(
-                        onPressed: _busy
-                            ? null
-                            : () => _resolve(
-                                id,
-                                DirectToolApprovalDecision.allowSession,
-                              ),
-                        child: Text(l10n.directMcpApprovalAllowSession),
-                      ),
-                      OutlinedButton(
-                        onPressed: _busy
-                            ? null
-                            : () => _allowAlways(
-                                id: id,
-                                serverName: serverName,
-                                toolName: toolName,
-                              ),
-                        child: Text(l10n.directMcpApprovalAllowAlways),
-                      ),
-                      TextButton(
-                        onPressed: _busy
-                            ? null
-                            : () =>
-                                  _resolve(id, DirectToolApprovalDecision.deny),
-                        child: Text(l10n.directMcpApprovalDeny),
-                      ),
-                    ],
-                  ),
-                  if (_error != null) ...[
-                    const SizedBox(height: 8),
-                    Semantics(liveRegion: true, child: Text(_error!)),
-                  ],
-                ] else if (status != null) ...[
-                  const SizedBox(height: 8),
-                  Text(status),
-                ],
-              ],
+              ),
+            ],
+          ),
+          const SizedBox(height: Spacing.xs),
+          Text(
+            '$serverName · $toolName',
+            style: AppTypography.bodySmallStyle.copyWith(
+              color: theme.textSecondary,
             ),
           ),
-        ),
+          const SizedBox(height: Spacing.sm),
+          SelectableText(
+            arguments,
+            style: AppTypography.bodySmallStyle.copyWith(
+              color: theme.textSecondary,
+              fontFamily: 'monospace',
+            ),
+          ),
+          const SizedBox(height: Spacing.md),
+          Wrap(
+            spacing: Spacing.sm,
+            runSpacing: Spacing.sm,
+            children: [
+              ConduitButton(
+                text: l10n.directMcpApprovalAllowOnce,
+                isCompact: true,
+                onPressed: _busy
+                    ? null
+                    : () => _resolve(id, DirectToolApprovalDecision.allowOnce),
+              ),
+              ConduitButton(
+                text: l10n.directMcpApprovalAllowSession,
+                isCompact: true,
+                isSecondary: true,
+                onPressed: _busy
+                    ? null
+                    : () =>
+                          _resolve(id, DirectToolApprovalDecision.allowSession),
+              ),
+              ConduitButton(
+                text: l10n.directMcpApprovalAllowAlways,
+                isCompact: true,
+                isSecondary: true,
+                isLoading: _busy,
+                onPressed: _busy
+                    ? null
+                    : () => _allowAlways(
+                        id: id,
+                        serverName: serverName,
+                        toolName: toolName,
+                      ),
+              ),
+              ConduitButton(
+                text: l10n.directMcpApprovalDeny,
+                isCompact: true,
+                isSecondary: true,
+                onPressed: _busy
+                    ? null
+                    : () => _resolve(id, DirectToolApprovalDecision.deny),
+              ),
+            ],
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: Spacing.sm),
+            Semantics(
+              liveRegion: true,
+              child: Text(
+                _error!,
+                style: AppTypography.bodySmallStyle.copyWith(
+                  color: theme.error,
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
