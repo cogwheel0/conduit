@@ -479,6 +479,11 @@ void main() {
       previous: rootBound,
       next: rootBound.copyWith(endpoint: 'https://resource.example/other-mcp'),
     );
+    final confirmedRootPathMoved = DirectMcpServer.secureUpdate(
+      previous: rootBound,
+      next: rootBound.copyWith(endpoint: 'https://resource.example/other-mcp'),
+      endpointCredentialsConfirmed: true,
+    );
     final issuerChanged = DirectMcpServer.secureUpdate(
       previous: previous,
       next: previous.copyWith(
@@ -513,8 +518,10 @@ void main() {
     expect(moved.customHeaders, isEmpty);
     expect(pathMoved.oauthTokens, isNull);
     expect(pathMoved.customHeaders, isEmpty);
-    expect(rootPathMoved.oauthTokens, isNotNull);
+    expect(rootBound.hasEndpointBoundCredentials, isTrue);
+    expect(rootPathMoved.oauthTokens, isNull);
     expect(rootPathMoved.customHeaders, isEmpty);
+    expect(confirmedRootPathMoved.oauthTokens, isNotNull);
     expect(issuerChanged.oauthTokens, isNull);
     expect(tokenEndpointChanged.oauthTokens, isNull);
     expect(modeChanged.authMode, DirectMcpAuthMode.none);

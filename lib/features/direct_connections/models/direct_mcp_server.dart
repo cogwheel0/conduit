@@ -275,6 +275,7 @@ final class DirectMcpServer {
   bool get hasEndpointBoundCredentials =>
       (authMode == DirectMcpAuthMode.bearer &&
           (bearerToken?.isNotEmpty ?? false)) ||
+      (authMode == DirectMcpAuthMode.oauth && oauthTokens != null) ||
       customHeaders.isNotEmpty;
   bool get requiresInsecureCredentialConfirmation {
     final uri = Uri.tryParse(endpoint.trim());
@@ -407,7 +408,6 @@ final class DirectMcpServer {
     authMode: authMode == DirectMcpAuthMode.bearer
         ? DirectMcpAuthMode.none
         : authMode,
-    oauthTokens: oauthTokens,
     allowInsecureCredentials: allowInsecureCredentials,
     rememberedApprovals: rememberedApprovals,
   );
