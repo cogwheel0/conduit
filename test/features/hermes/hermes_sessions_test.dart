@@ -293,6 +293,37 @@ void main() {
   });
 
   group('hermesMessagesToChatMessages', () {
+    test('restores a running Desktop assistant after a cold open', () {
+      final restoredAssistant = restoreHermesDesktopRunningMessage(
+        hermesMessagesToChatMessages([
+          {'id': 'assistant-1', 'role': 'assistant', 'content': 'Working'},
+        ]),
+        sessionId: 'session-1',
+        modelId: 'hermes:agent:default',
+        isRunning: true,
+      );
+      final restoredPlaceholder = restoreHermesDesktopRunningMessage(
+        hermesMessagesToChatMessages([
+          {'id': 'user-1', 'role': 'user', 'content': 'Start work'},
+        ]),
+        sessionId: 'session-2',
+        modelId: 'hermes:agent:default',
+        isRunning: true,
+      );
+
+      check(restoredAssistant.single.isStreaming).isTrue();
+      check(isRestoredHermesDesktopRunningMessage(restoredAssistant.single))
+          .isTrue();
+      check(restoredPlaceholder)
+          .has((messages) => messages.length, 'length')
+          .equals(2);
+      check(restoredPlaceholder.last.role).equals('assistant');
+      check(restoredPlaceholder.last.content).isEmpty();
+      check(restoredPlaceholder.last.isStreaming).isTrue();
+      check(isRestoredHermesDesktopRunningPlaceholder(restoredPlaceholder.last))
+          .isTrue();
+    });
+
     test('replaces null and empty message ids with non-empty UUIDs', () {
       final messages = hermesMessagesToChatMessages([
         {'id': null, 'role': 'user', 'content': 'Null id'},
