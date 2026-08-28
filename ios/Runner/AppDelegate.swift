@@ -17,6 +17,7 @@ private let conduitShareAppGroupIdKey = "AppGroupId"
 private let conduitVoiceAudioRouteChannelName = "app.cogwheel.conduit/voice_audio_route"
 private let nativeIosTtsMethodChannelName = "app.cogwheel.conduit/native_ios_tts"
 private let nativeIosTtsEventChannelName = "app.cogwheel.conduit/native_ios_tts/events"
+private let platformEnvironmentChannelName = "app.cogwheel.conduit/platform_environment"
 
 func nativeSharedPayloadTypeIsText(_ type: Any?) -> Bool {
   if let type = type as? String {
@@ -2608,6 +2609,18 @@ private func cookieIsPreferred(
   private func configureApplicationFlutterChannels(
     messenger: FlutterBinaryMessenger
   ) {
+    let platformEnvironmentChannel = FlutterMethodChannel(
+      name: platformEnvironmentChannelName,
+      binaryMessenger: messenger
+    )
+    platformEnvironmentChannel.setMethodCallHandler { call, result in
+      guard call.method == "isIOSAppOnMac" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      result(ProcessInfo.processInfo.isiOSAppOnMac)
+    }
+
     AppIntentBridge.shared = AppIntentBridge(messenger: messenger)
     ConduitCarPlayBridge.shared.configure(messenger: messenger)
     NativePasteBridge.shared.configure(messenger: messenger)

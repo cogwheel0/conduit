@@ -2,6 +2,7 @@ import 'dart:io' show Platform;
 
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 
@@ -131,6 +132,8 @@ class ChatStyleSidebarTile extends StatefulWidget {
 
 class _ChatStyleSidebarTileState extends State<ChatStyleSidebarTile> {
   bool _pressed = false;
+  bool _hovered = false;
+  bool _focused = false;
 
   void _setPressed(bool pressed) {
     if (_pressed == pressed) return;
@@ -140,14 +143,17 @@ class _ChatStyleSidebarTileState extends State<ChatStyleSidebarTile> {
   @override
   void didUpdateWidget(covariant ChatStyleSidebarTile oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if ((!widget.enabled || widget.onTap == null) && _pressed) {
+    if (!widget.enabled || widget.onTap == null) {
       _pressed = false;
+      _hovered = false;
+      _focused = false;
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final effectiveEnabled = widget.enabled && widget.onTap != null;
+    final highlighted = _pressed || _hovered || _focused;
     return Semantics(
       button: true,
       selected: widget.selected,
@@ -159,20 +165,46 @@ class _ChatStyleSidebarTileState extends State<ChatStyleSidebarTile> {
         child: ConversationTileSurface(
           theme: context.conduitTheme,
           selected: widget.selected,
-          pressed: _pressed,
+          pressed: highlighted,
           tintKey: widget.tintKey,
           pressedKey: widget.pressedKey,
-          child: Listener(
-            behavior: HitTestBehavior.opaque,
-            onPointerDown: effectiveEnabled ? (_) => _setPressed(true) : null,
-            onPointerUp: effectiveEnabled ? (_) => _setPressed(false) : null,
-            onPointerCancel: effectiveEnabled
-                ? (_) => _setPressed(false)
-                : null,
-            child: GestureDetector(
+          child: FocusableActionDetector(
+            enabled: effectiveEnabled,
+            mouseCursor: effectiveEnabled
+                ? SystemMouseCursors.click
+                : MouseCursor.defer,
+            shortcuts: const <ShortcutActivator, Intent>{
+              SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+              SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+            },
+            actions: <Type, Action<Intent>>{
+              ActivateIntent: CallbackAction<ActivateIntent>(
+                onInvoke: (_) {
+                  widget.onTap?.call();
+                  return null;
+                },
+              ),
+            },
+            onShowHoverHighlight: (value) {
+              if (_hovered == value) return;
+              setState(() => _hovered = value);
+            },
+            onShowFocusHighlight: (value) {
+              if (_focused == value) return;
+              setState(() => _focused = value);
+            },
+            child: Listener(
               behavior: HitTestBehavior.opaque,
-              onTap: effectiveEnabled ? widget.onTap : null,
-              child: widget.child,
+              onPointerDown: effectiveEnabled ? (_) => _setPressed(true) : null,
+              onPointerUp: effectiveEnabled ? (_) => _setPressed(false) : null,
+              onPointerCancel: effectiveEnabled
+                  ? (_) => _setPressed(false)
+                  : null,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: effectiveEnabled ? widget.onTap : null,
+                child: widget.child,
+              ),
             ),
           ),
         ),

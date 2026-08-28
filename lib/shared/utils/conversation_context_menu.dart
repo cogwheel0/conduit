@@ -75,26 +75,38 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
       return widget.child;
     }
 
+    final adaptiveActions = [
+      for (final action in widget.actions)
+        AdaptiveContextMenuAction(
+          title: action.label,
+          icon: action.materialIcon,
+          isDestructive: action.destructive,
+          onPressed: () {
+            ConduitHaptics.selectionClick();
+            action.onBeforeClose?.call();
+            action.onSelected();
+          },
+        ),
+    ];
+
     if (PlatformInfo.isIOS) {
-      return _buildCupertinoContextMenu(context);
+      return GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onSecondaryTapDown: (details) => showAdaptiveContextMenu(
+          context: context,
+          actions: adaptiveActions,
+          globalAnchor: Rect.fromLTWH(
+            details.globalPosition.dx,
+            details.globalPosition.dy,
+            0,
+            0,
+          ),
+        ),
+        child: _buildCupertinoContextMenu(context),
+      );
     }
 
-    return AdaptiveContextMenu(
-      actions: [
-        for (final action in widget.actions)
-          AdaptiveContextMenuAction(
-            title: action.label,
-            icon: action.materialIcon,
-            isDestructive: action.destructive,
-            onPressed: () {
-              ConduitHaptics.selectionClick();
-              action.onBeforeClose?.call();
-              action.onSelected();
-            },
-          ),
-      ],
-      child: widget.child,
-    );
+    return AdaptiveContextMenu(actions: adaptiveActions, child: widget.child);
   }
 
   Widget _buildCupertinoContextMenu(BuildContext context) {

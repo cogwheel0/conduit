@@ -12,6 +12,8 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
@@ -172,6 +174,46 @@ Future<void> _pumpSettleFrames(
 }
 
 void main() {
+  _viewportTest('uses one scroll controller for each platform scrollbar', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final ids = List<String>.generate(30, (index) => 'message-$index');
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
+    await tester.pumpWidget(
+      _viewportHost(_viewport(controller: controller, ids: ids)),
+    );
+    await tester.pump();
+
+    final scrollView = tester.widget<CustomScrollView>(
+      find.byType(CustomScrollView),
+    );
+    final materialScrollbar = tester.widget<Scrollbar>(find.byType(Scrollbar));
+    expect(
+      identical(materialScrollbar.controller, scrollView.controller),
+      true,
+    );
+
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    await tester.pumpWidget(
+      _viewportHost(_viewport(controller: controller, ids: ids)),
+    );
+    await tester.pump();
+
+    final cupertinoScrollbar = tester.widget<CupertinoScrollbar>(
+      find.byType(CupertinoScrollbar),
+    );
+    final iosScrollView = tester.widget<CustomScrollView>(
+      find.byType(CustomScrollView),
+    );
+    expect(
+      identical(cupertinoScrollbar.controller, iosScrollView.controller),
+      true,
+    );
+  });
+
   test(
     'viewport rejects simultaneous anchor maintenance and latest follow',
     () {

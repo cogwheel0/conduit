@@ -200,6 +200,7 @@ void main() {
       );
       final hiveBoxesFuture = HiveBootstrap.instance.ensureInitialized();
       final preferencesFuture = PreferencesStore.ensureInitialized();
+      final platformUiFuture = PlatformUiCapabilities.initialize();
 
       try {
         await QuickActionsBootstrap.initialize();
@@ -219,6 +220,8 @@ void main() {
       _startupTimeline?.instant('hive_ready');
       await preferencesFuture;
       _startupTimeline?.instant('prefs_ready');
+      await platformUiFuture;
+      _startupTimeline?.instant('platform_ui_ready');
 
       // Run migration checks (fast-pathed after first run).
       final migrator = PersistenceMigrator(hiveBoxes: hiveBoxes);

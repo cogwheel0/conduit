@@ -2,7 +2,9 @@ import 'package:conduit/features/navigation/widgets/conversation_tile.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -159,6 +161,66 @@ void main() {
     await gesture.cancel();
     await tester.pump();
     expect(find.byKey(pressedKey), findsNothing);
+  });
+
+  testWidgets('chat-style sidebar rows highlight under a mouse pointer', (
+    tester,
+  ) async {
+    final previousStrategy = FocusManager.instance.highlightStrategy;
+    FocusManager.instance.highlightStrategy =
+        FocusHighlightStrategy.alwaysTraditional;
+    addTearDown(
+      () => FocusManager.instance.highlightStrategy = previousStrategy,
+    );
+    const pressedKey = ValueKey<String>('shared-row-hover');
+    await tester.pumpWidget(
+      _harness(
+        ChatStyleSidebarTile(
+          selected: false,
+          onTap: () {},
+          pressedKey: pressedKey,
+          child: const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('Hover row'),
+          ),
+        ),
+      ),
+    );
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: tester.getCenter(find.text('Hover row')));
+    await tester.pump();
+    expect(find.byKey(pressedKey), findsOneWidget);
+
+    await mouse.moveTo(const Offset(799, 599));
+    await tester.pump();
+    expect(find.byKey(pressedKey), findsNothing);
+    await mouse.removePointer();
+  });
+
+  testWidgets('focused sidebar rows activate with Enter and Space', (
+    tester,
+  ) async {
+    var activations = 0;
+    await tester.pumpWidget(
+      _harness(
+        ChatStyleSidebarTile(
+          selected: false,
+          onTap: () => activations++,
+          child: const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('Keyboard row'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+
+    expect(activations, 2);
   });
 
   testWidgets('selected sidebar rows keep the 4.0.3 Hermes edge gutter', (

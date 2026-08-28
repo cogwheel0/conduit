@@ -30,6 +30,7 @@ enum _DrawerSettleEndpoint { open, closed }
 class ResponsiveDrawerLayout extends StatefulWidget {
   final Widget child;
   final Widget drawer;
+  final Widget Function(Widget child)? layoutBuilder;
 
   // Mobile-specific configuration
   final double maxFraction; // 0..1 of screen width for mobile drawer
@@ -58,6 +59,7 @@ class ResponsiveDrawerLayout extends StatefulWidget {
     super.key,
     required this.child,
     required this.drawer,
+    this.layoutBuilder,
     this.maxFraction = 0.84,
     this.edgeFraction = 0.5,
     this.settleFraction = 0.12,
@@ -724,12 +726,13 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     final layout = isTablet
         ? _buildTabletLayout(theme)
         : _buildMobileLayout(theme, scrim);
+    final scopedLayout = HorizontalGesturePriorityScope(
+      buildPrioritizedGestureArena: _buildPrioritizedDrawerGestureArena,
+      child: layout,
+    );
     return SidebarDrawerControllerScope(
       controller: this,
-      child: HorizontalGesturePriorityScope(
-        buildPrioritizedGestureArena: _buildPrioritizedDrawerGestureArena,
-        child: layout,
-      ),
+      child: widget.layoutBuilder?.call(scopedLayout) ?? scopedLayout,
     );
   }
 

@@ -5,6 +5,7 @@ import 'package:conduit/features/navigation/widgets/conversation_tile.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Widget _buildHarness(Widget child) {
@@ -52,6 +53,38 @@ void main() {
 
     expect(find.text('Child'), findsOneWidget);
     expect(find.byType(GestureDetector), findsOneWidget);
+  });
+
+  testWidgets('secondary click opens and runs the existing action on iOS', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    final events = <String>[];
+
+    await tester.pumpWidget(
+      _buildHarness(
+        ConduitContextMenu(
+          actions: [
+            ConduitContextMenuAction(
+              cupertinoIcon: CupertinoIcons.doc_on_clipboard,
+              materialIcon: Icons.copy,
+              label: 'Copy',
+              onBeforeClose: () => events.add('before-close'),
+              onSelected: () async => events.add('selected'),
+            ),
+          ],
+          child: const Text('Child'),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Child'), buttons: kSecondaryMouseButton);
+    await tester.pumpAndSettle();
+    expect(find.text('Copy'), findsOneWidget);
+
+    await tester.tap(find.text('Copy'));
+    await tester.pumpAndSettle();
+    expect(events, ['before-close', 'selected']);
   });
 
   testWidgets('does not build lazy top widget before the menu opens', (

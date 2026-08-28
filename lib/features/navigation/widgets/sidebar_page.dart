@@ -27,6 +27,40 @@ const double _kSidebarSearchFieldReserve = 96;
 // Mirrors Conduit platform UI's iPadOS window-control reservation.
 const double _kSidebarWindowedLeadingInset = 62;
 
+@visibleForTesting
+double resolveSidebarWindowedLeadingInset({
+  required bool usesNativeIOS26Chrome,
+  required bool isWindowed,
+  required bool isIOSAppOnMac,
+}) => usesNativeIOS26Chrome && isWindowed && !isIOSAppOnMac
+    ? _kSidebarWindowedLeadingInset
+    : 0;
+
+void selectSidebarTab(BuildContext context, WidgetRef ref, int index) {
+  final navigation = ref.read(sidebarNavigationSnapshotProvider);
+  if (index < 0 || index >= navigation.tabs.length) return;
+
+  final selectedTab = sidebarTabDescriptor(navigation.tabs[index]);
+  if (selectedTab.id == navigation.selectedTab) {
+    if (navigation.isLegacySelection) {
+      ref.read(sidebarActiveTabProvider.notifier).set(selectedTab.id);
+    }
+    unawaited(
+      ref
+          .read(sidebarTabScrollRegistryProvider)
+          .scrollToTop(
+            selectedTab.id,
+            duration: context.motionDuration(AnimationDuration.fast),
+          ),
+    );
+    return;
+  }
+
+  sidebarTabDescriptor(navigation.selectedTab).behavior.onDeselected(ref);
+  ref.read(sidebarActiveTabProvider.notifier).set(selectedTab.id);
+  selectedTab.behavior.onSelected(ref);
+}
+
 class _SidebarNavigationItem {
   const _SidebarNavigationItem({
     required this.label,
@@ -301,20 +335,6 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     ];
   }
 
-  void _openSidebarSearch() {
-    ref.read(sidebarHeaderSearchExpandedProvider.notifier).setExpanded(true);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      ref.read(sidebarSearchFieldFocusNodeProvider).requestFocus();
-    });
-  }
-
-  void _closeSidebarSearch() {
-    ref.read(sidebarSearchFieldControllerProvider).clear();
-    ref.read(sidebarSearchFieldFocusNodeProvider).unfocus();
-    ref.read(sidebarHeaderSearchExpandedProvider.notifier).setExpanded(false);
-  }
-
   Widget _sidebarAppBarLeading({
     required AppLocalizations localizations,
     required bool isSearchExpanded,
@@ -358,7 +378,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
           iosSymbol: 'xmark',
           icon: UiUtils.closeIcon,
           tintColor: defaultTint,
-          onPressed: _closeSidebarSearch,
+          onPressed: () => closeSidebarSearch(ref),
         ),
       ];
     }
@@ -374,7 +394,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
         iosSymbol: 'magnifyingglass',
         icon: Icons.search,
         tintColor: defaultTint,
-        onPressed: _openSidebarSearch,
+        onPressed: () => openSidebarSearch(ref),
       ),
       ...contextualActions,
       if (createAction != null)
@@ -467,7 +487,6 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
       context,
     );
     final hasBottomNavigationBar = hasMultipleTabs;
-    final activeTabNotifier = ref.read(sidebarActiveTabProvider.notifier);
     final activeIndex = navigation.selectedIndex;
     final navigationItems = _sidebarNavigationItems(
       tabs,
@@ -491,25 +510,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
 
     void onTap(int index) {
       ConduitHaptics.selectionClick();
-      final selectedTab = tabs[index];
-      if (index == activeIndex) {
-        if (navigation.isLegacySelection) {
-          activeTabNotifier.set(selectedTab.id);
-        }
-        unawaited(
-          ref
-              .read(sidebarTabScrollRegistryProvider)
-              .scrollToTop(
-                selectedTab.id,
-                duration: context.motionDuration(AnimationDuration.fast),
-              ),
-        );
-        return;
-      }
-      final previousTab = tabs[activeIndex];
-      previousTab.behavior.onDeselected(ref);
-      ref.read(sidebarActiveTabProvider.notifier).set(selectedTab.id);
-      selectedTab.behavior.onSelected(ref);
+      selectSidebarTab(context, ref, index);
     }
 
     final sidebarTabStack = _SidebarTabStack(
@@ -541,10 +542,11 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
           final toolbarWidth = constraints.hasBoundedWidth
               ? constraints.maxWidth
               : MediaQuery.sizeOf(context).width;
-          final windowedLeadingInset =
-              useNativeIos26Chrome && _isWindowed(context)
-              ? _kSidebarWindowedLeadingInset
-              : 0.0;
+          final windowedLeadingInset = resolveSidebarWindowedLeadingInset(
+            usesNativeIOS26Chrome: useNativeIos26Chrome,
+            isWindowed: _isWindowed(context),
+            isIOSAppOnMac: PlatformInfo.isIOSAppOnMac,
+          );
           final appBarLeading = _sidebarAppBarLeading(
             localizations: localizations,
             isSearchExpanded: isSearchExpanded,

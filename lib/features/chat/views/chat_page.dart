@@ -7,7 +7,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
 
 import 'package:flutter/services.dart';
-import 'package:flutter/foundation.dart' show listEquals;
+import 'package:flutter/foundation.dart' show listEquals, visibleForTesting;
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
@@ -95,6 +95,12 @@ import 'chat_turn_render_state.dart';
 import '../widgets/streaming_turn_footer.dart';
 import '../widgets/openwebui_prompt_overlay.dart';
 import '../widgets/chat_timeline_viewport.dart';
+
+@visibleForTesting
+bool? chatResizeToAvoidBottomInset({
+  required bool isAndroid,
+  required bool isIOSAppOnMac,
+}) => isAndroid || isIOSAppOnMac ? false : null;
 
 /// Keeps the assistant row's element ancestry identical while it moves from
 /// the live-tail slot into stable history. This matters for generated images:
@@ -4026,7 +4032,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         );
       },
       child: AdaptiveScaffold(
-        resizeToAvoidBottomInset: Platform.isAndroid ? false : null,
+        resizeToAvoidBottomInset: chatResizeToAvoidBottomInset(
+          isAndroid: Platform.isAndroid,
+          isIOSAppOnMac: PlatformInfo.isIOSAppOnMac,
+        ),
         // Replace Scaffold drawer with a tunable slide drawer for gentler snap behavior.
         drawerEnableOpenDragGesture: false,
         extendBodyBehindAppBar: true,
