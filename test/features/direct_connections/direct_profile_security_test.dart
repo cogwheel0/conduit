@@ -30,6 +30,27 @@ void main() {
         .isFalse();
   });
 
+  test('OrcaRouter identity requires its exact HTTPS API root', () {
+    check(isOrcaRouterApiBaseUrl(kOrcaRouterApiBaseUrl)).isTrue();
+    check(isOrcaRouterApiBaseUrl('https://api.orcarouter.ai/v1/')).isTrue();
+    check(isOrcaRouterApiBaseUrl('https://api.orcarouter.ai/v1/extra'))
+        .isFalse();
+    check(isOrcaRouterApiBaseUrl('http://api.orcarouter.ai/v1')).isFalse();
+    check(isOrcaRouterApiBaseUrl('https://api.orcarouter.example/v1'))
+        .isFalse();
+    check(isOrcaRouterApiBaseUrl('https://api.orcarouter.ai.evil.test/v1'))
+        .isFalse();
+    check(isOrcaRouterApiBaseUrl('https://user:pass@api.orcarouter.ai/v1'))
+        .isFalse();
+    check(isOrcaRouterApiBaseUrl('https://api.orcarouter.ai/v1?key=leak'))
+        .isFalse();
+    check(isOrcaRouterApiBaseUrl('https://api.orcarouter.ai/v1#fragment'))
+        .isFalse();
+    check(isOrcaRouterApiBaseUrl('https://api.orcarouter.ai:8443/v1'))
+        .isFalse();
+    check(isOrcaRouterApiBaseUrl('https://api.orcarouter.ai/api/v1')).isFalse();
+  });
+
   group('DirectConnectionProfile security', () {
     test('versioned document round-trips secrets without redaction loss', () {
       final profile = _profile(

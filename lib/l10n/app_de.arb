@@ -3004,6 +3004,10 @@
   "directApiBaseUrl": "Base URL",
   "directOpenRouterUrlInvalid": "Verwende den HTTPS-/api/v1-Stammpfad von OpenRouter (global oder EU).",
   "directOpenRouterBaseUrlDescription": "Verwendet deinen OpenRouter-API-Schlüssel, den authentifizierten Modellkatalog und von Conduit verwaltete Tools.",
+
+  "orcaRouterProviderName": "OrcaRouter",
+  "directOrcaRouterUrlInvalid": "Use OrcaRouter’s HTTPS /v1 root (https://api.orcarouter.ai/v1).",
+  "directOrcaRouterBaseUrlDescription": "Connect with an OrcaRouter API key.",
   "directOpenRouterChatCompletionsDescription": "Chat Completions wird für native Websuche, Bildgenerierung, PDF-Analyse und wiederverwendbare PDF-Anmerkungen verwendet.",
   "directCompletionApi": "Completion API",
   "directChatCompletions": "Chat Completions",

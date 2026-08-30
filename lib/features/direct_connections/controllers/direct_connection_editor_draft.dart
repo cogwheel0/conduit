@@ -10,7 +10,7 @@ enum DirectAuthenticationMode { bearer, apiKeyHeader, none, unsupported }
 /// Canonical authentication mode encoded by a locally persisted profile.
 DirectAuthenticationMode directAuthenticationForProfile(
   DirectConnectionProfile profile,
-) => profile.isOpenRouter
+) => profile.isOpenRouter || profile.isOrcaRouter
     ? DirectAuthenticationMode.bearer
     : (profile.apiKey ?? '').isEmpty
     ? DirectAuthenticationMode.none
@@ -152,12 +152,14 @@ enum DirectDraftValidationIssue {
   nameRequired,
   invalidUrl,
   invalidOpenRouterUrl,
+  invalidOrcaRouterUrl,
   credentialsReentryRequired,
   apiKeyRequired,
   unsupportedAuthentication,
 }
 
 const String kOpenRouterProviderPreset = 'openrouter';
+const String kOrcaRouterProviderPreset = 'orcarouter';
 
 Map<String, String> parseDirectCustomHeaders(String source) {
   final trimmed = source.trim();
@@ -333,6 +335,7 @@ final class DirectConnectionDraft {
   final Map<String, String> customHeaders;
 
   bool get isOpenRouter => providerPreset == kOpenRouterProviderPreset;
+  bool get isOrcaRouter => providerPreset == kOrcaRouterProviderPreset;
 
   bool get originChanged => directConnectionOriginChanged(
     savedProfile: savedProfile,
@@ -363,6 +366,8 @@ final class DirectConnectionDraft {
       urlIssue = DirectDraftValidationIssue.invalidUrl;
     } else if (isOpenRouter && !isOpenRouterApiBaseUrl(normalizedBaseUrl)) {
       urlIssue = DirectDraftValidationIssue.invalidOpenRouterUrl;
+    } else if (isOrcaRouter && !isOrcaRouterApiBaseUrl(normalizedBaseUrl)) {
+      urlIssue = DirectDraftValidationIssue.invalidOrcaRouterUrl;
     } else if (!originBoundSecretsReviewed) {
       urlIssue = DirectDraftValidationIssue.credentialsReentryRequired;
     }

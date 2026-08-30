@@ -4659,6 +4659,10 @@
   "directApiBaseUrl": "Base URL",
   "directOpenRouterUrlInvalid": "Použite koreňovú adresu HTTPS /api/v1 služby OpenRouter (globálnu alebo EÚ).",
   "directOpenRouterBaseUrlDescription": "Používa váš kľúč API OpenRouter, overený katalóg modelov a nástroje spravované aplikáciou Conduit.",
+
+  "orcaRouterProviderName": "OrcaRouter",
+  "directOrcaRouterUrlInvalid": "Use OrcaRouter’s HTTPS /v1 root (https://api.orcarouter.ai/v1).",
+  "directOrcaRouterBaseUrlDescription": "Connect with an OrcaRouter API key.",
   "directOpenRouterChatCompletionsDescription": "Chat Completions sa používa na natívne vyhľadávanie na webe, generovanie obrázkov, analýzu PDF a opakovane použiteľné anotácie PDF.",
   "directCompletionApi": "Completion API",
   "directChatCompletions": "Chat Completions",

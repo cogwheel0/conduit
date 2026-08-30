@@ -109,6 +109,10 @@ List<AdaptiveDropdownOption<String>> _providerOptions(AppLocalizations l10n) =>
         value: kOpenRouterProviderPreset,
         label: l10n.openRouterProviderName,
       ),
+      AdaptiveDropdownOption(
+        value: kOrcaRouterProviderPreset,
+        label: l10n.orcaRouterProviderName,
+      ),
       AdaptiveDropdownOption(value: kOllamaAdapterKey, label: l10n.ollama),
     ];
 
@@ -138,6 +142,7 @@ void _selectProvider(
   value,
   ollamaDefaultName: l10n.ollamaCloudDefaultName,
   openRouterDefaultName: l10n.openRouterProviderName,
+  orcaRouterDefaultName: l10n.orcaRouterProviderName,
 );
 
 final class _NativeProviderRow extends StatelessWidget {
@@ -264,6 +269,14 @@ final class DirectConnectionProviderSection extends StatelessWidget {
             onTap: () => select(kOpenRouterProviderPreset),
           ),
           UtilitySelectionRow(
+            leading: const _ProviderIcon(icon: Icons.waves_outlined),
+            title: l10n.orcaRouterProviderName,
+            subtitle: null,
+            selected: form.providerPreset == kOrcaRouterProviderPreset,
+            showDivider: true,
+            onTap: () => select(kOrcaRouterProviderPreset),
+          ),
+          UtilitySelectionRow(
             leading: const _ProviderIcon(icon: Icons.computer_outlined),
             title: l10n.ollama,
             subtitle: null,
@@ -293,10 +306,13 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final isOllama = form.isOllama;
     final isOpenRouter = form.isOpenRouter;
+    final isOrcaRouter = form.isOrcaRouter;
     final baseUrlDescription = isOllama
         ? l10n.ollamaCloudBaseUrlDescription
         : isOpenRouter
         ? l10n.directOpenRouterBaseUrlDescription
+        : isOrcaRouter
+        ? l10n.directOrcaRouterBaseUrlDescription
         : l10n.directBaseUrlDescription;
     final authenticationOptions = _authenticationOptions(l10n, form);
 
@@ -307,6 +323,8 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
           ? l10n.ollamaCloudDefaultName
           : isOpenRouter
           ? l10n.openRouterProviderName
+          : isOrcaRouter
+          ? l10n.orcaRouterProviderName
           : 'My provider',
       controller: form.name,
       errorText: directDraftValidationMessage(l10n, form.errors.name),
@@ -321,6 +339,8 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
           ? l10n.ollamaCloudBaseUrlHint
           : isOpenRouter
           ? kOpenRouterApiBaseUrl
+          : isOrcaRouter
+          ? kOrcaRouterApiBaseUrl
           : 'https://api.openai.com/v1',
       controller: form.baseUrl,
       keyboardType: TextInputType.url,

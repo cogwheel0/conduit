@@ -294,6 +294,7 @@ final class DirectModelRegistry {
         capabilities: <String, dynamic>{
           ...remote.capabilities,
           'openrouter': profile.isOpenRouter,
+          'orcarouter': profile.isOrcaRouter,
           if (profile.isOpenRouter) ...<String, dynamic>{
             'web_search': profile.supportsOpenRouterWebSearch,
             // This is OpenRouter's server tool, which can be called by any

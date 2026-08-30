@@ -111,16 +111,17 @@ later, and skip any sign-in you don't need.
 | | | |
 | --- | --- | --- |
 | **Open WebUI** | Your self-hosted server | Full feature set: chats, folders, notes, channels, workspace, tools, web search, image generation |
-| **Direct** | OpenAI-compatible, Ollama, OpenRouter | Talk straight to a provider or a model on your own machine. No Open WebUI account required |
+| **Direct** | OpenAI-compatible, Ollama, OpenRouter, OrcaRouter | Talk straight to a provider or a model on your own machine. No Open WebUI account required |
 | **Apple On-Device** | Apple Intelligence | Run Apple's local model offline on eligible iOS 26 devices without an API key |
 | **Apple PCC** | Apple Private Cloud Compute | Use Apple's private cloud model on eligible iOS 27 devices without an API key |
 | **Hermes** | Your self-hosted agent | An agent that runs tools, asks before sensitive steps, and works on a schedule |
 
 **Direct connections** cover OpenAI-compatible endpoints (Chat Completions or
 Responses), LM Studio, Azure-style API versions, native Ollama, and first-party
-OpenRouter. Bring an API key, or skip it for a local endpoint that doesn't want
-one. Direct connections you already configured in Open WebUI come along
-automatically. Keys and custom headers stay in platform secure storage.
+OpenRouter and OrcaRouter. Bring an API key, or skip it for a local endpoint
+that doesn't want one. Direct connections you already configured in Open WebUI
+come along automatically. Keys and custom headers stay in platform secure
+storage.
 
 **Apple On-Device** is an iOS-only Direct provider backed by Apple's local
 SystemLanguageModel. It requires iOS 26 and Apple Intelligence, works offline,

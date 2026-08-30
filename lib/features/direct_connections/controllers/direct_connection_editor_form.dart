@@ -64,10 +64,12 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
   DirectHeaderValidationError? get headerError => headers.error;
   bool get isOllama => adapterKey == kOllamaAdapterKey;
   bool get isOpenRouter => providerPreset == kOpenRouterProviderPreset;
+  bool get isOrcaRouter => providerPreset == kOrcaRouterProviderPreset;
   DirectConnectionEditorPolicy get policy => mode.policy;
-  bool get canSelectApiKeyHeader => policy.allowsApiKeyHeader && !isOpenRouter;
+  bool get canSelectApiKeyHeader =>
+      policy.allowsApiKeyHeader && !isOpenRouter && !isOrcaRouter;
   bool get canSelectNoAuthentication =>
-      policy.allowsManagedAnonymousAuth || !isOpenRouter;
+      policy.allowsManagedAnonymousAuth || (!isOpenRouter && !isOrcaRouter);
   bool get canAddCustomHeader => headerName.text.trim().isNotEmpty;
   int get draftRevision => _draftRevision;
 
@@ -116,6 +118,8 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
       _adapterKey = profile.adapterKey;
       _providerPreset = profile.isOpenRouter
           ? kOpenRouterProviderPreset
+          : profile.isOrcaRouter
+          ? kOrcaRouterProviderPreset
           : profile.adapterKey;
       _openAiApiMode = profile.openAiApiMode;
       _authentication =
@@ -148,6 +152,7 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
     String value, {
     required String ollamaDefaultName,
     required String openRouterDefaultName,
+    required String orcaRouterDefaultName,
   }) {
     if (providerPreset == value) return;
     _providerPreset = value;
@@ -160,15 +165,18 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
       baseUrl.text = switch (value) {
         kOllamaAdapterKey => 'https://ollama.com',
         kOpenRouterProviderPreset => kOpenRouterApiBaseUrl,
+        kOrcaRouterProviderPreset => kOrcaRouterApiBaseUrl,
         _ => 'https://api.openai.com/v1',
       };
       if (mode.isNew &&
           (name.text == 'My provider' ||
               name.text == ollamaDefaultName ||
-              name.text == openRouterDefaultName)) {
+              name.text == openRouterDefaultName ||
+              name.text == orcaRouterDefaultName)) {
         name.text = switch (value) {
           kOllamaAdapterKey => ollamaDefaultName,
           kOpenRouterProviderPreset => openRouterDefaultName,
+          kOrcaRouterProviderPreset => orcaRouterDefaultName,
           _ => 'My provider',
         };
       }

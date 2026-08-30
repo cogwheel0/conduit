@@ -562,6 +562,8 @@ String? directDraftValidationMessage(
   DirectDraftValidationIssue.invalidUrl => l10n.directConnectionUrlInvalid,
   DirectDraftValidationIssue.invalidOpenRouterUrl =>
     l10n.directOpenRouterUrlInvalid,
+  DirectDraftValidationIssue.invalidOrcaRouterUrl =>
+    l10n.directOrcaRouterUrlInvalid,
   DirectDraftValidationIssue.credentialsReentryRequired =>
     l10n.directConnectionCredentialsReentryRequired,
   DirectDraftValidationIssue.apiKeyRequired =>
