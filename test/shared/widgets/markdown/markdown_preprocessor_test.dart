@@ -143,6 +143,24 @@ void main() {
       check(firstLine.contains('<br>')).isFalse();
     });
 
+    test('escapes every raw angle bracket in quoted values, not just the first',
+        () {
+      // Greptile P1: _detailsOpenTagSingleLine matches stop at the first raw
+      // >, so only the first <br> was previously escaped; the second stayed
+      // raw and the parser truncated the attribute list after it.
+      const raw =
+          '<details type="tool_calls" result="a<br>b<br>c" other="x">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      final firstLine = result.split('\n').first;
+      // The full original tag, with every raw < > escaped.
+      check(firstLine.contains('other="x">')).isTrue();
+      check('&lt;br&gt;'.allMatches(firstLine).length).equals(2);
+      check(firstLine.contains('<br>')).isFalse();
+    });
+
     test('mixed-case spanning tag is joined too', () {
       const raw =
           '<DETAILS type="tool_calls" done="true" id="x" name="fetch_url" '

@@ -68,11 +68,7 @@ class ConduitMarkdownPreprocessor {
     r'''([^\n])(<details\b(?=[^>]*\btype\s*=\s*["']tool_calls["']))''',
     caseSensitive: false,
   );
-  static final _detailsOpenTagSingleLine = RegExp(
-    r'<details\b[^>\n]*>',
-    caseSensitive: false,
-  );
-  /// Case-insensitive `<details` marker used by the spanning-tag join.
+  /// Case-insensitive `<details` marker used by the open-tag normalizer.
   static final _detailsTagMarker = RegExp(
     r'<details\b',
     caseSensitive: false,
@@ -177,17 +173,18 @@ class ConduitMarkdownPreprocessor {
     // raw text.
     //
     // Order matters: join first (finds the quote-balanced `>` across lines),
-    // then escape any bare `<`/`>` inside the now single-line tag's quoted
-    // values so the tag regex reaches the real end-of-tag. Escaping first
-    // would miss spanning tags, and joining without escaping would leave a
-    // raw `<`/`>` (e.g. an unescaped `<br>` from a result value) acting as a
-    // false tag terminator. Both operate outside code spans and fences.
-    output = _maskCodeAndTransform(output, _joinSpanningDetailsOpenTag);
-    output = _replaceMatchesOutsideCode(
-      output,
-      _detailsOpenTagSingleLine,
-      (m) => _escapeRawAngleBracketsInTag(m[0] ?? ''),
-    );
+    // then escape any bare `<`/`>` inside the tag's quoted values so the tag
+    // regex reaches the real end-of-tag. Escaping first would miss spanning
+    // tags, and joining without escaping would leave a raw `<`/`>` (e.g. an
+    // unescaped `<br>` from a result value) acting as a false tag terminator.
+    //
+    // The escaper cannot use `_detailsOpenTagSingleLine` for its match: that
+    // regex stops at the first raw `>`, so multiple raw `<`/`>` in quoted
+    // values only get escaped up to the first one. Instead, both transforms
+    // run in one quote-aware scan that locates the true end-of-tag (the first
+    // `>` outside quotes), joins if needed, and escapes quoted values.
+    // Everything operates outside code spans and fences.
+    output = _maskCodeAndTransform(output, _normalizeDetailsOpenTags);
 
     // Raw model output can attach Open WebUI's tool-call block directly to
     // answer text. Put it on a Markdown block boundary without rewriting
@@ -422,21 +419,33 @@ class ConduitMarkdownPreprocessor {
     return output;
   }
 
-  /// Case-insensitive `String.indexOf` for `probe` starting at [start].
+  /// Case-insensitive `String.indexOf` for `<details` starting at [start].
   /// Returns -1 when not found.
-  static int _detailsTagLookalike(
-    String input,
-    int start,
-    String probe,
-  ) {
-    if (probe.isEmpty || start >= input.length) return -1;
-    final match = _detailsTagMarker.allMatches(input, start).firstOrNull;
-    return match?.start ?? -1;
+  static int _nextDetailsMarker(String input, int start) {
+    if (start >= input.length) return -1;
+    for (final match in _detailsTagMarker.allMatches(input, start)) {
+      return match.start;
+    }
+    return -1;
   }
 
-  /// Masks code spans/fences, runs [transform] on the remaining text, then
-  /// restores the masked spans. Used for whole-content transforms that must
-  /// never rewrite literal examples inside code.
+  /// Normalizes `<details ...>` opening tags in one quote-aware scan:
+  ///
+  /// 1. **Join** — an opening tag whose quoted attribute values contain real
+  ///    newlines (legal in HTML) has no `>` on its first line, so the per-line
+  ///    block parser can't see it. The scan walks from `<details` to the first
+  ///    `>` *outside quotes* and folds any newlines inside the tag.
+  /// 2. **Escape** — raw `<`/`>` inside quoted attribute values (e.g. an
+  ///    unescaped `<br>` from a scraped tool result) would otherwise masquerade
+  ///    as tag terminators and cause the block parser to truncate the attribute
+  ///    list. They become `&lt;`/`&gt;`.
+  ///
+  /// Both steps need the same true end-of-tag (first unquoted `>`) — a regex
+  /// like `<details\b[^>\n]*>` stops at the first raw `>` and would only
+  /// repair part of the tag, so this runs as a single state-machine pass.
+  /// Tag matching is case-insensitive to match [DetailsBlockSyntax] behavior.
+  /// Masks code spans/fences and restores them after [transform] runs, so the
+  /// transform above never rewrites literal examples inside code.
   static String _maskCodeAndTransform(
     String input,
     String Function(String) transform,
@@ -460,63 +469,83 @@ class ConduitMarkdownPreprocessor {
     return output;
   }
 
-  /// Joins an opening `<details ...>` tag that spans multiple lines (newlines
-  /// are legal inside quoted HTML attribute values) into a single line so the
-  /// per-line block parser can recognize it. Tag matching is case-insensitive
-  /// to match [DetailsBlockSyntax] behavior.
-  static String _joinSpanningDetailsOpenTag(String input) {
-    if (!_detailsTagMarker.hasMatch(input) || !input.contains('\n')) {
+  /// Normalizes `<details ...>` opening tags in one quote-aware scan:
+  ///
+  /// 1. **Join** — an opening tag whose quoted attribute values contain real
+  ///    newlines (legal in HTML) has no `>` on its first line, so the per-line
+  ///    block parser can't see it. The scan walks from `<details` to the first
+  ///    `>` *outside quotes* and folds any newlines inside the tag.
+  /// 2. **Escape** — raw `<`/`>` inside quoted attribute values (e.g. an
+  ///    unescaped `<br>` from a scraped tool result) would otherwise masquerade
+  ///    as tag terminators and cause the block parser to truncate the attribute
+  ///    list. They become `&lt;`/`&gt;`.
+  ///
+  /// Both steps need the same true end-of-tag (first unquoted `>`) — a regex
+  /// like `<details\b[^>\n]*>` stops at the first raw `>` and would only
+  /// repair part of the tag, so this runs as a single state-machine pass.
+  /// Tag matching is case-insensitive to match [DetailsBlockSyntax] behavior.
+  static String _normalizeDetailsOpenTags(String input) {
+    if (!_detailsTagMarker.hasMatch(input)) {
       return input;
     }
-    var output = input;
+    // Fast path: nothing to do when no newlines/raw angles exist anywhere.
+    final hasNewlines = input.contains('\n');
+    final hasRawAngles = input.contains('<') || input.contains('>');
+    if (!hasNewlines && !hasRawAngles) {
+      return input;
+    }
+
+    final buffer = StringBuffer();
+    var copyFrom = 0;
     var searchFrom = 0;
-    const probe = '<details';
     while (true) {
-      final idx = _detailsTagLookalike(output, searchFrom, probe);
-      if (idx == -1) return output;
+      final idx = _nextDetailsMarker(input, searchFrom);
+      if (idx == -1) break;
 
-      final lineEnd = output.indexOf('\n', idx);
-      final line = lineEnd == -1
-          ? output.substring(idx)
-          : output.substring(idx, lineEnd);
-      if (line.contains('>')) {
-        // Complete on its line — nothing to join; keep scanning.
-        searchFrom = idx + probe.length;
-        continue;
-      }
+      buffer.write(input.substring(copyFrom, idx));
 
-      // Unterminated tag on this line: scan quote-balanced for the closing '>'.
-      // HTML attribute values have no backslash escaping (quotes inside values
-      // are `&quot;` entities), so a bare quote simply toggles the state.
+      // Quote-aware scan to this tag's true end-of-tag.
       var pos = idx;
       var inQuote = false;
-      var found = false;
-      var gtIndex = -1;
-      final scanLimit = idx + _detailsOpenTagJoinLimit;
-      while (pos < output.length && pos < scanLimit) {
-        final ch = output[pos];
+      var end = -1;
+      final scanLimit =
+          idx + (hasNewlines ? _detailsOpenTagJoinLimit : 64 * 1024);
+      while (pos < input.length && pos < scanLimit) {
+        final ch = input[pos];
         if (inQuote) {
           if (ch == '"') inQuote = false;
         } else if (ch == '"') {
           inQuote = true;
         } else if (ch == '>') {
-          gtIndex = pos;
-          found = true;
+          end = pos;
+          break;
+        } else if (ch == '\n' && pos > idx + 16 * 1024 && !hasNewlines) {
+          // Not actually a spanning-tag context; bail out to avoid leaking an
+          // unterminated `<details` string across the whole buffer.
           break;
         }
         pos++;
       }
-      if (!found) {
-        // Unterminated beyond the cap — leave untouched.
-        return output;
+      if (end == -1) {
+        // Unterminated tag — copy verbatim and continue after the marker.
+        buffer.write(input.substring(idx, idx + '<details'.length));
+        searchFrom = idx + '<details'.length;
+        copyFrom = searchFrom;
+        continue;
       }
 
-      output =
-          output.substring(0, idx) +
-          output.substring(idx, gtIndex + 1).replaceAll('\n', ' ') +
-          output.substring(gtIndex + 1);
-      searchFrom = idx + 1;
+      final tag = input.substring(idx, end + 1);
+      if (tag.contains('\n')) {
+        // Join: fold the newlines so the per-line parser can match the tag.
+        buffer.write(_escapeAnglesInQuotedValues(tag.replaceAll('\n', ' ')));
+      } else {
+        buffer.write(_escapeAnglesInQuotedValues(tag));
+      }
+      searchFrom = end + 1;
+      copyFrom = end + 1;
     }
+    buffer.write(input.substring(copyFrom));
+    return buffer.toString();
   }
 
   /// Escapes raw `<`/`>` inside the quoted attribute values of a single-line
@@ -524,7 +553,7 @@ class ConduitMarkdownPreprocessor {
   /// end-of-tag instead of truncating at the first `>` (which silently drops
   /// attributes like `result`). Quote state toggles on bare quotes only —
   /// HTML attribute values have no backslash escaping.
-  static String _escapeRawAngleBracketsInTag(String tag) {
+  static String _escapeAnglesInQuotedValues(String tag) {
     var inQuote = false;
     var changed = false;
     final buffer = StringBuffer();
