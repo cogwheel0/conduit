@@ -68,6 +68,13 @@ class ConduitMarkdownPreprocessor {
     r'''([^\n])(<details\b(?=[^>]*\btype\s*=\s*["']tool_calls["']))''',
     caseSensitive: false,
   );
+  static final _detailsOpenTagSingleLine = RegExp(
+    r'<details\b[^>\n]*>',
+    caseSensitive: false,
+  );
+  /// Upper bound on how far a spanning `<details` open tag may be joined so a
+  /// malformed tag cannot trigger an unbounded scan or a giant concatenated line.
+  static const _detailsOpenTagJoinLimit = 256 * 1024;
   static final _codeSpanOrFence = RegExp(r'(`+)([\s\S]*?)\1');
   static final _allDetailsBlocks = RegExp(
     r'<details[^>]*>[\s\S]*?</details>',
@@ -158,6 +165,19 @@ class ConduitMarkdownPreprocessor {
 
     // Separate consecutive links
     output = _separateConsecutiveLinks(output);
+
+    // An opening `<details ...>` tag whose quoted attribute values contain
+    // real newlines (legal in HTML) has no `>` on its first line, so the
+    // per-line block parser never matches it and the whole block renders as
+    // raw text. Join the spanning tag onto one line, then escape any bare
+    // `<`/`>` inside its quoted values so the tag regex reaches the real
+    // end-of-tag. Both operate outside code spans and fences.
+    output = _replaceMatchesOutsideCode(
+      output,
+      _detailsOpenTagSingleLine,
+      (m) => _escapeRawAngleBracketsInTag(m[0] ?? ''),
+    );
+    output = _maskCodeAndTransform(output, _joinSpanningDetailsOpenTag);
 
     // Raw model output can attach Open WebUI's tool-call block directly to
     // answer text. Put it on a Markdown block boundary without rewriting
@@ -390,6 +410,120 @@ class ConduitMarkdownPreprocessor {
       output = output.replaceAll('$marker$index\u0000', codeSpans[index]);
     }
     return output;
+  }
+
+  /// Masks code spans/fences, runs [transform] on the remaining text, then
+  /// restores the masked spans. Used for whole-content transforms that must
+  /// never rewrite literal examples inside code.
+  static String _maskCodeAndTransform(
+    String input,
+    String Function(String) transform,
+  ) {
+    final codeSpans = <String>[];
+    var marker = '\u0000conduit-code-span-';
+    while (input.contains(marker)) {
+      marker = '\u0000$marker';
+    }
+
+    final masked = input.replaceAllMapped(_codeSpanOrFence, (match) {
+      final index = codeSpans.length;
+      codeSpans.add(match[0] ?? '');
+      return '$marker$index\u0000';
+    });
+    final transformed = transform(masked);
+    var output = transformed;
+    for (var index = 0; index < codeSpans.length; index++) {
+      output = output.replaceAll('$marker$index\u0000', codeSpans[index]);
+    }
+    return output;
+  }
+
+  /// Joins an opening `<details ...>` tag that spans multiple lines (newlines
+  /// are legal inside quoted HTML attribute values) into a single line so the
+  /// per-line block parser can recognize it.
+  static String _joinSpanningDetailsOpenTag(String input) {
+    if (!input.contains('<details') || !input.contains('\n')) {
+      return input;
+    }
+    var output = input;
+    var searchFrom = 0;
+    while (true) {
+      final idx = output.indexOf('<details', searchFrom);
+      if (idx == -1) return output;
+
+      final lineEnd = output.indexOf('\n', idx);
+      final line = lineEnd == -1
+          ? output.substring(idx)
+          : output.substring(idx, lineEnd);
+      if (line.contains('>')) {
+        // Complete on its line — nothing to join; keep scanning.
+        searchFrom = idx + '<details'.length;
+        continue;
+      }
+
+      // Unterminated tag on this line: scan quote-balanced for the closing '>'.
+      // HTML attribute values have no backslash escaping (quotes inside values
+      // are `&quot;` entities), so a bare quote simply toggles the state.
+      var pos = idx;
+      var inQuote = false;
+      var found = false;
+      var gtIndex = -1;
+      final scanLimit = idx + _detailsOpenTagJoinLimit;
+      while (pos < output.length && pos < scanLimit) {
+        final ch = output[pos];
+        if (inQuote) {
+          if (ch == '"') inQuote = false;
+        } else if (ch == '"') {
+          inQuote = true;
+        } else if (ch == '>') {
+          gtIndex = pos;
+          found = true;
+          break;
+        }
+        pos++;
+      }
+      if (!found) {
+        // Unterminated beyond the cap — leave untouched.
+        return output;
+      }
+
+      output =
+          output.substring(0, idx) +
+          output.substring(idx, gtIndex + 1).replaceAll('\n', ' ') +
+          output.substring(gtIndex + 1);
+      searchFrom = idx + 1;
+    }
+  }
+
+  /// Escapes raw `<`/`>` inside the quoted attribute values of a single-line
+  /// `<details ...>` opening tag so the tag regex reaches the real
+  /// end-of-tag instead of truncating at the first `>` (which silently drops
+  /// attributes like `result`). Quote state toggles on bare quotes only —
+  /// HTML attribute values have no backslash escaping.
+  static String _escapeRawAngleBracketsInTag(String tag) {
+    var inQuote = false;
+    var changed = false;
+    final buffer = StringBuffer();
+    for (var i = 0; i < tag.length; i++) {
+      final ch = tag[i];
+      if (inQuote) {
+        if (ch == '"') inQuote = false;
+        if (ch == '<') {
+          buffer.write('&lt;');
+          changed = true;
+          continue;
+        }
+        if (ch == '>') {
+          buffer.write('&gt;');
+          changed = true;
+          continue;
+        }
+      } else if (ch == '"') {
+        inQuote = true;
+      }
+      buffer.write(ch);
+    }
+    return changed ? buffer.toString() : tag;
   }
 
   static String _removeEmojis(String input) {
