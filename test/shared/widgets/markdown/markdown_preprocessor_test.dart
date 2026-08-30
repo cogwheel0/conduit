@@ -75,6 +75,54 @@ void main() {
       check(result).contains('Answer\n\n$details');
       check(result).contains('`Example$details`');
     });
+
+    test('joins details open tag spanning lines from newlines in attribute values', () {
+      const raw =
+          '<details type="tool_calls" done="true" id="x" name="fetch_url" '
+          'arguments="&quot;{\\&quot;url\\&quot;: \\&quot;https://example.com\\&quot;}&quot;" '
+          'result="[{&quot;type&quot;:&quot;input_text&quot;,&quot;text&quot;:&quot;line one\nline two\nline three&quot;}]">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>\nTrailing answer.';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      // The opening tag must now start a line as a complete tag.
+      final firstLine = result.split('\n').first;
+      check(firstLine).startsWith('<details');
+      check(firstLine).endsWith('>');
+      // Newlines inside the attribute value are folded to spaces.
+      check(firstLine.contains('line one')).isTrue();
+      check(firstLine.contains('line three&quot;}]">')).isTrue();
+    });
+
+    test('escapes raw angle brackets inside details attribute values', () {
+      const raw =
+          '<details type="tool_calls" done="true" id="x" name="fetch_url" '
+          'result="[{&quot;text&quot;:&quot;2026-07-14<br> (123)&quot;}]">'
+          '</details>';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      // The raw < > inside the quoted value must not truncate tag parsing.
+      check(result).contains('&lt;br&gt;');
+      // The tag must remain a single line and keep its raw-<br> escaped,
+      // i.e. no bare < or > left inside the attribute value.
+      final firstLine = result.split('\n').first;
+      check(firstLine.contains('<br>')).isFalse();
+      check(firstLine.startsWith('<details')).isTrue();
+    });
+
+    test('well-formed single-line tag is unchanged', () {
+      const raw =
+          'text before\n'
+          '<details type="tool_calls" done="true" id="x" name="t" '
+          'result="[{&quot;a&quot;:&quot;ok&quot;}]">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>\nafter';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+      check(result).contains(
+        '<details type="tool_calls" done="true" id="x" name="t" '
+        'result="[{&quot;a&quot;:&quot;ok&quot;}]">',
+      );
+    });
   });
 
   group('ConduitMarkdownPreprocessor.sanitize', () {
