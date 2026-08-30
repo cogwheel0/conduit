@@ -72,6 +72,11 @@ class ConduitMarkdownPreprocessor {
     r'<details\b[^>\n]*>',
     caseSensitive: false,
   );
+  /// Case-insensitive `<details` marker used by the spanning-tag join.
+  static final _detailsTagMarker = RegExp(
+    r'<details\b',
+    caseSensitive: false,
+  );
   /// Upper bound on how far a spanning `<details` open tag may be joined so a
   /// malformed tag cannot trigger an unbounded scan or a giant concatenated line.
   static const _detailsOpenTagJoinLimit = 256 * 1024;
@@ -169,15 +174,20 @@ class ConduitMarkdownPreprocessor {
     // An opening `<details ...>` tag whose quoted attribute values contain
     // real newlines (legal in HTML) has no `>` on its first line, so the
     // per-line block parser never matches it and the whole block renders as
-    // raw text. Join the spanning tag onto one line, then escape any bare
-    // `<`/`>` inside its quoted values so the tag regex reaches the real
-    // end-of-tag. Both operate outside code spans and fences.
+    // raw text.
+    //
+    // Order matters: join first (finds the quote-balanced `>` across lines),
+    // then escape any bare `<`/`>` inside the now single-line tag's quoted
+    // values so the tag regex reaches the real end-of-tag. Escaping first
+    // would miss spanning tags, and joining without escaping would leave a
+    // raw `<`/`>` (e.g. an unescaped `<br>` from a result value) acting as a
+    // false tag terminator. Both operate outside code spans and fences.
+    output = _maskCodeAndTransform(output, _joinSpanningDetailsOpenTag);
     output = _replaceMatchesOutsideCode(
       output,
       _detailsOpenTagSingleLine,
       (m) => _escapeRawAngleBracketsInTag(m[0] ?? ''),
     );
-    output = _maskCodeAndTransform(output, _joinSpanningDetailsOpenTag);
 
     // Raw model output can attach Open WebUI's tool-call block directly to
     // answer text. Put it on a Markdown block boundary without rewriting
@@ -412,6 +422,18 @@ class ConduitMarkdownPreprocessor {
     return output;
   }
 
+  /// Case-insensitive `String.indexOf` for `probe` starting at [start].
+  /// Returns -1 when not found.
+  static int _detailsTagLookalike(
+    String input,
+    int start,
+    String probe,
+  ) {
+    if (probe.isEmpty || start >= input.length) return -1;
+    final match = _detailsTagMarker.allMatches(input, start).firstOrNull;
+    return match?.start ?? -1;
+  }
+
   /// Masks code spans/fences, runs [transform] on the remaining text, then
   /// restores the masked spans. Used for whole-content transforms that must
   /// never rewrite literal examples inside code.
@@ -440,15 +462,17 @@ class ConduitMarkdownPreprocessor {
 
   /// Joins an opening `<details ...>` tag that spans multiple lines (newlines
   /// are legal inside quoted HTML attribute values) into a single line so the
-  /// per-line block parser can recognize it.
+  /// per-line block parser can recognize it. Tag matching is case-insensitive
+  /// to match [DetailsBlockSyntax] behavior.
   static String _joinSpanningDetailsOpenTag(String input) {
-    if (!input.contains('<details') || !input.contains('\n')) {
+    if (!_detailsTagMarker.hasMatch(input) || !input.contains('\n')) {
       return input;
     }
     var output = input;
     var searchFrom = 0;
+    const probe = '<details';
     while (true) {
-      final idx = output.indexOf('<details', searchFrom);
+      final idx = _detailsTagLookalike(output, searchFrom, probe);
       if (idx == -1) return output;
 
       final lineEnd = output.indexOf('\n', idx);
@@ -457,7 +481,7 @@ class ConduitMarkdownPreprocessor {
           : output.substring(idx, lineEnd);
       if (line.contains('>')) {
         // Complete on its line — nothing to join; keep scanning.
-        searchFrom = idx + '<details'.length;
+        searchFrom = idx + probe.length;
         continue;
       }
 

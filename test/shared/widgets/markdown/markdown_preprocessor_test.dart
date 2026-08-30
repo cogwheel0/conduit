@@ -123,6 +123,39 @@ void main() {
         'result="[{&quot;a&quot;:&quot;ok&quot;}]">',
       );
     });
+
+    test('joins spanning tag with raw <br> inside a quoted value', () {
+      // Combined case: the tag spans lines AND the value contains a raw <br>.
+      // The join must use the quote-balanced > (the real tag end), not the >
+      // inside <br>; the escaper must then neutralize it.
+      const raw =
+          '<details type="tool_calls" done="true" id="x" name="fetch_url" '
+          'result="[{&quot;text&quot;:&quot;line one\nline two <br> (123)\nline three&quot;}]">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>\nTrailing answer.';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      final firstLine = result.split('\n').first;
+      // The full tag (through the real >) must be joined onto one line.
+      check(firstLine.contains('line three&quot;}]">')).isTrue();
+      check(firstLine.contains('&lt;br&gt;')).isTrue();
+      // No raw <br> remains inside the attribute value.
+      check(firstLine.contains('<br>')).isFalse();
+    });
+
+    test('mixed-case spanning tag is joined too', () {
+      const raw =
+          '<DETAILS type="tool_calls" done="true" id="x" name="fetch_url" '
+          'result="[{&quot;text&quot;:&quot;line one\nline two\nline three&quot;}]">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</DETAILS>\nTrailing answer.';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      final firstLine = result.split('\n').first;
+      check(firstLine.startsWith('<DETAILS')).isTrue();
+      check(firstLine.endsWith('>')).isTrue();
+      check(firstLine.contains('line three&quot;}]">')).isTrue();
+    });
   });
 
   group('ConduitMarkdownPreprocessor.sanitize', () {
