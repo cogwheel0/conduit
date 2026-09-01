@@ -17,10 +17,10 @@ class ServerVersionCompat {
   /// Servers reporting a `/api/config` `version` strictly greater than this are
   /// shown a compatibility warning. Bump this (and re-verify against
   /// `openwebui-src/`) whenever a newer server release is validated.
-  static const String maxSupportedVersion = '0.11.1';
+  static const String maxSupportedVersion = '0.11.3';
 
   /// Parsed [maxSupportedVersion] components: `[major, minor, patch]`.
-  static const List<int> _maxSupported = [0, 11, 1];
+  static const List<int> _maxSupported = [0, 11, 3];
 
   /// Whether [rawVersion] is within the supported range (<= [maxSupportedVersion]).
   ///

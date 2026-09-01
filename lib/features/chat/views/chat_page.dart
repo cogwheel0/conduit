@@ -2968,7 +2968,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 );
               },
             ),
-      trailingContent: const ServerVersionWarningCard(),
       topContentInset: topPadding,
       bottomPadding: bottomPadding,
       horizontalPadding: Spacing.inputPadding,
