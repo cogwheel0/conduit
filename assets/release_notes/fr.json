@@ -56,6 +56,21 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.4",
+      "title": "Nouveautés",
+      "intro": "Bonjour ! Open WebUI 0.11.3 fonctionne. J'ai déplacé l'avertissement pour les serveurs qu'on ne prend pas encore en charge sur l'écran de nouveau chat, pour qu'il arrête d'interrompre les conversations déjà commencées.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.11.2 et 0.11.3 : pas d'avertissement de compatibilité.",
+          "icon": "direct"
+        },
+        {
+          "text": "Avertissement serveur non pris en charge : seulement sur un nouveau chat. Les conversations existantes ne l'affichent plus.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

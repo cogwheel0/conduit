@@ -56,6 +56,21 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.4",
+      "title": "What's new",
+      "intro": "Hi! Open WebUI 0.11.3 works. I moved the warning for servers we don't support yet onto the new-chat screen, so it stops interrupting chats you already started.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.11.2 and 0.11.3: the app talks to them without a compatibility warning.",
+          "icon": "direct"
+        },
+        {
+          "text": "Unsupported server warning: only on a new chat. Existing conversations no longer show it.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

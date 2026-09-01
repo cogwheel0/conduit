@@ -56,6 +56,21 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.4",
+      "title": "Novedades",
+      "intro": "¡Hola! Open WebUI 0.11.3 funciona. Moví el aviso de servidores que aún no soportamos a la pantalla de chat nuevo, para que deje de interrumpir conversaciones que ya empezaste.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.11.2 y 0.11.3: sin aviso de compatibilidad.",
+          "icon": "direct"
+        },
+        {
+          "text": "Aviso de servidor no soportado: solo en un chat nuevo. En las conversaciones existentes ya no aparece.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

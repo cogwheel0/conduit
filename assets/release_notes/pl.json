@@ -56,6 +56,21 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.4",
+      "title": "Co nowego",
+      "intro": "Cześć! Open WebUI 0.11.3 działa. Przeniosłem ostrzeżenie o serwerach, których jeszcze nie obsługujemy, na ekran nowego czatu, żeby nie przerywało rozmów, które już zacząłeś.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.11.2 i 0.11.3: bez ostrzeżenia o zgodności.",
+          "icon": "direct"
+        },
+        {
+          "text": "Ostrzeżenie o nieobsługiwanym serwerze: tylko przy nowym czacie. Istniejące rozmowy go już nie pokazują.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

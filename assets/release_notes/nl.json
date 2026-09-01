@@ -56,6 +56,21 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.4",
+      "title": "Nieuw",
+      "intro": "Hoi! Open WebUI 0.11.3 werkt. Ik heb de waarschuwing voor servers die we nog niet ondersteunen naar het nieuwe-chatscherm verplaatst, zodat hij gesprekken niet meer onderbreekt die je al was begonnen.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.11.2 en 0.11.3: geen compatibiliteitswaarschuwing.",
+          "icon": "direct"
+        },
+        {
+          "text": "Waarschuwing voor een niet-ondersteunde server: alleen bij een nieuwe chat. Bestaande gesprekken tonen hem niet meer.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

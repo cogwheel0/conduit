@@ -56,6 +56,21 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.4",
+      "title": "Novinky",
+      "intro": "Ahoj! Open WebUI 0.11.3 funguje. Varování pro servery, které ještě nepodporujeme, jsem přesunul na obrazovku nového chatu, ať nepřerušuje konverzace, které už jsi začal.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.11.2 a 0.11.3: bez varování o kompatibilitě.",
+          "icon": "direct"
+        },
+        {
+          "text": "Varování o nepodporovaném serveru: jen u nového chatu. V existujících konverzacích se už nezobrazí.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }
