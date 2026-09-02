@@ -3004,6 +3004,10 @@
   "directApiBaseUrl": "Base URL",
   "directOpenRouterUrlInvalid": "Gebruik de HTTPS-/api/v1-hoofd-URL van OpenRouter (wereldwijd of EU).",
   "directOpenRouterBaseUrlDescription": "Conduit gebruikt je OpenRouter-API-sleutel, geverifieerde modelcatalogus en door Conduit beheerde tools.",
+
+  "orcaRouterProviderName": "OrcaRouter",
+  "directOrcaRouterUrlInvalid": "Use OrcaRouter’s HTTPS /v1 root (https://api.orcarouter.ai/v1).",
+  "directOrcaRouterBaseUrlDescription": "Connect with an OrcaRouter API key.",
   "directOpenRouterChatCompletionsDescription": "Chat Completions wordt gebruikt voor ingebouwd zoeken op het web, afbeeldingsgeneratie, PDF-verwerking en herbruikbare PDF-annotaties.",
   "directCompletionApi": "Completion API",
   "directChatCompletions": "Chat Completions",

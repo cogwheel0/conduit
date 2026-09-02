@@ -2782,6 +2782,10 @@
   "directApiBaseUrl": "기본 URL",
   "directOpenRouterUrlInvalid": "OpenRouter의 HTTPS /api/v1 루트(글로벌 또는 EU)를 사용하세요.",
   "directOpenRouterBaseUrlDescription": "OpenRouter API 키, 인증된 모델 카탈로그 및 Conduit에서 관리하는 도구를 사용합니다.",
+
+  "orcaRouterProviderName": "OrcaRouter",
+  "directOrcaRouterUrlInvalid": "Use OrcaRouter’s HTTPS /v1 root (https://api.orcarouter.ai/v1).",
+  "directOrcaRouterBaseUrlDescription": "Connect with an OrcaRouter API key.",
   "directOpenRouterChatCompletionsDescription": "Chat Completions는 기본 웹 검색, 이미지 생성, PDF 분석 및 재사용 가능한 PDF 주석에 사용됩니다.",
   "directCompletionApi": "Completion API",
   "directChatCompletions": "Chat Completions",

@@ -20,6 +20,7 @@ void main() {
       kOllamaAdapterKey,
       ollamaDefaultName: 'Ollama Cloud',
       openRouterDefaultName: 'OpenRouter',
+      orcaRouterDefaultName: 'OrcaRouter',
     );
 
     check(editor.form.adapterKey).equals(kOllamaAdapterKey);

@@ -22,6 +22,9 @@ const String kApplePccRemoteModelId = 'private-cloud-compute';
 /// Canonical first-party OpenRouter API root.
 const String kOpenRouterApiBaseUrl = 'https://openrouter.ai/api/v1';
 
+/// Canonical first-party OrcaRouter API root.
+const String kOrcaRouterApiBaseUrl = 'https://api.orcarouter.ai/v1';
+
 /// OpenAI-family completion protocol selected for one connection profile.
 ///
 /// This remains profile data rather than a separate adapter key so OpenAI,
@@ -183,6 +186,14 @@ final class DirectConnectionProfile {
   bool get supportsOpenRouterImageGeneration => isOpenRouter;
   bool get supportsOpenRouterPdfInputs =>
       isOpenRouter && openAiApiMode == DirectOpenAiApiMode.chatCompletions;
+
+  /// OrcaRouter intentionally shares the OpenAI-compatible adapter. Provider
+  /// identity is bound to the exact HTTPS API root so Conduit can treat
+  /// OrcaRouter as a first-class named provider rather than an anonymous
+  /// custom base URL. No OrcaRouter-owned request fields are sent today.
+  bool get isOrcaRouter =>
+      adapterKey == kOpenAiCompatibleAdapterKey &&
+      isOrcaRouterApiBaseUrl(baseUrl);
 
   /// Ollama Cloud executes models remotely and does not expose the local
   /// `/api/ps` RAM/VRAM lifecycle used by self-hosted Ollama servers.
@@ -560,6 +571,20 @@ bool isOpenRouterApiBaseUrl(String value) {
     return false;
   }
   return uri.path == '/api/v1' || uri.path == '/api/v1/';
+}
+
+bool isOrcaRouterApiBaseUrl(String value) {
+  final uri = Uri.tryParse(value.trim());
+  if (uri == null ||
+      uri.scheme.toLowerCase() != 'https' ||
+      uri.host.toLowerCase() != 'api.orcarouter.ai' ||
+      (uri.hasPort && uri.port != 443) ||
+      uri.userInfo.isNotEmpty ||
+      uri.hasQuery ||
+      uri.hasFragment) {
+    return false;
+  }
+  return uri.path == '/v1' || uri.path == '/v1/';
 }
 
 /// Versioned envelope used for the single secure-storage profile document.

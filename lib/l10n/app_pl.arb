@@ -5705,6 +5705,10 @@
     "description": "Validation error shown when an OpenRouter direct connection does not use an approved API root."
   },
   "directOpenRouterBaseUrlDescription": "Używa Twojego klucza API OpenRouter, uwierzytelnionego katalogu modeli i narzędzi zarządzanych przez Conduit.",
+
+  "orcaRouterProviderName": "OrcaRouter",
+  "directOrcaRouterUrlInvalid": "Use OrcaRouter’s HTTPS /v1 root (https://api.orcarouter.ai/v1).",
+  "directOrcaRouterBaseUrlDescription": "Connect with an OrcaRouter API key.",
   "@directOpenRouterBaseUrlDescription": {
     "description": "Help text shown below the OpenRouter direct connection base URL."
   },

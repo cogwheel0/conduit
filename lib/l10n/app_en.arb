@@ -4813,6 +4813,10 @@
   "@openRouterProviderName": {
     "description": "Provider name used by the OpenRouter connection preset."
   },
+  "orcaRouterProviderName": "OrcaRouter",
+  "@orcaRouterProviderName": {
+    "description": "Provider name used by the OrcaRouter connection preset."
+  },
   "ollamaCloudDefaultName": "Ollama Cloud",
   "@ollamaCloudDefaultName": {
     "description": "Default connection name and field hint for Ollama Cloud."
@@ -4943,9 +4947,17 @@
   "@directOpenRouterUrlInvalid": {
     "description": "Validation error shown when an OpenRouter direct connection does not use an approved API root."
   },
+  "directOrcaRouterUrlInvalid": "Use OrcaRouter’s HTTPS /v1 root (https://api.orcarouter.ai/v1).",
+  "@directOrcaRouterUrlInvalid": {
+    "description": "Validation error shown when an OrcaRouter direct connection does not use the approved API root."
+  },
   "directOpenRouterBaseUrlDescription": "Connect with an OpenRouter API key.",
   "@directOpenRouterBaseUrlDescription": {
     "description": "Help text shown below the OpenRouter direct connection base URL."
+  },
+  "directOrcaRouterBaseUrlDescription": "Connect with an OrcaRouter API key.",
+  "@directOrcaRouterBaseUrlDescription": {
+    "description": "Help text shown below the OrcaRouter direct connection base URL."
   },
   "directOpenRouterChatCompletionsDescription": "Chat Completions is used for native web search, image generation, PDF parsing, and reusable PDF annotations.",
   "@directOpenRouterChatCompletionsDescription": {

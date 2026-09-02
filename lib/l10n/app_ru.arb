@@ -3031,6 +3031,10 @@
   "directApiBaseUrl": "Базовый URL",
   "directOpenRouterUrlInvalid": "Используйте корневой HTTPS-адрес /api/v1 OpenRouter (глобальный или для ЕС).",
   "directOpenRouterBaseUrlDescription": "Использует ваш API-ключ OpenRouter, авторизованный каталог моделей и инструменты, управляемые Conduit.",
+
+  "orcaRouterProviderName": "OrcaRouter",
+  "directOrcaRouterUrlInvalid": "Use OrcaRouter’s HTTPS /v1 root (https://api.orcarouter.ai/v1).",
+  "directOrcaRouterBaseUrlDescription": "Connect with an OrcaRouter API key.",
   "directOpenRouterChatCompletionsDescription": "Chat Completions используется для встроенного веб-поиска, генерации изображений, анализа PDF и повторно используемых аннотаций PDF.",
   "directCompletionApi": "API завершения",
   "directChatCompletions": "Chat Completions",
