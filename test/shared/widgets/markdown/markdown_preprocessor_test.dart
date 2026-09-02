@@ -75,6 +75,271 @@ void main() {
       check(result).contains('Answer\n\n$details');
       check(result).contains('`Example$details`');
     });
+
+    test('joins details open tag spanning lines from newlines in attribute values', () {
+      const raw =
+          '<details type="tool_calls" done="true" id="x" name="fetch_url" '
+          'arguments="&quot;{\\&quot;url\\&quot;: \\&quot;https://example.com\\&quot;}&quot;" '
+          'result="[{&quot;type&quot;:&quot;input_text&quot;,&quot;text&quot;:&quot;line one\nline two\nline three&quot;}]">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>\nTrailing answer.';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      // The opening tag must now start a line as a complete tag.
+      final firstLine = result.split('\n').first;
+      check(firstLine).startsWith('<details');
+      check(firstLine).endsWith('>');
+      // Newlines inside the attribute value are folded to spaces.
+      check(firstLine.contains('line one')).isTrue();
+      check(firstLine.contains('line three&quot;}]">')).isTrue();
+    });
+
+    test('escapes raw angle brackets inside details attribute values', () {
+      const raw =
+          '<details type="tool_calls" done="true" id="x" name="fetch_url" '
+          'result="[{&quot;text&quot;:&quot;2026-07-14<br> (123)&quot;}]">'
+          '</details>';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      // The raw < > inside the quoted value must not truncate tag parsing.
+      check(result).contains('&lt;br&gt;');
+      // The tag must remain a single line and keep its raw-<br> escaped,
+      // i.e. no bare < or > left inside the attribute value.
+      final firstLine = result.split('\n').first;
+      check(firstLine.contains('<br>')).isFalse();
+      check(firstLine.startsWith('<details')).isTrue();
+    });
+
+    test('well-formed single-line tag is unchanged', () {
+      const raw =
+          'text before\n'
+          '<details type="tool_calls" done="true" id="x" name="t" '
+          'result="[{&quot;a&quot;:&quot;ok&quot;}]">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>\nafter';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+      check(result).contains(
+        '<details type="tool_calls" done="true" id="x" name="t" '
+        'result="[{&quot;a&quot;:&quot;ok&quot;}]">',
+      );
+    });
+
+    test('joins spanning tag with raw <br> inside a quoted value', () {
+      // Combined case: the tag spans lines AND the value contains a raw <br>.
+      // The join must use the quote-balanced > (the real tag end), not the >
+      // inside <br>; the escaper must then neutralize it.
+      const raw =
+          '<details type="tool_calls" done="true" id="x" name="fetch_url" '
+          'result="[{&quot;text&quot;:&quot;line one\nline two <br> (123)\nline three&quot;}]">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>\nTrailing answer.';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      final firstLine = result.split('\n').first;
+      // The full tag (through the real >) must be joined onto one line.
+      check(firstLine.contains('line three&quot;}]">')).isTrue();
+      check(firstLine.contains('&lt;br&gt;')).isTrue();
+      // No raw <br> remains inside the attribute value.
+      check(firstLine.contains('<br>')).isFalse();
+    });
+
+    test('escapes every raw angle bracket in quoted values, not just the first',
+        () {
+      // Greptile P1: _detailsOpenTagSingleLine matches stop at the first raw
+      // >, so only the first <br> was previously escaped; the second stayed
+      // raw and the parser truncated the attribute list after it.
+      const raw =
+          '<details type="tool_calls" result="a<br>b<br>c" other="x">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      final firstLine = result.split('\n').first;
+      // The full original tag, with every raw < > escaped.
+      check(firstLine.contains('other="x">')).isTrue();
+      check('&lt;br&gt;'.allMatches(firstLine).length).equals(2);
+      check(firstLine.contains('<br>')).isFalse();
+    });
+
+    test('mixed-case spanning tag is joined too', () {
+      const raw =
+          '<DETAILS type="tool_calls" done="true" id="x" name="fetch_url" '
+          'result="[{&quot;text&quot;:&quot;line one\nline two\nline three&quot;}]">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</DETAILS>\nTrailing answer.';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      final firstLine = result.split('\n').first;
+      check(firstLine.startsWith('<DETAILS')).isTrue();
+      check(firstLine.endsWith('>')).isTrue();
+      check(firstLine.contains('line three&quot;}]">')).isTrue();
+    });
+
+    test('escapes raw angle brackets in single-quoted attribute values', () {
+      // CodeRabbit + Greptile P1: the quote-aware scan only tracked `"`, so a
+      // single-quoted value's raw `<br>` acted as a false tag terminator.
+      const raw =
+          "<details type='tool_calls' result='before <br> after'>\n"
+          '<summary>Tool Executed</summary>\n'
+          '</details>';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      final firstLine = result.split('\n').first;
+      check(firstLine.contains("result='before &lt;br&gt; after'")).isTrue();
+      check(firstLine.contains('<br>')).isFalse();
+    });
+
+    test('joins single-quoted spanning tag too', () {
+      const raw =
+          "<details type='tool_calls' result='line one\nline two'>\n"
+          '<summary>Tool Executed</summary>\n'
+          '</details>\nTrailing answer.';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      final firstLine = result.split('\n').first;
+      check(firstLine.startsWith('<details')).isTrue();
+      check(firstLine.endsWith('>')).isTrue();
+      check(firstLine.contains("line two'>")).isTrue();
+    });
+
+    test('double quotes inside a single-quoted value do not end the tag', () {
+      const raw =
+          '<details type="tool_calls" data-x=\'{"a":"x>y"}\' result="ok">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      final firstLine = result.split('\n').first;
+      check(firstLine.contains('result="ok">')).isTrue();
+    });
+
+    test('prose apostrophe before a tag does not corrupt quote state', () {
+      // A quote only opens a value immediately after `=`; "It's" in prose
+      // must not flip the scanner into quote mode.
+      const raw =
+          "It's a nice day\n"
+          '<details type="tool_calls" result="a>b" other="y">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      final tagLine =
+          result.split('\n').firstWhere((l) => l.startsWith('<details'));
+      check(tagLine.contains('other="y">')).isTrue();
+    });
+
+    test('tilde-fenced code block content is left untouched', () {
+      // CodeRabbit: _codeSpanOrFence did not mask ~~~ fences, so literal
+      // <details> examples inside them were escaped before parsing.
+      const raw = '~~~\n<details result="a<br>b">\n~~~';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      check(result.contains('a<br>b')).isTrue();
+      check(result.contains('a&lt;br&gt;b')).isFalse();
+    });
+
+    test('tilde fence with info string and indentation is masked', () {
+      const raw = '  ~~~html\n<details result="a<br>b">\n  ~~~\nafter';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      check(result.contains('a<br>b')).isTrue();
+      check(result.contains('a&lt;br&gt;b')).isFalse();
+    });
+
+    test('real details tag after a tilde fence is still normalized', () {
+      const raw =
+          '~~~\nliteral <details result="a<br>b">\n~~~\n\n'
+          '<details type="tool_calls" result="x<br>y">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      check(result.contains('literal <details result="a<br>b">')).isTrue();
+      final tagLine =
+          result.split('\n').firstWhere((l) => l.startsWith('<details'));
+      check(tagLine.contains('&lt;br&gt;')).isTrue();
+      check(tagLine.contains('<br>')).isFalse();
+    });
+
+    test('whitespace after = still enters quote mode (double-quoted)', () {
+      // CodeRabbit round 4 / Greptile P1: HTML permits whitespace between
+      // `=` and the opening quote; the scan must not treat a `<br>` inside
+      // such a value as the tag end.
+      const raw =
+          '<details type="tool_calls" result = "a<br>b" other="x">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      final firstLine = result.split('\n').first;
+      check(firstLine.contains('other="x">')).isTrue();
+      check('&lt;br&gt;'.allMatches(firstLine).length).equals(1);
+      check(firstLine.contains('<br>')).isFalse();
+    });
+
+    test('whitespace after = still enters quote mode (single-quoted)', () {
+      const raw =
+          "<details type='tool_calls' result= 'a<br>b' other='x'>\n"
+          '<summary>Tool Executed</summary>\n'
+          '</details>';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      final firstLine = result.split('\n').first;
+      check(firstLine.contains("other='x'>")).isTrue();
+      check(firstLine.contains('&lt;br&gt;')).isTrue();
+      check(firstLine.contains('<br>')).isFalse();
+    });
+
+    test('whitespace-spanning value across newline is joined', () {
+      const raw =
+          '<details type="tool_calls" result =\n"a<br>\nb" other="x">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      final firstLine = result.split('\n').first;
+      check(firstLine.startsWith('<details')).isTrue();
+      check(firstLine.contains('other="x">')).isTrue();
+      check(firstLine.contains('&lt;br&gt;')).isTrue();
+      check(firstLine.contains('<br>')).isFalse();
+    });
+
+    test('many unterminated markers finish quickly (bounded work)', () {
+      // CodeRabbit round 4: without an aggregate scan budget, input with
+      // many unterminated `<details` markers and one newline makes every
+      // marker scan to end-of-buffer — quadratic work that freezes
+      // streaming renders.
+      final payload = List.generate(4000, (i) => 'text $i <details type="x"')
+          .join('\n');
+      final sw = Stopwatch()..start();
+      final result = ConduitMarkdownPreprocessor.normalize('$payload\n');
+      sw.stop();
+
+      check(result.contains('text 0')).isTrue();
+      check(result.contains('text 3999')).isTrue();
+      check(sw.elapsed.inMilliseconds < 2000,
+          'normalize stays linear (${sw.elapsedMilliseconds}ms)');
+    });
+
+    test('tilde fence with longer closing run is not closed early', () {
+      // CommonMark: closing run must be at least as long as the opening
+      // one. ~~~~ must not close at ~~~; content after it stays masked.
+      const raw =
+          '~~~~\n<details result="a<br>b">\n~~~\nstill inside\n~~~~\nafter';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      check(result.contains('a<br>b')).isTrue();
+      check(result.contains('a&lt;br&gt;b')).isFalse();
+      check(result.contains('still inside')).isTrue();
+    });
+
+    test('tilde fence of four tildes masks details examples', () {
+      const raw = '~~~~\n<details result="a<br>b">\n~~~~';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      check(result.contains('a<br>b')).isTrue();
+      check(result.contains('a&lt;br&gt;b')).isFalse();
+    });
   });
 
   group('ConduitMarkdownPreprocessor.sanitize', () {
