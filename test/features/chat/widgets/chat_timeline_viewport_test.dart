@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/models/chat_transcript_window.dart';
@@ -195,6 +196,14 @@ void main() {
       identical(materialScrollbar.controller, scrollView.controller),
       true,
     );
+    expect(
+      MediaQuery.paddingOf(tester.element(find.byType(Scrollbar))),
+      const EdgeInsets.only(top: _topContentInset, bottom: 80),
+    );
+    expect(
+      MediaQuery.paddingOf(tester.element(find.byType(CustomScrollView))),
+      EdgeInsets.zero,
+    );
 
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     await tester.pumpWidget(
@@ -212,6 +221,52 @@ void main() {
       identical(cupertinoScrollbar.controller, iosScrollView.controller),
       true,
     );
+    expect(
+      MediaQuery.paddingOf(tester.element(find.byType(CupertinoScrollbar))),
+      const EdgeInsets.only(top: _topContentInset, bottom: 80),
+    );
+    expect(
+      MediaQuery.paddingOf(tester.element(find.byType(CustomScrollView))),
+      EdgeInsets.zero,
+    );
+  });
+
+  _viewportTest('keeps the scroll range stable past a long response', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final ids = List<String>.generate(30, (index) => 'message-$index');
+
+    await tester.pumpWidget(
+      _viewportHost(
+        _viewport(
+          controller: controller,
+          ids: ids,
+          followLatest: false,
+          rowHeight: (id) => id == 'message-25' ? 2400 : 52,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final position = tester
+        .widget<CustomScrollView>(find.byType(CustomScrollView))
+        .controller!
+        .position;
+    final ranges = <double>[
+      position.maxScrollExtent - position.minScrollExtent,
+    ];
+    while (position.pixels > position.minScrollExtent) {
+      position.jumpTo(
+        math.max(position.minScrollExtent, position.pixels - 300),
+      );
+      await tester.pump();
+      ranges.add(position.maxScrollExtent - position.minScrollExtent);
+    }
+
+    for (final range in ranges.skip(1)) {
+      check(range).isCloseTo(ranges.first, 1);
+    }
   });
 
   test(
