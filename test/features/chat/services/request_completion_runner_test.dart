@@ -203,9 +203,9 @@ void main() {
         isStreaming: true,
       ),
     ]);
-
     await check(runner.run(chatId: chatId, payload: payload('asst-own')))
         .throws<StateError>();
+    check(container.read(localChatGenerationActiveProvider)).isFalse();
   });
 
   test('defers when no active database is attached', () async {

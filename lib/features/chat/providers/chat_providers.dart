@@ -1334,6 +1334,36 @@ final isChatStreamingProvider = Provider<bool>((ref) {
   return ref.watch(chatMessagesProvider.select(_messagesAreStreaming));
 });
 
+final _localChatGenerationCountProvider =
+    NotifierProvider<_LocalChatGenerationCount, int>(
+      _LocalChatGenerationCount.new,
+    );
+
+final localChatGenerationActiveProvider = Provider<bool>(
+  (ref) => ref.watch(_localChatGenerationCountProvider) > 0,
+);
+
+void Function() holdLocalChatGeneration(Ref ref) {
+  final counter = ref.read(_localChatGenerationCountProvider.notifier)..hold();
+  var released = false;
+  return () {
+    if (released) return;
+    released = true;
+    counter.release();
+  };
+}
+
+class _LocalChatGenerationCount extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void hold() => state++;
+
+  void release() {
+    if (ref.mounted && state > 0) state--;
+  }
+}
+
 final chatWakelockCoordinatorProvider = Provider<void>((ref) {
   var pendingToggle = Future<void>.value();
   var localStream = false;
@@ -1367,14 +1397,10 @@ final chatWakelockCoordinatorProvider = Provider<void>((ref) {
     localStream = enabled;
     enqueue(localStream || backgroundStream);
   }, fireImmediately: true);
-  ref.listen<bool>(
-    activeChatIdsProvider.select((chatIds) => chatIds.isNotEmpty),
-    (_, enabled) {
-      backgroundStream = enabled;
-      enqueue(localStream || backgroundStream);
-    },
-    fireImmediately: true,
-  );
+  ref.listen<bool>(localChatGenerationActiveProvider, (_, enabled) {
+    backgroundStream = enabled;
+    enqueue(localStream || backgroundStream);
+  }, fireImmediately: true);
   ref.onDispose(() => enqueue(false));
 });
 

@@ -8,6 +8,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:wakelock_plus_platform_interface/wakelock_plus_platform_interface.dart';
 
+final _testRefProvider = Provider<Ref>((ref) => ref);
+
 class _FakeWakelock extends WakelockPlusPlatformInterface {
   final toggles = <bool>[];
   bool throwOnToggle = false;
@@ -57,18 +59,21 @@ void main() {
       _assistantMessage(isStreaming: true),
     ]);
     await _flushPluginCall();
-    container.read(activeChatIdsProvider.notifier).setActive('background-chat');
+    container.read(activeChatIdsProvider.notifier).setActive('remote-chat');
     container.read(chatMessagesProvider.notifier).setMessages([
       _assistantMessage(isStreaming: false),
     ]);
     await _flushPluginCall();
-    expect(fakePlatform.toggles, [false, true]);
+    expect(fakePlatform.toggles, [false, true, false]);
 
-    container
-        .read(activeChatIdsProvider.notifier)
-        .setInactive('background-chat');
+    final releaseGeneration = holdLocalChatGeneration(
+      container.read(_testRefProvider),
+    );
+    await container.pump();
+    expect(container.read(localChatGenerationActiveProvider), isTrue);
     await _flushPluginCall();
-    container.read(activeChatIdsProvider.notifier).setActive('background-chat');
+    releaseGeneration();
+    await container.pump();
     await _flushPluginCall();
     container.dispose();
     await _flushPluginCall();
