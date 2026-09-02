@@ -10783,10 +10783,10 @@ Future<bool?> _waitForSubmittedOpenWebUiTask(
   if (api is! ApiService) return false;
   var consecutiveFailures = 0;
   var observedTask = false;
+  var unobservedPullMisses = 0;
 
-  // A successfully active task has no wall-clock deadline: long generations
-  // own the wakelock until the server reports completion. Only repeated status
-  // lookup failures terminate recovery as an error.
+  // Observed active tasks have no deadline. Before registry visibility, pull
+  // misses share the caller's bounded recovery budget.
   while (true) {
     if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
     try {
@@ -10807,6 +10807,8 @@ Future<bool?> _waitForSubmittedOpenWebUiTask(
           delay: Duration.zero,
         );
         if (landed != false) return null;
+        unobservedPullMisses++;
+        if (unobservedPullMisses >= failureLimit) return true;
       }
       consecutiveFailures = 0;
     } catch (error, stackTrace) {

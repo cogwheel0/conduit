@@ -1173,16 +1173,56 @@ void main() {
         ),
         chatId: chatId,
         assistantMessageId: assistantId,
-        recoveryAttempts: 1,
+        recoveryAttempts: 4,
       );
 
-      check(syncEngine.pulls).equals(5);
+      check(syncEngine.pulls).equals(8);
       check(api.taskIdResponses).isEmpty();
       check(api.completionCalls).equals(0);
       final persisted = await db.messagesDao.getMessage(chatId, assistantId);
       check(persisted?.content).equals('A safely completed');
     },
   );
+
+  test('unobserved socket task exhausts recovery after final pulls', () async {
+    const chatId = 'unobserved-task-chat';
+    const assistantId = 'unobserved-task-assistant';
+    await _seedChat(db, chatId, assistantId: assistantId);
+    final api = _GatedCompletionApi(Completer<void>()..complete())
+      ..assistantMessageId = assistantId;
+    final syncEngine = _PersistingSyncEngine(db, api, landResponse: false);
+    final messages = <ChatMessage>[
+      _user('user', 'hello'),
+      _streamingAssistant(assistantId, ''),
+    ];
+    final container = _container(
+      db: db,
+      active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+      messages: messages,
+      api: api,
+      syncEngine: syncEngine,
+    );
+    addTearDown(container.dispose);
+
+    await finishSubmittedOpenWebUiCompletionHeadlesslyForTest(
+      container,
+      session: ChatCompletionSession.taskSocket(
+        messageId: assistantId,
+        conversationId: chatId,
+        taskId: 'task-1',
+      ),
+      chatId: chatId,
+      assistantMessageId: assistantId,
+      recoveryAttempts: 2,
+    );
+
+    check(syncEngine.pulls).equals(6);
+    check(api.completionCalls).equals(0);
+    final persisted = await db.messagesDao.getMessage(chatId, assistantId);
+    final payload = jsonDecode(persisted!.payload) as Map<String, dynamic>;
+    check(payload['done'] as bool).isTrue();
+    check(payload['error']).isNotNull();
+  }, timeout: const Timeout(Duration(seconds: 5)));
 
   test(
     'socket bind loss returns unattached and cannot mutate the new chat',
