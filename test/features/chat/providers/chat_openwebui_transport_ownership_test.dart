@@ -158,6 +158,7 @@ class _GatedCompletionApi extends ApiService {
   final Completer<void> postEntered = Completer<void>();
   int completionCalls = 0;
   final taskIdResponses = <List<String>>[];
+  final activeChatResponses = <Set<String>>[];
   int taskStatusFailures = 0;
   String? assistantMessageId;
   String? submittedModel;
@@ -177,6 +178,13 @@ class _GatedCompletionApi extends ApiService {
       throw StateError('task status unavailable');
     }
     return taskIdResponses.isEmpty ? const [] : taskIdResponses.removeAt(0);
+  }
+
+  @override
+  Future<Set<String>> checkActiveChats(List<String> chatIds) async {
+    return activeChatResponses.isEmpty
+        ? const <String>{}
+        : activeChatResponses.removeAt(0);
   }
 
   @override
@@ -1031,9 +1039,11 @@ void main() {
       final release = Completer<void>()..complete();
       final api = _GatedCompletionApi(release)
         ..taskIdResponses.addAll([
+          const [],
           const ['task-1'],
           const [],
-        ]);
+        ])
+        ..activeChatResponses.add({chatId});
       final syncEngine = _PersistingSyncEngine(db, api, landResponse: false);
       final messages = <ChatMessage>[
         _user('user', 'hello'),
@@ -1077,6 +1087,7 @@ void main() {
 
       check(api.completionCalls).equals(0);
       check(api.taskIdResponses).isEmpty();
+      check(api.activeChatResponses).isEmpty();
       check(syncEngine.pulls).equals(2);
       final persisted = await db.messagesDao.getMessage(chatId, assistantId);
       final payload = jsonDecode(persisted!.payload) as Map<String, dynamic>;

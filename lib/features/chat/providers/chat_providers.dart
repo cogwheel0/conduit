@@ -10792,17 +10792,22 @@ Future<bool?> _waitForSubmittedOpenWebUiTask(
     if (taskId != null && taskId.isNotEmpty) taskId,
   };
 
-  // Open WebUI registers tasks before returning their IDs. New markers track
-  // the exact ID; legacy markers adopt the first active server snapshot. Once
-  // every tracked ID leaves, bounded pulls recover the persisted result.
+  // New markers track the exact task ID. Legacy markers cross-check the
+  // server's chat-active state before accepting an empty registry, and adopt
+  // any active task IDs they observe.
   while (true) {
     if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
     try {
       final taskIds = await api.getTaskIdsByChat(owner.chatId);
       if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
       if (trackedTaskIds.isEmpty) {
-        if (taskIds.isEmpty) return true;
-        trackedTaskIds.addAll(taskIds);
+        if (taskIds.isNotEmpty) {
+          trackedTaskIds.addAll(taskIds);
+        } else {
+          final activeChatIds = await api.checkActiveChats([owner.chatId]);
+          if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
+          if (!activeChatIds.contains(owner.chatId)) return true;
+        }
       } else if (trackedTaskIds.every((id) => !taskIds.contains(id))) {
         return true;
       }
