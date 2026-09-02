@@ -60,19 +60,19 @@ class ConduitMarkdownPreprocessor {
     caseSensitive: false,
   );
   static final _toolCallBlocks = RegExp(
-    r'''<details\b(?=[^>]*\btype\s*=\s*["']tool_calls["'])[^>]*>[\s\S]*?</details>''',
+    r'''<details\b(?=(?:[^>"']|"[^"]*"|'[^']*')*\s+type\s*=\s*["']tool_calls["'])(?:[^>"']|"[^"]*"|'[^']*')*>[\s\S]*?</details>''',
     multiLine: true,
     dotAll: true,
     caseSensitive: false,
   );
   static final _attachedToolCallDetailsOpen = RegExp(
-    r'''([^\n])(<details\b(?=[^>]*\btype\s*=\s*["']tool_calls["']))''',
+    r'''([^\n])(<details\b(?=(?:[^>"']|"[^"]*"|'[^']*')*\s+type\s*=\s*["']tool_calls["']))''',
     caseSensitive: false,
   );
   static final _detailsOpenTag = RegExp(r'<details\b', caseSensitive: false);
   static final _codeSpanOrFence = RegExp(r'(`+)([\s\S]*?)\1');
   static final _tildeFence = RegExp(
-    r'^[ \t]{0,3}~{3,}[^\n]*\n[\s\S]*?^[ \t]{0,3}~{3,}[ \t]*$',
+    r'^[ \t]{0,3}(~{3,})[^\n]*\n[\s\S]*?^[ \t]{0,3}\1~*[ \t]*$',
     multiLine: true,
   );
   static final _unterminatedTildeFence = RegExp(
@@ -407,8 +407,8 @@ class ConduitMarkdownPreprocessor {
     }
 
     var masked = input.replaceAllMapped(_tildeFence, mask);
-    masked = masked.replaceAllMapped(_unterminatedTildeFence, mask);
     masked = masked.replaceAllMapped(_codeSpanOrFence, mask);
+    masked = masked.replaceAllMapped(_unterminatedTildeFence, mask);
     var output = transform(masked);
 
     // Placeholders inside removed matches no longer exist, so only code from
@@ -449,7 +449,7 @@ class ConduitMarkdownPreprocessor {
       }
 
       if (end < 0) {
-        searchFrom = scanEnd;
+        searchFrom = opening.end;
         continue;
       }
 
