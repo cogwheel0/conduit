@@ -10785,8 +10785,9 @@ Future<bool?> _waitForSubmittedOpenWebUiTask(
   var observedTask = false;
   var unobservedPullMisses = 0;
 
-  // Observed active tasks have no deadline. Before registry visibility, pull
-  // misses share the caller's bounded recovery budget.
+  // Open WebUI awaits task + Redis registration before returning its task ID.
+  // These bounded misses cover read visibility/persistence lag; an observed
+  // active task itself has no deadline.
   while (true) {
     if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
     try {
