@@ -10783,11 +10783,10 @@ Future<bool?> _waitForSubmittedOpenWebUiTask(
   if (api is! ApiService) return false;
   var consecutiveFailures = 0;
   var observedTask = false;
-  final registrationDeadline = DateTime.now().add(const Duration(minutes: 1));
 
   // A successfully active task has no wall-clock deadline: long generations
   // own the wakelock until the server reports completion. Only repeated status
-  // failures or a minute with neither registry nor persisted state terminate.
+  // lookup failures terminate recovery as an error.
   while (true) {
     if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
     try {
@@ -10808,7 +10807,6 @@ Future<bool?> _waitForSubmittedOpenWebUiTask(
           delay: Duration.zero,
         );
         if (landed != false) return null;
-        if (DateTime.now().isAfter(registrationDeadline)) return false;
       }
       consecutiveFailures = 0;
     } catch (error, stackTrace) {
