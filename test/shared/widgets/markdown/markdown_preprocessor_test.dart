@@ -260,6 +260,86 @@ void main() {
       check(tagLine.contains('&lt;br&gt;')).isTrue();
       check(tagLine.contains('<br>')).isFalse();
     });
+
+    test('whitespace after = still enters quote mode (double-quoted)', () {
+      // CodeRabbit round 4 / Greptile P1: HTML permits whitespace between
+      // `=` and the opening quote; the scan must not treat a `<br>` inside
+      // such a value as the tag end.
+      const raw =
+          '<details type="tool_calls" result = "a<br>b" other="x">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      final firstLine = result.split('\n').first;
+      check(firstLine.contains('other="x">')).isTrue();
+      check('&lt;br&gt;'.allMatches(firstLine).length).equals(1);
+      check(firstLine.contains('<br>')).isFalse();
+    });
+
+    test('whitespace after = still enters quote mode (single-quoted)', () {
+      const raw =
+          "<details type='tool_calls' result= 'a<br>b' other='x'>\n"
+          '<summary>Tool Executed</summary>\n'
+          '</details>';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      final firstLine = result.split('\n').first;
+      check(firstLine.contains("other='x'>")).isTrue();
+      check(firstLine.contains('&lt;br&gt;')).isTrue();
+      check(firstLine.contains('<br>')).isFalse();
+    });
+
+    test('whitespace-spanning value across newline is joined', () {
+      const raw =
+          '<details type="tool_calls" result =\n"a<br>\nb" other="x">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      final firstLine = result.split('\n').first;
+      check(firstLine.startsWith('<details')).isTrue();
+      check(firstLine.contains('other="x">')).isTrue();
+      check(firstLine.contains('&lt;br&gt;')).isTrue();
+      check(firstLine.contains('<br>')).isFalse();
+    });
+
+    test('many unterminated markers finish quickly (bounded work)', () {
+      // CodeRabbit round 4: without an aggregate scan budget, input with
+      // many unterminated `<details` markers and one newline makes every
+      // marker scan to end-of-buffer — quadratic work that freezes
+      // streaming renders.
+      final payload = List.generate(4000, (i) => 'text $i <details type="x"')
+          .join('\n');
+      final sw = Stopwatch()..start();
+      final result = ConduitMarkdownPreprocessor.normalize('$payload\n');
+      sw.stop();
+
+      check(result.contains('text 0')).isTrue();
+      check(result.contains('text 3999')).isTrue();
+      check(sw.elapsed.inMilliseconds < 2000,
+          'normalize stays linear (${sw.elapsedMilliseconds}ms)');
+    });
+
+    test('tilde fence with longer closing run is not closed early', () {
+      // CommonMark: closing run must be at least as long as the opening
+      // one. ~~~~ must not close at ~~~; content after it stays masked.
+      const raw =
+          '~~~~\n<details result="a<br>b">\n~~~\nstill inside\n~~~~\nafter';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      check(result.contains('a<br>b')).isTrue();
+      check(result.contains('a&lt;br&gt;b')).isFalse();
+      check(result.contains('still inside')).isTrue();
+    });
+
+    test('tilde fence of four tildes masks details examples', () {
+      const raw = '~~~~\n<details result="a<br>b">\n~~~~';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      check(result.contains('a<br>b')).isTrue();
+      check(result.contains('a&lt;br&gt;b')).isFalse();
+    });
   });
 
   group('ConduitMarkdownPreprocessor.sanitize', () {
