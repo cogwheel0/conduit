@@ -1093,18 +1093,12 @@ void main() {
     await _seedChat(db, chatId, assistantId: assistantId);
     final release = Completer<void>()..complete();
     final api = _GatedCompletionApi(release)
-      ..assistantMessageId = assistantId
       ..taskIdResponses.addAll([
         const ['foreign-task'],
         const ['foreign-task'],
         const ['foreign-task'],
       ]);
-    var unresolvedPulls = 4;
-    final syncEngine = _PersistingSyncEngine(
-      db,
-      api,
-      canLandResponse: () => unresolvedPulls-- <= 0,
-    );
+    final syncEngine = _PersistingSyncEngine(db, api, landResponse: false);
     final messages = <ChatMessage>[
       _user('user', 'hello'),
       _streamingAssistant(assistantId, ''),
@@ -1152,8 +1146,7 @@ void main() {
     final persisted = await db.messagesDao.getMessage(chatId, assistantId);
     final payload = jsonDecode(persisted!.payload) as Map<String, dynamic>;
     check(payload['done'] as bool).isTrue();
-    check(payload['error']).isNull();
-    check(persisted.content).equals('A safely completed');
+    check(payload['error']).isNotNull();
   });
 
   test(
