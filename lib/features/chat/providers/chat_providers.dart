@@ -10753,19 +10753,12 @@ Future<void> recoverSubmittedOpenWebUiCompletion(
   );
   if (landed == true) return;
   if (landed == null) return;
-  if (taskId == null || taskId.isEmpty) {
-    await _markHeadlessCompletionRecoveryFailed(
-      ref,
-      owner: owner,
-      assistantMessageId: assistantMessageId,
-    );
-    return;
-  }
   final taskFinished = await _waitForSubmittedOpenWebUiTask(
     ref,
     owner: owner,
     taskId: taskId,
     failureLimit: math.max(1, recoveryAttempts),
+    pollDelay: recoveryDelay,
   );
   if (taskFinished == null) return;
   if (taskFinished) {
@@ -10788,23 +10781,31 @@ Future<void> recoverSubmittedOpenWebUiCompletion(
 Future<bool?> _waitForSubmittedOpenWebUiTask(
   dynamic ref, {
   required OpenWebUiCompletionOwner owner,
-  required String taskId,
+  String? taskId,
   required int failureLimit,
   Duration pollDelay = const Duration(seconds: 2),
 }) async {
   final api = owner.api;
   if (api is! ApiService) return false;
   var consecutiveFailures = 0;
+  final trackedTaskIds = <String>{
+    if (taskId != null && taskId.isNotEmpty) taskId,
+  };
 
-  // Open WebUI registers this exact task before returning its ID. Once that
-  // durable identity leaves the active registry, bounded pulls recover the
-  // persisted result. Long-running active tasks have no client deadline.
+  // Open WebUI registers tasks before returning their IDs. New markers track
+  // the exact ID; legacy markers adopt the first active server snapshot. Once
+  // every tracked ID leaves, bounded pulls recover the persisted result.
   while (true) {
     if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
     try {
       final taskIds = await api.getTaskIdsByChat(owner.chatId);
       if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
-      if (!taskIds.contains(taskId)) return true;
+      if (trackedTaskIds.isEmpty) {
+        if (taskIds.isEmpty) return true;
+        trackedTaskIds.addAll(taskIds);
+      } else if (trackedTaskIds.every((id) => !taskIds.contains(id))) {
+        return true;
+      }
       consecutiveFailures = 0;
     } catch (error, stackTrace) {
       consecutiveFailures++;
