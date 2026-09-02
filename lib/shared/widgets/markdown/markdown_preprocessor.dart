@@ -65,7 +65,7 @@ class ConduitMarkdownPreprocessor {
     dotAll: true,
   );
   static final _attachedToolCallDetailsOpen = RegExp(
-    r'''([^\n])(<details\b(?=[^>]*\btype\s*=\s*["']tool_calls["']))''',
+    r'''([^\n])(<details\b(?=[^>\n]*\btype\s*=\s*["']tool_calls["']))''',
     caseSensitive: false,
   );
   /// Case-insensitive `<details` marker used by the open-tag normalizer.
@@ -76,15 +76,22 @@ class ConduitMarkdownPreprocessor {
   /// Upper bound on how far a spanning `<details` open tag may be joined so a
   /// malformed tag cannot trigger an unbounded scan or a giant concatenated line.
   static const _detailsOpenTagJoinLimit = 256 * 1024;
+  /// Aggregate cap on scanning across all `<details` markers in one
+  /// [normalize] call, so inputs with many unterminated markers cannot
+  /// produce quadratic synchronous work (streaming render freeze).
+  static const _detailsOpenTagTotalScanBudget = 1024 * 1024;
   /// Code spans, backtick fences, and tilde fences (`~~~`).
   ///
   /// Tilde fences are masked alongside backtick fences so transforms never
   /// rewrite literal `<details>` examples inside them. CommonMark allows
   /// 0-3 leading spaces and an info string on the opening fence; the closing
-  /// fence may be indented up to three spaces.
+  /// fence allows only spaces (up to three), optional trailing whitespace,
+  /// and a delimiter run at least as long as the opening one (matched
+  /// conservatively as an equal-length run via backreference — a longer
+  /// closing run simply leaves the mask open, which is safe).
   static final _codeSpanOrFence = RegExp(
     r'(`+)([\s\S]*?)\1|'
-    r'^ {0,3}~~~[^\n]*\n[\s\S]*?^[ \t]*~~~[^\n]*(?=\n|$)',
+    r'^ {0,3}(~{3,})[^\n]*\n[\s\S]*?^ {0,3}\3[ \t]*(?=\n|$)',
     multiLine: true,
   );
   static final _allDetailsBlocks = RegExp(
@@ -508,6 +515,7 @@ class ConduitMarkdownPreprocessor {
     final buffer = StringBuffer();
     var copyFrom = 0;
     var searchFrom = 0;
+    var scannedTotal = 0;
     while (true) {
       final idx = _nextDetailsMarker(input, searchFrom);
       if (idx == -1) break;
@@ -515,13 +523,14 @@ class ConduitMarkdownPreprocessor {
       buffer.write(input.substring(copyFrom, idx));
 
       // Quote-aware scan to this tag's true end-of-tag. A quote character
-      // only opens an attribute value immediately after `=`, so apostrophes
-      // and quotes in prose or unquoted contexts (e.g. "It's") cannot
-      // corrupt the quote state. Single- and double-quoted values are both
-      // tracked; HTML attribute values have no backslash escaping.
+      // only opens an attribute value right after `=` (optionally with
+      // whitespace between them, as HTML permits), so apostrophes and
+      // quotes in prose or unquoted contexts (e.g. "It's") cannot corrupt
+      // the quote state. Single- and double-quoted values are both tracked;
+      // HTML attribute values have no backslash escaping.
       var pos = idx;
       String? quote;
-      var prev = '';
+      var awaitingValue = false;
       var end = -1;
       final scanLimit =
           idx + (hasNewlines ? _detailsOpenTagJoinLimit : 64 * 1024);
@@ -529,18 +538,38 @@ class ConduitMarkdownPreprocessor {
         final ch = input[pos];
         if (quote != null) {
           if (ch == quote) quote = null;
-        } else if ((ch == '"' || ch == "'") && prev == '=') {
-          quote = ch;
-        } else if (ch == '>') {
+        } else if (ch == '"' || ch == "'") {
+          if (awaitingValue) {
+            quote = ch;
+            awaitingValue = false;
+          }
+        } else if (ch == '=') {
+          awaitingValue = true;
+        } else if (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r') {
+          // Keep any pending "awaiting value" state across whitespace.
+        } else {
+          awaitingValue = false;
+        }
+        if (quote == null && ch == '>') {
           end = pos;
           break;
-        } else if (ch == '\n' && pos > idx + 16 * 1024 && !hasNewlines) {
+        } else if (quote == null &&
+            ch == '\n' &&
+            pos > idx + 16 * 1024 &&
+            !hasNewlines) {
           // Not actually a spanning-tag context; bail out to avoid leaking an
           // unterminated `<details` string across the whole buffer.
           break;
         }
-        prev = ch;
         pos++;
+      }
+      scannedTotal += pos - idx + 1;
+      if (scannedTotal > _detailsOpenTagTotalScanBudget) {
+        // Aggregate budget exhausted: stop normalizing and copy the rest
+        // verbatim so pathological input degrades to linear work. Resume
+        // marker discovery past this tag on the next normalize() flush.
+        buffer.write(input.substring(idx));
+        return buffer.toString();
       }
       if (end == -1) {
         // Unterminated tag — copy verbatim and continue after the marker.
@@ -568,12 +597,12 @@ class ConduitMarkdownPreprocessor {
   /// `<details ...>` opening tag so the tag regex reaches the real
   /// end-of-tag instead of truncating at the first `>` (which silently drops
   /// attributes like `result`). Both single- and double-quoted values are
-  /// tracked; a quote only opens a value immediately after `=`, so stray
-  /// apostrophes cannot corrupt the state. HTML attribute values have no
-  /// backslash escaping.
+  /// tracked; a quote opens a value right after `=` (whitespace between them
+  /// is permitted, as in HTML), so stray apostrophes cannot corrupt the
+  /// state. HTML attribute values have no backslash escaping.
   static String _escapeAnglesInQuotedValues(String tag) {
     String? quote;
-    var prev = '';
+    var awaitingValue = false;
     var changed = false;
     final buffer = StringBuffer();
     for (var i = 0; i < tag.length; i++) {
@@ -590,10 +619,18 @@ class ConduitMarkdownPreprocessor {
           changed = true;
           continue;
         }
-      } else if ((ch == '"' || ch == "'") && prev == '=') {
-        quote = ch;
+      } else if (ch == '"' || ch == "'") {
+        if (awaitingValue) {
+          quote = ch;
+          awaitingValue = false;
+        }
+      } else if (ch == '=') {
+        awaitingValue = true;
+      } else if (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r') {
+        // Keep any pending "awaiting value" state across whitespace.
+      } else {
+        awaitingValue = false;
       }
-      prev = ch;
       buffer.write(ch);
     }
     return changed ? buffer.toString() : tag;
