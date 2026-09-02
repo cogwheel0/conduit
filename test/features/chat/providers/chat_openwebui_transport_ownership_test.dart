@@ -158,6 +158,7 @@ class _GatedCompletionApi extends ApiService {
   final Completer<void> postEntered = Completer<void>();
   int completionCalls = 0;
   final taskIdResponses = <List<String>>[];
+  int taskStatusFailures = 0;
   String? assistantMessageId;
   String? submittedModel;
   Map<String, dynamic>? submittedModelItem;
@@ -170,8 +171,13 @@ class _GatedCompletionApi extends ApiService {
       const {};
 
   @override
-  Future<List<String>> getTaskIdsByChat(String chatId) async =>
-      taskIdResponses.isEmpty ? const [] : taskIdResponses.removeAt(0);
+  Future<List<String>> getTaskIdsByChat(String chatId) async {
+    if (taskStatusFailures > 0) {
+      taskStatusFailures--;
+      throw StateError('task status unavailable');
+    }
+    return taskIdResponses.isEmpty ? const [] : taskIdResponses.removeAt(0);
+  }
 
   @override
   Future<ChatCompletionSession> sendMessageSession({
@@ -1015,13 +1021,13 @@ void main() {
   });
 
   test(
-    'a recreated runner treats an accepted marker as pull-only recovery',
+    'task status failure settles an accepted marker without resubmitting',
     () async {
       const chatId = 'crash-window-chat';
       const assistantId = 'crash-window-assistant';
       await _seedChat(db, chatId, assistantId: assistantId);
       final release = Completer<void>()..complete();
-      final api = _GatedCompletionApi(release);
+      final api = _GatedCompletionApi(release)..taskStatusFailures = 1;
       final syncEngine = _PersistingSyncEngine(db, api, landResponse: false);
       final messages = <ChatMessage>[
         _user('user', 'hello'),
@@ -1064,7 +1070,7 @@ void main() {
       );
 
       check(api.completionCalls).equals(0);
-      check(syncEngine.pulls).equals(2);
+      check(syncEngine.pulls).equals(1);
       final persisted = await db.messagesDao.getMessage(chatId, assistantId);
       final payload = jsonDecode(persisted!.payload) as Map<String, dynamic>;
       check(payload['done'] as bool).isTrue();

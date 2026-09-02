@@ -10700,6 +10700,7 @@ Future<void> _finishSubmittedOpenWebUiCompletionHeadlessly(
       ref,
       owner: owner,
       pollDelay: taskPollDelay,
+      failureLimit: math.max(1, recoveryAttempts),
     );
     if (taskFinished == null) return;
     if (taskFinished) {
@@ -10746,7 +10747,11 @@ Future<void> recoverSubmittedOpenWebUiCompletion(
   );
   if (landed == true) return;
   if (landed == null) return;
-  final taskFinished = await _waitForSubmittedOpenWebUiTask(ref, owner: owner);
+  final taskFinished = await _waitForSubmittedOpenWebUiTask(
+    ref,
+    owner: owner,
+    failureLimit: math.max(1, recoveryAttempts),
+  );
   if (taskFinished == null) return;
   if (taskFinished) {
     landed = await _pullSubmittedOpenWebUiCompletion(
@@ -10768,18 +10773,25 @@ Future<void> recoverSubmittedOpenWebUiCompletion(
 Future<bool?> _waitForSubmittedOpenWebUiTask(
   dynamic ref, {
   required OpenWebUiCompletionOwner owner,
+  required int failureLimit,
   Duration pollDelay = const Duration(seconds: 2),
 }) async {
   final api = owner.api;
   if (api is! ApiService) return false;
+  var consecutiveFailures = 0;
 
+  // A successfully active task has no wall-clock deadline: long generations
+  // own the wakelock until the server reports completion. Only repeated status
+  // lookup failures terminate recovery as an error.
   while (true) {
     if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
     try {
       final taskIds = await api.getTaskIdsByChat(owner.chatId);
       if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
       if (taskIds.isEmpty) return true;
+      consecutiveFailures = 0;
     } catch (error, stackTrace) {
+      consecutiveFailures++;
       DebugLogger.error(
         'headless-task-status-failed',
         scope: 'chat/completion',
@@ -10787,6 +10799,7 @@ Future<bool?> _waitForSubmittedOpenWebUiTask(
         stackTrace: stackTrace,
         data: {'chatId': owner.chatId},
       );
+      if (consecutiveFailures >= failureLimit) return false;
     }
     await Future<void>.delayed(pollDelay);
   }
