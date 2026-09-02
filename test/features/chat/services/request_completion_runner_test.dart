@@ -150,7 +150,10 @@ void main() {
           'id': 'asst-submitted',
           'role': 'assistant',
           'content': 'partial submitted response',
-          'metadata': <String, dynamic>{'completionSubmitted': true},
+          'metadata': <String, dynamic>{
+            'completionSubmitted': true,
+            'completionTaskId': 'task-1',
+          },
         },
       );
 

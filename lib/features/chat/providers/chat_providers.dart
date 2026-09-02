@@ -10789,17 +10789,10 @@ Future<bool?> _waitForSubmittedOpenWebUiTask(
   Duration pollDelay = const Duration(seconds: 2),
 }) async {
   if (taskId == null || taskId.isEmpty) {
-    // ponytail: pre-task-ID markers get the existing five-minute headless
-    // window; remove this fallback once those legacy outbox rows age out.
-    final attempts = pollDelay <= Duration.zero
-        ? failureLimit
-        : math.max(
-            failureLimit,
-            (_headlessStreamDrainTimeout.inMicroseconds /
-                    pollDelay.inMicroseconds)
-                .ceil(),
-          );
-    for (var attempt = 0; attempt < attempts; attempt++) {
+    // Pre-task-ID markers cannot distinguish a lost task from a slow accepted
+    // task. Reconcile their exact assistant row until it becomes terminal or
+    // the captured owner is disposed/replaced.
+    while (true) {
       final landed = await _pullSubmittedOpenWebUiCompletion(
         ref,
         owner: owner,
@@ -10809,11 +10802,8 @@ Future<bool?> _waitForSubmittedOpenWebUiTask(
       );
       if (landed == true) return true;
       if (landed == null) return null;
-      if (attempt + 1 < attempts) {
-        await Future<void>.delayed(pollDelay);
-      }
+      await Future<void>.delayed(pollDelay);
     }
-    return false;
   }
 
   final api = owner.api;
