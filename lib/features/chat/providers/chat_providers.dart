@@ -10703,6 +10703,7 @@ Future<void> _finishSubmittedOpenWebUiCompletionHeadlessly(
     final taskFinished = await _waitForSubmittedOpenWebUiTask(
       ref,
       owner: owner,
+      assistantMessageId: assistantMessageId,
       taskId: taskId,
       pollDelay: taskPollDelay,
       failureLimit: math.max(1, recoveryAttempts),
@@ -10756,6 +10757,7 @@ Future<void> recoverSubmittedOpenWebUiCompletion(
   final taskFinished = await _waitForSubmittedOpenWebUiTask(
     ref,
     owner: owner,
+    assistantMessageId: assistantMessageId,
     taskId: taskId,
     failureLimit: math.max(1, recoveryAttempts),
     pollDelay: recoveryDelay,
@@ -10781,45 +10783,51 @@ Future<void> recoverSubmittedOpenWebUiCompletion(
 Future<bool?> _waitForSubmittedOpenWebUiTask(
   dynamic ref, {
   required OpenWebUiCompletionOwner owner,
+  required String assistantMessageId,
   String? taskId,
   required int failureLimit,
   Duration pollDelay = const Duration(seconds: 2),
 }) async {
+  if (taskId == null || taskId.isEmpty) {
+    // ponytail: pre-task-ID markers get the existing five-minute headless
+    // window; remove this fallback once those legacy outbox rows age out.
+    final attempts = pollDelay <= Duration.zero
+        ? failureLimit
+        : math.max(
+            failureLimit,
+            (_headlessStreamDrainTimeout.inMicroseconds /
+                    pollDelay.inMicroseconds)
+                .ceil(),
+          );
+    for (var attempt = 0; attempt < attempts; attempt++) {
+      final landed = await _pullSubmittedOpenWebUiCompletion(
+        ref,
+        owner: owner,
+        assistantMessageId: assistantMessageId,
+        attempts: 1,
+        delay: Duration.zero,
+      );
+      if (landed == true) return true;
+      if (landed == null) return null;
+      if (attempt + 1 < attempts) {
+        await Future<void>.delayed(pollDelay);
+      }
+    }
+    return false;
+  }
+
   final api = owner.api;
   if (api is! ApiService) return false;
   var consecutiveFailures = 0;
-  var legacyActiveChecks = 0;
-  var legacyInactiveChecks = 0;
-  final trackedTaskIds = <String>{
-    if (taskId != null && taskId.isNotEmpty) taskId,
-  };
 
   // Open WebUI awaits task creation (and Redis registration) before returning
-  // an accepted task response. Exact IDs wait without a deadline; legacy
-  // markers allow a second inactive read for transient visibility skew, while
-  // bounded active checks prevent another session retaining this wakelock.
+  // an accepted task response, so exact IDs can wait without a deadline.
   while (true) {
     if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
     try {
       final taskIds = await api.getTaskIdsByChat(owner.chatId);
       if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
-      if (trackedTaskIds.isEmpty) {
-        var chatIsActive = taskIds.isNotEmpty;
-        if (!chatIsActive) {
-          final activeChatIds = await api.checkActiveChats([owner.chatId]);
-          if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
-          chatIsActive = activeChatIds.contains(owner.chatId);
-        }
-        if (chatIsActive) {
-          legacyInactiveChecks = 0;
-          if (++legacyActiveChecks >= failureLimit) return true;
-        } else if (++legacyInactiveChecks >
-            ChatMessagesNotifier._unobservedReopenedEmptyPollGrace) {
-          return true;
-        }
-      } else if (trackedTaskIds.every((id) => !taskIds.contains(id))) {
-        return true;
-      }
+      if (!taskIds.contains(taskId)) return true;
       consecutiveFailures = 0;
     } catch (error, stackTrace) {
       consecutiveFailures++;
@@ -10930,6 +10938,8 @@ Future<void> finishSubmittedOpenWebUiCompletionHeadlesslyForTest(
 }
 
 bool _headlessAssistantLanded(ChatMessage message) {
+  if (message.error != null) return true;
+  if (!assistantMessageResponseCompleted(message)) return false;
   if (message.content.trim().isNotEmpty) return true;
   if (message.output?.isNotEmpty == true) return true;
   if (message.files?.isNotEmpty == true) return true;
@@ -10937,8 +10947,6 @@ bool _headlessAssistantLanded(ChatMessage message) {
   if (message.sources.isNotEmpty) return true;
   if (message.codeExecutions.isNotEmpty) return true;
   if (message.followUps.isNotEmpty) return true;
-  if (message.error != null) return true;
-
   return false;
 }
 

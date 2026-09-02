@@ -228,6 +228,24 @@ void main() {
         check(messages.first['content']).equals('Hi there');
       });
 
+      test('keeps an overlaid unfinished response streaming', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'messages': [
+            {
+              'id': 'msg-1',
+              'role': 'assistant',
+              'content': 'Partial response',
+              'timestamp': 1700000000,
+              'done': false,
+            },
+          ],
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.single['isStreaming']).equals(true);
+      });
+
       test('preserves Open WebUI modelName as display metadata', () {
         final result = parseFullConversation({
           'id': 'conv-1',

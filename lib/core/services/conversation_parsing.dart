@@ -669,7 +669,9 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
     'content': contentString,
     'timestamp': _parseTimestamp(msgData['timestamp']).toIso8601String(),
     'model': (msgData['model'] ?? historyMsg?['model'])?.toString(),
-    'isStreaming': _safeBool(msgData['isStreaming']) ?? false,
+    'isStreaming':
+        _safeBool(msgData['isStreaming'] ?? historyMsg?['isStreaming']) ??
+        _safeBool(msgData['done'] ?? historyMsg?['done']) == false,
     'attachmentIds': ?attachmentIds,
     'files': ?files,
     if (embeds.isNotEmpty) 'embeds': embeds,

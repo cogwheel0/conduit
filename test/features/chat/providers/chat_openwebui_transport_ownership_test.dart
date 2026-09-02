@@ -158,7 +158,6 @@ class _GatedCompletionApi extends ApiService {
   final Completer<void> postEntered = Completer<void>();
   int completionCalls = 0;
   final taskIdResponses = <List<String>>[];
-  final activeChatResponses = <Set<String>>[];
   int taskStatusFailures = 0;
   String? assistantMessageId;
   String? submittedModel;
@@ -178,13 +177,6 @@ class _GatedCompletionApi extends ApiService {
       throw StateError('task status unavailable');
     }
     return taskIdResponses.isEmpty ? const [] : taskIdResponses.removeAt(0);
-  }
-
-  @override
-  Future<Set<String>> checkActiveChats(List<String> chatIds) async {
-    return activeChatResponses.isEmpty
-        ? const <String>{}
-        : activeChatResponses.removeAt(0);
   }
 
   @override
@@ -1031,25 +1023,20 @@ void main() {
   });
 
   test(
-    'legacy submitted marker checks active server state without resubmitting',
+    'legacy submitted marker reconciles durable response without resubmitting',
     () async {
       const chatId = 'crash-window-chat';
       const assistantId = 'crash-window-assistant';
       await _seedChat(db, chatId, assistantId: assistantId);
       final release = Completer<void>()..complete();
       final api = _GatedCompletionApi(release)
-        ..taskIdResponses.addAll([
-          const [],
-          const ['task-1'],
-          const [],
-          const [],
-        ])
-        ..activeChatResponses.addAll([
-          const <String>{},
-          const <String>{},
-          const <String>{},
-        ]);
-      final syncEngine = _PersistingSyncEngine(db, api, landResponse: false);
+        ..assistantMessageId = assistantId;
+      var unresolvedPulls = 4;
+      final syncEngine = _PersistingSyncEngine(
+        db,
+        api,
+        canLandResponse: () => unresolvedPulls-- <= 0,
+      );
       final messages = <ChatMessage>[
         _user('user', 'hello'),
         _streamingAssistant(assistantId, ''),
@@ -1091,17 +1078,16 @@ void main() {
       );
 
       check(api.completionCalls).equals(0);
-      check(api.taskIdResponses).isEmpty();
-      check(api.activeChatResponses).isEmpty();
       check(syncEngine.pulls).equals(6);
       final persisted = await db.messagesDao.getMessage(chatId, assistantId);
       final payload = jsonDecode(persisted!.payload) as Map<String, dynamic>;
       check(payload['done'] as bool).isTrue();
-      check(payload['error']).isNotNull();
+      check(payload['error']).isNull();
+      check(persisted.content).equals('A safely completed');
     },
   );
 
-  test('legacy submitted marker bounds unrelated active task checks', () async {
+  test('legacy submitted marker ignores unrelated task activity', () async {
     const chatId = 'legacy-foreign-task-chat';
     const assistantId = 'legacy-foreign-task-assistant';
     await _seedChat(db, chatId, assistantId: assistantId);
@@ -1155,7 +1141,7 @@ void main() {
     );
 
     check(api.completionCalls).equals(0);
-    check(api.taskIdResponses).isEmpty();
+    check(api.taskIdResponses).length.equals(3);
     check(syncEngine.pulls).equals(6);
     final persisted = await db.messagesDao.getMessage(chatId, assistantId);
     final payload = jsonDecode(persisted!.payload) as Map<String, dynamic>;
