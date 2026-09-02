@@ -10794,9 +10794,10 @@ Future<bool?> _waitForSubmittedOpenWebUiTask(
     if (taskId != null && taskId.isNotEmpty) taskId,
   };
 
-  // Exact task IDs wait without a deadline. Ownership-less legacy markers use
-  // bounded server activity checks so another session cannot retain this
-  // device's wakelock indefinitely.
+  // Open WebUI awaits task creation (and Redis registration) before returning
+  // an accepted task response. Exact IDs wait without a deadline; legacy
+  // markers allow a second inactive read for transient visibility skew, while
+  // bounded active checks prevent another session retaining this wakelock.
   while (true) {
     if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
     try {
