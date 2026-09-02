@@ -10779,6 +10779,8 @@ Future<bool?> _waitForSubmittedOpenWebUiTask(
   final api = owner.api;
   if (api is! ApiService) return false;
   var consecutiveFailures = 0;
+  var observedTask = false;
+  var unobservedEmptyPolls = 0;
 
   // A successfully active task has no wall-clock deadline: long generations
   // own the wakelock until the server reports completion. Only repeated status
@@ -10788,7 +10790,13 @@ Future<bool?> _waitForSubmittedOpenWebUiTask(
     try {
       final taskIds = await api.getTaskIdsByChat(owner.chatId);
       if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
-      if (taskIds.isEmpty) return true;
+      if (taskIds.isNotEmpty) {
+        observedTask = true;
+        unobservedEmptyPolls = 0;
+      } else if (observedTask || ++unobservedEmptyPolls > 1) {
+        // A newly accepted task can briefly precede registry visibility.
+        return true;
+      }
       consecutiveFailures = 0;
     } catch (error, stackTrace) {
       consecutiveFailures++;

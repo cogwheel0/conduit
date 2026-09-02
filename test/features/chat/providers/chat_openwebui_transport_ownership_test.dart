@@ -1136,6 +1136,7 @@ void main() {
       final api = _GatedCompletionApi(Completer<void>()..complete())
         ..assistantMessageId = assistantId
         ..taskIdResponses.addAll([
+          const [],
           const ['task-1'],
           const ['task-1'],
           const ['task-1'],
