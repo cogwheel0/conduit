@@ -1600,13 +1600,16 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             if (!_isLoading && _note != null)
               Positioned(
                 top:
-                    MediaQuery.of(context).padding.top +
-                    conduitAdaptiveToolbarHeightOf(context),
-                left: 0,
-                right: 0,
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: Spacing.xs),
-                  child: Center(child: _buildFloatingMetadataBar(context)),
+                    MediaQuery.paddingOf(context).top +
+                    conduitAdaptiveToolbarHeightOf(context) +
+                    Spacing.xs,
+                left: Spacing.md,
+                right: Spacing.md,
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 600),
+                    child: _buildFloatingMetadataBar(context),
+                  ),
                 ),
               ),
             if (!_isLoading && _note != null && !_contentFocusNode.hasFocus)
@@ -2079,9 +2082,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   Widget _buildEditor(BuildContext context) {
-    final topPadding = MediaQuery.of(context).padding.top;
-    // Adaptive app bar height + metadata bar (~40).
-    final appBarHeight = conduitAdaptiveToolbarHeightOf(context) + 40;
+    final topPadding = MediaQuery.paddingOf(context).top;
+    // Adaptive app bar height + top spacing + metadata bar (~36).
+    final appBarHeight =
+        conduitAdaptiveToolbarHeightOf(context) + Spacing.xs + 36;
 
     // Get attached files
     final files = _note?.data.files ?? [];
@@ -2101,7 +2105,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             Spacing.inputPadding,
             topPadding +
                 appBarHeight +
-                Spacing.sm, // Space for floating app bar
+                Spacing.sm, // Space for floating app bar and metadata bar
             Spacing.inputPadding,
             120, // Extra padding for floating buttons
           ),
