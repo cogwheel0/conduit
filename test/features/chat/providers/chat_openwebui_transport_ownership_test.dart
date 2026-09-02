@@ -1199,7 +1199,7 @@ void main() {
   );
 
   test(
-    'headless socket task waits for server completion before settling',
+    'headless socket task ignores transient absence before completion',
     () async {
       const chatId = 'headless-task-chat';
       const assistantId = 'headless-task-assistant';
@@ -1207,6 +1207,7 @@ void main() {
       final api = _GatedCompletionApi(Completer<void>()..complete())
         ..assistantMessageId = assistantId
         ..taskIdResponses.addAll([
+          const [],
           const ['task-1'],
           const ['task-1'],
           const ['task-1'],

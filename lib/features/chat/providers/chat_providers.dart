@@ -10819,15 +10819,21 @@ Future<bool?> _waitForSubmittedOpenWebUiTask(
   final api = owner.api;
   if (api is! ApiService) return false;
   var consecutiveFailures = 0;
+  var consecutiveMissing = 0;
 
-  // Open WebUI awaits task creation (and Redis registration) before returning
-  // an accepted task response, so exact IDs can wait without a deadline.
+  // Exact IDs can wait without a deadline. Confirm disappearance twice so a
+  // transient empty task-registry read cannot finish recovery early.
   while (true) {
     if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
     try {
       final taskIds = await api.getTaskIdsByChat(owner.chatId);
       if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
-      if (!taskIds.contains(taskId)) return true;
+      if (!taskIds.contains(taskId)) {
+        consecutiveMissing++;
+        if (consecutiveMissing >= 2) return true;
+      } else {
+        consecutiveMissing = 0;
+      }
       consecutiveFailures = 0;
     } catch (error, stackTrace) {
       consecutiveFailures++;
