@@ -10631,6 +10631,8 @@ Future<void> _finishSubmittedOpenWebUiCompletionHeadlessly(
   required String assistantMessageId,
   int recoveryAttempts = 6,
   Duration recoveryDelay = const Duration(seconds: 2),
+  Duration taskPollDelay = const Duration(seconds: 2),
+  Duration taskWaitTimeout = _headlessStreamDrainTimeout,
   bool requireDurableSubmittedMarker = true,
   bool submissionAlreadyMarked = false,
 }) async {
@@ -10684,7 +10686,7 @@ Future<void> _finishSubmittedOpenWebUiCompletionHeadlessly(
     }
   }
 
-  final landed = await _pullSubmittedOpenWebUiCompletion(
+  var landed = await _pullSubmittedOpenWebUiCompletion(
     ref,
     owner: owner,
     assistantMessageId: assistantMessageId,
@@ -10693,6 +10695,26 @@ Future<void> _finishSubmittedOpenWebUiCompletionHeadlessly(
   );
   if (landed == true) return;
   if (landed == null && drainFailure == null) return;
+  if (landed == false &&
+      session.transport == ChatCompletionTransport.taskSocket) {
+    final taskFinished = await _waitForSubmittedOpenWebUiTask(
+      ref,
+      owner: owner,
+      pollDelay: taskPollDelay,
+      timeout: taskWaitTimeout,
+    );
+    if (taskFinished == null) return;
+    if (taskFinished) {
+      landed = await _pullSubmittedOpenWebUiCompletion(
+        ref,
+        owner: owner,
+        assistantMessageId: assistantMessageId,
+        attempts: recoveryAttempts,
+        delay: recoveryDelay,
+      );
+      if (landed == true || landed == null) return;
+    }
+  }
 
   await _markHeadlessCompletionRecoveryFailed(
     ref,
@@ -10717,7 +10739,7 @@ Future<void> recoverSubmittedOpenWebUiCompletion(
   int recoveryAttempts = 6,
   Duration recoveryDelay = const Duration(seconds: 2),
 }) async {
-  final landed = await _pullSubmittedOpenWebUiCompletion(
+  var landed = await _pullSubmittedOpenWebUiCompletion(
     ref,
     owner: owner,
     assistantMessageId: assistantMessageId,
@@ -10726,11 +10748,53 @@ Future<void> recoverSubmittedOpenWebUiCompletion(
   );
   if (landed == true) return;
   if (landed == null) return;
+  final taskFinished = await _waitForSubmittedOpenWebUiTask(ref, owner: owner);
+  if (taskFinished == null) return;
+  if (taskFinished) {
+    landed = await _pullSubmittedOpenWebUiCompletion(
+      ref,
+      owner: owner,
+      assistantMessageId: assistantMessageId,
+      attempts: recoveryAttempts,
+      delay: recoveryDelay,
+    );
+    if (landed == true || landed == null) return;
+  }
   await _markHeadlessCompletionRecoveryFailed(
     ref,
     owner: owner,
     assistantMessageId: assistantMessageId,
   );
+}
+
+Future<bool?> _waitForSubmittedOpenWebUiTask(
+  dynamic ref, {
+  required OpenWebUiCompletionOwner owner,
+  Duration pollDelay = const Duration(seconds: 2),
+  Duration timeout = _headlessStreamDrainTimeout,
+}) async {
+  final api = owner.api;
+  if (api is! ApiService) return false;
+  final deadline = DateTime.now().add(timeout);
+
+  while (DateTime.now().isBefore(deadline)) {
+    if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
+    try {
+      final taskIds = await api.getTaskIdsByChat(owner.chatId);
+      if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
+      if (taskIds.isEmpty) return true;
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'headless-task-status-failed',
+        scope: 'chat/completion',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'chatId': owner.chatId},
+      );
+    }
+    await Future<void>.delayed(pollDelay);
+  }
+  return false;
 }
 
 Future<bool?> _pullSubmittedOpenWebUiCompletion(
@@ -10808,6 +10872,8 @@ Future<void> finishSubmittedOpenWebUiCompletionHeadlesslyForTest(
   required String assistantMessageId,
   int recoveryAttempts = 1,
   Duration recoveryDelay = Duration.zero,
+  Duration taskPollDelay = Duration.zero,
+  Duration taskWaitTimeout = const Duration(seconds: 1),
   bool requireDurableSubmittedMarker = true,
   bool submissionAlreadyMarked = false,
 }) {
@@ -10819,6 +10885,8 @@ Future<void> finishSubmittedOpenWebUiCompletionHeadlesslyForTest(
     assistantMessageId: assistantMessageId,
     recoveryAttempts: recoveryAttempts,
     recoveryDelay: recoveryDelay,
+    taskPollDelay: taskPollDelay,
+    taskWaitTimeout: taskWaitTimeout,
     requireDurableSubmittedMarker: requireDurableSubmittedMarker,
     submissionAlreadyMarked: submissionAlreadyMarked,
   );

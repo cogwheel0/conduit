@@ -157,6 +157,7 @@ class _GatedCompletionApi extends ApiService {
   final Completer<void> releasePost;
   final Completer<void> postEntered = Completer<void>();
   int completionCalls = 0;
+  final taskIdResponses = <List<String>>[];
   String? assistantMessageId;
   String? submittedModel;
   Map<String, dynamic>? submittedModelItem;
@@ -169,7 +170,8 @@ class _GatedCompletionApi extends ApiService {
       const {};
 
   @override
-  Future<List<String>> getTaskIdsByChat(String chatId) async => const [];
+  Future<List<String>> getTaskIdsByChat(String chatId) async =>
+      taskIdResponses.isEmpty ? const [] : taskIdResponses.removeAt(0);
 
   @override
   Future<ChatCompletionSession> sendMessageSession({
@@ -386,12 +388,14 @@ class _PersistingSyncEngine extends SyncEngine {
     this.api, {
     this.landResponse = true,
     this.throwOnPull = false,
+    this.landAfterPull = 1,
   });
 
   final AppDatabase db;
   final _GatedCompletionApi api;
   final bool landResponse;
   final bool throwOnPull;
+  final int landAfterPull;
   int pulls = 0;
 
   @override
@@ -401,7 +405,7 @@ class _PersistingSyncEngine extends SyncEngine {
   Future<Conversation?> pullChatNow(String requestedChatId) async {
     pulls += 1;
     if (throwOnPull) throw StateError('pull failed');
-    if (!landResponse) return null;
+    if (!landResponse || pulls < landAfterPull) return null;
     final assistantId = api.assistantMessageId!;
     final completed = ChatMessage(
       id: assistantId,
@@ -1060,7 +1064,7 @@ void main() {
       );
 
       check(api.completionCalls).equals(0);
-      check(syncEngine.pulls).equals(1);
+      check(syncEngine.pulls).equals(2);
       final persisted = await db.messagesDao.getMessage(chatId, assistantId);
       final payload = jsonDecode(persisted!.payload) as Map<String, dynamic>;
       check(payload['done'] as bool).isTrue();
@@ -1114,6 +1118,50 @@ void main() {
       final payload = jsonDecode(persisted!.payload) as Map<String, dynamic>;
       check(payload['done'] as bool).isTrue();
       check(payload['error']).isNotNull();
+    },
+  );
+
+  test(
+    'headless socket task waits for server completion before settling',
+    () async {
+      const chatId = 'headless-task-chat';
+      const assistantId = 'headless-task-assistant';
+      await _seedChat(db, chatId, assistantId: assistantId);
+      final api = _GatedCompletionApi(Completer<void>()..complete())
+        ..assistantMessageId = assistantId
+        ..taskIdResponses.addAll([
+          const ['task-1'],
+          const [],
+        ]);
+      final syncEngine = _PersistingSyncEngine(db, api, landAfterPull: 2);
+      final messages = <ChatMessage>[
+        _user('user', 'hello'),
+        _streamingAssistant(assistantId, ''),
+      ];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: syncEngine,
+      );
+      addTearDown(container.dispose);
+
+      await finishSubmittedOpenWebUiCompletionHeadlesslyForTest(
+        container,
+        session: ChatCompletionSession.taskSocket(
+          messageId: assistantId,
+          conversationId: chatId,
+          taskId: 'task-1',
+        ),
+        chatId: chatId,
+        assistantMessageId: assistantId,
+        recoveryAttempts: 1,
+      );
+
+      check(syncEngine.pulls).equals(2);
+      final persisted = await db.messagesDao.getMessage(chatId, assistantId);
+      check(persisted?.content).equals('A safely completed');
     },
   );
 
