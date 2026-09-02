@@ -413,7 +413,7 @@ class ConduitMarkdownPreprocessor {
 
     // Placeholders inside removed matches no longer exist, so only code from
     // the retained content is restored.
-    for (var index = 0; index < codeSpans.length; index++) {
+    for (var index = codeSpans.length - 1; index >= 0; index--) {
       output = output.replaceAll('$marker$index\u0000', codeSpans[index]);
     }
     return output;

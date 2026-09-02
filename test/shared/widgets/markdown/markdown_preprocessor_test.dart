@@ -133,6 +133,18 @@ void main() {
       },
     );
 
+    test('restores nested code fence placeholders', () {
+      const input = '''````markdown
+~~~html
+<details
+ type='tool_calls'>
+</details>
+~~~
+````''';
+
+      check(ConduitMarkdownPreprocessor.normalize(input)).equals(input);
+    });
+
     test('leaves malformed and oversized details tags unchanged', () {
       const malformed = '<details\n type="tool_calls"';
       final oversized =

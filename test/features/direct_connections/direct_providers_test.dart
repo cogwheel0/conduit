@@ -12,6 +12,7 @@ import 'package:conduit/features/direct_connections/models/direct_completion.dar
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit/features/direct_connections/services/apple_pcc_adapter.dart';
 import 'package:conduit/features/direct_connections/services/direct_connection_profile_store.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_cache_store.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
@@ -195,8 +196,14 @@ void main() {
   test(
     'Apple status providers do not call platform APIs when unsupported',
     () async {
+      final host = _ThrowingPccHost();
       final container = ProviderContainer(
-        overrides: [applePccPlatformSupportedProvider.overrideWithValue(false)],
+        overrides: [
+          applePccPlatformSupportedProvider.overrideWithValue(false),
+          applePccAdapterProvider.overrideWithValue(
+            ApplePccAdapter(hostApi: host),
+          ),
+        ],
       );
       addTearDown(container.dispose);
 
@@ -209,6 +216,7 @@ void main() {
         statuses.map((status) => status.availability),
         everyElement(PlatformPccAvailability.unsupported),
       );
+      expect(host.statusCalls, 0);
     },
   );
 
@@ -1665,6 +1673,16 @@ Future<List<DirectConnectionProfile>> _loadDurableProfiles() =>
     DirectConnectionProfileStore(
       SecureCredentialStorage(instance: const FlutterSecureStorage()),
     ).load();
+
+final class _ThrowingPccHost extends PccHostApi {
+  int statusCalls = 0;
+
+  @override
+  Future<PlatformPccStatus> getStatus(PlatformAppleModel model) {
+    statusCalls++;
+    throw StateError('Apple platform API must not be called');
+  }
+}
 
 final class _QueuedAdapter implements DirectProviderAdapter {
   final List<List<DirectRemoteModel>> responses = [];
