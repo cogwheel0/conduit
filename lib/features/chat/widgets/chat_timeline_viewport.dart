@@ -1811,6 +1811,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     }
     final ownerGeneration = widget.ownerGeneration;
     final row = MeasureSize(
+      key: ValueKey<int>(ownerGeneration),
       onChange: (size) {
         if (mounted &&
             widget.ownerGeneration == ownerGeneration &&
@@ -1968,6 +1969,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
                     rowBuilder: widget.rowBuilder,
                     entries: _timelineEntries,
                     centerIndex: centerIndex,
+                    ownerGeneration: widget.ownerGeneration,
                     rowExtents: _rowExtents,
                     reversed: true,
                   ),
@@ -1987,6 +1989,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
                     rowBuilder: widget.rowBuilder,
                     entries: _timelineEntries,
                     centerIndex: centerIndex,
+                    ownerGeneration: widget.ownerGeneration,
                     rowExtents: _rowExtents,
                     reversed: false,
                   ),
@@ -2045,7 +2048,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     // Platform scrollbars read track padding from their nearest MediaQuery.
     // Restore the real metrics below them so message widgets stay unchanged.
     final scrollbarMediaQuery = mediaQuery.copyWith(
-      padding: EdgeInsets.only(
+      padding: mediaQuery.padding.copyWith(
         top: widget.topContentInset,
         bottom: widget.bottomPadding,
       ),
@@ -2110,6 +2113,7 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
     required this.rowBuilder,
     required this.entries,
     required this.centerIndex,
+    required this.ownerGeneration,
     required this.rowExtents,
     required this.reversed,
   }) : super(addSemanticIndexes: false);
@@ -2117,6 +2121,7 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
   final ChatTimelineRowBuilder rowBuilder;
   final List<({String id, int sourceIndex, Object? rebuildKey})> entries;
   final int centerIndex;
+  final int ownerGeneration;
   final Map<String, double> rowExtents;
   final bool reversed;
 
@@ -2150,6 +2155,7 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
     return !identical(rowBuilder, oldDelegate.rowBuilder) ||
         !identical(entries, oldDelegate.entries) ||
         centerIndex != oldDelegate.centerIndex ||
+        ownerGeneration != oldDelegate.ownerGeneration ||
         reversed != oldDelegate.reversed;
   }
 }

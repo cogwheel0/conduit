@@ -180,11 +180,18 @@ void main() {
   ) async {
     final controller = _controller(tester);
     final ids = List<String>.generate(30, (index) => 'message-$index');
+    const sourcePadding = EdgeInsets.fromLTRB(11, 12, 13, 14);
+    const scrollbarPadding = EdgeInsets.fromLTRB(11, _topContentInset, 13, 80);
     addTearDown(PlatformUiCapabilities.resetDebugOverrides);
 
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
     await tester.pumpWidget(
-      _viewportHost(_viewport(controller: controller, ids: ids)),
+      _viewportHost(
+        MediaQuery(
+          data: const MediaQueryData(padding: sourcePadding),
+          child: _viewport(controller: controller, ids: ids),
+        ),
+      ),
     );
     await tester.pump();
 
@@ -198,16 +205,21 @@ void main() {
     );
     expect(
       MediaQuery.paddingOf(tester.element(find.byType(Scrollbar))),
-      const EdgeInsets.only(top: _topContentInset, bottom: 80),
+      scrollbarPadding,
     );
     expect(
       MediaQuery.paddingOf(tester.element(find.byType(CustomScrollView))),
-      EdgeInsets.zero,
+      sourcePadding,
     );
 
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     await tester.pumpWidget(
-      _viewportHost(_viewport(controller: controller, ids: ids)),
+      _viewportHost(
+        MediaQuery(
+          data: const MediaQueryData(padding: sourcePadding),
+          child: _viewport(controller: controller, ids: ids),
+        ),
+      ),
     );
     await tester.pump();
 
@@ -223,11 +235,11 @@ void main() {
     );
     expect(
       MediaQuery.paddingOf(tester.element(find.byType(CupertinoScrollbar))),
-      const EdgeInsets.only(top: _topContentInset, bottom: 80),
+      scrollbarPadding,
     );
     expect(
       MediaQuery.paddingOf(tester.element(find.byType(CustomScrollView))),
-      EdgeInsets.zero,
+      sourcePadding,
     );
   });
 
@@ -267,6 +279,56 @@ void main() {
     for (final range in ranges.skip(1)) {
       check(range).isCloseTo(ranges.first, 1);
     }
+  });
+
+  _viewportTest('remeasures long rows after a same-ID owner change', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final ids = List<String>.generate(30, (index) => 'message-$index');
+    var ownerGeneration = 1;
+    var longRowHeight = 2400.0;
+    late StateSetter rebuild;
+    final rowBuilder = (BuildContext context, int index) {
+      final id = ids[index];
+      return SizedBox(
+        height: id == 'message-25' ? longRowHeight : 52,
+        child: Text(id),
+      );
+    };
+
+    await tester.pumpWidget(
+      _viewportHost(
+        StatefulBuilder(
+          builder: (context, setState) {
+            rebuild = setState;
+            return _viewport(
+              controller: controller,
+              ids: ids,
+              ownerGeneration: ownerGeneration,
+              followLatest: false,
+              rowBuilder: rowBuilder,
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final position = tester
+        .widget<CustomScrollView>(find.byType(CustomScrollView))
+        .controller!
+        .position;
+    final originalRange = position.maxScrollExtent - position.minScrollExtent;
+
+    rebuild(() {
+      ownerGeneration = 2;
+      longRowHeight = 3200;
+    });
+    await tester.pumpAndSettle();
+
+    final updatedRange = position.maxScrollExtent - position.minScrollExtent;
+    check(updatedRange - originalRange).isCloseTo(800, 1);
   });
 
   test(
