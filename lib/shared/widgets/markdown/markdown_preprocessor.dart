@@ -449,8 +449,8 @@ class ConduitMarkdownPreprocessor {
       }
 
       if (end < 0) {
-        output.write(input.substring(copiedThrough));
-        return output.toString();
+        searchFrom = scanEnd;
+        continue;
       }
 
       output.write(input.substring(copiedThrough, opening.start));

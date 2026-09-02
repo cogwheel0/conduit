@@ -149,9 +149,13 @@ void main() {
       const malformed = '<details\n type="tool_calls"';
       final oversized =
           '<details\n type="tool_calls" data="${'x' * (256 * 1024)}">';
+      final followedByValid = '$oversized\n<details\n type="tool_calls">';
 
       check(ConduitMarkdownPreprocessor.normalize(malformed)).equals(malformed);
       check(ConduitMarkdownPreprocessor.normalize(oversized)).equals(oversized);
+      check(ConduitMarkdownPreprocessor.normalize(followedByValid))
+        ..startsWith(oversized)
+        ..contains('<details  type="tool_calls">');
     });
 
     test('repairs bounded details tags in oversized messages', () {
