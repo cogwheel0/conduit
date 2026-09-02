@@ -174,6 +174,92 @@ void main() {
       check(firstLine.endsWith('>')).isTrue();
       check(firstLine.contains('line three&quot;}]">')).isTrue();
     });
+
+    test('escapes raw angle brackets in single-quoted attribute values', () {
+      // CodeRabbit + Greptile P1: the quote-aware scan only tracked `"`, so a
+      // single-quoted value's raw `<br>` acted as a false tag terminator.
+      const raw =
+          "<details type='tool_calls' result='before <br> after'>\n"
+          '<summary>Tool Executed</summary>\n'
+          '</details>';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      final firstLine = result.split('\n').first;
+      check(firstLine.contains("result='before &lt;br&gt; after'")).isTrue();
+      check(firstLine.contains('<br>')).isFalse();
+    });
+
+    test('joins single-quoted spanning tag too', () {
+      const raw =
+          "<details type='tool_calls' result='line one\nline two'>\n"
+          '<summary>Tool Executed</summary>\n'
+          '</details>\nTrailing answer.';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      final firstLine = result.split('\n').first;
+      check(firstLine.startsWith('<details')).isTrue();
+      check(firstLine.endsWith('>')).isTrue();
+      check(firstLine.contains("line two'>")).isTrue();
+    });
+
+    test('double quotes inside a single-quoted value do not end the tag', () {
+      const raw =
+          '<details type="tool_calls" data-x=\'{"a":"x>y"}\' result="ok">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      final firstLine = result.split('\n').first;
+      check(firstLine.contains('result="ok">')).isTrue();
+    });
+
+    test('prose apostrophe before a tag does not corrupt quote state', () {
+      // A quote only opens a value immediately after `=`; "It's" in prose
+      // must not flip the scanner into quote mode.
+      const raw =
+          "It's a nice day\n"
+          '<details type="tool_calls" result="a>b" other="y">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      final tagLine =
+          result.split('\n').firstWhere((l) => l.startsWith('<details'));
+      check(tagLine.contains('other="y">')).isTrue();
+    });
+
+    test('tilde-fenced code block content is left untouched', () {
+      // CodeRabbit: _codeSpanOrFence did not mask ~~~ fences, so literal
+      // <details> examples inside them were escaped before parsing.
+      const raw = '~~~\n<details result="a<br>b">\n~~~';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      check(result.contains('a<br>b')).isTrue();
+      check(result.contains('a&lt;br&gt;b')).isFalse();
+    });
+
+    test('tilde fence with info string and indentation is masked', () {
+      const raw = '  ~~~html\n<details result="a<br>b">\n  ~~~\nafter';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      check(result.contains('a<br>b')).isTrue();
+      check(result.contains('a&lt;br&gt;b')).isFalse();
+    });
+
+    test('real details tag after a tilde fence is still normalized', () {
+      const raw =
+          '~~~\nliteral <details result="a<br>b">\n~~~\n\n'
+          '<details type="tool_calls" result="x<br>y">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      check(result.contains('literal <details result="a<br>b">')).isTrue();
+      final tagLine =
+          result.split('\n').firstWhere((l) => l.startsWith('<details'));
+      check(tagLine.contains('&lt;br&gt;')).isTrue();
+      check(tagLine.contains('<br>')).isFalse();
+    });
   });
 
   group('ConduitMarkdownPreprocessor.sanitize', () {
