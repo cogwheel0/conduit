@@ -208,6 +208,7 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
         _ref,
         owner: owner,
         assistantMessageId: assistantMessageId,
+        taskId: _placeholderSubmittedTaskId(placeholder),
         recoveryAttempts: _recoveryAttempts,
         recoveryDelay: _recoveryDelay,
       );
@@ -292,6 +293,14 @@ bool _placeholderMarkedSubmitted(MessageRow placeholder) {
   final payload = _decodeMessagePayload(placeholder.payload);
   final metadata = _asJsonMap(payload['metadata']);
   return metadata['completionSubmitted'] == true;
+}
+
+String? _placeholderSubmittedTaskId(MessageRow placeholder) {
+  final payload = _decodeMessagePayload(placeholder.payload);
+  final taskId = _asJsonMap(
+    payload['metadata'],
+  )['completionTaskId']?.toString().trim();
+  return taskId == null || taskId.isEmpty ? null : taskId;
 }
 
 Map<String, dynamic> _decodeMessagePayload(String raw) {

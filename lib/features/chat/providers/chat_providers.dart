@@ -10642,6 +10642,7 @@ Future<void> _finishSubmittedOpenWebUiCompletionHeadlessly(
         ref,
         owner: owner,
         assistantMessageId: assistantMessageId,
+        taskId: session.taskId,
       );
   if (!markerPersisted && requireDurableSubmittedMarker) {
     // The request crossed the server boundary, but without a durable marker an
@@ -10694,12 +10695,15 @@ Future<void> _finishSubmittedOpenWebUiCompletionHeadlessly(
   );
   if (landed == true) return;
   if (landed == null && drainFailure == null) return;
+  final taskId = session.taskId;
   if (landed == false &&
-      session.transport == ChatCompletionTransport.taskSocket) {
+      session.transport == ChatCompletionTransport.taskSocket &&
+      taskId != null &&
+      taskId.isNotEmpty) {
     final taskFinished = await _waitForSubmittedOpenWebUiTask(
       ref,
       owner: owner,
-      assistantMessageId: assistantMessageId,
+      taskId: taskId,
       pollDelay: taskPollDelay,
       failureLimit: math.max(1, recoveryAttempts),
     );
@@ -10736,6 +10740,7 @@ Future<void> recoverSubmittedOpenWebUiCompletion(
   dynamic ref, {
   required OpenWebUiCompletionOwner owner,
   required String assistantMessageId,
+  String? taskId,
   int recoveryAttempts = 6,
   Duration recoveryDelay = const Duration(seconds: 2),
 }) async {
@@ -10748,10 +10753,18 @@ Future<void> recoverSubmittedOpenWebUiCompletion(
   );
   if (landed == true) return;
   if (landed == null) return;
+  if (taskId == null || taskId.isEmpty) {
+    await _markHeadlessCompletionRecoveryFailed(
+      ref,
+      owner: owner,
+      assistantMessageId: assistantMessageId,
+    );
+    return;
+  }
   final taskFinished = await _waitForSubmittedOpenWebUiTask(
     ref,
     owner: owner,
-    assistantMessageId: assistantMessageId,
+    taskId: taskId,
     failureLimit: math.max(1, recoveryAttempts),
   );
   if (taskFinished == null) return;
@@ -10775,42 +10788,23 @@ Future<void> recoverSubmittedOpenWebUiCompletion(
 Future<bool?> _waitForSubmittedOpenWebUiTask(
   dynamic ref, {
   required OpenWebUiCompletionOwner owner,
-  required String assistantMessageId,
+  required String taskId,
   required int failureLimit,
   Duration pollDelay = const Duration(seconds: 2),
 }) async {
   final api = owner.api;
   if (api is! ApiService) return false;
   var consecutiveFailures = 0;
-  var observedTask = false;
-  var unobservedPullMisses = 0;
 
-  // Open WebUI awaits task + Redis registration before returning its task ID.
-  // These bounded misses cover read visibility/persistence lag; an observed
-  // active task itself has no deadline.
+  // Open WebUI registers this exact task before returning its ID. Once that
+  // durable identity leaves the active registry, bounded pulls recover the
+  // persisted result. Long-running active tasks have no client deadline.
   while (true) {
     if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
     try {
       final taskIds = await api.getTaskIdsByChat(owner.chatId);
       if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
-      if (taskIds.isNotEmpty) {
-        observedTask = true;
-      } else if (observedTask) {
-        return true;
-      } else {
-        // Registration can trail acceptance. Keep the generation lease while
-        // checking whether a fast task already persisted before it was seen.
-        final landed = await _pullSubmittedOpenWebUiCompletion(
-          ref,
-          owner: owner,
-          assistantMessageId: assistantMessageId,
-          attempts: 1,
-          delay: Duration.zero,
-        );
-        if (landed != false) return null;
-        unobservedPullMisses++;
-        if (unobservedPullMisses >= failureLimit) return true;
-      }
+      if (!taskIds.contains(taskId)) return true;
       consecutiveFailures = 0;
     } catch (error, stackTrace) {
       consecutiveFailures++;
@@ -10976,6 +10970,7 @@ Future<void> _markAcceptedOpenWebUiCompletionOrAbort(
       ref,
       owner: owner,
       assistantMessageId: assistantMessageId,
+      taskId: session.taskId,
     );
   } catch (_) {
     // The server accepted the request, but without a durable marker a later
@@ -10990,6 +10985,7 @@ Future<bool> _markHeadlessCompletionSubmitted(
   dynamic ref, {
   required OpenWebUiCompletionOwner owner,
   required String assistantMessageId,
+  String? taskId,
 }) async {
   final chatId = owner.chatId;
   final db = owner.database;
@@ -10998,6 +10994,7 @@ Future<bool> _markHeadlessCompletionSubmitted(
     return await db.messagesDao.markAssistantCompletionSubmitted(
       chatId: chatId,
       messageId: assistantMessageId,
+      taskId: taskId,
     );
   } catch (error, stackTrace) {
     DebugLogger.error(
@@ -11021,11 +11018,13 @@ Future<void> beginOpenWebUiCompletionSubmission(
   dynamic ref, {
   required OpenWebUiCompletionOwner owner,
   required String assistantMessageId,
+  String? taskId,
 }) async {
   final persisted = await _markHeadlessCompletionSubmitted(
     ref,
     owner: owner,
     assistantMessageId: assistantMessageId,
+    taskId: taskId,
   );
   if (persisted) return;
   throw const SyncTerminalException(
