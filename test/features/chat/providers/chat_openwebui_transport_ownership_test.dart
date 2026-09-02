@@ -1042,9 +1042,11 @@ void main() {
           const [],
           const ['task-1'],
           const [],
+          const [],
         ])
         ..activeChatResponses.addAll([
-          {chatId},
+          const <String>{},
+          const <String>{},
           const <String>{},
         ]);
       final syncEngine = _PersistingSyncEngine(db, api, landResponse: false);
@@ -1098,6 +1100,68 @@ void main() {
       check(payload['error']).isNotNull();
     },
   );
+
+  test('legacy submitted marker bounds unrelated active task checks', () async {
+    const chatId = 'legacy-foreign-task-chat';
+    const assistantId = 'legacy-foreign-task-assistant';
+    await _seedChat(db, chatId, assistantId: assistantId);
+    final release = Completer<void>()..complete();
+    final api = _GatedCompletionApi(release)
+      ..taskIdResponses.addAll([
+        const ['foreign-task'],
+        const ['foreign-task'],
+        const ['foreign-task'],
+      ]);
+    final syncEngine = _PersistingSyncEngine(db, api, landResponse: false);
+    final messages = <ChatMessage>[
+      _user('user', 'hello'),
+      _streamingAssistant(assistantId, ''),
+    ];
+    final container = _container(
+      db: db,
+      active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+      messages: messages,
+      api: api,
+      syncEngine: syncEngine,
+    );
+    addTearDown(container.dispose);
+    final owner = captureOpenWebUiCompletionOwner(
+      container,
+      chatId: chatId,
+      database: db,
+      api: api,
+    );
+    await beginOpenWebUiCompletionSubmission(
+      container,
+      owner: owner,
+      assistantMessageId: assistantId,
+    );
+
+    final runner = container.read(
+      Provider<RequestCompletionRunner>(
+        (ref) => ChatRequestCompletionRunner(
+          ref,
+          recoveryAttempts: 3,
+          recoveryDelay: Duration.zero,
+        ),
+      ),
+    );
+    await runner.run(
+      chatId: chatId,
+      payload: RequestCompletionPayload(
+        assistantMessageId: assistantId,
+        model: 'model-1',
+      ).toJson(),
+    );
+
+    check(api.completionCalls).equals(0);
+    check(api.taskIdResponses).isEmpty();
+    check(syncEngine.pulls).equals(6);
+    final persisted = await db.messagesDao.getMessage(chatId, assistantId);
+    final payload = jsonDecode(persisted!.payload) as Map<String, dynamic>;
+    check(payload['done'] as bool).isTrue();
+    check(payload['error']).isNotNull();
+  });
 
   test(
     'drain and pull failure settles the captured placeholder explicitly',

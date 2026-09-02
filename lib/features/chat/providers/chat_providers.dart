@@ -10788,7 +10788,8 @@ Future<bool?> _waitForSubmittedOpenWebUiTask(
   final api = owner.api;
   if (api is! ApiService) return false;
   var consecutiveFailures = 0;
-  var legacyStatusChecks = 0;
+  var legacyActiveChecks = 0;
+  var legacyInactiveChecks = 0;
   final trackedTaskIds = <String>{
     if (taskId != null && taskId.isNotEmpty) taskId,
   };
@@ -10808,7 +10809,13 @@ Future<bool?> _waitForSubmittedOpenWebUiTask(
           if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
           chatIsActive = activeChatIds.contains(owner.chatId);
         }
-        if (!chatIsActive || ++legacyStatusChecks >= failureLimit) return true;
+        if (chatIsActive) {
+          legacyInactiveChecks = 0;
+          if (++legacyActiveChecks >= failureLimit) return true;
+        } else if (++legacyInactiveChecks >
+            ChatMessagesNotifier._unobservedReopenedEmptyPollGrace) {
+          return true;
+        }
       } else if (trackedTaskIds.every((id) => !taskIds.contains(id))) {
         return true;
       }
