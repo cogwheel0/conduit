@@ -76,7 +76,17 @@ class ConduitMarkdownPreprocessor {
   /// Upper bound on how far a spanning `<details` open tag may be joined so a
   /// malformed tag cannot trigger an unbounded scan or a giant concatenated line.
   static const _detailsOpenTagJoinLimit = 256 * 1024;
-  static final _codeSpanOrFence = RegExp(r'(`+)([\s\S]*?)\1');
+  /// Code spans, backtick fences, and tilde fences (`~~~`).
+  ///
+  /// Tilde fences are masked alongside backtick fences so transforms never
+  /// rewrite literal `<details>` examples inside them. CommonMark allows
+  /// 0-3 leading spaces and an info string on the opening fence; the closing
+  /// fence may be indented up to three spaces.
+  static final _codeSpanOrFence = RegExp(
+    r'(`+)([\s\S]*?)\1|'
+    r'^ {0,3}~~~[^\n]*\n[\s\S]*?^[ \t]*~~~[^\n]*(?=\n|$)',
+    multiLine: true,
+  );
   static final _allDetailsBlocks = RegExp(
     r'<details[^>]*>[\s\S]*?</details>',
     multiLine: true,
@@ -504,18 +514,23 @@ class ConduitMarkdownPreprocessor {
 
       buffer.write(input.substring(copyFrom, idx));
 
-      // Quote-aware scan to this tag's true end-of-tag.
+      // Quote-aware scan to this tag's true end-of-tag. A quote character
+      // only opens an attribute value immediately after `=`, so apostrophes
+      // and quotes in prose or unquoted contexts (e.g. "It's") cannot
+      // corrupt the quote state. Single- and double-quoted values are both
+      // tracked; HTML attribute values have no backslash escaping.
       var pos = idx;
-      var inQuote = false;
+      String? quote;
+      var prev = '';
       var end = -1;
       final scanLimit =
           idx + (hasNewlines ? _detailsOpenTagJoinLimit : 64 * 1024);
       while (pos < input.length && pos < scanLimit) {
         final ch = input[pos];
-        if (inQuote) {
-          if (ch == '"') inQuote = false;
-        } else if (ch == '"') {
-          inQuote = true;
+        if (quote != null) {
+          if (ch == quote) quote = null;
+        } else if ((ch == '"' || ch == "'") && prev == '=') {
+          quote = ch;
         } else if (ch == '>') {
           end = pos;
           break;
@@ -524,6 +539,7 @@ class ConduitMarkdownPreprocessor {
           // unterminated `<details` string across the whole buffer.
           break;
         }
+        prev = ch;
         pos++;
       }
       if (end == -1) {
@@ -551,16 +567,19 @@ class ConduitMarkdownPreprocessor {
   /// Escapes raw `<`/`>` inside the quoted attribute values of a single-line
   /// `<details ...>` opening tag so the tag regex reaches the real
   /// end-of-tag instead of truncating at the first `>` (which silently drops
-  /// attributes like `result`). Quote state toggles on bare quotes only —
-  /// HTML attribute values have no backslash escaping.
+  /// attributes like `result`). Both single- and double-quoted values are
+  /// tracked; a quote only opens a value immediately after `=`, so stray
+  /// apostrophes cannot corrupt the state. HTML attribute values have no
+  /// backslash escaping.
   static String _escapeAnglesInQuotedValues(String tag) {
-    var inQuote = false;
+    String? quote;
+    var prev = '';
     var changed = false;
     final buffer = StringBuffer();
     for (var i = 0; i < tag.length; i++) {
       final ch = tag[i];
-      if (inQuote) {
-        if (ch == '"') inQuote = false;
+      if (quote != null) {
+        if (ch == quote) quote = null;
         if (ch == '<') {
           buffer.write('&lt;');
           changed = true;
@@ -571,9 +590,10 @@ class ConduitMarkdownPreprocessor {
           changed = true;
           continue;
         }
-      } else if (ch == '"') {
-        inQuote = true;
+      } else if ((ch == '"' || ch == "'") && prev == '=') {
+        quote = ch;
       }
+      prev = ch;
       buffer.write(ch);
     }
     return changed ? buffer.toString() : tag;
