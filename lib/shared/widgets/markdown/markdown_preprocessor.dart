@@ -60,15 +60,22 @@ class ConduitMarkdownPreprocessor {
     caseSensitive: false,
   );
   static final _toolCallBlocks = RegExp(
-    r'<details\s+type="tool_calls"[^>]*>[\s\S]*?</details>',
+    r'''<details\b(?=[^>]*\btype\s*=\s*["']tool_calls["'])[^>]*>[\s\S]*?</details>''',
     multiLine: true,
     dotAll: true,
+    caseSensitive: false,
   );
   static final _attachedToolCallDetailsOpen = RegExp(
     r'''([^\n])(<details\b(?=[^>]*\btype\s*=\s*["']tool_calls["']))''',
     caseSensitive: false,
   );
+  static final _detailsOpenTag = RegExp(r'<details\b', caseSensitive: false);
   static final _codeSpanOrFence = RegExp(r'(`+)([\s\S]*?)\1');
+  static final _tildeFence = RegExp(
+    r'^[ \t]{0,3}~{3,}[^\n]*\n[\s\S]*?^[ \t]{0,3}~{3,}[ \t]*$',
+    multiLine: true,
+  );
+  static const _detailsOpenTagNormalizationLimit = 256 * 1024;
   static final _allDetailsBlocks = RegExp(
     r'<details[^>]*>[\s\S]*?</details>',
     multiLine: true,
@@ -158,6 +165,11 @@ class ConduitMarkdownPreprocessor {
 
     // Separate consecutive links
     output = _separateConsecutiveLinks(output);
+
+    if (output.length <= _detailsOpenTagNormalizationLimit &&
+        _detailsOpenTag.hasMatch(output)) {
+      output = _transformOutsideCode(output, _normalizeDetailsOpenTags);
+    }
 
     // Raw model output can attach Open WebUI's tool-call block directly to
     // answer text. Put it on a Markdown block boundary without rewriting
@@ -370,6 +382,14 @@ class ConduitMarkdownPreprocessor {
     String input,
     RegExp pattern,
     String Function(Match) replace,
+  ) => _transformOutsideCode(
+    input,
+    (content) => content.replaceAllMapped(pattern, replace),
+  );
+
+  static String _transformOutsideCode(
+    String input,
+    String Function(String) transform,
   ) {
     final codeSpans = <String>[];
     var marker = '\u0000conduit-code-span-';
@@ -377,12 +397,15 @@ class ConduitMarkdownPreprocessor {
       marker = '\u0000$marker';
     }
 
-    final masked = input.replaceAllMapped(_codeSpanOrFence, (match) {
+    String mask(Match match) {
       final index = codeSpans.length;
       codeSpans.add(match[0] ?? '');
       return '$marker$index\u0000';
-    });
-    var output = masked.replaceAllMapped(pattern, replace);
+    }
+
+    var masked = input.replaceAllMapped(_tildeFence, mask);
+    masked = masked.replaceAllMapped(_codeSpanOrFence, mask);
+    var output = transform(masked);
 
     // Placeholders inside removed matches no longer exist, so only code from
     // the retained content is restored.
@@ -390,6 +413,71 @@ class ConduitMarkdownPreprocessor {
       output = output.replaceAll('$marker$index\u0000', codeSpans[index]);
     }
     return output;
+  }
+
+  static String _normalizeDetailsOpenTags(String input) {
+    if (input.length > _detailsOpenTagNormalizationLimit) return input;
+
+    final output = StringBuffer();
+    var copiedThrough = 0;
+    var searchFrom = 0;
+
+    while (searchFrom < input.length) {
+      RegExpMatch? opening;
+      for (final match in _detailsOpenTag.allMatches(input, searchFrom)) {
+        opening = match;
+        break;
+      }
+      if (opening == null) break;
+
+      var quote = 0;
+      var end = -1;
+      for (var index = opening.end; index < input.length; index++) {
+        final unit = input.codeUnitAt(index);
+        if (quote != 0) {
+          if (unit == quote) quote = 0;
+        } else if (unit == 0x22 || unit == 0x27) {
+          quote = unit;
+        } else if (unit == 0x3E) {
+          end = index;
+          break;
+        }
+      }
+
+      if (end < 0) {
+        searchFrom = opening.end;
+        continue;
+      }
+
+      output.write(input.substring(copiedThrough, opening.start));
+      quote = 0;
+      for (var index = opening.start; index <= end; index++) {
+        final unit = input.codeUnitAt(index);
+        if (unit == 0x0A || unit == 0x0D) {
+          output.write(' ');
+        } else if (quote != 0) {
+          if (unit == quote) {
+            quote = 0;
+            output.writeCharCode(unit);
+          } else if (unit == 0x3C) {
+            output.write('&lt;');
+          } else if (unit == 0x3E) {
+            output.write('&gt;');
+          } else {
+            output.writeCharCode(unit);
+          }
+        } else {
+          if (unit == 0x22 || unit == 0x27) quote = unit;
+          output.writeCharCode(unit);
+        }
+      }
+      copiedThrough = end + 1;
+      searchFrom = end + 1;
+    }
+
+    if (copiedThrough == 0) return input;
+    output.write(input.substring(copiedThrough));
+    return output.toString();
   }
 
   static String _removeEmojis(String input) {

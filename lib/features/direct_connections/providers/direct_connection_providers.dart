@@ -253,16 +253,28 @@ final applePccAdapterProvider = Provider<ApplePccAdapter>(
   ),
 );
 
-final applePccStatusProvider = FutureProvider<PlatformPccStatus>(
-  (ref) => ref
-      .watch(applePccAdapterProvider)
-      .status(PlatformAppleModel.privateCloudCompute),
+PlatformPccStatus _unsupportedAppleStatus() => PlatformPccStatus(
+  availability: PlatformPccAvailability.unavailable,
+  quotaStatus: PlatformPccQuotaStatus.unknown,
+  quotaLimitReached: false,
+  canIncreaseQuota: false,
 );
 
-final appleOnDeviceStatusProvider = FutureProvider<PlatformPccStatus>(
-  (ref) =>
-      ref.watch(applePccAdapterProvider).status(PlatformAppleModel.onDevice),
-);
+final applePccStatusProvider = FutureProvider<PlatformPccStatus>((ref) {
+  if (!ref.watch(applePccPlatformSupportedProvider)) {
+    return _unsupportedAppleStatus();
+  }
+  return ref
+      .watch(applePccAdapterProvider)
+      .status(PlatformAppleModel.privateCloudCompute);
+});
+
+final appleOnDeviceStatusProvider = FutureProvider<PlatformPccStatus>((ref) {
+  if (!ref.watch(applePccPlatformSupportedProvider)) {
+    return _unsupportedAppleStatus();
+  }
+  return ref.watch(applePccAdapterProvider).status(PlatformAppleModel.onDevice);
+});
 
 final directConnectionProfileStoreProvider =
     Provider<DirectConnectionProfileStore>((ref) {

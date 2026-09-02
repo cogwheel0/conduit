@@ -24,7 +24,9 @@ class DetailsBlockSyntax extends md.BlockSyntax {
     r'</details>',
     caseSensitive: false,
   );
-  static final RegExp _attributePattern = RegExp(r'(\w+)="(.*?)"');
+  static final RegExp _attributePattern = RegExp(
+    r'''(\w+)\s*=\s*(["'])(.*?)\2''',
+  );
   static final RegExp _summaryPattern = RegExp(
     r'^\s*<summary>(.*?)</summary>\s*',
     caseSensitive: false,
@@ -74,7 +76,7 @@ class DetailsBlockSyntax extends md.BlockSyntax {
     final openingTag = openingMatch.group(0)!;
     final attributes = <String, String>{};
     for (final match in _attributePattern.allMatches(openingTag)) {
-      attributes[match.group(1)!] = match.group(2) ?? '';
+      attributes[match.group(1)!.toLowerCase()] = match.group(3) ?? '';
     }
 
     var innerContent = rawBlock.substring(openingMatch.end, closingIndex);

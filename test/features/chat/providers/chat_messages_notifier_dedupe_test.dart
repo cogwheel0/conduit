@@ -537,101 +537,22 @@ void main() {
       },
     );
 
-    test('streaming cadence exposes stable size buckets', () {
-      expect(
-        debugStreamingContentUpdatePolicyForBuffer(999).bucket,
-        StreamingContentSizeBucket.under1k,
-      );
-      expect(
-        debugStreamingContentUpdatePolicyForBuffer(1000).bucket,
-        StreamingContentSizeBucket.from1k,
-      );
-      expect(
-        debugStreamingContentUpdatePolicyForBuffer(2000).bucket,
-        StreamingContentSizeBucket.from2k,
-      );
-      expect(
-        debugStreamingContentUpdatePolicyForBuffer(4000).bucket,
-        StreamingContentSizeBucket.from4k,
-      );
-      expect(
-        debugStreamingContentUpdatePolicyForBuffer(8000).bucket,
-        StreamingContentSizeBucket.from8k,
-      );
-      expect(
-        debugStreamingContentUpdatePolicyForBuffer(16000).bucket,
-        StreamingContentSizeBucket.from16k,
-      );
-    });
-
-    test('streaming cadence grows with mobile response length', () {
-      expect(
-        debugStreamingContentUpdateIntervalForBuffer(
-          999,
-          platform: TargetPlatform.android,
-        ),
-        const Duration(milliseconds: 100),
-      );
-      expect(
-        debugStreamingContentUpdateIntervalForBuffer(
-          1000,
-          platform: TargetPlatform.android,
-        ),
-        const Duration(milliseconds: 160),
-      );
-      expect(
-        debugStreamingContentUpdateIntervalForBuffer(
-          4000,
-          platform: TargetPlatform.android,
-        ),
-        const Duration(milliseconds: 300),
-      );
-      expect(
-        debugStreamingContentUpdateIntervalForBuffer(
-          8000,
-          platform: TargetPlatform.android,
-        ),
-        const Duration(milliseconds: 500),
-      );
-      expect(
-        debugStreamingContentUpdateIntervalForBuffer(
-          16000,
-          platform: TargetPlatform.android,
-        ),
-        const Duration(milliseconds: 750),
-      );
-    });
-
-    test('streaming cadence stays less aggressive off mobile', () {
-      expect(
-        debugStreamingContentUpdateIntervalForBuffer(
-          4000,
-          platform: TargetPlatform.macOS,
-        ),
-        const Duration(milliseconds: 180),
-      );
-      expect(
-        debugStreamingContentUpdateIntervalForBuffer(
-          8000,
-          platform: TargetPlatform.macOS,
-        ),
-        const Duration(milliseconds: 280),
-      );
-      expect(
-        debugStreamingContentUpdateIntervalForBuffer(
-          16000,
-          platform: TargetPlatform.macOS,
-        ),
-        const Duration(milliseconds: 420),
-      );
-      expect(
-        debugStreamingContentUpdateIntervalForBuffer(
-          16000,
-          isWeb: true,
-          platform: TargetPlatform.android,
-        ),
-        const Duration(milliseconds: 420),
-      );
+    test('streaming cadence is smooth for every target and response size', () {
+      for (final length in [0, 999, 1000, 4000, 8000, 16000, 100000]) {
+        for (final platform in TargetPlatform.values) {
+          expect(
+            debugStreamingContentUpdateIntervalForBuffer(
+              length,
+              platform: platform,
+            ),
+            const Duration(milliseconds: 100),
+          );
+        }
+        expect(
+          debugStreamingContentUpdateIntervalForBuffer(length, isWeb: true),
+          const Duration(milliseconds: 100),
+        );
+      }
     });
   });
 }

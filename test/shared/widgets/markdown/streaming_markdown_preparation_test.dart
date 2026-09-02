@@ -209,6 +209,19 @@ result
     );
   });
 
+  test('single-quoted multiline incomplete tool calls stay hidden', () {
+    const content = '''Visible
+
+<DeTaIlS
+ TYPE='tool_calls'
+ name='search'>''';
+
+    expect(
+      prepareMarkdownContentCanonical(content, streaming: true),
+      'Visible',
+    );
+  });
+
   test('base revision mismatch returns a full reset patch', () {
     final engine = StreamingMarkdownPreparationEngine();
     engine.prepare(

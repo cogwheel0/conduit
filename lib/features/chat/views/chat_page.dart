@@ -703,6 +703,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   bool _isSavingTemporary = false;
+  bool _isOpeningModelSelector = false;
 
   /// Persists a temporary chat to the server, transitioning it
   /// into a permanent conversation.
@@ -4197,18 +4198,30 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   Future<void> _openModelSelector(BuildContext context) async {
+    if (_isOpeningModelSelector) return;
+    setState(() => _isOpeningModelSelector = true);
     try {
       final models = await ref
           .read(nativeSheetHydrationServiceProvider)
           .loadModels();
       if (!mounted || !context.mounted) return;
       await _showModelDropdown(context, ref, models);
-    } catch (e) {
+    } catch (error, stackTrace) {
       DebugLogger.error(
         'model-load-failed',
         scope: 'chat/model-selector',
-        error: e,
+        error: error,
+        stackTrace: stackTrace,
       );
+      if (mounted && context.mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text(AppLocalizations.of(context)!.errorMessage)),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isOpeningModelSelector = false);
+      }
     }
   }
 
@@ -4308,7 +4321,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return ConduitAdaptiveAppBarModelSelector(
       label: modelLabel,
       maxWidth: maxModelWidth,
-      isLoading: isLoadingConversation,
+      isLoading: isLoadingConversation || _isOpeningModelSelector,
       showChevron: showModelDropdown,
       onPressed: () => _openModelSelector(context),
     );

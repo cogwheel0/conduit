@@ -75,6 +75,66 @@ void main() {
       check(result).contains('Answer\n\n$details');
       check(result).contains('`Example$details`');
     });
+
+    test('repairs multiline details tags and quoted raw HTML', () {
+      const input = '''Answer<DeTaIlS
+ TYPE='tool_calls'
+ done='true'
+ name='search'
+ arguments='{"html":"<br><span>value</span>"}'>
+</details>''';
+
+      final result = ConduitMarkdownPreprocessor.normalize(input);
+
+      check(result).startsWith('Answer\n\n<DeTaIlS');
+      check(result).contains("TYPE='tool_calls'");
+      check(result).contains('&lt;br&gt;&lt;span&gt;value&lt;/span&gt;');
+      check(result).not((value) => value.contains("TYPE='tool_calls'\n"));
+    });
+
+    test('repairs double-quoted multiline details attributes', () {
+      const input = '''<details
+ type="tool_calls"
+ arguments="{&quot;html&quot;:&quot;<br>&quot;}">
+</details>''';
+
+      final result = ConduitMarkdownPreprocessor.normalize(input);
+
+      check(result)
+          .contains('arguments="{&quot;html&quot;:&quot;&lt;br&gt;&quot;}"');
+      check(result).not((value) => value.contains('<details\n'));
+    });
+
+    test(
+      'leaves details examples inside backtick and tilde fences unchanged',
+      () {
+        const backticks = '''```
+<details
+ type='tool_calls'
+ arguments='{"html":"<br>"}'>
+</details>
+```''';
+        const tildes = '''~~~html
+<details
+ type='tool_calls'
+ arguments='{"html":"<br>"}'>
+</details>
+~~~''';
+
+        check(ConduitMarkdownPreprocessor.normalize(backticks))
+            .equals(backticks);
+        check(ConduitMarkdownPreprocessor.normalize(tildes)).equals(tildes);
+      },
+    );
+
+    test('leaves malformed and oversized details tags unchanged', () {
+      const malformed = '<details\n type="tool_calls"';
+      final oversized =
+          '<details\n type="tool_calls" data="${'x' * (256 * 1024)}">';
+
+      check(ConduitMarkdownPreprocessor.normalize(malformed)).equals(malformed);
+      check(ConduitMarkdownPreprocessor.normalize(oversized)).equals(oversized);
+    });
   });
 
   group('ConduitMarkdownPreprocessor.sanitize', () {

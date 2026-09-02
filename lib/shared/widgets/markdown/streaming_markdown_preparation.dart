@@ -21,7 +21,7 @@ final _detailsOpenPattern = RegExp(r'<details\b', caseSensitive: false);
 // inside, splitting prepared content mid-block.
 final _detailsClosePattern = RegExp(r'</details>', caseSensitive: false);
 final _toolCallDetailsOpenPattern = RegExp(
-  r'<details\b[^>]*type="tool_calls"[^>]*>',
+  r'''<details\b[^>]*type\s*=\s*["']tool_calls["'][^>]*>''',
   caseSensitive: false,
 );
 

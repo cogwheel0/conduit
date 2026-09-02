@@ -14,6 +14,7 @@ import 'package:flutter/widgets.dart'
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:yaml/yaml.dart' as yaml;
 
 import '../../../core/auth/auth_state_manager.dart';
@@ -1323,14 +1324,43 @@ final chatMessageByIdProvider = Provider.autoDispose
 /// Used by router to avoid showing connection issues during active streaming.
 /// Uses select() to only rebuild when the streaming state actually changes,
 /// not on every content update to the message list.
+bool _messagesAreStreaming(List<ChatMessage> messages) {
+  if (messages.isEmpty) return false;
+  final last = messages.last;
+  return last.role == 'assistant' && last.isStreaming;
+}
+
 final isChatStreamingProvider = Provider<bool>((ref) {
-  return ref.watch(
-    chatMessagesProvider.select((messages) {
-      if (messages.isEmpty) return false;
-      final last = messages.last;
-      return last.role == 'assistant' && last.isStreaming;
-    }),
+  return ref.watch(chatMessagesProvider.select(_messagesAreStreaming));
+});
+
+final chatWakelockCoordinatorProvider = Provider<void>((ref) {
+  var pendingToggle = Future<void>.value();
+
+  Future<void> toggle(bool enabled) async {
+    try {
+      await WakelockPlus.toggle(enable: enabled);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'toggle-failed',
+        scope: 'chat/wakelock',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'enabled': enabled},
+      );
+    }
+  }
+
+  void enqueue(bool enabled) {
+    pendingToggle = pendingToggle.then((_) => toggle(enabled));
+  }
+
+  ref.listen<bool>(
+    chatMessagesProvider.select(_messagesAreStreaming),
+    (_, enabled) => enqueue(enabled),
+    fireImmediately: true,
   );
+  ref.onDispose(() => enqueue(false));
 });
 
 final shouldProtectLocalStreamingStateProvider = Provider<bool>((ref) {
@@ -1395,97 +1425,14 @@ class StreamingContent extends _$StreamingContent {
   void set(String? value) => state = value;
 }
 
-enum StreamingContentSizeBucket {
-  under1k,
-  from1k,
-  from2k,
-  from4k,
-  from8k,
-  from16k,
-}
-
-@immutable
-class StreamingContentUpdatePolicy {
-  const StreamingContentUpdatePolicy({
-    required this.interval,
-    required this.bucket,
-    required this.isMobileTarget,
-  });
-
-  final Duration interval;
-  final StreamingContentSizeBucket bucket;
-  final bool isMobileTarget;
-}
-
-@visibleForTesting
-StreamingContentUpdatePolicy debugStreamingContentUpdatePolicyForBuffer(
-  int length, {
-  bool isWeb = false,
-  TargetPlatform platform = TargetPlatform.android,
-}) {
-  return _streamingContentUpdatePolicyForTarget(
-    length,
-    isMobileTarget:
-        !isWeb &&
-        (platform == TargetPlatform.android || platform == TargetPlatform.iOS),
-  );
-}
+const _streamingContentUpdateInterval = Duration(milliseconds: 100);
 
 @visibleForTesting
 Duration debugStreamingContentUpdateIntervalForBuffer(
   int length, {
   bool isWeb = false,
   TargetPlatform platform = TargetPlatform.android,
-}) => debugStreamingContentUpdatePolicyForBuffer(
-  length,
-  isWeb: isWeb,
-  platform: platform,
-).interval;
-
-StreamingContentUpdatePolicy _streamingContentUpdatePolicyForTarget(
-  int length, {
-  required bool isMobileTarget,
-}) {
-  final bucket = switch (length) {
-    >= 16000 => StreamingContentSizeBucket.from16k,
-    >= 8000 => StreamingContentSizeBucket.from8k,
-    >= 4000 => StreamingContentSizeBucket.from4k,
-    >= 2000 => StreamingContentSizeBucket.from2k,
-    >= 1000 => StreamingContentSizeBucket.from1k,
-    _ => StreamingContentSizeBucket.under1k,
-  };
-  final interval = switch (bucket) {
-    StreamingContentSizeBucket.from16k =>
-      isMobileTarget
-          ? const Duration(milliseconds: 750)
-          : const Duration(milliseconds: 420),
-    StreamingContentSizeBucket.from8k =>
-      isMobileTarget
-          ? const Duration(milliseconds: 500)
-          : const Duration(milliseconds: 280),
-    StreamingContentSizeBucket.from4k =>
-      isMobileTarget
-          ? const Duration(milliseconds: 300)
-          : const Duration(milliseconds: 180),
-    StreamingContentSizeBucket.from2k =>
-      isMobileTarget
-          ? const Duration(milliseconds: 220)
-          : const Duration(milliseconds: 140),
-    StreamingContentSizeBucket.from1k =>
-      isMobileTarget
-          ? const Duration(milliseconds: 160)
-          : const Duration(milliseconds: 120),
-    StreamingContentSizeBucket.under1k =>
-      isMobileTarget
-          ? const Duration(milliseconds: 100)
-          : const Duration(milliseconds: 80),
-  };
-  return StreamingContentUpdatePolicy(
-    interval: interval,
-    bucket: bucket,
-    isMobileTarget: isMobileTarget,
-  );
-}
+}) => _streamingContentUpdateInterval;
 
 // Loading state for conversation (used to show chat skeletons during fetch)
 @Riverpod(keepAlive: true)
@@ -5781,16 +5728,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     if (_streamingContentFrameScheduled || _streamingContentTimer != null) {
       return;
     }
-    final policy = _streamingContentUpdatePolicyForBuffer(
-      _streamingBuffer!.length,
-    );
     final lastFlushAt = _lastStreamingContentFlushAt;
     if (lastFlushAt == null) {
       _scheduleStreamingContentFrame(reason: reason);
       return;
     }
     final elapsed = DateTime.now().difference(lastFlushAt);
-    final remaining = policy.interval - elapsed;
+    final remaining = _streamingContentUpdateInterval - elapsed;
     if (remaining <= Duration.zero) {
       _scheduleStreamingContentFrame(reason: reason);
       return;
@@ -5798,19 +5742,6 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     _streamingContentTimer = Timer(
       remaining,
       () => _scheduleStreamingContentFrame(reason: reason),
-    );
-  }
-
-  StreamingContentUpdatePolicy _streamingContentUpdatePolicyForBuffer(
-    int length,
-  ) {
-    final isMobileTarget =
-        !kIsWeb &&
-        (defaultTargetPlatform == TargetPlatform.android ||
-            defaultTargetPlatform == TargetPlatform.iOS);
-    return _streamingContentUpdatePolicyForTarget(
-      length,
-      isMobileTarget: isMobileTarget,
     );
   }
 
@@ -5873,7 +5804,6 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
       _streamingCoalescedUpdateCount += coalescedUpdates;
       return;
     }
-    final policy = _streamingContentUpdatePolicyForBuffer(nextContent.length);
     _lastStreamingContentFlushAt = DateTime.now();
     _lastFlushedStreamingBufferVersion = _streamingBufferVersion;
     _streamingVisibleFlushCount += 1;
@@ -5888,9 +5818,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
         'contentCharacters': nextContent.length,
         if (PerformanceProfiler.isEnabled)
           'contentUtf8Bytes': utf8.encode(nextContent).length,
-        'intervalMs': policy.interval.inMilliseconds,
-        'sizeBucket': policy.bucket.name,
-        'mobileTarget': policy.isMobileTarget,
+        'intervalMs': _streamingContentUpdateInterval.inMilliseconds,
       },
     );
     ref.read(streamingContentProvider.notifier).set(nextContent);

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/services/native_sheet_hydration_service.dart';
@@ -7,20 +5,6 @@ import 'package:conduit/features/chat/providers/reasoning_effort_provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test(
-    'reasoning effort hydration timeout does not block the picker',
-    () async {
-      final pending = Completer<void>();
-
-      check(
-        await waitForNativeReasoningEffortHydration(
-          pending.future,
-          timeout: Duration.zero,
-        ),
-      ).isFalse();
-    },
-  );
-
   test('timed-out effort hydration hides stale picker controls', () {
     final policy = nativeModelSelectorReasoningEffortPolicy(
       false,

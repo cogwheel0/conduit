@@ -86,6 +86,47 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
   });
 
+  testWidgets(
+    'native model selector owns taps inside a tablet drag hierarchy',
+    (tester) async {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+      PlatformUiCapabilities.debugNativeIOS26Override = true;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      tester.view.physicalSize = const Size(1366, 1024);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      var activations = 0;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat)
+              .copyWith(platform: TargetPlatform.iOS),
+          home: Scaffold(
+            body: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onHorizontalDragUpdate: (_) {},
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: ConduitAdaptiveAppBarModelSelector(
+                  label: 'Inkling',
+                  maxWidth: 240,
+                  onPressed: () => activations++,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.byType(ConduitAdaptiveAppBarModelSelector));
+      await tester.pump();
+
+      expect(activations, 1);
+    },
+  );
+
   test('toolbar icons preserve their SF Symbol lookup values', () {
     check(conduitToolbarSfSymbolForIcon(CupertinoIcons.line_horizontal_3))
         .equals('line.3.horizontal');

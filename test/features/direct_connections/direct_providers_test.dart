@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/persistence/persistence_keys.dart';
+import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/secure_credential_storage.dart';
@@ -190,6 +191,26 @@ void main() {
 
     expect(profiles, isEmpty);
   });
+
+  test(
+    'Apple status providers do not call platform APIs when unsupported',
+    () async {
+      final container = ProviderContainer(
+        overrides: [applePccPlatformSupportedProvider.overrideWithValue(false)],
+      );
+      addTearDown(container.dispose);
+
+      final statuses = await Future.wait([
+        container.read(appleOnDeviceStatusProvider.future),
+        container.read(applePccStatusProvider.future),
+      ]);
+
+      expect(
+        statuses.map((status) => status.availability),
+        everyElement(PlatformPccAvailability.unavailable),
+      );
+    },
+  );
 
   test(
     'enabled Apple On-Device is exposed as a built-in Direct profile',
