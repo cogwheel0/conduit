@@ -10632,7 +10632,6 @@ Future<void> _finishSubmittedOpenWebUiCompletionHeadlessly(
   int recoveryAttempts = 6,
   Duration recoveryDelay = const Duration(seconds: 2),
   Duration taskPollDelay = const Duration(seconds: 2),
-  Duration taskWaitTimeout = _headlessStreamDrainTimeout,
   bool requireDurableSubmittedMarker = true,
   bool submissionAlreadyMarked = false,
 }) async {
@@ -10701,7 +10700,6 @@ Future<void> _finishSubmittedOpenWebUiCompletionHeadlessly(
       ref,
       owner: owner,
       pollDelay: taskPollDelay,
-      timeout: taskWaitTimeout,
     );
     if (taskFinished == null) return;
     if (taskFinished) {
@@ -10771,13 +10769,11 @@ Future<bool?> _waitForSubmittedOpenWebUiTask(
   dynamic ref, {
   required OpenWebUiCompletionOwner owner,
   Duration pollDelay = const Duration(seconds: 2),
-  Duration timeout = _headlessStreamDrainTimeout,
 }) async {
   final api = owner.api;
   if (api is! ApiService) return false;
-  final deadline = DateTime.now().add(timeout);
 
-  while (DateTime.now().isBefore(deadline)) {
+  while (true) {
     if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
     try {
       final taskIds = await api.getTaskIdsByChat(owner.chatId);
@@ -10794,7 +10790,6 @@ Future<bool?> _waitForSubmittedOpenWebUiTask(
     }
     await Future<void>.delayed(pollDelay);
   }
-  return false;
 }
 
 Future<bool?> _pullSubmittedOpenWebUiCompletion(
@@ -10873,7 +10868,6 @@ Future<void> finishSubmittedOpenWebUiCompletionHeadlesslyForTest(
   int recoveryAttempts = 1,
   Duration recoveryDelay = Duration.zero,
   Duration taskPollDelay = Duration.zero,
-  Duration taskWaitTimeout = const Duration(seconds: 1),
   bool requireDurableSubmittedMarker = true,
   bool submissionAlreadyMarked = false,
 }) {
@@ -10886,7 +10880,6 @@ Future<void> finishSubmittedOpenWebUiCompletionHeadlesslyForTest(
     recoveryAttempts: recoveryAttempts,
     recoveryDelay: recoveryDelay,
     taskPollDelay: taskPollDelay,
-    taskWaitTimeout: taskWaitTimeout,
     requireDurableSubmittedMarker: requireDurableSubmittedMarker,
     submissionAlreadyMarked: submissionAlreadyMarked,
   );

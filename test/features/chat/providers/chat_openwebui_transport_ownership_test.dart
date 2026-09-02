@@ -1131,6 +1131,8 @@ void main() {
         ..assistantMessageId = assistantId
         ..taskIdResponses.addAll([
           const ['task-1'],
+          const ['task-1'],
+          const ['task-1'],
           const [],
         ]);
       final syncEngine = _PersistingSyncEngine(db, api, landAfterPull: 2);
