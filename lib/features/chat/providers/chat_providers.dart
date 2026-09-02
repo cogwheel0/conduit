@@ -1336,6 +1336,9 @@ final isChatStreamingProvider = Provider<bool>((ref) {
 
 final chatWakelockCoordinatorProvider = Provider<void>((ref) {
   var pendingToggle = Future<void>.value();
+  var localStream = false;
+  var backgroundStream = false;
+  bool? held;
 
   Future<void> toggle(bool enabled) async {
     try {
@@ -1352,12 +1355,24 @@ final chatWakelockCoordinatorProvider = Provider<void>((ref) {
   }
 
   void enqueue(bool enabled) {
+    if (held == enabled) return;
+    held = enabled;
     pendingToggle = pendingToggle.then((_) => toggle(enabled));
   }
 
+  ref.listen<bool>(chatMessagesProvider.select(_messagesAreStreaming), (
+    _,
+    enabled,
+  ) {
+    localStream = enabled;
+    enqueue(localStream || backgroundStream);
+  }, fireImmediately: true);
   ref.listen<bool>(
-    chatMessagesProvider.select(_messagesAreStreaming),
-    (_, enabled) => enqueue(enabled),
+    activeChatIdsProvider.select((chatIds) => chatIds.isNotEmpty),
+    (_, enabled) {
+      backgroundStream = enabled;
+      enqueue(localStream || backgroundStream);
+    },
     fireImmediately: true,
   );
   ref.onDispose(() => enqueue(false));

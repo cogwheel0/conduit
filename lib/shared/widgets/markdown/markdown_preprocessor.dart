@@ -75,6 +75,10 @@ class ConduitMarkdownPreprocessor {
     r'^[ \t]{0,3}~{3,}[^\n]*\n[\s\S]*?^[ \t]{0,3}~{3,}[ \t]*$',
     multiLine: true,
   );
+  static final _unterminatedTildeFence = RegExp(
+    r'^[ \t]{0,3}~{3,}[^\n]*(?:\n[\s\S]*)?(?![\s\S])',
+    multiLine: true,
+  );
   static const _detailsOpenTagNormalizationLimit = 256 * 1024;
   static final _allDetailsBlocks = RegExp(
     r'<details[^>]*>[\s\S]*?</details>',
@@ -166,8 +170,7 @@ class ConduitMarkdownPreprocessor {
     // Separate consecutive links
     output = _separateConsecutiveLinks(output);
 
-    if (output.length <= _detailsOpenTagNormalizationLimit &&
-        _detailsOpenTag.hasMatch(output)) {
+    if (_detailsOpenTag.hasMatch(output)) {
       output = _transformOutsideCode(output, _normalizeDetailsOpenTags);
     }
 
@@ -404,6 +407,7 @@ class ConduitMarkdownPreprocessor {
     }
 
     var masked = input.replaceAllMapped(_tildeFence, mask);
+    masked = masked.replaceAllMapped(_unterminatedTildeFence, mask);
     masked = masked.replaceAllMapped(_codeSpanOrFence, mask);
     var output = transform(masked);
 
@@ -416,8 +420,6 @@ class ConduitMarkdownPreprocessor {
   }
 
   static String _normalizeDetailsOpenTags(String input) {
-    if (input.length > _detailsOpenTagNormalizationLimit) return input;
-
     final output = StringBuffer();
     var copiedThrough = 0;
     var searchFrom = 0;
@@ -432,7 +434,9 @@ class ConduitMarkdownPreprocessor {
 
       var quote = 0;
       var end = -1;
-      for (var index = opening.end; index < input.length; index++) {
+      final candidateEnd = opening.start + _detailsOpenTagNormalizationLimit;
+      final scanEnd = candidateEnd < input.length ? candidateEnd : input.length;
+      for (var index = opening.end; index < scanEnd; index++) {
         final unit = input.codeUnitAt(index);
         if (quote != 0) {
           if (unit == quote) quote = 0;
@@ -445,8 +449,8 @@ class ConduitMarkdownPreprocessor {
       }
 
       if (end < 0) {
-        searchFrom = opening.end;
-        continue;
+        output.write(input.substring(copiedThrough));
+        return output.toString();
       }
 
       output.write(input.substring(copiedThrough, opening.start));

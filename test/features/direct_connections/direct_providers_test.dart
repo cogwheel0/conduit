@@ -207,7 +207,7 @@ void main() {
 
       expect(
         statuses.map((status) => status.availability),
-        everyElement(PlatformPccAvailability.unavailable),
+        everyElement(PlatformPccAvailability.unsupported),
       );
     },
   );

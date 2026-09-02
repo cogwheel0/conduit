@@ -120,10 +120,16 @@ void main() {
  arguments='{"html":"<br>"}'>
 </details>
 ~~~''';
+        const unterminatedTildes = '''~~~html
+<details
+ type='tool_calls'
+ arguments='{"html":"<br>"}'>''';
 
         check(ConduitMarkdownPreprocessor.normalize(backticks))
             .equals(backticks);
         check(ConduitMarkdownPreprocessor.normalize(tildes)).equals(tildes);
+        check(ConduitMarkdownPreprocessor.normalize(unterminatedTildes))
+            .equals(unterminatedTildes);
       },
     );
 
@@ -134,6 +140,16 @@ void main() {
 
       check(ConduitMarkdownPreprocessor.normalize(malformed)).equals(malformed);
       check(ConduitMarkdownPreprocessor.normalize(oversized)).equals(oversized);
+    });
+
+    test('repairs bounded details tags in oversized messages', () {
+      final input = '''${'x' * (256 * 1024 + 1)}
+<details
+ type="tool_calls">
+</details>''';
+
+      check(ConduitMarkdownPreprocessor.normalize(input))
+          .contains('<details  type="tool_calls">');
     });
   });
 

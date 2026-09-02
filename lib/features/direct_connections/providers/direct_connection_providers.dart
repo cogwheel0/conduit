@@ -254,7 +254,7 @@ final applePccAdapterProvider = Provider<ApplePccAdapter>(
 );
 
 PlatformPccStatus _unsupportedAppleStatus() => PlatformPccStatus(
-  availability: PlatformPccAvailability.unavailable,
+  availability: PlatformPccAvailability.unsupported,
   quotaStatus: PlatformPccQuotaStatus.unknown,
   quotaLimitReached: false,
   canIncreaseQuota: false,

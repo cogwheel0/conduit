@@ -1,6 +1,7 @@
 // ignore_for_file: depend_on_referenced_packages
 
 import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -47,7 +48,7 @@ void main() {
     wakelockPlusPlatformInstance = originalPlatform;
   });
 
-  test('holds the screen only while the assistant is streaming', () async {
+  test('holds the screen through foreground and headless streaming', () async {
     final container = ProviderContainer();
     container.read(chatWakelockCoordinatorProvider);
     await _flushPluginCall();
@@ -56,14 +57,23 @@ void main() {
       _assistantMessage(isStreaming: true),
     ]);
     await _flushPluginCall();
+    container.read(activeChatIdsProvider.notifier).setActive('background-chat');
     container.read(chatMessagesProvider.notifier).setMessages([
       _assistantMessage(isStreaming: false),
     ]);
     await _flushPluginCall();
+    expect(fakePlatform.toggles, [false, true]);
+
+    container
+        .read(activeChatIdsProvider.notifier)
+        .setInactive('background-chat');
+    await _flushPluginCall();
+    container.read(activeChatIdsProvider.notifier).setActive('background-chat');
+    await _flushPluginCall();
     container.dispose();
     await _flushPluginCall();
 
-    expect(fakePlatform.toggles, [false, true, false, false]);
+    expect(fakePlatform.toggles, [false, true, false, true, false]);
   });
 
   test('wakelock failures do not change generation state', () async {
