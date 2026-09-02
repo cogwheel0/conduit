@@ -1137,12 +1137,14 @@ void main() {
         ..assistantMessageId = assistantId
         ..taskIdResponses.addAll([
           const [],
+          const [],
+          const [],
           const ['task-1'],
           const ['task-1'],
           const ['task-1'],
           const [],
         ]);
-      final syncEngine = _PersistingSyncEngine(db, api, landAfterPull: 2);
+      final syncEngine = _PersistingSyncEngine(db, api, landAfterPull: 5);
       final messages = <ChatMessage>[
         _user('user', 'hello'),
         _streamingAssistant(assistantId, ''),
@@ -1168,7 +1170,7 @@ void main() {
         recoveryAttempts: 1,
       );
 
-      check(syncEngine.pulls).equals(2);
+      check(syncEngine.pulls).equals(5);
       check(api.taskIdResponses).isEmpty();
       final persisted = await db.messagesDao.getMessage(chatId, assistantId);
       check(persisted?.content).equals('A safely completed');

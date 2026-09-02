@@ -10699,6 +10699,7 @@ Future<void> _finishSubmittedOpenWebUiCompletionHeadlessly(
     final taskFinished = await _waitForSubmittedOpenWebUiTask(
       ref,
       owner: owner,
+      assistantMessageId: assistantMessageId,
       pollDelay: taskPollDelay,
       failureLimit: math.max(1, recoveryAttempts),
     );
@@ -10750,6 +10751,7 @@ Future<void> recoverSubmittedOpenWebUiCompletion(
   final taskFinished = await _waitForSubmittedOpenWebUiTask(
     ref,
     owner: owner,
+    assistantMessageId: assistantMessageId,
     failureLimit: math.max(1, recoveryAttempts),
   );
   if (taskFinished == null) return;
@@ -10773,6 +10775,7 @@ Future<void> recoverSubmittedOpenWebUiCompletion(
 Future<bool?> _waitForSubmittedOpenWebUiTask(
   dynamic ref, {
   required OpenWebUiCompletionOwner owner,
+  required String assistantMessageId,
   required int failureLimit,
   Duration pollDelay = const Duration(seconds: 2),
 }) async {
@@ -10780,11 +10783,11 @@ Future<bool?> _waitForSubmittedOpenWebUiTask(
   if (api is! ApiService) return false;
   var consecutiveFailures = 0;
   var observedTask = false;
-  var unobservedEmptyPolls = 0;
+  final registrationDeadline = DateTime.now().add(const Duration(minutes: 1));
 
   // A successfully active task has no wall-clock deadline: long generations
   // own the wakelock until the server reports completion. Only repeated status
-  // lookup failures terminate recovery as an error.
+  // failures or a minute with neither registry nor persisted state terminate.
   while (true) {
     if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
     try {
@@ -10792,10 +10795,20 @@ Future<bool?> _waitForSubmittedOpenWebUiTask(
       if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
       if (taskIds.isNotEmpty) {
         observedTask = true;
-        unobservedEmptyPolls = 0;
-      } else if (observedTask || ++unobservedEmptyPolls > 1) {
-        // A newly accepted task can briefly precede registry visibility.
+      } else if (observedTask) {
         return true;
+      } else {
+        // Registration can trail acceptance. Keep the generation lease while
+        // checking whether a fast task already persisted before it was seen.
+        final landed = await _pullSubmittedOpenWebUiCompletion(
+          ref,
+          owner: owner,
+          assistantMessageId: assistantMessageId,
+          attempts: 1,
+          delay: Duration.zero,
+        );
+        if (landed != false) return null;
+        if (DateTime.now().isAfter(registrationDeadline)) return false;
       }
       consecutiveFailures = 0;
     } catch (error, stackTrace) {
