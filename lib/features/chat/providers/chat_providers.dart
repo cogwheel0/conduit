@@ -10788,26 +10788,27 @@ Future<bool?> _waitForSubmittedOpenWebUiTask(
   final api = owner.api;
   if (api is! ApiService) return false;
   var consecutiveFailures = 0;
+  var legacyStatusChecks = 0;
   final trackedTaskIds = <String>{
     if (taskId != null && taskId.isNotEmpty) taskId,
   };
 
-  // New markers track the exact task ID. Legacy markers cross-check the
-  // server's chat-active state before accepting an empty registry, and adopt
-  // any active task IDs they observe.
+  // Exact task IDs wait without a deadline. Ownership-less legacy markers use
+  // bounded server activity checks so another session cannot retain this
+  // device's wakelock indefinitely.
   while (true) {
     if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
     try {
       final taskIds = await api.getTaskIdsByChat(owner.chatId);
       if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
       if (trackedTaskIds.isEmpty) {
-        if (taskIds.isNotEmpty) {
-          trackedTaskIds.addAll(taskIds);
-        } else {
+        var chatIsActive = taskIds.isNotEmpty;
+        if (!chatIsActive) {
           final activeChatIds = await api.checkActiveChats([owner.chatId]);
           if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
-          if (!activeChatIds.contains(owner.chatId)) return true;
+          chatIsActive = activeChatIds.contains(owner.chatId);
         }
+        if (!chatIsActive || ++legacyStatusChecks >= failureLimit) return true;
       } else if (trackedTaskIds.every((id) => !taskIds.contains(id))) {
         return true;
       }

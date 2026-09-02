@@ -1031,7 +1031,7 @@ void main() {
   });
 
   test(
-    'legacy submitted marker adopts the active task without resubmitting',
+    'legacy submitted marker checks active server state without resubmitting',
     () async {
       const chatId = 'crash-window-chat';
       const assistantId = 'crash-window-assistant';
@@ -1043,7 +1043,10 @@ void main() {
           const ['task-1'],
           const [],
         ])
-        ..activeChatResponses.add({chatId});
+        ..activeChatResponses.addAll([
+          {chatId},
+          const <String>{},
+        ]);
       final syncEngine = _PersistingSyncEngine(db, api, landResponse: false);
       final messages = <ChatMessage>[
         _user('user', 'hello'),
@@ -1072,7 +1075,7 @@ void main() {
       final runnerProvider = Provider<RequestCompletionRunner>(
         (ref) => ChatRequestCompletionRunner(
           ref,
-          recoveryAttempts: 1,
+          recoveryAttempts: 3,
           recoveryDelay: Duration.zero,
         ),
       );
@@ -1088,7 +1091,7 @@ void main() {
       check(api.completionCalls).equals(0);
       check(api.taskIdResponses).isEmpty();
       check(api.activeChatResponses).isEmpty();
-      check(syncEngine.pulls).equals(2);
+      check(syncEngine.pulls).equals(6);
       final persisted = await db.messagesDao.getMessage(chatId, assistantId);
       final payload = jsonDecode(persisted!.payload) as Map<String, dynamic>;
       check(payload['done'] as bool).isTrue();

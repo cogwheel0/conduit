@@ -297,9 +297,10 @@ bool _placeholderMarkedSubmitted(MessageRow placeholder) {
 
 String? _placeholderSubmittedTaskId(MessageRow placeholder) {
   final payload = _decodeMessagePayload(placeholder.payload);
-  final taskId = _asJsonMap(
-    payload['metadata'],
-  )['completionTaskId']?.toString().trim();
+  final metadata = _asJsonMap(payload['metadata']);
+  final taskId = (metadata['completionTaskId'] ?? metadata['taskId'])
+      ?.toString()
+      .trim();
   return taskId == null || taskId.isEmpty ? null : taskId;
 }
 
