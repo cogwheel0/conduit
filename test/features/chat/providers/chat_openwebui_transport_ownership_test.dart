@@ -1168,6 +1168,7 @@ void main() {
       );
 
       check(syncEngine.pulls).equals(2);
+      check(api.taskIdResponses).isEmpty();
       final persisted = await db.messagesDao.getMessage(chatId, assistantId);
       check(persisted?.content).equals('A safely completed');
     },
