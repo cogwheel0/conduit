@@ -394,14 +394,14 @@ class _PersistingSyncEngine extends SyncEngine {
     this.api, {
     this.landResponse = true,
     this.throwOnPull = false,
-    this.landAfterPull = 1,
+    this.canLandResponse,
   });
 
   final AppDatabase db;
   final _GatedCompletionApi api;
   final bool landResponse;
   final bool throwOnPull;
-  final int landAfterPull;
+  final bool Function()? canLandResponse;
   int pulls = 0;
 
   @override
@@ -411,7 +411,9 @@ class _PersistingSyncEngine extends SyncEngine {
   Future<Conversation?> pullChatNow(String requestedChatId) async {
     pulls += 1;
     if (throwOnPull) throw StateError('pull failed');
-    if (!landResponse || pulls < landAfterPull) return null;
+    if (!landResponse || canLandResponse?.call() == false) {
+      return null;
+    }
     final assistantId = api.assistantMessageId!;
     final completed = ChatMessage(
       id: assistantId,
@@ -1144,7 +1146,11 @@ void main() {
           const ['task-1'],
           const [],
         ]);
-      final syncEngine = _PersistingSyncEngine(db, api, landAfterPull: 5);
+      final syncEngine = _PersistingSyncEngine(
+        db,
+        api,
+        canLandResponse: () => api.taskIdResponses.isEmpty,
+      );
       final messages = <ChatMessage>[
         _user('user', 'hello'),
         _streamingAssistant(assistantId, ''),
@@ -1172,6 +1178,7 @@ void main() {
 
       check(syncEngine.pulls).equals(5);
       check(api.taskIdResponses).isEmpty();
+      check(api.completionCalls).equals(0);
       final persisted = await db.messagesDao.getMessage(chatId, assistantId);
       check(persisted?.content).equals('A safely completed');
     },
