@@ -2142,10 +2142,9 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
     final laidOutCount = lastIndex - firstIndex + 1;
     final fallbackExtent = laidOutCount <= 0
         ? 52.0
-        : ((trailingScrollOffset - leadingScrollOffset) / laidOutCount).clamp(
-            48.0,
-            400.0,
-          );
+        : ((trailingScrollOffset - leadingScrollOffset) / laidOutCount)
+              .clamp(48.0, 400.0)
+              .toDouble();
     // ponytail: O(loaded rows); cache suffix sums if this scan appears in profiles.
     for (var index = lastIndex + 1; index < childCount; index += 1) {
       final chronologicalIndex = reversed
