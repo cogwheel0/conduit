@@ -263,6 +263,7 @@ class ChatTimelineViewport extends StatefulWidget {
     required this.rowBuilder,
     required this.topContentInset,
     required this.bottomPadding,
+    required this.scrollbarBottomInset,
     required this.horizontalPadding,
     required this.cacheExtent,
     required this.physics,
@@ -306,6 +307,7 @@ class ChatTimelineViewport extends StatefulWidget {
   final Widget? trailingContent;
   final double topContentInset;
   final double bottomPadding;
+  final double scrollbarBottomInset;
   final double horizontalPadding;
   final double cacheExtent;
   final ScrollPhysics physics;
@@ -2050,7 +2052,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     final scrollbarMediaQuery = mediaQuery.copyWith(
       padding: mediaQuery.padding.copyWith(
         top: widget.topContentInset,
-        bottom: widget.bottomPadding,
+        bottom: widget.scrollbarBottomInset,
       ),
     );
     final scrollbarChild = MediaQuery(data: mediaQuery, child: transcript);
@@ -2125,9 +2127,8 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
   final Map<String, double> rowExtents;
   final bool reversed;
 
-  // Keep lazy rows in the range estimate after they leave the render window.
-  // Otherwise one tall response can move the scrollbar thumb by thousands of
-  // pixels while the user traverses it.
+  // Cache bounded first estimates for never-laid-out rows. Flutter's default
+  // would multiply one tall visible response across every unknown sibling.
   @override
   double? estimateMaxScrollOffset(
     int firstIndex,
@@ -2138,13 +2139,20 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
     final childCount = reversed ? centerIndex : entries.length - centerIndex;
     if (lastIndex >= childCount - 1) return trailingScrollOffset;
     var estimate = trailingScrollOffset;
+    final laidOutCount = lastIndex - firstIndex + 1;
+    final fallbackExtent = laidOutCount <= 0
+        ? 52.0
+        : ((trailingScrollOffset - leadingScrollOffset) / laidOutCount).clamp(
+            48.0,
+            400.0,
+          );
     // ponytail: O(loaded rows); cache suffix sums if this scan appears in profiles.
     for (var index = lastIndex + 1; index < childCount; index += 1) {
       final chronologicalIndex = reversed
           ? centerIndex - 1 - index
           : centerIndex + index;
-      final extent = rowExtents[entries[chronologicalIndex].id];
-      if (extent == null) return null;
+      final id = entries[chronologicalIndex].id;
+      final extent = rowExtents.putIfAbsent(id, () => fallbackExtent);
       estimate += extent;
     }
     return estimate;

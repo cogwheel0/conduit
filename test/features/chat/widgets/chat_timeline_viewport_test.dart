@@ -181,7 +181,7 @@ void main() {
     final controller = _controller(tester);
     final ids = List<String>.generate(30, (index) => 'message-$index');
     const sourcePadding = EdgeInsets.fromLTRB(11, 12, 13, 14);
-    const scrollbarPadding = EdgeInsets.fromLTRB(11, _topContentInset, 13, 80);
+    const scrollbarPadding = EdgeInsets.fromLTRB(11, _topContentInset, 13, 40);
     addTearDown(PlatformUiCapabilities.resetDebugOverrides);
 
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
@@ -279,6 +279,55 @@ void main() {
     for (final range in ranges.skip(1)) {
       check(range).isCloseTo(ranges.first, 1);
     }
+  });
+
+  _viewportTest('does not amplify a long row across unmeasured siblings', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final ids = List<String>.generate(60, (index) => 'message-$index');
+
+    await tester.pumpWidget(
+      _viewportHost(
+        _viewport(
+          controller: controller,
+          ids: ids,
+          initialAnchor: const ChatScrollAnchor(
+            messageId: 'message-30',
+            offsetWithinMessage: 0,
+            loadedCount: 60,
+          ),
+          followLatest: false,
+          rowHeight: (id) =>
+              id == 'message-5' || id == 'message-50' ? 2400 : 52,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final position = tester
+        .widget<CustomScrollView>(find.byType(CustomScrollView))
+        .controller!
+        .position;
+    final ranges = <double>[
+      position.maxScrollExtent - position.minScrollExtent,
+    ];
+    while (position.pixels < position.maxScrollExtent) {
+      position.jumpTo(
+        math.min(position.maxScrollExtent, position.pixels + 300),
+      );
+      await tester.pump();
+      ranges.add(position.maxScrollExtent - position.minScrollExtent);
+    }
+    while (position.pixels > position.minScrollExtent) {
+      position.jumpTo(
+        math.max(position.minScrollExtent, position.pixels - 300),
+      );
+      await tester.pump();
+      ranges.add(position.maxScrollExtent - position.minScrollExtent);
+    }
+
+    check(ranges.reduce(math.max) - ranges.reduce(math.min)).isLessThan(2400);
   });
 
   _viewportTest('remeasures long rows after a same-ID owner change', (
@@ -2690,6 +2739,7 @@ Widget _viewport({
   // Defaults to the inverse so free-scroll anchor maintenance and automatic
   // latest ownership remain mutually exclusive in tests, as in ChatPage.
   bool? followLatest,
+  double scrollbarBottomInset = 40,
   Widget? liveFooter,
   Widget? trailingContent,
   bool hideUntilSettled = false,
@@ -2716,6 +2766,7 @@ Widget _viewport({
     trailingContent: trailingContent,
     topContentInset: _topContentInset,
     bottomPadding: 80,
+    scrollbarBottomInset: scrollbarBottomInset,
     horizontalPadding: 16,
     cacheExtent: 600,
     physics: const AlwaysScrollableScrollPhysics(),

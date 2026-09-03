@@ -2971,6 +2971,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             ),
       topContentInset: topPadding,
       bottomPadding: bottomPadding,
+      scrollbarBottomInset: math.max(
+        0,
+        bottomPadding - Spacing.lg - Spacing.xl,
+      ),
       horizontalPadding: Spacing.inputPadding,
       cacheExtent: _chatMessageScrollCachePixels,
       physics: platformAlwaysScrollablePhysics(context),
