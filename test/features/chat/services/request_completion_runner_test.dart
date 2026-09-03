@@ -150,7 +150,10 @@ void main() {
           'id': 'asst-submitted',
           'role': 'assistant',
           'content': 'partial submitted response',
-          'metadata': <String, dynamic>{'completionSubmitted': true},
+          'metadata': <String, dynamic>{
+            'completionSubmitted': true,
+            'completionTaskId': 'task-1',
+          },
         },
       );
 
@@ -203,9 +206,9 @@ void main() {
         isStreaming: true,
       ),
     ]);
-
     await check(runner.run(chatId: chatId, payload: payload('asst-own')))
         .throws<StateError>();
+    check(container.read(localChatGenerationActiveProvider)).isFalse();
   });
 
   test('defers when no active database is attached', () async {

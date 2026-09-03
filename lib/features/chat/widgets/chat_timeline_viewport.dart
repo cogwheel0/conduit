@@ -15,6 +15,7 @@ import 'package:flutter/rendering.dart'
 
 import '../../../core/database/models/chat_transcript_window.dart';
 import '../../../core/utils/debug_logger.dart';
+import '../../../shared/widgets/measure_size.dart';
 
 @visibleForTesting
 const int debugChatTimelineInitialPositionMaxAttempts = 12;
@@ -262,6 +263,7 @@ class ChatTimelineViewport extends StatefulWidget {
     required this.rowBuilder,
     required this.topContentInset,
     required this.bottomPadding,
+    required this.scrollbarBottomInset,
     required this.horizontalPadding,
     required this.cacheExtent,
     required this.physics,
@@ -305,6 +307,7 @@ class ChatTimelineViewport extends StatefulWidget {
   final Widget? trailingContent;
   final double topContentInset;
   final double bottomPadding;
+  final double scrollbarBottomInset;
   final double horizontalPadding;
   final double cacheExtent;
   final ScrollPhysics physics;
@@ -363,6 +366,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   final ValueNotifier<double> _pinSupportSpace = ValueNotifier<double>(0);
   final Map<String, GlobalKey> _rowKeys = <String, GlobalKey>{};
   final Map<String, int> _mountedRowCounts = <String, int>{};
+  final Map<String, double> _rowExtents = <String, double>{};
   final Map<String, ({int sourceIndex, Object? rebuildKey, Widget widget})>
   _rowWidgetCache = {};
   Map<String, Rect>? _cachedFrameRowRects;
@@ -511,6 +515,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     _metricsSnapshot = null;
     _lastReportedMetrics = null;
     _rowWidgetCache.clear();
+    _rowExtents.clear();
     _anchorCorrectionAttempts = 0;
     _initialPositionResolved = false;
     _initialEmptyFallbackVisible = false;
@@ -662,6 +667,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         entries[index].id: index,
     });
     _rowWidgetCache.removeWhere((id, _) => !seen.contains(id));
+    _rowExtents.removeWhere((id, _) => !seen.contains(id));
   }
 
   void _syncRowKeys() {
@@ -1805,15 +1811,26 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         cached.rebuildKey == entry.rebuildKey) {
       return cached.widget;
     }
-    final row = _MountedTimelineRow(
-      key: _rowKeys[id],
-      messageId: id,
-      onMounted: _registerMountedRow,
-      onUnmounted: _unregisterMountedRow,
-      child: IndexedSemantics(
-        index: chronologicalIndex,
-        child: Builder(
-          builder: (context) => widget.rowBuilder(context, entry.sourceIndex),
+    final ownerGeneration = widget.ownerGeneration;
+    final row = MeasureSize(
+      key: ValueKey<int>(ownerGeneration),
+      onChange: (size) {
+        if (mounted &&
+            widget.ownerGeneration == ownerGeneration &&
+            _messageIdSet.contains(id)) {
+          _rowExtents[id] = size.height;
+        }
+      },
+      child: _MountedTimelineRow(
+        key: _rowKeys[id],
+        messageId: id,
+        onMounted: _registerMountedRow,
+        onUnmounted: _unregisterMountedRow,
+        child: IndexedSemantics(
+          index: chronologicalIndex,
+          child: Builder(
+            builder: (context) => widget.rowBuilder(context, entry.sourceIndex),
+          ),
         ),
       ),
     );
@@ -1954,6 +1971,9 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
                     rowBuilder: widget.rowBuilder,
                     entries: _timelineEntries,
                     centerIndex: centerIndex,
+                    ownerGeneration: widget.ownerGeneration,
+                    rowExtents: _rowExtents,
+                    reversed: true,
                   ),
                 ),
               ),
@@ -1971,6 +1991,9 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
                     rowBuilder: widget.rowBuilder,
                     entries: _timelineEntries,
                     centerIndex: centerIndex,
+                    ownerGeneration: widget.ownerGeneration,
+                    rowExtents: _rowExtents,
+                    reversed: false,
                   ),
                 ),
               ),
@@ -2023,9 +2046,25 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       ),
     );
 
-    final scrollableTranscript = PlatformInfo.isIOS
-        ? CupertinoScrollbar(controller: _scrollController, child: transcript)
-        : Scrollbar(controller: _scrollController, child: transcript);
+    final mediaQuery = MediaQuery.of(context);
+    // Platform scrollbars read track padding from their nearest MediaQuery.
+    // Restore the real metrics below them so message widgets stay unchanged.
+    final scrollbarMediaQuery = mediaQuery.copyWith(
+      padding: mediaQuery.padding.copyWith(
+        top: widget.topContentInset,
+        bottom: widget.scrollbarBottomInset,
+      ),
+    );
+    final scrollbarChild = MediaQuery(data: mediaQuery, child: transcript);
+    final scrollableTranscript = MediaQuery(
+      data: scrollbarMediaQuery,
+      child: PlatformInfo.isIOS
+          ? CupertinoScrollbar(
+              controller: _scrollController,
+              child: scrollbarChild,
+            )
+          : Scrollbar(controller: _scrollController, child: scrollbarChild),
+    );
 
     return Stack(
       key: _viewportKey,
@@ -2076,17 +2115,55 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
     required this.rowBuilder,
     required this.entries,
     required this.centerIndex,
+    required this.ownerGeneration,
+    required this.rowExtents,
+    required this.reversed,
   }) : super(addSemanticIndexes: false);
 
   final ChatTimelineRowBuilder rowBuilder;
   final List<({String id, int sourceIndex, Object? rebuildKey})> entries;
   final int centerIndex;
+  final int ownerGeneration;
+  final Map<String, double> rowExtents;
+  final bool reversed;
+
+  // Cache bounded first estimates for never-laid-out rows. Flutter's default
+  // would multiply one tall visible response across every unknown sibling.
+  @override
+  double? estimateMaxScrollOffset(
+    int firstIndex,
+    int lastIndex,
+    double leadingScrollOffset,
+    double trailingScrollOffset,
+  ) {
+    final childCount = reversed ? centerIndex : entries.length - centerIndex;
+    if (lastIndex >= childCount - 1) return trailingScrollOffset;
+    var estimate = trailingScrollOffset;
+    final laidOutCount = lastIndex - firstIndex + 1;
+    final fallbackExtent = laidOutCount <= 0
+        ? 52.0
+        : ((trailingScrollOffset - leadingScrollOffset) / laidOutCount)
+              .clamp(48.0, 400.0)
+              .toDouble();
+    // ponytail: O(loaded rows); cache suffix sums if this scan appears in profiles.
+    for (var index = lastIndex + 1; index < childCount; index += 1) {
+      final chronologicalIndex = reversed
+          ? centerIndex - 1 - index
+          : centerIndex + index;
+      final id = entries[chronologicalIndex].id;
+      final extent = rowExtents.putIfAbsent(id, () => fallbackExtent);
+      estimate += extent;
+    }
+    return estimate;
+  }
 
   @override
   bool shouldRebuild(covariant _TimelineRowDelegate oldDelegate) {
     return !identical(rowBuilder, oldDelegate.rowBuilder) ||
         !identical(entries, oldDelegate.entries) ||
-        centerIndex != oldDelegate.centerIndex;
+        centerIndex != oldDelegate.centerIndex ||
+        ownerGeneration != oldDelegate.ownerGeneration ||
+        reversed != oldDelegate.reversed;
   }
 }
 

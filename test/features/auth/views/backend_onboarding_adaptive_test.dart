@@ -95,7 +95,7 @@ void main() {
     }
   });
 
-  testWidgets('debug chooser shows every backend on unsupported platforms', (
+  testWidgets('debug chooser hides Apple backends on unsupported platforms', (
     tester,
   ) async {
     final harness = AdaptiveAuthHarness(
@@ -109,9 +109,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Apple Intelligence'), findsOneWidget);
-    expect(find.text('Apple On-Device'), findsOneWidget);
-    expect(find.text('Apple Private Cloud Compute'), findsOneWidget);
+    expect(find.text('Apple Intelligence'), findsNothing);
+    expect(find.text('Apple On-Device'), findsNothing);
+    expect(find.text('Apple Private Cloud Compute'), findsNothing);
     expect(find.text('Open WebUI'), findsOneWidget);
     expect(find.text('Connect directly'), findsOneWidget);
 

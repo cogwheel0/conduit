@@ -482,4 +482,59 @@ void main() {
     await tester.pumpAndSettle();
     expect(remoteController.reloadCount, 2);
   });
+
+  testWidgets('unsupported platforms neither show nor probe Apple models', (
+    tester,
+  ) async {
+    var appleStatusProbes = 0;
+    final availableStore = OpenWebUiDirectConnectionStore(
+      serverId: 'server',
+      accountId: 'account',
+      readSettings: () async => const <String, dynamic>{},
+      writeSettings: (_) async {},
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          applePccPlatformSupportedProvider.overrideWithValue(false),
+          appleOnDeviceStatusProvider.overrideWith((_) {
+            appleStatusProbes++;
+            throw StateError('Apple On-Device was probed');
+          }),
+          applePccStatusProvider.overrideWith((_) {
+            appleStatusProbes++;
+            throw StateError('Apple PCC was probed');
+          }),
+          directConnectionProfilesProvider.overrideWith(
+            () => DirectTestStaticDirectProfiles(const []),
+          ),
+          directHistoryPolicyProvider.overrideWith(
+            DirectTestStaticHistoryPolicy.new,
+          ),
+          openWebUiDirectConnectionStoreProvider.overrideWithValue(
+            availableStore,
+          ),
+          openWebUiDirectConnectionsProvider.overrideWith(
+            () => DirectTestStaticOpenWebUiConnections(
+              OpenWebUiDirectConnectionsCodec(
+                serverId: 'server',
+                accountId: 'account',
+              ).decode({'ui': <String, Object?>{}}),
+            ),
+          ),
+        ],
+        child: const MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: DirectConnectionsPage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(appleStatusProbes, 0);
+    expect(find.text('Apple On-Device'), findsNothing);
+    expect(find.text('Apple Private Cloud Compute'), findsNothing);
+  });
 }

@@ -142,22 +142,24 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     );
   }
 
-  /// Durability barrier written immediately before the completion POST.
+  /// Durability barrier written immediately after the completion POST is
+  /// accepted.
   ///
-  /// The marker means submission may have started; it deliberately does not
-  /// claim that the server accepted the request or that a response landed. A
-  /// recreated outbox runner recovers by pull only, preventing a duplicate POST
-  /// across crashes in the ambiguous marker-to-response window.
+  /// The marker means the server accepted the request, not that a response
+  /// landed. A recreated outbox runner recovers by pull only, preventing a
+  /// duplicate POST across crashes in the marker-to-response window.
   Future<bool> markAssistantCompletionSubmitted({
     required String chatId,
     required String messageId,
+    String? taskId,
   }) {
     return _updateAssistantPayload(
       chatId: chatId,
       messageId: messageId,
       mutate: (payload) {
         final metadata = _asJsonMap(payload['metadata'])
-          ..remove('responseDone');
+          ..remove('responseDone')
+          ..remove('completionTaskId');
         payload
           ..remove('error')
           ..remove('done')
@@ -165,6 +167,7 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
           ..['metadata'] = <String, dynamic>{
             ...metadata,
             'completionSubmitted': true,
+            if (taskId != null && taskId.isNotEmpty) 'completionTaskId': taskId,
           };
       },
     );

@@ -75,6 +75,141 @@ void main() {
       check(result).contains('Answer\n\n$details');
       check(result).contains('`Example$details`');
     });
+
+    test('matches only quote-aware tool-call type attributes', () {
+      const generic =
+          '<details data-type="tool_calls"><summary>Keep</summary></details>';
+      const toolCall =
+          '''<details arguments='{"comparison":"1 > 0"}' type="tool_calls"><summary>Hide</summary></details>''';
+
+      check(ConduitMarkdownPreprocessor.sanitizeForClipboard(generic))
+          .equals(generic);
+      check(ConduitMarkdownPreprocessor.sanitizeForClipboard(toolCall))
+          .equals('');
+      check(ConduitMarkdownPreprocessor.normalize('Answer$toolCall'))
+          .contains('Answer\n\n<details');
+    });
+
+    test('repairs multiline details tags and quoted raw HTML', () {
+      const input = '''Answer<DeTaIlS
+ TYPE='tool_calls'
+ done='true'
+ name='search'
+ arguments='{"html":"<br><span>value</span>"}'>
+</details>''';
+
+      final result = ConduitMarkdownPreprocessor.normalize(input);
+
+      check(result).startsWith('Answer\n\n<DeTaIlS');
+      check(result).contains("TYPE='tool_calls'");
+      check(result).contains('&lt;br&gt;&lt;span&gt;value&lt;/span&gt;');
+      check(result).not((value) => value.contains("TYPE='tool_calls'\n"));
+    });
+
+    test('repairs double-quoted multiline details attributes', () {
+      const input = '''<details
+ type="tool_calls"
+ arguments="{&quot;html&quot;:&quot;<br>&quot;}">
+</details>''';
+
+      final result = ConduitMarkdownPreprocessor.normalize(input);
+
+      check(result)
+          .contains('arguments="{&quot;html&quot;:&quot;&lt;br&gt;&quot;}"');
+      check(result).not((value) => value.contains('<details\n'));
+    });
+
+    test(
+      'leaves details examples inside backtick and tilde fences unchanged',
+      () {
+        const backticks = '''```
+<details
+ type='tool_calls'
+ arguments='{"html":"<br>"}'>
+</details>
+```''';
+        const tildes = '''~~~html
+<details
+ type='tool_calls'
+ arguments='{"html":"<br>"}'>
+</details>
+~~~''';
+        const unterminatedTildes = '''~~~html
+<details
+ type='tool_calls'
+ arguments='{"html":"<br>"}'>''';
+
+        check(ConduitMarkdownPreprocessor.normalize(backticks))
+            .equals(backticks);
+        check(ConduitMarkdownPreprocessor.normalize(tildes)).equals(tildes);
+        check(ConduitMarkdownPreprocessor.normalize(unterminatedTildes))
+            .equals(unterminatedTildes);
+      },
+    );
+
+    test('restores nested code fence placeholders', () {
+      const input = '''````markdown
+~~~html
+<details
+ type='tool_calls'>
+</details>
+~~~
+````''';
+
+      check(ConduitMarkdownPreprocessor.normalize(input)).equals(input);
+    });
+
+    test('keeps tilde fences nested in backticks from masking later tags', () {
+      const input = '''```
+~~~
+```
+<details
+ type='tool_calls'>''';
+
+      check(ConduitMarkdownPreprocessor.normalize(input))
+          .contains("```\n~~~\n```\n<details  type='tool_calls'>");
+    });
+
+    test('requires a tilde closing fence as long as its opener', () {
+      const input = '''~~~~
+<details
+ type='tool_calls'>
+~~~
+<details
+ type='tool_calls'>
+~~~~''';
+
+      check(ConduitMarkdownPreprocessor.normalize(input)).equals(input);
+    });
+
+    test('leaves malformed and oversized details tags unchanged', () {
+      const malformed = '<details\n type="tool_calls"';
+      final oversized =
+          '<details\n type="tool_calls" data="${'x' * (256 * 1024)}">';
+      final followedByValid = '$oversized\n<details\n type="tool_calls">';
+      const malformedBeforeValid = '''<details data="unterminated
+<details
+ type="tool_calls">''';
+
+      check(ConduitMarkdownPreprocessor.normalize(malformed)).equals(malformed);
+      check(ConduitMarkdownPreprocessor.normalize(oversized)).equals(oversized);
+      check(ConduitMarkdownPreprocessor.normalize(followedByValid))
+        ..startsWith(oversized)
+        ..contains('<details  type="tool_calls">');
+      check(
+        ConduitMarkdownPreprocessor.normalize(malformedBeforeValid),
+      ).contains('<details data="unterminated\n<details  type="tool_calls">');
+    });
+
+    test('repairs bounded details tags in oversized messages', () {
+      final input = '''${'x' * (256 * 1024 + 1)}
+<details
+ type="tool_calls">
+</details>''';
+
+      check(ConduitMarkdownPreprocessor.normalize(input))
+          .contains('<details  type="tool_calls">');
+    });
   });
 
   group('ConduitMarkdownPreprocessor.sanitize', () {

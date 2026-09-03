@@ -1246,28 +1246,36 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
                 onPressed: onPressed,
               ),
               excludeSemantics: true,
-              child: SizedBox(
-                width: targetWidth,
-                height: controlExtent,
-                child: _ConduitNativeModelSelectorButton(
-                  key: conduitNativeModelSelectorViewKey(
-                    context.conduitTheme.textPrimary,
-                    titleFontSize: nativeTitleFontSize,
-                  ),
-                  label: resolveConduitNativeModelSelectorLabel(
-                    label: boundedLabel,
-                    isLoading: isLoading,
-                    showChevron: showChevron,
-                    availableWidth: targetWidth,
-                    textDirection: textDirection,
-                    titleFontSize: nativeTitleFontSize,
-                  ),
-                  symbolName: conduitNativeModelSelectorSymbol(
-                    showChevron: showChevron,
-                  ),
-                  foregroundColor: context.conduitTheme.textPrimary,
-                  enabled: !isLoading && showChevron,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: conduitNativeModelSelectorActivation(
+                  isLoading: isLoading,
+                  showChevron: showChevron,
                   onPressed: onPressed,
+                ),
+                child: SizedBox(
+                  width: targetWidth,
+                  height: controlExtent,
+                  child: _ConduitNativeModelSelectorButton(
+                    key: conduitNativeModelSelectorViewKey(
+                      context.conduitTheme.textPrimary,
+                      titleFontSize: nativeTitleFontSize,
+                    ),
+                    label: resolveConduitNativeModelSelectorLabel(
+                      label: boundedLabel,
+                      isLoading: isLoading,
+                      showChevron: showChevron,
+                      availableWidth: targetWidth,
+                      textDirection: textDirection,
+                      titleFontSize: nativeTitleFontSize,
+                    ),
+                    symbolName: conduitNativeModelSelectorSymbol(
+                      showChevron: showChevron,
+                    ),
+                    foregroundColor: context.conduitTheme.textPrimary,
+                    enabled: !isLoading && showChevron,
+                    onPressed: onPressed,
+                  ),
                 ),
               ),
             )

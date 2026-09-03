@@ -14,6 +14,7 @@ import 'package:flutter/widgets.dart'
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:yaml/yaml.dart' as yaml;
 
 import '../../../core/auth/auth_state_manager.dart';
@@ -1323,14 +1324,84 @@ final chatMessageByIdProvider = Provider.autoDispose
 /// Used by router to avoid showing connection issues during active streaming.
 /// Uses select() to only rebuild when the streaming state actually changes,
 /// not on every content update to the message list.
+bool _messagesAreStreaming(List<ChatMessage> messages) {
+  if (messages.isEmpty) return false;
+  final last = messages.last;
+  return last.role == 'assistant' && last.isStreaming;
+}
+
 final isChatStreamingProvider = Provider<bool>((ref) {
-  return ref.watch(
-    chatMessagesProvider.select((messages) {
-      if (messages.isEmpty) return false;
-      final last = messages.last;
-      return last.role == 'assistant' && last.isStreaming;
-    }),
-  );
+  return ref.watch(chatMessagesProvider.select(_messagesAreStreaming));
+});
+
+final _localChatGenerationCountProvider =
+    NotifierProvider<_LocalChatGenerationCount, int>(
+      _LocalChatGenerationCount.new,
+    );
+
+final localChatGenerationActiveProvider = Provider<bool>(
+  (ref) => ref.watch(_localChatGenerationCountProvider) > 0,
+);
+
+void Function() holdLocalChatGeneration(Ref ref) {
+  final counter = ref.read(_localChatGenerationCountProvider.notifier)..hold();
+  var released = false;
+  return () {
+    if (released) return;
+    released = true;
+    counter.release();
+  };
+}
+
+class _LocalChatGenerationCount extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void hold() => state++;
+
+  void release() {
+    if (ref.mounted && state > 0) state--;
+  }
+}
+
+final chatWakelockCoordinatorProvider = Provider<void>((ref) {
+  var pendingToggle = Future<void>.value();
+  var localStream = false;
+  var backgroundStream = false;
+  bool? held;
+
+  Future<void> toggle(bool enabled) async {
+    try {
+      await WakelockPlus.toggle(enable: enabled);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'toggle-failed',
+        scope: 'chat/wakelock',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'enabled': enabled},
+      );
+    }
+  }
+
+  void enqueue(bool enabled) {
+    if (held == enabled) return;
+    held = enabled;
+    pendingToggle = pendingToggle.then((_) => toggle(enabled));
+  }
+
+  ref.listen<bool>(chatMessagesProvider.select(_messagesAreStreaming), (
+    _,
+    enabled,
+  ) {
+    localStream = enabled;
+    enqueue(localStream || backgroundStream);
+  }, fireImmediately: true);
+  ref.listen<bool>(localChatGenerationActiveProvider, (_, enabled) {
+    backgroundStream = enabled;
+    enqueue(localStream || backgroundStream);
+  }, fireImmediately: true);
+  ref.onDispose(() => enqueue(false));
 });
 
 final shouldProtectLocalStreamingStateProvider = Provider<bool>((ref) {
@@ -1395,97 +1466,14 @@ class StreamingContent extends _$StreamingContent {
   void set(String? value) => state = value;
 }
 
-enum StreamingContentSizeBucket {
-  under1k,
-  from1k,
-  from2k,
-  from4k,
-  from8k,
-  from16k,
-}
-
-@immutable
-class StreamingContentUpdatePolicy {
-  const StreamingContentUpdatePolicy({
-    required this.interval,
-    required this.bucket,
-    required this.isMobileTarget,
-  });
-
-  final Duration interval;
-  final StreamingContentSizeBucket bucket;
-  final bool isMobileTarget;
-}
-
-@visibleForTesting
-StreamingContentUpdatePolicy debugStreamingContentUpdatePolicyForBuffer(
-  int length, {
-  bool isWeb = false,
-  TargetPlatform platform = TargetPlatform.android,
-}) {
-  return _streamingContentUpdatePolicyForTarget(
-    length,
-    isMobileTarget:
-        !isWeb &&
-        (platform == TargetPlatform.android || platform == TargetPlatform.iOS),
-  );
-}
+const _streamingContentUpdateInterval = Duration(milliseconds: 100);
 
 @visibleForTesting
 Duration debugStreamingContentUpdateIntervalForBuffer(
   int length, {
   bool isWeb = false,
   TargetPlatform platform = TargetPlatform.android,
-}) => debugStreamingContentUpdatePolicyForBuffer(
-  length,
-  isWeb: isWeb,
-  platform: platform,
-).interval;
-
-StreamingContentUpdatePolicy _streamingContentUpdatePolicyForTarget(
-  int length, {
-  required bool isMobileTarget,
-}) {
-  final bucket = switch (length) {
-    >= 16000 => StreamingContentSizeBucket.from16k,
-    >= 8000 => StreamingContentSizeBucket.from8k,
-    >= 4000 => StreamingContentSizeBucket.from4k,
-    >= 2000 => StreamingContentSizeBucket.from2k,
-    >= 1000 => StreamingContentSizeBucket.from1k,
-    _ => StreamingContentSizeBucket.under1k,
-  };
-  final interval = switch (bucket) {
-    StreamingContentSizeBucket.from16k =>
-      isMobileTarget
-          ? const Duration(milliseconds: 750)
-          : const Duration(milliseconds: 420),
-    StreamingContentSizeBucket.from8k =>
-      isMobileTarget
-          ? const Duration(milliseconds: 500)
-          : const Duration(milliseconds: 280),
-    StreamingContentSizeBucket.from4k =>
-      isMobileTarget
-          ? const Duration(milliseconds: 300)
-          : const Duration(milliseconds: 180),
-    StreamingContentSizeBucket.from2k =>
-      isMobileTarget
-          ? const Duration(milliseconds: 220)
-          : const Duration(milliseconds: 140),
-    StreamingContentSizeBucket.from1k =>
-      isMobileTarget
-          ? const Duration(milliseconds: 160)
-          : const Duration(milliseconds: 120),
-    StreamingContentSizeBucket.under1k =>
-      isMobileTarget
-          ? const Duration(milliseconds: 100)
-          : const Duration(milliseconds: 80),
-  };
-  return StreamingContentUpdatePolicy(
-    interval: interval,
-    bucket: bucket,
-    isMobileTarget: isMobileTarget,
-  );
-}
+}) => _streamingContentUpdateInterval;
 
 // Loading state for conversation (used to show chat skeletons during fetch)
 @Riverpod(keepAlive: true)
@@ -5781,16 +5769,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     if (_streamingContentFrameScheduled || _streamingContentTimer != null) {
       return;
     }
-    final policy = _streamingContentUpdatePolicyForBuffer(
-      _streamingBuffer!.length,
-    );
     final lastFlushAt = _lastStreamingContentFlushAt;
     if (lastFlushAt == null) {
       _scheduleStreamingContentFrame(reason: reason);
       return;
     }
     final elapsed = DateTime.now().difference(lastFlushAt);
-    final remaining = policy.interval - elapsed;
+    final remaining = _streamingContentUpdateInterval - elapsed;
     if (remaining <= Duration.zero) {
       _scheduleStreamingContentFrame(reason: reason);
       return;
@@ -5798,19 +5783,6 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     _streamingContentTimer = Timer(
       remaining,
       () => _scheduleStreamingContentFrame(reason: reason),
-    );
-  }
-
-  StreamingContentUpdatePolicy _streamingContentUpdatePolicyForBuffer(
-    int length,
-  ) {
-    final isMobileTarget =
-        !kIsWeb &&
-        (defaultTargetPlatform == TargetPlatform.android ||
-            defaultTargetPlatform == TargetPlatform.iOS);
-    return _streamingContentUpdatePolicyForTarget(
-      length,
-      isMobileTarget: isMobileTarget,
     );
   }
 
@@ -5873,7 +5845,6 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
       _streamingCoalescedUpdateCount += coalescedUpdates;
       return;
     }
-    final policy = _streamingContentUpdatePolicyForBuffer(nextContent.length);
     _lastStreamingContentFlushAt = DateTime.now();
     _lastFlushedStreamingBufferVersion = _streamingBufferVersion;
     _streamingVisibleFlushCount += 1;
@@ -5888,9 +5859,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
         'contentCharacters': nextContent.length,
         if (PerformanceProfiler.isEnabled)
           'contentUtf8Bytes': utf8.encode(nextContent).length,
-        'intervalMs': policy.interval.inMilliseconds,
-        'sizeBucket': policy.bucket.name,
-        'mobileTarget': policy.isMobileTarget,
+        'intervalMs': _streamingContentUpdateInterval.inMilliseconds,
       },
     );
     ref.read(streamingContentProvider.notifier).set(nextContent);
@@ -10662,6 +10631,7 @@ Future<void> _finishSubmittedOpenWebUiCompletionHeadlessly(
   required String assistantMessageId,
   int recoveryAttempts = 6,
   Duration recoveryDelay = const Duration(seconds: 2),
+  Duration taskPollDelay = const Duration(seconds: 2),
   bool requireDurableSubmittedMarker = true,
   bool submissionAlreadyMarked = false,
 }) async {
@@ -10672,6 +10642,7 @@ Future<void> _finishSubmittedOpenWebUiCompletionHeadlessly(
         ref,
         owner: owner,
         assistantMessageId: assistantMessageId,
+        taskId: session.taskId,
       );
   if (!markerPersisted && requireDurableSubmittedMarker) {
     // The request crossed the server boundary, but without a durable marker an
@@ -10715,7 +10686,7 @@ Future<void> _finishSubmittedOpenWebUiCompletionHeadlessly(
     }
   }
 
-  final landed = await _pullSubmittedOpenWebUiCompletion(
+  var landed = await _pullSubmittedOpenWebUiCompletion(
     ref,
     owner: owner,
     assistantMessageId: assistantMessageId,
@@ -10724,6 +10695,31 @@ Future<void> _finishSubmittedOpenWebUiCompletionHeadlessly(
   );
   if (landed == true) return;
   if (landed == null && drainFailure == null) return;
+  final taskId = session.taskId;
+  if (landed == false &&
+      session.transport == ChatCompletionTransport.taskSocket &&
+      taskId != null &&
+      taskId.isNotEmpty) {
+    final taskFinished = await _waitForSubmittedOpenWebUiTask(
+      ref,
+      owner: owner,
+      assistantMessageId: assistantMessageId,
+      taskId: taskId,
+      pollDelay: taskPollDelay,
+      failureLimit: math.max(1, recoveryAttempts),
+    );
+    if (taskFinished == null) return;
+    if (taskFinished) {
+      landed = await _pullSubmittedOpenWebUiCompletion(
+        ref,
+        owner: owner,
+        assistantMessageId: assistantMessageId,
+        attempts: recoveryAttempts,
+        delay: recoveryDelay,
+      );
+      if (landed == true || landed == null) return;
+    }
+  }
 
   await _markHeadlessCompletionRecoveryFailed(
     ref,
@@ -10745,10 +10741,11 @@ Future<void> recoverSubmittedOpenWebUiCompletion(
   dynamic ref, {
   required OpenWebUiCompletionOwner owner,
   required String assistantMessageId,
+  String? taskId,
   int recoveryAttempts = 6,
   Duration recoveryDelay = const Duration(seconds: 2),
 }) async {
-  final landed = await _pullSubmittedOpenWebUiCompletion(
+  var landed = await _pullSubmittedOpenWebUiCompletion(
     ref,
     owner: owner,
     assistantMessageId: assistantMessageId,
@@ -10757,11 +10754,100 @@ Future<void> recoverSubmittedOpenWebUiCompletion(
   );
   if (landed == true) return;
   if (landed == null) return;
+  final taskFinished = await _waitForSubmittedOpenWebUiTask(
+    ref,
+    owner: owner,
+    assistantMessageId: assistantMessageId,
+    taskId: taskId,
+    failureLimit: math.max(1, recoveryAttempts),
+    pollDelay: recoveryDelay,
+  );
+  if (taskFinished == null) return;
+  if (taskFinished) {
+    landed = await _pullSubmittedOpenWebUiCompletion(
+      ref,
+      owner: owner,
+      assistantMessageId: assistantMessageId,
+      attempts: recoveryAttempts,
+      delay: recoveryDelay,
+    );
+    if (landed == true || landed == null) return;
+  }
   await _markHeadlessCompletionRecoveryFailed(
     ref,
     owner: owner,
     assistantMessageId: assistantMessageId,
   );
+}
+
+Future<bool?> _waitForSubmittedOpenWebUiTask(
+  dynamic ref, {
+  required OpenWebUiCompletionOwner owner,
+  required String assistantMessageId,
+  String? taskId,
+  required int failureLimit,
+  Duration pollDelay = const Duration(seconds: 2),
+}) async {
+  if (taskId == null || taskId.isEmpty) {
+    // ponytail: pre-task-ID markers get the existing five-minute headless
+    // window; remove this fallback once those legacy outbox rows age out.
+    final attempts = pollDelay <= Duration.zero
+        ? failureLimit
+        : math.max(
+            failureLimit,
+            (_headlessStreamDrainTimeout.inMicroseconds /
+                    pollDelay.inMicroseconds)
+                .ceil(),
+          );
+    for (var attempt = 0; attempt < attempts; attempt++) {
+      final landed = await _pullSubmittedOpenWebUiCompletion(
+        ref,
+        owner: owner,
+        assistantMessageId: assistantMessageId,
+        attempts: 1,
+        delay: Duration.zero,
+      );
+      if (landed == true) return true;
+      if (landed == null) return null;
+      if (attempt + 1 < attempts) {
+        await Future<void>.delayed(pollDelay);
+      }
+    }
+    return false;
+  }
+
+  final api = owner.api;
+  if (api is! ApiService) return false;
+  var consecutiveFailures = 0;
+  var consecutiveMissing = 0;
+
+  // Exact IDs can wait without a deadline. Confirm disappearance twice so a
+  // transient empty task-registry read cannot finish recovery early.
+  while (true) {
+    if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
+    try {
+      final taskIds = await api.getTaskIdsByChat(owner.chatId);
+      if (!openWebUiCompletionContextIsCurrent(ref, owner)) return null;
+      if (!taskIds.contains(taskId)) {
+        consecutiveMissing++;
+        if (consecutiveMissing >= 2) return true;
+      } else {
+        consecutiveMissing = 0;
+      }
+      consecutiveFailures = 0;
+    } catch (error, stackTrace) {
+      consecutiveFailures++;
+      DebugLogger.error(
+        'headless-task-status-failed',
+        scope: 'chat/completion',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'chatId': owner.chatId},
+      );
+      if (consecutiveFailures >= failureLimit) return false;
+    }
+    await Future<void>.delayed(pollDelay);
+  }
 }
 
 Future<bool?> _pullSubmittedOpenWebUiCompletion(
@@ -10839,6 +10925,7 @@ Future<void> finishSubmittedOpenWebUiCompletionHeadlesslyForTest(
   required String assistantMessageId,
   int recoveryAttempts = 1,
   Duration recoveryDelay = Duration.zero,
+  Duration taskPollDelay = Duration.zero,
   bool requireDurableSubmittedMarker = true,
   bool submissionAlreadyMarked = false,
 }) {
@@ -10850,12 +10937,15 @@ Future<void> finishSubmittedOpenWebUiCompletionHeadlesslyForTest(
     assistantMessageId: assistantMessageId,
     recoveryAttempts: recoveryAttempts,
     recoveryDelay: recoveryDelay,
+    taskPollDelay: taskPollDelay,
     requireDurableSubmittedMarker: requireDurableSubmittedMarker,
     submissionAlreadyMarked: submissionAlreadyMarked,
   );
 }
 
 bool _headlessAssistantLanded(ChatMessage message) {
+  if (message.error != null) return true;
+  if (!assistantMessageResponseCompleted(message)) return false;
   if (message.content.trim().isNotEmpty) return true;
   if (message.output?.isNotEmpty == true) return true;
   if (message.files?.isNotEmpty == true) return true;
@@ -10863,8 +10953,6 @@ bool _headlessAssistantLanded(ChatMessage message) {
   if (message.sources.isNotEmpty) return true;
   if (message.codeExecutions.isNotEmpty) return true;
   if (message.followUps.isNotEmpty) return true;
-  if (message.error != null) return true;
-
   return false;
 }
 
@@ -10911,6 +10999,7 @@ Future<void> _markAcceptedOpenWebUiCompletionOrAbort(
       ref,
       owner: owner,
       assistantMessageId: assistantMessageId,
+      taskId: session.taskId,
     );
   } catch (_) {
     // The server accepted the request, but without a durable marker a later
@@ -10925,6 +11014,7 @@ Future<bool> _markHeadlessCompletionSubmitted(
   dynamic ref, {
   required OpenWebUiCompletionOwner owner,
   required String assistantMessageId,
+  String? taskId,
 }) async {
   final chatId = owner.chatId;
   final db = owner.database;
@@ -10933,6 +11023,7 @@ Future<bool> _markHeadlessCompletionSubmitted(
     return await db.messagesDao.markAssistantCompletionSubmitted(
       chatId: chatId,
       messageId: assistantMessageId,
+      taskId: taskId,
     );
   } catch (error, stackTrace) {
     DebugLogger.error(
@@ -10956,11 +11047,13 @@ Future<void> beginOpenWebUiCompletionSubmission(
   dynamic ref, {
   required OpenWebUiCompletionOwner owner,
   required String assistantMessageId,
+  String? taskId,
 }) async {
   final persisted = await _markHeadlessCompletionSubmitted(
     ref,
     owner: owner,
     assistantMessageId: assistantMessageId,
+    taskId: taskId,
   );
   if (persisted) return;
   throw const SyncTerminalException(

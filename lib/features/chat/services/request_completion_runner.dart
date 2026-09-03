@@ -65,6 +65,17 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
   Future<void> run({
     required String chatId,
     required Map<String, dynamic> payload,
+  }) {
+    final releaseGeneration = holdLocalChatGeneration(_ref);
+    return _run(
+      chatId: chatId,
+      payload: payload,
+    ).whenComplete(releaseGeneration);
+  }
+
+  Future<void> _run({
+    required String chatId,
+    required Map<String, dynamic> payload,
   }) async {
     final decoded = RequestCompletionPayload.fromJson(payload);
     final assistantMessageId = decoded.assistantMessageId;
@@ -197,6 +208,7 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
         _ref,
         owner: owner,
         assistantMessageId: assistantMessageId,
+        taskId: _placeholderSubmittedTaskId(placeholder),
         recoveryAttempts: _recoveryAttempts,
         recoveryDelay: _recoveryDelay,
       );
@@ -281,6 +293,15 @@ bool _placeholderMarkedSubmitted(MessageRow placeholder) {
   final payload = _decodeMessagePayload(placeholder.payload);
   final metadata = _asJsonMap(payload['metadata']);
   return metadata['completionSubmitted'] == true;
+}
+
+String? _placeholderSubmittedTaskId(MessageRow placeholder) {
+  final payload = _decodeMessagePayload(placeholder.payload);
+  final metadata = _asJsonMap(payload['metadata']);
+  final taskId = (metadata['completionTaskId'] ?? metadata['taskId'])
+      ?.toString()
+      .trim();
+  return taskId == null || taskId.isEmpty ? null : taskId;
 }
 
 Map<String, dynamic> _decodeMessagePayload(String raw) {

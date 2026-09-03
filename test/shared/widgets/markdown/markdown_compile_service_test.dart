@@ -509,6 +509,30 @@ void main() {
       expect(detailsBlock.toolCallData, toolCallData);
     });
 
+    test('prepares multiline single-quoted tool calls semantically', () {
+      const content = '''<DeTaIlS
+ TYPE='tool_calls'
+ done='true'
+ name='search'
+ arguments='{"html":"<br><span>value</span>"}'>
+</details>''';
+
+      final document = compilePreparedMarkdownSync(
+        prepareMarkdownContent(content, streaming: false),
+      );
+      final details =
+          (document.nodes.first as CompiledMarkdownElement).detailsData!;
+
+      expect(details.kind, CompiledMarkdownDetailsKind.toolCall);
+      expect(details.name, 'search');
+      expect(details.isDone, isTrue);
+      expect(details.toolCallData!.argumentEntries.single.label, 'html');
+      expect(
+        details.toolCallData!.argumentEntries.single.value,
+        '<br><span>value</span>',
+      );
+    });
+
     test('stores details bodies as lazy markdown payloads', () {
       final document = compilePreparedMarkdownSync(
         [

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/persistence/persistence_keys.dart';
+import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/secure_credential_storage.dart';
@@ -11,6 +12,7 @@ import 'package:conduit/features/direct_connections/models/direct_completion.dar
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit/features/direct_connections/services/apple_pcc_adapter.dart';
 import 'package:conduit/features/direct_connections/services/direct_connection_profile_store.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_cache_store.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
@@ -190,6 +192,33 @@ void main() {
 
     expect(profiles, isEmpty);
   });
+
+  test(
+    'Apple status providers do not call platform APIs when unsupported',
+    () async {
+      final host = _ThrowingPccHost();
+      final container = ProviderContainer(
+        overrides: [
+          applePccPlatformSupportedProvider.overrideWithValue(false),
+          applePccAdapterProvider.overrideWithValue(
+            ApplePccAdapter(hostApi: host),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final statuses = await Future.wait([
+        container.read(appleOnDeviceStatusProvider.future),
+        container.read(applePccStatusProvider.future),
+      ]);
+
+      expect(
+        statuses.map((status) => status.availability),
+        everyElement(PlatformPccAvailability.unsupported),
+      );
+      expect(host.statusCalls, 0);
+    },
+  );
 
   test(
     'enabled Apple On-Device is exposed as a built-in Direct profile',
@@ -1644,6 +1673,16 @@ Future<List<DirectConnectionProfile>> _loadDurableProfiles() =>
     DirectConnectionProfileStore(
       SecureCredentialStorage(instance: const FlutterSecureStorage()),
     ).load();
+
+final class _ThrowingPccHost extends PccHostApi {
+  int statusCalls = 0;
+
+  @override
+  Future<PlatformPccStatus> getStatus(PlatformAppleModel model) {
+    statusCalls++;
+    throw StateError('Apple platform API must not be called');
+  }
+}
 
 final class _QueuedAdapter implements DirectProviderAdapter {
   final List<List<DirectRemoteModel>> responses = [];

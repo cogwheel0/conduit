@@ -143,11 +143,12 @@ class BackendChooserPage extends ConsumerWidget {
 bool debugShowAllAppleBackends = kDebugMode;
 
 bool _isAppleModelAvailable(AsyncValue<PlatformPccStatus>? status) =>
-    debugShowAllAppleBackends ||
-    (status?.hasValue == true &&
-        status!.requireValue.availability ==
-            PlatformPccAvailability.available &&
-        !status.requireValue.quotaLimitReached);
+    status != null &&
+    (debugShowAllAppleBackends ||
+        (status.hasValue == true &&
+            status.requireValue.availability ==
+                PlatformPccAvailability.available &&
+            !status.requireValue.quotaLimitReached));
 
 Future<void> _selectAppleModel(
   BuildContext context,

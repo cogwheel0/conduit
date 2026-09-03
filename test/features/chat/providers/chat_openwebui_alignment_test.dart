@@ -178,6 +178,17 @@ void main() {
           ),
         ),
       ).isFalse();
+      check(
+        headlessAssistantLandedForTest(
+          ChatMessage(
+            id: 'a4',
+            role: 'assistant',
+            content: 'partial response',
+            timestamp: now,
+            isStreaming: true,
+          ),
+        ),
+      ).isFalse();
     });
 
     test('temporary chats keep full outbound history', () {

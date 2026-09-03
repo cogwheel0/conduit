@@ -582,6 +582,7 @@ void main() {
         final marked = await db.messagesDao.markAssistantCompletionSubmitted(
           chatId: 'chat-retry',
           messageId: 'assistant-retry',
+          taskId: 'task-retry',
         );
 
         check(marked).isTrue();
@@ -592,6 +593,7 @@ void main() {
         check(payload.containsKey('done')).isFalse();
         check(payload.containsKey('error')).isFalse();
         check(metadata['completionSubmitted']).equals(true);
+        check(metadata['completionTaskId']).equals('task-retry');
         check(metadata.containsKey('responseDone')).isFalse();
         check(metadata['checkpoint']).equals(true);
         check(row.dirty).isFalse();
