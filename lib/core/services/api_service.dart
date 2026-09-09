@@ -3854,6 +3854,49 @@ class ApiService {
     await _dio.delete('/api/v1/folders/$id');
   }
 
+  /// GET `/api/v1/folders/shared` — folders owned by another user and
+  /// shared with the current user (includes their child folders). Distinct
+  /// from [getFolders], which only returns folders the current user owns;
+  /// the web UI renders these two lists as separate "Folders" / "Shared"
+  /// sidebar sections, so we keep them as separate reads here too.
+  Future<List<Map<String, dynamic>>> getSharedFolders() async {
+    _traceApi('Fetching shared folders');
+    try {
+      final response = await _dio.get('/api/v1/folders/shared');
+      final data = response.data;
+      if (data is List) {
+        return data.cast<Map<String, dynamic>>();
+      }
+      return const <Map<String, dynamic>>[];
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 403) {
+        return const <Map<String, dynamic>>[];
+      }
+      rethrow;
+    }
+  }
+
+  /// GET `/api/v1/folders/{id}/shared/chats` — the chats inside a folder
+  /// shared with the current user by its owner. Every chat returned here is
+  /// owned by someone else, so `readonly` is always `true` for the caller
+  /// (the server marks it per-chat as `chat.user_id != caller.id`, which by
+  /// construction always holds for chats reachable only through another
+  /// user's folder).
+  Future<List<Map<String, dynamic>>> getSharedFolderChats(
+    String folderId,
+  ) async {
+    _traceApi('Fetching shared folder chats: $folderId');
+    final response = await _dio.get('/api/v1/folders/$folderId/shared/chats');
+    final data = response.data;
+    if (data is Map<String, dynamic>) {
+      final chats = data['chats'];
+      if (chats is List) {
+        return chats.cast<Map<String, dynamic>>();
+      }
+    }
+    return const <Map<String, dynamic>>[];
+  }
+
   Future<void> moveConversationToFolder(
     String conversationId,
     String? folderId,

@@ -48,6 +48,12 @@ final expandedFoldersProvider =
       ExpandedFoldersNotifier.new,
     );
 
+/// Provider for the shared-folders section visibility state.
+final showSharedFoldersProvider =
+    NotifierProvider<ShowSharedFoldersNotifier, bool>(
+      ShowSharedFoldersNotifier.new,
+    );
+
 /// Manages the collapsed/expanded state of the archived section.
 class ShowArchivedNotifier extends Notifier<bool> {
   @override
@@ -86,6 +92,23 @@ class ShowFoldersNotifier extends Notifier<bool> {
   void toggle() {
     state = !state;
     PreferencesStore.put(PreferenceKeys.drawerShowFolders, state);
+  }
+}
+
+/// Manages the collapsed/expanded state of the shared-folders section.
+///
+/// Persists state to shared_preferences.
+class ShowSharedFoldersNotifier extends Notifier<bool> {
+  @override
+  bool build() {
+    return PreferencesStore.getBool(PreferenceKeys.drawerShowSharedFolders) ??
+        true;
+  }
+
+  /// Toggles the visibility state and persists it.
+  void toggle() {
+    state = !state;
+    PreferencesStore.put(PreferenceKeys.drawerShowSharedFolders, state);
   }
 }
 

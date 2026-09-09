@@ -29,7 +29,9 @@ import 'create_folder_dialog.dart';
 import 'folder_tree_guides.dart';
 import 'drawer_section_notifiers.dart';
 import 'folder_icon.dart';
+import 'shared_folders_section.dart';
 import '../providers/conversation_selection_provider.dart';
+import '../providers/shared_folders_providers.dart';
 import '../providers/sidebar_search_providers.dart';
 import '../providers/sidebar_tab_scroll_registry.dart';
 import '../models/sidebar_navigation_model.dart';
@@ -105,6 +107,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       // Await folders as well so the list stabilizes
       try {
         await ref.read(foldersProvider.future);
+      } catch (_) {}
+      try {
+        await ref.read(sharedFoldersProvider.notifier).refresh();
       } catch (_) {}
     } catch (_) {}
   }
@@ -877,6 +882,27 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
             ],
             if (foldersEnabled)
               const SliverToBoxAdapter(child: SizedBox(height: Spacing.md)),
+
+            if (foldersEnabled)
+              ...ref
+                  .watch(sharedFoldersProvider)
+                  .maybeWhen(
+                    data: (sharedFolders) => sharedFolders.isEmpty
+                        ? const <Widget>[]
+                        : [
+                            SliverPadding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: Spacing.md,
+                              ),
+                              sliver: SliverToBoxAdapter(
+                                child: SharedFoldersSection(
+                                  folders: sharedFolders,
+                                ),
+                              ),
+                            ),
+                          ],
+                    orElse: () => const <Widget>[],
+                  ),
 
             if (regular.isNotEmpty) ...[
               SliverPadding(
