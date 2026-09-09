@@ -2,16 +2,22 @@ import 'dart:io' show Platform;
 
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/folder.dart';
 import '../../../core/models/shared_folder_chat.dart';
+import '../../../core/providers/app_providers.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/conversation_context_menu.dart';
+import '../../../shared/widgets/themed_dialogs.dart';
 import '../providers/shared_folders_providers.dart';
 import 'conversation_tile.dart'
     show ChatStyleSidebarTile, kConversationTileHorizontalGutter;
+import 'create_folder_dialog.dart';
 import 'folder_icon.dart';
 import 'folder_tree_guides.dart';
 import 'drawer_section_notifiers.dart';
@@ -183,14 +189,22 @@ class _SharedFolderRow extends ConsumerWidget {
       ),
     );
 
+    final canWrite = folder.sharedPermission == 'write';
+    final headerWithMenu = canWrite
+        ? ConduitContextMenu(
+            actions: _writeActions(context, ref, folder),
+            child: header,
+          )
+        : header;
+
     final wrapped = depth == 0
-        ? header
+        ? headerWithMenu
         : FolderTreeHierarchyNode(
             ancestorHasMoreSiblings: entry.ancestorHasMoreSiblings,
             showBranch: true,
             hasMoreSiblings: entry.hasMoreSiblings,
             guideInset: kConversationTileHorizontalGutter,
-            child: header,
+            child: headerWithMenu,
           );
 
     if (!isExpanded) {
@@ -207,6 +221,106 @@ class _SharedFolderRow extends ConsumerWidget {
             ...entry.ancestorHasMoreSiblings,
             entry.hasMoreSiblings,
           ],
+        ),
+      ],
+    );
+  }
+
+  /// Folder-tree actions available when the owner granted write access.
+  /// Both operations are already permitted server-side for a write-granted
+  /// non-owner (see `create_folder` / `update_folder_name_by_id` in
+  /// `open_webui`'s folders router) — the new/renamed folder is still owned
+  /// by [folder]'s owner, not the current user, so results are written back
+  /// through `sharedFoldersProvider`, not the owned `foldersProvider`.
+  List<ConduitContextMenuAction> _writeActions(
+    BuildContext context,
+    WidgetRef ref,
+    Folder folder,
+  ) {
+    final l10n = AppLocalizations.of(context)!;
+    return [
+      ConduitContextMenuAction(
+        cupertinoIcon: CupertinoIcons.folder_badge_plus,
+        materialIcon: Icons.create_new_folder_outlined,
+        label: l10n.newFolder,
+        onBeforeClose: () => ConduitHaptics.selectionClick(),
+        onSelected: () async {
+          await CreateFolderDialog.show(
+            context,
+            ref,
+            parentId: folder.id,
+            onError: (message) => _showError(context, message),
+            onCreated: (_) =>
+                ref.read(sharedFoldersProvider.notifier).refresh(),
+          );
+        },
+      ),
+      ConduitContextMenuAction(
+        cupertinoIcon: CupertinoIcons.pencil,
+        materialIcon: Icons.edit_rounded,
+        label: l10n.rename,
+        onBeforeClose: () => ConduitHaptics.selectionClick(),
+        onSelected: () async {
+          await _renameSharedFolder(context, ref, folder);
+        },
+      ),
+    ];
+  }
+
+  Future<void> _renameSharedFolder(
+    BuildContext context,
+    WidgetRef ref,
+    Folder folder,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final newName = await ThemedDialogs.promptTextInput(
+      context,
+      title: l10n.rename,
+      hintText: l10n.folderName,
+      initialValue: folder.name,
+      confirmText: l10n.save,
+      cancelText: l10n.cancel,
+    );
+    if (newName == null) return;
+    final trimmed = newName.trim();
+    if (trimmed.isEmpty || trimmed == folder.name) return;
+
+    try {
+      final api = ref.read(apiServiceProvider);
+      if (api == null) throw Exception('No API service');
+      await api.updateFolder(folder.id, name: trimmed);
+      ConduitHaptics.selectionClick();
+      await ref.read(sharedFoldersProvider.notifier).refresh();
+    } catch (e, stackTrace) {
+      DebugLogger.error(
+        'rename-shared-folder-failed',
+        scope: 'drawer/shared',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      if (context.mounted) {
+        await _showError(context, l10n.failedToRenameFolder);
+      }
+    }
+  }
+
+  Future<void> _showError(BuildContext context, String message) async {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    await ThemedDialogs.show<void>(
+      context,
+      title: l10n.errorMessage,
+      content: Text(
+        message,
+        style: AppTypography.bodyMediumStyle.copyWith(
+          color: theme.textSecondary,
+        ),
+      ),
+      actions: [
+        AdaptiveButton(
+          onPressed: () => Navigator.of(context).pop(),
+          label: l10n.ok,
+          style: AdaptiveButtonStyle.plain,
         ),
       ],
     );
