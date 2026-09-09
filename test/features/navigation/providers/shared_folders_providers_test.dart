@@ -1,5 +1,4 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/folder.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
