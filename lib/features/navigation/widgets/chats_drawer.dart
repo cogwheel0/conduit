@@ -890,14 +890,14 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                     data: (sharedFolders) => sharedFolders.isEmpty
                         ? const <Widget>[]
                         : [
-                            SliverPadding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: Spacing.md,
-                              ),
-                              sliver: SliverToBoxAdapter(
-                                child: SharedFoldersSection(
-                                  folders: sharedFolders,
-                                ),
+                            // No outer horizontal SliverPadding here:
+                            // SharedFoldersSection's header/rows already
+                            // apply their own Spacing.md inset (matching
+                            // the owned-folder rows' pattern above), so
+                            // wrapping it again would double the indent.
+                            SliverToBoxAdapter(
+                              child: SharedFoldersSection(
+                                folders: sharedFolders,
                               ),
                             ),
                           ],
@@ -1229,9 +1229,17 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onToggle,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: Spacing.xxs),
-        child: headerContent,
+      // Matches the "Folders" header's height below: that one carries a
+      // 44pt (TouchTarget.minimum) create-folder button that otherwise
+      // makes it taller than this plain-text header, which would make the
+      // gap on either side of "Folders" look uneven next to its neighbors
+      // (Pinned above, Folders/Shared below).
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: TouchTarget.minimum),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: Spacing.xxs),
+          child: headerContent,
+        ),
       ),
     );
   }

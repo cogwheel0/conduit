@@ -59,37 +59,49 @@ class SharedFoldersSection extends ConsumerWidget {
             ConduitHaptics.selectionClick();
             ref.read(showSharedFoldersProvider.notifier).toggle();
           },
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Spacing.md,
-              vertical: Spacing.xxs,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  _disclosureIcon(isExpanded),
-                  color: theme.iconSecondary,
-                  size: IconSize.listItem,
-                ),
-                const SizedBox(width: Spacing.xxs),
-                Text(
-                  AppLocalizations.of(context)!.sharedFolders,
-                  style: AppTypography.labelStyle.copyWith(
-                    color: theme.textSecondary,
-                    fontWeight: FontWeight.w700,
-                    decoration: TextDecoration.none,
+          // Matches every other section header's height (Folders, Recent,
+          // Pinned all now constrain to TouchTarget.minimum — see
+          // `_buildSectionHeader` and `_buildFoldersSectionHeader` in
+          // chats_drawer.dart) so the gaps on both sides of each header
+          // look visually even regardless of which ones carry a trailing
+          // button.
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: TouchTarget.minimum),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Spacing.md,
+                vertical: Spacing.xxs,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _disclosureIcon(isExpanded),
+                    color: theme.iconSecondary,
+                    size: IconSize.listItem,
                   ),
-                ),
-              ],
+                  const SizedBox(width: Spacing.xxs),
+                  Text(
+                    AppLocalizations.of(context)!.sharedFolders,
+                    style: AppTypography.labelStyle.copyWith(
+                      color: theme.textSecondary,
+                      fontWeight: FontWeight.w700,
+                      decoration: TextDecoration.none,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
         if (isExpanded) ...[
           const SizedBox(height: Spacing.xs),
           for (final entry in entries) _SharedFolderRow(entry: entry),
-          const SizedBox(height: Spacing.md),
         ],
+        // Matches the owned "Folders" section's trailing gap in
+        // chats_drawer.dart, which is unconditional (not just while
+        // expanded) so the "Recent" header below always has breathing room.
+        const SizedBox(height: Spacing.md),
       ],
     );
   }
