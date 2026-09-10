@@ -1487,6 +1487,100 @@ void main() {
       check(serializedAssistant['done']).equals(true);
       check(historyAssistant['done']).equals(true);
     });
+
+    // issue #703: display-only semantic <details> wrappers must not be
+    // persisted into server-side content.
+    const pollutedAssistantContent = '''<details type="tool_calls" done="true" id="call_abc" name="mcp_tool_call" arguments="&quot;{&quot;query&quot;:&quot;q&quot;}&quot;" result="&quot;[big tool result]&quot;">
+<summary>Tool Executed</summary>
+</details>
+
+The plain answer.''';
+
+    test('syncConversationMessages projects semantic <details> out of persisted content (issue 703)', () async {
+      final adapter = _FakeAdapter.json({});
+      final api = _buildApiServiceForTest(adapter);
+
+      await api.syncConversationMessages('conv-703', [
+        ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'hello',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(1700000000000),
+        ),
+        ChatMessage(
+          id: 'asst-1',
+          role: 'assistant',
+          content: pollutedAssistantContent,
+          timestamp: DateTime.fromMillisecondsSinceEpoch(1700000001000),
+          model: 'gpt-4',
+        ),
+      ], model: 'gpt-4');
+
+      final request = adapter.lastRequest!;
+      check(request.path).equals('/api/v1/chats/conv-703');
+
+      final chat =
+          (request.data as Map<String, dynamic>)['chat']
+              as Map<String, dynamic>;
+      final serialized = chat['messages'] as List<Map<String, dynamic>>;
+      final historyMessages =
+          (chat['history'] as Map<String, dynamic>)['messages']
+              as Map<String, dynamic>;
+
+      check(serialized.last['content']).equals('The plain answer.');
+      check((historyMessages['asst-1'] as Map<String, dynamic>)['content'])
+          .equals('The plain answer.');
+    });
+
+    test('createConversation projects semantic <details> out of persisted content (issue 703)', () async {
+      final adapter = _FakeAdapter.json({
+        'id': 'conv-703',
+        'title': 'New Chat',
+        'created_at': 1700000000,
+        'updated_at': 1700000001,
+        'chat': {
+          'models': ['gpt-4'],
+          'history': {'currentId': 'asst-1', 'messages': {}},
+          'messages': [],
+        },
+      });
+      final api = _buildApiServiceForTest(adapter);
+
+      await api.createConversation(
+        title: 'New Chat',
+        model: 'gpt-4',
+        messages: [
+          ChatMessage(
+            id: 'user-1',
+            role: 'user',
+            content: 'hello',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(1700000000000),
+          ),
+          ChatMessage(
+            id: 'asst-1',
+            role: 'assistant',
+            content: pollutedAssistantContent,
+            timestamp: DateTime.fromMillisecondsSinceEpoch(1700000001000),
+            model: 'gpt-4',
+          ),
+        ],
+      );
+
+      final request = adapter.lastRequest!;
+      check(request.path).equals('/api/v1/chats/new');
+
+      final chat =
+          (request.data as Map<String, dynamic>)['chat']
+              as Map<String, dynamic>;
+      final serialized = chat['messages'] as List<Map<String, dynamic>>;
+      final historyMessages =
+          (chat['history'] as Map<String, dynamic>)['messages']
+              as Map<String, dynamic>;
+
+      check(serialized.last['content']).equals('The plain answer.');
+      check((historyMessages['asst-1'] as Map<String, dynamic>)['content'])
+          .equals('The plain answer.');
+    });
   });
 
   // -----------------------------------------------------------------------

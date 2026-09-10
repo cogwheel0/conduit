@@ -188,3 +188,25 @@ bool serverBodyTruncatesLocal(String localContent, String serverContent) {
     serverBody: stripRenderedSemanticDetails(serverContent),
   );
 }
+
+/// Projects [content] to the plain-text form Conduit may persist to an
+/// Open WebUI server (issue #703).
+///
+/// Conduit's display layer renders reasoning, tool calls, code-execution,
+/// and built-in-tool sections as `<details type="...">` wrappers embedded
+/// in assistant content. Those wrappers are display-only: Open WebUI stores
+/// tool calls as structured `output` items and strips `<details>` markup
+/// from persisted content, so its own clients never persist it. Pushing the
+/// rendered wrappers into server-side `content` bloats stored chats (up to
+/// 99% of the stored chars were duplicated markup), re-sends the markup to
+/// the model as history on every continuation, and corrupts
+/// shares/exports/API consumers that read `content` verbatim.
+///
+/// Apply this to outbound chat-save payloads only; local display state
+/// keeps the rendered wrappers. Content without any semantic wrapper, and
+/// ordinary `<details>` blocks without a semantic `type` (model output),
+/// pass through unchanged.
+String projectContentForServerPersistence(String content) {
+  if (!containsRenderedSemanticDetails(content)) return content;
+  return dropUnterminatedSemanticDetails(stripRenderedSemanticDetails(content));
+}
