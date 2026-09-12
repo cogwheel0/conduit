@@ -344,6 +344,19 @@ void main() {
       check(result.contains('still inside')).isTrue();
     });
 
+    test('many code spans are restored in order around a details tag', () {
+      final spans = List.generate(600, (i) => '`<details x=$i>`');
+      final raw =
+          '${spans.join(' ')}\n<details result="a<br>b">\nbody\n</details>';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      for (final span in spans) {
+        check(result.contains(span)).isTrue();
+      }
+      check(result.contains('a&lt;br&gt;b')).isTrue();
+      check(result.contains('conduit-code-span')).isFalse();
+    });
+
     test('custom elements and data-type attributes are left alone', () {
       const raw =
           'Intro<details-panel data-type="tool_calls" result="a<br>b">\n'

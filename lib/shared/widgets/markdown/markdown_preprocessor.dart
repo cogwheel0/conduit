@@ -420,27 +420,10 @@ class ConduitMarkdownPreprocessor {
     String input,
     RegExp pattern,
     String Function(Match) replace,
-  ) {
-    final codeSpans = <String>[];
-    var marker = '\u0000conduit-code-span-';
-    while (input.contains(marker)) {
-      marker = '\u0000$marker';
-    }
-
-    final masked = input.replaceAllMapped(_codeSpanOrFence, (match) {
-      final index = codeSpans.length;
-      codeSpans.add(match[0] ?? '');
-      return '$marker$index\u0000';
-    });
-    var output = masked.replaceAllMapped(pattern, replace);
-
-    // Placeholders inside removed matches no longer exist, so only code from
-    // the retained content is restored.
-    for (var index = 0; index < codeSpans.length; index++) {
-      output = output.replaceAll('$marker$index\u0000', codeSpans[index]);
-    }
-    return output;
-  }
+  ) => _maskCodeAndTransform(
+    input,
+    (content) => content.replaceAllMapped(pattern, replace),
+  );
 
   /// Case-insensitive `String.indexOf` for `<details` starting at [start].
   /// Returns -1 when not found.
@@ -452,23 +435,8 @@ class ConduitMarkdownPreprocessor {
     return -1;
   }
 
-  /// Normalizes `<details ...>` opening tags in one quote-aware scan:
-  ///
-  /// 1. **Join** — an opening tag whose quoted attribute values contain real
-  ///    newlines (legal in HTML) has no `>` on its first line, so the per-line
-  ///    block parser can't see it. The scan walks from `<details` to the first
-  ///    `>` *outside quotes* and folds any newlines inside the tag.
-  /// 2. **Escape** — raw `<`/`>` inside quoted attribute values (e.g. an
-  ///    unescaped `<br>` from a scraped tool result) would otherwise masquerade
-  ///    as tag terminators and cause the block parser to truncate the attribute
-  ///    list. They become `&lt;`/`&gt;`.
-  ///
-  /// Both steps need the same true end-of-tag (first unquoted `>`) — a regex
-  /// like `<details\b[^>\n]*>` stops at the first raw `>` and would only
-  /// repair part of the tag, so this runs as a single state-machine pass.
-  /// Tag matching is case-insensitive to match [DetailsBlockSyntax] behavior.
   /// Masks code spans/fences and restores them after [transform] runs, so the
-  /// transform above never rewrites literal examples inside code.
+  /// transform never rewrites literal examples inside code.
   static String _maskCodeAndTransform(
     String input,
     String Function(String) transform,
@@ -485,11 +453,15 @@ class ConduitMarkdownPreprocessor {
       return '$marker$index\u0000';
     });
     final transformed = transform(masked);
-    var output = transformed;
-    for (var index = 0; index < codeSpans.length; index++) {
-      output = output.replaceAll('$marker$index\u0000', codeSpans[index]);
-    }
-    return output;
+    if (codeSpans.isEmpty) return transformed;
+    // Restore every placeholder in one pass; a replaceAll per span rescans
+    // the whole buffer K times. Placeholders inside removed matches no longer
+    // exist, so only code from the retained content is restored.
+    final placeholder = RegExp('${RegExp.escape(marker)}(\\d+)\u0000');
+    return transformed.replaceAllMapped(placeholder, (match) {
+      final index = int.parse(match[1]!);
+      return index < codeSpans.length ? codeSpans[index] : match[0]!;
+    });
   }
 
   /// Normalizes `<details ...>` opening tags in one quote-aware scan:
