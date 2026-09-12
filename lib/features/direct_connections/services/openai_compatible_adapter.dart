@@ -25,6 +25,7 @@ const int _kMaxOpenRouterImageApiBase64Characters =
     ((20 * 1024 * 1024 + 2) ~/ 3) * 4;
 const int _kMaxOpenRouterImagePromptCharacters = 32 * 1024;
 const String _kDefaultOpenRouterImageModel = 'openai/gpt-5-image';
+const String _kOpenRouterBatchModelIdSuffix = ':batch';
 const int _kMaxResponsesReplayItems = 256;
 const int _kMaxResponsesReplayBytes = 8 * 1024 * 1024;
 const int _kMaxResponsesClassifierNodes = 1024;
@@ -149,6 +150,15 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
             ?.toString()
             .trim();
         if (id == null || id.isEmpty || !seen.add(id)) continue;
+
+        // OpenRouter twins many models with a `:batch` variant that only its
+        // asynchronous Batch API accepts; chat completions always reject those
+        // with HTTP 404, so keep them out of discovery. Other variants such as
+        // `:free` stay listed because they serve chat completions normally.
+        if (profile.isOpenRouter &&
+            id.endsWith(_kOpenRouterBatchModelIdSuffix)) {
+          continue;
+        }
 
         // Compatible providers frequently omit OpenAI's otherwise-required
         // object field. Normalize only that protocol detail, then let the SDK
