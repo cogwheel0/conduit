@@ -662,132 +662,27 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
         : (controlExtent * actions.length) +
               (Spacing.sm * (actions.length - 1));
     final size = Size(width, controlExtent);
-    final hasRichMenu = actions.any(
-      (action) => !_canUseGroupedNativeAction(action),
-    );
 
-    Widget controls;
-    if (actions.length == 1) {
-      controls = _buildAction(actions.single, controlExtent);
-    } else if (!hasRichMenu) {
-      controls = _buildGlassGroup(actions, controlExtent);
-    } else {
-      controls = _buildMixedActionCluster(controlExtent);
-    }
+    // Each action is its own circular glass control. The package's merged
+    // CNGlassButtonGroup forces a wide glass-blend spacing on horizontal
+    // groups, which draws adjacent buttons as one pinched "dumbbell" pill on
+    // real iOS 26 devices (#686), and it cannot express checked or disabled
+    // menu rows. Separate controls match the leading toolbar buttons.
+    final controls = actions.length == 1
+        ? _buildAction(actions.single, controlExtent)
+        : Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (var index = 0; index < actions.length; index++) ...[
+                if (index > 0) const SizedBox(width: Spacing.sm),
+                _buildAction(actions[index], controlExtent),
+              ],
+            ],
+          );
 
     return _hideNativeToolbarChromeWhileSheetCovered(
       size: size,
       child: SizedBox.fromSize(size: size, child: controls),
-    );
-  }
-
-  bool _canUseGroupedNativeAction(ConduitNativeToolbarAction action) {
-    if (action.menuItems.isEmpty) return true;
-
-    // CNButtonData.popup cannot represent checked or disabled menu items, so
-    // preserve those states with the rich popup fallback. Destructive actions
-    // stay in the group because their callbacks still retain the app-owned
-    // confirmation flow, even though the grouped package API cannot tint an
-    // individual popup row red.
-    return action.menuItems.every((item) => item.enabled && !item.isChecked);
-  }
-
-  Widget _buildGlassGroup(
-    List<ConduitNativeToolbarAction> groupedActions,
-    double extent,
-  ) {
-    return Semantics(
-      container: true,
-      label: groupedActions
-          .map((action) => action.accessibilityLabel)
-          .join(', '),
-      child: CNGlassButtonGroup(
-        spacing: Spacing.sm,
-        spacingForGlass: 36,
-        buttons: [
-          for (final action in groupedActions)
-            if (action.menuItems.isEmpty)
-              CNButtonData.icon(
-                icon: CNSymbol(
-                  action.iosSymbol,
-                  size: kCupertinoNativeControlSymbolExtent,
-                ),
-                onPressed: action.onPressed,
-                enabled: action.enabled,
-                tint: action.tintColor,
-                config: _groupedButtonConfig(extent),
-              )
-            else
-              CNButtonData.popup(
-                icon: CNSymbol(
-                  action.iosSymbol,
-                  size: kCupertinoNativeControlSymbolExtent,
-                ),
-                popupItems: [
-                  for (final item in action.menuItems)
-                    CNButtonDataPopupItem(
-                      label: item.label,
-                      sfSymbol: item.iosSymbol,
-                    ),
-                ],
-                onMenuSelected: (index) {
-                  if (index >= 0 && index < action.menuItems.length) {
-                    action.menuItems[index].onSelected();
-                  }
-                },
-                enabled: action.enabled,
-                tint: action.tintColor,
-                config: _groupedButtonConfig(extent),
-              ),
-        ],
-      ),
-    );
-  }
-
-  CNButtonDataConfig _groupedButtonConfig(double extent) {
-    return CNButtonDataConfig(
-      width: extent,
-      minHeight: extent,
-      style: CNButtonStyle.glass,
-    );
-  }
-
-  Widget _buildMixedActionCluster(double extent) {
-    final children = <Widget>[];
-    var index = 0;
-    while (index < actions.length) {
-      final action = actions[index];
-      if (!_canUseGroupedNativeAction(action)) {
-        children.add(_buildAction(action, extent));
-        index += 1;
-        continue;
-      }
-
-      final run = <ConduitNativeToolbarAction>[];
-      while (index < actions.length &&
-          _canUseGroupedNativeAction(actions[index])) {
-        run.add(actions[index]);
-        index += 1;
-      }
-      children.add(
-        run.length > 1
-            ? _buildGlassGroup(run, extent)
-            : _buildAction(run.single, extent),
-      );
-    }
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (
-          var childIndex = 0;
-          childIndex < children.length;
-          childIndex++
-        ) ...[
-          if (childIndex > 0) const SizedBox(width: Spacing.sm),
-          children[childIndex],
-        ],
-      ],
     );
   }
 

@@ -76,23 +76,26 @@ void main() {
       check(result).contains('`Example$details`');
     });
 
-    test('joins details open tag spanning lines from newlines in attribute values', () {
-      const raw =
-          '<details type="tool_calls" done="true" id="x" name="fetch_url" '
-          'arguments="&quot;{\\&quot;url\\&quot;: \\&quot;https://example.com\\&quot;}&quot;" '
-          'result="[{&quot;type&quot;:&quot;input_text&quot;,&quot;text&quot;:&quot;line one\nline two\nline three&quot;}]">\n'
-          '<summary>Tool Executed</summary>\n'
-          '</details>\nTrailing answer.';
-      final result = ConduitMarkdownPreprocessor.normalize(raw);
+    test(
+      'joins details open tag spanning lines from newlines in attribute values',
+      () {
+        const raw =
+            '<details type="tool_calls" done="true" id="x" name="fetch_url" '
+            'arguments="&quot;{\\&quot;url\\&quot;: \\&quot;https://example.com\\&quot;}&quot;" '
+            'result="[{&quot;type&quot;:&quot;input_text&quot;,&quot;text&quot;:&quot;line one\nline two\nline three&quot;}]">\n'
+            '<summary>Tool Executed</summary>\n'
+            '</details>\nTrailing answer.';
+        final result = ConduitMarkdownPreprocessor.normalize(raw);
 
-      // The opening tag must now start a line as a complete tag.
-      final firstLine = result.split('\n').first;
-      check(firstLine).startsWith('<details');
-      check(firstLine).endsWith('>');
-      // Newlines inside the attribute value are folded to spaces.
-      check(firstLine.contains('line one')).isTrue();
-      check(firstLine.contains('line three&quot;}]">')).isTrue();
-    });
+        // The opening tag must now start a line as a complete tag.
+        final firstLine = result.split('\n').first;
+        check(firstLine).startsWith('<details');
+        check(firstLine).endsWith('>');
+        // Newlines inside the attribute value are folded to spaces.
+        check(firstLine.contains('line one')).isTrue();
+        check(firstLine.contains('line three&quot;}]">')).isTrue();
+      },
+    );
 
     test('escapes raw angle brackets inside details attribute values', () {
       const raw =
@@ -143,23 +146,25 @@ void main() {
       check(firstLine.contains('<br>')).isFalse();
     });
 
-    test('escapes every raw angle bracket in quoted values, not just the first',
-        () {
-      // Greptile P1: _detailsOpenTagSingleLine matches stop at the first raw
-      // >, so only the first <br> was previously escaped; the second stayed
-      // raw and the parser truncated the attribute list after it.
-      const raw =
-          '<details type="tool_calls" result="a<br>b<br>c" other="x">\n'
-          '<summary>Tool Executed</summary>\n'
-          '</details>';
-      final result = ConduitMarkdownPreprocessor.normalize(raw);
+    test(
+      'escapes every raw angle bracket in quoted values, not just the first',
+      () {
+        // Greptile P1: _detailsOpenTagSingleLine matches stop at the first raw
+        // >, so only the first <br> was previously escaped; the second stayed
+        // raw and the parser truncated the attribute list after it.
+        const raw =
+            '<details type="tool_calls" result="a<br>b<br>c" other="x">\n'
+            '<summary>Tool Executed</summary>\n'
+            '</details>';
+        final result = ConduitMarkdownPreprocessor.normalize(raw);
 
-      final firstLine = result.split('\n').first;
-      // The full original tag, with every raw < > escaped.
-      check(firstLine.contains('other="x">')).isTrue();
-      check('&lt;br&gt;'.allMatches(firstLine).length).equals(2);
-      check(firstLine.contains('<br>')).isFalse();
-    });
+        final firstLine = result.split('\n').first;
+        // The full original tag, with every raw < > escaped.
+        check(firstLine.contains('other="x">')).isTrue();
+        check('&lt;br&gt;'.allMatches(firstLine).length).equals(2);
+        check(firstLine.contains('<br>')).isFalse();
+      },
+    );
 
     test('mixed-case spanning tag is joined too', () {
       const raw =
@@ -223,8 +228,9 @@ void main() {
           '</details>';
       final result = ConduitMarkdownPreprocessor.normalize(raw);
 
-      final tagLine =
-          result.split('\n').firstWhere((l) => l.startsWith('<details'));
+      final tagLine = result
+          .split('\n')
+          .firstWhere((l) => l.startsWith('<details'));
       check(tagLine.contains('other="y">')).isTrue();
     });
 
@@ -255,8 +261,9 @@ void main() {
       final result = ConduitMarkdownPreprocessor.normalize(raw);
 
       check(result.contains('literal <details result="a<br>b">')).isTrue();
-      final tagLine =
-          result.split('\n').firstWhere((l) => l.startsWith('<details'));
+      final tagLine = result
+          .split('\n')
+          .firstWhere((l) => l.startsWith('<details'));
       check(tagLine.contains('&lt;br&gt;')).isTrue();
       check(tagLine.contains('<br>')).isFalse();
     });
@@ -309,16 +316,20 @@ void main() {
       // many unterminated `<details` markers and one newline makes every
       // marker scan to end-of-buffer — quadratic work that freezes
       // streaming renders.
-      final payload = List.generate(4000, (i) => 'text $i <details type="x"')
-          .join('\n');
+      final payload = List.generate(
+        4000,
+        (i) => 'text $i <details type="x"',
+      ).join('\n');
       final sw = Stopwatch()..start();
       final result = ConduitMarkdownPreprocessor.normalize('$payload\n');
       sw.stop();
 
       check(result.contains('text 0')).isTrue();
       check(result.contains('text 3999')).isTrue();
-      check(sw.elapsed.inMilliseconds < 2000,
-          'normalize stays linear (${sw.elapsedMilliseconds}ms)');
+      check(
+        sw.elapsed.inMilliseconds < 2000,
+        because: 'normalize stays linear (${sw.elapsedMilliseconds}ms)',
+      ).isTrue();
     });
 
     test('tilde fence with longer closing run is not closed early', () {

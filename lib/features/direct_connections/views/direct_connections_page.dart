@@ -131,17 +131,21 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
       effectiveDirectConnectionProfilesProvider,
     );
     final historyPolicy = ref.watch(directHistoryPolicyProvider);
-    final appleOnDeviceEnabled = ref.watch(appleOnDeviceEnabledProvider);
+    // The Apple toggles default to enabled, so they must be gated by platform
+    // support or Android shows iOS-only rows that can never become available.
+    final applePlatformSupported = ref.watch(applePccPlatformSupportedProvider);
+    final appleOnDeviceEnabled =
+        applePlatformSupported && ref.watch(appleOnDeviceEnabledProvider);
     final appleOnDeviceStatus = appleOnDeviceEnabled
         ? ref.watch(appleOnDeviceStatusProvider)
         : null;
-    final applePccEnabled = ref.watch(applePccEnabledProvider);
+    final applePccEnabled =
+        applePlatformSupported && ref.watch(applePccEnabledProvider);
     final applePccStatus = applePccEnabled
         ? ref.watch(applePccStatusProvider)
         : null;
-    final applePccOnDeviceFallback = ref.watch(
-      applePccOnDeviceFallbackProvider,
-    );
+    final applePccOnDeviceFallback =
+        applePlatformSupported && ref.watch(applePccOnDeviceFallbackProvider);
     final directModels =
         ref.watch(directModelDiscoveryProvider).value?.models ??
         const <Model>[];

@@ -68,18 +68,19 @@ class ConduitMarkdownPreprocessor {
     r'''([^\n])(<details\b(?=[^>\n]*\btype\s*=\s*["']tool_calls["']))''',
     caseSensitive: false,
   );
+
   /// Case-insensitive `<details` marker used by the open-tag normalizer.
-  static final _detailsTagMarker = RegExp(
-    r'<details\b',
-    caseSensitive: false,
-  );
+  static final _detailsTagMarker = RegExp(r'<details\b', caseSensitive: false);
+
   /// Upper bound on how far a spanning `<details` open tag may be joined so a
   /// malformed tag cannot trigger an unbounded scan or a giant concatenated line.
   static const _detailsOpenTagJoinLimit = 256 * 1024;
+
   /// Aggregate cap on scanning across all `<details` markers in one
   /// [normalize] call, so inputs with many unterminated markers cannot
   /// produce quadratic synchronous work (streaming render freeze).
   static const _detailsOpenTagTotalScanBudget = 1024 * 1024;
+
   /// Code spans, backtick fences, and tilde fences (`~~~`).
   ///
   /// Tilde fences are masked alongside backtick fences so transforms never

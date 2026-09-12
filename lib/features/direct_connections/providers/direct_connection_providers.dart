@@ -253,16 +253,31 @@ final applePccAdapterProvider = Provider<ApplePccAdapter>(
   ),
 );
 
-final applePccStatusProvider = FutureProvider<PlatformPccStatus>(
-  (ref) => ref
-      .watch(applePccAdapterProvider)
-      .status(PlatformAppleModel.privateCloudCompute),
+/// Apple Intelligence never exists off iOS, so status probes must not reach
+/// the platform channel there. Returning [PlatformPccAvailability.unsupported]
+/// keeps every consumer on the same "not on this device" path.
+PlatformPccStatus _unsupportedApplePlatformStatus() => PlatformPccStatus(
+  availability: PlatformPccAvailability.unsupported,
+  quotaStatus: PlatformPccQuotaStatus.unknown,
+  quotaLimitReached: false,
+  canIncreaseQuota: false,
 );
 
-final appleOnDeviceStatusProvider = FutureProvider<PlatformPccStatus>(
-  (ref) =>
-      ref.watch(applePccAdapterProvider).status(PlatformAppleModel.onDevice),
-);
+final applePccStatusProvider = FutureProvider<PlatformPccStatus>((ref) {
+  if (!ref.watch(applePccPlatformSupportedProvider)) {
+    return _unsupportedApplePlatformStatus();
+  }
+  return ref
+      .watch(applePccAdapterProvider)
+      .status(PlatformAppleModel.privateCloudCompute);
+});
+
+final appleOnDeviceStatusProvider = FutureProvider<PlatformPccStatus>((ref) {
+  if (!ref.watch(applePccPlatformSupportedProvider)) {
+    return _unsupportedApplePlatformStatus();
+  }
+  return ref.watch(applePccAdapterProvider).status(PlatformAppleModel.onDevice);
+});
 
 final directConnectionProfileStoreProvider =
     Provider<DirectConnectionProfileStore>((ref) {

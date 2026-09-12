@@ -4196,19 +4196,37 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     layout.toggle();
   }
 
+  bool _isOpeningModelSelector = false;
+
   Future<void> _openModelSelector(BuildContext context) async {
+    // Model loading can take a moment on a cold cache. Show that on the
+    // selector itself and reject overlapping taps instead of letting the
+    // control look dead (#692).
+    if (_isOpeningModelSelector) return;
+    setState(() => _isOpeningModelSelector = true);
     try {
       final models = await ref
           .read(nativeSheetHydrationServiceProvider)
           .loadModels();
       if (!mounted || !context.mounted) return;
       await _showModelDropdown(context, ref, models);
-    } catch (e) {
+    } catch (error, stackTrace) {
       DebugLogger.error(
         'model-load-failed',
         scope: 'chat/model-selector',
-        error: e,
+        error: error,
+        stackTrace: stackTrace,
       );
+      if (!mounted || !context.mounted) return;
+      AdaptiveSnackBar.show(
+        context,
+        message: AppLocalizations.of(context)!.failedToLoadModels,
+        type: AdaptiveSnackBarType.error,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isOpeningModelSelector = false);
+      }
     }
   }
 
@@ -4308,7 +4326,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return ConduitAdaptiveAppBarModelSelector(
       label: modelLabel,
       maxWidth: maxModelWidth,
-      isLoading: isLoadingConversation,
+      isLoading: isLoadingConversation || _isOpeningModelSelector,
       showChevron: showModelDropdown,
       onPressed: () => _openModelSelector(context),
     );

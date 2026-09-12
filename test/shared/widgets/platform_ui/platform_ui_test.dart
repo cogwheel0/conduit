@@ -535,7 +535,7 @@ void main() {
     );
   });
 
-  testWidgets('compatible iOS 26 toolbar menus join their action group', (
+  testWidgets('iOS 26 toolbar actions render as separate native controls', (
     tester,
   ) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
@@ -570,14 +570,22 @@ void main() {
       ),
     );
 
-    final group = tester.widget<CNGlassButtonGroup>(
-      find.byType(CNGlassButtonGroup),
+    // Adjacent actions render as separate circular controls instead of one
+    // merged CNGlassButtonGroup pill, which pinches into a "dumbbell" on iOS 26.
+    expect(find.byType(CNGlassButtonGroup), findsNothing);
+    final button = tester.widget<CNButton>(find.byType(CNButton));
+    expect(button.icon?.size, kConduitNativeSingleActionSymbolExtent);
+    expect(button.config.width, TouchTarget.minimum);
+    expect(button.config.borderRadius, TouchTarget.minimum / 2);
+    final popup = tester.widget<CNPopupMenuButton>(
+      find.byType(CNPopupMenuButton),
     );
-    expect(group.buttons, hasLength(2));
-    expect(group.buttons.first.icon?.size, kCupertinoNativeControlSymbolExtent);
-    expect(group.buttons.last.isPopup, isTrue);
-    group.buttons.last.onMenuSelected!(0);
+    expect(popup.items, hasLength(1));
+    popup.onSelected(0);
     expect(selectionCount, 1);
+    final buttonRect = tester.getRect(find.byType(CNButton));
+    final popupRect = tester.getRect(find.byType(CNPopupMenuButton));
+    expect(popupRect.left - buttonRect.right, Spacing.sm);
   });
 
   testWidgets('a single iOS 26 toolbar action stays circular', (tester) async {
@@ -634,52 +642,54 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
   });
 
-  testWidgets('destructive iOS 26 toolbar menus stay in the glass group', (
-    tester,
-  ) async {
-    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
-    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
-    PlatformUiCapabilities.debugNativeIOS26Override = true;
+  testWidgets(
+    'destructive iOS 26 toolbar menus keep their own native control',
+    (tester) async {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+      PlatformUiCapabilities.debugNativeIOS26Override = true;
 
-    var deleteCount = 0;
+      var deleteCount = 0;
 
-    await tester.pumpWidget(
-      CupertinoApp(
-        home: CupertinoPageScaffold(
-          child: ConduitNativeToolbarActionGroup(
-            actions: [
-              ConduitNativeToolbarAction(
-                iosSymbol: 'person.2',
-                accessibilityLabel: 'Members',
-                onPressed: () {},
-              ),
-              ConduitNativeToolbarAction(
-                iosSymbol: 'ellipsis',
-                accessibilityLabel: 'More',
-                menuItems: [
-                  ConduitNativeToolbarMenuItem(
-                    label: 'Delete',
-                    iosSymbol: 'trash',
-                    isDestructive: true,
-                    onSelected: () => deleteCount += 1,
-                  ),
-                ],
-              ),
-            ],
+      await tester.pumpWidget(
+        CupertinoApp(
+          home: CupertinoPageScaffold(
+            child: ConduitNativeToolbarActionGroup(
+              actions: [
+                ConduitNativeToolbarAction(
+                  iosSymbol: 'person.2',
+                  accessibilityLabel: 'Members',
+                  onPressed: () {},
+                ),
+                ConduitNativeToolbarAction(
+                  iosSymbol: 'ellipsis',
+                  accessibilityLabel: 'More',
+                  menuItems: [
+                    ConduitNativeToolbarMenuItem(
+                      label: 'Delete',
+                      iosSymbol: 'trash',
+                      isDestructive: true,
+                      onSelected: () => deleteCount += 1,
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
-      ),
-    );
+      );
 
-    final group = tester.widget<CNGlassButtonGroup>(
-      find.byType(CNGlassButtonGroup),
-    );
-    expect(group.buttons, hasLength(2));
-    expect(group.buttons.last.isPopup, isTrue);
-    group.buttons.last.onMenuSelected!(0);
-    expect(deleteCount, 1);
-    await tester.pump(const Duration(milliseconds: 500));
-  });
+      expect(find.byType(CNGlassButtonGroup), findsNothing);
+      expect(find.byType(CNButton), findsOneWidget);
+      final popup = tester.widget<CNPopupMenuButton>(
+        find.byType(CNPopupMenuButton),
+      );
+      expect(popup.items, hasLength(1));
+      popup.onSelected(0);
+      expect(deleteCount, 1);
+      await tester.pump(const Duration(milliseconds: 500));
+    },
+  );
 
   testWidgets('gesture-sensitive slider callbacks use the local fallback', (
     tester,
