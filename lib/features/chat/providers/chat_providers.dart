@@ -1342,19 +1342,61 @@ final chatWakelockToggleProvider = Provider<ChatWakelockToggle>(
   (ref) => WakelockPlus.toggle,
 );
 
+final _localChatGenerationCountProvider =
+    NotifierProvider<_LocalChatGenerationCount, int>(
+      _LocalChatGenerationCount.new,
+    );
+
+/// True while any Direct, Hermes, or outbox generation owned by this process
+/// is still running, regardless of which chat is visible.
+final localChatGenerationActiveProvider = Provider<bool>(
+  (ref) => ref.watch(_localChatGenerationCountProvider) > 0,
+);
+
+/// Marks a process-owned generation as running until the returned callback
+/// runs. Releasing twice is a no-op. A run that keeps going after the user
+/// switches chats is otherwise invisible to [isChatStreamingProvider].
+void Function() holdLocalChatGeneration(dynamic ref) {
+  final counter = ref.read(
+    _localChatGenerationCountProvider.notifier,
+  ) as _LocalChatGenerationCount;
+  counter.hold();
+  var released = false;
+  return () {
+    if (released) return;
+    released = true;
+    counter.release();
+  };
+}
+
+class _LocalChatGenerationCount extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void hold() {
+    if (ref.mounted) state++;
+  }
+
+  void release() {
+    if (ref.mounted && state > 0) state--;
+  }
+}
+
 /// Keeps the screen awake only while an assistant response is thinking or
 /// streaming (#681). Direct and Hermes generations live in this process, so
 /// letting the device lock mid-response drops the transport and loses the
-/// reply. The hold is released as soon as the last assistant message stops
-/// streaming, which restores the system idle timer on completion, stop, or
-/// error. Toggles are serialized so a fast enable/disable pair cannot land
-/// out of order on the platform side.
+/// reply. The hold follows both the visible chat's streaming message and the
+/// process-owned generation count, so switching chats mid-response keeps the
+/// lock until that run finishes. Toggles are serialized so a fast
+/// enable/disable pair cannot land out of order on the platform side.
 final chatWakelockCoordinatorProvider = Provider<void>((ref) {
   final toggle = ref.watch(chatWakelockToggleProvider);
   var queue = Future<void>.value();
   // The platform idle timer starts enabled, so the first idle observation
   // must not issue a redundant disable.
   var applied = false;
+  var visibleStreaming = false;
+  var ownedGenerationActive = false;
 
   void apply(bool enable) {
     if (applied == enable) return;
@@ -1374,11 +1416,21 @@ final chatWakelockCoordinatorProvider = Provider<void>((ref) {
     });
   }
 
-  ref.listen<bool>(
-    chatMessagesProvider.select(_messagesAreStreaming),
-    (_, streaming) => apply(streaming),
-    fireImmediately: true,
-  );
+  void sync() => apply(visibleStreaming || ownedGenerationActive);
+
+  ref.listen<bool>(chatMessagesProvider.select(_messagesAreStreaming), (
+    _,
+    streaming,
+  ) {
+    visibleStreaming = streaming;
+    sync();
+  }, fireImmediately: true);
+  // Listen to the counter itself: notifier state changes notify
+  // synchronously, whereas a derived provider rebuild waits for the scheduler.
+  ref.listen<int>(_localChatGenerationCountProvider, (_, count) {
+    ownedGenerationActive = count > 0;
+    sync();
+  }, fireImmediately: true);
   ref.onDispose(() => apply(false));
 });
 
@@ -12751,57 +12803,62 @@ Future<void> _dispatchHermesRunFromChat(
   CancelToken? preRegisteredCancelToken,
   Duration lateSessionCleanupDeadline = _hermesLateSessionCleanupDeadline,
 }) async {
-  // Capture both ownership and session continuity before the first await. A
-  // keychain write can rebuild providers while the user navigates; the turn
-  // must never re-read the newly active Hermes chat and send this input there.
-  final originConversation =
-      capturedOwner?._conversationSnapshot ??
-      ref.read(activeConversationProvider) as Conversation?;
-  final owner =
-      capturedOwner ??
-      _HermesConversationOwner.capture(ref, originConversation);
-  var ownedDatabaseLease = databaseLease;
-  var allowCapturedDatabasePersistence = false;
-  if (owner.usesOpenWebUiBackend && ownedDatabaseLease == null) {
-    final database = owner._mutationOwner.openWebUiDatabase;
-    if (database == null) {
-      throw StateError('The OpenWebUI chat database is unavailable.');
-    }
-    final manager = ref.read(databaseManagerProvider) as DatabaseManager;
-    ownedDatabaseLease = manager.tryAcquireLease(database);
-    if (manager.serverIdForDatabase(database) != null &&
-        ownedDatabaseLease == null) {
-      throw StateError('The OpenWebUI chat database is closing.');
-    }
-    allowCapturedDatabasePersistence =
-        ownedDatabaseLease != null ||
-        manager.serverIdForDatabase(database) == null;
-  } else if (owner.usesOpenWebUiBackend) {
-    allowCapturedDatabasePersistence = true;
-  }
+  final releaseGeneration = holdLocalChatGeneration(ref);
   try {
-    await _dispatchOwnedHermesRunFromChat(
-      ref,
-      assistantMessageId: assistantMessageId,
-      assistantSeed: assistantSeed,
-      input: input,
-      existingMessages: existingMessages,
-      forceNewSession: forceNewSession,
-      previousResponseIdOverride: previousResponseIdOverride,
-      responseInput: responseInput,
-      responseHistory: responseHistory,
-      localDocumentPromptText: localDocumentPromptText,
-      localDocumentEnvelopes: localDocumentEnvelopes,
-      reasoningEffort: reasoningEffort,
-      sendHandle: sendHandle,
-      originConversation: originConversation,
-      owner: owner,
-      preRegisteredCancelToken: preRegisteredCancelToken,
-      allowCapturedDatabasePersistence: allowCapturedDatabasePersistence,
-      lateSessionCleanupDeadline: lateSessionCleanupDeadline,
-    );
+    // Capture both ownership and session continuity before the first await. A
+    // keychain write can rebuild providers while the user navigates; the turn
+    // must never re-read the newly active Hermes chat and send this input there.
+    final originConversation =
+        capturedOwner?._conversationSnapshot ??
+        ref.read(activeConversationProvider) as Conversation?;
+    final owner =
+        capturedOwner ??
+        _HermesConversationOwner.capture(ref, originConversation);
+    var ownedDatabaseLease = databaseLease;
+    var allowCapturedDatabasePersistence = false;
+    if (owner.usesOpenWebUiBackend && ownedDatabaseLease == null) {
+      final database = owner._mutationOwner.openWebUiDatabase;
+      if (database == null) {
+        throw StateError('The OpenWebUI chat database is unavailable.');
+      }
+      final manager = ref.read(databaseManagerProvider) as DatabaseManager;
+      ownedDatabaseLease = manager.tryAcquireLease(database);
+      if (manager.serverIdForDatabase(database) != null &&
+          ownedDatabaseLease == null) {
+        throw StateError('The OpenWebUI chat database is closing.');
+      }
+      allowCapturedDatabasePersistence =
+          ownedDatabaseLease != null ||
+          manager.serverIdForDatabase(database) == null;
+    } else if (owner.usesOpenWebUiBackend) {
+      allowCapturedDatabasePersistence = true;
+    }
+    try {
+      await _dispatchOwnedHermesRunFromChat(
+        ref,
+        assistantMessageId: assistantMessageId,
+        assistantSeed: assistantSeed,
+        input: input,
+        existingMessages: existingMessages,
+        forceNewSession: forceNewSession,
+        previousResponseIdOverride: previousResponseIdOverride,
+        responseInput: responseInput,
+        responseHistory: responseHistory,
+        localDocumentPromptText: localDocumentPromptText,
+        localDocumentEnvelopes: localDocumentEnvelopes,
+        reasoningEffort: reasoningEffort,
+        sendHandle: sendHandle,
+        originConversation: originConversation,
+        owner: owner,
+        preRegisteredCancelToken: preRegisteredCancelToken,
+        allowCapturedDatabasePersistence: allowCapturedDatabasePersistence,
+        lateSessionCleanupDeadline: lateSessionCleanupDeadline,
+      );
+    } finally {
+      await ownedDatabaseLease?.release();
+    }
   } finally {
-    await ownedDatabaseLease?.release();
+    releaseGeneration();
   }
 }
 
@@ -15845,95 +15902,100 @@ Future<void> _dispatchDirectRunFromChat(
   Map<String, DirectFilePart> ephemeralFilePartsByAttachmentId = const {},
   ChatSendPlaceholderHandle? sendHandle,
 }) async {
-  final toolSelection = normalizeDirectToolSelectionForBinding(
-    binding: route.binding,
-    enableWebSearch: enableWebSearch,
-    localMcpToolIds: localMcpToolIds,
-  );
-  final DirectRunRegistry registry = ref.read(directRunRegistryProvider);
-  final stopIndex = ref.read(_directRunStopIndexProvider);
-  var indexedRunKey = _directRunKeyForOwner(
-    owner.scopedConversationId,
-    assistantMessageId,
-  );
-  stopIndex.track(indexedRunKey);
-  void rebindStopIndex(DirectRunKey nextKey) {
-    if (nextKey == indexedRunKey) return;
-    stopIndex.rebind(indexedRunKey, nextKey);
-    indexedRunKey = nextKey;
-  }
-
-  StreamSubscription<RemapEvent>? remapSubscription;
-  final ownerRemapEvents = owner.remapEvents;
-  if (owner.location?.storage == ChatStorageKind.openWebUi &&
-      ownerRemapEvents != null) {
-    remapSubscription = trackDirectConversationRemaps(
-      events: ownerRemapEvents,
-      currentId: () => owner.conversationId,
-      setId: (id) {
-        final resolvedOwnerScope = owner.scopedConversationIdFor(id);
-        final rebound = registry.rebindIfVacant(
-          reservation,
-          _directRunKeyForOwner(resolvedOwnerScope, assistantMessageId),
-        );
-        if (!rebound) return;
-        owner.conversationId = id;
-        sendHandle?._bindOwnerScope(resolvedOwnerScope);
-        rebindStopIndex(
-          _directRunKeyForOwner(resolvedOwnerScope, assistantMessageId),
-        );
-      },
-    );
-  }
+  final releaseGeneration = holdLocalChatGeneration(ref);
   try {
-    // Subscribe first, then repair from durable/active remap state. A remap
-    // before the subscription is found by the repair; one after it is observed
-    // by the synchronous listener above.
-    if (!await _refreshDirectConversationOwner(
-      ref,
-      owner: owner,
-      assistantMessageId: assistantMessageId,
-      registry: registry,
-      reservation: reservation,
-      sendHandle: sendHandle,
-      onRebound: rebindStopIndex,
-    )) {
-      return;
-    }
-    await _dispatchDirectRunFromChatWithTrackedOwner(
-      ref,
-      route: route,
-      assistantMessageId: assistantMessageId,
-      assistantSeed: assistantSeed,
-      requestMessages: requestMessages,
-      owner: owner,
-      reservation: reservation,
-      preflightCancelToken: preflightCancelToken,
-      enableWebSearch: toolSelection.enableWebSearch,
-      enableImageGeneration: enableImageGeneration,
-      reasoningEffort: reasoningEffort,
-      localMcpToolIds: toolSelection.localMcpToolIds,
-      ephemeralFilePartsByAttachmentId: ephemeralFilePartsByAttachmentId,
+    final toolSelection = normalizeDirectToolSelectionForBinding(
+      binding: route.binding,
+      enableWebSearch: enableWebSearch,
+      localMcpToolIds: localMcpToolIds,
     );
-  } finally {
-    stopIndex.untrack(indexedRunKey);
-    final subscription = remapSubscription;
-    if (subscription != null) {
-      try {
-        // Remap delivery is revoked synchronously. The stream provider owns
-        // the returned cleanup future, which must not hold a completed direct
-        // turn or its database lease if provider teardown never settles.
-        _observeDetachedCancellation(
-          subscription.cancel(),
-          scope: 'direct-connections/remap-subscription',
-        );
-      } catch (_) {
-        DebugLogger.error(
-          'remap-subscription-cleanup-failed',
-          scope: 'direct-connections/transport',
-        );
+    final DirectRunRegistry registry = ref.read(directRunRegistryProvider);
+    final stopIndex = ref.read(_directRunStopIndexProvider);
+    var indexedRunKey = _directRunKeyForOwner(
+      owner.scopedConversationId,
+      assistantMessageId,
+    );
+    stopIndex.track(indexedRunKey);
+    void rebindStopIndex(DirectRunKey nextKey) {
+      if (nextKey == indexedRunKey) return;
+      stopIndex.rebind(indexedRunKey, nextKey);
+      indexedRunKey = nextKey;
+    }
+
+    StreamSubscription<RemapEvent>? remapSubscription;
+    final ownerRemapEvents = owner.remapEvents;
+    if (owner.location?.storage == ChatStorageKind.openWebUi &&
+        ownerRemapEvents != null) {
+      remapSubscription = trackDirectConversationRemaps(
+        events: ownerRemapEvents,
+        currentId: () => owner.conversationId,
+        setId: (id) {
+          final resolvedOwnerScope = owner.scopedConversationIdFor(id);
+          final rebound = registry.rebindIfVacant(
+            reservation,
+            _directRunKeyForOwner(resolvedOwnerScope, assistantMessageId),
+          );
+          if (!rebound) return;
+          owner.conversationId = id;
+          sendHandle?._bindOwnerScope(resolvedOwnerScope);
+          rebindStopIndex(
+            _directRunKeyForOwner(resolvedOwnerScope, assistantMessageId),
+          );
+        },
+      );
+    }
+    try {
+      // Subscribe first, then repair from durable/active remap state. A remap
+      // before the subscription is found by the repair; one after it is observed
+      // by the synchronous listener above.
+      if (!await _refreshDirectConversationOwner(
+        ref,
+        owner: owner,
+        assistantMessageId: assistantMessageId,
+        registry: registry,
+        reservation: reservation,
+        sendHandle: sendHandle,
+        onRebound: rebindStopIndex,
+      )) {
+        return;
+      }
+      await _dispatchDirectRunFromChatWithTrackedOwner(
+        ref,
+        route: route,
+        assistantMessageId: assistantMessageId,
+        assistantSeed: assistantSeed,
+        requestMessages: requestMessages,
+        owner: owner,
+        reservation: reservation,
+        preflightCancelToken: preflightCancelToken,
+        enableWebSearch: toolSelection.enableWebSearch,
+        enableImageGeneration: enableImageGeneration,
+        reasoningEffort: reasoningEffort,
+        localMcpToolIds: toolSelection.localMcpToolIds,
+        ephemeralFilePartsByAttachmentId: ephemeralFilePartsByAttachmentId,
+      );
+    } finally {
+      stopIndex.untrack(indexedRunKey);
+      final subscription = remapSubscription;
+      if (subscription != null) {
+        try {
+          // Remap delivery is revoked synchronously. The stream provider owns
+          // the returned cleanup future, which must not hold a completed direct
+          // turn or its database lease if provider teardown never settles.
+          _observeDetachedCancellation(
+            subscription.cancel(),
+            scope: 'direct-connections/remap-subscription',
+          );
+        } catch (_) {
+          DebugLogger.error(
+            'remap-subscription-cleanup-failed',
+            scope: 'direct-connections/transport',
+          );
+        }
       }
     }
+  } finally {
+    releaseGeneration();
   }
 }
 

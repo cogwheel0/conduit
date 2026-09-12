@@ -91,6 +91,29 @@ void main() {
     },
   );
 
+  test(
+    'a process-owned generation keeps the lock after the chat switches',
+    () async {
+      container.read(chatWakelockCoordinatorProvider);
+      final notifier = container.read(chatMessagesProvider.notifier);
+      final release = holdLocalChatGeneration(container);
+      notifier.setMessages([_assistantMessage(isStreaming: true)]);
+      await settle();
+      expect(toggles, [true]);
+
+      // Switching chats replaces the visible list while the run continues.
+      notifier.setMessages(const []);
+      await settle();
+      expect(toggles, [true], reason: 'the owned run still needs the screen');
+
+      release();
+      release();
+      await settle();
+      expect(toggles, [true, false]);
+      expect(container.read(localChatGenerationActiveProvider), isFalse);
+    },
+  );
+
   test('a failing platform toggle does not break later toggles', () async {
     var calls = 0;
     final failing = ProviderContainer(

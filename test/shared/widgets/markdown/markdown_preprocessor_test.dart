@@ -344,6 +344,25 @@ void main() {
       check(result.contains('still inside')).isTrue();
     });
 
+    test('custom elements and data-type attributes are left alone', () {
+      const raw =
+          'Intro<details-panel data-type="tool_calls" result="a<br>b">\n'
+          'body\n</details-panel>';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      check(result).equals(raw);
+    });
+
+    test('tilde fence closed by a longer run still masks its body', () {
+      // CommonMark accepts a closing run at least as long as the opener.
+      const raw =
+          '~~~\n<details result="a<br>b">\n~~~~\n<details result="c<br>d">';
+      final result = ConduitMarkdownPreprocessor.normalize(raw);
+
+      check(result.contains('a<br>b')).isTrue();
+      check(result.contains('c&lt;br&gt;d')).isTrue();
+    });
+
     test('tilde fence of four tildes masks details examples', () {
       const raw = '~~~~\n<details result="a<br>b">\n~~~~';
       final result = ConduitMarkdownPreprocessor.normalize(raw);

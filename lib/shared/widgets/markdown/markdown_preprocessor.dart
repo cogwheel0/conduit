@@ -65,12 +65,17 @@ class ConduitMarkdownPreprocessor {
     dotAll: true,
   );
   static final _attachedToolCallDetailsOpen = RegExp(
-    r'''([^\n])(<details\b(?=[^>\n]*\btype\s*=\s*["']tool_calls["']))''',
+    r'''([^\n])(<details(?=[\s/>])(?=[^>\n]*\stype\s*=\s*["']tool_calls["']))''',
     caseSensitive: false,
   );
 
   /// Case-insensitive `<details` marker used by the open-tag normalizer.
-  static final _detailsTagMarker = RegExp(r'<details\b', caseSensitive: false);
+  /// Exact tag-name boundary so custom elements such as `<details-panel>`
+  /// are never rewritten.
+  static final _detailsTagMarker = RegExp(
+    r'<details(?=[\s/>])',
+    caseSensitive: false,
+  );
 
   /// Upper bound on how far a spanning `<details` open tag may be joined so a
   /// malformed tag cannot trigger an unbounded scan or a giant concatenated line.
@@ -92,7 +97,7 @@ class ConduitMarkdownPreprocessor {
   /// closing run simply leaves the mask open, which is safe).
   static final _codeSpanOrFence = RegExp(
     r'(`+)([\s\S]*?)\1|'
-    r'^ {0,3}(~{3,})[^\n]*\n[\s\S]*?^ {0,3}\3[ \t]*(?=\n|$)',
+    r'^ {0,3}(~{3,})[^\n]*\n[\s\S]*?^ {0,3}\3~*[ \t]*(?=\n|$)',
     multiLine: true,
   );
   static final _allDetailsBlocks = RegExp(
