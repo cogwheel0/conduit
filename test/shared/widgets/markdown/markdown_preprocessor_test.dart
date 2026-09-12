@@ -350,9 +350,8 @@ void main() {
           '${spans.join(' ')}\n<details result="a<br>b">\nbody\n</details>';
       final result = ConduitMarkdownPreprocessor.normalize(raw);
 
-      for (final span in spans) {
-        check(result.contains(span)).isTrue();
-      }
+      // Spans must come back in their original order, not merely exist.
+      check(result).startsWith(spans.join(' '));
       check(result.contains('a&lt;br&gt;b')).isTrue();
       check(result.contains('conduit-code-span')).isFalse();
     });
