@@ -115,6 +115,7 @@ later, and skip any sign-in you don't need.
 | **Apple On-Device** | Apple Intelligence | Run Apple's local model offline on eligible iOS 26 devices without an API key |
 | **Apple PCC** | Apple Private Cloud Compute | Use Apple's private cloud model on eligible iOS 27 devices without an API key |
 | **Hermes** | Your self-hosted agent | An agent that runs tools, asks before sensitive steps, and works on a schedule |
+| **DeepSeek Harness** | Your self-hosted `dsh web` server | Connection layer for the DeepSeek harness: host-trusted settings and a live connection check |
 
 **Direct connections** cover OpenAI-compatible endpoints (Chat Completions or
 Responses), LM Studio, Azure-style API versions, native Ollama, and first-party
@@ -140,6 +141,11 @@ not enabled.
 live, approve sensitive steps before they run, and let scheduled agents run
 while you sleep. Conversations and schedules get their own tab, and Conduit only
 exposes the capabilities your server actually reports.
+
+**DeepSeek Harness** connects to your self-hosted DeepSeek harness (`dsh web`
+server). Today this is the connection layer: Conduit stores the server address,
+trusts it with a host allowlist instead of an API key, and checks that the
+harness is up and healthy. Conversation support is arriving in follow-up work.
 
 ## Screenshots
 
@@ -266,6 +272,19 @@ then pick how you want to connect.
 3. Optionally set a memory key to scope the agent's long-term memory to you. One
    is generated automatically on first chat if you leave it blank.
 4. Open the Hermes tab for conversations and scheduled agents.
+
+</details>
+
+<details>
+<summary><strong>DeepSeek Harness</strong></summary>
+
+1. On the machine hosting the harness, run `dsh web`. It serves on loopback by
+   default; add `--trusted-host <authority>` to reach it from your network.
+2. Launch Conduit and choose DeepSeek Harness.
+3. Enter the server URL, for example `http://127.0.0.1:3080`, and the trusted
+   host if the server runs off loopback.
+4. Test the connection. The status section shows whether the harness answered,
+   including its revision.
 
 </details>
 

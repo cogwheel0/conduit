@@ -318,6 +318,16 @@ class ProfilePage extends ConsumerWidget {
         subtitle: l10n.hermesAgentSettingsSubtitle,
         onTap: () => context.pushNamed(RouteNames.hermesSettings),
       ),
+      _buildAccountOption(
+        context,
+        icon: UiUtils.platformIcon(
+          ios: CupertinoIcons.square_stack_3d_up,
+          android: Icons.cached_outlined,
+        ),
+        title: l10n.deepseekAgentSettingsTitle,
+        subtitle: l10n.deepseekAgentSettingsSubtitle,
+        onTap: () => context.pushNamed(RouteNames.deepseekSettings),
+      ),
       if (canManageWorkspace)
         _buildAccountOption(
           context,

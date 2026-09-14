@@ -83,8 +83,17 @@ final class PreferenceKeys {
   static const String hermesDashboardCookieIdentities =
       'hermes_dashboard_cookie_identities_v1';
 
+  // DeepSeek Harness (third self-hosted backend) — non-secret config. DSH has
+  // no API-key auth (its server is gated by a loopback / trusted-host allowlist
+  // only), so every field here is non-secret and persists in shared preferences.
+  static const String deepseekEnabled = 'deepseek_enabled_v1';
+  static const String deepseekBaseUrl = 'deepseek_base_url_v1';
+  static const String deepseekTrustedHost = 'deepseek_trusted_host_v1';
+  static const String deepseekAllowSelfSignedCertificates =
+      'deepseek_allow_self_signed_certificates_v1';
+
   /// Which backend onboarding completed against
-  /// ('owui' | 'direct' | 'hermes' | unset).
+  /// ('owui' | 'direct' | 'hermes' | 'deepseek' | unset).
   /// Read synchronously by the router for boot-deterministic routing.
   static const String preferredBackend = 'preferred_backend_v1';
 

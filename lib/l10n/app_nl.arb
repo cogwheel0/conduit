@@ -2907,6 +2907,20 @@
   "backendChooserOpenWebUISubtitle": "Use your self-hosted Open WebUI server with full chat, notes, and more.",
   "backendChooserHermesTitle": "Use a Hermes Agent",
   "backendChooserHermesSubtitle": "Connect directly to a self-hosted Hermes agent — no Open WebUI server needed.",
+  "backendChooserDeepSeekTitle": "DeepSeek Harness",
+  "backendChooserDeepSeekSubtitle": "Connect a self-hosted DeepSeek harness.",
+  "deepseekAgentSettingsTitle": "DeepSeek Harness",
+  "deepseekAgentSettingsSubtitle": "Self-hosted DeepSeek harness",
+  "deepseekEnableTitle": "Enable DeepSeek Harness",
+  "deepseekEnableSubtitle": "Connection settings for your self-hosted DeepSeek harness.",
+  "deepseekConnectionDetailsTitle": "Connection details",
+  "deepseekServerUrlTitle": "Server URL",
+  "deepseekTrustedHostTitle": "Trusted host",
+  "deepseekTrustedHostDescription": "Host or host:port the server should trust when it runs off loopback. Leave empty for loopback-only.",
+  "deepseekProbeTitle": "Connection status",
+  "deepseekProbeIdle": "Not checked yet",
+  "deepseekProbeInvalid": "The server responded, but it is not a DeepSeek harness.",
+  "deepseekConnectAction": "Connect DeepSeek",
   "hermesApprovalRequired": "Approval required",
   "hermesApprovalFallback": "The agent is requesting permission to continue.",
   "openWebUiPromptOther": "Anders",
@@ -3254,4 +3268,29 @@
   ,"directMcpInsecureCredentialsTitle": "Send credentials without encryption?"
   ,"directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network."
   ,"directMcpInsecureCredentialsConfirm": "Send without encryption"
+  ,"reasoningEffortLight": "Light"
+  ,"reasoningEffortModerate": "Moderate"
+  ,"reasoningEffortDeep": "Deep"
+  ,"backendChooserSelfHostedSectionTitle": "Self-hosted services"
+  ,"backendChooserAppleSectionTitle": "Apple Intelligence"
+  ,"backendChooserModelApisSectionTitle": "Model APIs"
+  ,"backendChooserAppleOnDeviceTitle": "Apple On-Device"
+  ,"backendChooserAppleOnDeviceSubtitle": "Run Apple's private model on this device, even offline."
+  ,"appleOnDeviceUnavailable": "Apple On-Device is not available on this device."
+  ,"backendChooserApplePccTitle": "Apple Private Cloud Compute"
+  ,"backendChooserApplePccSubtitle": "Use Apple's private cloud model without an API key."
+  ,"applePccUnavailable": "Apple Private Cloud Compute is not available on this device."
+  ,"applePccStatusAvailable": "Available"
+  ,"applePccQuotaApproaching": "Nearing the daily usage limit"
+  ,"applePccQuotaReached": "Daily usage limit reached"
+  ,"applePccQuotaResetsAt": "Resets {time}"
+  ,"applePccShowQuotaOptions": "Show usage options"
+  ,"applePccOnDeviceFallback": "On-device fallback"
+  ,"applePccOnDeviceFallbackSubtitle": "Use Apple's smaller on-device model when PCC cannot be reached. Reasoning requests never fall back."
+  ,"applePccCurrentLanguageUnsupported": "The current device language may not be supported."
+  ,"applePccContextSize": "{tokens} token context"
+  ,"directContextLimit": "Context limit: {tokens}"
+  ,"directContextCompactionTitle": "Context compaction"
+  ,"directContextCompactionDescription": "These models do not report a context window. Conduit uses the selected limit to compact older messages before requests get too large."
+  ,"directContextCompactionPickerDescription": "Choose the context window Conduit should use for automatic compaction."
 }

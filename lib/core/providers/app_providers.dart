@@ -5093,7 +5093,10 @@ Model? _modelForPreferredBackend(
     PreferredBackend.direct =>
       models.where(isLocallyMintedDirectModel).firstOrNull,
     PreferredBackend.hermes => models.where(isHermesModel).firstOrNull,
-    PreferredBackend.owui || PreferredBackend.unset => null,
+    // DeepSeek has no models surfaced yet (connection phase); it will never
+    // yield an auto-selected model until its model list lands.
+    PreferredBackend.owui || PreferredBackend.unset || PreferredBackend.deepseek =>
+      null,
   };
 }
 
@@ -5127,7 +5130,9 @@ Model? _accountlessSelection({
       switch (preferredBackend) {
         PreferredBackend.owui ||
         PreferredBackend.unset => available.firstOrNull,
-        PreferredBackend.direct || PreferredBackend.hermes => null,
+        PreferredBackend.direct ||
+        PreferredBackend.hermes ||
+        PreferredBackend.deepseek => null,
       };
 }
 
@@ -5137,6 +5142,8 @@ bool _matchesPreferredBackend(Model model, PreferredBackend preferredBackend) =>
       PreferredBackend.hermes => isHermesModel(model),
       PreferredBackend.owui || PreferredBackend.unset =>
         isLocallyMintedDirectModel(model) || isHermesModel(model),
+      // DeepSeek models don't exist yet; nothing matches its backend.
+      PreferredBackend.deepseek => false,
     };
 
 bool _shouldUseAccountlessModelSelection({
