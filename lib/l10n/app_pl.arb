@@ -1169,6 +1169,28 @@
   "@folders": {
     "description": "Tab listing chat folders."
   },
+  "sharedFolders": "Udostępnione",
+  "@sharedFolders": {
+    "description": "Drawer section header for folders another user shared with you."
+  },
+  "sharedFolderOwnedBy": "Udostępnione przez {ownerName}",
+  "@sharedFolderOwnedBy": {
+    "description": "Subtitle on a shared folder row naming the folder's owner.",
+    "placeholders": {
+      "ownerName": {
+        "type": "String"
+      }
+    }
+  },
+  "sharedChatReadOnlyNotice": "Ten czat należy do użytkownika {ownerName}. Możesz go przeczytać, ale nie możesz wysyłać nowych wiadomości.",
+  "@sharedChatReadOnlyNotice": {
+    "description": "Notice shown at the top of a chat opened from another user's shared folder.",
+    "placeholders": {
+      "ownerName": {
+        "type": "String"
+      }
+    }
+  },
   "archived": "Archiwum",
   "@archived": {
     "description": "Filter/tab for archived chats."

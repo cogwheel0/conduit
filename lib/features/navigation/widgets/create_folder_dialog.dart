@@ -19,11 +19,17 @@ class CreateFolderDialog {
   /// [ref] is used for reading providers (API service, folders).
   /// [onError] is called with an error message if creation fails.
   /// [parentId] optionally nests the new folder beneath an existing folder.
+  /// [onCreated], if given, replaces the default "add to the current user's
+  /// own folder list" handling — needed when [parentId] points at a folder
+  /// owned by someone else (a shared folder with write access), since the
+  /// server creates the new folder under the *parent's* owner, not the
+  /// caller, so it belongs in `sharedFoldersProvider`, not `foldersProvider`.
   static Future<void> show(
     BuildContext context,
     WidgetRef ref, {
     required Future<void> Function(String message) onError,
     String? parentId,
+    void Function(Folder folder)? onCreated,
   }) async {
     final l10n = AppLocalizations.of(context)!;
     final name = await ThemedDialogs.promptTextInput(
@@ -46,8 +52,12 @@ class CreateFolderDialog {
       );
       final folder = Folder.fromJson(Map<String, dynamic>.from(created));
       ConduitHaptics.lightImpact();
-      ref.read(foldersProvider.notifier).upsertFolderFromRemote(folder);
-      refreshConversationsCache(ref, includeFolders: true);
+      if (onCreated != null) {
+        onCreated(folder);
+      } else {
+        ref.read(foldersProvider.notifier).upsertFolderFromRemote(folder);
+        refreshConversationsCache(ref, includeFolders: true);
+      }
     } catch (e, stackTrace) {
       DebugLogger.error(
         'create-folder-failed',
