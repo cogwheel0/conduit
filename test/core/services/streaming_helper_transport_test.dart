@@ -572,8 +572,10 @@ class _MockSocketService implements SocketService {
     handlerId: 'test-ch',
   );
 
+  final StreamController<void> reconnects = StreamController<void>.broadcast();
+
   @override
-  Stream<void> get onReconnect => const Stream.empty();
+  Stream<void> get onReconnect => reconnects.stream;
 
   @override
   bool get isConnected => true;
@@ -1772,6 +1774,96 @@ void main() {
 
         check(log.messages.last.error?.content)
             .equals('Provider rejected the request.');
+      },
+    );
+
+    test('reconnect recovery does not finish a live stream from a mid-write snapshot', () async {
+      // Returning to the foreground reconnects the socket, which polls the
+      // server. Open WebUI persists the in-flight assistant with
+      // `done: false` and no `isStreaming` key, so the poll must not treat
+      // the missing flag as completion: the stream is still running.
+      final log = _CallbackLog(
+        initialMessages: fakeStreamingAssistantMessages(content: 'Hel'),
+      );
+      final registrar = FakeSocketInjector();
+      final socket = _MockSocketService(registrar);
+      final api = _buildFakeApi(
+        pollResponse: _serverConversationResponse(
+          messages: [_serverAssistantMessage(content: 'Hel', done: false)],
+        ),
+      );
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        api: api,
+        socketService: socket,
+      );
+      await pumpMicrotasks();
+
+      socket.reconnects.add(null);
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      for (var i = 0; i < 10; i++) {
+        await pumpMicrotasks();
+      }
+
+      check(log.finishCount).equals(0);
+      check(log.messages.last.isStreaming).isTrue();
+
+      // The live stream then completes normally.
+      registrar.emitChatEvent('chat:completion', {
+        'choices': [
+          {
+            'delta': {'content': 'lo'},
+          },
+        ],
+      }, messageId: 'msg-1');
+      registrar.emitChatEvent('chat:completion', {
+        'done': true,
+        'content': 'Hello',
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
+      check(log.finishCount).equals(1);
+    });
+
+    test(
+      'reconnect recovery still finishes on an explicit server done',
+      () async {
+        final log = _CallbackLog(
+          initialMessages: fakeStreamingAssistantMessages(content: 'Hel'),
+        );
+        final registrar = FakeSocketInjector();
+        final socket = _MockSocketService(registrar);
+        final api = _buildFakeApi(
+          pollResponse: _serverConversationResponse(
+            messages: [_serverAssistantMessage(content: 'Hello', done: true)],
+          ),
+        );
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          api: api,
+          socketService: socket,
+        );
+        await pumpMicrotasks();
+
+        socket.reconnects.add(null);
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        for (var i = 0; i < 10; i++) {
+          await pumpMicrotasks();
+        }
+
+        check(log.finishCount).equals(1);
+        check(log.messages.last.content).endsWith('Hello');
       },
     );
 

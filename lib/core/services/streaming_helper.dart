@@ -420,7 +420,10 @@ class _AssistantServerPatch {
 Future<void> _handleReconnectRecovery({
   required bool Function() hasFinished,
   required List<ChatMessage> Function() getMessages,
-  required Future<_ServerMessageSnapshot?> Function() pollServerForMessage,
+  required Future<_ServerMessageSnapshot?> Function({
+    bool inferDoneFromMissingStreaming,
+  })
+  pollServerForMessage,
   required bool Function(
     String,
     List<String>, {
@@ -442,7 +445,13 @@ Future<void> _handleReconnectRecovery({
       return;
     }
 
-    final result = await pollServerForMessage();
+    // Open WebUI persists the in-progress assistant with `done: false` and no
+    // `isStreaming` key, so a missing flag says nothing about completion.
+    // Inferring "done" from it here finished a live stream the moment the app
+    // came back to the foreground; only an explicit done/error is terminal.
+    final result = await pollServerForMessage(
+      inferDoneFromMissingStreaming: false,
+    );
     if (hasFinished()) return;
 
     if (result != null) {
