@@ -1299,6 +1299,86 @@ void main() {
     );
 
     test(
+      'httpStream renders Responses-style reasoning summaries mid-stream',
+      () async {
+        // Kimi via an Azure Responses endpoint streams typed events; the
+        // reasoning arrives as summary parts before the answer item starts.
+        final log = _CallbackLog(
+          initialMessages: fakeStreamingAssistantMessages(content: ''),
+        );
+        final byteStream = StreamController<List<int>>();
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            byteStream: byteStream.stream,
+            abort: () async {},
+          ),
+          log: log,
+        );
+
+        byteStream.add(
+          _sseFrame({
+            'type': 'response.output_item.added',
+            'output_index': 0,
+            'item': {'type': 'reasoning', 'id': 'rs_1', 'summary': []},
+          }),
+        );
+        byteStream.add(
+          _sseFrame({
+            'type': 'response.reasoning_summary_text.delta',
+            'item_id': 'rs_1',
+            'output_index': 0,
+            'summary_index': 0,
+            'delta': 'Checking each candidate',
+          }),
+        );
+        await pumpMicrotasks();
+
+        final pending = log.messages.last.content;
+        check(pending).contains('<details type="reasoning" done="false"');
+        check(pending).contains('Checking each candidate');
+
+        byteStream.add(
+          _sseFrame({
+            'type': 'response.output_item.added',
+            'output_index': 1,
+            'item': {
+              'type': 'message',
+              'id': 'msg_1',
+              'status': 'in_progress',
+              'content': [],
+            },
+          }),
+        );
+        byteStream.add(
+          _sseFrame({
+            'type': 'response.output_text.delta',
+            'item_id': 'msg_1',
+            'output_index': 1,
+            'content_index': 0,
+            'delta': 'There are 21 primes.',
+          }),
+        );
+        await pumpMicrotasks();
+
+        final streaming = log.messages.last.content;
+        check(streaming).contains('<details type="reasoning" done="true"');
+        check(streaming).contains('duration="');
+        check(streaming).endsWith('There are 21 primes.');
+
+        byteStream.add(_sseDone());
+        await byteStream.close();
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+
+        check(log.messages.last.content).endsWith('There are 21 primes.');
+        check(log.finishCount).equals(1);
+      },
+    );
+
+    test(
       'httpStream renders OpenRouter-style reasoning deltas mid-stream',
       () async {
         // The server relays provider chunks unchanged, so gpt-oss via an

@@ -3322,10 +3322,16 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     )) {
       return true;
     }
+    if (serverBodyDropsLocalReasoningTiming(
+      localMessage.content,
+      serverMessage.content,
+    )) {
+      return true;
+    }
     // Compare answer bodies with rendered semantic <details> wrappers
     // stripped. Local and server renders of the same turn carry different
-    // details attributes (e.g. the locally injected reasoning duration="0"
-    // vs the server's real duration), which would otherwise defeat both the
+    // details attributes (e.g. the locally measured reasoning duration vs the
+    // server's own, or none at all), which would otherwise defeat both the
     // length and the prefix checks and let a mid-write server body replace a
     // complete local answer on every reasoning turn.
     final localContent = comparableAssistantBody(localMessage.content);

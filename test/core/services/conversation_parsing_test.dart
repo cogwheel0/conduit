@@ -658,6 +658,51 @@ void main() {
         check('Final answer'.allMatches(content).length).equals(1);
       });
 
+      test('derives reasoning duration for persisted Responses items', () {
+        // Azure Responses providers give the server only ended_at; the
+        // message timestamp is the nearest start.
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'assistant-1',
+                'role': 'assistant',
+                'content': '',
+                'done': true,
+                'timestamp': 1700000000,
+                'output': [
+                  {
+                    'type': 'reasoning',
+                    'id': 'rs_1',
+                    'status': 'completed',
+                    'ended_at': 1700000009.7,
+                    'summary': [
+                      {'type': 'summary_text', 'text': 'Counting primes'},
+                    ],
+                  },
+                  {
+                    'type': 'message',
+                    'id': 'msg_1',
+                    'status': 'completed',
+                    'content': [
+                      {'type': 'output_text', 'text': 'There are 21.'},
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        });
+
+        final content =
+            (result['messages'] as List<Map<String, dynamic>>).single['content']
+                as String;
+        check(content).contains('<details type="reasoning" done="true"');
+        check(content).contains('duration="9"');
+        check(content).contains('There are 21.');
+      });
+
       test(
         'direct replay mirror preserves escaped presentation and reasoning',
         () {

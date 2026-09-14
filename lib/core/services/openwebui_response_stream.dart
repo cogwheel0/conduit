@@ -17,7 +17,9 @@ List<Map<String, dynamic>> applyOpenWebUIResponseStreamEvent(
   if (eventType == 'response.completed') {
     final response = event['response'];
     final completed = response is Map ? response['output'] : null;
-    return completed is List ? _cloneItems(completed) : output;
+    return completed is List
+        ? mergeOpenWebUIReasoningTiming(output, _cloneItems(completed))
+        : output;
   }
 
   final next = _cloneItems(output);
@@ -43,12 +45,12 @@ List<Map<String, dynamic>> applyOpenWebUIResponseStreamEvent(
     final item = _cloneMap(rawItem);
     final existingIndex = _findOutputItemIndex(next, item);
     if (existingIndex >= 0) {
-      next[existingIndex] = item;
+      next[existingIndex] = _withPreservedTiming(next[existingIndex], item);
     } else if (outputIndex < next.length) {
       if (eventType == 'response.output_item.added') {
         next.insert(outputIndex, item);
       } else {
-        next[outputIndex] = item;
+        next[outputIndex] = _withPreservedTiming(next[outputIndex], item);
       }
     } else {
       next.add(item);
@@ -284,4 +286,115 @@ void _stampReasoningTiming(List<Map<String, dynamic>> output) {
     item['ended_at'] = now;
     item['duration'] = elapsed < 0 ? 0 : elapsed;
   }
+}
+
+/// Carries locally stamped reasoning timing onto an authoritative snapshot.
+///
+/// Responses-API providers never report how long a model thought, and the
+/// server only records `ended_at` for such items, so a cumulative `output`
+/// snapshot would otherwise erase the duration the client measured while the
+/// stream was live. Items are matched by id, falling back to position.
+List<Map<String, dynamic>> mergeOpenWebUIReasoningTiming(
+  List<Map<String, dynamic>> previous,
+  List<Map<String, dynamic>> next,
+) {
+  if (previous.isEmpty || next.isEmpty) return next;
+  var changed = false;
+  final merged = <Map<String, dynamic>>[];
+  for (var index = 0; index < next.length; index++) {
+    final item = next[index];
+    if (item['type'] != 'reasoning' || item['duration'] != null) {
+      merged.add(item);
+      continue;
+    }
+    final id = item['id']?.toString();
+    Map<String, dynamic>? source;
+    if (id != null && id.isNotEmpty) {
+      for (final candidate in previous) {
+        if (candidate['type'] == 'reasoning' &&
+            candidate['id']?.toString() == id) {
+          source = candidate;
+          break;
+        }
+      }
+    }
+    if (source == null &&
+        index < previous.length &&
+        previous[index]['type'] == 'reasoning') {
+      source = previous[index];
+    }
+    if (source == null) {
+      merged.add(item);
+      continue;
+    }
+    final copy = Map<String, dynamic>.of(item);
+    for (final key in const ['started_at', 'ended_at', 'duration']) {
+      if (copy[key] == null && source[key] != null) {
+        copy[key] = source[key];
+        changed = true;
+      }
+    }
+    if (copy['duration'] == null) {
+      final start = copy['started_at'];
+      final end = copy['ended_at'];
+      if (start is num && end is num) {
+        final elapsed = (end - start).floor();
+        copy['duration'] = elapsed < 0 ? 0 : elapsed;
+        changed = true;
+      }
+    }
+    merged.add(copy);
+  }
+  return changed ? merged : next;
+}
+
+/// The server's copy of an item (from `output_item.done` or a snapshot)
+/// never carries the client's timing, so keep whatever was measured locally.
+Map<String, dynamic> _withPreservedTiming(
+  Map<String, dynamic> previous,
+  Map<String, dynamic> replacement,
+) {
+  if (previous['type'] != 'reasoning' || replacement['type'] != 'reasoning') {
+    return replacement;
+  }
+  for (final key in const ['started_at', 'ended_at', 'duration']) {
+    if (replacement[key] == null && previous[key] != null) {
+      replacement[key] = previous[key];
+    }
+  }
+  return replacement;
+}
+
+/// Derives a reasoning duration for persisted items that carry `ended_at`
+/// but no `duration`. Open WebUI stamps `ended_at` for provider-owned
+/// reasoning items but never `started_at`, so the assistant message's own
+/// creation time is the closest available start. Items are cloned; the
+/// input is untouched.
+List<Map<String, dynamic>> deriveOpenWebUIReasoningTiming(
+  List<Map<String, dynamic>> items, {
+  num? fallbackStartedAt,
+}) {
+  var changed = false;
+  final derived = <Map<String, dynamic>>[];
+  for (final item in items) {
+    if (item['type'] != 'reasoning' || item['duration'] != null) {
+      derived.add(item);
+      continue;
+    }
+    final end = item['ended_at'];
+    final start = item['started_at'] is num
+        ? item['started_at'] as num
+        : fallbackStartedAt;
+    if (end is! num || start == null) {
+      derived.add(item);
+      continue;
+    }
+    final elapsed = (end - start).floor();
+    derived.add(<String, dynamic>{
+      ...item,
+      'duration': elapsed < 0 ? 0 : elapsed,
+    });
+    changed = true;
+  }
+  return changed ? derived : items;
 }

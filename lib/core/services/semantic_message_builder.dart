@@ -55,12 +55,16 @@ final class SemanticDetailsBlock extends SemanticMessageBlock {
         : LineSplitter.split(normalized)
               .map((line) => line.startsWith('>') ? line : '> $line')
               .join('\n');
-    final resolvedDuration = duration ?? '0';
+    // Never invent a duration: a finished block whose timing is unknown is
+    // labelled by the renderer instead of reading "less than a second".
+    final resolvedDuration = done ? duration : null;
     return SemanticDetailsBlock._(
       type: 'reasoning',
-      summary: done ? 'Thought for $resolvedDuration seconds' : 'Thinking…',
+      summary: resolvedDuration != null
+          ? 'Thought for $resolvedDuration seconds'
+          : 'Thinking…',
       done: done,
-      duration: done ? resolvedDuration : null,
+      duration: resolvedDuration,
       bodyMarkdown: display,
     );
   }

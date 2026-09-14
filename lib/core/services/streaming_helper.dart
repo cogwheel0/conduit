@@ -1420,6 +1420,38 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   })
   applyAssistantServerPatch;
 
+  /// Folds one Responses-style event onto the locally rebuilt output list and
+  /// projects it through the same structured-output path a cumulative
+  /// `output` snapshot takes. Shared by the `response:completion` socket
+  /// event and by SSE frames from providers that speak the Responses API.
+  void applyResponseStreamEvent(
+    Map<dynamic, dynamic> event, {
+    required String targetId,
+  }) {
+    final eventType = event['type']?.toString() ?? '';
+    if (!openWebUIResponseStreamEventTouchesOutput(eventType)) return;
+    latestResponseOutputItems = applyOpenWebUIResponseStreamEvent(
+      latestResponseOutputItems,
+      event,
+    );
+    final responseBlocks = parseOpenWebUIStructuredOutput(
+      latestResponseOutputItems,
+    );
+    if (responseBlocks.isNotEmpty) {
+      replaceVisibleAssistantStructuredOutput(responseBlocks);
+    }
+    if (openWebUIResponseStreamEventIsStructural(eventType) &&
+        latestResponseOutputItems.isNotEmpty) {
+      final persistedItems = List<Map<String, dynamic>>.unmodifiable(
+        latestResponseOutputItems,
+      );
+      applyAssistantServerPatch(
+        targetId: targetId,
+        buildPatch: (current) => _AssistantServerPatch(output: persistedItems),
+      );
+    }
+  }
+
   void applyParsedOpenWebUIUpdate(
     OpenWebUIStreamUpdate update, {
     required VoidCallback onDone,
@@ -1464,6 +1496,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             ),
           );
         }
+
+      case OpenWebUIResponseStreamEvent(:final event):
+        applyResponseStreamEvent(event, targetId: assistantMessageId);
 
       case OpenWebUIEventUpdate(:final type, :final data):
         final eventPayload = _asStringMap(data);
@@ -1827,7 +1862,20 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       if (content.trim().isEmpty) {
         final rawOutput = serverMsg['output'];
         if (rawOutput is List && rawOutput.isNotEmpty) {
-          final outputBlocks = parseOpenWebUIStructuredOutput(rawOutput);
+          final serverTimestamp = serverMsg['timestamp'];
+          final outputBlocks = parseOpenWebUIStructuredOutput(
+            deriveOpenWebUIReasoningTiming(
+              mergeOpenWebUIReasoningTiming(
+                latestResponseOutputItems,
+                _normalizeJsonMapList(rawOutput),
+              ),
+              fallbackStartedAt: serverTimestamp is num
+                  ? (serverTimestamp > 1000000000000
+                        ? serverTimestamp / 1000
+                        : serverTimestamp)
+                  : null,
+            ),
+          );
           if (outputBlocks.isNotEmpty) {
             content = renderStructuredOutputBlocks(outputBlocks);
           }
@@ -1996,13 +2044,20 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       comparisonSnapshot.comparisonContent,
     );
     final serverComparableBody = stripRenderedSemanticDetails(content);
+    // Equal bodies keep the local render: the server never stores timing
+    // for provider-owned reasoning items, so its equal-length copy would
+    // only strip the duration the client measured while streaming.
     final shouldAdoptContent =
         content.isNotEmpty &&
         !serverBodyDropsLocalSemanticDetails(
           comparisonSnapshot.comparisonContent,
           content,
         ) &&
-        serverComparableBody.length >= localComparableBody.length;
+        !serverBodyDropsLocalReasoningTiming(
+          comparisonSnapshot.comparisonContent,
+          content,
+        ) &&
+        serverComparableBody.length > localComparableBody.length;
     if (shouldAdoptContent) {
       DebugLogger.log(
         '$source: adopting server content (${content.length} chars)',
@@ -3179,10 +3234,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         // Open WebUI 0.11 streams socket-bound completions token by token as
         // Responses-style events instead of cumulative `chat:completion`
         // snapshots, so reasoning and text only reached the message through
-        // the final snapshot. Rebuild the output list locally and project it
-        // through the same structured-output path a snapshot would take.
-        final eventType = payload['type']?.toString() ?? '';
-        if (!openWebUIResponseStreamEventTouchesOutput(eventType)) return;
+        // the final snapshot.
         final responseTargetId = resolveTargetMessageIdForStream(
           messageId,
           eventType: 'response:completion',
@@ -3190,27 +3242,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           allowBindingForeignMessage: true,
         );
         if (responseTargetId == null) return;
-        latestResponseOutputItems = applyOpenWebUIResponseStreamEvent(
-          latestResponseOutputItems,
-          payload,
-        );
-        final responseBlocks = parseOpenWebUIStructuredOutput(
-          latestResponseOutputItems,
-        );
-        if (responseBlocks.isNotEmpty) {
-          replaceVisibleAssistantStructuredOutput(responseBlocks);
-        }
-        if (openWebUIResponseStreamEventIsStructural(eventType) &&
-            latestResponseOutputItems.isNotEmpty) {
-          final persistedItems = List<Map<String, dynamic>>.unmodifiable(
-            latestResponseOutputItems,
-          );
-          applyAssistantServerPatch(
-            targetId: responseTargetId,
-            buildPatch: (current) =>
-                _AssistantServerPatch(output: persistedItems),
-          );
-        }
+        applyResponseStreamEvent(payload, targetId: responseTargetId);
         return;
       }
 
@@ -3228,10 +3260,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final usagePatch = usageData is Map && usageData.isNotEmpty
               ? Map<String, dynamic>.from(usageData)
               : null;
-          final normalizedOutputItems = _normalizeJsonMapList(
-            payload['output'],
-          );
+          var normalizedOutputItems = _normalizeJsonMapList(payload['output']);
           if (normalizedOutputItems.isNotEmpty) {
+            normalizedOutputItems = mergeOpenWebUIReasoningTiming(
+              latestResponseOutputItems,
+              normalizedOutputItems,
+            );
             latestResponseOutputItems = normalizedOutputItems;
           }
           final outputBlocks = normalizedOutputItems.isEmpty

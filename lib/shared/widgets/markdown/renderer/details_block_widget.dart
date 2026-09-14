@@ -692,9 +692,9 @@ final class ReasoningHeaderThoughts extends ReasoningHeader {
 }
 
 /// Mirrors upstream `Collapsible.svelte`: a reasoning block reads
-/// "Thought for…" only once it is done AND carries a duration. A block that
-/// is already done but has no duration yet (the answer started streaming,
-/// the server's timing has not landed) keeps reading "Thinking…".
+/// "Thought for…" only once it is done AND carries a duration. A pending
+/// block always reads "Thinking…"; a finished block with no timing at all
+/// reads "Thoughts" rather than inventing a duration.
 ReasoningHeader resolveReasoningHeader(CompiledMarkdownDetailsData data) {
   final summary = data.summaryText.trim();
   final summaryLower = summary.toLowerCase();
@@ -717,11 +717,9 @@ ReasoningHeader resolveReasoningHeader(CompiledMarkdownDetailsData data) {
     return ReasoningHeaderThoughtFor(data.durationSeconds);
   }
 
-  if (isThinkingSummary) {
-    return const ReasoningHeaderThinking();
-  }
-
-  if (summary.isNotEmpty) {
+  // Done without any timing: upstream would keep reading "Thinking…", which
+  // misreads a finished block. Fall back to the neutral "Thoughts" label.
+  if (summary.isNotEmpty && !isThinkingSummary) {
     return ReasoningHeaderSummary(summary);
   }
 

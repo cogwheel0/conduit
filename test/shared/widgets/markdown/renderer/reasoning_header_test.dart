@@ -32,7 +32,7 @@ void main() {
       ).isA<ReasoningHeaderThinking>();
     });
 
-    test('done block without a duration still reads thinking', () {
+    test('done block without a duration reads thoughts, never a fake time', () {
       check(
         resolveReasoningHeader(
           _reasoning(
@@ -42,7 +42,7 @@ void main() {
             summary: 'Thinking…',
           ),
         ),
-      ).isA<ReasoningHeaderThinking>();
+      ).isA<ReasoningHeaderThoughts>();
     });
 
     test('done block with duration zero reads less than a second', () {

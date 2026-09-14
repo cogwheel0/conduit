@@ -66,6 +66,40 @@ void main() {
     });
   });
 
+  group('serverBodyDropsLocalReasoningTiming', () {
+    const local =
+        '<details type="reasoning" done="true" duration="9">\n'
+        '<summary>Thought for 9 seconds</summary>\n&gt; why\n</details>\n'
+        'Answer';
+    const serverNoTiming =
+        '<details type="reasoning" done="true">\n'
+        '<summary>Thinking…</summary>\n&gt; why\n</details>\n'
+        'Answer';
+    const serverWithTiming =
+        '<details type="reasoning" done="true" duration="11">\n'
+        '<summary>Thought for 11 seconds</summary>\n&gt; why\n</details>\n'
+        'Answer';
+
+    test('keeps local timing when the server copy has none', () {
+      check(serverBodyDropsLocalReasoningTiming(local, serverNoTiming))
+          .isTrue();
+    });
+
+    test('lets a server duration win', () {
+      check(serverBodyDropsLocalReasoningTiming(local, serverWithTiming))
+          .isFalse();
+    });
+
+    test('does not apply when the answers differ', () {
+      check(serverBodyDropsLocalReasoningTiming(local, '$serverNoTiming more'))
+          .isFalse();
+    });
+
+    test('does not apply when the server dropped the block entirely', () {
+      check(serverBodyDropsLocalReasoningTiming(local, 'Answer')).isFalse();
+    });
+  });
+
   group('stripDetailsForSpeech', () {
     test('removes a complete semantic block', () {
       final result = stripDetailsForSpeech(

@@ -125,6 +125,121 @@ void main() {
           .equals('final');
     });
 
+    test('snapshots keep the locally measured reasoning duration', () {
+      final local = <Map<String, dynamic>>[
+        {
+          'type': 'reasoning',
+          'id': 'rs_1',
+          'started_at': 100.0,
+          'ended_at': 109.4,
+          'duration': 9,
+        },
+        {
+          'type': 'message',
+          'id': 'msg_1',
+          'content': [
+            {'type': 'output_text', 'text': 'answer'},
+          ],
+        },
+      ];
+      // The server only records ended_at for provider-owned reasoning items.
+      final server = <Map<String, dynamic>>[
+        {
+          'type': 'reasoning',
+          'id': 'rs_1',
+          'status': 'completed',
+          'ended_at': 109.9,
+          'summary': [
+            {'type': 'summary_text', 'text': 'Counting primes'},
+          ],
+        },
+        {
+          'type': 'message',
+          'id': 'msg_1',
+          'status': 'completed',
+          'content': [
+            {'type': 'output_text', 'text': 'answer'},
+          ],
+        },
+      ];
+
+      final merged = mergeOpenWebUIReasoningTiming(local, server);
+      check(merged.first['duration']).equals(9);
+      check(merged.first['ended_at']).equals(109.9);
+      check(merged.first['summary']).isNotNull();
+      check(mergeOpenWebUIReasoningTiming(const [], server))
+          .identicalTo(server);
+
+      final completed = applyOpenWebUIResponseStreamEvent(local, {
+        'type': 'response.completed',
+        'response': {'output': server},
+      });
+      check(completed.first['duration']).equals(9);
+    });
+
+    test('keeps measured timing when the server replaces the item', () {
+      // Azure Responses sequence: reasoning added empty, summary lands late,
+      // output_item.done replaces the item with a copy lacking timing, then
+      // the answer item starts.
+      var output = applyOpenWebUIResponseStreamEvent(const [], {
+        'type': 'response.output_item.added',
+        'output_index': 0,
+        'item': {'type': 'reasoning', 'id': 'rs_1', 'summary': []},
+      });
+      final startedAt = output.single['started_at'] as num;
+      output = applyOpenWebUIResponseStreamEvent(output, {
+        'type': 'response.reasoning_summary_text.delta',
+        'item_id': 'rs_1',
+        'output_index': 0,
+        'summary_index': 0,
+        'delta': 'Counting primes',
+      });
+      output = applyOpenWebUIResponseStreamEvent(output, {
+        'type': 'response.output_item.done',
+        'output_index': 0,
+        'item': {
+          'type': 'reasoning',
+          'id': 'rs_1',
+          'status': 'completed',
+          'summary': [
+            {'type': 'summary_text', 'text': 'Counting primes'},
+          ],
+        },
+      });
+      check(output.single['started_at']).equals(startedAt);
+      check(output.single['duration']).isNull();
+
+      output = applyOpenWebUIResponseStreamEvent(output, {
+        'type': 'response.output_item.added',
+        'output_index': 1,
+        'item': {'type': 'message', 'id': 'msg_1', 'content': []},
+      });
+      check(output.first['started_at']).equals(startedAt);
+      check(output.first['duration']).isA<int>();
+      check(output.first['ended_at']).isA<num>();
+
+      final blocks = parseOpenWebUIStructuredOutput(output);
+      check(blocks.first)
+          .isA<StructuredOutputReasoningBlock>()
+          .has((b) => b.duration, 'duration')
+          .isNotNull();
+    });
+
+    test('derives a duration from ended_at and the message timestamp', () {
+      final items = <Map<String, dynamic>>[
+        {'type': 'reasoning', 'id': 'rs_1', 'ended_at': 1700000010.4},
+        {'type': 'message', 'id': 'msg_1', 'content': []},
+      ];
+      final derived = deriveOpenWebUIReasoningTiming(
+        items,
+        fallbackStartedAt: 1700000000,
+      );
+      check(derived.first['duration']).equals(10);
+      check(items.first['duration']).isNull();
+      check(deriveOpenWebUIReasoningTiming(items, fallbackStartedAt: null))
+          .identicalTo(items);
+    });
+
     test('does not mutate the input list', () {
       final original = applyOpenWebUIResponseStreamEvent(const [], {
         'type': 'response.output_text.delta',

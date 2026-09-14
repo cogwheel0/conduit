@@ -181,6 +181,40 @@ bool serverBodyDropsLocalSemanticDetails(
           comparableAssistantBody(serverContent);
 }
 
+final RegExp _reasoningDetailsWithDurationPattern = RegExp(
+  r"""<details\b(?=[^>]*\btype\s*=\s*["']reasoning["'])(?=[^>]*\bduration\s*=\s*["'][^"']+["'])""",
+  caseSensitive: false,
+);
+final RegExp _reasoningDetailsPattern = RegExp(
+  r"""<details\b(?=[^>]*\btype\s*=\s*["']reasoning["'])""",
+  caseSensitive: false,
+);
+
+/// True when the server's render of the same answer carries a reasoning block
+/// without a duration while the local render has one. Responses-API providers
+/// never tell the server how long a model thought, so the client's own
+/// measurement is the only timing that exists; an otherwise identical server
+/// copy must not replace it and downgrade "Thought for N seconds" to a
+/// timeless label.
+bool serverBodyDropsLocalReasoningTiming(
+  String localContent,
+  String serverContent,
+) {
+  if (!_reasoningDetailsWithDurationPattern.hasMatch(localContent)) {
+    return false;
+  }
+  if (_reasoningDetailsWithDurationPattern.hasMatch(serverContent)) {
+    return false;
+  }
+  if (!_reasoningDetailsPattern.hasMatch(serverContent)) {
+    // The server dropped the block entirely; that case is handled by
+    // serverBodyDropsLocalSemanticDetails.
+    return false;
+  }
+  return comparableAssistantBody(localContent) ==
+      comparableAssistantBody(serverContent);
+}
+
 /// [isStaleServerPrefix] on details-stripped renders of the two contents.
 bool serverBodyTruncatesLocal(String localContent, String serverContent) {
   return isStaleServerPrefix(

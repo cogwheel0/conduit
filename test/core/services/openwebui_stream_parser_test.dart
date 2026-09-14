@@ -477,6 +477,51 @@ void main() {
           .equals('Hello');
     });
 
+    test('relays Responses-style frames instead of dropping them', () async {
+      // Providers that speak the OpenAI Responses API stream typed events;
+      // the server passes them through unchanged on the SSE path.
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data: {"type":"response.created","sequence_number":0}\n\n',
+          ),
+          utf8.encode(
+            'data: {"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":0,"delta":"Counting"}\n\n',
+          ),
+          utf8.encode(
+            'data: {"type":"response.output_text.delta","item_id":"msg_1","output_index":1,"content_index":0,"delta":"21"}\n\n',
+          ),
+          utf8.encode(
+            'data: {"type":"response.completed","response":{"output":[],"usage":{"total_tokens":9}}}\n\n',
+          ),
+          utf8.encode('data: [DONE]\n\n'),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(6);
+      check(updates[0])
+          .isA<OpenWebUIResponseStreamEvent>()
+          .has((u) => u.type, 'type')
+          .equals('response.created');
+      check(updates[1])
+          .isA<OpenWebUIResponseStreamEvent>()
+          .has((u) => u.type, 'type')
+          .equals('response.reasoning_summary_text.delta');
+      check(updates[2])
+          .isA<OpenWebUIResponseStreamEvent>()
+          .has((u) => u.type, 'type')
+          .equals('response.output_text.delta');
+      check(updates[3])
+          .isA<OpenWebUIResponseStreamEvent>()
+          .has((u) => u.type, 'type')
+          .equals('response.completed');
+      check(updates[4])
+          .isA<OpenWebUIUsageUpdate>()
+          .has((u) => u.usage['total_tokens'], 'total_tokens')
+          .equals(9);
+      check(updates[5]).isA<OpenWebUIStreamDone>();
+    });
+
     test('parses provider reasoning keys passed through by the server', () async {
       // Open WebUI relays provider chunks unchanged on the SSE path. OpenRouter
       // and gateway providers use `reasoning` (plus `reasoning_details`) and
@@ -740,6 +785,39 @@ void main() {
           .has((block) => block.done, 'done')
           .equals(true);
       check(serialized).contains('<details type="reasoning" done="true"');
+    });
+
+    test('renders a pending reasoning item that has no text yet', () {
+      final blocks = parseOpenWebUIStructuredOutput([
+        {
+          'type': 'reasoning',
+          'id': 'rs_1',
+          'summary': <Map<String, dynamic>>[],
+          'content': <Map<String, dynamic>>[],
+        },
+      ]);
+      final serialized = renderStructuredOutputBlocks(blocks);
+
+      check(blocks.single)
+          .isA<StructuredOutputReasoningBlock>()
+          .has((block) => block.done, 'done')
+          .equals(false);
+      check(serialized).contains('<details type="reasoning" done="false"');
+    });
+
+    test('hides a finished reasoning item that never produced text', () {
+      final blocks = parseOpenWebUIStructuredOutput([
+        {'type': 'reasoning', 'id': 'rs_1', 'status': 'completed'},
+        {
+          'type': 'message',
+          'content': [
+            {'type': 'output_text', 'text': 'answer'},
+          ],
+        },
+      ]);
+
+      check(blocks).length.equals(1);
+      check(blocks.single).isA<StructuredOutputTextBlock>();
     });
 
     test('keeps a trailing in-progress reasoning item pending', () {

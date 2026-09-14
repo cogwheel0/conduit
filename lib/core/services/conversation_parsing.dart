@@ -10,6 +10,7 @@ import '../utils/openwebui_source_parser.dart';
 import '../utils/semantic_details.dart';
 import 'direct_replay_output.dart';
 import 'semantic_message_builder.dart';
+import 'openwebui_response_stream.dart';
 import 'structured_output.dart';
 import 'structured_output_renderer.dart';
 
@@ -356,7 +357,11 @@ Map<String, dynamic>? _parseSiblingAsVersion(
   if (directReplay != null) {
     contentString = directReplayResolution.content;
   } else if (outputItems.isNotEmpty) {
-    final outputBlocks = parseOpenWebUIStructuredOutput(outputItems);
+    final outputBlocks = _parseOutputItemsWithTiming(
+      outputItems,
+      msgData,
+      historyMsg,
+    );
     final outputContent = _mergeContentWithStructuredOutput(
       contentString,
       outputBlocks,
@@ -627,7 +632,11 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
       // old raw replay cache must not survive the replacement.
       metadata.remove(kConduitDirectRawAssistantContentMetadataKey);
     }
-    final outputBlocks = parseOpenWebUIStructuredOutput(outputItems);
+    final outputBlocks = _parseOutputItemsWithTiming(
+      outputItems,
+      msgData,
+      historyMsg,
+    );
     final outputContent = _mergeContentWithStructuredOutput(
       contentString,
       outputBlocks,
@@ -877,6 +886,25 @@ dynamic _coerceJsonValue(dynamic value) {
     return value.map(_coerceJsonValue).toList();
   }
   return value;
+}
+
+/// Parses persisted output items, deriving a reasoning duration from the
+/// server's `ended_at` and the message's own timestamp when the provider never
+/// reported one (see [deriveOpenWebUIReasoningTiming]).
+List<StructuredOutputBlock> _parseOutputItemsWithTiming(
+  List<Map<String, dynamic>> outputItems,
+  Map<String, dynamic> msgData,
+  Map<String, dynamic>? historyMsg,
+) {
+  return parseOpenWebUIStructuredOutput(
+    deriveOpenWebUIReasoningTiming(
+      outputItems,
+      fallbackStartedAt:
+          _parseTimestamp(msgData['timestamp'] ?? historyMsg?['timestamp'])
+              .millisecondsSinceEpoch /
+          1000,
+    ),
+  );
 }
 
 List<Map<String, dynamic>> _normalizeOutputItems(dynamic raw) {

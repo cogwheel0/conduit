@@ -91,6 +91,18 @@ final class OpenWebUIErrorUpdate extends OpenWebUIStreamUpdate {
 }
 
 /// The stream has completed ([DONE] received or stream ended).
+/// One OpenAI Responses-style stream event (`response.output_text.delta`,
+/// `response.reasoning_summary_text.delta`, `response.output_item.added`, …)
+/// relayed unchanged on the SSE path when the upstream provider speaks the
+/// Responses API. The consumer folds these onto its output item list.
+final class OpenWebUIResponseStreamEvent extends OpenWebUIStreamUpdate {
+  const OpenWebUIResponseStreamEvent(this.event);
+
+  final Map<String, dynamic> event;
+
+  String get type => event['type']?.toString() ?? '';
+}
+
 final class OpenWebUIStreamDone extends OpenWebUIStreamUpdate {
   const OpenWebUIStreamDone();
 }
@@ -167,6 +179,19 @@ Iterable<OpenWebUIStreamUpdate> parseOpenWebUIParsedPayload(
 
   if (parsed['error'] != null) {
     yield OpenWebUIErrorUpdate(parsed['error'] as Map<String, dynamic>);
+    return;
+  }
+
+  final frameType = parsed['type'];
+  if (frameType is String && frameType.startsWith('response.')) {
+    yield OpenWebUIResponseStreamEvent(parsed);
+    if (frameType == 'response.completed') {
+      final response = parsed['response'];
+      final usage = response is Map ? response['usage'] : null;
+      if (usage is Map && usage.isNotEmpty) {
+        yield OpenWebUIUsageUpdate(usage.cast<String, dynamic>());
+      }
+    }
     return;
   }
 
