@@ -6,6 +6,7 @@ import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/database/database_manager.dart';
 import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/secure_credential_storage.dart';
@@ -128,6 +129,54 @@ void main() {
       check(purgeCalls).equals(1);
     },
   );
+
+  test('a completed clear leaves no incomplete-clear marker', () async {
+    final container = ProviderContainer(
+      overrides: [
+        authStateManagerProvider.overrideWith(
+          () => _ClearedAuthStateManager(FullAppDataClearOutcome.cleared),
+        ),
+        directConnectionProfilesProvider.overrideWith(_EmptyDirectProfiles.new),
+        hermesConfigProvider.overrideWith(_EmptyHermesConfig.new),
+        directLocalDatabasePurgeProvider.overrideWithValue(() async {}),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(authStateManagerProvider.future);
+    await container.read(directConnectionProfilesProvider.future);
+    container.read(hermesConfigProvider);
+
+    await container
+        .read(signOutCoordinatorProvider)
+        .signOut(keepServerDetails: true);
+
+    check(PreferencesStore.getBool(PreferenceKeys.incompleteAppDataClear))
+        .isNull();
+  });
+
+  test('an incomplete clear leaves the restart marker armed', () async {
+    final container = ProviderContainer(
+      overrides: [
+        authStateManagerProvider.overrideWith(
+          () => _ClearedAuthStateManager(FullAppDataClearOutcome.incomplete),
+        ),
+        directConnectionProfilesProvider.overrideWith(_EmptyDirectProfiles.new),
+        hermesConfigProvider.overrideWith(_EmptyHermesConfig.new),
+        directLocalDatabasePurgeProvider.overrideWithValue(() async {}),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(authStateManagerProvider.future);
+    await container.read(directConnectionProfilesProvider.future);
+    container.read(hermesConfigProvider);
+
+    await container
+        .read(signOutCoordinatorProvider)
+        .signOut(keepServerDetails: true);
+
+    check(PreferencesStore.getBool(PreferenceKeys.incompleteAppDataClear))
+        .equals(true);
+  });
 
   test(
     'failed direct-local purge keeps destructive-clear barriers closed',

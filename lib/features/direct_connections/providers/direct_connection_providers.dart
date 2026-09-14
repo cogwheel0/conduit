@@ -891,41 +891,14 @@ class DirectConnectionProfilesController
       _cancelProfileRunsBestEffort(runRegistry, profile.id);
     }
     state = const AsyncValue.data([]);
-    await _persistIncompleteAppDataClearMarker();
+    // Re-assert the marker armed before the wipe: the wipe itself may have
+    // removed it. A failure propagates so the clear is not reported as
+    // handled while the restart fence is missing.
+    await armIncompleteAppDataClearMarker();
   }
 
-  /// Writes the restart marker through the app-data-clear barrier (the
-  /// coordinator still holds it) and waits for the checked write, so a process
-  /// death right after the clear cannot reload the surviving profiles.
-  Future<void> _persistIncompleteAppDataClearMarker() async {
-    try {
-      await PreferencesStore.putCheckedIf(
-        PreferenceKeys.incompleteAppDataClear,
-        true,
-        canWrite: () => true,
-        bypassAppDataClearBarrier: true,
-      );
-    } catch (error) {
-      DebugLogger.error(
-        'Failed to persist incomplete app-data-clear marker; the block will '
-        'not survive a restart',
-        scope: 'direct/profiles',
-        data: {'errorType': error.runtimeType.toString()},
-      );
-    }
-  }
-
-  Future<void> _clearIncompleteAppDataClearMarker() async {
-    try {
-      await PreferencesStore.remove(PreferenceKeys.incompleteAppDataClear);
-    } catch (error) {
-      DebugLogger.warning(
-        'Failed to clear incomplete app-data-clear marker',
-        scope: 'direct/profiles',
-        data: {'errorType': error.runtimeType.toString()},
-      );
-    }
-  }
+  Future<void> _clearIncompleteAppDataClearMarker() =>
+      disarmIncompleteAppDataClearMarker();
 
   _DirectProfileMutationResources _captureMutationResources() {
     _ensureMounted();
@@ -2693,6 +2666,51 @@ void _cancelDirectProfileRunsBestEffort(
     DebugLogger.error(
       'Failed to revoke synced direct runs',
       scope: 'direct/profiles',
+    );
+  }
+}
+
+/// Durably marks that a full app-data clear is in progress or ended
+/// incomplete, so [DirectConnectionProfilesController.build] keeps surviving
+/// Direct profiles hidden after a restart until the logout fence is cleared.
+///
+/// Written through the app-data-clear write barrier with a checked write and
+/// awaited by the caller. A failure throws: the clear must not proceed, or be
+/// reported as handled, without the restart fence in place.
+Future<void> armIncompleteAppDataClearMarker() async {
+  try {
+    await PreferencesStore.putCheckedIf(
+      PreferenceKeys.incompleteAppDataClear,
+      true,
+      canWrite: () => true,
+      bypassAppDataClearBarrier: true,
+    );
+  } catch (error) {
+    DebugLogger.error(
+      'Failed to persist the incomplete app-data-clear marker',
+      scope: 'direct/profiles',
+      data: {'errorType': error.runtimeType.toString()},
+    );
+    rethrow;
+  }
+}
+
+/// Removes the restart marker after a clear completed or was abandoned before
+/// touching any data. Best effort: a stale marker only keeps Direct profiles
+/// hidden until the logout fence is observed clear.
+Future<void> disarmIncompleteAppDataClearMarker() async {
+  try {
+    await PreferencesStore.putCheckedIf(
+      PreferenceKeys.incompleteAppDataClear,
+      null,
+      canWrite: () => true,
+      bypassAppDataClearBarrier: true,
+    );
+  } catch (error) {
+    DebugLogger.warning(
+      'Failed to clear the incomplete app-data-clear marker',
+      scope: 'direct/profiles',
+      data: {'errorType': error.runtimeType.toString()},
     );
   }
 }

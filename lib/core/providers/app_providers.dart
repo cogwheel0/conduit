@@ -169,6 +169,10 @@ final class SignOutCoordinator {
           directMcpServers.blockMutationsForAppDataClear(),
           hermesConfig.blockMutationsForAppDataClear(),
         ]);
+        // Armed before anything is wiped: a process death mid-clear must not
+        // bring surviving Direct profiles back on restart. Failing to arm it
+        // aborts the clear through the catch below.
+        await armIncompleteAppDataClearMarker();
         _ref.invalidate(directProviderAdapterRegistryProvider);
         _ref.invalidate(directModelDiscoveryProvider);
         _ref.invalidate(directHttpClientPoolProvider);
@@ -203,6 +207,7 @@ final class SignOutCoordinator {
           // admission barrier and may still lose auth ownership.
           await _ref.read(directLocalDatabasePurgeProvider)();
           directLocalPurgeCompleted = true;
+          await disarmIncompleteAppDataClearMarker();
           _resetProvidersAfterFullAppDataClear(_ref);
         case FullAppDataClearOutcome.incomplete:
           directRuns.commitAppDataClear();
@@ -217,6 +222,7 @@ final class SignOutCoordinator {
           // Direct profiles hidden, and must be durable before returning.
           await directProfiles.revokeRuntimeAfterIncompleteAppDataClear();
         case FullAppDataClearOutcome.ownershipYielded:
+          await disarmIncompleteAppDataClearMarker();
           resumeGlobalAdmission();
           directProfiles.resumeMutationsAfterAppDataClearAbort();
           directMcpServers.resumeMutationsAfterAppDataClearAbort();

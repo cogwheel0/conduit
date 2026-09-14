@@ -1683,6 +1683,36 @@ void main() {
     },
   );
 
+  test(
+    'a failed incomplete-clear marker write propagates instead of hiding',
+    () async {
+      PreferencesStore.debugOverride(
+        await SharedPreferences.getInstance(),
+        writeInterceptor: (prefs, key, value) async =>
+            key == PreferenceKeys.incompleteAppDataClear ? false : null,
+      );
+      final container = _container(_CountingProbeAdapter());
+      addTearDown(container.dispose);
+      await container.read(directConnectionProfilesProvider.future);
+      final controller = container.read(
+        directConnectionProfilesProvider.notifier,
+      );
+      await controller.upsert(_profile());
+      await controller.blockMutationsForAppDataClear();
+
+      await expectLater(
+        controller.revokeRuntimeAfterIncompleteAppDataClear(),
+        throwsStateError,
+      );
+      // The in-memory block still holds for this process.
+      expect(
+        container.read(directConnectionProfilesProvider).requireValue,
+        isEmpty,
+      );
+      await expectLater(controller.upsert(_profile()), throwsStateError);
+    },
+  );
+
   test('probe reports a validation failure instead of throwing', () async {
     final adapter = _CountingProbeAdapter();
     final container = _container(adapter);
