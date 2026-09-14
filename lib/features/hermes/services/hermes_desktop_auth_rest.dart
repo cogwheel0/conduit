@@ -260,12 +260,12 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
       );
       final bytes = response.data ?? const <int>[];
       if (bytes.length > kMaxHermesDesktopFrameBytes) {
-        throw const FormatException('Hermes response is too large.');
+        throw const HermesResponseTooLargeException();
       }
       if (bytes.isEmpty) return null;
       final source = utf8.decode(bytes);
       if (source.length > kMaxHermesDesktopFrameCharacters) {
-        throw const FormatException('Hermes response is too large.');
+        throw const HermesResponseTooLargeException();
       }
       validateHermesJsonSource(source);
       return jsonDecode(source);

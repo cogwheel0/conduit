@@ -191,6 +191,7 @@ class _GatedCompletionApi extends ApiService {
     String? responseMessageId,
     Map<String, dynamic>? userSettings,
     String? parentId,
+    String? reasoningEffort,
     Map<String, dynamic>? userMessage,
     Map<String, dynamic>? variables,
     List<Map<String, dynamic>>? files,

@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:checks/checks.dart';
 import 'package:conduit/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit/features/hermes/services/hermes_desktop_transport.dart';
+import 'package:conduit/features/hermes/services/hermes_json_guard.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
 import 'package:conduit/features/hermes/models/hermes_mcp.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -139,8 +140,73 @@ void main() {
       );
     });
 
-    check(offsets).deepEquals([0, 500]);
+    check(offsets).deepEquals([0, 200, 400, 600]);
     check(messages).length.equals(750);
+  });
+
+  test('a short final transcript page stops paging', () async {
+    final requests = <(int, int)>[];
+    final messages = await loadHermesDesktopTranscriptPages((
+      offset,
+      limit,
+    ) async {
+      requests.add((offset, limit));
+      final remaining = 230 - offset;
+      return List.generate(
+        remaining.clamp(0, limit),
+        (index) => {'id': '${offset + index}'},
+      );
+    });
+
+    check(requests).deepEquals([(0, 200), (200, 200)]);
+    check(messages).length.equals(230);
+  });
+
+  test('an oversized transcript page is retried at half the limit', () async {
+    final requests = <(int, int)>[];
+    final messages = await loadHermesDesktopTranscriptPages((
+      offset,
+      limit,
+    ) async {
+      requests.add((offset, limit));
+      if (limit > 100) throw const HermesResponseTooLargeException();
+      final remaining = 250 - offset;
+      return List.generate(
+        remaining.clamp(0, limit),
+        (index) => {'id': '${offset + index}'},
+      );
+    });
+
+    check(requests).deepEquals([(0, 200), (0, 100), (100, 100), (200, 100)]);
+    check(messages).length.equals(250);
+    check(messages.first['id']).equals('0');
+    check(messages.last['id']).equals('249');
+  });
+
+  test('a transcript page that is too large at the floor surfaces', () async {
+    final limits = <int>[];
+    await check(
+      loadHermesDesktopTranscriptPages((offset, limit) async {
+        limits.add(limit);
+        throw const HermesResponseTooLargeException();
+      }),
+    ).throws<HermesResponseTooLargeException>();
+
+    check(limits).deepEquals([200, 100, 50, 25]);
+  });
+
+  test('the transcript pager honours the total maximum', () async {
+    final requests = <(int, int)>[];
+    final messages = await loadHermesDesktopTranscriptPages((
+      offset,
+      limit,
+    ) async {
+      requests.add((offset, limit));
+      return List.generate(limit, (index) => {'id': '${offset + index}'});
+    }, maximum: 450);
+
+    check(requests).deepEquals([(0, 200), (200, 200), (400, 50)]);
+    check(messages).length.equals(450);
   });
 
   test('keeps the last usable transcript across empty or partial reads', () {

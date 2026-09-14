@@ -8,6 +8,7 @@ import 'package:conduit/features/hermes/models/hermes_config.dart';
 import 'package:conduit/features/hermes/models/hermes_job.dart';
 import 'package:conduit/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit/features/hermes/services/hermes_json_guard.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
@@ -376,7 +377,7 @@ void main() {
 
         await check(
           service.getSessionMessages('session-1', cancelToken: cancelToken),
-        ).throws<HermesStreamGuardException>();
+        ).throws<HermesResponseTooLargeException>();
 
         check(cancelToken.isCancelled).isTrue();
         check(hermesCancellationWasInternal(cancelToken)).isTrue();
@@ -396,7 +397,7 @@ void main() {
       await check(
         _service(capture)
             .getSessionMessages('session-1', cancelToken: cancelToken),
-      ).throws<HermesStreamGuardException>();
+      ).throws<HermesResponseTooLargeException>();
 
       check(cancelToken.isCancelled).isTrue();
       check(hermesCancellationWasInternal(cancelToken)).isTrue();

@@ -397,20 +397,44 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
         _bindingSocketGenerations[id] == _rpc.socketGeneration) {
       return const [];
     }
-    final binding = await _resume(id, refresh: true);
-    final hadBufferedEvent = _eventBuffer.take(binding.runtimeId).isNotEmpty;
-    final isBotChat = _sessionProfiles.containsKey(binding.storedId);
+    // The REST transcript does not need a runtime binding, so a session that
+    // the gateway refuses to resume (too large, wrong profile, transient
+    // failure) can still be read. Hermes Desktop makes the same split: it
+    // loads the transcript independently and treats resume as non-fatal for
+    // display. Sending a prompt still resumes and surfaces that error itself.
+    HermesSessionBinding? binding;
+    try {
+      binding = await _resume(id, refresh: true);
+    } on HermesDesktopRpcException catch (error) {
+      final isBotChat = _sessionProfiles.containsKey(id);
+      // Timeouts and disconnects are transport failures, not gateway replies;
+      // bot chats read history through the socket and need the runtime ID.
+      if (error.deliveryAmbiguous || isBotChat) rethrow;
+      DebugLogger.warning(
+        'session-resume-failed-loading-rest',
+        scope: 'hermes/desktop',
+        data: {
+          'code': error.code,
+          'message': validateHermesBoundedString(
+            error.message,
+            maxCharacters: 200,
+          ),
+        },
+      );
+    }
+    final runtimeId = binding?.runtimeId;
+    final storedId = binding?.storedId ?? id;
+    final hadBufferedEvent =
+        runtimeId != null && _eventBuffer.take(runtimeId).isNotEmpty;
+    final isBotChat = _sessionProfiles.containsKey(storedId);
 
     Future<List<Map<String, dynamic>>> load() async {
-      if (isBotChat) {
+      if (isBotChat && runtimeId != null) {
         if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
         final messages = _objects(
           await _rpc.request<Object?>(
             'session.history',
-            params: {
-              'session_id': binding.runtimeId,
-              ..._sessionScope(binding.storedId),
-            },
+            params: {'session_id': runtimeId, ..._sessionScope(storedId)},
           ),
           'messages',
         );
@@ -421,13 +445,13 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
         (offset, limit) async => _objects(
           await _requestJson(
             'GET',
-            '/api/sessions/${Uri.encodeComponent(binding.storedId)}/messages',
+            '/api/sessions/${Uri.encodeComponent(storedId)}/messages',
             query: {
               'limit': limit,
               'offset': offset,
               'order': 'oldest',
               'include_compacted': true,
-              ..._sessionScope(binding.storedId),
+              ..._sessionScope(storedId),
             },
             cancelToken: cancelToken,
           ),
@@ -440,11 +464,15 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     var messages = const <Map<String, dynamic>>[];
     for (var attempt = 0; attempt < 3; attempt++) {
       messages = await load();
-      final arrivedDuringLoad = _eventBuffer.take(binding.runtimeId).isNotEmpty;
+      final arrivedDuringLoad =
+          runtimeId != null && _eventBuffer.take(runtimeId).isNotEmpty;
       if (!forceReload && !arrivedDuringLoad) break;
       forceReload = false;
       if (attempt == 2) _emitTranscriptChange(id);
     }
+    // A failed resume left the connection state at "synchronizing"; the
+    // transcript is loaded, and no turn is known to be running.
+    if (binding == null) _emitTurnState(HermesDesktopTurnState.idle);
     final usable = preferLastUsableHermesTranscript(
       _lastTranscripts[id] ?? const [],
       messages,

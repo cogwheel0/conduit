@@ -1,4 +1,5 @@
 import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:dio/dio.dart' show DioException;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -21,7 +22,10 @@ import '../models/hermes_bot.dart';
 import '../providers/hermes_providers.dart';
 import '../services/hermes_backend_service.dart';
 import '../services/hermes_desktop_api_service.dart';
+import '../services/hermes_desktop_transport.dart';
 import '../services/hermes_decision_projection.dart';
+import '../services/hermes_identifier.dart';
+import '../services/hermes_json_guard.dart';
 import '../services/hermes_local_document_trust_store.dart';
 import '../services/hermes_message_mapper.dart';
 import '../services/hermes_pending_decision_store.dart';
@@ -244,6 +248,54 @@ Future<void> deleteHermesSession(WidgetRef ref, String sessionId) async {
   }
 }
 
+/// Hermes gateway `session.resume` error code for an unknown session.
+const int kHermesDesktopSessionNotFoundCode = 4007;
+
+const int _maxHermesLoadFailureDetailCharacters = 120;
+
+/// Picks the user-facing message for a failed session open.
+///
+/// Server-provided text is bounded and stripped of control characters before
+/// it reaches the UI; anything unrecognised falls back to the generic message.
+@visibleForTesting
+String hermesSessionLoadFailureMessage(AppLocalizations l10n, Object error) {
+  if (error is HermesResponseTooLargeException) {
+    return l10n.hermesSessionTooLarge;
+  }
+  if (error is DioException && error.response?.statusCode == 404) {
+    return l10n.hermesSessionNotFound;
+  }
+  if (error is HermesDesktopRpcException) {
+    if (error.code == kHermesDesktopSessionNotFoundCode) {
+      return l10n.hermesSessionNotFound;
+    }
+    if (error.deliveryAmbiguous) return l10n.hermesSessionLoadFailed;
+    final detail = _hermesLoadFailureDetail(error.message);
+    if (detail != null) {
+      final code = error.code;
+      return l10n.hermesSessionLoadFailedDetail(
+        code == null ? detail : '$detail ($code)',
+      );
+    }
+  }
+  return l10n.hermesSessionLoadFailed;
+}
+
+String? _hermesLoadFailureDetail(String raw) {
+  final collapsed = raw
+      .replaceAll(RegExp(r'[\u0000-\u001F\u007F-\u009F\s]+'), ' ')
+      .trim();
+  if (collapsed.isEmpty) return null;
+  final runes = collapsed.runes.toList(growable: false);
+  final truncated = runes.length > _maxHermesLoadFailureDetailCharacters
+      ? '${String.fromCharCodes(runes.take(_maxHermesLoadFailureDetailCharacters - 1))}\u2026'
+      : collapsed;
+  return validateHermesBoundedString(
+    truncated,
+    maxCharacters: _maxHermesLoadFailureDetailCharacters,
+  );
+}
+
 /// Loads a Hermes session's transcript, binds it as the active chat, selects the
 /// Hermes model, and navigates to the chat view. Subsequent sends continue the
 /// same server-side session.
@@ -274,12 +326,16 @@ Future<void> openHermesSession(
     DebugLogger.error(
       'open-session-failed',
       scope: 'hermes/sessions',
-      data: {'errorType': error.runtimeType.toString()},
+      data: {
+        'errorType': error.runtimeType.toString(),
+        if (error is HermesDesktopRpcException) 'rpcCode': error.code,
+        if (error is DioException) 'httpStatus': error.response?.statusCode,
+      },
     );
     if (context.mounted) {
       UiUtils.showMessage(
         context,
-        AppLocalizations.of(context)!.hermesSessionLoadFailed,
+        hermesSessionLoadFailureMessage(AppLocalizations.of(context)!, error),
         isError: true,
       );
     }

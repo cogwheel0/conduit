@@ -31,6 +31,20 @@ void main() {
     check(hydrated.value).equals('vendor_ultra');
   });
 
+  test('late effort hydration keeps the user pick over the server value', () {
+    final hydrated = nativeHydratedServerReasoningEffort(
+      model: const Model(
+        id: 'workspace-reasoning-model',
+        name: 'Workspace reasoning model',
+      ),
+      detail: const ServerModelReasoningEffort.known('vendor_ultra'),
+      personalizationEffort: 'low',
+      localEffort: 'high',
+    );
+
+    check(hydrated.value).equals('high');
+  });
+
   test('late selector hydration cannot update a newer presentation', () {
     final generations = NativeSheetHydrationGeneration();
     final first = generations.begin();

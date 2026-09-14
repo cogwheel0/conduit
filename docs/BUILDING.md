@@ -33,7 +33,7 @@ git clone --recursive https://github.com/cogwheel0/conduit.git
 cd conduit
 ```
 
-`--recursive` matters. Conduit vendors three submodules:
+`--recursive` matters. Conduit vendors four submodules:
 
 - `third_party/mermaid`: the native Mermaid renderer packages
   (`mermaid_core`, `mermaid_flutter`), referenced by path from `pubspec.yaml`.
@@ -41,6 +41,10 @@ cd conduit
 - `third_party/katex`: KaTeX assets for math rendering.
 - `openwebui-src`: a vendored Open WebUI checkout used **only** as an API
   reference. It is not built or shipped.
+- `hermes-src`: a vendored Hermes Agent checkout (NousResearch/hermes-agent)
+  used **only** as the reference for the Hermes gateway RPC and REST contracts
+  (`tui_gateway/`, `gateway/platforms/api_server.py`). It is not built or
+  shipped.
 
 For an existing clone:
 

@@ -57,6 +57,7 @@ import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/json_normalization.dart';
 import '../../../core/utils/message_tree_utils.dart' as message_tree;
 import '../../../core/utils/openwebui_message_payload.dart';
+import '../../../core/utils/persisted_message_content.dart';
 import '../../../core/utils/semantic_details.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../utils/follow_ups_socket_event.dart';
@@ -6575,6 +6576,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
 /// server's merge replaces each message object wholesale, so any field
 /// omitted here (`output`, `sources`, `usage`, …) would be wiped from the
 /// server copy on the next push.
+///
+/// `content` is stored the way the Open WebUI web client stores it: the plain
+/// output text when `output` carries the turn (see
+/// [persistedMessageContent]); the rendered `<details>` presentation is
+/// re-synthesized from `output` on load.
 MessageRowData localEchoRowForMessage(String chatId, ChatMessage message) {
   final timestamp = message.timestamp.millisecondsSinceEpoch ~/ 1000;
   final resolvedParentId = message_tree.chatMessageParentId(message);
@@ -6587,7 +6593,7 @@ MessageRowData localEchoRowForMessage(String chatId, ChatMessage message) {
     chatId: chatId,
     parentId: resolvedParentId,
     role: message.role,
-    content: message.content,
+    content: persistedMessageContent(message),
     model: message.model,
     createdAt: timestamp,
     // Recomputed by upsertLocalEcho for new rows.
@@ -6597,7 +6603,7 @@ MessageRowData localEchoRowForMessage(String chatId, ChatMessage message) {
       'parentId': resolvedParentId,
       'childrenIds': childrenIds,
       'role': message.role,
-      'content': message.content,
+      'content': persistedMessageContent(message),
       'timestamp': timestamp,
       'isStreaming': message.isStreaming,
       if (message.role == 'assistant' && !message.isStreaming) 'done': true,
@@ -9916,6 +9922,7 @@ Future<void> regenerateMessage(
         backgroundTasks: bgTasks,
         responseMessageId: assistantMessageId,
         userSettings: userSettingsData,
+        reasoningEffort: reasoningEffortForModel(ref.read, selectedModel),
         parentId: parentMsgMap?['parentId']?.toString(),
         userMessage: parentMsgMap,
         variables: promptVars2,
@@ -10403,6 +10410,10 @@ Future<void> runQueuedCompletion(
       backgroundTasks: bgTasks,
       responseMessageId: assistantMessageId,
       userSettings: userSettingsData,
+      reasoningEffort:
+          selectedModel != null && selectedModel.id == effectiveModelId
+          ? reasoningEffortForModel(ref.read, selectedModel)
+          : null,
       parentId: parentMsgMap?['parentId']?.toString(),
       userMessage: parentMsgMap,
       variables: promptVars2,
@@ -10639,6 +10650,10 @@ Future<void> runHeadlessCompletion(
     backgroundTasks: bgTasks,
     responseMessageId: assistantMessageId,
     userSettings: userSettingsData,
+    reasoningEffort:
+        selectedModel != null && selectedModel.id == effectiveModelId
+        ? reasoningEffortForModel(ref.read, selectedModel)
+        : null,
     parentId: parentMsgMap?['parentId']?.toString(),
     userMessage: parentMsgMap,
     variables: promptVars,
@@ -15132,7 +15147,7 @@ Map<String, dynamic> _directPersistedMessagePayload(
     'parentId': parentId,
     'childrenIds': childrenIds,
     'role': message.role,
-    'content': message.content,
+    'content': persistedMessageContent(message),
     'isStreaming': message.isStreaming,
     if (message.role == 'assistant' && !message.isStreaming) 'done': true,
     if (message.model != null) 'model': message.model,
@@ -15198,7 +15213,7 @@ MessageRowData _directMessageRow({
     chatId: chatId,
     parentId: parentId,
     role: message.role,
-    content: message.content,
+    content: persistedMessageContent(message),
     model: message.model,
     createdAt: message.timestamp.millisecondsSinceEpoch ~/ 1000,
     orderIndex: orderIndex,
@@ -18309,6 +18324,7 @@ Future<void> _sendMessageInternal(
         backgroundTasks: bgTasks,
         responseMessageId: assistantMessageId,
         userSettings: userSettingsData,
+        reasoningEffort: reasoningEffortForModel(ref.read, selectedModel),
         parentId: userMessageMap?['parentId']?.toString(),
         userMessage: userMessageMap,
         variables: promptVariables,

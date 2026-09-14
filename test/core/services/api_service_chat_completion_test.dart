@@ -818,6 +818,32 @@ void main() {
   // Payload builder
   // -----------------------------------------------------------------------
   group('buildChatCompletionPayloadForTest', () {
+    test('explicit reasoning effort overrides user settings params', () {
+      final api = _buildApiServiceForTest(_FakeAdapter.json({}));
+
+      Map<String, dynamic> params(String? reasoningEffort) =>
+          api.buildChatCompletionPayloadForTest(
+                messages: [
+                  {'role': 'user', 'content': 'hello'},
+                ],
+                model: 'gpt-5',
+                messageId: 'msg-1',
+                sessionId: 'sess-1',
+                modelItem: {'id': 'gpt-5', 'name': 'gpt-5'},
+                userSettings: {
+                  'params': {'reasoning_effort': 'low', 'temperature': 0.2},
+                },
+                reasoningEffort: reasoningEffort,
+              )['params']
+              as Map<String, dynamic>;
+
+      check(params('high'))
+          .deepEquals({'reasoning_effort': 'high', 'temperature': 0.2});
+      check(params(null))
+          .deepEquals({'reasoning_effort': 'low', 'temperature': 0.2});
+      check(params('automatic')).deepEquals({'temperature': 0.2});
+    });
+
     test('preserves OpenWebUI request shape', () {
       final api = _buildApiServiceForTest(_FakeAdapter.json({}));
 

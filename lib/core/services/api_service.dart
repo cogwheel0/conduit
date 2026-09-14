@@ -7333,6 +7333,7 @@ class ApiService {
     List<Map<String, dynamic>>? toolServers,
     Map<String, dynamic>? backgroundTasks,
     Map<String, dynamic>? userSettings,
+    String? reasoningEffort,
     String? parentId,
     Map<String, dynamic>? userMessage,
     Map<String, dynamic>? variables,
@@ -7472,6 +7473,15 @@ class ApiService {
       }
     } catch (_) {
       // Non-critical: proceed without user params
+    }
+
+    // The user's per-model pick is the chat-level `params` the web client
+    // spreads after `$settings.params`. Sent explicitly, it reaches the
+    // server as a top-level form field, so the model's configured
+    // `reasoning_effort` default is skipped (apply_model_params_to_body only
+    // fills keys absent from the body).
+    if (reasoningEffort != null) {
+      params['reasoning_effort'] = reasoningEffort;
     }
 
     final modelInfo = modelItem?['info'];
@@ -7656,6 +7666,7 @@ class ApiService {
     Map<String, dynamic>? backgroundTasks,
     String? responseMessageId,
     Map<String, dynamic>? userSettings,
+    String? reasoningEffort,
     String? parentId,
     Map<String, dynamic>? userMessage,
     Map<String, dynamic>? variables,
@@ -7728,6 +7739,7 @@ class ApiService {
         toolServers: toolServers,
         backgroundTasks: backgroundTasks,
         userSettings: userSettings,
+        reasoningEffort: reasoningEffort,
         parentId: parentId,
         userMessage: userMessage,
         variables: variables,
@@ -8197,6 +8209,7 @@ class ApiService {
     List<Map<String, dynamic>>? toolServers,
     Map<String, dynamic>? backgroundTasks,
     Map<String, dynamic>? userSettings,
+    String? reasoningEffort,
     String? parentId,
     Map<String, dynamic>? userMessage,
     Map<String, dynamic>? variables,
@@ -8218,6 +8231,7 @@ class ApiService {
       toolServers: toolServers,
       backgroundTasks: backgroundTasks,
       userSettings: userSettings,
+      reasoningEffort: reasoningEffort,
       parentId: parentId,
       userMessage: userMessage,
       variables: variables,

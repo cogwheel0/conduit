@@ -1,3 +1,6 @@
+import 'dart:io' show Platform;
+
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -6,8 +9,20 @@ import '../../core/utils/server_version_compat.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../../l10n/app_localizations.dart';
 import '../theme/theme_extensions.dart';
+import 'conduit_components.dart';
+import 'server_version_warning_controller.dart';
 
-/// Persistent, in-flow compatibility warning shown with the empty-chat greeting.
+const serverVersionWarningCardKey = ValueKey<String>(
+  'server-version-warning-card',
+);
+const serverVersionWarningCardCloseKey = ValueKey<String>(
+  'server-version-warning-card-close',
+);
+
+/// In-flow compatibility warning shown with the empty-chat greeting.
+///
+/// Dismissible; the dismissal is remembered per active server and reported
+/// version, so it returns for a different server or a newer server version.
 class ServerVersionWarningCard extends ConsumerWidget {
   const ServerVersionWarningCard({super.key});
 
@@ -15,17 +30,57 @@ class ServerVersionWarningCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authNavigationStateProvider);
     final serverIsNewerThanSupported = ref.watch(serverIncompatibleProvider);
+    final activeServerId = ref.watch(activeServerProvider).asData?.value?.id;
     final serverVersion = ref
         .watch(backendConfigProvider)
         .asData
         ?.value
         ?.version;
+    final dismissedTokens = ref.watch(serverVersionWarningDismissedProvider);
 
+    // serverIncompatibleProvider is only true once the active server id is
+    // known, so the token is always attributable to a real server here.
+    final token = serverVersionWarningToken(
+      serverId: activeServerId ?? '',
+      version: serverVersion,
+    );
     final showWarning =
         authState == AuthNavigationState.authenticated &&
-        serverIsNewerThanSupported;
-    if (!showWarning) return const SizedBox.shrink();
+        serverIsNewerThanSupported &&
+        !dismissedTokens.contains(token);
 
+    final motionDuration = context.motionDuration(
+      const Duration(milliseconds: 220),
+    );
+    return AnimatedSwitcher(
+      duration: motionDuration,
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      child: showWarning
+          ? _ServerVersionWarningBody(
+              key: serverVersionWarningCardKey,
+              serverVersion: serverVersion,
+              onDismiss: () => ref
+                  .read(serverVersionWarningDismissedProvider.notifier)
+                  .dismiss(token),
+            )
+          : const SizedBox.shrink(),
+    );
+  }
+}
+
+class _ServerVersionWarningBody extends StatelessWidget {
+  const _ServerVersionWarningBody({
+    super.key,
+    required this.serverVersion,
+    required this.onDismiss,
+  });
+
+  final String? serverVersion;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final version = serverVersion?.trim();
@@ -54,9 +109,13 @@ class ServerVersionWarningCard extends ConsumerWidget {
           liveRegion: true,
           label: l10n.serverIncompatibleTitle,
           child: Container(
-            key: const ValueKey('server-version-warning-card'),
             width: double.infinity,
-            padding: const EdgeInsets.all(Spacing.md),
+            padding: const EdgeInsetsDirectional.fromSTEB(
+              Spacing.md,
+              Spacing.md,
+              Spacing.sm,
+              Spacing.md,
+            ),
             decoration: BoxDecoration(
               color: theme.warningBackground,
               borderRadius: BorderRadius.circular(AppBorderRadius.card),
@@ -89,6 +148,17 @@ class ServerVersionWarningCard extends ConsumerWidget {
                       ),
                     ],
                   ),
+                ),
+                const SizedBox(width: Spacing.xs),
+                ConduitIconButton(
+                  key: serverVersionWarningCardCloseKey,
+                  tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
+                  onPressed: onDismiss,
+                  icon: Platform.isIOS
+                      ? CupertinoIcons.xmark
+                      : Icons.close_rounded,
+                  iconColor: theme.textSecondary,
+                  isCompact: true,
                 ),
               ],
             ),

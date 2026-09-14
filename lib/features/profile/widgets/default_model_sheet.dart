@@ -188,6 +188,9 @@ class DefaultModelBottomSheetState
                                           isSelected: isSelected,
                                           isAutoSelect: isAutoSelect,
                                           iconUrl: iconUrl,
+                                          surfaceColor: context
+                                              .conduitTheme
+                                              .surfaceBackground,
                                           onTap: () {
                                             final selectedId = isAutoSelect
                                                 ? 'auto-select'

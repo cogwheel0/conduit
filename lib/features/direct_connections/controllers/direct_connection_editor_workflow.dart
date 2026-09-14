@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
 
+import '../../../core/utils/debug_logger.dart';
 import '../../../shared/models/connection_attempt.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/direct_remote_model.dart';
+import '../services/direct_adapter_helpers.dart';
 import 'direct_connection_editor_draft.dart';
 import 'direct_connection_editor_form.dart';
 
@@ -448,12 +450,31 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
       return _unavailable(messages);
     } catch (error) {
       if (!_canContinue()) return _unavailable(messages);
+      _logOperationFailure('Direct profile save failed', error, draft);
       _finishOperation(error: messages.saveFailed);
       return DirectEditorActionResult(
         DirectEditorActionOutcome.failed,
         error: error,
       );
     }
+  }
+
+  /// Logs a failed editor operation without leaking the draft's credentials
+  /// or endpoint. The message is redacted against every sensitive profile
+  /// value and stripped of URLs before it is emitted.
+  void _logOperationFailure(
+    String message,
+    Object error,
+    DirectConnectionProfile draft,
+  ) {
+    DebugLogger.error(
+      message,
+      scope: 'direct/editor',
+      data: {
+        'errorType': error.runtimeType.toString(),
+        'message': _redactedFailureMessage(error, draft),
+      },
+    );
   }
 
   Future<DirectEditorActionResult> testConnection({
@@ -508,6 +529,7 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
       );
     } catch (error) {
       if (!_canContinue()) return _unavailable(messages);
+      _logOperationFailure('Direct connection probe threw', error, draft);
       _finishOperation(
         attempt: ConnectionAttemptState.failed(messages.reachFailed),
       );
@@ -665,4 +687,18 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
     form.dispose();
     super.dispose();
   }
+}
+
+final RegExp _urlPattern = RegExp(r'[A-Za-z][A-Za-z0-9+.-]*://\S+');
+
+String _redactedFailureMessage(Object error, DirectConnectionProfile draft) {
+  final sanitized = sanitizeDirectProviderErrorMessage(
+    error.toString(),
+    sensitiveValues: [
+      ...directProfileSensitiveValues(draft),
+      draft.baseUrl.trim(),
+    ],
+    maxCharacters: 200,
+  );
+  return sanitized.replaceAll(_urlPattern, '[URL]');
 }

@@ -170,7 +170,16 @@ void main() {
     check(container.read(selectedModelProvider)).identicalTo(models.first);
   });
 
-  test('server model reasoning effort takes precedence over user effort', () {
+  ApiService buildApi(String serverId) => ApiService(
+    serverConfig: ServerConfig(
+      id: serverId,
+      name: 'Server $serverId',
+      url: 'https://$serverId.example.test',
+    ),
+    workerManager: WorkerManager(),
+  );
+
+  test('server model default beats the global user effort without a pick', () {
     const model = Model(
       id: 'server-model',
       name: 'Server model',
@@ -180,12 +189,112 @@ void main() {
         },
       },
     );
-    final container = ProviderContainer();
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(buildApi('server-a')),
+        personalizationSettingsProvider.overrideWith(
+          () => _FixedPersonalizationSettings(
+            const ServerUserSettings(reasoningEffort: 'low'),
+          ),
+        ),
+        selectedModelProvider.overrideWith(() => _FixedSelectedModel(model)),
+      ],
+    );
     addTearDown(container.dispose);
-    container.read(selectedModelProvider.notifier).set(model);
 
     check(container.read(reasoningEffortProvider)).equals('none');
     check(reasoningEffortForModel(container.read, model)).equals('none');
+  });
+
+  test('user pick overrides the server model default per model', () async {
+    const model = Model(
+      id: 'server-model',
+      name: 'Server model',
+      metadata: {
+        'params': {'reasoning_effort': 'medium'},
+      },
+    );
+    const sibling = Model(
+      id: 'sibling-model',
+      name: 'Sibling model',
+      metadata: {
+        'params': {'reasoning_effort': 'medium'},
+      },
+    );
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(buildApi('server-a')),
+        personalizationSettingsProvider.overrideWith(
+          () => _FixedPersonalizationSettings(
+            const ServerUserSettings(reasoningEffort: 'low'),
+          ),
+        ),
+        selectedModelProvider.overrideWith(() => _FixedSelectedModel(model)),
+      ],
+    );
+    addTearDown(container.dispose);
+    const key = 'openwebui:server-a:server-model';
+
+    check(localReasoningEffortKeyForModel(container.read, model)).equals(key);
+    check(container.read(reasoningEffortProvider)).equals('medium');
+
+    await setReasoningEffortForModel(container.read, model, 'high');
+    check(container.read(localReasoningEffortsProvider)[key]).equals('high');
+    check(container.read(reasoningEffortProvider)).equals('high');
+    check(reasoningEffortForModel(container.read, model)).equals('high');
+    check(reasoningEffortForModel(container.read, sibling)).equals('medium');
+    check(
+      jsonDecode(
+        PreferencesStore.getString(PreferenceKeys.reasoningEffortByModel)!,
+      ),
+    ).isA<Map>().deepEquals({key: 'high'});
+
+    // An explicit "automatic" pick is remembered and overrides the model
+    // default back to "let the server decide".
+    await setReasoningEffortForModel(container.read, model, 'automatic');
+    check(container.read(localReasoningEffortsProvider)[key])
+        .equals('automatic');
+    check(container.read(reasoningEffortProvider)).equals('automatic');
+    check(reasoningEffortForModel(container.read, model)).equals('automatic');
+
+    // Clearing the pick restores the model default.
+    await container.read(localReasoningEffortsProvider.notifier).set(key, null);
+    check(container.read(reasoningEffortProvider)).equals('medium');
+    check(reasoningEffortForModel(container.read, model)).equals('medium');
+  });
+
+  test('server model picks are namespaced by server id', () async {
+    const model = Model(id: 'gpt-5', name: 'GPT-5');
+    final serverA = ProviderContainer(
+      overrides: [apiServiceProvider.overrideWithValue(buildApi('server-a'))],
+    );
+    addTearDown(serverA.dispose);
+    final serverB = ProviderContainer(
+      overrides: [apiServiceProvider.overrideWithValue(buildApi('server-b'))],
+    );
+    addTearDown(serverB.dispose);
+
+    await setReasoningEffortForModel(serverA.read, model, 'high');
+
+    check(localReasoningEffortKeyForModel(serverA.read, model))
+        .equals('openwebui:server-a:gpt-5');
+    check(localReasoningEffortKeyForModel(serverB.read, model))
+        .equals('openwebui:server-b:gpt-5');
+    check(reasoningEffortForModel(serverA.read, model)).equals('high');
+    check(reasoningEffortForModel(serverB.read, model)).equals('automatic');
+    check(localReasoningEffortForModel(serverB.read, model)).isNull();
+  });
+
+  test('server model pick is not stored without an active server', () async {
+    const model = Model(id: 'gpt-5', name: 'GPT-5');
+    final container = ProviderContainer(
+      overrides: [apiServiceProvider.overrideWithValue(null)],
+    );
+    addTearDown(container.dispose);
+
+    check(localReasoningEffortKeyForModel(container.read, model)).isNull();
+    await setReasoningEffortForModel(container.read, model, 'high');
+    check(container.read(localReasoningEffortsProvider)).isEmpty();
   });
 
   test('server model preserves custom reasoning effort values', () {
@@ -197,7 +306,9 @@ void main() {
       },
     );
 
-    final container = ProviderContainer();
+    final container = ProviderContainer(
+      overrides: [apiServiceProvider.overrideWithValue(buildApi('server-a'))],
+    );
     addTearDown(container.dispose);
     container.read(selectedModelProvider.notifier).set(model);
 
@@ -417,6 +528,54 @@ void main() {
     check(unsupportedParams.containsKey('reasoning_effort')).isFalse();
     check(unsupportedParams['temperature']).equals(0.3);
     check(supportedParams['reasoning_effort']).equals('medium');
+  });
+
+  test('chat payload sends the per-model pick over the user default', () {
+    final api = ApiService(
+      serverConfig: const ServerConfig(
+        id: 'reasoning-test',
+        name: 'Reasoning test',
+        url: 'https://example.test',
+      ),
+      workerManager: WorkerManager(),
+    );
+
+    Map<String, dynamic> params(
+      String model,
+      String? effort, {
+      bool configured = true,
+    }) =>
+        api.buildChatCompletionPayloadForTest(
+              messages: const <Map<String, dynamic>>[
+                <String, dynamic>{'role': 'user', 'content': 'Hello'},
+              ],
+              model: model,
+              messageId: 'message-id',
+              sessionId: 'session-id',
+              modelItem: <String, dynamic>{
+                'id': model,
+                'name': model,
+                if (configured)
+                  'params': <String, dynamic>{'reasoning_effort': 'medium'},
+              },
+              userSettings: <String, dynamic>{
+                'params': <String, dynamic>{'reasoning_effort': 'low'},
+              },
+              reasoningEffort: effort,
+            )['params']
+            as Map<String, dynamic>;
+
+    check(params('gpt-5', 'high')['reasoning_effort']).equals('high');
+    check(params('gpt-5', null)['reasoning_effort']).equals('low');
+    check(params('gpt-5', 'automatic').containsKey('reasoning_effort'))
+        .isFalse();
+    check(
+      params(
+        'gpt-4o',
+        'high',
+        configured: false,
+      ).containsKey('reasoning_effort'),
+    ).isFalse();
   });
 
   test('custom OpenWebUI model metadata retains supported effort', () {

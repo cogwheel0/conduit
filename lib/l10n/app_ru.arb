@@ -3368,5 +3368,17 @@
   "workspaceKnowledgeSubtitle": "Коллекции документов для семантического поиска",
   "directMcpInsecureCredentialsTitle": "Send credentials without encryption?",
   "directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network.",
-  "directMcpInsecureCredentialsConfirm": "Send without encryption"
+  "directMcpInsecureCredentialsConfirm": "Send without encryption",
+  "hermesSessionTooLarge": "Этот разговор слишком большой, чтобы загрузить его на этом устройстве.",
+  "hermesSessionNotFound": "Этот разговор больше недоступен на сервере Hermes.",
+  "hermesSessionLoadFailedDetail": "Не удалось загрузить этот разговор: {detail}",
+  "@hermesSessionLoadFailedDetail": {
+    "placeholders": {
+      "detail": {
+        "type": "String"
+      }
+    }
+  },
+  "directBearerDescription": "Отправляет учётные данные в заголовке Authorization: Bearer. Большинство OpenAI-совместимых серверов (llama.cpp, vLLM, LM Studio, Ollama) ожидают именно это.",
+  "directApiKeyHeaderAzureOnlyDescription": "Отправляет учётные данные в заголовке api-key. Используйте только для Azure OpenAI; другие OpenAI-совместимые серверы ожидают токен Bearer."
 }

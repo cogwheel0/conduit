@@ -3,6 +3,7 @@
 import 'package:audio_session/audio_session.dart';
 import 'package:checks/checks.dart';
 import 'package:conduit/features/chat/voice_mode/chat_voice_audio_session_coordinator.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -292,6 +293,142 @@ void main() {
       ).deepEquals(<bool>[true]);
     });
   });
+  group('ChatVoiceAudioSessionCoordinator Android loudspeaker route', () {
+    late ChatVoiceAudioSessionCoordinator coordinator;
+    late _FakeAndroidAudioManagerChannel audioManager;
+
+    setUp(() {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      audioManager = _FakeAndroidAudioManagerChannel()..install();
+      addTearDown(audioManager.uninstall);
+      coordinator = ChatVoiceAudioSessionCoordinator()
+        ..debugTreatAsAndroid = true;
+      addTearDown(coordinator.dispose);
+    });
+
+    test(
+      'reports a refused move when the read-back is not the speaker',
+      () async {
+        // The platform says yes to setCommunicationDevice and takes the legacy
+        // setSpeakerphoneOn call without complaint, but neither moves the route
+        // (issue #716). Only the read-back can tell, and it says earpiece.
+        audioManager.honourLoudspeaker = false;
+
+        check(await coordinator.setSpeakerphoneEnabled(true)).isFalse();
+        // The rejected selection is released before the legacy fallback, so
+        // the system is not left holding a device the read-back disowned.
+        check(audioManager.communicationDeviceId).isNull();
+      },
+    );
+
+    test(
+      'reports an applied move once the read-back confirms the speaker',
+      () async {
+        check(await coordinator.setSpeakerphoneEnabled(true)).isTrue();
+        check(audioManager.communicationDeviceId)
+            .isNotNull()
+            .equals(_FakeAndroidAudioManagerChannel.speakerId);
+      },
+    );
+
+    test(
+      'speaking passes re-select the speaker after it was cleared',
+      () async {
+        check(await coordinator.setSpeakerphoneEnabled(true)).isTrue();
+
+        // Something else (the recorder plugin's Bluetooth manager, the system)
+        // cleared the communication device between listening and speaking.
+        audioManager.communicationDeviceId = null;
+        await coordinator.configureForSpeaking();
+        check(audioManager.communicationDeviceId)
+            .isNotNull()
+            .equals(_FakeAndroidAudioManagerChannel.speakerId);
+
+        audioManager.communicationDeviceId = null;
+        await coordinator.configureForBargeInSpeaking();
+        check(audioManager.communicationDeviceId)
+            .isNotNull()
+            .equals(_FakeAndroidAudioManagerChannel.speakerId);
+      },
+    );
+  });
+}
+
+/// Stands in for audio_session's Android audio manager on a test host.
+///
+/// Keeps just enough state to answer the route calls the coordinator makes and
+/// to read the route back: which communication device is selected, and whether
+/// legacy speakerphone is on.
+class _FakeAndroidAudioManagerChannel {
+  static const MethodChannel _channel = MethodChannel(
+    'com.ryanheise.android_audio_manager',
+  );
+  static const int earpieceId = 1;
+  static const int speakerId = 2;
+
+  /// When false, the platform accepts every loudspeaker request but leaves the
+  /// call on the earpiece, which is what the report in issue #716 describes.
+  bool honourLoudspeaker = true;
+  int? communicationDeviceId;
+  bool speakerphoneOn = false;
+
+  void install() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_channel, _handle);
+  }
+
+  void uninstall() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_channel, null);
+  }
+
+  Future<Object?> _handle(MethodCall call) async {
+    final args = call.arguments as List<dynamic>? ?? const <dynamic>[];
+    switch (call.method) {
+      case 'getMode':
+        return 0;
+      case 'isSpeakerphoneOn':
+        return speakerphoneOn;
+      case 'setSpeakerphoneOn':
+        final enabled = args[0] as bool;
+        if (!enabled || honourLoudspeaker) {
+          speakerphoneOn = enabled;
+        }
+        return null;
+      case 'getAvailableCommunicationDevices':
+        return [_device(earpieceId, 1), _device(speakerId, 2)];
+      case 'setCommunicationDevice':
+        final id = args[0] as int;
+        communicationDeviceId = id == speakerId && !honourLoudspeaker
+            ? earpieceId
+            : id;
+        return true;
+      case 'getCommunicationDevice':
+        final id = communicationDeviceId;
+        if (id == null) return null;
+        return _device(id, id == speakerId ? 2 : 1);
+      case 'clearCommunicationDevice':
+        communicationDeviceId = null;
+        return null;
+      default:
+        return null;
+    }
+  }
+
+  /// [type] is the [AndroidAudioDeviceType] index: 1 earpiece, 2 speaker.
+  Map<String, Object?> _device(int id, int type) => <String, Object?>{
+    'id': id,
+    'productName': 'device-$id',
+    'address': null,
+    'isSource': false,
+    'isSink': true,
+    'sampleRates': <int>[],
+    'channelMasks': <int>[],
+    'channelIndexMasks': <int>[],
+    'channelCounts': <int>[],
+    'encodings': <int>[],
+    'type': type,
+  };
 }
 
 AudioDevice _outputDevice(AudioDeviceType type) => AudioDevice(

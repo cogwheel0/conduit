@@ -167,6 +167,14 @@ class ModelListTile extends StatelessWidget {
   /// Optional row-level action that does not select the model.
   final Widget? trailing;
 
+  /// The opaque surface this row is painted on.
+  ///
+  /// Defaults to the card background because model selectors group rows
+  /// inside a `ConduitCard`. The selected highlight and the trailing overflow
+  /// fade both derive from this color so they match what is actually behind
+  /// the row.
+  final Color? surfaceColor;
+
   const ModelListTile({
     super.key,
     required this.model,
@@ -177,6 +185,7 @@ class ModelListTile extends StatelessWidget {
     this.isPinned = false,
     this.isLoaded = false,
     this.trailing,
+    this.surfaceColor,
   });
 
   @override
@@ -185,13 +194,14 @@ class ModelListTile extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final borderRadius = BorderRadius.circular(AppBorderRadius.card);
 
-    final baseBackground = theme.surfaceBackground;
-    final background = isSelected
+    final baseBackground = surfaceColor ?? theme.cardBackground;
+    final rowSurface = isSelected
         ? Color.alphaBlend(
             theme.buttonPrimary.withValues(alpha: 0.1),
             baseBackground,
           )
-        : Colors.transparent;
+        : baseBackground;
+    final background = isSelected ? rowSurface : Colors.transparent;
 
     final Widget leading;
     if (isAutoSelect) {
@@ -288,6 +298,7 @@ class ModelListTile extends StatelessWidget {
                       ConstrainedBox(
                         constraints: const BoxConstraints(minHeight: 22),
                         child: HorizontalOverflowFade(
+                          color: rowSurface,
                           child: HorizontalScrollGestureBoundary(
                             child: SingleChildScrollView(
                               scrollDirection: Axis.horizontal,

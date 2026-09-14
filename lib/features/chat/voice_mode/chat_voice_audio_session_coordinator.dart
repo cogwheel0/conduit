@@ -96,6 +96,13 @@ class ChatVoiceAudioSessionCoordinator {
   @visibleForTesting
   bool debugRefuseRouteChanges = false;
 
+  /// Runs the Android route calls on a test host, where the audio manager
+  /// channel is mocked. The real platform check still wins on a device.
+  @visibleForTesting
+  bool debugTreatAsAndroid = false;
+
+  bool get _isAndroid => Platform.isAndroid || debugTreatAsAndroid;
+
   /// The phases teardown has run for, in order. A test host has no audio route
   /// to watch come back, so this is the only trace teardown leaves behind.
   /// Only filled in when asserts are on.
@@ -398,7 +405,7 @@ class ChatVoiceAudioSessionCoordinator {
   /// it has. Call this before the first pass of a call, not after a manual
   /// toggle, or it would overwrite the user's choice.
   Future<void> applyDefaultSpeakerphoneRoute() async {
-    if (!Platform.isAndroid && !Platform.isIOS) {
+    if (!_isAndroid && !Platform.isIOS) {
       return;
     }
     if (_routeChangesStopped) {
@@ -659,7 +666,7 @@ class ChatVoiceAudioSessionCoordinator {
     // be set before the platform calls and put back if they refuse.
     _speakerphoneEnabled = enabled;
     var applied = true;
-    if (Platform.isAndroid) {
+    if (_isAndroid) {
       final manager = _androidAudioManager ??= AndroidAudioManager();
       // Release the currently selected communication device before re-routing:
       // setCommunicationDevice replaces the route, but leaving SCO running
@@ -694,7 +701,7 @@ class ChatVoiceAudioSessionCoordinator {
   /// Points the Android call at the route [_speakerphoneEnabled] asks for, and
   /// reports whether it landed.
   Future<bool> _configureAndroidVoiceRoute({required String phase}) async {
-    if (!Platform.isAndroid) {
+    if (!_isAndroid) {
       return true;
     }
 
@@ -717,23 +724,11 @@ class ChatVoiceAudioSessionCoordinator {
       phase: phase,
     );
     if (_speakerphoneEnabled) {
-      // setSpeakerphoneOn is deprecated and is a no-op on Android 12+ once a
-      // communication device is selected, so route to the built-in speaker
-      // explicitly and keep the legacy call only as the pre-31 fallback.
-      final routed = await _selectAndroidCommunicationDevice(
+      final loudspeaker = await _routeAndroidToLoudspeaker(
         manager,
-        AndroidAudioDeviceType.builtInSpeaker,
         phase: phase,
       );
-      if (routed) {
-        return modeSet;
-      }
-      final legacyRouted = await _safeAndroidRouteAction(
-        () => manager.setSpeakerphoneOn(true),
-        operation: 'configure-speakerphone',
-        phase: phase,
-      );
-      return modeSet && legacyRouted;
+      return modeSet && loudspeaker;
     }
 
     await _safeAndroidRouteCall(
@@ -764,6 +759,91 @@ class ChatVoiceAudioSessionCoordinator {
       phase: phase,
     );
     return modeSet;
+  }
+
+  /// Puts the call on the built-in speaker and reports whether it is there.
+  ///
+  /// Neither route call answers honestly on its own: `setSpeakerphoneOn` is
+  /// void, and `setCommunicationDevice` can say yes and still be overridden
+  /// (issue #716). The route is read back after each and only counts as
+  /// applied when the read-back shows the loudspeaker. A read-back that fails
+  /// outright says nothing, so that case trusts the set call as before.
+  Future<bool> _routeAndroidToLoudspeaker(
+    AndroidAudioManager manager, {
+    required String phase,
+  }) async {
+    // setSpeakerphoneOn is deprecated and is a no-op on Android 12+ once a
+    // communication device is selected, so route to the built-in speaker
+    // explicitly and keep the legacy call as the pre-31 fallback.
+    final routed = await _selectAndroidCommunicationDevice(
+      manager,
+      AndroidAudioDeviceType.builtInSpeaker,
+      phase: phase,
+    );
+    var loudspeaker = false;
+    String? deviceReadBack;
+    bool? speakerphoneReadBack;
+    if (routed) {
+      final selected = await _safeAndroidRouteCall(
+        () async => (device: await manager.getCommunicationDevice()),
+        operation: 'get-communication-device',
+        phase: phase,
+      );
+      if (selected == null) {
+        loudspeaker = true;
+      } else {
+        loudspeaker =
+            selected.device?.type == AndroidAudioDeviceType.builtInSpeaker;
+        deviceReadBack = selected.device?.type.name ?? 'none';
+      }
+    }
+    if (!loudspeaker) {
+      if (routed) {
+        // The platform accepted the speaker but the read-back disagrees.
+        // Release that selection first: setSpeakerphoneOn is ignored while a
+        // communication device stays selected, so the fallback would not
+        // move the route either.
+        await _safeAndroidRouteCall(
+          () => manager.clearCommunicationDevice(),
+          operation: 'clear-rejected-communication-device',
+          phase: phase,
+        );
+      }
+      final legacyRouted = await _safeAndroidRouteAction(
+        () => manager.setSpeakerphoneOn(true),
+        operation: 'configure-speakerphone',
+        phase: phase,
+      );
+      if (legacyRouted) {
+        final speakerphoneOn = await _safeAndroidRouteCall(
+          () => manager.isSpeakerphoneOn(),
+          operation: 'get-speakerphone',
+          phase: phase,
+        );
+        loudspeaker = speakerphoneOn ?? true;
+        speakerphoneReadBack = speakerphoneOn;
+      }
+    }
+    final data = <String, Object?>{
+      'phase': phase,
+      'communicationDevice': routed,
+      'deviceReadBack': deviceReadBack,
+      'speakerphoneReadBack': speakerphoneReadBack,
+    };
+    if (loudspeaker) {
+      DebugLogger.info(
+        'android-loudspeaker-route-applied',
+        scope: 'voice/audio-route',
+        data: data,
+      );
+    } else {
+      DebugLogger.warning(
+        'android-loudspeaker-route-refused',
+        scope: 'voice/audio-route',
+        data: data,
+      );
+    }
+    return loudspeaker;
   }
 
   Future<bool> _selectAndroidCommunicationDevice(
@@ -799,7 +879,7 @@ class ChatVoiceAudioSessionCoordinator {
   }
 
   Future<void> _restoreAndroidVoiceRoute() async {
-    if (!Platform.isAndroid) {
+    if (!_isAndroid) {
       return;
     }
 

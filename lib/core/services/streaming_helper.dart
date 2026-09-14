@@ -420,7 +420,10 @@ class _AssistantServerPatch {
 Future<void> _handleReconnectRecovery({
   required bool Function() hasFinished,
   required List<ChatMessage> Function() getMessages,
-  required Future<_ServerMessageSnapshot?> Function() pollServerForMessage,
+  required Future<_ServerMessageSnapshot?> Function({
+    bool inferDoneFromMissingStreaming,
+  })
+  pollServerForMessage,
   required bool Function(
     String,
     List<String>, {
@@ -442,7 +445,13 @@ Future<void> _handleReconnectRecovery({
       return;
     }
 
-    final result = await pollServerForMessage();
+    // Open WebUI persists the in-progress assistant with `done: false` and no
+    // `isStreaming` key, so a missing flag says nothing about completion.
+    // Inferring "done" from it here finished a live stream the moment the app
+    // came back to the foreground; only an explicit done/error is terminal.
+    final result = await pollServerForMessage(
+      inferDoneFromMissingStreaming: false,
+    );
     if (hasFinished()) return;
 
     if (result != null) {
@@ -1430,31 +1439,31 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }) {
     final eventType = event['type']?.toString() ?? '';
     if (!openWebUIResponseStreamEventTouchesOutput(eventType)) return;
-    if (eventType == 'response.failed' || eventType == 'response.incomplete') {
-      // Terminal failure or cut-off: keep whatever output landed, then
-      // surface the state so a trailing [DONE] cannot finish the turn as a
-      // clean success.
+    if (eventType == 'response.failed') {
+      // Terminal failure: keep whatever output landed, then surface the state
+      // so a trailing [DONE] cannot finish the turn as a clean success.
       final response = event['response'];
-      final String? message;
-      if (eventType == 'response.failed') {
-        final error = response is Map ? response['error'] : null;
-        final text = error is Map
-            ? error['message']?.toString()
-            : error?.toString();
-        message = text == null || text.trim().isEmpty
-            ? 'The response failed.'
-            : text;
-      } else {
-        final details = response is Map ? response['incomplete_details'] : null;
-        final reason = details is Map ? details['reason']?.toString() : null;
-        message = reason == null || reason.trim().isEmpty
-            ? 'The response stopped before it was complete.'
-            : 'The response stopped before it was complete ($reason).';
-      }
+      final error = response is Map ? response['error'] : null;
+      final text = error is Map
+          ? error['message']?.toString()
+          : error?.toString();
+      final message = text == null || text.trim().isEmpty
+          ? 'The response failed.'
+          : text;
       applyAssistantServerPatch(
         targetId: targetId,
         buildPatch: (_) =>
             _AssistantServerPatch(error: ChatMessageError(content: message)),
+      );
+    } else if (eventType == 'response.incomplete') {
+      // Upstream contract (middleware.handle_responses_streaming_event): a
+      // cut-off response is not an error. The server keeps the output, runs
+      // the turn to its normal `done`, and the web client shows no banner.
+      // Raising an error here painted "stopped before it was complete" under
+      // the answer until that `done` cleared it again.
+      DebugLogger.log(
+        'response.incomplete: keeping output without an error',
+        scope: 'streaming/helper',
       );
     }
     latestResponseOutputItems = applyOpenWebUIResponseStreamEvent(

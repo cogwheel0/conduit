@@ -451,21 +451,43 @@ class DirectConnectionProfilesController
     extends AsyncNotifier<List<DirectConnectionProfile>> {
   Future<void> _mutationQueue = Future<void>.value();
   bool _appDataClearBlocked = false;
-  bool _durableLogoutFenceBlocked = false;
+  bool _incompleteAppDataClearBlocked = false;
   List<DirectConnectionProfile>? _profilesBeforeAppDataClear;
 
   bool get _mutationsBlocked =>
-      _appDataClearBlocked || _durableLogoutFenceBlocked;
+      _appDataClearBlocked || _incompleteAppDataClearBlocked;
 
   DirectConnectionProfileStore get _store =>
       ref.read(directConnectionProfileStoreProvider);
 
+  /// Direct profiles live in their own secure-storage document with their own
+  /// credentials. The Open WebUI incomplete-logout fence
+  /// ([incompleteLogoutFenceProvider]) guards Open WebUI token/cookie
+  /// restoration, so an ordinary failed Open WebUI sign-out must not hide
+  /// Direct profiles or block Direct setup.
+  ///
+  /// A full app-data clear that the user requested is different: when it
+  /// fails part-way ([revokeRuntimeAfterIncompleteAppDataClear]), profiles the
+  /// wipe could not remove stay hidden and unusable, in memory and across
+  /// restarts ([PreferenceKeys.incompleteAppDataClear]), until the durable
+  /// logout fence is cleared by a completed cleanup or a new authenticated
+  /// session.
   @override
   Future<List<DirectConnectionProfile>> build() {
-    _durableLogoutFenceBlocked = ref.watch(incompleteLogoutFenceProvider);
-    if (_durableLogoutFenceBlocked) {
-      ref.read(directRunRegistryProvider).blockAdmissionForAppDataClear();
-      return Future.value(const []);
+    final logoutFenceActive = ref.watch(incompleteLogoutFenceProvider);
+    final incompleteClearPersisted =
+        PreferencesStore.getBool(PreferenceKeys.incompleteAppDataClear) ??
+        false;
+    if (_incompleteAppDataClearBlocked || incompleteClearPersisted) {
+      if (logoutFenceActive) {
+        _incompleteAppDataClearBlocked = true;
+        ref.read(directRunRegistryProvider).blockAdmissionForAppDataClear();
+        return Future.value(const <DirectConnectionProfile>[]);
+      }
+      _incompleteAppDataClearBlocked = false;
+      if (incompleteClearPersisted) {
+        unawaited(_clearIncompleteAppDataClearMarker());
+      }
     }
     if (_appDataClearBlocked) {
       ref.read(directRunRegistryProvider).blockAdmissionForAppDataClear();
@@ -647,33 +669,96 @@ class DirectConnectionProfilesController
     });
   }
 
+  /// Probes [profile] and always resolves to a [DirectConnectionProbe].
+  ///
+  /// Pre-flight failures (validation, missing adapter, an in-flight app-data
+  /// clear) are reported as `reachable: false` with a specific message rather
+  /// than thrown, so the editor can show the real cause instead of a generic
+  /// "could not save" fallback.
   Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async {
-    _ensureMounted();
-    if (_mutationsBlocked) {
-      throw StateError(
-        'Direct connection probes are blocked while app data is being cleared.',
-      );
-    }
-    profile.validate();
-    final adapter = ref
-        .read(directProviderAdapterRegistryProvider)
-        .require(profile.adapterKey);
     try {
+      _ensureMounted();
+      if (_mutationsBlocked) {
+        return const DirectConnectionProbe(
+          reachable: false,
+          message:
+              'Direct connection probes are unavailable while app data is '
+              'being cleared.',
+        );
+      }
+      final validationError = profile.validateOrNull();
+      if (validationError != null) {
+        return DirectConnectionProbe(
+          reachable: false,
+          message: _sanitizeRuntimeAdapterMessage(profile, validationError),
+        );
+      }
+      final adapter = ref
+          .read(directProviderAdapterRegistryProvider)
+          .lookup(profile.adapterKey);
+      if (adapter == null) {
+        return const DirectConnectionProbe(
+          reachable: false,
+          message: 'This provider type is not available on this device.',
+        );
+      }
       final result = await adapter.probe(profile);
       final message = result.message;
       if (message == null) return result;
       return DirectConnectionProbe(
         reachable: result.reachable,
         modelCount: result.modelCount,
-        message: _sanitizeRuntimeAdapterMessage(profile, message),
+        message: result.reachable
+            ? _sanitizeRuntimeAdapterMessage(profile, message)
+            : _probeFailureMessage(profile, message),
       );
     } catch (error) {
       final normalized = normalizeDirectProviderError(error);
+      DebugLogger.warning(
+        'Direct connection probe failed',
+        scope: 'direct/profiles',
+        data: {'errorType': error.runtimeType.toString()},
+      );
       return DirectConnectionProbe(
         reachable: false,
-        message: _sanitizeRuntimeAdapterMessage(profile, normalized.message),
+        message: _probeFailureMessage(
+          profile,
+          normalized.message,
+          statusCode: normalized.statusCode,
+        ),
       );
     }
+  }
+
+  /// Sanitizes an untrusted provider failure and, for HTTP 401/403 under the
+  /// Azure API-key header mode, appends the trusted Bearer hint after
+  /// redaction so the combined text stays within the sanitizer budget.
+  String _probeFailureMessage(
+    DirectConnectionProfile profile,
+    String message, {
+    int? statusCode,
+  }) {
+    final hinted = directAuthModeHintApplies(
+      message,
+      profile: profile,
+      statusCode: statusCode,
+    );
+    final sanitized = sanitizeDirectProviderErrorMessage(
+      message,
+      sensitiveValues: directProfileSensitiveValues(profile),
+      maxCharacters: hinted
+          ? kMaxDirectProviderErrorCharacters -
+                kDirectBearerAuthModeHint.length -
+                2
+          : kMaxDirectProviderErrorCharacters,
+    );
+    return hinted
+        ? appendDirectAuthModeHint(
+            sanitized,
+            profile: profile,
+            statusCode: statusCode,
+          )
+        : sanitized;
   }
 
   Future<void> reload() async {
@@ -769,12 +854,9 @@ class DirectConnectionProfilesController
   void resumeMutationsAfterAppDataClearAbort() {
     if (ref.mounted) {
       _appDataClearBlocked = false;
-      final runRegistry = ref.read(directRunRegistryProvider);
-      if (_durableLogoutFenceBlocked) {
-        runRegistry.blockAdmissionForAppDataClear();
-      } else {
-        runRegistry.resumeAdmissionAfterAppDataClearAbort();
-      }
+      ref
+          .read(directRunRegistryProvider)
+          .resumeAdmissionAfterAppDataClearAbort();
       final previous = _profilesBeforeAppDataClear;
       if (previous != null) {
         state = AsyncValue.data(previous);
@@ -783,32 +865,47 @@ class DirectConnectionProfilesController
     }
   }
 
-  /// Drops every in-memory transport authority after a partial wipe while the
-  /// durable incomplete-logout fence keeps the controller blocked.
-  void revokeRuntimeAfterIncompleteAppDataClear() {
+  /// Drops every in-memory transport authority after a partial wipe and keeps
+  /// the controller blocked until the durable logout fence is cleared.
+  ///
+  /// The user asked for these credentials to be erased. Profiles the wipe
+  /// failed to remove must not come back for new completions, so the block
+  /// outlives the transient preparation flag and is persisted for restarts;
+  /// [build] releases it once the fence is cleared by a completed cleanup or
+  /// a new authenticated session. The returned future completes once the
+  /// restart marker is durable, or has failed and been logged; the in-memory
+  /// block holds either way for this process.
+  Future<void> revokeRuntimeAfterIncompleteAppDataClear() async {
     if (!ref.mounted) return;
-    // The durable logout fence now owns the long-lived block. Releasing the
-    // transient preparation flag lets a later successful login resume this
-    // controller when that durable fence is cleared.
     _appDataClearBlocked = false;
+    _incompleteAppDataClearBlocked = true;
     _profilesBeforeAppDataClear = null;
     final current = state.value ?? const <DirectConnectionProfile>[];
     final clientPool = ref.read(directHttpClientPoolProvider);
     final modelRegistry = ref.read(directModelRegistryProvider);
     final runRegistry = ref.read(directRunRegistryProvider);
+    runRegistry.blockAdmissionForAppDataClear();
     for (final profile in current) {
       _invalidateDirectProfileTransportBestEffort(clientPool, profile.id);
       _removeProfileModelsBestEffort(modelRegistry, profile.id);
       _cancelProfileRunsBestEffort(runRegistry, profile.id);
     }
     state = const AsyncValue.data([]);
+    // Re-assert the marker armed before the wipe: the wipe itself may have
+    // removed it. A failure propagates so the clear is not reported as
+    // handled while the restart fence is missing.
+    await armIncompleteAppDataClearMarker();
   }
+
+  Future<void> _clearIncompleteAppDataClearMarker() =>
+      disarmIncompleteAppDataClearMarker();
 
   _DirectProfileMutationResources _captureMutationResources() {
     _ensureMounted();
     if (_mutationsBlocked) {
       throw StateError(
-        'Direct connection changes are unavailable while signing out.',
+        'Direct connection changes are unavailable while app data is being '
+        'cleared.',
       );
     }
     return (
@@ -2569,6 +2666,51 @@ void _cancelDirectProfileRunsBestEffort(
     DebugLogger.error(
       'Failed to revoke synced direct runs',
       scope: 'direct/profiles',
+    );
+  }
+}
+
+/// Durably marks that a full app-data clear is in progress or ended
+/// incomplete, so [DirectConnectionProfilesController.build] keeps surviving
+/// Direct profiles hidden after a restart until the logout fence is cleared.
+///
+/// Written through the app-data-clear write barrier with a checked write and
+/// awaited by the caller. A failure throws: the clear must not proceed, or be
+/// reported as handled, without the restart fence in place.
+Future<void> armIncompleteAppDataClearMarker() async {
+  try {
+    await PreferencesStore.putCheckedIf(
+      PreferenceKeys.incompleteAppDataClear,
+      true,
+      canWrite: () => true,
+      bypassAppDataClearBarrier: true,
+    );
+  } catch (error) {
+    DebugLogger.error(
+      'Failed to persist the incomplete app-data-clear marker',
+      scope: 'direct/profiles',
+      data: {'errorType': error.runtimeType.toString()},
+    );
+    rethrow;
+  }
+}
+
+/// Removes the restart marker after a clear completed or was abandoned before
+/// touching any data. Best effort: a stale marker only keeps Direct profiles
+/// hidden until the logout fence is observed clear.
+Future<void> disarmIncompleteAppDataClearMarker() async {
+  try {
+    await PreferencesStore.putCheckedIf(
+      PreferenceKeys.incompleteAppDataClear,
+      null,
+      canWrite: () => true,
+      bypassAppDataClearBarrier: true,
+    );
+  } catch (error) {
+    DebugLogger.warning(
+      'Failed to clear the incomplete app-data-clear marker',
+      scope: 'direct/profiles',
+      data: {'errorType': error.runtimeType.toString()},
     );
   }
 }

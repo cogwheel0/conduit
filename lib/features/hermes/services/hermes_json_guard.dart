@@ -28,6 +28,27 @@ final class HermesJsonGuardException implements FormatException {
   String toString() => 'FormatException: $message';
 }
 
+/// A Hermes response or frame exceeded Conduit's transport size caps before
+/// it was decoded. Callers can page smaller or tell the user the conversation
+/// is too large; the payload itself is never retained.
+final class HermesResponseTooLargeException implements FormatException {
+  const HermesResponseTooLargeException([
+    this.message = 'Hermes response is too large.',
+  ]);
+
+  @override
+  final String message;
+
+  @override
+  int? get offset => null;
+
+  @override
+  Object? get source => null;
+
+  @override
+  String toString() => 'HermesResponseTooLargeException: $message';
+}
+
 /// Scans untrusted JSON without constructing its decoded object graph.
 ///
 /// Strings are scanned in place so structural characters inside them do not

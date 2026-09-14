@@ -113,16 +113,43 @@ List<Map<String, dynamic>> parseHermesDesktopConfiguredModels(
   return models;
 }
 
+/// Default and smallest page sizes for `GET /api/sessions/{id}/messages`.
+///
+/// A single 500-message page of a long tool-heavy conversation can exceed the
+/// REST transport's character cap, so the pager starts smaller and shrinks
+/// further whenever a page is rejected as too large.
+const int kHermesDesktopTranscriptPageSize = 200;
+const int kHermesDesktopTranscriptMinimumPageSize = 25;
+
 @visibleForTesting
 Future<List<Map<String, dynamic>>> loadHermesDesktopTranscriptPages(
   Future<List<Map<String, dynamic>>> Function(int offset, int limit) loadPage, {
   int maximum = 10000,
+  int pageSize = kHermesDesktopTranscriptPageSize,
+  int minimumPageSize = kHermesDesktopTranscriptMinimumPageSize,
 }) async {
-  const pageSize = 500;
+  assert(pageSize > 0 && minimumPageSize > 0);
   final messages = <Map<String, dynamic>>[];
+  var currentPageSize = pageSize;
   while (messages.length < maximum) {
-    final limit = min(pageSize, maximum - messages.length);
-    final page = await loadPage(messages.length, limit);
+    final limit = min(currentPageSize, maximum - messages.length);
+    final List<Map<String, dynamic>> page;
+    try {
+      page = await loadPage(messages.length, limit);
+    } on HermesResponseTooLargeException {
+      if (limit <= minimumPageSize) rethrow;
+      currentPageSize = max(minimumPageSize, limit ~/ 2);
+      DebugLogger.warning(
+        'transcript-page-too-large',
+        scope: 'hermes/desktop',
+        data: {
+          'offset': messages.length,
+          'limit': limit,
+          'retryLimit': currentPageSize,
+        },
+      );
+      continue;
+    }
     messages.addAll(page.take(limit));
     if (page.length < limit) break;
   }

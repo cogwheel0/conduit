@@ -12,10 +12,14 @@ import 'package:conduit/features/hermes/models/hermes_model.dart';
 import 'package:conduit/features/hermes/models/hermes_session.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit/features/hermes/services/hermes_desktop_transport.dart';
+import 'package:conduit/features/hermes/services/hermes_json_guard.dart';
 import 'package:conduit/features/hermes/services/hermes_local_document_service.dart';
 import 'package:conduit/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit/features/hermes/widgets/hermes_session_tile.dart';
+import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:dio/dio.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -552,6 +556,131 @@ void main() {
     });
   }
 
+  group('open failures', () {
+    final l10n = AppLocalizationsEn();
+    final failureScenarios = <String, (Object, String)>{
+      'an oversized transcript': (
+        const HermesResponseTooLargeException(),
+        l10n.hermesSessionTooLarge,
+      ),
+      'a session.resume not-found reply': (
+        const HermesDesktopRpcException('Session not found', code: 4007),
+        l10n.hermesSessionNotFound,
+      ),
+      'a REST 404': (
+        DioException(
+          requestOptions: RequestOptions(path: '/api/sessions/x/messages'),
+          response: Response(
+            requestOptions: RequestOptions(path: '/api/sessions/x/messages'),
+            statusCode: 404,
+          ),
+        ),
+        l10n.hermesSessionNotFound,
+      ),
+      'another gateway RPC error': (
+        const HermesDesktopRpcException(
+          'Session too large to resume',
+          code: 4130,
+        ),
+        l10n.hermesSessionLoadFailedDetail(
+          'Session too large to resume (4130)',
+        ),
+      ),
+      'an unrelated failure': (
+        StateError('socket closed'),
+        l10n.hermesSessionLoadFailed,
+      ),
+    };
+
+    for (final scenario in failureScenarios.entries) {
+      testWidgets('${scenario.key} shows a specific message and does not '
+          'open the chat', (tester) async {
+        final (error, expectedMessage) = scenario.value;
+        final service = _FakeHermesApiService(messagesError: error);
+        final container = ProviderContainer(
+          retry: (retryCount, error) => null,
+          overrides: [hermesApiServiceProvider.overrideWithValue(service)],
+        );
+        addTearDown(container.dispose);
+
+        late BuildContext actionContext;
+        late WidgetRef widgetRef;
+        final router = GoRouter(
+          routes: [
+            GoRoute(
+              path: '/',
+              builder: (context, state) => Consumer(
+                builder: (context, ref, child) {
+                  actionContext = context;
+                  widgetRef = ref;
+                  return const Scaffold(body: SizedBox.shrink());
+                },
+              ),
+            ),
+            GoRoute(
+              path: Routes.chat,
+              builder: (context, state) =>
+                  const Scaffold(body: SizedBox.shrink()),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+        NavigationService.attachRouter(router);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await openHermesSession(
+          actionContext,
+          widgetRef,
+          const HermesSessionSummary(id: 'session-1', title: 'Saved session'),
+        );
+        await tester.pump();
+
+        check(find.text(expectedMessage).evaluate()).length.equals(1);
+        check(container.read(hermesActiveSessionProvider)).isNull();
+        check(container.read(activeConversationProvider)).isNull();
+        check(router.state.uri.path).equals('/');
+        await tester.pumpAndSettle();
+      });
+    }
+
+    test('server-provided detail is bounded and stripped of control text', () {
+      final message = hermesSessionLoadFailureMessage(
+        l10n,
+        HermesDesktopRpcException(
+          'line one\nline\u0000two ${'x' * 300}',
+          code: 5000,
+        ),
+      );
+
+      check(message).startsWith('Could not load this conversation: ');
+      check(message).not((it) => it.contains('\n'));
+      check(message).not((it) => it.contains('\u0000'));
+      check(message).contains('line one line two');
+      check(message).endsWith('\u2026 (5000)');
+      check(message.length).isLessThan(200);
+    });
+
+    test('timed-out or disconnected RPC replies stay generic', () {
+      check(
+        hermesSessionLoadFailureMessage(
+          l10n,
+          const HermesDesktopRpcException('timed out', timedOut: true),
+        ),
+      ).equals(l10n.hermesSessionLoadFailed);
+    });
+  });
+
   testWidgets('opening a session restores locally trusted document prompts', (
     tester,
   ) async {
@@ -646,6 +775,7 @@ class _FakeHermesApiService extends HermesApiService {
     ],
     this.deleteGate,
     this.messagesGate,
+    this.messagesError,
   }) : super(
          config: const HermesConfig(
            enabled: true,
@@ -657,6 +787,7 @@ class _FakeHermesApiService extends HermesApiService {
   final List<Map<String, dynamic>> messages;
   final Completer<void>? deleteGate;
   final Completer<void>? messagesGate;
+  final Object? messagesError;
   final deleteStarted = Completer<void>();
   final messagesStarted = Completer<void>();
   final List<String> deletedSessionIds = [];
@@ -673,6 +804,7 @@ class _FakeHermesApiService extends HermesApiService {
     operationLog.add('get:$id');
     if (!messagesStarted.isCompleted) messagesStarted.complete();
     await messagesGate?.future;
+    if (messagesError != null) throw messagesError!;
     return messages;
   }
 
