@@ -197,6 +197,23 @@ class _StubAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
+/// Polls until the stub adapter has observed the given request, so tests wait
+/// on the reconnect poll itself rather than on a wall-clock delay.
+Future<void> _untilRequestSeen(
+  _StubAdapter adapter, {
+  required String method,
+  required String path,
+  Duration timeout = const Duration(seconds: 5),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (adapter.requestCount(method: method, path: path) == 0) {
+    if (DateTime.now().isAfter(deadline)) {
+      throw TimeoutException('No $method $path observed within $timeout');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+  }
+}
+
 Map<String, dynamic> _serverAssistantMessage({
   String id = 'msg-1',
   String content = '',
@@ -1805,8 +1822,13 @@ void main() {
       );
       await pumpMicrotasks();
 
+      final adapter = api.dio.httpClientAdapter as _StubAdapter;
       socket.reconnects.add(null);
-      await Future<void>.delayed(const Duration(milliseconds: 700));
+      await _untilRequestSeen(
+        adapter,
+        method: 'GET',
+        path: '/api/v1/chats/conv-1',
+      );
       for (var i = 0; i < 10; i++) {
         await pumpMicrotasks();
       }
@@ -1856,8 +1878,13 @@ void main() {
         );
         await pumpMicrotasks();
 
+        final adapter = api.dio.httpClientAdapter as _StubAdapter;
         socket.reconnects.add(null);
-        await Future<void>.delayed(const Duration(milliseconds: 700));
+        await _untilRequestSeen(
+          adapter,
+          method: 'GET',
+          path: '/api/v1/chats/conv-1',
+        );
         for (var i = 0; i < 10; i++) {
           await pumpMicrotasks();
         }
