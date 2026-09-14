@@ -315,9 +315,9 @@ void main() {
         audioManager.honourLoudspeaker = false;
 
         check(await coordinator.setSpeakerphoneEnabled(true)).isFalse();
-        check(audioManager.communicationDeviceId)
-            .isNotNull()
-            .equals(_FakeAndroidAudioManagerChannel.earpieceId);
+        // The rejected selection is released before the legacy fallback, so
+        // the system is not left holding a device the read-back disowned.
+        check(audioManager.communicationDeviceId).isNull();
       },
     );
 

@@ -1713,7 +1713,16 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   String? _visibleAssistantText([List<ChatMessage>? messages]) {
     final message = _activeAssistantMessage(messages);
     if (message == null) return null;
-    if (message.isStreaming && _isLastStreamingAssistant(message, messages)) {
+    // Once the transport marks the response done it has flushed the buffered
+    // text into the message, while `streamingContentProvider` may still hold
+    // an earlier frame. The message is authoritative from that point.
+    final settled =
+        message.isStreaming &&
+        assistantMessageResponseCompleted(message) &&
+        message.content.isNotEmpty;
+    if (!settled &&
+        message.isStreaming &&
+        _isLastStreamingAssistant(message, messages)) {
       final visible = ref.read(streamingContentProvider);
       if (visible != null && visible.isNotEmpty) {
         return visible;

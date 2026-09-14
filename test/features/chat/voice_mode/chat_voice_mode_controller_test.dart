@@ -2181,6 +2181,71 @@ void main() {
   );
 
   test(
+    'responseDone speaks the settled message, not a stale streaming frame',
+    () async {
+      final input = _FakeVoiceInputService();
+      final tts = _FakeTextToSpeechService()..holdCompletion = true;
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          selectedModelProvider.overrideWithValue(_model),
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          reviewerModeProvider.overrideWithValue(true),
+          voiceInputServiceProvider.overrideWithValue(input),
+          textToSpeechServiceProvider.overrideWithValue(tts),
+          callKitServiceProvider.overrideWithValue(
+            _UnavailableCallKitService(),
+          ),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceAudioSessionCoordinator(),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+
+      await controller.start(startNewConversation: false);
+      await input.completeCurrent('stale streaming frame unique voice turn');
+      await _until(
+        () =>
+            container.read(chatVoiceModeControllerProvider).phase ==
+            ChatVoiceModePhase.sending,
+      );
+      final assistant = _lastAssistant(container);
+      check(assistant.isStreaming).isTrue();
+
+      // The visible streaming frame lags behind the flushed message when the
+      // terminal finish reason lands; the message is the settled text.
+      container
+          .read(streamingContentProvider.notifier)
+          .set('The settled answer is');
+      container
+          .read(chatMessagesProvider.notifier)
+          .updateMessageById(
+            assistant.id,
+            (m) => m.copyWith(
+              content: 'The settled answer is complete and final.',
+              metadata: {...?m.metadata, 'responseDone': true},
+            ),
+          );
+
+      await _until(() => tts.finishedTexts.isNotEmpty);
+      check(tts.finishedTexts.single ?? '')
+          .equals('The settled answer is complete and final.');
+
+      await controller.stop();
+    },
+  );
+
+  test(
     'responseDone while paused defers speech and flushes once on resume',
     () async {
       final input = _FakeVoiceInputService();

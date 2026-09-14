@@ -798,6 +798,17 @@ class ChatVoiceAudioSessionCoordinator {
       }
     }
     if (!loudspeaker) {
+      if (routed) {
+        // The platform accepted the speaker but the read-back disagrees.
+        // Release that selection first: setSpeakerphoneOn is ignored while a
+        // communication device stays selected, so the fallback would not
+        // move the route either.
+        await _safeAndroidRouteCall(
+          () => manager.clearCommunicationDevice(),
+          operation: 'clear-rejected-communication-device',
+          phase: phase,
+        );
+      }
       final legacyRouted = await _safeAndroidRouteAction(
         () => manager.setSpeakerphoneOn(true),
         operation: 'configure-speakerphone',
