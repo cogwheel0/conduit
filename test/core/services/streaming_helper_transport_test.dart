@@ -1673,6 +1673,108 @@ void main() {
       },
     );
 
+    test(
+      'taskSocket response.incomplete keeps the answer without an error',
+      () async {
+        // Upstream passes the provider's response.incomplete through as a
+        // response:completion event but treats it as a no-op: the turn still
+        // ends with a normal done. Raising an error here flashed a banner
+        // under the answer until that done cleared it.
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('response:completion', {
+          'type': 'response.output_text.delta',
+          'item_id': 'msg1',
+          'output_index': 0,
+          'content_index': 0,
+          'delta': 'Hello',
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('response:completion', {
+          'type': 'response.incomplete',
+          'response': {
+            'id': 'resp-1',
+            'output': [
+              {
+                'type': 'message',
+                'id': 'msg1',
+                'status': 'incomplete',
+                'content': [
+                  {'type': 'output_text', 'text': 'Hello'},
+                ],
+              },
+            ],
+          },
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        check(log.messages.last.error).isNull();
+        check(log.messages.last.content).endsWith('Hello');
+
+        registrar.emitChatEvent('chat:completion', {
+          'done': true,
+          'output': [
+            {
+              'type': 'message',
+              'id': 'msg1',
+              'status': 'completed',
+              'content': [
+                {'type': 'output_text', 'text': 'Hello'},
+              ],
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        check(log.messages.every((message) => message.error == null)).isTrue();
+        check(log.finishCount).equals(1);
+      },
+    );
+
+    test(
+      'taskSocket response.failed still surfaces the provider error',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('response:completion', {
+          'type': 'response.failed',
+          'response': {
+            'id': 'resp-1',
+            'error': {'message': 'Provider rejected the request.'},
+          },
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        check(log.messages.last.error?.content)
+            .equals('Provider rejected the request.');
+      },
+    );
+
     test('taskSocket plain snapshots do not clear reasoning details', () async {
       final log = _CallbackLog();
       final registrar = FakeSocketInjector();
