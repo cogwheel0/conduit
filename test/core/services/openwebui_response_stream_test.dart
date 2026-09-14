@@ -242,6 +242,15 @@ void main() {
       });
       check((failed.single['content'] as List).single['text'])
           .equals('partial');
+      // An empty terminal list must not erase what already streamed.
+      final kept = applyOpenWebUIResponseStreamEvent(failed, {
+        'type': 'response.incomplete',
+        'response': {
+          'output': <Map<String, dynamic>>[],
+          'incomplete_details': {'reason': 'max_output_tokens'},
+        },
+      });
+      check(kept).identicalTo(failed);
       check(openWebUIResponseStreamEventTouchesOutput('response.failed'))
           .isTrue();
       check(openWebUIResponseStreamEventIsStructural('response.incomplete'))

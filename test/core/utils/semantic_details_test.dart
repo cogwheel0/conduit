@@ -95,13 +95,20 @@ void main() {
           .isFalse();
     });
 
-    test('ignores data-* attributes that merely contain the names', () {
-      const localData =
-          '<details data-type="reasoning" data-duration="9">\n'
-          '<summary>Note</summary>\nwhy\n</details>\nAnswer';
-      check(serverBodyDropsLocalReasoningTiming(localData, serverNoTiming))
-          .isFalse();
-      check(containsRenderedSemanticDetails(localData)).isFalse();
+    test('ignores qualified attributes that merely end in the names', () {
+      for (final prefix in const ['data-', 'data:', 'data.']) {
+        final localData =
+            '<details ${prefix}type="reasoning" ${prefix}duration="9">\n'
+            '<summary>Note</summary>\nwhy\n</details>\nAnswer';
+        check(
+          serverBodyDropsLocalReasoningTiming(localData, serverNoTiming),
+          because: prefix,
+        ).isFalse();
+        check(
+          containsRenderedSemanticDetails(localData),
+          because: prefix,
+        ).isFalse();
+      }
     });
 
     test('does not apply when the server dropped the block entirely', () {

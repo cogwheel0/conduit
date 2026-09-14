@@ -19,9 +19,11 @@ List<Map<String, dynamic>> applyOpenWebUIResponseStreamEvent(
     // consumer reports failure, the output still replaces the local list.
     final response = event['response'];
     final completed = response is Map ? response['output'] : null;
-    return completed is List
-        ? mergeOpenWebUIReasoningTiming(output, _cloneItems(completed))
-        : output;
+    // An empty terminal list is not authoritative: a failure or cut-off can
+    // report no output even though items already streamed, and dropping
+    // them would blank a partial answer the user has already seen.
+    if (completed is! List || completed.isEmpty) return output;
+    return mergeOpenWebUIReasoningTiming(output, _cloneItems(completed));
   }
 
   final next = _cloneItems(output);

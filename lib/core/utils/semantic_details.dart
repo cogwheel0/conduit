@@ -16,12 +16,12 @@ library;
 // as well: a missed opener means a reasoning body reaches the reader or the
 // speaker.
 final RegExp _semanticDetailsOpenPattern = RegExp(
-  r'''<details\b(?=[^>]*(?<![\w-])type\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])''',
+  r'''<details\b(?=[^>]*(?<=\s)type\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])''',
   caseSensitive: false,
 );
 
 final RegExp _semanticDetailsBlockPattern = RegExp(
-  r'''<details\b(?=[^>]*(?<![\w-])type\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])[\s\S]*?</details>\s*''',
+  r'''<details\b(?=[^>]*(?<=\s)type\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])[\s\S]*?</details>\s*''',
   caseSensitive: false,
 );
 
@@ -182,11 +182,11 @@ bool serverBodyDropsLocalSemanticDetails(
 }
 
 final RegExp _reasoningDetailsWithDurationPattern = RegExp(
-  r"""<details\b(?=[^>]*(?<![\w-])type\s*=\s*["']reasoning["'])(?=[^>]*(?<![\w-])duration\s*=\s*["'][^"']+["'])""",
+  r"""<details\b(?=[^>]*(?<=\s)type\s*=\s*["']reasoning["'])(?=[^>]*(?<=\s)duration\s*=\s*["'][^"']+["'])""",
   caseSensitive: false,
 );
 final RegExp _reasoningDetailsPattern = RegExp(
-  r"""<details\b(?=[^>]*(?<![\w-])type\s*=\s*["']reasoning["'])""",
+  r"""<details\b(?=[^>]*(?<=\s)type\s*=\s*["']reasoning["'])""",
   caseSensitive: false,
 );
 

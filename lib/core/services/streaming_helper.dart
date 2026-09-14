@@ -1430,23 +1430,31 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }) {
     final eventType = event['type']?.toString() ?? '';
     if (!openWebUIResponseStreamEventTouchesOutput(eventType)) return;
-    if (eventType == 'response.failed') {
-      // Terminal failure: keep whatever output landed, then surface the
-      // error so a trailing [DONE] cannot finish the turn as a success.
+    if (eventType == 'response.failed' || eventType == 'response.incomplete') {
+      // Terminal failure or cut-off: keep whatever output landed, then
+      // surface the state so a trailing [DONE] cannot finish the turn as a
+      // clean success.
       final response = event['response'];
-      final error = response is Map ? response['error'] : null;
-      final message = error is Map
-          ? error['message']?.toString()
-          : error?.toString();
+      final String? message;
+      if (eventType == 'response.failed') {
+        final error = response is Map ? response['error'] : null;
+        final text = error is Map
+            ? error['message']?.toString()
+            : error?.toString();
+        message = text == null || text.trim().isEmpty
+            ? 'The response failed.'
+            : text;
+      } else {
+        final details = response is Map ? response['incomplete_details'] : null;
+        final reason = details is Map ? details['reason']?.toString() : null;
+        message = reason == null || reason.trim().isEmpty
+            ? 'The response stopped before it was complete.'
+            : 'The response stopped before it was complete ($reason).';
+      }
       applyAssistantServerPatch(
         targetId: targetId,
-        buildPatch: (_) => _AssistantServerPatch(
-          error: ChatMessageError(
-            content: message == null || message.trim().isEmpty
-                ? 'The response failed.'
-                : message,
-          ),
-        ),
+        buildPatch: (_) =>
+            _AssistantServerPatch(error: ChatMessageError(content: message)),
       );
     }
     latestResponseOutputItems = applyOpenWebUIResponseStreamEvent(
