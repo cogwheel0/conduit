@@ -28,6 +28,17 @@ sealed class Folder with _$Folder {
     Map<String, dynamic>? meta,
     Map<String, dynamic>? data,
     Map<String, dynamic>? items,
+    /// Display name of [userId], populated only for folders returned by
+    /// `GET /api/v1/folders/shared` (folders owned by another user and
+    /// shared with the current one). Null for the current user's own
+    /// folders.
+    String? ownerName,
+    /// `'read'` or `'write'` — the current user's access grant on a folder
+    /// shared with them. Null for the current user's own folders. Content
+    /// inside another user's chats is always read-only regardless of this
+    /// value: folder "write" access only governs moving/organizing chats
+    /// within the folder tree, not editing chat content someone else owns.
+    String? sharedPermission,
   }) = _Folder;
 
   factory Folder.fromJson(Map<String, dynamic> json) {
@@ -89,6 +100,8 @@ sealed class Folder with _$Folder {
       meta: json['meta'] as Map<String, dynamic>?,
       data: json['data'] as Map<String, dynamic>?,
       items: json['items'] as Map<String, dynamic>?,
+      ownerName: json['owner_name'] as String?,
+      sharedPermission: json['permission'] as String?,
     );
   }
 }

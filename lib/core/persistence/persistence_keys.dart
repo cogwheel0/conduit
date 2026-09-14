@@ -109,6 +109,7 @@ final class PreferenceKeys {
   // Drawer section collapsed states
   static const String drawerShowPinned = 'drawer_show_pinned';
   static const String drawerShowFolders = 'drawer_show_folders';
+  static const String drawerShowSharedFolders = 'drawer_show_shared_folders';
   static const String drawerShowRecent = 'drawer_show_recent';
 
   /// Notes sidebar tab section visibility (separate from [drawerShowPinned] /
