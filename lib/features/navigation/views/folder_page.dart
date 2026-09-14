@@ -176,7 +176,9 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       menuItems: menuItems,
       onMenuSelected: onMenuSelected,
     );
-    final nativeMenuAction = folder == null
+    // Edit Folder / System Prompt are owner operations (mirrors the Flutter
+    // toolbar guard above).
+    final nativeMenuAction = folder == null || folder.shared
         ? null
         : buildConduitNativeToolbarMenuAction<String>(
             iosSymbol: 'ellipsis',
@@ -192,12 +194,14 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         tintColor: isTemporary ? Colors.blue : tintColor,
         onPressed: _toggleTemporaryChat,
       ),
-      ConduitNativeToolbarAction(
-        iosSymbol: 'square.and.pencil',
-        accessibilityLabel: l10n.newChat,
-        tintColor: tintColor,
-        onPressed: _handleNewChat,
-      ),
+      // A read-grant shared folder cannot receive new chats.
+      if (folder == null || folder.canWrite)
+        ConduitNativeToolbarAction(
+          iosSymbol: 'square.and.pencil',
+          accessibilityLabel: l10n.newChat,
+          tintColor: tintColor,
+          onPressed: _handleNewChat,
+        ),
       ?nativeMenuAction,
     ];
     final useNativeActionGroup =
