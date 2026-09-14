@@ -5974,6 +5974,20 @@
     "description": "Title of the Hermes Agent option on the backend chooser."
   },
   "backendChooserHermesSubtitle": "Połącz samodzielnie hostowanego agenta Hermes.",
+  "backendChooserDeepSeekTitle": "DeepSeek Harness",
+  "backendChooserDeepSeekSubtitle": "Connect a self-hosted DeepSeek harness.",
+  "deepseekAgentSettingsTitle": "DeepSeek Harness",
+  "deepseekAgentSettingsSubtitle": "Self-hosted DeepSeek harness",
+  "deepseekEnableTitle": "Enable DeepSeek Harness",
+  "deepseekEnableSubtitle": "Connection settings for your self-hosted DeepSeek harness.",
+  "deepseekConnectionDetailsTitle": "Connection details",
+  "deepseekServerUrlTitle": "Server URL",
+  "deepseekTrustedHostTitle": "Trusted host",
+  "deepseekTrustedHostDescription": "Host or host:port the server should trust when it runs off loopback. Leave empty for loopback-only.",
+  "deepseekProbeTitle": "Connection status",
+  "deepseekProbeIdle": "Not checked yet",
+  "deepseekProbeInvalid": "The server responded, but it is not a DeepSeek harness.",
+  "deepseekConnectAction": "Connect DeepSeek",
   "@backendChooserHermesSubtitle": {
     "description": "Description of the Hermes Agent option on the backend chooser."
   },

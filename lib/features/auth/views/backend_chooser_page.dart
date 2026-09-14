@@ -105,6 +105,15 @@ class BackendChooserPage extends ConsumerWidget {
                 trailing: _chooserChevron(context),
                 onTap: () => context.go(Routes.hermesSettings, extra: true),
               ),
+              UtilitySelectionRow(
+                leading: const _DeepSeekLogo(),
+                title: l10n.backendChooserDeepSeekTitle,
+                subtitle: l10n.backendChooserDeepSeekSubtitle,
+                selected: false,
+                showSelectionIndicator: false,
+                trailing: _chooserChevron(context),
+                onTap: () => context.go(Routes.deepseekSettings, extra: true),
+              ),
             ],
           ),
           if (appleRows.isNotEmpty) ...[
@@ -259,6 +268,34 @@ class _ProviderLogo extends StatelessWidget {
         colorBlendMode: BlendMode.srcIn,
         filterQuality: FilterQuality.medium,
         excludeFromSemantics: true,
+      ),
+    );
+  }
+}
+
+/// Neutral stand-in for a DeepSeek brand mark: no brand asset ships with the
+/// repo, so the chooser renders a tinted built-in icon (same treatment as the
+/// direct-connection row) rather than a logo.
+class _DeepSeekLogo extends StatelessWidget {
+  const _DeepSeekLogo();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+
+    return Container(
+      width: _providerLogoSize,
+      height: _providerLogoSize,
+      decoration: BoxDecoration(
+        color: theme.buttonPrimary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppBorderRadius.md),
+      ),
+      child: Icon(
+        context.usesCupertinoChrome
+            ? CupertinoIcons.square_stack_3d_up
+            : Icons.cached_rounded,
+        color: theme.buttonPrimary,
+        size: IconSize.medium,
       ),
     );
   }

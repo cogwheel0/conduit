@@ -162,6 +162,8 @@ class _ReleaseNotesCoordinatorState
             true,
       PreferredBackend.hermes =>
         PreferencesStore.getBool(PreferenceKeys.hermesEnabled) == true,
+      PreferredBackend.deepseek =>
+        PreferencesStore.getBool(PreferenceKeys.deepseekEnabled) == true,
       PreferredBackend.unset || PreferredBackend.owui => false,
     };
   }

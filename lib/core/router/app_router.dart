@@ -38,6 +38,8 @@ import '../../features/profile/views/audio_settings_page.dart';
 import '../../features/hermes/views/hermes_settings_page.dart';
 import '../../features/hermes/views/hermes_jobs_page.dart';
 import '../../features/hermes/views/hermes_mcp_page.dart';
+import '../../features/deepseek/providers/deepseek_providers.dart';
+import '../../features/deepseek/views/deepseek_settings_page.dart';
 import '../../features/profile/views/personalization_page.dart';
 import '../../features/profile/views/profile_page.dart';
 import '../../features/notifications/views/notification_settings_page.dart';
@@ -71,6 +73,7 @@ bool _isAccountlessBackendLocation(String location) {
       isDirectConnectionsLocation(location) ||
       location == Routes.hermesSettings ||
       location == Routes.hermesJobs ||
+      location == Routes.deepseekSettings ||
       location == Routes.about;
 }
 
@@ -152,6 +155,9 @@ class RouterNotifier extends ChangeNotifier {
     final hermesUsable = hermesConfig.isUsable;
     final hermesSecretsLoading = ref.read(hermesSecretsLoadingProvider);
     final prefersHermes = preferredBackend == PreferredBackend.hermes;
+    final prefersDeepseek = preferredBackend == PreferredBackend.deepseek;
+    final deepseekConfig = ref.read(deepseekConfigProvider);
+    final deepseekUsable = deepseekConfig.isUsable;
     final prefersDirect = preferredBackend == PreferredBackend.direct;
     final directProfiles = ref.read(effectiveDirectConnectionProfilesProvider);
     final directProfilesLoading = directProfiles.isLoading;
@@ -160,10 +166,13 @@ class RouterNotifier extends ChangeNotifier {
         !directProfiles.hasError &&
         (directProfiles.value?.any((profile) => profile.isUsable) ?? false);
     final usesAccountlessPrimaryBackend =
-        (prefersDirect && directUsable) || (prefersHermes && hermesUsable);
+        (prefersDirect && directUsable) ||
+        (prefersHermes && hermesUsable) ||
+        (prefersDeepseek && deepseekUsable);
     final isLocalBackendSetup =
         location == Routes.backendChooser ||
         location == Routes.hermesSettings ||
+        location == Routes.deepseekSettings ||
         isDirectConnectionsLocation(location);
 
     // A stale optional Open WebUI credential must not block local-backend
@@ -690,6 +699,14 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.hermesMcp,
       pageBuilder: (context, state) =>
           _buildPlatformPage(state: state, child: const HermesMcpPage()),
+    ),
+    GoRoute(
+      path: Routes.deepseekSettings,
+      name: RouteNames.deepseekSettings,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: DeepSeekSettingsPage(isOnboarding: state.extra == true),
+      ),
     ),
     GoRoute(
       path: Routes.about,
