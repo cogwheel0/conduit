@@ -109,13 +109,14 @@ void main() {
       });
       // Deep copy so shared nested lists and part maps cannot mask an
       // in-place mutation.
-      final snapshot = jsonDecode(jsonEncode(original));
+      final snapshot = jsonDecode(jsonEncode(original)) as List<Object?>;
       applyOpenWebUIResponseStreamEvent(original, {
         'type': 'response.output_text.delta',
         'output_index': 0,
         'delta': 'b',
       });
-      check(jsonDecode(jsonEncode(original))).deepEquals(snapshot);
+      check(jsonDecode(jsonEncode(original)) as List<Object?>)
+          .deepEquals(snapshot);
     });
   });
 }
