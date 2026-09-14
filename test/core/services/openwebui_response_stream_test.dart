@@ -225,19 +225,27 @@ void main() {
           .isNotNull();
     });
 
-    test('derives a duration from ended_at and the message timestamp', () {
-      final items = <Map<String, dynamic>>[
-        {'type': 'reasoning', 'id': 'rs_1', 'ended_at': 1700000010.4},
-        {'type': 'message', 'id': 'msg_1', 'content': []},
-      ];
-      final derived = deriveOpenWebUIReasoningTiming(
-        items,
-        fallbackStartedAt: 1700000000,
-      );
-      check(derived.first['duration']).equals(10);
-      check(items.first['duration']).isNull();
-      check(deriveOpenWebUIReasoningTiming(items, fallbackStartedAt: null))
-          .identicalTo(items);
+    test('terminal failure and incomplete events still apply their output', () {
+      final failed = applyOpenWebUIResponseStreamEvent(const [], {
+        'type': 'response.failed',
+        'response': {
+          'error': {'message': 'rate limited'},
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': 'partial'},
+              ],
+            },
+          ],
+        },
+      });
+      check((failed.single['content'] as List).single['text'])
+          .equals('partial');
+      check(openWebUIResponseStreamEventTouchesOutput('response.failed'))
+          .isTrue();
+      check(openWebUIResponseStreamEventIsStructural('response.incomplete'))
+          .isTrue();
     });
 
     test('does not mutate the input list', () {

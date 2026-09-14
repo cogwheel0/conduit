@@ -185,7 +185,9 @@ Iterable<OpenWebUIStreamUpdate> parseOpenWebUIParsedPayload(
   final frameType = parsed['type'];
   if (frameType is String && frameType.startsWith('response.')) {
     yield OpenWebUIResponseStreamEvent(parsed);
-    if (frameType == 'response.completed') {
+    if (frameType == 'response.completed' ||
+        frameType == 'response.failed' ||
+        frameType == 'response.incomplete') {
       final response = parsed['response'];
       final usage = response is Map ? response['usage'] : null;
       if (usage is Map && usage.isNotEmpty) {

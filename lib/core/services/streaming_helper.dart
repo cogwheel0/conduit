@@ -1430,6 +1430,25 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }) {
     final eventType = event['type']?.toString() ?? '';
     if (!openWebUIResponseStreamEventTouchesOutput(eventType)) return;
+    if (eventType == 'response.failed') {
+      // Terminal failure: keep whatever output landed, then surface the
+      // error so a trailing [DONE] cannot finish the turn as a success.
+      final response = event['response'];
+      final error = response is Map ? response['error'] : null;
+      final message = error is Map
+          ? error['message']?.toString()
+          : error?.toString();
+      applyAssistantServerPatch(
+        targetId: targetId,
+        buildPatch: (_) => _AssistantServerPatch(
+          error: ChatMessageError(
+            content: message == null || message.trim().isEmpty
+                ? 'The response failed.'
+                : message,
+          ),
+        ),
+      );
+    }
     latestResponseOutputItems = applyOpenWebUIResponseStreamEvent(
       latestResponseOutputItems,
       event,
@@ -1862,18 +1881,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       if (content.trim().isEmpty) {
         final rawOutput = serverMsg['output'];
         if (rawOutput is List && rawOutput.isNotEmpty) {
-          final serverTimestamp = serverMsg['timestamp'];
           final outputBlocks = parseOpenWebUIStructuredOutput(
-            deriveOpenWebUIReasoningTiming(
-              mergeOpenWebUIReasoningTiming(
-                latestResponseOutputItems,
-                _normalizeJsonMapList(rawOutput),
-              ),
-              fallbackStartedAt: serverTimestamp is num
-                  ? (serverTimestamp > 1000000000000
-                        ? serverTimestamp / 1000
-                        : serverTimestamp)
-                  : null,
+            mergeOpenWebUIReasoningTiming(
+              latestResponseOutputItems,
+              _normalizeJsonMapList(rawOutput),
             ),
           );
           if (outputBlocks.isNotEmpty) {

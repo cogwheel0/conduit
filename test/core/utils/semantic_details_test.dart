@@ -95,6 +95,15 @@ void main() {
           .isFalse();
     });
 
+    test('ignores data-* attributes that merely contain the names', () {
+      const localData =
+          '<details data-type="reasoning" data-duration="9">\n'
+          '<summary>Note</summary>\nwhy\n</details>\nAnswer';
+      check(serverBodyDropsLocalReasoningTiming(localData, serverNoTiming))
+          .isFalse();
+      check(containsRenderedSemanticDetails(localData)).isFalse();
+    });
+
     test('does not apply when the server dropped the block entirely', () {
       check(serverBodyDropsLocalReasoningTiming(local, 'Answer')).isFalse();
     });

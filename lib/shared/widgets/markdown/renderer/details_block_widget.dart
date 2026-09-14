@@ -702,10 +702,10 @@ ReasoningHeader resolveReasoningHeader(CompiledMarkdownDetailsData data) {
       summaryLower == 'thinking…' ||
       summaryLower == 'thinking...' ||
       summaryLower.startsWith('thinking');
-  final hasDurationInSummary = RegExp(
-    r'\(\d+s\)|\bfor \d+ seconds?\b',
+  final summaryDuration = RegExp(
+    r'\((\d+)s\)|\bfor (\d+) seconds?\b',
     caseSensitive: false,
-  ).hasMatch(summary);
+  ).firstMatch(summary);
 
   if (!data.isDone) {
     return summary.isNotEmpty && !isThinkingSummary
@@ -713,8 +713,15 @@ ReasoningHeader resolveReasoningHeader(CompiledMarkdownDetailsData data) {
         : const ReasoningHeaderThinking();
   }
 
-  if (data.hasDuration || hasDurationInSummary) {
+  if (data.hasDuration) {
     return ReasoningHeaderThoughtFor(data.durationSeconds);
+  }
+  if (summaryDuration != null) {
+    // Legacy content carried the timing only in its summary text.
+    final seconds = int.tryParse(
+      summaryDuration.group(1) ?? summaryDuration.group(2) ?? '',
+    );
+    return ReasoningHeaderThoughtFor(seconds ?? data.durationSeconds);
   }
 
   // Done without any timing: upstream would keep reading "Thinking…", which

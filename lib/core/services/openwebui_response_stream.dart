@@ -14,7 +14,9 @@ List<Map<String, dynamic>> applyOpenWebUIResponseStreamEvent(
   final eventType = event['type']?.toString() ?? '';
   if (!eventType.startsWith('response.')) return output;
 
-  if (eventType == 'response.completed') {
+  if (_isTerminalResponseEvent(eventType)) {
+    // completed, failed, and incomplete all carry the final output list; the
+    // consumer reports failure, the output still replaces the local list.
     final response = event['response'];
     final completed = response is Map ? response['output'] : null;
     return completed is List
@@ -157,7 +159,7 @@ List<Map<String, dynamic>> applyOpenWebUIResponseStreamEvent(
 /// Whether an event type mutates the accumulated output list at all. Marker
 /// events such as `response.created` are ignored.
 bool openWebUIResponseStreamEventTouchesOutput(String eventType) =>
-    eventType == 'response.completed' ||
+    _isTerminalResponseEvent(eventType) ||
     eventType == 'response.output_item.added' ||
     eventType == 'response.output_item.done' ||
     _updatesOutputItem(eventType);
@@ -165,10 +167,15 @@ bool openWebUIResponseStreamEventTouchesOutput(String eventType) =>
 /// Structural transitions worth persisting immediately, as opposed to
 /// per-token deltas that only need the visible projection.
 bool openWebUIResponseStreamEventIsStructural(String eventType) =>
-    eventType == 'response.completed' ||
+    _isTerminalResponseEvent(eventType) ||
     eventType == 'response.output_item.added' ||
     eventType == 'response.output_item.done' ||
     eventType.endsWith('.done');
+
+bool _isTerminalResponseEvent(String eventType) =>
+    eventType == 'response.completed' ||
+    eventType == 'response.failed' ||
+    eventType == 'response.incomplete';
 
 bool _updatesOutputItem(String eventType) =>
     eventType == 'response.content_part.added' ||
@@ -363,38 +370,4 @@ Map<String, dynamic> _withPreservedTiming(
     }
   }
   return replacement;
-}
-
-/// Derives a reasoning duration for persisted items that carry `ended_at`
-/// but no `duration`. Open WebUI stamps `ended_at` for provider-owned
-/// reasoning items but never `started_at`, so the assistant message's own
-/// creation time is the closest available start. Items are cloned; the
-/// input is untouched.
-List<Map<String, dynamic>> deriveOpenWebUIReasoningTiming(
-  List<Map<String, dynamic>> items, {
-  num? fallbackStartedAt,
-}) {
-  var changed = false;
-  final derived = <Map<String, dynamic>>[];
-  for (final item in items) {
-    if (item['type'] != 'reasoning' || item['duration'] != null) {
-      derived.add(item);
-      continue;
-    }
-    final end = item['ended_at'];
-    final start = item['started_at'] is num
-        ? item['started_at'] as num
-        : fallbackStartedAt;
-    if (end is! num || start == null) {
-      derived.add(item);
-      continue;
-    }
-    final elapsed = (end - start).floor();
-    derived.add(<String, dynamic>{
-      ...item,
-      'duration': elapsed < 0 ? 0 : elapsed,
-    });
-    changed = true;
-  }
-  return changed ? derived : items;
 }

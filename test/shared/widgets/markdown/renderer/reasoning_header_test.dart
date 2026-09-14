@@ -68,11 +68,13 @@ void main() {
     });
 
     test('legacy summary text carrying a duration is honored', () {
+      // The compiler reports zero seconds when the attribute is absent; the
+      // number in the summary is the only timing available.
       check(
             resolveReasoningHeader(
               _reasoning(
                 isDone: true,
-                duration: 4,
+                duration: 0,
                 hasDuration: false,
                 summary: 'Thought for 4 seconds',
               ),
@@ -81,6 +83,19 @@ void main() {
           .isA<ReasoningHeaderThoughtFor>()
           .has((h) => h.seconds, 'seconds')
           .equals(4);
+      check(
+            resolveReasoningHeader(
+              _reasoning(
+                isDone: true,
+                duration: 0,
+                hasDuration: false,
+                summary: 'Reasoning (12s)',
+              ),
+            ),
+          )
+          .isA<ReasoningHeaderThoughtFor>()
+          .has((h) => h.seconds, 'seconds')
+          .equals(12);
     });
 
     test('custom summaries win once done', () {
