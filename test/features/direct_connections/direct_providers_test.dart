@@ -8,6 +8,8 @@ import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/secure_credential_storage.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
+import 'package:conduit/features/direct_connections/services/apple_pcc_adapter.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
@@ -33,6 +35,33 @@ void main() {
   });
 
   tearDown(PreferencesStore.debugReset);
+
+  group('Apple model status off iOS', () {
+    ProviderContainer buildContainer() {
+      final container = ProviderContainer(
+        overrides: [
+          applePccPlatformSupportedProvider.overrideWithValue(false),
+          applePccAdapterProvider.overrideWithValue(
+            ApplePccAdapter(hostApi: _UnreachablePccHost()),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      return container;
+    }
+
+    test('reports unsupported without probing the platform channel', () async {
+      final container = buildContainer();
+
+      final onDevice = await container.read(appleOnDeviceStatusProvider.future);
+      final pcc = await container.read(applePccStatusProvider.future);
+
+      check(onDevice.availability).equals(PlatformPccAvailability.unsupported);
+      check(pcc.availability).equals(PlatformPccAvailability.unsupported);
+      check(onDevice.quotaLimitReached).isFalse();
+      check(pcc.quotaLimitReached).isFalse();
+    });
+  });
 
   test('history policy defaults to sync and persists local-only', () async {
     final container = ProviderContainer();
@@ -2242,4 +2271,12 @@ final class _FailingReloadSecureStorage implements FlutterSecureStorage {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// Fails loudly if a status probe reaches the platform channel where Apple
+/// models cannot exist.
+final class _UnreachablePccHost extends PccHostApi {
+  @override
+  Future<PlatformPccStatus> getStatus(PlatformAppleModel model) =>
+      throw StateError('Apple status probed on an unsupported platform');
 }

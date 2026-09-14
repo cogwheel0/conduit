@@ -11,6 +11,7 @@ import 'package:conduit/features/auth/views/server_connection_page.dart';
 import 'package:conduit/features/direct_connections/views/direct_connection_editor_page.dart';
 import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_draft.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit/features/direct_connections/services/apple_pcc_adapter.dart';
 import 'package:conduit/features/direct_connections/views/direct_connections_page.dart';
 import 'package:conduit/features/hermes/views/hermes_settings_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -181,6 +182,12 @@ class BackendOnboardingHarness {
     return ProviderScope(
       overrides: [
         secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+        // The host test platform is never iOS; keep the Apple rows reachable so
+        // onboarding coverage still exercises them.
+        applePccPlatformSupportedProvider.overrideWithValue(true),
+        applePccAdapterProvider.overrideWithValue(
+          ApplePccAdapter(hostApi: _AvailablePccHost()),
+        ),
         appleOnDeviceStatusProvider.overrideWith(
           (_) async => _unavailableAppleStatus(),
         ),
@@ -208,6 +215,19 @@ class BackendOnboardingHarness {
     PlatformUiCapabilities.debugPlatformOverride = null;
     router.dispose();
   }
+}
+
+/// Answers status probes instantly so Apple discovery never leaves a pending
+/// platform-channel timer behind in widget tests.
+final class _AvailablePccHost extends PccHostApi {
+  @override
+  Future<PlatformPccStatus> getStatus(PlatformAppleModel model) async =>
+      PlatformPccStatus(
+        availability: PlatformPccAvailability.available,
+        quotaStatus: PlatformPccQuotaStatus.belowLimit,
+        quotaLimitReached: false,
+        canIncreaseQuota: false,
+      );
 }
 
 Future<void> initializeBackendOnboardingStorage() async {

@@ -91,6 +91,18 @@ final class OpenWebUIErrorUpdate extends OpenWebUIStreamUpdate {
 }
 
 /// The stream has completed ([DONE] received or stream ended).
+/// One OpenAI Responses-style stream event (`response.output_text.delta`,
+/// `response.reasoning_summary_text.delta`, `response.output_item.added`, …)
+/// relayed unchanged on the SSE path when the upstream provider speaks the
+/// Responses API. The consumer folds these onto its output item list.
+final class OpenWebUIResponseStreamEvent extends OpenWebUIStreamUpdate {
+  const OpenWebUIResponseStreamEvent(this.event);
+
+  final Map<String, dynamic> event;
+
+  String get type => event['type']?.toString() ?? '';
+}
+
 final class OpenWebUIStreamDone extends OpenWebUIStreamUpdate {
   const OpenWebUIStreamDone();
 }
@@ -170,6 +182,21 @@ Iterable<OpenWebUIStreamUpdate> parseOpenWebUIParsedPayload(
     return;
   }
 
+  final frameType = parsed['type'];
+  if (frameType is String && frameType.startsWith('response.')) {
+    yield OpenWebUIResponseStreamEvent(parsed);
+    if (frameType == 'response.completed' ||
+        frameType == 'response.failed' ||
+        frameType == 'response.incomplete') {
+      final response = parsed['response'];
+      final usage = response is Map ? response['usage'] : null;
+      if (usage is Map && usage.isNotEmpty) {
+        yield OpenWebUIUsageUpdate(usage.cast<String, dynamic>());
+      }
+    }
+    return;
+  }
+
   final directEvent = _eventUpdateFromMap(parsed);
   if (directEvent != null) {
     yield directEvent;
@@ -205,7 +232,7 @@ Iterable<OpenWebUIStreamUpdate> parseOpenWebUIParsedPayload(
       final delta = firstChoice['delta'];
       if (delta is Map<String, dynamic>) {
         // Reasoning/thinking content (chain-of-thought tokens).
-        final reasoning = delta['reasoning_content']?.toString() ?? '';
+        final reasoning = openWebUIStreamingReasoningDelta(delta);
         if (reasoning.isNotEmpty) {
           yield OpenWebUIReasoningDelta(reasoning);
         }
@@ -238,4 +265,20 @@ OpenWebUIEventUpdate? _eventUpdateFromMap(Map<dynamic, dynamic> raw) {
               return map;
             });
   return OpenWebUIEventUpdate(type: type, data: data);
+}
+
+/// Reads a streamed reasoning fragment from an OpenAI-style delta.
+///
+/// Open WebUI passes provider chunks through unchanged on the SSE path, so the
+/// key depends on the upstream: llama.cpp and vLLM use `reasoning_content`,
+/// OpenRouter and Vercel-style gateways use `reasoning`, and Ollama uses
+/// `thinking`. Upstream's middleware accepts the same three keys.
+String openWebUIStreamingReasoningDelta(Map<dynamic, dynamic> delta) {
+  for (final key in const ['reasoning_content', 'reasoning', 'thinking']) {
+    final value = delta[key];
+    if (value == null) continue;
+    final text = value is String ? value : value.toString();
+    if (text.isNotEmpty) return text;
+  }
+  return '';
 }

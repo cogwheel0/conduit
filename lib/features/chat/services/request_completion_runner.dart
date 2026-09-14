@@ -65,6 +65,17 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
   Future<void> run({
     required String chatId,
     required Map<String, dynamic> payload,
+  }) {
+    final releaseGeneration = holdLocalChatGeneration(_ref);
+    return _run(
+      chatId: chatId,
+      payload: payload,
+    ).whenComplete(releaseGeneration);
+  }
+
+  Future<void> _run({
+    required String chatId,
+    required Map<String, dynamic> payload,
   }) async {
     final decoded = RequestCompletionPayload.fromJson(payload);
     final assistantMessageId = decoded.assistantMessageId;

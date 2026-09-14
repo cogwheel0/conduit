@@ -92,11 +92,16 @@ List<StructuredOutputBlock> parseOpenWebUIStructuredOutput(
         }
       case 'reasoning':
         final text = _reasoningTextFromOutputItem(item);
-        if (text.trim().isNotEmpty) {
+        final done = _isReasoningDone(item, index, output.length);
+        // Responses-API providers add the reasoning item as soon as thinking
+        // starts and only fill its summary at the end, so a pending item is
+        // shown as "Thinking…" even while it has no text yet, matching the
+        // upstream client. Finished items without any text stay hidden.
+        if (text.trim().isNotEmpty || !done) {
           blocks.add(
             StructuredOutputReasoningBlock(
               text: text,
-              done: _isReasoningDone(item, index, output.length),
+              done: done,
               duration: item['duration']?.toString(),
             ),
           );
@@ -206,13 +211,15 @@ String _textFromOutputParts(List<dynamic> sourceList) {
   return reasoningParts.join('\n');
 }
 
+/// Mirrors upstream `buildReasoningToken`: a reasoning item that is followed
+/// by another item is finished even when its status still reads
+/// `in_progress`. Per-token `response:completion` streams never send the
+/// status flip, so the answer item appearing after it is the only signal.
 bool _isReasoningDone(Map<String, dynamic> item, int index, int outputLength) {
   final status = item['status']?.toString();
   final hasDuration = item['duration'] != null;
   final isLastItem = index == outputLength - 1;
-  return _isDoneStatus(status) ||
-      hasDuration ||
-      (status == null && !isLastItem);
+  return _isDoneStatus(status) || hasDuration || !isLastItem;
 }
 
 bool _isCodeInterpreterDone(

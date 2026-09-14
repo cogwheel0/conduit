@@ -475,6 +475,32 @@ void main() {
       },
     );
 
+    test('records whether a reasoning block carried a duration', () {
+      final withDuration = compilePreparedMarkdownSync(
+        '<details type="reasoning" done="true" duration="3">\n'
+        '<summary>Thought for 3 seconds</summary>\n'
+        '&gt; why\n</details>',
+      );
+      final withoutDuration = compilePreparedMarkdownSync(
+        '<details type="reasoning" done="true">\n'
+        '<summary>Thinking…</summary>\n'
+        '&gt; why\n</details>',
+      );
+
+      final first =
+          (withDuration.nodes.first as CompiledMarkdownElement).detailsData!;
+      final second =
+          (withoutDuration.nodes.first as CompiledMarkdownElement).detailsData!;
+      expect(first.hasDuration, isTrue);
+      expect(first.durationSeconds, 3);
+      expect(second.hasDuration, isFalse);
+      expect(second.durationSeconds, 0);
+      expect(
+        CompiledMarkdownDetailsData.fromMap(first.toMap()).hasDuration,
+        isTrue,
+      );
+    });
+
     test('compiles semantic tool call detail payloads', () {
       final document = compilePreparedMarkdownSync(
         [

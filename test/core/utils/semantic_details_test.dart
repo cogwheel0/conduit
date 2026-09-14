@@ -66,6 +66,90 @@ void main() {
     });
   });
 
+  group('serverBodyDropsLocalReasoningTiming', () {
+    const local =
+        '<details type="reasoning" done="true" duration="9">\n'
+        '<summary>Thought for 9 seconds</summary>\n&gt; why\n</details>\n'
+        'Answer';
+    const serverNoTiming =
+        '<details type="reasoning" done="true">\n'
+        '<summary>Thinking…</summary>\n&gt; why\n</details>\n'
+        'Answer';
+    const serverWithTiming =
+        '<details type="reasoning" done="true" duration="11">\n'
+        '<summary>Thought for 11 seconds</summary>\n&gt; why\n</details>\n'
+        'Answer';
+
+    test('keeps local timing when the server copy has none', () {
+      check(serverBodyDropsLocalReasoningTiming(local, serverNoTiming))
+          .isTrue();
+    });
+
+    test('lets a server duration win', () {
+      check(serverBodyDropsLocalReasoningTiming(local, serverWithTiming))
+          .isFalse();
+    });
+
+    test('does not apply when the answers differ', () {
+      check(serverBodyDropsLocalReasoningTiming(local, '$serverNoTiming more'))
+          .isFalse();
+    });
+
+    test('ignores qualified attributes that merely end in the names', () {
+      for (final prefix in const ['data-', 'data:', 'data.']) {
+        final localData =
+            '<details ${prefix}type="reasoning" ${prefix}duration="9">\n'
+            '<summary>Note</summary>\nwhy\n</details>\nAnswer';
+        check(
+          serverBodyDropsLocalReasoningTiming(localData, serverNoTiming),
+          because: prefix,
+        ).isFalse();
+        check(
+          containsRenderedSemanticDetails(localData),
+          because: prefix,
+        ).isFalse();
+      }
+    });
+
+    test('ignores semantic-looking text inside quoted values', () {
+      const spoofed =
+          '<details title=\' type="reasoning" duration="9"\'>\n'
+          '<summary>Extra</summary>\nnotes\n</details>\nAnswer';
+      check(containsRenderedSemanticDetails(spoofed)).isFalse();
+      check(stripRenderedSemanticDetails(spoofed)).equals(spoofed);
+      check(dropUnterminatedSemanticDetails(spoofed)).equals(spoofed);
+      check(serverBodyDropsLocalReasoningTiming(spoofed, serverNoTiming))
+          .isFalse();
+
+      // A literal opener inside a quoted value must not be re-parsed after
+      // the real opener has been consumed.
+      const nested =
+          '<details title="<details type=\'reasoning\' duration=\'4\'>">\n'
+          '<summary>Extra</summary>\nnotes\n</details>\nAnswer';
+      check(containsRenderedSemanticDetails(nested)).isFalse();
+      check(stripRenderedSemanticDetails(nested)).equals(nested);
+      check(serverBodyDropsLocalReasoningTiming(nested, serverNoTiming))
+          .isFalse();
+    });
+
+    test(
+      'reads attributes past a quoted value containing a closing bracket',
+      () {
+        const tricky =
+            '<details name="a > b" type="reasoning" done="true" duration="3">\n'
+            '<summary>Thought for 3 seconds</summary>\nwhy\n</details>\nAnswer';
+        check(containsRenderedSemanticDetails(tricky)).isTrue();
+        check(stripRenderedSemanticDetails(tricky)).equals('Answer');
+        check(serverBodyDropsLocalReasoningTiming(tricky, serverNoTiming))
+            .isTrue();
+      },
+    );
+
+    test('does not apply when the server dropped the block entirely', () {
+      check(serverBodyDropsLocalReasoningTiming(local, 'Answer')).isFalse();
+    });
+  });
+
   group('stripDetailsForSpeech', () {
     test('removes a complete semantic block', () {
       final result = stripDetailsForSpeech(

@@ -23,6 +23,7 @@ import '../utils/debug_logger.dart';
 import '../utils/embed_utils.dart';
 import '../utils/openwebui_source_parser.dart';
 import '../utils/semantic_details.dart';
+import 'openwebui_response_stream.dart';
 import 'openwebui_stream_parser.dart';
 import 'performance_profiler.dart';
 import 'semantic_message_builder.dart';
@@ -859,17 +860,31 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   );
   var renderedFromStructuredOutput = false;
   final structuredOutputProjector = StructuredOutputStreamingProjector();
+  // Accumulated Open WebUI `output` items rebuilt from `response:completion`
+  // events; a `chat:completion` snapshot always supersedes it.
+  var latestResponseOutputItems = <Map<String, dynamic>>[];
   var structuredProjectionIsVisible = false;
   var structuredOutputIsLatest = false;
   var hasInjectedSemanticDetails = false;
   final seenStreamingToolCallKeys = <String>{};
   var structuredOutputProfileFinished = false;
   var inReasoningBlock = false;
+  DateTime? reasoningStartedAt;
   var reasoningPrefix = '';
   var reasoningContent = _StreamingTextAccumulator();
 
+  /// Whole seconds since the first reasoning delta, matching the server's
+  /// `int(ended_at - started_at)` for the same block.
+  int elapsedReasoningSeconds() {
+    final startedAt = reasoningStartedAt;
+    if (startedAt == null) return 0;
+    final elapsed = DateTime.now().difference(startedAt).inSeconds;
+    return elapsed < 0 ? 0 : elapsed;
+  }
+
   void resetStreamingReasoning() {
     inReasoningBlock = false;
+    reasoningStartedAt = null;
     reasoningPrefix = '';
     // Use a fresh accumulator so a deferred visible snapshot can safely retain
     // the completed generation until the notifier either realizes or replaces
@@ -1140,10 +1155,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     );
   }
 
-  void finalizeStreamingReasoning({
-    int duration = 0,
-    bool updateImages = false,
-  }) {
+  void finalizeStreamingReasoning({int? duration, bool updateImages = false}) {
     if (!inReasoningBlock) {
       if (updateImages) {
         updateImagesFromCurrentContent();
@@ -1157,7 +1169,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         _buildStreamingReasoningDetails(
           reasoningContent.value,
           done: true,
-          duration: duration,
+          duration: duration ?? elapsedReasoningSeconds(),
         ),
       ),
     );
@@ -1257,6 +1269,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               _buildStreamingReasoningDetails(
                 reasoningContent.value,
                 done: true,
+                duration: elapsedReasoningSeconds(),
               ),
             ) +
             chunk,
@@ -1288,6 +1301,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (!inReasoningBlock) {
       syncRenderedStreamingContentFromState();
       inReasoningBlock = true;
+      reasoningStartedAt = DateTime.now();
       reasoningPrefix = renderedStreamingContent.value;
       reasoningContent = _StreamingTextAccumulator();
     }
@@ -1319,7 +1333,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }
 
   void handleStreamingChoiceDelta(Map<dynamic, dynamic> delta) {
-    final reasoning = delta['reasoning_content']?.toString() ?? '';
+    final reasoning = openWebUIStreamingReasoningDelta(delta);
     if (reasoning.isNotEmpty) {
       applyStreamingReasoningDelta(reasoning);
     }
@@ -1406,6 +1420,65 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   })
   applyAssistantServerPatch;
 
+  /// Folds one Responses-style event onto the locally rebuilt output list and
+  /// projects it through the same structured-output path a cumulative
+  /// `output` snapshot takes. Shared by the `response:completion` socket
+  /// event and by SSE frames from providers that speak the Responses API.
+  void applyResponseStreamEvent(
+    Map<dynamic, dynamic> event, {
+    required String targetId,
+  }) {
+    final eventType = event['type']?.toString() ?? '';
+    if (!openWebUIResponseStreamEventTouchesOutput(eventType)) return;
+    if (eventType == 'response.failed' || eventType == 'response.incomplete') {
+      // Terminal failure or cut-off: keep whatever output landed, then
+      // surface the state so a trailing [DONE] cannot finish the turn as a
+      // clean success.
+      final response = event['response'];
+      final String? message;
+      if (eventType == 'response.failed') {
+        final error = response is Map ? response['error'] : null;
+        final text = error is Map
+            ? error['message']?.toString()
+            : error?.toString();
+        message = text == null || text.trim().isEmpty
+            ? 'The response failed.'
+            : text;
+      } else {
+        final details = response is Map ? response['incomplete_details'] : null;
+        final reason = details is Map ? details['reason']?.toString() : null;
+        message = reason == null || reason.trim().isEmpty
+            ? 'The response stopped before it was complete.'
+            : 'The response stopped before it was complete ($reason).';
+      }
+      applyAssistantServerPatch(
+        targetId: targetId,
+        buildPatch: (_) =>
+            _AssistantServerPatch(error: ChatMessageError(content: message)),
+      );
+    }
+    latestResponseOutputItems = applyOpenWebUIResponseStreamEvent(
+      latestResponseOutputItems,
+      event,
+    );
+    final responseBlocks = parseOpenWebUIStructuredOutput(
+      latestResponseOutputItems,
+    );
+    if (responseBlocks.isNotEmpty) {
+      replaceVisibleAssistantStructuredOutput(responseBlocks);
+    }
+    if (openWebUIResponseStreamEventIsStructural(eventType) &&
+        latestResponseOutputItems.isNotEmpty) {
+      final persistedItems = List<Map<String, dynamic>>.unmodifiable(
+        latestResponseOutputItems,
+      );
+      applyAssistantServerPatch(
+        targetId: targetId,
+        buildPatch: (current) => _AssistantServerPatch(output: persistedItems),
+      );
+    }
+  }
+
   void applyParsedOpenWebUIUpdate(
     OpenWebUIStreamUpdate update, {
     required VoidCallback onDone,
@@ -1450,6 +1523,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             ),
           );
         }
+
+      case OpenWebUIResponseStreamEvent(:final event):
+        applyResponseStreamEvent(event, targetId: assistantMessageId);
 
       case OpenWebUIEventUpdate(:final type, :final data):
         final eventPayload = _asStringMap(data);
@@ -1813,7 +1889,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       if (content.trim().isEmpty) {
         final rawOutput = serverMsg['output'];
         if (rawOutput is List && rawOutput.isNotEmpty) {
-          final outputBlocks = parseOpenWebUIStructuredOutput(rawOutput);
+          final outputBlocks = parseOpenWebUIStructuredOutput(
+            mergeOpenWebUIReasoningTiming(
+              latestResponseOutputItems,
+              _normalizeJsonMapList(rawOutput),
+            ),
+          );
           if (outputBlocks.isNotEmpty) {
             content = renderStructuredOutputBlocks(outputBlocks);
           }
@@ -1982,13 +2063,20 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       comparisonSnapshot.comparisonContent,
     );
     final serverComparableBody = stripRenderedSemanticDetails(content);
+    // Equal bodies keep the local render: the server never stores timing
+    // for provider-owned reasoning items, so its equal-length copy would
+    // only strip the duration the client measured while streaming.
     final shouldAdoptContent =
         content.isNotEmpty &&
         !serverBodyDropsLocalSemanticDetails(
           comparisonSnapshot.comparisonContent,
           content,
         ) &&
-        serverComparableBody.length >= localComparableBody.length;
+        !serverBodyDropsLocalReasoningTiming(
+          comparisonSnapshot.comparisonContent,
+          content,
+        ) &&
+        serverComparableBody.length > localComparableBody.length;
     if (shouldAdoptContent) {
       DebugLogger.log(
         '$source: adopting server content (${content.length} chars)',
@@ -3161,6 +3249,22 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         return;
       }
 
+      if (type == 'response:completion' && payload is Map) {
+        // Open WebUI 0.11 streams socket-bound completions token by token as
+        // Responses-style events instead of cumulative `chat:completion`
+        // snapshots, so reasoning and text only reached the message through
+        // the final snapshot.
+        final responseTargetId = resolveTargetMessageIdForStream(
+          messageId,
+          eventType: 'response:completion',
+          incomingSessionId: incomingSessionId,
+          allowBindingForeignMessage: true,
+        );
+        if (responseTargetId == null) return;
+        applyResponseStreamEvent(payload, targetId: responseTargetId);
+        return;
+      }
+
       if (type == 'chat:completion' && payload != null) {
         if (payload is Map<String, dynamic>) {
           final completionTargetId = resolveTargetMessageIdForStream(
@@ -3175,9 +3279,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final usagePatch = usageData is Map && usageData.isNotEmpty
               ? Map<String, dynamic>.from(usageData)
               : null;
-          final normalizedOutputItems = _normalizeJsonMapList(
-            payload['output'],
-          );
+          var normalizedOutputItems = _normalizeJsonMapList(payload['output']);
+          if (normalizedOutputItems.isNotEmpty) {
+            normalizedOutputItems = mergeOpenWebUIReasoningTiming(
+              latestResponseOutputItems,
+              normalizedOutputItems,
+            );
+            latestResponseOutputItems = normalizedOutputItems;
+          }
           final outputBlocks = normalizedOutputItems.isEmpty
               ? const <StructuredOutputBlock>[]
               : parseOpenWebUIStructuredOutput(normalizedOutputItems);
