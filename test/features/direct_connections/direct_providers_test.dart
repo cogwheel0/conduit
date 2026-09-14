@@ -1638,8 +1638,11 @@ void main() {
       fence.setSuppressed(true);
 
       await controller.blockMutationsForAppDataClear();
-      controller.revokeRuntimeAfterIncompleteAppDataClear();
-      await Future<void>.delayed(Duration.zero);
+      // The coordinator still holds the preference barrier at this point; the
+      // marker must land regardless so it survives a restart.
+      await PreferencesStore.blockWritesForAppDataClear();
+      await controller.revokeRuntimeAfterIncompleteAppDataClear();
+      PreferencesStore.resumeWritesAfterAppDataClear();
 
       expect(
         container.read(directConnectionProfilesProvider).requireValue,

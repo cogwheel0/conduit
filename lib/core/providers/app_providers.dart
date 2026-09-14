@@ -211,9 +211,11 @@ final class SignOutCoordinator {
             directMcpServers.blockMutationsForAppDataClear(),
             hermesConfig.blockMutationsForAppDataClear(),
           ]);
-          directProfiles.revokeRuntimeAfterIncompleteAppDataClear();
           directMcpServers.revokeRuntimeAfterIncompleteAppDataClear();
           hermesConfig.revokeRuntimeAfterIncompleteAppDataClear();
+          // Awaited last: it persists the restart marker that keeps surviving
+          // Direct profiles hidden, and must be durable before returning.
+          await directProfiles.revokeRuntimeAfterIncompleteAppDataClear();
         case FullAppDataClearOutcome.ownershipYielded:
           resumeGlobalAdmission();
           directProfiles.resumeMutationsAfterAppDataClearAbort();

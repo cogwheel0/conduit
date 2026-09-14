@@ -872,8 +872,10 @@ class DirectConnectionProfilesController
   /// failed to remove must not come back for new completions, so the block
   /// outlives the transient preparation flag and is persisted for restarts;
   /// [build] releases it once the fence is cleared by a completed cleanup or
-  /// a new authenticated session.
-  void revokeRuntimeAfterIncompleteAppDataClear() {
+  /// a new authenticated session. The returned future completes once the
+  /// restart marker is durable, or has failed and been logged; the in-memory
+  /// block holds either way for this process.
+  Future<void> revokeRuntimeAfterIncompleteAppDataClear() async {
     if (!ref.mounted) return;
     _appDataClearBlocked = false;
     _incompleteAppDataClearBlocked = true;
@@ -889,17 +891,24 @@ class DirectConnectionProfilesController
       _cancelProfileRunsBestEffort(runRegistry, profile.id);
     }
     state = const AsyncValue.data([]);
-    // Preference writes are still barred while the clear coordinator winds
-    // down; defer the marker until the barrier lifts in its `finally`.
-    unawaited(Future<void>(_persistIncompleteAppDataClearMarker));
+    await _persistIncompleteAppDataClearMarker();
   }
 
+  /// Writes the restart marker through the app-data-clear barrier (the
+  /// coordinator still holds it) and waits for the checked write, so a process
+  /// death right after the clear cannot reload the surviving profiles.
   Future<void> _persistIncompleteAppDataClearMarker() async {
     try {
-      await PreferencesStore.put(PreferenceKeys.incompleteAppDataClear, true);
+      await PreferencesStore.putCheckedIf(
+        PreferenceKeys.incompleteAppDataClear,
+        true,
+        canWrite: () => true,
+        bypassAppDataClearBarrier: true,
+      );
     } catch (error) {
-      DebugLogger.warning(
-        'Failed to persist incomplete app-data-clear marker',
+      DebugLogger.error(
+        'Failed to persist incomplete app-data-clear marker; the block will '
+        'not survive a restart',
         scope: 'direct/profiles',
         data: {'errorType': error.runtimeType.toString()},
       );
