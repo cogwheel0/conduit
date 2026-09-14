@@ -224,6 +224,11 @@ Future<void> _expectChatListIndex(AppDatabase database) async {
       .toSet();
   check(columnNames).contains('durable_key');
   check(columnNames).contains('receipt_held');
+  final chatColumns = await database
+      .customSelect('PRAGMA table_info(chats)')
+      .get();
+  check(chatColumns.map((row) => row.read<String>('name')).toSet())
+      .contains('user_id');
   final receiptIndex = await database
       .customSelect(
         "SELECT sql FROM sqlite_master WHERE type = 'index' "

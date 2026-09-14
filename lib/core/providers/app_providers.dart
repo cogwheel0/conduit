@@ -4525,11 +4525,12 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
   );
   // Materialize the local row so the next open is DB-first. Another user's
   // chat (shared folder) stays network-only: the sync store would otherwise
-  // push edits to it and it can never appear in this user's chat list.
-  if (!isReadOnlySharedConversation(
-    fullConversation,
-    ref.read(currentUserProvider2)?.id,
-  )) {
+  // push edits to it and it can never appear in this user's chat list. Fail
+  // closed: with the owner known but the signed-in user still hydrating, skip
+  // rather than guess.
+  final owner = fullConversation.userId;
+  final me = ref.read(currentUserProvider2)?.id;
+  if (owner == null || (me != null && me == owner)) {
     schedulePullChatNow(ref, rawConversationId, ownership: openWebUiOwnership);
   }
 

@@ -256,13 +256,16 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         iconColor: isTemporary ? Colors.blue : context.conduitTheme.textPrimary,
         onPressed: _toggleTemporaryChat,
       ),
-      ConduitAdaptiveAppBarIconButton(
-        key: const ValueKey<String>('folder-page-new-chat-button'),
-        icon: Platform.isIOS ? CupertinoIcons.create : Icons.add_comment,
-        iconColor: context.conduitTheme.textPrimary,
-        onPressed: _handleNewChat,
-      ),
-      if (folder != null)
+      // A read-grant shared folder cannot receive new chats.
+      if (folder == null || folder.canWrite)
+        ConduitAdaptiveAppBarIconButton(
+          key: const ValueKey<String>('folder-page-new-chat-button'),
+          icon: Platform.isIOS ? CupertinoIcons.create : Icons.add_comment,
+          iconColor: context.conduitTheme.textPrimary,
+          onPressed: _handleNewChat,
+        ),
+      // Edit Folder / System Prompt are owner operations.
+      if (folder != null && !folder.shared)
         _FolderToolbarPopupButton(
           tintColor: context.conduitTheme.textPrimary,
           items: menuItems,

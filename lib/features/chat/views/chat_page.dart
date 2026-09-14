@@ -4526,7 +4526,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     final conversationActions =
-        activeConversation != null && !isTemporaryChat(activeConversation.id)
+        activeConversation != null &&
+            !isTemporaryChat(activeConversation.id) &&
+            // Pin/rename/move/delete all fail server-side on another user's
+            // chat (shared folder).
+            !isReadOnlySharedConversation(
+              activeConversation,
+              ref.read(currentUserProvider2)?.id,
+            )
         ? buildConversationActions(
             context: context,
             ref: ref,

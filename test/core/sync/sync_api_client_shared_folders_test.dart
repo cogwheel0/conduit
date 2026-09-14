@@ -39,21 +39,35 @@ void main() {
       check(folders[1]['permission']).equals('read');
     });
 
-    test('a shared-route failure keeps owned folders', () async {
-      for (final status in [404, 500]) {
+    test('a server without the shared route (404) yields owned only', () async {
+      final client = _buildClient(
+        _RouteAdapter({
+          '/api/v1/folders/': (200, [_owned('a')]),
+          '/api/v1/folders/shared': (404, {'detail': 'Not Found'}),
+        }),
+      );
+
+      final (folders, enabled) = await client.getFoldersRaw();
+
+      check(enabled).isTrue();
+      check(folders.map((f) => f['id'])).deepEquals(['a']);
+    });
+
+    test(
+      'a transient shared-route failure throws (no partial replace)',
+      () async {
+        // The pull replaces the folders table from this list, so an owned-only
+        // result would purge cached shared folders until the next good pull.
         final client = _buildClient(
           _RouteAdapter({
             '/api/v1/folders/': (200, [_owned('a')]),
-            '/api/v1/folders/shared': (status, {'detail': 'nope'}),
+            '/api/v1/folders/shared': (500, {'detail': 'boom'}),
           }),
         );
 
-        final (folders, enabled) = await client.getFoldersRaw();
-
-        check(enabled).isTrue();
-        check(folders.map((f) => f['id'])).deepEquals(['a']);
-      }
-    });
+        await check(client.getFoldersRaw()).throws<DioException>();
+      },
+    );
 
     test('feature disabled (403 on owned) short-circuits', () async {
       final adapter = _RouteAdapter({
