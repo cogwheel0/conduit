@@ -23,6 +23,7 @@ import '../utils/debug_logger.dart';
 import '../utils/embed_utils.dart';
 import '../utils/openwebui_source_parser.dart';
 import '../utils/semantic_details.dart';
+import 'openwebui_response_stream.dart';
 import 'openwebui_stream_parser.dart';
 import 'performance_profiler.dart';
 import 'semantic_message_builder.dart';
@@ -859,6 +860,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   );
   var renderedFromStructuredOutput = false;
   final structuredOutputProjector = StructuredOutputStreamingProjector();
+  // Accumulated Open WebUI `output` items rebuilt from `response:completion`
+  // events; a `chat:completion` snapshot always supersedes it.
+  var latestResponseOutputItems = <Map<String, dynamic>>[];
   var structuredProjectionIsVisible = false;
   var structuredOutputIsLatest = false;
   var hasInjectedSemanticDetails = false;
@@ -3161,6 +3165,45 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         return;
       }
 
+      if (type == 'response:completion' && payload is Map) {
+        // Open WebUI 0.11 streams socket-bound completions token by token as
+        // Responses-style events instead of cumulative `chat:completion`
+        // snapshots, so reasoning and text only reached the message through
+        // the final snapshot. Rebuild the output list locally and project it
+        // through the same structured-output path a snapshot would take.
+        final eventType = payload['type']?.toString() ?? '';
+        if (!openWebUIResponseStreamEventTouchesOutput(eventType)) return;
+        final responseTargetId = resolveTargetMessageIdForStream(
+          messageId,
+          eventType: 'response:completion',
+          incomingSessionId: incomingSessionId,
+          allowBindingForeignMessage: true,
+        );
+        if (responseTargetId == null) return;
+        latestResponseOutputItems = applyOpenWebUIResponseStreamEvent(
+          latestResponseOutputItems,
+          payload,
+        );
+        final responseBlocks = parseOpenWebUIStructuredOutput(
+          latestResponseOutputItems,
+        );
+        if (responseBlocks.isNotEmpty) {
+          replaceVisibleAssistantStructuredOutput(responseBlocks);
+        }
+        if (openWebUIResponseStreamEventIsStructural(eventType) &&
+            latestResponseOutputItems.isNotEmpty) {
+          final persistedItems = List<Map<String, dynamic>>.unmodifiable(
+            latestResponseOutputItems,
+          );
+          applyAssistantServerPatch(
+            targetId: responseTargetId,
+            buildPatch: (current) =>
+                _AssistantServerPatch(output: persistedItems),
+          );
+        }
+        return;
+      }
+
       if (type == 'chat:completion' && payload != null) {
         if (payload is Map<String, dynamic>) {
           final completionTargetId = resolveTargetMessageIdForStream(
@@ -3178,6 +3221,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final normalizedOutputItems = _normalizeJsonMapList(
             payload['output'],
           );
+          if (normalizedOutputItems.isNotEmpty) {
+            latestResponseOutputItems = normalizedOutputItems;
+          }
           final outputBlocks = normalizedOutputItems.isEmpty
               ? const <StructuredOutputBlock>[]
               : parseOpenWebUIStructuredOutput(normalizedOutputItems);

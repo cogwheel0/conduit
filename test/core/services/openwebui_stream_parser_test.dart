@@ -714,7 +714,10 @@ void main() {
       check(serialized).not((it) => it.contains('<img src=x'));
     });
 
-    test('keeps in-progress reasoning open even when more output follows', () {
+    test('closes in-progress reasoning once more output follows', () {
+      // Upstream's buildReasoningToken treats a reasoning item followed by any
+      // other item as finished. Per-token `response:completion` streams never
+      // send the status flip, so the following item is the only signal.
       final blocks = parseOpenWebUIStructuredOutput([
         {
           'type': 'reasoning',
@@ -735,8 +738,25 @@ void main() {
       check(blocks.first)
           .isA<StructuredOutputReasoningBlock>()
           .has((block) => block.done, 'done')
+          .equals(true);
+      check(serialized).contains('<details type="reasoning" done="true"');
+    });
+
+    test('keeps a trailing in-progress reasoning item pending', () {
+      final blocks = parseOpenWebUIStructuredOutput([
+        {
+          'type': 'reasoning',
+          'status': 'in_progress',
+          'content': [
+            {'type': 'output_text', 'text': 'thinking'},
+          ],
+        },
+      ]);
+
+      check(blocks.single)
+          .isA<StructuredOutputReasoningBlock>()
+          .has((block) => block.done, 'done')
           .equals(false);
-      check(serialized).contains('<details type="reasoning" done="false">');
     });
 
     test('falls back from empty reasoning summary to content', () {
