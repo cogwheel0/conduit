@@ -36,7 +36,7 @@ class ServerVersionWarningCard extends ConsumerWidget {
         .asData
         ?.value
         ?.version;
-    final dismissedToken = ref.watch(serverVersionWarningDismissedProvider);
+    final dismissedTokens = ref.watch(serverVersionWarningDismissedProvider);
 
     // serverIncompatibleProvider is only true once the active server id is
     // known, so the token is always attributable to a real server here.
@@ -47,7 +47,7 @@ class ServerVersionWarningCard extends ConsumerWidget {
     final showWarning =
         authState == AuthNavigationState.authenticated &&
         serverIsNewerThanSupported &&
-        dismissedToken != token;
+        !dismissedTokens.contains(token);
 
     final motionDuration = context.motionDuration(
       const Duration(milliseconds: 220),

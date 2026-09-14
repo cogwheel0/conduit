@@ -18324,6 +18324,7 @@ Future<void> _sendMessageInternal(
         backgroundTasks: bgTasks,
         responseMessageId: assistantMessageId,
         userSettings: userSettingsData,
+        reasoningEffort: reasoningEffortForModel(ref.read, selectedModel),
         parentId: userMessageMap?['parentId']?.toString(),
         userMessage: userMessageMap,
         variables: promptVariables,

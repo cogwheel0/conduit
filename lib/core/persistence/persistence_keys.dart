@@ -28,6 +28,11 @@ final class PreferenceKeys {
   /// It prevents bearer/credential restoration and proxy-cookie attachment
   /// after a process death or incomplete secure-storage cleanup.
   static const String incompleteLogoutFence = 'incomplete_logout_fence_v1';
+
+  /// Set when a user-requested full app-data clear failed part-way. Keeps
+  /// surviving Direct profiles hidden and unusable across restarts until the
+  /// logout fence is cleared.
+  static const String incompleteAppDataClear = 'incomplete_app_data_clear_v1';
   static const String appIntentInvocationLedger =
       'app_intent_invocation_ledger_v1';
   static const String themeMode = 'theme_mode';

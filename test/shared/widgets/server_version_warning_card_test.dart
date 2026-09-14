@@ -8,6 +8,7 @@ import 'package:conduit/features/chat/views/chat_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/server_version_warning_card.dart';
+import 'package:conduit/shared/widgets/server_version_warning_controller.dart';
 import 'package:checks/checks.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -30,10 +31,11 @@ Widget _buildCard({
   required AuthNavigationState authState,
   required BackendConfig? config,
   Widget? body,
+  String activeServerId = 'A',
 }) {
   return ProviderScope(
     overrides: [
-      activeServerProvider.overrideWith((ref) async => _server('A')),
+      activeServerProvider.overrideWith((ref) async => _server(activeServerId)),
       backendConfigProvider.overrideWith(
         () => _FixedBackendConfigNotifier(config),
       ),
@@ -229,13 +231,42 @@ void main() {
 
       check(find.byKey(serverVersionWarningCardKey).evaluate()).isEmpty();
       check(
-        PreferencesStore.getString(
-          PreferenceKeys.serverVersionWarningDismissed,
+        decodeServerVersionWarningDismissals(
+          PreferencesStore.getString(
+            PreferenceKeys.serverVersionWarningDismissed,
+          ),
         ),
-      ).equals('A|0.11.4');
+      ).deepEquals({'A|0.11.4'});
     });
 
-    testWidgets('stays hidden when the same server and version was dismissed', (
+    testWidgets('dismissing a second server keeps the first dismissal', (
+      tester,
+    ) async {
+      await _seedPreferences({
+        PreferenceKeys.serverVersionWarningDismissed: '["A|0.11.4"]',
+      });
+
+      await tester.pumpWidget(
+        _buildCard(
+          authState: AuthNavigationState.authenticated,
+          config: const BackendConfig(version: '0.11.6', serverId: 'B'),
+          activeServerId: 'B',
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(serverVersionWarningCardCloseKey));
+      await tester.pumpAndSettle();
+
+      check(
+        decodeServerVersionWarningDismissals(
+          PreferencesStore.getString(
+            PreferenceKeys.serverVersionWarningDismissed,
+          ),
+        ),
+      ).deepEquals({'A|0.11.4', 'B|0.11.6'});
+    });
+
+    testWidgets('a bare legacy token still counts as dismissed', (
       tester,
     ) async {
       await _seedPreferences({
@@ -253,9 +284,27 @@ void main() {
       check(find.byKey(serverVersionWarningCardKey).evaluate()).isEmpty();
     });
 
+    testWidgets('stays hidden when the same server and version was dismissed', (
+      tester,
+    ) async {
+      await _seedPreferences({
+        PreferenceKeys.serverVersionWarningDismissed: '["A|0.11.4"]',
+      });
+
+      await tester.pumpWidget(
+        _buildCard(
+          authState: AuthNavigationState.authenticated,
+          config: const BackendConfig(version: '0.11.4', serverId: 'A'),
+        ),
+      );
+      await tester.pump();
+
+      check(find.byKey(serverVersionWarningCardKey).evaluate()).isEmpty();
+    });
+
     testWidgets('shows again for a different server version', (tester) async {
       await _seedPreferences({
-        PreferenceKeys.serverVersionWarningDismissed: 'A|0.11.4',
+        PreferenceKeys.serverVersionWarningDismissed: '["A|0.11.4"]',
       });
 
       await tester.pumpWidget(

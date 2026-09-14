@@ -1623,6 +1623,63 @@ void main() {
     },
   );
 
+  test(
+    'incomplete app-data clear hides surviving profiles until the fence lifts',
+    () async {
+      final adapter = _CountingProbeAdapter();
+      final container = _container(adapter);
+      addTearDown(container.dispose);
+      await container.read(directConnectionProfilesProvider.future);
+      final controller = container.read(
+        directConnectionProfilesProvider.notifier,
+      );
+      await controller.upsert(_profile());
+      final fence = container.read(incompleteLogoutFenceProvider.notifier);
+      fence.setSuppressed(true);
+
+      await controller.blockMutationsForAppDataClear();
+      controller.revokeRuntimeAfterIncompleteAppDataClear();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        container.read(directConnectionProfilesProvider).requireValue,
+        isEmpty,
+      );
+      check(PreferencesStore.getBool(PreferenceKeys.incompleteAppDataClear))
+          .equals(true);
+      final probe = await controller.probe(_profile(id: 'profile-two'));
+      check(probe.reachable).isFalse();
+      check(adapter.probeCalls).equals(0);
+      await expectLater(
+        controller.upsert(_profile(id: 'profile-two')),
+        throwsStateError,
+      );
+
+      // A rebuild while the fence is still up stays blocked.
+      container.invalidate(directConnectionProfilesProvider);
+      expect(
+        await container.read(directConnectionProfilesProvider.future),
+        isEmpty,
+      );
+
+      // A completed cleanup or a new authenticated session clears the fence
+      // and releases the block; the surviving profile is visible again.
+      fence.setSuppressed(false);
+      expect(
+        await container.read(directConnectionProfilesProvider.future),
+        hasLength(1),
+      );
+      await Future<void>.delayed(Duration.zero);
+      check(PreferencesStore.getBool(PreferenceKeys.incompleteAppDataClear))
+          .isNull();
+      await controller.upsert(_profile(id: 'profile-two'));
+      expect(
+        container.read(directConnectionProfilesProvider).requireValue,
+        hasLength(2),
+      );
+    },
+  );
+
   test('probe reports a validation failure instead of throwing', () async {
     final adapter = _CountingProbeAdapter();
     final container = _container(adapter);
