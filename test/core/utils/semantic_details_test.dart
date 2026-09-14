@@ -111,6 +111,30 @@ void main() {
       }
     });
 
+    test('ignores semantic-looking text inside quoted values', () {
+      const spoofed =
+          '<details title=\' type="reasoning" duration="9"\'>\n'
+          '<summary>Extra</summary>\nnotes\n</details>\nAnswer';
+      check(containsRenderedSemanticDetails(spoofed)).isFalse();
+      check(stripRenderedSemanticDetails(spoofed)).equals(spoofed);
+      check(dropUnterminatedSemanticDetails(spoofed)).equals(spoofed);
+      check(serverBodyDropsLocalReasoningTiming(spoofed, serverNoTiming))
+          .isFalse();
+    });
+
+    test(
+      'reads attributes past a quoted value containing a closing bracket',
+      () {
+        const tricky =
+            '<details name="a > b" type="reasoning" done="true" duration="3">\n'
+            '<summary>Thought for 3 seconds</summary>\nwhy\n</details>\nAnswer';
+        check(containsRenderedSemanticDetails(tricky)).isTrue();
+        check(stripRenderedSemanticDetails(tricky)).equals('Answer');
+        check(serverBodyDropsLocalReasoningTiming(tricky, serverNoTiming))
+            .isTrue();
+      },
+    );
+
     test('does not apply when the server dropped the block entirely', () {
       check(serverBodyDropsLocalReasoningTiming(local, 'Answer')).isFalse();
     });
