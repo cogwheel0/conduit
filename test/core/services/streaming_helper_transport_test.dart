@@ -197,23 +197,6 @@ class _StubAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
-/// Polls until the stub adapter has observed the given request, so tests wait
-/// on the reconnect poll itself rather than on a wall-clock delay.
-Future<void> _untilRequestSeen(
-  _StubAdapter adapter, {
-  required String method,
-  required String path,
-  Duration timeout = const Duration(seconds: 5),
-}) async {
-  final deadline = DateTime.now().add(timeout);
-  while (adapter.requestCount(method: method, path: path) == 0) {
-    if (DateTime.now().isAfter(deadline)) {
-      throw TimeoutException('No $method $path observed within $timeout');
-    }
-    await Future<void>.delayed(const Duration(milliseconds: 20));
-  }
-}
-
 Map<String, dynamic> _serverAssistantMessage({
   String id = 'msg-1',
   String content = '',
@@ -1806,7 +1789,9 @@ void main() {
       final socket = _MockSocketService(registrar);
       final api = _buildFakeApi(
         pollResponse: _serverConversationResponse(
-          messages: [_serverAssistantMessage(content: 'Hel', done: false)],
+          messages: [
+            _serverAssistantMessage(content: 'Hello wor', done: false),
+          ],
         ),
       );
 
@@ -1822,16 +1807,13 @@ void main() {
       );
       await pumpMicrotasks();
 
-      final adapter = api.dio.httpClientAdapter as _StubAdapter;
       socket.reconnects.add(null);
-      await _untilRequestSeen(
-        adapter,
-        method: 'GET',
-        path: '/api/v1/chats/conv-1',
+      // The recovery poll adopts the longer server body; that adoption is the
+      // observable proof the reconnect recovery ran to completion.
+      await waitForCondition(
+        () => log.messages.last.content.endsWith('Hello wor'),
+        timeout: const Duration(seconds: 5),
       );
-      for (var i = 0; i < 10; i++) {
-        await pumpMicrotasks();
-      }
 
       check(log.finishCount).equals(0);
       check(log.messages.last.isStreaming).isTrue();
@@ -1878,16 +1860,11 @@ void main() {
         );
         await pumpMicrotasks();
 
-        final adapter = api.dio.httpClientAdapter as _StubAdapter;
         socket.reconnects.add(null);
-        await _untilRequestSeen(
-          adapter,
-          method: 'GET',
-          path: '/api/v1/chats/conv-1',
+        await waitForCondition(
+          () => log.finishCount == 1,
+          timeout: const Duration(seconds: 5),
         );
-        for (var i = 0; i < 10; i++) {
-          await pumpMicrotasks();
-        }
 
         check(log.finishCount).equals(1);
         check(log.messages.last.content).endsWith('Hello');
