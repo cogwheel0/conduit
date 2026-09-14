@@ -168,7 +168,7 @@ _DetailsOpener? _nextSemanticDetailsOpener(String content, int from) {
     final opener = _nextDetailsOpener(content, cursor);
     if (opener == null) return null;
     if (opener.isSemantic) return opener;
-    cursor = opener.start + 1;
+    cursor = opener.end;
   }
 }
 
@@ -195,8 +195,8 @@ String stripRenderedSemanticDetails(String content) {
     );
     if (close == null) {
       // Still open; not a complete block, leave it in place.
-      kept.write(content.substring(cursor, opener.start + 1));
-      cursor = opener.start + 1;
+      kept.write(content.substring(cursor, opener.end));
+      cursor = opener.end;
       continue;
     }
     kept.write(content.substring(cursor, opener.start));
@@ -343,7 +343,7 @@ bool _hasReasoningOpener(String content, {required bool withDuration}) {
     if (opener.isReasoning && (!withDuration || opener.hasDuration)) {
       return true;
     }
-    cursor = opener.start + 1;
+    cursor = opener.end;
   }
 }
 

@@ -120,6 +120,16 @@ void main() {
       check(dropUnterminatedSemanticDetails(spoofed)).equals(spoofed);
       check(serverBodyDropsLocalReasoningTiming(spoofed, serverNoTiming))
           .isFalse();
+
+      // A literal opener inside a quoted value must not be re-parsed after
+      // the real opener has been consumed.
+      const nested =
+          '<details title="<details type=\'reasoning\' duration=\'4\'>">\n'
+          '<summary>Extra</summary>\nnotes\n</details>\nAnswer';
+      check(containsRenderedSemanticDetails(nested)).isFalse();
+      check(stripRenderedSemanticDetails(nested)).equals(nested);
+      check(serverBodyDropsLocalReasoningTiming(nested, serverNoTiming))
+          .isFalse();
     });
 
     test(
