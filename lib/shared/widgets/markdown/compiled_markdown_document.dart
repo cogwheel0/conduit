@@ -1085,6 +1085,7 @@ class CompiledMarkdownDetailsData {
     required this.isDone,
     required this.isPending,
     required this.durationSeconds,
+    this.hasDuration = false,
     this.toolCallData,
   });
 
@@ -1098,6 +1099,11 @@ class CompiledMarkdownDetailsData {
   final bool isDone;
   final bool isPending;
   final int durationSeconds;
+
+  /// Whether the source carried an explicit `duration` attribute. Upstream
+  /// only labels a reasoning block "Thought for…" once a duration exists;
+  /// a done block without one is still shown as thinking.
+  final bool hasDuration;
   final CompiledMarkdownToolCallData? toolCallData;
 
   bool get supportsInlineExpansion =>
@@ -1140,6 +1146,7 @@ class CompiledMarkdownDetailsData {
     'isDone': isDone,
     'isPending': isPending,
     'durationSeconds': durationSeconds,
+    'hasDuration': hasDuration,
     'toolCallData': toolCallData?.toMap(),
   };
 
@@ -1158,6 +1165,7 @@ class CompiledMarkdownDetailsData {
       isDone: (map['isDone'] ?? false) as bool,
       isPending: (map['isPending'] ?? false) as bool,
       durationSeconds: (map['durationSeconds'] ?? 0) as int,
+      hasDuration: (map['hasDuration'] ?? false) as bool,
       toolCallData: toolCallDataMap == null
           ? null
           : CompiledMarkdownToolCallData.fromMap(

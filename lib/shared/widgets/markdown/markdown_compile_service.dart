@@ -1272,7 +1272,9 @@ CompiledMarkdownDetailsData _buildCompiledDetailsData({
   final done = attributes['done'];
   final isDone = done == 'true';
   final isPending = done != null && done != 'true';
-  final durationSeconds = int.tryParse(attributes['duration'] ?? '0') ?? 0;
+  final rawDuration = attributes['duration']?.trim() ?? '';
+  final durationSeconds =
+      int.tryParse(rawDuration.isEmpty ? '0' : rawDuration) ?? 0;
 
   return CompiledMarkdownDetailsData(
     summaryText: summaryText,
@@ -1285,6 +1287,7 @@ CompiledMarkdownDetailsData _buildCompiledDetailsData({
     isDone: isDone,
     isPending: isPending,
     durationSeconds: durationSeconds,
+    hasDuration: rawDuration.isNotEmpty,
     toolCallData: type == 'tool_calls'
         ? _compileToolCallData(attributes)
         : null,

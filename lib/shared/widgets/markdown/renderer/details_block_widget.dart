@@ -428,38 +428,17 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
 
   String _reasoningHeaderText(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final summary = _detailsData.summaryText.trim();
-    final summaryLower = summary.toLowerCase();
-    final isDone = _detailsData.isDone;
-    final duration = _detailsData.durationSeconds;
-
-    final isThinkingSummary =
-        summaryLower == 'thinking…' ||
-        summaryLower == 'thinking...' ||
-        summaryLower.startsWith('thinking');
-
-    final hasDurationInSummary = RegExp(
-      r'\(\d+s\)|\bfor \d+ seconds?\b',
-      caseSensitive: false,
-    ).hasMatch(summary);
-
     if (_isCodeInterpreter) {
-      return isDone ? l10n.analyzed : l10n.analyzing;
+      return _detailsData.isDone ? l10n.analyzed : l10n.analyzing;
     }
-
-    if (!isDone) {
-      return summary.isNotEmpty && !isThinkingSummary ? summary : l10n.thinking;
-    }
-
-    if (duration > 0 || hasDurationInSummary || isThinkingSummary) {
-      return l10n.thoughtForDuration(ReasoningParser.formatDuration(duration));
-    }
-
-    if (summary.isNotEmpty && !isThinkingSummary) {
-      return summary;
-    }
-
-    return l10n.thoughts;
+    return switch (resolveReasoningHeader(_detailsData)) {
+      ReasoningHeaderThinking() => l10n.thinking,
+      ReasoningHeaderThoughtFor(:final seconds) => l10n.thoughtForDuration(
+        ReasoningParser.formatDuration(seconds),
+      ),
+      ReasoningHeaderSummary(:final summary) => summary,
+      ReasoningHeaderThoughts() => l10n.thoughts,
+    };
   }
 
   Widget? _buildToolCallBody(
@@ -687,4 +666,64 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
       ),
     ];
   }
+}
+
+/// Header state for a reasoning details block.
+sealed class ReasoningHeader {
+  const ReasoningHeader();
+}
+
+final class ReasoningHeaderThinking extends ReasoningHeader {
+  const ReasoningHeaderThinking();
+}
+
+final class ReasoningHeaderThoughtFor extends ReasoningHeader {
+  const ReasoningHeaderThoughtFor(this.seconds);
+  final int seconds;
+}
+
+final class ReasoningHeaderSummary extends ReasoningHeader {
+  const ReasoningHeaderSummary(this.summary);
+  final String summary;
+}
+
+final class ReasoningHeaderThoughts extends ReasoningHeader {
+  const ReasoningHeaderThoughts();
+}
+
+/// Mirrors upstream `Collapsible.svelte`: a reasoning block reads
+/// "Thought for…" only once it is done AND carries a duration. A block that
+/// is already done but has no duration yet (the answer started streaming,
+/// the server's timing has not landed) keeps reading "Thinking…".
+ReasoningHeader resolveReasoningHeader(CompiledMarkdownDetailsData data) {
+  final summary = data.summaryText.trim();
+  final summaryLower = summary.toLowerCase();
+  final isThinkingSummary =
+      summaryLower == 'thinking…' ||
+      summaryLower == 'thinking...' ||
+      summaryLower.startsWith('thinking');
+  final hasDurationInSummary = RegExp(
+    r'\(\d+s\)|\bfor \d+ seconds?\b',
+    caseSensitive: false,
+  ).hasMatch(summary);
+
+  if (!data.isDone) {
+    return summary.isNotEmpty && !isThinkingSummary
+        ? ReasoningHeaderSummary(summary)
+        : const ReasoningHeaderThinking();
+  }
+
+  if (data.hasDuration || hasDurationInSummary) {
+    return ReasoningHeaderThoughtFor(data.durationSeconds);
+  }
+
+  if (isThinkingSummary) {
+    return const ReasoningHeaderThinking();
+  }
+
+  if (summary.isNotEmpty) {
+    return ReasoningHeaderSummary(summary);
+  }
+
+  return const ReasoningHeaderThoughts();
 }

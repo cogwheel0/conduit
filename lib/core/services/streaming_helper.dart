@@ -869,11 +869,22 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   final seenStreamingToolCallKeys = <String>{};
   var structuredOutputProfileFinished = false;
   var inReasoningBlock = false;
+  DateTime? reasoningStartedAt;
   var reasoningPrefix = '';
   var reasoningContent = _StreamingTextAccumulator();
 
+  /// Whole seconds since the first reasoning delta, matching the server's
+  /// `int(ended_at - started_at)` for the same block.
+  int elapsedReasoningSeconds() {
+    final startedAt = reasoningStartedAt;
+    if (startedAt == null) return 0;
+    final elapsed = DateTime.now().difference(startedAt).inSeconds;
+    return elapsed < 0 ? 0 : elapsed;
+  }
+
   void resetStreamingReasoning() {
     inReasoningBlock = false;
+    reasoningStartedAt = null;
     reasoningPrefix = '';
     // Use a fresh accumulator so a deferred visible snapshot can safely retain
     // the completed generation until the notifier either realizes or replaces
@@ -1144,10 +1155,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     );
   }
 
-  void finalizeStreamingReasoning({
-    int duration = 0,
-    bool updateImages = false,
-  }) {
+  void finalizeStreamingReasoning({int? duration, bool updateImages = false}) {
     if (!inReasoningBlock) {
       if (updateImages) {
         updateImagesFromCurrentContent();
@@ -1161,7 +1169,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         _buildStreamingReasoningDetails(
           reasoningContent.value,
           done: true,
-          duration: duration,
+          duration: duration ?? elapsedReasoningSeconds(),
         ),
       ),
     );
@@ -1261,6 +1269,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               _buildStreamingReasoningDetails(
                 reasoningContent.value,
                 done: true,
+                duration: elapsedReasoningSeconds(),
               ),
             ) +
             chunk,
@@ -1292,6 +1301,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (!inReasoningBlock) {
       syncRenderedStreamingContentFromState();
       inReasoningBlock = true;
+      reasoningStartedAt = DateTime.now();
       reasoningPrefix = renderedStreamingContent.value;
       reasoningContent = _StreamingTextAccumulator();
     }

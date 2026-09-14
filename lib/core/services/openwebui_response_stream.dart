@@ -53,11 +53,13 @@ List<Map<String, dynamic>> applyOpenWebUIResponseStreamEvent(
     } else {
       next.add(item);
     }
+    _stampReasoningTiming(next);
     return next;
   }
 
   if (!_updatesOutputItem(eventType)) return output;
 
+  final itemCountBefore = next.length;
   final item = _ensureOutputItem(next, outputIndex, <String, dynamic>{
     if (itemId != null && itemId.isNotEmpty) 'id': itemId,
     'type': eventType.contains('reasoning')
@@ -69,6 +71,9 @@ List<Map<String, dynamic>> applyOpenWebUIResponseStreamEvent(
     'role': 'assistant',
     'content': <Map<String, dynamic>>[],
   });
+  if (next.length != itemCountBefore) {
+    _stampReasoningTiming(next);
+  }
 
   if (eventType == 'response.content_part.added') {
     final part = event['part'];
@@ -257,4 +262,26 @@ Object _appendDelta(Object? current, Object? delta) {
     return <String, dynamic>{..._cloneMap(current), ..._cloneMap(delta)};
   }
   return delta ?? current ?? '';
+}
+
+/// The server records `started_at` when a reasoning item is created and
+/// `duration` once the next item starts, but per-token streams never send
+/// that transition. Stamp the same timing locally so the visible block can
+/// read "Thought for N seconds" instead of waiting for the terminal snapshot.
+void _stampReasoningTiming(List<Map<String, dynamic>> output) {
+  final now = DateTime.now().millisecondsSinceEpoch / 1000;
+  for (var index = 0; index < output.length; index++) {
+    final item = output[index];
+    if (item['type'] != 'reasoning') continue;
+    final startedAt = item['started_at'];
+    if (startedAt is! num) {
+      item['started_at'] = now;
+    }
+    final isLast = index == output.length - 1;
+    if (isLast || item['duration'] != null) continue;
+    final start = item['started_at'];
+    final elapsed = start is num ? (now - start).floor() : 0;
+    item['ended_at'] = now;
+    item['duration'] = elapsed < 0 ? 0 : elapsed;
+  }
 }

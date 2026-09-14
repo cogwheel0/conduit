@@ -50,6 +50,30 @@ void main() {
           .equals('Hello');
     });
 
+    test('stamps reasoning timing when the answer item starts', () {
+      var output = applyOpenWebUIResponseStreamEvent(const [], {
+        'type': 'response.reasoning_text.delta',
+        'output_index': 0,
+        'delta': 'thinking',
+      });
+      check(output.single['started_at']).isA<num>();
+      check(output.single['duration']).isNull();
+
+      output = applyOpenWebUIResponseStreamEvent(output, {
+        'type': 'response.output_text.delta',
+        'output_index': 1,
+        'delta': 'answer',
+      });
+      final reasoning = output.first;
+      check(reasoning['ended_at']).isA<num>();
+      check(reasoning['duration']).isA<int>();
+
+      final blocks = parseOpenWebUIStructuredOutput(output);
+      final block = blocks.first as StructuredOutputReasoningBlock;
+      check(block.done).isTrue();
+      check(block.duration).isNotNull();
+    });
+
     test('output_item.added inserts and output_item.done replaces by id', () {
       var output = applyOpenWebUIResponseStreamEvent(const [], {
         'type': 'response.output_item.added',
