@@ -4063,6 +4063,25 @@ final folderConversationSummariesProvider =
         return const <Conversation>[];
       }
 
+      // Shared folders hold other users' chats, which never enter the local
+      // sync store (they are absent from `/api/v1/chats/` and must not be
+      // pushed or reconciled). List them from the server instead.
+      final sharedFolder = ref
+          .watch(foldersProvider)
+          .asData
+          ?.value
+          .where((folder) => folder.id == folderId && folder.shared)
+          .firstOrNull;
+      if (sharedFolder != null) {
+        final api = ref.watch(apiServiceProvider);
+        if (api == null) return const <Conversation>[];
+        final raw = await api.getSharedFolderChats(folderId);
+        return [
+          for (final item in raw)
+            Conversation.fromJson(parseConversationSummary(item)),
+        ];
+      }
+
       final db = ref.watch(appDatabaseProvider);
       if (db == null) {
         return const <Conversation>[];
@@ -4071,6 +4090,16 @@ final folderConversationSummariesProvider =
       final entries = await db.chatsDao.getChatsInFolder(folderId);
       return entries.map(conversationFromListEntry).toList(growable: false);
     });
+
+/// True when [conversation] belongs to another user (reached through a shared
+/// folder). Such chats are viewable but every write is rejected server-side.
+bool isReadOnlySharedConversation(
+  Conversation? conversation,
+  String? currentUserId,
+) {
+  final owner = conversation?.userId;
+  return owner != null && currentUserId != null && owner != currentUserId;
+}
 
 /// Whether the current chat session is temporary (not persisted to server).
 ///
@@ -4494,8 +4523,15 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
     scope: 'conversation',
     data: {'messages': fullConversation.messages.length},
   );
-  // Materialize the local row so the next open is DB-first.
-  schedulePullChatNow(ref, rawConversationId, ownership: openWebUiOwnership);
+  // Materialize the local row so the next open is DB-first. Another user's
+  // chat (shared folder) stays network-only: the sync store would otherwise
+  // push edits to it and it can never appear in this user's chat list.
+  if (!isReadOnlySharedConversation(
+    fullConversation,
+    ref.read(currentUserProvider2)?.id,
+  )) {
+    schedulePullChatNow(ref, rawConversationId, ownership: openWebUiOwnership);
+  }
 
   return withChatStorageProvenance(fullConversation, ChatStorageKind.openWebUi);
 }

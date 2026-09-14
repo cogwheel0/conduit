@@ -263,6 +263,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   Future<void> upsertServerChat({
     required ChatRows rows,
     String? shareId,
+    String? userId,
     Map<String, dynamic> meta = const {},
     int? listLastReadAt,
   }) {
@@ -272,6 +273,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       await _writeChatRows(
         rows: rows,
         shareId: shareId,
+        userId: userId,
         meta: meta,
         listLastReadAt: listLastReadAt,
         existingLastReadAt: existing?.lastReadAt,
@@ -303,6 +305,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   Future<ChatMergeWriteResult> mergeServerChat({
     required ChatRows server,
     String? shareId,
+    String? userId,
     Map<String, dynamic> meta = const {},
     int? listLastReadAt,
   }) {
@@ -342,6 +345,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           await _writeChatRows(
             rows: result.merged,
             shareId: shareId,
+            userId: userId,
             meta: meta,
             listLastReadAt: listLastReadAt,
             existingLastReadAt: existing.lastReadAt,
@@ -360,6 +364,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         await _writeChatRows(
           rows: server,
           shareId: shareId,
+          userId: userId,
           meta: meta,
           listLastReadAt: listLastReadAt,
           existingLastReadAt: existing?.lastReadAt,
@@ -414,6 +419,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           await _writeChatRows(
             rows: result.merged,
             shareId: shareId,
+            userId: userId,
             meta: meta,
             listLastReadAt: listLastReadAt,
             existingLastReadAt: existing.lastReadAt,
@@ -431,6 +437,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           await _writeChatRows(
             rows: result.merged,
             shareId: shareId,
+            userId: userId,
             meta: meta,
             listLastReadAt: listLastReadAt,
             existingLastReadAt: existing.lastReadAt,
@@ -482,6 +489,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   Future<void> _writeChatRows({
     required ChatRows rows,
     required String? shareId,
+    String? userId,
     required Map<String, dynamic> meta,
     required int? listLastReadAt,
     required int? existingLastReadAt,
@@ -509,6 +517,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         rawExtra: Value(jsonEncode(chat.rawExtra)),
         blobMeta: Value(jsonEncode(blobMetaJson(rows))),
         shareId: Value(shareId),
+        userId: Value(userId),
         meta: Value(jsonEncode(meta)),
         lastReadAt: Value(mergedLastReadAt),
       ),

@@ -524,6 +524,7 @@ class IdRemapper {
             rawExtra: Value(from.rawExtra),
             blobMeta: Value(from.blobMeta),
             shareId: Value(from.shareId),
+            userId: Value(from.userId),
             meta: Value(from.meta),
             lastReadAt: Value(from.lastReadAt),
           ),

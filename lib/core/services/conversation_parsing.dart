@@ -62,6 +62,7 @@ Map<String, dynamic> parseConversationSummary(Map<String, dynamic> chatData) {
     'shareId': shareId,
     'folderId': folderId,
     'tags': _coerceStringList(chatData['tags']),
+    'userId': chatData['user_id']?.toString(),
   };
 }
 
@@ -200,6 +201,7 @@ Map<String, dynamic> parseFullConversation(Map<String, dynamic> chatData) {
     'shareId': shareId,
     'folderId': folderId,
     'tags': _coerceStringList(chatData['tags']),
+    'userId': chatData['user_id']?.toString(),
   };
 }
 

@@ -33,6 +33,7 @@ void main() {
         await db.chatsDao.upsertServerChat(
           rows: rowsFromFixture(fixture),
           shareId: 'share-abc',
+          userId: 'owner-1',
           meta: const {
             'tags': ['work'],
           },
@@ -54,6 +55,7 @@ void main() {
           'archived': fixture.envelope['archived'] ?? false,
           'folder_id': fixture.envelope['folder_id'],
           'share_id': 'share-abc',
+          'user_id': 'owner-1',
           'meta': {
             'tags': ['work'],
           },

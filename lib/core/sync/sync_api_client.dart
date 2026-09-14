@@ -58,7 +58,9 @@ abstract interface class SyncApiClient {
   /// never reads as a mass delete on the pull side).
   Future<bool> probeChatExists(String id);
 
-  /// GET `/api/v1/folders/` — (raw folder maps, featureEnabled=false on 403).
+  /// GET `/api/v1/folders/` plus `/api/v1/folders/shared` — (raw folder
+  /// maps, featureEnabled=false on 403). Shared entries carry `shared: true`,
+  /// `owner_name` and `permission`; owned entries win on an id collision.
   Future<(List<Map<String, dynamic>>, bool)> getFoldersRaw();
 
   // ---- Phase 2 write extensions (CDT-RFC-001 §7.2/§7.4, B1) ----
@@ -272,8 +274,33 @@ class ApiSyncApiClient implements SyncApiClient {
   }
 
   @override
-  Future<(List<Map<String, dynamic>>, bool)> getFoldersRaw() {
-    return api.getFolders();
+  Future<(List<Map<String, dynamic>>, bool)> getFoldersRaw() async {
+    final (owned, enabled) = await api.getFolders();
+    if (!enabled) return (owned, false);
+    // Shared folders ride the same pull so they land in the folders table
+    // tagged `shared: true` (kept verbatim in rawExtra). Owned wins on an id
+    // collision; a shared-endpoint failure never hides owned folders.
+    List<Map<String, dynamic>> shared;
+    try {
+      shared = await api.getSharedFolders();
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'shared-folders-failed',
+        scope: 'sync/folders',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return (owned, true);
+    }
+    final ownedIds = {for (final raw in owned) raw['id']};
+    return (
+      [
+        ...owned,
+        for (final raw in shared)
+          if (!ownedIds.contains(raw['id'])) {...raw, 'shared': true},
+      ],
+      true,
+    );
   }
 
   @override

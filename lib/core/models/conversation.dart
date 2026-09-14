@@ -25,6 +25,11 @@ sealed class Conversation with _$Conversation {
     String? shareId,
     String? folderId,
     @Default([]) List<String> tags,
+
+    /// Server `user_id` of the chat owner. Null for local-only chats and
+    /// rows that predate the field. A non-null value that differs from the
+    /// signed-in user marks a chat reached through a shared folder.
+    String? userId,
   }) = _Conversation;
 
   factory Conversation.fromJson(Map<String, dynamic> json) =>

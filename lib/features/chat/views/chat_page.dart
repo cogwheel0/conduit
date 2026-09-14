@@ -3917,6 +3917,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   } else {
                     attachedOverlay = null;
                   }
+                  if (isReadOnlySharedConversation(
+                    activeConversation,
+                    composerRef.watch(
+                      currentUserProvider2.select((user) => user?.id),
+                    ),
+                  )) {
+                    return _buildReadOnlyNotice(context);
+                  }
                   return ModernChatInput(
                     onSendMessage: _handleMessageSend,
                     enabled: debugCanSubmitChatMessageForTesting(
@@ -3944,6 +3952,45 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// Replaces the composer while viewing another user's chat from a shared
+  /// folder; the server rejects every write, so no input is offered.
+  Widget _buildReadOnlyNotice(BuildContext context) {
+    final theme = context.conduitTheme;
+    return Container(
+      key: const ValueKey<String>('chat-read-only-notice'),
+      margin: const EdgeInsets.symmetric(horizontal: Spacing.md),
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.md,
+        vertical: Spacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: theme.surfaceContainer,
+        borderRadius: BorderRadius.circular(AppBorderRadius.card),
+        border: Border.all(color: theme.cardBorder, width: BorderWidth.thin),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            context.usesCupertinoChrome
+                ? CupertinoIcons.eye
+                : Icons.visibility_outlined,
+            size: IconSize.sm,
+            color: theme.iconSecondary,
+          ),
+          const SizedBox(width: Spacing.sm),
+          Expanded(
+            child: Text(
+              AppLocalizations.of(context)!.readOnlySharedChat,
+              style: AppTypography.bodySmallStyle.copyWith(
+                color: theme.textSecondary,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

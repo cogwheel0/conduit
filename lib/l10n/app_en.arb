@@ -1145,6 +1145,24 @@
   "@failedToDeleteFolder": {
     "description": "Error notice when deleting a folder fails."
   },
+  "sharedFolderOwner": "Shared by {name}",
+  "@sharedFolderOwner": {
+    "description": "Owner label on a folder another user shared with this account.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alex"
+      }
+    }
+  },
+  "readOnly": "Read-only",
+  "@readOnly": {
+    "description": "Marker for a shared folder or chat this user cannot edit."
+  },
+  "readOnlySharedChat": "This chat was shared with you. Only its owner can send messages.",
+  "@readOnlySharedChat": {
+    "description": "Composer replacement shown when viewing another user's chat from a shared folder."
+  },
   "aboutApp": "About",
   "@aboutApp": {
     "description": "Settings tile title to view app information."

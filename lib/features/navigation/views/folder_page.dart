@@ -20,6 +20,7 @@ import '../../../core/services/navigation_service.dart';
 import '../../../core/services/user_friendly_error_handler.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../l10n/app_localizations.dart';
+import '../../auth/providers/unified_auth_providers.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';
@@ -1449,14 +1450,22 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                 ),
               );
 
+              // Pin/rename/move/delete all fail server-side on another
+              // user's chat (shared folder).
+              final isReadOnly = isReadOnlySharedConversation(
+                conversation,
+                ref.watch(currentUserProvider2.select((user) => user?.id)),
+              );
               return ConduitContextMenu(
-                actions: buildConversationActionsWithFolders(
-                  context: context,
-                  ref: ref,
-                  conversation: conversation,
-                  foldersEnabled: true,
-                  folders: folders,
-                ),
+                actions: isReadOnly
+                    ? const <ConduitContextMenuAction>[]
+                    : buildConversationActionsWithFolders(
+                        context: context,
+                        ref: ref,
+                        conversation: conversation,
+                        foldersEnabled: true,
+                        folders: folders,
+                      ),
                 previewBuilder: buildConversationTileContextPreview,
                 child: ConversationTile(
                   key: ValueKey<String>('folder-chat-${conversation.id}'),
@@ -1546,12 +1555,14 @@ class _FolderPageState extends ConsumerState<FolderPage> {
               fadeHeight: Spacing.md,
             ),
           ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: _buildComposerOverlay(context, folder),
-          ),
+          // A read-grant shared folder cannot receive new chats.
+          if (folder.canWrite)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: _buildComposerOverlay(context, folder),
+            ),
         ],
       ),
     );
@@ -1611,13 +1622,34 @@ class _FolderPageHeader extends StatelessWidget {
           ),
           const SizedBox(width: Spacing.md),
           Expanded(
-            child: MiddleEllipsisText(
-              folder.name,
-              style: AppTypography.headlineSmallStyle.copyWith(
-                color: theme.textPrimary,
-                fontWeight: FontWeight.w700,
-              ),
-              semanticsLabel: folder.name,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                MiddleEllipsisText(
+                  folder.name,
+                  style: AppTypography.headlineSmallStyle.copyWith(
+                    color: theme.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  semanticsLabel: folder.name,
+                ),
+                if (folder.shared)
+                  Text(
+                    [
+                      if (folder.ownerName case final owner?)
+                        AppLocalizations.of(context)!.sharedFolderOwner(owner),
+                      if (!folder.canWrite)
+                        AppLocalizations.of(context)!.readOnly,
+                    ].join(' · '),
+                    key: const ValueKey<String>('folder-page-shared-label'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.captionStyle.copyWith(
+                      color: theme.textSecondary,
+                    ),
+                  ),
+              ],
             ),
           ),
         ],

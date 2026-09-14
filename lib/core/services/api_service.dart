@@ -3775,6 +3775,48 @@ class ApiService {
     }
   }
 
+  /// GET `/api/v1/folders/shared` — folders another user granted to this
+  /// account (`routers/folders.py:get_shared_folders`), each carrying
+  /// `owner_name` and `permission` (`read`|`write`). Children of a shared
+  /// folder are included by the server. Returns `[]` on 403 (feature off) and
+  /// 404 (server predates the route).
+  Future<List<Map<String, dynamic>>> getSharedFolders() async {
+    try {
+      final response = await _dio.get('/api/v1/folders/shared');
+      return _coerceRawMapList(response.data);
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 403 || code == 404) {
+        DebugLogger.log(
+          'shared-unavailable',
+          scope: 'api/folders',
+          data: {'status': code},
+        );
+        return const <Map<String, dynamic>>[];
+      }
+      rethrow;
+    }
+  }
+
+  /// GET `/api/v1/folders/{id}/shared/chats` — chat list entries inside a
+  /// shared folder (`routers/folders.py:get_shared_folder_chats`). Each item
+  /// is a list-shaped chat map plus `user_id`, `owner_name` and `readonly`.
+  /// Unpaged: the server caps this at 60 newest chats.
+  // ponytail: unpaged 60-chat cap; add `page` + "show more" if a family folder
+  // outgrows it.
+  Future<List<Map<String, dynamic>>> getSharedFolderChats(
+    String folderId,
+  ) async {
+    final response = await _dio.get(
+      '/api/v1/folders/${Uri.encodeComponent(folderId)}/shared/chats',
+    );
+    final data = response.data;
+    final chats = data is Map ? data['chats'] : null;
+    return chats is List
+        ? _coerceRawMapList(chats)
+        : const <Map<String, dynamic>>[];
+  }
+
   Future<Map<String, dynamic>> createFolder({
     required String name,
     String? parentId,
