@@ -1299,6 +1299,66 @@ void main() {
     );
 
     test(
+      'httpStream renders OpenRouter-style reasoning deltas mid-stream',
+      () async {
+        // The server relays provider chunks unchanged, so gpt-oss via an
+        // OpenRouter-style gateway arrives as `reasoning`, never
+        // `reasoning_content`. A pending reasoning block must still appear
+        // before the answer text streams.
+        final log = _CallbackLog(
+          initialMessages: fakeStreamingAssistantMessages(content: ''),
+        );
+        final byteStream = Stream<List<int>>.fromIterable([
+          _sseFrame({
+            'choices': [
+              {
+                'delta': {
+                  'reasoning': 'User wants a greeting',
+                  'reasoning_details': [
+                    {'type': 'reasoning.text', 'text': 'User wants a greeting'},
+                  ],
+                },
+              },
+            ],
+          }),
+          _sseFrame({
+            'choices': [
+              {
+                'delta': {'content': 'Hello'},
+              },
+            ],
+          }),
+          _sseDone(),
+        ]);
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            byteStream: byteStream,
+            abort: () async {},
+          ),
+          log: log,
+        );
+
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+
+        check(log.replacedContents.first)
+            .contains('<details type="reasoning" done="false"');
+        check(log.messages.last.content).equals(
+          '<details type="reasoning" done="true" duration="0">\n'
+          '<summary>Thought for 0 seconds</summary>\n'
+          '&gt; User wants a greeting\n'
+          '</details>\n'
+          'Hello',
+        );
+        check(log.finishCount).equals(1);
+      },
+    );
+
+    test(
       'reasoning projections stay lazy until the visible cadence requests one',
       () async {
         final log = _CallbackLog(

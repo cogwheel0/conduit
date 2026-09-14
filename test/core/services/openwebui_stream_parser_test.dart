@@ -477,6 +477,42 @@ void main() {
           .equals('Hello');
     });
 
+    test('parses provider reasoning keys passed through by the server', () async {
+      // Open WebUI relays provider chunks unchanged on the SSE path. OpenRouter
+      // and gateway providers use `reasoning` (plus `reasoning_details`) and
+      // Ollama uses `thinking`; neither carries `reasoning_content`.
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data: {"choices":[{"delta":{"reasoning":"User asks","reasoning_details":[{"type":"reasoning.text","text":"User asks"}]}}]}\n\n',
+          ),
+          utf8.encode(
+            'data: {"choices":[{"delta":{"thinking":" for a greeting"}}]}\n\n',
+          ),
+          utf8.encode(
+            'data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.encrypted","data":"x"}]}}]}\n\n',
+          ),
+          utf8.encode('data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n'),
+          utf8.encode('data: [DONE]\n\n'),
+        ]),
+      ).toList();
+
+      // Three content updates plus the terminal [DONE] marker.
+      check(updates).has((it) => it.length, 'length').equals(4);
+      check(updates[0])
+          .isA<OpenWebUIReasoningDelta>()
+          .has((u) => u.content, 'content')
+          .equals('User asks');
+      check(updates[1])
+          .isA<OpenWebUIReasoningDelta>()
+          .has((u) => u.content, 'content')
+          .equals(' for a greeting');
+      check(updates[2])
+          .isA<OpenWebUIContentDelta>()
+          .has((u) => u.content, 'content')
+          .equals('Hi');
+    });
+
     test('parses both reasoning_content and content in same delta', () async {
       final updates = await parseOpenWebUIStream(
         Stream<List<int>>.fromIterable([

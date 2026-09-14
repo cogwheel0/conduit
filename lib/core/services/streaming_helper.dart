@@ -1319,7 +1319,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }
 
   void handleStreamingChoiceDelta(Map<dynamic, dynamic> delta) {
-    final reasoning = delta['reasoning_content']?.toString() ?? '';
+    final reasoning = openWebUIStreamingReasoningDelta(delta);
     if (reasoning.isNotEmpty) {
       applyStreamingReasoningDelta(reasoning);
     }
