@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/openwebui_response_stream.dart';
 import 'package:conduit/core/services/structured_output.dart';
@@ -105,13 +107,15 @@ void main() {
         'output_index': 0,
         'delta': 'a',
       });
-      final snapshot = original.map((e) => Map.of(e)).toList();
+      // Deep copy so shared nested lists and part maps cannot mask an
+      // in-place mutation.
+      final snapshot = jsonDecode(jsonEncode(original));
       applyOpenWebUIResponseStreamEvent(original, {
         'type': 'response.output_text.delta',
         'output_index': 0,
         'delta': 'b',
       });
-      check(original).deepEquals(snapshot);
+      check(jsonDecode(jsonEncode(original))).deepEquals(snapshot);
     });
   });
 }
