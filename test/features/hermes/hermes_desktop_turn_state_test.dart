@@ -42,7 +42,17 @@ final class _GatewayHarness {
       sent.add(frame);
       final id = frame['id'];
       if (id == null) return;
-      final result = responder(frame['method']?.toString() ?? '');
+      final method = frame['method']?.toString() ?? '';
+      final error = errorResponder(method);
+      if (error != null) {
+        scheduleMicrotask(
+          () => incoming.add(
+            jsonEncode({'jsonrpc': '2.0', 'id': id, 'error': error}),
+          ),
+        );
+        return;
+      }
+      final result = responder(method);
       if (result == null) return;
       scheduleMicrotask(
         () => incoming.add(
@@ -58,6 +68,10 @@ final class _GatewayHarness {
   final sent = <Map<String, dynamic>>[];
 
   Map<String, dynamic>? Function(String method) responder = (_) => null;
+
+  /// When non-null for a method, the gateway answers with a JSON-RPC error
+  /// instead of a result.
+  Map<String, dynamic>? Function(String method) errorResponder = (_) => null;
 
   void ready() {
     if (incoming.isClosed) return;
@@ -95,6 +109,9 @@ Dio _statusDio([_StubAdapter? adapter]) {
 /// Serves `/api/status` (auth not required) so `_connect` can reach the socket,
 /// and records every REST URI so tests can assert profile scoping.
 final class _StubAdapter implements HttpClientAdapter {
+  _StubAdapter({this.messages = const <Map<String, dynamic>>[]});
+
+  final List<Map<String, dynamic>> messages;
   final requested = <Uri>[];
 
   @override
@@ -109,7 +126,7 @@ final class _StubAdapter implements HttpClientAdapter {
     requested.add(options.uri);
     if (options.uri.path.endsWith('/messages')) {
       return ResponseBody.fromString(
-        jsonEncode({'messages': const []}),
+        jsonEncode({'messages': messages}),
         200,
         headers: {
           Headers.contentTypeHeader: [Headers.jsonContentType],
@@ -128,6 +145,32 @@ final class _StubAdapter implements HttpClientAdapter {
         Headers.contentTypeHeader: [Headers.jsonContentType],
       },
     );
+  }
+}
+
+/// Serves `/api/status` like [_StubAdapter] but fails the transcript request.
+final class _FailingMessagesAdapter extends _StubAdapter {
+  _FailingMessagesAdapter({required this.status});
+
+  final int status;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    if (options.uri.path.endsWith('/messages')) {
+      requested.add(options.uri);
+      return ResponseBody.fromString(
+        jsonEncode({'error': 'session_not_found'}),
+        status,
+        headers: {
+          Headers.contentTypeHeader: [Headers.jsonContentType],
+        },
+      );
+    }
+    return super.fetch(options, requestStream, cancelFuture);
   }
 }
 
@@ -277,6 +320,107 @@ void main() {
       (uri) => uri.path.endsWith('/messages'),
     );
     check(historyRequest.queryParameters['order']).equals('latest');
+  });
+
+  test(
+    'a session the gateway refuses to resume still loads over REST',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      final harness = _GatewayHarness();
+      final adapter = _StubAdapter(
+        messages: const [
+          {'role': 'user', 'content': 'hello from telegram'},
+          {'role': 'assistant', 'content': 'hi'},
+        ],
+      );
+      final rpc = HermesDesktopRpcClient(
+        channelFactory: (_, _, {httpClient}) => harness.channel,
+      );
+      final service = HermesDesktopApiService(
+        config: HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          mode: HermesBackendMode.desktopGateway,
+          desktopCredentials: HermesDesktopCredentials(
+            legacyToken: 'session-token',
+          ),
+        ),
+        dio: _statusDio(adapter),
+        rpc: rpc,
+      );
+      addTearDown(() async {
+        service.close();
+        await harness.dispose();
+      });
+      final turnStates = <HermesDesktopTurnState>[];
+      final subscription = service.turnStates.listen(turnStates.add);
+      addTearDown(subscription.cancel);
+
+      harness.errorResponder = (method) => switch (method) {
+        'session.resume' => {
+          'code': 4130,
+          'message': 'Session too large to resume',
+        },
+        _ => null,
+      };
+
+      final messages = await service.getSessionMessages('telegram:123');
+      await Future<void>.delayed(Duration.zero);
+
+      check(messages).length.equals(2);
+      check(messages.last['content']).equals('hi');
+      final historyRequest = adapter.requested.singleWhere(
+        (uri) => uri.path.endsWith('/messages'),
+      );
+      check(historyRequest.path)
+          .endsWith('/api/sessions/telegram%3A123/messages');
+      check(historyRequest.queryParameters['order']).equals('oldest');
+      check(historyRequest.queryParameters['limit']).equals('200');
+      check(turnStates.last).equals(HermesDesktopTurnState.idle);
+    },
+  );
+
+  test('a REST failure after a refused resume is not swallowed', () async {
+    SharedPreferences.setMockInitialValues({});
+    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    final harness = _GatewayHarness();
+    final adapter = _FailingMessagesAdapter(status: 404);
+    final rpc = HermesDesktopRpcClient(
+      channelFactory: (_, _, {httpClient}) => harness.channel,
+    );
+    final service = HermesDesktopApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+        desktopCredentials: HermesDesktopCredentials(
+          legacyToken: 'session-token',
+        ),
+      ),
+      dio: _statusDio(adapter),
+      rpc: rpc,
+    );
+    addTearDown(() async {
+      service.close();
+      await harness.dispose();
+    });
+
+    harness.errorResponder = (method) => switch (method) {
+      'session.resume' => {'code': 4007, 'message': 'Session not found'},
+      _ => null,
+    };
+
+    Object? failure;
+    try {
+      await service.getSessionMessages('stored-missing');
+    } catch (error) {
+      failure = error;
+    }
+    check(failure)
+        .isA<DioException>()
+        .has((error) => error.response?.statusCode, 'status')
+        .equals(404);
   });
 
   test('a new bot chat opens before its first prompt is persisted', () async {

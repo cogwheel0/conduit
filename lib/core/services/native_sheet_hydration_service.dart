@@ -74,6 +74,7 @@ nativeHydratedServerReasoningEffort({
   required Model model,
   required ServerModelReasoningEffort detail,
   String? personalizationEffort,
+  String? localEffort,
 }) {
   final modelEffort = detail.value ?? modelConfiguredReasoningEffort(model);
   final policy = model.supportsReasoningEffort || modelEffort != null
@@ -83,7 +84,7 @@ nativeHydratedServerReasoningEffort({
     policy: policy,
     value:
         policy.effectiveConfiguredEffort(
-          modelEffort ?? personalizationEffort,
+          localEffort ?? modelEffort ?? personalizationEffort,
         ) ??
         kAutomaticReasoningEffort,
   );
@@ -303,6 +304,10 @@ class NativeSheetHydrationService {
                       .asData
                       ?.value
                       .reasoningEffort,
+                  localEffort: localReasoningEffortForModel(
+                    _ref.read,
+                    lateEffortModel,
+                  ),
                 );
                 await bridge.updateModelSelectorReasoningEffort(
                   presentationId: presentationId,

@@ -732,6 +732,57 @@ void main() {
     },
   );
 
+  test('OpenRouter discovery drops Batch API-only model variants', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'data': [
+          {'id': 'anthropic/claude-sonnet-4:batch'},
+          {'id': 'anthropic/claude-sonnet-4'},
+          {'id': 'x:free'},
+        ],
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final models = await adapter.listModels(
+      _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+    );
+
+    expect(models.map((model) => model.id), [
+      'anthropic/claude-sonnet-4',
+      'x:free',
+    ]);
+    expect(
+      http.requests.single.uri.toString(),
+      'https://openrouter.ai/api/v1/models/user',
+    );
+  });
+
+  test('non-OpenRouter discovery keeps batch-suffixed model ids', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'data': [
+          {'id': 'custom-model:batch'},
+          {'id': 'custom-model'},
+        ],
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final models = await adapter.listModels(_openAiProfile());
+
+    expect(models.map((model) => model.id), [
+      'custom-model:batch',
+      'custom-model',
+    ]);
+  });
+
   test('OpenRouter discovery normalizes model reasoning metadata', () async {
     final http = _QueuedAdapter([
       _Reply.json({

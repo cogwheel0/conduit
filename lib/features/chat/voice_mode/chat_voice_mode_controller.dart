@@ -1550,7 +1550,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       return;
     }
     _handleAssistantContentChanged(messages);
-    if (active.isStreaming) {
+    // The transport marks `responseDone` on a terminal finish reason while
+    // `isStreaming` can stay true until a later done event. Finalize on either
+    // signal so the trailing TTS chunk is not held until transport close.
+    if (!assistantMessageResponseCompleted(active)) {
       return;
     }
 

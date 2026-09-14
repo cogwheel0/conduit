@@ -2111,6 +2111,159 @@ void main() {
     await controller.stop();
   });
 
+  test(
+    'responseDone finalizes assistant speech while the message still streams',
+    () async {
+      final input = _FakeVoiceInputService();
+      final tts = _FakeTextToSpeechService()..holdCompletion = true;
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          selectedModelProvider.overrideWithValue(_model),
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          reviewerModeProvider.overrideWithValue(true),
+          voiceInputServiceProvider.overrideWithValue(input),
+          textToSpeechServiceProvider.overrideWithValue(tts),
+          callKitServiceProvider.overrideWithValue(
+            _UnavailableCallKitService(),
+          ),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceAudioSessionCoordinator(),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+
+      await controller.start(startNewConversation: false);
+      await input.completeCurrent('response done marker unique voice turn');
+      await _until(
+        () =>
+            container.read(chatVoiceModeControllerProvider).phase ==
+            ChatVoiceModePhase.sending,
+      );
+      final assistant = _lastAssistant(container);
+      check(assistant.isStreaming).isTrue();
+      check(tts.finishedTexts).isEmpty();
+
+      // Mirror the transport: a terminal finish reason flushes the buffer and
+      // marks responseDone without touching isStreaming.
+      container
+          .read(chatMessagesProvider.notifier)
+          .updateMessageById(
+            assistant.id,
+            (m) => m.copyWith(
+              content: 'Response settled before transport close.',
+              metadata: {...?m.metadata, 'responseDone': true},
+            ),
+          );
+
+      await _until(() => tts.finishedTexts.isNotEmpty);
+      check(_lastAssistant(container).isStreaming).isTrue();
+      check(tts.finishedTexts.length).equals(1);
+      check(tts.finishedTexts.single ?? '').isNotEmpty();
+
+      // The later done event flips isStreaming; it must not finalize twice.
+      await _until(() => !_lastAssistant(container).isStreaming);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      check(tts.finishedTexts.length).equals(1);
+
+      await controller.stop();
+    },
+  );
+
+  test(
+    'responseDone while paused defers speech and flushes once on resume',
+    () async {
+      final input = _FakeVoiceInputService();
+      final tts = _FakeTextToSpeechService();
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          selectedModelProvider.overrideWithValue(_model),
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          reviewerModeProvider.overrideWithValue(true),
+          voiceInputServiceProvider.overrideWithValue(input),
+          textToSpeechServiceProvider.overrideWithValue(tts),
+          callKitServiceProvider.overrideWithValue(
+            _UnavailableCallKitService(),
+          ),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceAudioSessionCoordinator(),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+
+      await controller.start(startNewConversation: false);
+      await input.completeCurrent('paused response done unique voice turn');
+      await _until(
+        () =>
+            container.read(chatVoiceModeControllerProvider).phase ==
+            ChatVoiceModePhase.sending,
+      );
+
+      await controller.pause();
+      expect(
+        container.read(chatVoiceModeControllerProvider).phase,
+        ChatVoiceModePhase.paused,
+      );
+      final assistant = _lastAssistant(container);
+      check(assistant.isStreaming).isTrue();
+      container
+          .read(chatMessagesProvider.notifier)
+          .updateMessageById(
+            assistant.id,
+            (m) => m.copyWith(
+              content: 'Response settled before transport close.',
+              metadata: {...?m.metadata, 'responseDone': true},
+            ),
+          );
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+
+      expect(
+        container.read(chatVoiceModeControllerProvider).phase,
+        ChatVoiceModePhase.paused,
+      );
+      check(tts.finishedTexts).isEmpty();
+
+      await controller.resume();
+      await _until(() => tts.finishedTexts.isNotEmpty);
+      // The deferred finalization flushes on resume, before transport close.
+      check(_lastAssistant(container).isStreaming).isTrue();
+      check(tts.finishedTexts.length).equals(1);
+      check(tts.finishedTexts.single ?? '').isNotEmpty();
+
+      await _until(() => !_lastAssistant(container).isStreaming);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      check(tts.finishedTexts.length).equals(1);
+      await _until(() => input.beginCalls == 2);
+      expect(
+        container.read(chatVoiceModeControllerProvider).phase,
+        ChatVoiceModePhase.listening,
+      );
+
+      await controller.stop();
+    },
+  );
+
   test('unmuting a paused assistant turn resumes its speech', () async {
     final input = _FakeVoiceInputService();
     final tts = _FakeTextToSpeechService()..holdCompletion = true;
@@ -3278,6 +3431,10 @@ class _VoiceSocketTestController extends Notifier<SocketService?> {
 
   void set(SocketService? socket) => state = socket;
 }
+
+ChatMessage _lastAssistant(ProviderContainer container) => container
+    .read(chatMessagesProvider)
+    .lastWhere((message) => message.role == 'assistant');
 
 Future<void> _until(bool Function() condition) async {
   for (var i = 0; i < 300; i++) {

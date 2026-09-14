@@ -82,7 +82,11 @@ class VoiceInputService {
           ? AudioManagerMode.modeInCommunication
           : AudioManagerMode.modeNormal,
       speakerphone: false,
-      manageBluetooth: true,
+      // During voice calls the audio session coordinator owns SCO and
+      // communication-device selection. Letting the record plugin manage
+      // Bluetooth makes every recorder stop clear the communication device
+      // (issue #716: the loudspeaker route is wiped right before TTS speaks).
+      manageBluetooth: !voiceCallSession,
       useLegacy: false,
     );
   }

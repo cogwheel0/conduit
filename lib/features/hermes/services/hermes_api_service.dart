@@ -1414,27 +1414,52 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
       maxDuration: timeout,
       clock: _recoveryClock,
     );
-    final resp = await _getRecoveryResponse(
-      '$_root/api/sessions/$encodedId/messages',
-      cancelToken: requestCancelToken,
-      recoveryBudget: budget,
-      limits: limits,
-    );
-    final data = await _decodeHermesBoundedJsonValue(
-      resp.data,
-      cancelToken: requestCancelToken,
-      limits: limits,
-      recoveryBudget: budget,
-    );
+    final Object? data;
+    try {
+      final resp = await _getRecoveryResponse(
+        '$_root/api/sessions/$encodedId/messages',
+        cancelToken: requestCancelToken,
+        recoveryBudget: budget,
+        limits: limits,
+      );
+      data = await _decodeHermesBoundedJsonValue(
+        resp.data,
+        cancelToken: requestCancelToken,
+        limits: limits,
+        recoveryBudget: budget,
+      );
+    } on HermesStreamGuardException catch (error, stackTrace) {
+      // Size-class guards become the shared "too large" type so the session
+      // list can tell "this conversation is too big" from a connection fault.
+      if (_isHermesSizeGuard(error)) {
+        Error.throwWithStackTrace(
+          HermesResponseTooLargeException(error.message),
+          stackTrace,
+        );
+      }
+      rethrow;
+    }
     final list = data is Map ? (data['messages'] ?? data['data']) : data;
     if (list is! List) return const [];
     if (list.length > kMaxHermesSessionHistoryMessages) {
       _signalHermesStreamCancellation(requestCancelToken);
-      throw const HermesStreamGuardException(
+      throw const HermesResponseTooLargeException(
         'The Hermes session history exceeded Conduit\'s message limit.',
       );
     }
     return list.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
+  }
+
+  /// Whether a recovery guard tripped on payload size rather than time.
+  static bool _isHermesSizeGuard(HermesStreamGuardException error) {
+    const sizeLimits = [
+      'transfer limit',
+      'size limit',
+      'nesting limit',
+      'value limit',
+      'token limit',
+    ];
+    return sizeLimits.any(error.message.contains);
   }
 
   /// Starts one turn through Hermes's existing Responses SSE endpoint.

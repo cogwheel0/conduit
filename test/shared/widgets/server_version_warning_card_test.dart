@@ -1,5 +1,7 @@
 import 'package:conduit/core/models/backend_config.dart';
 import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit/core/persistence/persistence_keys.dart';
+import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
@@ -10,6 +12,7 @@ import 'package:checks/checks.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _FixedBackendConfigNotifier extends BackendConfigNotifier {
   _FixedBackendConfigNotifier(this._config);
@@ -47,8 +50,18 @@ Widget _buildCard({
   );
 }
 
+Future<void> _seedPreferences([Map<String, Object> values = const {}]) async {
+  SharedPreferences.setMockInitialValues(values);
+  PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+}
+
 void main() {
   group('ServerVersionWarningCard', () {
+    setUp(() async {
+      await _seedPreferences();
+    });
+    tearDown(PreferencesStore.debugReset);
+
     testWidgets('shows the localized warning for a newer active server', (
       tester,
     ) async {
@@ -196,6 +209,66 @@ void main() {
       await tester.pump();
 
       check(find.text('Server not supported').evaluate()).isEmpty();
+    });
+
+    testWidgets('close button hides the card and persists the token', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _buildCard(
+          authState: AuthNavigationState.authenticated,
+          config: const BackendConfig(version: '0.11.4', serverId: 'A'),
+        ),
+      );
+      await tester.pump();
+      check(find.byKey(serverVersionWarningCardKey).evaluate()).length
+          .equals(1);
+
+      await tester.tap(find.byKey(serverVersionWarningCardCloseKey));
+      await tester.pumpAndSettle();
+
+      check(find.byKey(serverVersionWarningCardKey).evaluate()).isEmpty();
+      check(
+        PreferencesStore.getString(
+          PreferenceKeys.serverVersionWarningDismissed,
+        ),
+      ).equals('A|0.11.4');
+    });
+
+    testWidgets('stays hidden when the same server and version was dismissed', (
+      tester,
+    ) async {
+      await _seedPreferences({
+        PreferenceKeys.serverVersionWarningDismissed: 'A|0.11.4',
+      });
+
+      await tester.pumpWidget(
+        _buildCard(
+          authState: AuthNavigationState.authenticated,
+          config: const BackendConfig(version: '0.11.4', serverId: 'A'),
+        ),
+      );
+      await tester.pump();
+
+      check(find.byKey(serverVersionWarningCardKey).evaluate()).isEmpty();
+    });
+
+    testWidgets('shows again for a different server version', (tester) async {
+      await _seedPreferences({
+        PreferenceKeys.serverVersionWarningDismissed: 'A|0.11.4',
+      });
+
+      await tester.pumpWidget(
+        _buildCard(
+          authState: AuthNavigationState.authenticated,
+          config: const BackendConfig(version: '0.11.5', serverId: 'A'),
+        ),
+      );
+      await tester.pump();
+
+      check(find.byKey(serverVersionWarningCardKey).evaluate()).length
+          .equals(1);
+      check(find.textContaining('0.11.5').evaluate()).length.equals(1);
     });
   });
 }

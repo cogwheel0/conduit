@@ -193,15 +193,45 @@ class LocalReasoningEfforts extends _$LocalReasoningEfforts {
   }
 }
 
-String? _localEffortKey(Ref ref) {
-  final model = ref.watch(selectedModelProvider);
-  if (model == null) return null;
+String? _openWebUiEffortKey(ReasoningEffortReader read, Model model) {
+  final serverId = read(apiServiceProvider)?.serverConfig.id;
+  if (serverId == null || serverId.isEmpty) return null;
+  return 'openwebui:$serverId:${model.id}';
+}
+
+/// Storage key in [LocalReasoningEfforts] for the user's own pick on [model].
+///
+/// Open WebUI server models are namespaced by the active server id so the
+/// same model id on two servers never shares a preference.
+String? localReasoningEffortKeyForModel(
+  ReasoningEffortReader read,
+  Model model,
+) {
   if (isHermesModel(model)) return 'hermes:${model.id}';
-  final binding = ref.watch(directModelRegistryProvider).resolve(model);
+  final binding = read(directModelRegistryProvider).resolve(model);
   if (binding != null) {
     return 'direct:${binding.profileId}:${binding.remoteModelId}';
   }
-  return null;
+  return _openWebUiEffortKey(read, model);
+}
+
+/// The raw per-model pick stored locally for [model], or null when the user
+/// has not chosen one. Open WebUI models may store an explicit
+/// [kAutomaticReasoningEffort] to mean "let the server decide".
+String? localReasoningEffortForModel(ReasoningEffortReader read, Model model) {
+  final key = localReasoningEffortKeyForModel(read, model);
+  if (key == null) return null;
+  return read(localReasoningEffortsProvider)[key];
+}
+
+bool _isOpenWebUiServerModel(ReasoningEffortReader read, Model model) =>
+    !isHermesModel(model) &&
+    read(directModelRegistryProvider).resolve(model) == null;
+
+String? _localEffortKey(Ref ref) {
+  final model = ref.watch(selectedModelProvider);
+  if (model == null) return null;
+  return localReasoningEffortKeyForModel(ref.watch, model);
 }
 
 final configuredReasoningEffortProvider = Provider<String?>((ref) {
@@ -220,12 +250,16 @@ final configuredReasoningEffortProvider = Provider<String?>((ref) {
   }
 
   final localKey = _localEffortKey(ref);
-  if (localKey != null) {
+  final localEffort = localKey == null
+      ? null
+      : ref.watch(localReasoningEffortsProvider)[localKey];
+  // A user's own pick always wins. Hermes and Direct models have no
+  // server-side default, so they resolve entirely from the local record.
+  if (localEffort != null ||
+      (localKey != null && !_isOpenWebUiServerModel(ref.watch, model))) {
     return ref
         .watch(reasoningEffortPolicyProvider)
-        .effectiveConfiguredEffort(
-          ref.watch(localReasoningEffortsProvider)[localKey],
-        );
+        .effectiveConfiguredEffort(localEffort);
   }
 
   String? detailedModelEffort;
@@ -297,6 +331,14 @@ String reasoningEffortForModel(ReasoningEffortReader read, Model? model) {
   }
   if (isHermesModel(model)) {
     return read(localReasoningEffortsProvider)['hermes:${model.id}'] ??
+        kAutomaticReasoningEffort;
+  }
+  final localEffort = localReasoningEffortForModel(read, model);
+  if (localEffort != null) {
+    return reasoningEffortPolicyForModel(
+          read,
+          model,
+        ).effectiveConfiguredEffort(localEffort) ??
         kAutomaticReasoningEffort;
   }
   String? detailedModelEffort;
@@ -451,9 +493,15 @@ Future<void> setReasoningEffortForModel(
         .set('hermes:${model.id}', configured);
     return;
   }
-  if (read(apiServiceProvider) != null) {
-    await read(personalizationSettingsProvider.notifier)
-        .setReasoningEffort(configured);
+  // Open WebUI server models: keep the pick per model and per server, like the
+  // web client's chat-level Controls, and send it explicitly with each
+  // completion so it wins over the model's configured default. An explicit
+  // "automatic" is stored too, so the pick can override a model default back
+  // to "let the server decide".
+  final serverKey = _openWebUiEffortKey(read, model);
+  if (serverKey != null) {
+    await read(localReasoningEffortsProvider.notifier)
+        .set(serverKey, normalized);
   }
 }
 

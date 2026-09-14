@@ -3254,4 +3254,16 @@
   ,"directMcpInsecureCredentialsTitle": "Send credentials without encryption?"
   ,"directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network."
   ,"directMcpInsecureCredentialsConfirm": "Send without encryption"
+  ,"hermesSessionTooLarge": "此对话过大，无法在此设备上加载。"
+  ,"hermesSessionNotFound": "此对话在 Hermes 服务器上已不可用。"
+  ,"hermesSessionLoadFailedDetail": "无法加载此对话：{detail}"
+  ,"@hermesSessionLoadFailedDetail": {
+    "placeholders": {
+      "detail": {
+        "type": "String"
+      }
+    }
+  }
+  ,"directBearerDescription": "通过 Authorization: Bearer 请求头发送凭据。大多数 OpenAI 兼容服务器（llama.cpp、vLLM、LM Studio、Ollama）都采用此方式。"
+  ,"directApiKeyHeaderAzureOnlyDescription": "通过 api-key 请求头发送凭据。仅用于 Azure OpenAI；其他 OpenAI 兼容服务器需要 Bearer 令牌。"
 }

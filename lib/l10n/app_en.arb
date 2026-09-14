@@ -5564,6 +5564,23 @@
   "@hermesSessionLoadFailed": {
     "description": "Error shown when a Hermes conversation cannot be loaded."
   },
+  "hermesSessionTooLarge": "This conversation is too large to load on this device.",
+  "@hermesSessionTooLarge": {
+    "description": "Error shown when a Hermes conversation transcript exceeds the size the app can load."
+  },
+  "hermesSessionNotFound": "This conversation is no longer available on the Hermes server.",
+  "@hermesSessionNotFound": {
+    "description": "Error shown when the Hermes server reports that a conversation does not exist."
+  },
+  "hermesSessionLoadFailedDetail": "Could not load this conversation: {detail}",
+  "@hermesSessionLoadFailedDetail": {
+    "description": "Error shown when a Hermes conversation cannot be loaded and the server gave a reason.",
+    "placeholders": {
+      "detail": {
+        "type": "String"
+      }
+    }
+  },
   "hermesMemoryKeyFieldLabel": "Memory key",
   "@hermesMemoryKeyFieldLabel": {
     "description": "Label for the Hermes long-term memory key field."
@@ -6001,5 +6018,9 @@
   "directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network.",
   "@directMcpInsecureCredentialsMessage": {"description":"Warning before allowing MCP credentials over non-loopback HTTP."},
   "directMcpInsecureCredentialsConfirm": "Send without encryption",
-  "@directMcpInsecureCredentialsConfirm": {"description":"Action confirming MCP credentials may be sent over unencrypted HTTP."}
+  "@directMcpInsecureCredentialsConfirm": {"description":"Action confirming MCP credentials may be sent over unencrypted HTTP."},
+  "directBearerDescription": "Sends the credential as an Authorization: Bearer header. Most OpenAI-compatible servers (llama.cpp, vLLM, LM Studio, Ollama) expect this.",
+  "@directBearerDescription": {"description":"Help text for the Bearer token authentication mode of a direct connection."},
+  "directApiKeyHeaderAzureOnlyDescription": "Sends the credential in the api-key header. Use this only for Azure OpenAI; other OpenAI-compatible servers expect a Bearer token.",
+  "@directApiKeyHeaderAzureOnlyDescription": {"description":"Help text for the Azure OpenAI api-key header authentication mode, noting it is Azure-only."}
 }

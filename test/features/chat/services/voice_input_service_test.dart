@@ -342,7 +342,11 @@ void main() {
       check(config.audioSource).equals(AndroidAudioSource.voiceCommunication);
       check(config.audioManagerMode)
           .equals(AudioManagerMode.modeInCommunication);
-      check(config.manageBluetooth).isTrue();
+      // The coordinator owns SCO/communication-device routing during calls.
+      // record_android's Bluetooth manager clears the communication device on
+      // every recorder stop, which knocked device TTS back to the earpiece
+      // (issue #716), so the plugin must not manage Bluetooth here.
+      check(config.manageBluetooth).isFalse();
     });
   });
 

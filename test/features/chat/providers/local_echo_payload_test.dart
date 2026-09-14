@@ -1,5 +1,6 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit/core/services/direct_replay_output.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -96,6 +97,133 @@ void main() {
       check((execution['result'] as Map<String, dynamic>)['output'])
           .equals('1');
       check(payload.containsKey('codeExecutions')).isFalse();
+    });
+
+    group('persisted content (issue #703)', () {
+      const renderedDetails =
+          '<details type="tool_calls" done="true" id="call-1" '
+          'name="get_weather" arguments="{&quot;city&quot;:&quot;Oslo&quot;}" '
+          'result="&quot;Sunny&quot;">\n'
+          '<summary>Tool Executed</summary>\n</details>\n';
+      const structuredOutput = <Map<String, dynamic>>[
+        <String, dynamic>{
+          'type': 'function_call',
+          'id': 'call-1',
+          'call_id': 'call-1',
+          'name': 'get_weather',
+          'arguments': '{"city":"Oslo"}',
+          'status': 'completed',
+        },
+        <String, dynamic>{
+          'type': 'function_call_output',
+          'call_id': 'call-1',
+          'output': '"Sunny"',
+        },
+        <String, dynamic>{
+          'type': 'message',
+          'id': 'msg-1',
+          'role': 'assistant',
+          'status': 'completed',
+          'content': <Map<String, dynamic>>[
+            <String, dynamic>{'type': 'output_text', 'text': 'It is sunny.'},
+          ],
+        },
+      ];
+
+      ChatMessage assistant({
+        required String content,
+        List<Map<String, dynamic>>? output,
+      }) => ChatMessage(
+        id: 'assistant-2',
+        role: 'assistant',
+        content: content,
+        timestamp: DateTime.fromMillisecondsSinceEpoch(1700000000000),
+        model: 'gpt-4o',
+        isStreaming: false,
+        output: output,
+      );
+
+      test('stores the output message text, not the rendered details', () {
+        // The OWUI web client persists `content = getOutputText(output)` and
+        // rebuilds the <details> presentation from `output` on load; pushing
+        // the rendered markup leaks it into shares and exports.
+        final row = localEchoRowForMessage(
+          'chat-1',
+          assistant(
+            content: '${renderedDetails}It is sunny.',
+            output: structuredOutput,
+          ),
+        );
+
+        check(row.payload['content']).equals('It is sunny.');
+        check(row.content).equals('It is sunny.');
+        check(row.payload['output'])
+            .isA<List<Object?>>()
+            .deepEquals(structuredOutput);
+      });
+
+      test('keeps content byte-for-byte when the message has no output', () {
+        const content = '${renderedDetails}It is sunny.';
+        final row = localEchoRowForMessage(
+          'chat-1',
+          assistant(content: content, output: null),
+        );
+
+        check(row.payload['content']).equals(content);
+        check(row.content).equals(content);
+        check(row.payload.containsKey('output')).isFalse();
+      });
+
+      test('leaves user messages untouched', () {
+        const content =
+            '<details type="tool_calls"><summary>x</summary>'
+            '</details>\nPlease keep this literally.';
+        final user = ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: content,
+          timestamp: DateTime.fromMillisecondsSinceEpoch(1700000000000),
+          output: structuredOutput,
+        );
+
+        check(localEchoRowForMessage('chat-1', user).payload['content'])
+            .equals(content);
+      });
+
+      test('direct payload stores the output message text too', () {
+        final payload = directPersistedMessagePayloadForTest(
+          assistant(
+            content: '${renderedDetails}It is sunny.',
+            output: structuredOutput,
+          ),
+        );
+
+        check(payload['content']).equals('It is sunny.');
+        check(payload['output'])
+            .isA<List<Object?>>()
+            .deepEquals(structuredOutput);
+      });
+
+      test('direct payload keeps the rendered content for a replay mirror', () {
+        // On load the direct replay mirror short-circuits the structured
+        // output re-synthesis, so the rendered content is the only copy of
+        // the reasoning/tool presentation the UI can show.
+        const content =
+            '<details type="reasoning" done="true" duration="2">\n'
+            '<summary>Thought for 2 seconds</summary>\n> hmm\n</details>\n'
+            'It is sunny.';
+        final payload = directPersistedMessagePayloadForTest(
+          assistant(
+            content: content,
+            output: buildConduitDirectReplayOutput(
+              assistantMessageId: 'assistant-2',
+              rawContent: 'It is sunny.',
+            ),
+          ),
+        );
+
+        check(payload['content']).equals(content);
+      });
     });
   });
 }

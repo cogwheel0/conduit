@@ -39,6 +39,8 @@ final class PreferenceKeys {
       'release_notes_existing_install_at_bootstrap_v1';
   static const String releaseNotesBannerPreviousVersion =
       'release_notes_banner_previous_version_v1';
+  static const String serverVersionWarningDismissed =
+      'server_version_warning_dismissed_v1';
   static const String ttsVoice = 'tts_voice';
   static const String ttsVoiceName = 'tts_voice_name';
   static const String ttsSpeechRate = 'tts_speech_rate';

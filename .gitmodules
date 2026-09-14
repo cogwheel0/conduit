@@ -7,3 +7,7 @@
 [submodule "third_party/katex"]
 	path = third_party/katex
 	url = https://github.com/orestesgaolin/katex.git
+[submodule "hermes-src"]
+	path = hermes-src
+	url = https://github.com/NousResearch/hermes-agent
+	branch = main

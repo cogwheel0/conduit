@@ -265,7 +265,9 @@ final class HermesDesktopRpcClient {
         source = raw;
       } else if (raw is List<int>) {
         if (raw.length > kMaxHermesDesktopFrameBytes) {
-          throw const FormatException('Hermes gateway frame is too large.');
+          throw const HermesResponseTooLargeException(
+            'Hermes gateway frame is too large.',
+          );
         }
         source = utf8.decode(raw);
       } else {
@@ -274,7 +276,9 @@ final class HermesDesktopRpcClient {
       if (source.length > kMaxHermesDesktopFrameCharacters ||
           (source.length * 3 > kMaxHermesDesktopFrameBytes &&
               utf8.encode(source).length > kMaxHermesDesktopFrameBytes)) {
-        throw const FormatException('Hermes gateway frame is too large.');
+        throw const HermesResponseTooLargeException(
+          'Hermes gateway frame is too large.',
+        );
       }
       validateHermesJsonSource(source);
       final decoded = jsonDecode(source);

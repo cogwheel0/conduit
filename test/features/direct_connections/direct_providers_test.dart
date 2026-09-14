@@ -10,6 +10,7 @@ import 'package:conduit/core/services/secure_credential_storage.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/features/direct_connections/services/apple_pcc_adapter.dart';
+import 'package:conduit/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
@@ -1463,7 +1464,9 @@ void main() {
 
       await controller.blockMutationsForAppDataClear();
       await expectLater(controller.upsert(_profile()), throwsStateError);
-      await expectLater(controller.probe(_profile()), throwsStateError);
+      final blockedProbe = await controller.probe(_profile());
+      check(blockedProbe.reachable).isFalse();
+      check(blockedProbe.message).isNotNull().contains('app data');
 
       controller.resumeMutationsAfterAppDataClearAbort();
       await controller.upsert(_profile());
@@ -1584,7 +1587,7 @@ void main() {
   );
 
   test(
-    'incomplete logout fence suppresses Direct profiles on restart',
+    'incomplete logout fence does not hide Direct profiles or block setup',
     () async {
       await PreferencesStore.putChecked(
         PreferenceKeys.incompleteLogoutFence,
@@ -1595,21 +1598,153 @@ void main() {
           _profile(),
         ]).encode(),
       });
-      final container = _container(_QueuedAdapter());
+      final adapter = _CountingProbeAdapter();
+      final container = _container(adapter);
       addTearDown(container.dispose);
+      check(container.read(incompleteLogoutFenceProvider)).isTrue();
 
       expect(
         await container.read(directConnectionProfilesProvider.future),
-        isEmpty,
+        hasLength(1),
       );
-      await expectLater(
-        container
-            .read(directConnectionProfilesProvider.notifier)
-            .upsert(_profile()),
-        throwsStateError,
+      final controller = container.read(
+        directConnectionProfilesProvider.notifier,
+      );
+
+      final probe = await controller.probe(_profile(id: 'profile-two'));
+      check(probe.reachable).isTrue();
+      check(adapter.probeCalls).equals(1);
+
+      await controller.upsert(_profile(id: 'profile-two'));
+      expect(
+        container.read(directConnectionProfilesProvider).requireValue,
+        hasLength(2),
       );
     },
   );
+
+  test('probe reports a validation failure instead of throwing', () async {
+    final adapter = _CountingProbeAdapter();
+    final container = _container(adapter);
+    addTearDown(container.dispose);
+    await container.read(directConnectionProfilesProvider.future);
+    final controller = container.read(
+      directConnectionProfilesProvider.notifier,
+    );
+
+    final probe = await controller.probe(_profile(name: '   '));
+    check(probe.reachable).isFalse();
+    check(probe.message).equals('Profile name is required.');
+    check(adapter.probeCalls).equals(0);
+  });
+
+  test('probe reports a missing adapter instead of throwing', () async {
+    final container = _container(_CountingProbeAdapter());
+    addTearDown(container.dispose);
+    await container.read(directConnectionProfilesProvider.future);
+    final controller = container.read(
+      directConnectionProfilesProvider.notifier,
+    );
+
+    final probe = await controller.probe(_profile(adapterKey: 'unknown'));
+    check(probe.reachable).isFalse();
+    check(probe.message).isNotNull().contains('not available');
+  });
+
+  group('HTTP 401 auth-mode hint', () {
+    DioException unauthorized() {
+      final request = RequestOptions(path: '/models');
+      return DioException(
+        requestOptions: request,
+        type: DioExceptionType.badResponse,
+        response: Response<void>(requestOptions: request, statusCode: 401),
+      );
+    }
+
+    test('thrown 401 with api-key header mode mentions Bearer', () async {
+      final container = _container(
+        _UnsafeMessageAdapter(probeError: unauthorized()),
+      );
+      addTearDown(container.dispose);
+      await container.read(directConnectionProfilesProvider.future);
+      final controller = container.read(
+        directConnectionProfilesProvider.notifier,
+      );
+
+      final probe = await controller.probe(
+        _profile(apiKey: 'secret-key')
+            .copyWith(apiKeyAuthMode: DirectApiKeyAuthMode.apiKeyHeader),
+      );
+      check(probe.reachable).isFalse();
+      check(probe.message)
+          .equals('The provider returned HTTP 401. $kDirectBearerAuthModeHint');
+    });
+
+    test(
+      'returned 401 probe with api-key header mode mentions Bearer',
+      () async {
+        final container = _container(
+          _UnsafeMessageAdapter(
+            probeResult: const DirectConnectionProbe(
+              reachable: false,
+              message: 'The provider returned HTTP 401.',
+            ),
+          ),
+        );
+        addTearDown(container.dispose);
+        await container.read(directConnectionProfilesProvider.future);
+        final controller = container.read(
+          directConnectionProfilesProvider.notifier,
+        );
+
+        final probe = await controller.probe(
+          _profile(apiKey: 'secret-key')
+              .copyWith(apiKeyAuthMode: DirectApiKeyAuthMode.apiKeyHeader),
+        );
+        check(probe.reachable).isFalse();
+        check(probe.message).isNotNull().contains(kDirectBearerAuthModeHint);
+      },
+    );
+
+    test('401 with bearer mode does not mention the hint', () async {
+      final container = _container(
+        _UnsafeMessageAdapter(probeError: unauthorized()),
+      );
+      addTearDown(container.dispose);
+      await container.read(directConnectionProfilesProvider.future);
+      final controller = container.read(
+        directConnectionProfilesProvider.notifier,
+      );
+
+      final probe = await controller.probe(_profile(apiKey: 'secret-key'));
+      check(probe.reachable).isFalse();
+      check(probe.message).equals('The provider returned HTTP 401.');
+    });
+  });
+}
+
+final class _CountingProbeAdapter implements DirectProviderAdapter {
+  int probeCalls = 0;
+
+  @override
+  String get key => kOpenAiCompatibleAdapterKey;
+
+  @override
+  Future<List<DirectRemoteModel>> listModels(
+    DirectConnectionProfile profile,
+  ) async => const [];
+
+  @override
+  Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async {
+    probeCalls++;
+    return const DirectConnectionProbe(reachable: true);
+  }
+
+  @override
+  DirectCompletionRun startCompletion(
+    DirectConnectionProfile profile,
+    DirectCompletionRequest request,
+  ) => throw UnimplementedError();
 }
 
 ProviderContainer _container(

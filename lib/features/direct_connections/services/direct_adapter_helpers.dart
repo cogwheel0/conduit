@@ -634,6 +634,56 @@ DirectProviderException normalizeDirectProviderError(Object error) {
   return DirectProviderException('The provider request failed.', cause: error);
 }
 
+/// Hint appended to an authentication failure when the profile sends its
+/// credential in the Azure `api-key` header. Most OpenAI-compatible servers
+/// (llama.cpp, vLLM, LM Studio, Ollama) only honor `Authorization: Bearer`.
+const String kDirectBearerAuthModeHint =
+    'This provider may expect the Bearer authentication mode.';
+
+final RegExp _directAuthFailureStatusPattern = RegExp(r'\bHTTP (401|403)\b');
+
+/// Whether [message] (or [statusCode]) reports an HTTP 401/403 while
+/// [profile] sends its credential in the Azure API-key header.
+///
+/// Adapters may surface the failure either as a thrown
+/// [DirectProviderException] (carrying [statusCode]) or as a returned probe
+/// whose message came from [normalizeDirectProviderError]; the message text is
+/// the common denominator, so both shapes are recognized.
+bool directAuthModeHintApplies(
+  String message, {
+  required DirectConnectionProfile profile,
+  int? statusCode,
+}) {
+  if (profile.apiKeyAuthMode != DirectApiKeyAuthMode.apiKeyHeader) {
+    return false;
+  }
+  if (message.contains(kDirectBearerAuthModeHint)) return false;
+  return statusCode == 401 ||
+      statusCode == 403 ||
+      _directAuthFailureStatusPattern.hasMatch(message);
+}
+
+/// Appends [kDirectBearerAuthModeHint] to an already sanitized [message] when
+/// [directAuthModeHintApplies]. Call this after
+/// [sanitizeDirectProviderErrorMessage]: the hint is trusted app text, and the
+/// sanitizer's Authorization-header redaction would otherwise mangle it.
+String appendDirectAuthModeHint(
+  String message, {
+  required DirectConnectionProfile profile,
+  int? statusCode,
+}) {
+  if (!directAuthModeHintApplies(
+    message,
+    profile: profile,
+    statusCode: statusCode,
+  )) {
+    return message;
+  }
+  final trimmed = message.trimRight();
+  final separator = trimmed.isEmpty ? '' : (trimmed.endsWith('.') ? ' ' : '. ');
+  return '$trimmed$separator$kDirectBearerAuthModeHint';
+}
+
 const int kMaxDirectProviderErrorCharacters = 512;
 const String _redactedProviderValue = '[REDACTED]';
 const int _maxProviderErrorSecretPatterns = 128;

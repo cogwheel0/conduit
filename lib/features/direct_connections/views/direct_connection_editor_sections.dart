@@ -403,8 +403,11 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
       return InsetGroupedList(
         footer: [
           baseUrlDescription,
+          if (form.authentication == DirectAuthenticationMode.bearer &&
+              form.canSelectApiKeyHeader)
+            l10n.directBearerDescription,
           if (form.authentication == DirectAuthenticationMode.apiKeyHeader)
-            l10n.directApiKeyHeaderDescription,
+            l10n.directApiKeyHeaderAzureOnlyDescription,
           if (form.authentication == DirectAuthenticationMode.unsupported)
             l10n.openWebUiDirectConnectionUnsupportedAuth,
         ].join('\n\n'),
@@ -446,10 +449,20 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
           ),
           const SizedBox(height: Spacing.sm),
           authenticationField,
+          if (form.authentication == DirectAuthenticationMode.bearer &&
+              form.canSelectApiKeyHeader) ...[
+            const SizedBox(height: Spacing.sm),
+            Text(
+              l10n.directBearerDescription,
+              style: AppTypography.bodySmallStyle.copyWith(
+                color: theme.textSecondary,
+              ),
+            ),
+          ],
           if (form.authentication == DirectAuthenticationMode.apiKeyHeader) ...[
             const SizedBox(height: Spacing.sm),
             Text(
-              l10n.directApiKeyHeaderDescription,
+              l10n.directApiKeyHeaderAzureOnlyDescription,
               style: AppTypography.bodySmallStyle.copyWith(
                 color: theme.textSecondary,
               ),

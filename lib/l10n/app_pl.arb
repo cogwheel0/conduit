@@ -6415,4 +6415,16 @@
   ,"directMcpInsecureCredentialsTitle": "Send credentials without encryption?"
   ,"directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network."
   ,"directMcpInsecureCredentialsConfirm": "Send without encryption"
+  ,"hermesSessionTooLarge": "Ta rozmowa jest zbyt duża, aby wczytać ją na tym urządzeniu."
+  ,"hermesSessionNotFound": "Ta rozmowa nie jest już dostępna na serwerze Hermes."
+  ,"hermesSessionLoadFailedDetail": "Nie można wczytać tej rozmowy: {detail}"
+  ,"@hermesSessionLoadFailedDetail": {
+    "placeholders": {
+      "detail": {
+        "type": "String"
+      }
+    }
+  }
+  ,"directBearerDescription": "Wysyła dane logowania w nagłówku Authorization: Bearer. Większość serwerów zgodnych z OpenAI (llama.cpp, vLLM, LM Studio, Ollama) tego oczekuje."
+  ,"directApiKeyHeaderAzureOnlyDescription": "Wysyła dane logowania w nagłówku api-key. Używaj tego tylko dla Azure OpenAI; inne serwery zgodne z OpenAI oczekują tokenu Bearer."
 }

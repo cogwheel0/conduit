@@ -149,6 +149,9 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
             ?.toString()
             .trim();
         if (id == null || id.isEmpty || !seen.add(id)) continue;
+        // OpenRouter lists `:batch` variants that only accept the Batch API
+        // and return 404 on chat completions, so they are not usable here.
+        if (profile.isOpenRouter && id.endsWith(':batch')) continue;
 
         // Compatible providers frequently omit OpenAI's otherwise-required
         // object field. Normalize only that protocol detail, then let the SDK
