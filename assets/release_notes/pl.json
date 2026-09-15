@@ -71,6 +71,25 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.1.5",
+      "title": "Co nowego",
+      "intro": "Cześć! Udostępnione foldery z Open WebUI pojawiają się w pasku bocznym. Rozumowanie się streamuje, gdy model myśli, a ekran nie gaśnie, dopóki odpowiedź się nie skończy. Długie czaty Hermes znów się ładują. Naprawiłem też głośnik Android i pasek iOS.",
+      "bullets": [
+        {
+          "text": "Udostępnione foldery: pojawiają się w pasku bocznym. Czaty kogoś innego są tylko do odczytu. Z prawem zapisu możesz tam zacząć nowy czat.",
+          "icon": "direct"
+        },
+        {
+          "text": "Rozumowanie: streamuje się, gdy model myśli. Nagłówek pokazuje, ile sekund model myślał. Nakład rozumowania, który wybierzesz dla modelu, jest wysyłany z żądaniem. Direct czaty Ollama wysyłają poprzednie myślenie w następnej turze.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: długie sesje Telegram ładują się nawet gdy ponowne połączenie nie wyjdzie. Zbyt duże i brakujące sesje mają własny błąd. Ostrzeżenie o wersji serwera możesz zamknąć.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

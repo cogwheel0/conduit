@@ -71,6 +71,25 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.1.5",
+      "title": "Novinky",
+      "intro": "Ahoj! Zdieľané priečinky z Open WebUI sa objavia v bočnom paneli. Premýšľanie sa streamuje, kým model myslí, a obrazovka ostane zapnutá, kým odpoveď neskončí. Dlhé Hermes chaty sa zase načítajú. Opravil som aj Android reproduktor a iOS toolbar.",
+      "bullets": [
+        {
+          "text": "Zdieľané priečinky: objavia sa v bočnom paneli. Cudzie chaty sú len na čítanie. S právom zápisu tam môžeš začať nový chat.",
+          "icon": "direct"
+        },
+        {
+          "text": "Premýšľanie: streamuje sa, kým model myslí. Hlavička ukáže, koľko sekúnd model premýšľal. Úroveň uvažovania, ktorú pre model vyberieš, sa pošle s požiadavkou. Direct Ollama chaty pošlú predchádzajúce premýšľanie v ďalšom ťahu.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: dlhé Telegram relácie sa načítajú aj keď opätovné pripojenie zlyhá. Príliš veľké a chýbajúce relácie majú vlastnú chybu. Varovanie o verzii servera môžeš zavrieť.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

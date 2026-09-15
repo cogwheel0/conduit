@@ -71,6 +71,25 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.1.5",
+      "title": "Novità",
+      "intro": "Ciao! Le cartelle condivise di Open WebUI compaiono nella barra laterale. Il ragionamento scorre mentre il modello pensa, e lo schermo resta acceso finché la risposta non finisce. Le chat lunghe di Hermes si caricano di nuovo. Ho anche sistemato l'altoparlante Android e la barra iOS.",
+      "bullets": [
+        {
+          "text": "Cartelle condivise: compaiono nella barra laterale. Le chat di un'altra persona sono in sola lettura. Con accesso in scrittura puoi avviare una nuova chat lì.",
+          "icon": "direct"
+        },
+        {
+          "text": "Ragionamento: scorre mentre il modello pensa. L'intestazione mostra per quanti secondi ha pensato. Lo sforzo che scegli per un modello viene inviato con la richiesta. I Direct chat Ollama inviano il ragionamento precedente al turno successivo.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: le sessioni Telegram lunghe si caricano anche se la riconnessione fallisce. Sessioni troppo grandi o mancanti hanno il proprio errore. Puoi chiudere l'avviso sulla versione del server.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

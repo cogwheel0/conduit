@@ -71,6 +71,25 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.1.5",
+      "title": "What's new",
+      "intro": "Hi! Shared folders from Open WebUI show up in the sidebar. Reasoning streams while the model thinks, and the screen stays awake until the reply finishes. Long Hermes chats load again. I also fixed Android speakerphone and the iOS toolbar.",
+      "bullets": [
+        {
+          "text": "Shared folders: they appear in the sidebar. Chats someone else owns are read-only. Write access lets you start a new chat there.",
+          "icon": "direct"
+        },
+        {
+          "text": "Reasoning: it streams as the model thinks. The header shows how many seconds the model thought. The effort you pick for a model is sent with the request. Direct Ollama chats send previous thinking on the next turn.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: long Telegram sessions load even when reconnect fails. Too-large and missing sessions get their own error. You can dismiss the server version warning.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

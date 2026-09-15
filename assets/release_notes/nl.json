@@ -71,6 +71,25 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.1.5",
+      "title": "Nieuw",
+      "intro": "Hoi! Gedeelde mappen van Open WebUI verschijnen in de zijbalk. Het redeneren streamt terwijl het model denkt, en het scherm blijft aan tot het antwoord klaar is. Lange Hermes-chats laden weer. Ik heb ook de Android-luidspreker en de iOS-werkbalk gerepareerd.",
+      "bullets": [
+        {
+          "text": "Gedeelde mappen: ze verschijnen in de zijbalk. Chats van iemand anders zijn alleen-lezen. Met schrijfrechten kun je daar een nieuwe chat starten.",
+          "icon": "direct"
+        },
+        {
+          "text": "Redeneren: het streamt terwijl het model denkt. De kop toont hoeveel seconden het model dacht. Het redeneerniveau dat je voor een model kiest, wordt meegestuurd met het verzoek. Direct Ollama-chats sturen het vorige denken mee naar de volgende beurt.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: lange Telegram-sessies laden ook als opnieuw verbinden mislukt. Te grote en ontbrekende sessies krijgen hun eigen fout. Je kunt de waarschuwing over de serverversie sluiten.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

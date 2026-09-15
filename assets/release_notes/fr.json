@@ -71,6 +71,25 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.1.5",
+      "title": "Nouveautés",
+      "intro": "Bonjour ! Les dossiers partagés d'Open WebUI apparaissent dans la barre latérale. Le raisonnement s'affiche pendant que le modèle réfléchit, et l'écran reste allumé jusqu'à la fin de la réponse. Les longs chats Hermes se chargent à nouveau. J'ai aussi corrigé le haut-parleur Android et la barre d'outils iOS.",
+      "bullets": [
+        {
+          "text": "Dossiers partagés : ils apparaissent dans la barre latérale. Les chats d'une autre personne sont en lecture seule. Avec un accès en écriture, vous pouvez y démarrer un nouveau chat.",
+          "icon": "direct"
+        },
+        {
+          "text": "Raisonnement : il s'affiche pendant que le modèle réfléchit. L'en-tête indique combien de secondes le modèle a réfléchi. L'effort que vous choisissez pour un modèle est envoyé avec la requête. Les Direct chats Ollama envoient le raisonnement précédent au tour suivant.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes : les longues sessions Telegram se chargent même si la reconnexion échoue. Les sessions trop grandes ou introuvables ont leur propre erreur. Vous pouvez fermer l'avertissement de version du serveur.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

@@ -71,6 +71,25 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.1.5",
+      "title": "Neuigkeiten",
+      "intro": "Hallo! Geteilte Ordner aus Open WebUI erscheinen in der Seitenleiste. Du siehst das Nachdenken schon während das Modell denkt, und der Bildschirm bleibt wach, bis die Antwort fertig ist. Lange Hermes-Chats laden wieder. Android-Lautsprecher und die iOS-Toolbar habe ich auch repariert.",
+      "bullets": [
+        {
+          "text": "Geteilte Ordner: sie erscheinen in der Seitenleiste. Chats, die jemand anderes besitzt, sind nur lesbar. Mit Schreibzugriff kannst du dort einen neuen Chat starten.",
+          "icon": "direct"
+        },
+        {
+          "text": "Nachdenken: es erscheint schon während das Modell denkt. Die Überschrift zeigt, wie viele Sekunden das Modell nachgedacht hat. Den Denkaufwand, den du für ein Modell wählst, schickt die App mit der Anfrage. Direct-Ollama-Chats schicken das letzte Nachdenken beim nächsten Mal mit.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes: lange Telegram-Sitzungen laden auch, wenn die Verbindung fehlschlägt. Zu große und fehlende Sitzungen haben eigene Fehlermeldungen. Die Warnung zur Serverversion kannst du schließen.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }
