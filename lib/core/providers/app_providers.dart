@@ -4118,12 +4118,15 @@ final folderConversationSummariesProvider =
 
 /// True when [conversation] belongs to another user (reached through a shared
 /// folder). Such chats are viewable but every write is rejected server-side.
+/// Fails closed: a known owner with the signed-in user not yet resolved reads
+/// as read-only (the auth manager never publishes `authenticated` without a
+/// user, so this only bites during hydration).
 bool isReadOnlySharedConversation(
   Conversation? conversation,
   String? currentUserId,
 ) {
   final owner = conversation?.userId;
-  return owner != null && currentUserId != null && owner != currentUserId;
+  return owner != null && owner != currentUserId;
 }
 
 /// Whether the current chat session is temporary (not persisted to server).
@@ -4550,12 +4553,11 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
   );
   // Materialize the local row so the next open is DB-first. Another user's
   // chat (shared folder) stays network-only: the sync store would otherwise
-  // push edits to it and it can never appear in this user's chat list. Fail
-  // closed: with the owner known but the signed-in user still hydrating, skip
-  // rather than guess.
-  final owner = fullConversation.userId;
-  final me = ref.read(currentUserProvider2)?.id;
-  if (owner == null || (me != null && me == owner)) {
+  // push edits to it and it can never appear in this user's chat list.
+  if (!isReadOnlySharedConversation(
+    fullConversation,
+    ref.read(currentUserProvider2)?.id,
+  )) {
     schedulePullChatNow(ref, rawConversationId, ownership: openWebUiOwnership);
   }
 
