@@ -3966,6 +3966,14 @@
   "@notificationsPermissionDenied": {
     "description": "Shown when the user enables notifications but the OS permission was denied."
   },
+  "notificationSystemSettingsTitle": "Systemowe ustawienia powiadomień",
+  "@notificationSystemSettingsTitle": {
+    "description": "Row that opens the OS notification settings for this app."
+  },
+  "notificationSystemSettingsDescription": "Zmień uprawnienia, dźwięk i opcje banerów dla Conduit.",
+  "@notificationSystemSettingsDescription": {
+    "description": "Subtitle for the row that opens the OS notification settings."
+  },
   "workspaceTitle": "Obszar roboczy",
   "@workspaceTitle": {
     "description": "App bar title for the Workspace feature."

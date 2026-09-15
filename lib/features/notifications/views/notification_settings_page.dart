@@ -60,6 +60,12 @@ class NotificationSettingsPage extends ConsumerWidget {
               dependantOnMaster: false,
               onChanged: (value) => _setMaster(context, ref, value),
             ),
+            UtilityRow(
+              title: l10n.notificationSystemSettingsTitle,
+              subtitle: l10n.notificationSystemSettingsDescription,
+              showChevron: true,
+              onTap: () => _openSystemSettings(context, ref),
+            ),
           ],
         ),
         settingsSectionGap,
@@ -110,6 +116,19 @@ class NotificationSettingsPage extends ConsumerWidget {
         ),
       ],
     );
+  }
+
+  Future<void> _openSystemSettings(BuildContext context, WidgetRef ref) async {
+    final opened = await ref
+        .read(localNotificationServiceProvider)
+        .openSystemSettings();
+    if (!opened && context.mounted) {
+      AdaptiveSnackBar.show(
+        context,
+        message: AppLocalizations.of(context)!.notificationsPermissionDenied,
+        type: AdaptiveSnackBarType.warning,
+      );
+    }
   }
 
   Future<void> _setMaster(

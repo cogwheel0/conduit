@@ -80,11 +80,10 @@ Future<List<PlatformFile>> _pickPlatformFiles({
   List<String>? allowedExtensions,
 }) async {
   if (allowMultiple) {
-    final result = await FilePicker.pickFiles(
+    return FilePicker.pickFiles(
       type: type,
       allowedExtensions: allowedExtensions,
     );
-    return result?.files ?? const [];
   }
 
   final file = await FilePicker.pickFile(
@@ -372,13 +371,10 @@ class FileAttachmentService {
 
   Future<List<LocalAttachment>> _pickImagesWithFilePicker() async {
     try {
-      final result = await FilePicker.pickFiles(type: FileType.image);
+      final files = await FilePicker.pickFiles(type: FileType.image);
+      if (files.isEmpty) return [];
 
-      if (result == null || result.files.isEmpty) {
-        return [];
-      }
-
-      return result.files.where((file) => file.path != null).map((file) {
+      return files.where((file) => file.path != null).map((file) {
         return _localAttachmentFromPath(
           filePath: file.path!,
           preferredName: file.name,

@@ -49,6 +49,7 @@ final class DirectChatMessage {
     required this.role,
     required Iterable<DirectContentPart> parts,
     Iterable<Map<String, dynamic>> annotations = const [],
+    this.reasoning,
   }) : parts = List.unmodifiable(parts),
        annotations = List.unmodifiable(
          annotations.map(
@@ -66,6 +67,10 @@ final class DirectChatMessage {
   final String role;
   final List<DirectContentPart> parts;
   final List<Map<String, dynamic>> annotations;
+
+  /// Raw reasoning from a completed direct assistant turn, replayed only by
+  /// adapters whose provider accepts it (Ollama `thinking`).
+  final String? reasoning;
 }
 
 final class DirectCompletionRequest {

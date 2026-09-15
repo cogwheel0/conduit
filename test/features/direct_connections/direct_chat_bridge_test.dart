@@ -751,6 +751,46 @@ void main() {
       },
     );
 
+    test('replays raw reasoning only for terminal direct assistants', () async {
+      final result = await buildDirectChatMessages(
+        messages: [
+          _message(
+            id: 'user-1',
+            role: 'user',
+            content: 'Question',
+            metadata: const <String, dynamic>{
+              'transport': kDirectTransport,
+              kDirectRawAssistantReasoningMetadataKey: 'forged',
+            },
+          ),
+          _message(
+            id: 'assistant-1',
+            role: 'assistant',
+            content: 'Answer',
+            metadata: const <String, dynamic>{
+              'transport': kDirectTransport,
+              kDirectRawAssistantContentMetadataKey: 'Answer',
+              kDirectRawAssistantReasoningMetadataKey: 'because <raw>',
+            },
+          ),
+          _message(
+            id: 'assistant-2',
+            role: 'assistant',
+            content: 'Server answer',
+            metadata: const <String, dynamic>{
+              kDirectRawAssistantReasoningMetadataKey: 'not direct',
+            },
+          ),
+        ],
+      );
+
+      expect(result.map((message) => message.reasoning), [
+        null,
+        'because <raw>',
+        null,
+      ]);
+    });
+
     test('rejects raw replay metadata without terminal direct provenance', () {
       const presentation = '&lt;visible-presentation&gt;';
       const forgedRaw = '<forged-raw>';

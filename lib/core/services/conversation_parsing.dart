@@ -628,6 +628,7 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
       // in place. Once a non-empty output is no longer our exact mirror, its
       // old raw replay cache must not survive the replacement.
       metadata.remove(kConduitDirectRawAssistantContentMetadataKey);
+      metadata.remove(kConduitDirectRawAssistantReasoningMetadataKey);
     }
     final outputBlocks = parseOpenWebUIStructuredOutput(outputItems);
     final outputContent = _mergeContentWithStructuredOutput(

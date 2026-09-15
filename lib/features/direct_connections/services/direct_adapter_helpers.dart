@@ -34,6 +34,7 @@ List<DirectChatMessage> requireSerializableDirectMessages(
         role: message.role,
         parts: parts,
         annotations: annotations,
+        reasoning: message.role == 'assistant' ? message.reasoning : null,
       ),
     );
   }

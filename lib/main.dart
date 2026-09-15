@@ -167,10 +167,9 @@ void main() {
 
       const secureStorage = FlutterSecureStorage(
         aOptions: AndroidOptions(
-          // Keep legacy Android storage readable until a storageNamespace
-          // migration can move both encrypted data and wrapped keys.
-          // ignore: deprecated_member_use
-          sharedPreferencesName: 'conduit_secure_prefs',
+          // Same name as the pre-v11 sharedPreferencesName so the plugin's
+          // LegacyNamespaceKeyRecovery keeps existing Android data readable.
+          storageNamespace: 'conduit_secure_prefs',
           preferencesKeyPrefix: 'conduit_',
           resetOnError: false,
         ),
