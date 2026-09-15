@@ -75,7 +75,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -145,6 +145,15 @@ class AppDatabase extends _$AppDatabase {
       if (from < 9) {
         await _createMessageBranchIndex();
       }
+      if (from < 10) {
+        // Shared folders (#710): persist the chat owner so another user's chat
+        // stays read-only on a DB-first open. Guarded so a re-run of the
+        // migration on an already-upgraded file stays idempotent like the
+        // index steps above.
+        if (!await _chatsHasColumn('user_id')) {
+          await m.addColumn(chats, chats.userId);
+        }
+      }
     },
     beforeOpen: (details) async {
       // Required for the messages -> chats cascade.
@@ -159,6 +168,11 @@ class AppDatabase extends _$AppDatabase {
     await _createNoteIndexes();
     await _createAttachmentReceiptIndex();
     await _createMessageBranchIndex();
+  }
+
+  Future<bool> _chatsHasColumn(String name) async {
+    final rows = await customSelect('PRAGMA table_info(chats)').get();
+    return rows.any((row) => row.read<String>('name') == name);
   }
 
   Future<void> _createMessageBranchIndex() {

@@ -35,6 +35,11 @@ class Chats extends Table {
 
   /// A2: `ChatResponse` envelope fields.
   TextColumn get shareId => text().nullable()();
+
+  /// Server `user_id` of the chat owner (v10). Null for local-created rows
+  /// and rows written before v10. Differs from the signed-in user only for a
+  /// chat reached through a shared folder, which the UI treats as read-only.
+  TextColumn get userId => text().nullable()();
   TextColumn get meta => text().withDefault(const Constant('{}'))();
 
   /// A3: `ChatRows` round-trip bookkeeping (JSON, exact keys: v,

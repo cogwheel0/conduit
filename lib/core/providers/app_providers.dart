@@ -4063,14 +4063,71 @@ final folderConversationSummariesProvider =
         return const <Conversation>[];
       }
 
+      // Other users' chats never enter the local sync store (they are absent
+      // from `/api/v1/chats/` and must not be pushed or reconciled), so they
+      // are listed from the folder's shared-chats route:
+      //  * a folder shared TO this user is served entirely from the network;
+      //  * an owned folder unions its local rows with chats that users holding
+      //    a write grant created inside it (local wins on id).
+      final folder = ref
+          .watch(foldersProvider)
+          .asData
+          ?.value
+          .where((folder) => folder.id == folderId)
+          .firstOrNull;
+      final api = ref.watch(apiServiceProvider);
+      final isShared = folder?.shared ?? false;
+      List<Conversation> remote = const <Conversation>[];
+      if (api != null && folder != null) {
+        try {
+          final raw = await api.getSharedFolderChats(folderId);
+          remote = [
+            for (final item in raw)
+              Conversation.fromJson(parseConversationSummary(item)),
+          ];
+        } catch (error, stackTrace) {
+          // An owned folder still renders its local rows; a shared one has
+          // nothing else to show.
+          DebugLogger.error(
+            'shared-chats-failed',
+            scope: 'folders',
+            error: error,
+            stackTrace: stackTrace,
+            data: {'folderId': folderId, 'shared': isShared},
+          );
+          if (isShared) rethrow;
+        }
+      }
+      if (isShared) return remote;
+
       final db = ref.watch(appDatabaseProvider);
       if (db == null) {
-        return const <Conversation>[];
+        return remote;
       }
 
       final entries = await db.chatsDao.getChatsInFolder(folderId);
-      return entries.map(conversationFromListEntry).toList(growable: false);
+      final local = entries.map(conversationFromListEntry).toList();
+      if (remote.isEmpty) return local;
+      final localIds = {for (final c in local) c.id};
+      return [
+        ...local,
+        for (final c in remote)
+          if (!localIds.contains(c.id)) c,
+      ];
     });
+
+/// True when [conversation] belongs to another user (reached through a shared
+/// folder). Such chats are viewable but every write is rejected server-side.
+/// Fails closed: a known owner with the signed-in user not yet resolved reads
+/// as read-only (the auth manager never publishes `authenticated` without a
+/// user, so this only bites during hydration).
+bool isReadOnlySharedConversation(
+  Conversation? conversation,
+  String? currentUserId,
+) {
+  final owner = conversation?.userId;
+  return owner != null && owner != currentUserId;
+}
 
 /// Whether the current chat session is temporary (not persisted to server).
 ///
@@ -4494,8 +4551,15 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
     scope: 'conversation',
     data: {'messages': fullConversation.messages.length},
   );
-  // Materialize the local row so the next open is DB-first.
-  schedulePullChatNow(ref, rawConversationId, ownership: openWebUiOwnership);
+  // Materialize the local row so the next open is DB-first. Another user's
+  // chat (shared folder) stays network-only: the sync store would otherwise
+  // push edits to it and it can never appear in this user's chat list.
+  if (!isReadOnlySharedConversation(
+    fullConversation,
+    ref.read(currentUserProvider2)?.id,
+  )) {
+    schedulePullChatNow(ref, rawConversationId, ownership: openWebUiOwnership);
+  }
 
   return withChatStorageProvenance(fullConversation, ChatStorageKind.openWebUi);
 }

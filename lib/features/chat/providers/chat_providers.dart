@@ -11118,6 +11118,15 @@ bool _conversationUsesOpenWebUiContext(Conversation? conversation) {
 /// Transport and storage are independent: a direct/Hermes response can live in
 /// OpenWebUI storage and must disappear at account isolation, while an app-owned
 /// direct-local/runtime chat remains visible during OpenWebUI sign-out.
+/// True while the active conversation belongs to another user (reached
+/// through a shared folder). Every mutating affordance hides behind this.
+final activeConversationReadOnlyProvider = Provider<bool>((ref) {
+  return isReadOnlySharedConversation(
+    ref.watch(activeConversationProvider),
+    ref.watch(currentUserProvider2.select((user) => user?.id)),
+  );
+});
+
 bool conversationUsesOpenWebUiStorage(Conversation? conversation) {
   if (conversation == null) return false;
   final storage = chatStorageKindOf(conversation);

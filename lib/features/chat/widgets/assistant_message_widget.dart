@@ -63,6 +63,9 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   final dynamic message;
   final bool isStreaming;
   final bool showFollowUps;
+
+  /// Another user's chat (shared folder): only copy/listen/version browsing.
+  final bool readOnly;
   final bool animateOnMount;
   final String? modelName;
   final String? modelIconUrl;
@@ -107,6 +110,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
     required this.message,
     this.isStreaming = false,
     this.showFollowUps = true,
+    this.readOnly = false,
     this.animateOnMount = true,
     this.modelName,
     this.modelIconUrl,
@@ -201,7 +205,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   Future<void> _handleFollowUpTap(String suggestion) async {
     final trimmed = suggestion.trim();
-    if (trimmed.isEmpty || _uiTreatsAsStreaming || !_responseCompleted) {
+    if (trimmed.isEmpty ||
+        widget.readOnly ||
+        _uiTreatsAsStreaming ||
+        !_responseCompleted) {
       return;
     }
     try {
@@ -1543,7 +1550,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   List<String> _resolveVisibleFollowUps() {
     final rawFollowUps = _resolveActiveFollowUps();
-    if (!widget.showFollowUps || _uiTreatsAsStreaming || !_responseCompleted) {
+    if (!widget.showFollowUps ||
+        widget.readOnly ||
+        _uiTreatsAsStreaming ||
+        !_responseCompleted) {
       return rawFollowUps;
     }
 
@@ -1983,13 +1993,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               ? 'stop.fill'
               : 'speaker.wave.2.fill',
         ),
-      _AssistantFooterAction(
-        id: isErrorMessage ? 'retry' : 'regenerate',
-        icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
-        label: isErrorMessage ? l10n.retry : l10n.regenerate,
-        onTap: canRegenerate ? widget.onRegenerate : null,
-        sfSymbol: 'arrow.clockwise',
-      ),
+      if (!widget.readOnly)
+        _AssistantFooterAction(
+          id: isErrorMessage ? 'retry' : 'regenerate',
+          icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
+          label: isErrorMessage ? l10n.retry : l10n.regenerate,
+          onTap: canRegenerate ? widget.onRegenerate : null,
+          sfSymbol: 'arrow.clockwise',
+        ),
       if (activeUsage != null && activeUsage.isNotEmpty)
         _AssistantFooterAction(
           id: 'usage',
@@ -2033,13 +2044,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               : null,
           sfSymbol: 'chevron.right',
         ),
-      _AssistantFooterAction(
-        id: 'delete',
-        icon: Platform.isIOS ? CupertinoIcons.delete : Icons.delete_outline,
-        label: l10n.delete,
-        onTap: widget.onDelete,
-        sfSymbol: 'trash',
-      ),
+      if (!widget.readOnly)
+        _AssistantFooterAction(
+          id: 'delete',
+          icon: Platform.isIOS ? CupertinoIcons.delete : Icons.delete_outline,
+          label: l10n.delete,
+          onTap: widget.onDelete,
+          sfSymbol: 'trash',
+        ),
     ];
 
     return actions;
@@ -2118,7 +2130,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   }
 
   Widget _buildFollowUpSuggestions(List<String> suggestions) {
-    final shouldShow = widget.showFollowUps && suggestions.isNotEmpty;
+    // A follow-up is a send; another user's chat offers none.
+    final shouldShow =
+        widget.showFollowUps && !widget.readOnly && suggestions.isNotEmpty;
 
     if (!shouldShow) {
       return const SizedBox.shrink(key: ValueKey('follow-ups-empty'));

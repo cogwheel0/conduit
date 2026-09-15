@@ -8,6 +8,7 @@ import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/providers/app_providers.dart';
+import '../../auth/providers/unified_auth_providers.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
@@ -1323,6 +1324,32 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                       ),
                     ),
                   ),
+                  if (folder.shared) ...[
+                    const SizedBox(width: Spacing.sm),
+                    // Same badge treatment as the conversation tile's
+                    // "On device" label; owner and permission live on the
+                    // folder page header.
+                    Container(
+                      key: ValueKey<String>('folder-shared-badge-$folderId'),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: Spacing.xs,
+                        vertical: Spacing.xxs,
+                      ),
+                      decoration: BoxDecoration(
+                        color: theme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(AppBorderRadius.xs),
+                      ),
+                      child: Text(
+                        AppLocalizations.of(context)!.sharedBadge,
+                        style: AppTypography.labelStyle.copyWith(
+                          color: theme.textSecondary,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                      ),
+                    ),
+                  ],
                   const SizedBox(width: Spacing.sm),
                   ConduitIconButton(
                     key: ValueKey<String>('folder-expand-$folderId'),
@@ -1413,28 +1440,36 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     Folder folder,
     List<Folder> folders,
   ) {
+    // Rename/move/delete are owner operations; the server rejects them for a
+    // folder shared to this account. A subfolder is allowed with a write grant
+    // (`routers/folders.py:create_folder`).
+    if (folder.shared && !folder.canWrite) {
+      return const <ConduitContextMenuAction>[];
+    }
     final l10n = AppLocalizations.of(context)!;
     final folderId = folder.id;
+    final newFolderAction = ConduitContextMenuAction(
+      cupertinoIcon: CupertinoIcons.folder_badge_plus,
+      materialIcon: Icons.create_new_folder_outlined,
+      label: l10n.newFolder,
+      onBeforeClose: () => ConduitHaptics.selectionClick(),
+      onSelected: () async {
+        _setFolderExpanded(folderId, true);
+        await CreateFolderDialog.show(
+          context,
+          ref,
+          onError: _showDrawerError,
+          parentId: folderId,
+        );
+      },
+    );
+    if (folder.shared) return [newFolderAction];
     final moveTargets = _folderMoveTargetEntries(folder, folders);
     final canMove =
         _normalizeParentId(folder.parentId) != null || moveTargets.isNotEmpty;
 
     return [
-      ConduitContextMenuAction(
-        cupertinoIcon: CupertinoIcons.folder_badge_plus,
-        materialIcon: Icons.create_new_folder_outlined,
-        label: l10n.newFolder,
-        onBeforeClose: () => ConduitHaptics.selectionClick(),
-        onSelected: () async {
-          _setFolderExpanded(folderId, true);
-          await CreateFolderDialog.show(
-            context,
-            ref,
-            onError: _showDrawerError,
-            parentId: folderId,
-          );
-        },
-      ),
+      newFolderAction,
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.pencil,
         materialIcon: Icons.edit_rounded,
@@ -1478,7 +1513,8 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
     final eligibleFolders = folders
         .where((candidate) {
-          if (candidate.id == folder.id) {
+          // Own folders never re-parent under another user's folder.
+          if (candidate.id == folder.id || candidate.shared) {
             return false;
           }
           return !_isFolderDescendant(
@@ -1791,14 +1827,21 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       onTap: () => _selectConversation(conversation),
     );
 
+    final isReadOnly = isReadOnlySharedConversation(
+      conversation,
+      ref.watch(currentUserProvider2.select((user) => user?.id)),
+    );
     final contextTile = ConduitContextMenu(
-      actions: buildConversationActionsWithFolders(
-        context: context,
-        ref: ref,
-        conversation: conversation,
-        foldersEnabled: foldersEnabled,
-        folders: folders,
-      ),
+      // Pin/rename/move/delete all fail server-side on another user's chat.
+      actions: isReadOnly
+          ? const <ConduitContextMenuAction>[]
+          : buildConversationActionsWithFolders(
+              context: context,
+              ref: ref,
+              conversation: conversation,
+              foldersEnabled: foldersEnabled,
+              folders: folders,
+            ),
       previewBuilder: buildConversationTileContextPreview,
       child: tileWidget,
     );

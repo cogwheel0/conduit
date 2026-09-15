@@ -28,7 +28,22 @@ sealed class Folder with _$Folder {
     Map<String, dynamic>? meta,
     Map<String, dynamic>? data,
     Map<String, dynamic>? items,
+
+    /// True for folders returned by `GET /api/v1/folders/shared` — owned by
+    /// another user and granted to this account.
+    @Default(false) bool shared,
+
+    /// Display name of the owner (`owner_name`); shared folders only.
+    String? ownerName,
+
+    /// `read` or `write` (`permission`); shared folders only.
+    String? permission,
   }) = _Folder;
+
+  const Folder._();
+
+  /// Owned folders are always writable; shared ones only with a write grant.
+  bool get canWrite => !shared || permission == 'write';
 
   factory Folder.fromJson(Map<String, dynamic> json) {
     List<String> extractConversationIds(dynamic source) {
@@ -89,6 +104,9 @@ sealed class Folder with _$Folder {
       meta: json['meta'] as Map<String, dynamic>?,
       data: json['data'] as Map<String, dynamic>?,
       items: json['items'] as Map<String, dynamic>?,
+      shared: _safeBool(json['shared']) ?? false,
+      ownerName: json['owner_name']?.toString(),
+      permission: json['permission']?.toString(),
     );
   }
 }
@@ -115,6 +133,9 @@ extension FolderJsonExtension on Folder {
       if (data != null) 'data': Map<String, dynamic>.from(data!),
       if (conversationIds.isNotEmpty)
         'conversation_ids': List<String>.from(conversationIds),
+      if (shared) 'shared': true,
+      if (ownerName != null) 'owner_name': ownerName,
+      if (permission != null) 'permission': permission,
     };
   }
 }

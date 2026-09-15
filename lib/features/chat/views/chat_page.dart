@@ -3270,6 +3270,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           return UserMessageBubble(
             message: latestMessage,
             isUser: true,
+            readOnly: rowRef.watch(activeConversationReadOnlyProvider),
             isStreaming: latestMessage.isStreaming,
             modelName: rowMetadata.displayModelName,
             onCopy: () {
@@ -3320,6 +3321,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool suppressStreamingHaptics,
   }) {
     final groupIds = rowMetadata.groupMessageIds;
+    final readOnly = rowRef.watch(activeConversationReadOnlyProvider);
     final displayedMessage = groupIds.length > 1
         ? _messageWithGroupedHermesToolStatuses(rowRef, latestMessage, groupIds)
         : latestMessage;
@@ -3352,7 +3354,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       versionModelNames: rowMetadata.versionModelNames,
       versionModelIconUrls: rowMetadata.versionModelIconUrls,
       suppressStreamingHaptics: suppressStreamingHaptics,
-      onFollowUpSelected: _handleFollowUpSend,
+      readOnly: readOnly,
+      onFollowUpSelected: readOnly ? null : _handleFollowUpSend,
       // The bar owner acts on the whole grouped response: a Hermes turn is one
       // answer split across rows, so copying or reading back only this row's
       // share would hand over a fragment.
@@ -3917,6 +3920,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   } else {
                     attachedOverlay = null;
                   }
+                  if (isReadOnlySharedConversation(
+                    activeConversation,
+                    composerRef.watch(
+                      currentUserProvider2.select((user) => user?.id),
+                    ),
+                  )) {
+                    return _buildReadOnlyNotice(context);
+                  }
                   return ModernChatInput(
                     onSendMessage: _handleMessageSend,
                     enabled: debugCanSubmitChatMessageForTesting(
@@ -3944,6 +3955,45 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// Replaces the composer while viewing another user's chat from a shared
+  /// folder; the server rejects every write, so no input is offered.
+  Widget _buildReadOnlyNotice(BuildContext context) {
+    final theme = context.conduitTheme;
+    return Container(
+      key: const ValueKey<String>('chat-read-only-notice'),
+      margin: const EdgeInsets.symmetric(horizontal: Spacing.md),
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.md,
+        vertical: Spacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: theme.surfaceContainer,
+        borderRadius: BorderRadius.circular(AppBorderRadius.card),
+        border: Border.all(color: theme.cardBorder, width: BorderWidth.thin),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            context.usesCupertinoChrome
+                ? CupertinoIcons.eye
+                : Icons.visibility_outlined,
+            size: IconSize.sm,
+            color: theme.iconSecondary,
+          ),
+          const SizedBox(width: Spacing.sm),
+          Expanded(
+            child: Text(
+              AppLocalizations.of(context)!.readOnlySharedChat,
+              style: AppTypography.bodySmallStyle.copyWith(
+                color: theme.textSecondary,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -4479,7 +4529,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     final conversationActions =
-        activeConversation != null && !isTemporaryChat(activeConversation.id)
+        activeConversation != null &&
+            !isTemporaryChat(activeConversation.id) &&
+            // Pin/rename/move/delete all fail server-side on another user's
+            // chat (shared folder).
+            !isReadOnlySharedConversation(
+              activeConversation,
+              ref.read(currentUserProvider2)?.id,
+            )
         ? buildConversationActions(
             context: context,
             ref: ref,

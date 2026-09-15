@@ -83,6 +83,7 @@ Map<String, dynamic> buildChatResponseEnvelope(
     'archived': chat.archived,
     'folder_id': chat.folderId,
     'share_id': chat.shareId,
+    'user_id': chat.userId,
     'meta': _decodeJsonMap(chat.meta),
   };
 }

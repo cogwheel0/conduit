@@ -430,8 +430,9 @@ Future<_ConversationMoveTarget?> _showConversationMoveSheet(
   required String? currentFolderId,
 }) async {
   final l10n = AppLocalizations.of(context)!;
+  // A shared folder is a valid destination only with a write grant.
   final treeEntries = folderTreeEntriesForTargets(
-    folders: folders,
+    folders: folders.where((folder) => folder.canWrite).toList(),
     omitFolderId: currentFolderId,
   );
 

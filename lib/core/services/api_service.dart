@@ -3775,6 +3775,70 @@ class ApiService {
     }
   }
 
+  /// GET `/api/v1/folders/shared` — folders another user granted to this
+  /// account (`routers/folders.py:get_shared_folders`), each carrying
+  /// `owner_name` and `permission` (`read`|`write`). Children of a shared
+  /// folder are included by the server. Returns `[]` on 403 (feature off) and
+  /// 404 (server predates the route).
+  Future<List<Map<String, dynamic>>> getSharedFolders() async {
+    try {
+      final response = await _dio.get('/api/v1/folders/shared');
+      return _coerceRawMapList(response.data);
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 403 || code == 404) {
+        DebugLogger.log(
+          'shared-unavailable',
+          scope: 'api/folders',
+          data: {'status': code},
+        );
+        return const <Map<String, dynamic>>[];
+      }
+      rethrow;
+    }
+  }
+
+  /// GET `/api/v1/folders/{id}/shared/chats?page=N` — one page (10) of chat
+  /// list entries inside a folder, for the owner and for anyone it is shared
+  /// with (`routers/folders.py:get_shared_folder_chats`). Each item is a
+  /// list-shaped chat map plus `user_id`, `owner_name` and `readonly`. Returns
+  /// the page and the server's `has_more` flag.
+  Future<(List<Map<String, dynamic>>, bool)> getSharedFolderChatsPage(
+    String folderId, {
+    required int page,
+  }) async {
+    final response = await _dio.get(
+      '/api/v1/folders/${Uri.encodeComponent(folderId)}/shared/chats',
+      queryParameters: {'page': page},
+    );
+    final data = response.data;
+    final chats = data is Map ? data['chats'] : null;
+    return (
+      chats is List ? _coerceRawMapList(chats) : const <Map<String, dynamic>>[],
+      data is Map && data['has_more'] == true,
+    );
+  }
+
+  /// Every chat in a folder via [getSharedFolderChatsPage], newest first.
+  /// Bounded so a runaway `has_more` can never loop forever.
+  // ponytail: 50 pages = 500 chats; switch to a "show more" row if a folder
+  // ever grows past that.
+  Future<List<Map<String, dynamic>>> getSharedFolderChats(
+    String folderId, {
+    int maxPages = 50,
+  }) async {
+    final all = <Map<String, dynamic>>[];
+    for (var page = 1; page <= maxPages; page++) {
+      final (chats, hasMore) = await getSharedFolderChatsPage(
+        folderId,
+        page: page,
+      );
+      all.addAll(chats);
+      if (!hasMore || chats.isEmpty) break;
+    }
+    return all;
+  }
+
   Future<Map<String, dynamic>> createFolder({
     required String name,
     String? parentId,

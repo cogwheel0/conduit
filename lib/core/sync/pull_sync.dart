@@ -606,6 +606,7 @@ class PullSync {
     final write = await _db.chatsDao.mergeServerChat(
       server: rows,
       shareId: resp['share_id'] is String ? resp['share_id'] as String : null,
+      userId: resp['user_id']?.toString(),
       meta: meta is Map<String, dynamic>
           ? meta
           : (meta is Map ? Map<String, dynamic>.from(meta) : const {}),
