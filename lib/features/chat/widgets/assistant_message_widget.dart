@@ -205,7 +205,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   Future<void> _handleFollowUpTap(String suggestion) async {
     final trimmed = suggestion.trim();
-    if (trimmed.isEmpty || _uiTreatsAsStreaming || !_responseCompleted) {
+    if (trimmed.isEmpty ||
+        widget.readOnly ||
+        _uiTreatsAsStreaming ||
+        !_responseCompleted) {
       return;
     }
     try {
@@ -1547,7 +1550,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   List<String> _resolveVisibleFollowUps() {
     final rawFollowUps = _resolveActiveFollowUps();
-    if (!widget.showFollowUps || _uiTreatsAsStreaming || !_responseCompleted) {
+    if (!widget.showFollowUps ||
+        widget.readOnly ||
+        _uiTreatsAsStreaming ||
+        !_responseCompleted) {
       return rawFollowUps;
     }
 
@@ -2124,7 +2130,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   }
 
   Widget _buildFollowUpSuggestions(List<String> suggestions) {
-    final shouldShow = widget.showFollowUps && suggestions.isNotEmpty;
+    // A follow-up is a send; another user's chat offers none.
+    final shouldShow =
+        widget.showFollowUps && !widget.readOnly && suggestions.isNotEmpty;
 
     if (!shouldShow) {
       return const SizedBox.shrink(key: ValueKey('follow-ups-empty'));
