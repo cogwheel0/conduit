@@ -4063,32 +4063,57 @@ final folderConversationSummariesProvider =
         return const <Conversation>[];
       }
 
-      // Shared folders hold other users' chats, which never enter the local
-      // sync store (they are absent from `/api/v1/chats/` and must not be
-      // pushed or reconciled). List them from the server instead.
-      final sharedFolder = ref
+      // Other users' chats never enter the local sync store (they are absent
+      // from `/api/v1/chats/` and must not be pushed or reconciled), so they
+      // are listed from the folder's shared-chats route:
+      //  * a folder shared TO this user is served entirely from the network;
+      //  * an owned folder unions its local rows with chats that users holding
+      //    a write grant created inside it (local wins on id).
+      final folder = ref
           .watch(foldersProvider)
           .asData
           ?.value
-          .where((folder) => folder.id == folderId && folder.shared)
+          .where((folder) => folder.id == folderId)
           .firstOrNull;
-      if (sharedFolder != null) {
-        final api = ref.watch(apiServiceProvider);
-        if (api == null) return const <Conversation>[];
-        final raw = await api.getSharedFolderChats(folderId);
-        return [
-          for (final item in raw)
-            Conversation.fromJson(parseConversationSummary(item)),
-        ];
+      final api = ref.watch(apiServiceProvider);
+      final isShared = folder?.shared ?? false;
+      List<Conversation> remote = const <Conversation>[];
+      if (api != null && folder != null) {
+        try {
+          final raw = await api.getSharedFolderChats(folderId);
+          remote = [
+            for (final item in raw)
+              Conversation.fromJson(parseConversationSummary(item)),
+          ];
+        } catch (error, stackTrace) {
+          // An owned folder still renders its local rows; a shared one has
+          // nothing else to show.
+          DebugLogger.error(
+            'shared-chats-failed',
+            scope: 'folders',
+            error: error,
+            stackTrace: stackTrace,
+            data: {'folderId': folderId, 'shared': isShared},
+          );
+          if (isShared) rethrow;
+        }
       }
+      if (isShared) return remote;
 
       final db = ref.watch(appDatabaseProvider);
       if (db == null) {
-        return const <Conversation>[];
+        return remote;
       }
 
       final entries = await db.chatsDao.getChatsInFolder(folderId);
-      return entries.map(conversationFromListEntry).toList(growable: false);
+      final local = entries.map(conversationFromListEntry).toList();
+      if (remote.isEmpty) return local;
+      final localIds = {for (final c in local) c.id};
+      return [
+        ...local,
+        for (final c in remote)
+          if (!localIds.contains(c.id)) c,
+      ];
     });
 
 /// True when [conversation] belongs to another user (reached through a shared

@@ -55,6 +55,9 @@ class UserMessageBubble extends ConsumerStatefulWidget {
   final String? modelName;
   final VoidCallback? onCopy;
   final VoidCallback onDelete;
+
+  /// Another user's chat (shared folder): only copy is offered.
+  final bool readOnly;
   final VoidCallback? onEdit;
   final VoidCallback? onRegenerate;
   final VoidCallback? onLike;
@@ -72,6 +75,7 @@ class UserMessageBubble extends ConsumerStatefulWidget {
     this.onRegenerate,
     this.onLike,
     this.onDislike,
+    this.readOnly = false,
   });
 
   @override
@@ -731,13 +735,14 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     final l10n = AppLocalizations.of(context)!;
 
     return [
-      ConduitContextMenuAction(
-        cupertinoIcon: CupertinoIcons.pencil,
-        materialIcon: Icons.edit_outlined,
-        label: l10n.edit,
-        onBeforeClose: () => ConduitHaptics.selectionClick(),
-        onSelected: () async => _startInlineEdit(),
-      ),
+      if (!widget.readOnly)
+        ConduitContextMenuAction(
+          cupertinoIcon: CupertinoIcons.pencil,
+          materialIcon: Icons.edit_outlined,
+          label: l10n.edit,
+          onBeforeClose: () => ConduitHaptics.selectionClick(),
+          onSelected: () async => _startInlineEdit(),
+        ),
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.doc_on_clipboard,
         materialIcon: Icons.content_copy,
@@ -749,16 +754,17 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
           }
         },
       ),
-      ConduitContextMenuAction(
-        cupertinoIcon: CupertinoIcons.delete,
-        materialIcon: Icons.delete_outline,
-        label: l10n.delete,
-        destructive: true,
-        onBeforeClose: () => ConduitHaptics.mediumImpact(),
-        onSelected: () async {
-          widget.onDelete();
-        },
-      ),
+      if (!widget.readOnly)
+        ConduitContextMenuAction(
+          cupertinoIcon: CupertinoIcons.delete,
+          materialIcon: Icons.delete_outline,
+          label: l10n.delete,
+          destructive: true,
+          onBeforeClose: () => ConduitHaptics.mediumImpact(),
+          onSelected: () async {
+            widget.onDelete();
+          },
+        ),
     ];
   }
 

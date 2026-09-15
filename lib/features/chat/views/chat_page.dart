@@ -3270,6 +3270,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           return UserMessageBubble(
             message: latestMessage,
             isUser: true,
+            readOnly: rowRef.watch(activeConversationReadOnlyProvider),
             isStreaming: latestMessage.isStreaming,
             modelName: rowMetadata.displayModelName,
             onCopy: () {
@@ -3320,6 +3321,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool suppressStreamingHaptics,
   }) {
     final groupIds = rowMetadata.groupMessageIds;
+    final readOnly = rowRef.watch(activeConversationReadOnlyProvider);
     final displayedMessage = groupIds.length > 1
         ? _messageWithGroupedHermesToolStatuses(rowRef, latestMessage, groupIds)
         : latestMessage;
@@ -3352,7 +3354,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       versionModelNames: rowMetadata.versionModelNames,
       versionModelIconUrls: rowMetadata.versionModelIconUrls,
       suppressStreamingHaptics: suppressStreamingHaptics,
-      onFollowUpSelected: _handleFollowUpSend,
+      readOnly: readOnly,
+      onFollowUpSelected: readOnly ? null : _handleFollowUpSend,
       // The bar owner acts on the whole grouped response: a Hermes turn is one
       // answer split across rows, so copying or reading back only this row's
       // share would hand over a fragment.

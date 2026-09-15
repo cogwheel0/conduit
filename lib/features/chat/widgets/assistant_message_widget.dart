@@ -63,6 +63,9 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   final dynamic message;
   final bool isStreaming;
   final bool showFollowUps;
+
+  /// Another user's chat (shared folder): only copy/listen/version browsing.
+  final bool readOnly;
   final bool animateOnMount;
   final String? modelName;
   final String? modelIconUrl;
@@ -107,6 +110,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
     required this.message,
     this.isStreaming = false,
     this.showFollowUps = true,
+    this.readOnly = false,
     this.animateOnMount = true,
     this.modelName,
     this.modelIconUrl,
@@ -1983,13 +1987,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               ? 'stop.fill'
               : 'speaker.wave.2.fill',
         ),
-      _AssistantFooterAction(
-        id: isErrorMessage ? 'retry' : 'regenerate',
-        icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
-        label: isErrorMessage ? l10n.retry : l10n.regenerate,
-        onTap: canRegenerate ? widget.onRegenerate : null,
-        sfSymbol: 'arrow.clockwise',
-      ),
+      if (!widget.readOnly)
+        _AssistantFooterAction(
+          id: isErrorMessage ? 'retry' : 'regenerate',
+          icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
+          label: isErrorMessage ? l10n.retry : l10n.regenerate,
+          onTap: canRegenerate ? widget.onRegenerate : null,
+          sfSymbol: 'arrow.clockwise',
+        ),
       if (activeUsage != null && activeUsage.isNotEmpty)
         _AssistantFooterAction(
           id: 'usage',
@@ -2033,13 +2038,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               : null,
           sfSymbol: 'chevron.right',
         ),
-      _AssistantFooterAction(
-        id: 'delete',
-        icon: Platform.isIOS ? CupertinoIcons.delete : Icons.delete_outline,
-        label: l10n.delete,
-        onTap: widget.onDelete,
-        sfSymbol: 'trash',
-      ),
+      if (!widget.readOnly)
+        _AssistantFooterAction(
+          id: 'delete',
+          icon: Platform.isIOS ? CupertinoIcons.delete : Icons.delete_outline,
+          label: l10n.delete,
+          onTap: widget.onDelete,
+          sfSymbol: 'trash',
+        ),
     ];
 
     return actions;

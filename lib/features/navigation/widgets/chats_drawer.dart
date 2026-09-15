@@ -1440,31 +1440,36 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     Folder folder,
     List<Folder> folders,
   ) {
-    // Rename/move/delete/subfolder are owner operations; the server rejects
-    // them for a folder shared to this account.
-    if (folder.shared) return const <ConduitContextMenuAction>[];
+    // Rename/move/delete are owner operations; the server rejects them for a
+    // folder shared to this account. A subfolder is allowed with a write grant
+    // (`routers/folders.py:create_folder`).
+    if (folder.shared && !folder.canWrite) {
+      return const <ConduitContextMenuAction>[];
+    }
     final l10n = AppLocalizations.of(context)!;
     final folderId = folder.id;
+    final newFolderAction = ConduitContextMenuAction(
+      cupertinoIcon: CupertinoIcons.folder_badge_plus,
+      materialIcon: Icons.create_new_folder_outlined,
+      label: l10n.newFolder,
+      onBeforeClose: () => ConduitHaptics.selectionClick(),
+      onSelected: () async {
+        _setFolderExpanded(folderId, true);
+        await CreateFolderDialog.show(
+          context,
+          ref,
+          onError: _showDrawerError,
+          parentId: folderId,
+        );
+      },
+    );
+    if (folder.shared) return [newFolderAction];
     final moveTargets = _folderMoveTargetEntries(folder, folders);
     final canMove =
         _normalizeParentId(folder.parentId) != null || moveTargets.isNotEmpty;
 
     return [
-      ConduitContextMenuAction(
-        cupertinoIcon: CupertinoIcons.folder_badge_plus,
-        materialIcon: Icons.create_new_folder_outlined,
-        label: l10n.newFolder,
-        onBeforeClose: () => ConduitHaptics.selectionClick(),
-        onSelected: () async {
-          _setFolderExpanded(folderId, true);
-          await CreateFolderDialog.show(
-            context,
-            ref,
-            onError: _showDrawerError,
-            parentId: folderId,
-          );
-        },
-      ),
+      newFolderAction,
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.pencil,
         materialIcon: Icons.edit_rounded,
@@ -1508,7 +1513,8 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
     final eligibleFolders = folders
         .where((candidate) {
-          if (candidate.id == folder.id) {
+          // Own folders never re-parent under another user's folder.
+          if (candidate.id == folder.id || candidate.shared) {
             return false;
           }
           return !_isFolderDescendant(

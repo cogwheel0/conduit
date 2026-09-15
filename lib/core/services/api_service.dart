@@ -3798,23 +3798,45 @@ class ApiService {
     }
   }
 
-  /// GET `/api/v1/folders/{id}/shared/chats` — chat list entries inside a
-  /// shared folder (`routers/folders.py:get_shared_folder_chats`). Each item
-  /// is a list-shaped chat map plus `user_id`, `owner_name` and `readonly`.
-  /// Unpaged: the server caps this at 60 newest chats.
-  // ponytail: unpaged 60-chat cap; add `page` + "show more" if a family folder
-  // outgrows it.
-  Future<List<Map<String, dynamic>>> getSharedFolderChats(
-    String folderId,
-  ) async {
+  /// GET `/api/v1/folders/{id}/shared/chats?page=N` — one page (10) of chat
+  /// list entries inside a folder, for the owner and for anyone it is shared
+  /// with (`routers/folders.py:get_shared_folder_chats`). Each item is a
+  /// list-shaped chat map plus `user_id`, `owner_name` and `readonly`. Returns
+  /// the page and the server's `has_more` flag.
+  Future<(List<Map<String, dynamic>>, bool)> getSharedFolderChatsPage(
+    String folderId, {
+    required int page,
+  }) async {
     final response = await _dio.get(
       '/api/v1/folders/${Uri.encodeComponent(folderId)}/shared/chats',
+      queryParameters: {'page': page},
     );
     final data = response.data;
     final chats = data is Map ? data['chats'] : null;
-    return chats is List
-        ? _coerceRawMapList(chats)
-        : const <Map<String, dynamic>>[];
+    return (
+      chats is List ? _coerceRawMapList(chats) : const <Map<String, dynamic>>[],
+      data is Map && data['has_more'] == true,
+    );
+  }
+
+  /// Every chat in a folder via [getSharedFolderChatsPage], newest first.
+  /// Bounded so a runaway `has_more` can never loop forever.
+  // ponytail: 50 pages = 500 chats; switch to a "show more" row if a folder
+  // ever grows past that.
+  Future<List<Map<String, dynamic>>> getSharedFolderChats(
+    String folderId, {
+    int maxPages = 50,
+  }) async {
+    final all = <Map<String, dynamic>>[];
+    for (var page = 1; page <= maxPages; page++) {
+      final (chats, hasMore) = await getSharedFolderChatsPage(
+        folderId,
+        page: page,
+      );
+      all.addAll(chats);
+      if (!hasMore || chats.isEmpty) break;
+    }
+    return all;
   }
 
   Future<Map<String, dynamic>> createFolder({
