@@ -1163,6 +1163,10 @@
   "@readOnlySharedChat": {
     "description": "Composer replacement shown when viewing another user's chat from a shared folder."
   },
+  "sharedBadge": "Shared",
+  "@sharedBadge": {
+    "description": "Short badge on a folder another user shared with this account."
+  },
   "aboutApp": "About",
   "@aboutApp": {
     "description": "Settings tile title to view app information."

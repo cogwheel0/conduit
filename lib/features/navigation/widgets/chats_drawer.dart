@@ -1324,30 +1324,30 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                       ),
                     ),
                   ),
-                  if (folder.shared && folder.ownerName != null) ...[
-                    const SizedBox(width: Spacing.xs),
-                    Flexible(
-                      child: Text(
-                        folder.ownerName!,
-                        key: ValueKey<String>('folder-owner-$folderId'),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.captionStyle.copyWith(
-                          color: theme.textTertiary,
-                        ),
+                  if (folder.shared) ...[
+                    const SizedBox(width: Spacing.sm),
+                    // Same badge treatment as the conversation tile's
+                    // "On device" label; owner and permission live on the
+                    // folder page header.
+                    Container(
+                      key: ValueKey<String>('folder-shared-badge-$folderId'),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: Spacing.xs,
+                        vertical: Spacing.xxs,
                       ),
-                    ),
-                  ],
-                  if (folder.shared && !folder.canWrite) ...[
-                    const SizedBox(width: Spacing.xs),
-                    Icon(
-                      context.usesCupertinoChrome
-                          ? CupertinoIcons.eye
-                          : Icons.visibility_outlined,
-                      key: ValueKey<String>('folder-read-only-$folderId'),
-                      size: IconSize.sm,
-                      color: theme.iconSecondary,
-                      semanticLabel: AppLocalizations.of(context)!.readOnly,
+                      decoration: BoxDecoration(
+                        color: theme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(AppBorderRadius.xs),
+                      ),
+                      child: Text(
+                        AppLocalizations.of(context)!.sharedBadge,
+                        style: AppTypography.labelStyle.copyWith(
+                          color: theme.textSecondary,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                      ),
                     ),
                   ],
                   const SizedBox(width: Spacing.sm),
