@@ -3974,6 +3974,10 @@
   "@notificationSystemSettingsDescription": {
     "description": "Subtitle for the row that opens the OS notification settings."
   },
+  "notificationSystemSettingsOpenFailed": "Nie udało się otworzyć systemowych ustawień powiadomień.",
+  "@notificationSystemSettingsOpenFailed": {
+    "description": "Shown when the OS notification settings screen could not be launched."
+  },
   "workspaceTitle": "Obszar roboczy",
   "@workspaceTitle": {
     "description": "App bar title for the Workspace feature."

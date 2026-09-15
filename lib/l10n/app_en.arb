@@ -3965,6 +3965,10 @@
   "@notificationSystemSettingsDescription": {
     "description": "Subtitle for the row that opens the OS notification settings."
   },
+  "notificationSystemSettingsOpenFailed": "Couldn't open system notification settings.",
+  "@notificationSystemSettingsOpenFailed": {
+    "description": "Shown when the OS notification settings screen could not be launched."
+  },
   "workspaceTitle": "Workspace",
   "workspaceSubtitle": "Manage server resources and access",
   "workspaceModels": "Models",

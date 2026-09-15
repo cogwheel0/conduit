@@ -125,7 +125,8 @@ class NotificationSettingsPage extends ConsumerWidget {
     if (!opened && context.mounted) {
       AdaptiveSnackBar.show(
         context,
-        message: AppLocalizations.of(context)!.notificationsPermissionDenied,
+        message: AppLocalizations.of(context)!
+            .notificationSystemSettingsOpenFailed,
         type: AdaptiveSnackBarType.warning,
       );
     }
