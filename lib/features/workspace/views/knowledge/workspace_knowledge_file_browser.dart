@@ -242,8 +242,7 @@ class _Browser extends ConsumerWidget {
   Future<void> _uploadMultiple(BuildContext context, WidgetRef ref) async {
     final l10n = AppLocalizations.of(context)!;
     final notifier = _notifier(ref);
-    final result = await FilePicker.pickFiles(type: FileType.any);
-    final files = result?.files ?? const [];
+    final files = await FilePicker.pickFiles(type: FileType.any);
     if (files.isEmpty || !context.mounted) return;
     await _guard(context, () async {
       final ids = <String>[];

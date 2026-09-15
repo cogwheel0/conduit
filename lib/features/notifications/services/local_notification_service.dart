@@ -180,6 +180,22 @@ class LocalNotificationService {
     return false;
   }
 
+  /// Opens the OS notification settings for this app. Returns false when the
+  /// platform has no such screen or it could not be launched.
+  Future<bool> openSystemSettings() async {
+    if (!Platform.isAndroid && !Platform.isIOS) return false;
+    try {
+      return await _plugin.openAppNotificationSettings() ?? false;
+    } catch (error) {
+      DebugLogger.warning(
+        'open-system-settings-failed',
+        scope: 'notifications/local',
+        data: {'error': error.toString()},
+      );
+      return false;
+    }
+  }
+
   /// Posts an OS notification for [notification]. No-ops on unsupported
   /// platforms. Safe to call before [initialize] (it self-initializes).
   ///

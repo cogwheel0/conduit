@@ -3208,6 +3208,47 @@ void main() {
     expect((http.requests.single.data as Map)['keep_alive'], -1);
   });
 
+  test('Ollama replays prior assistant reasoning as thinking', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          '{"message":{"content":"ok"},"done":true,"eval_count":1}\n',
+        ),
+      ], contentType: 'application/x-ndjson'),
+    ]);
+    final adapter = OllamaAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    await adapter
+        .startCompletion(
+          _ollamaProfile(),
+          DirectCompletionRequest(
+            remoteModelId: 'llama3.2:latest',
+            messages: [
+              DirectChatMessage.text(role: 'user', text: 'hello'),
+              DirectChatMessage(
+                role: 'assistant',
+                parts: const [DirectTextPart('hi')],
+                reasoning: 'greeting back',
+              ),
+              DirectChatMessage.text(role: 'user', text: 'again'),
+            ],
+          ),
+        )
+        .events
+        .toList();
+
+    final messages = (http.requests.single.data as Map)['messages'] as List;
+    expect(messages.map((message) => (message as Map)['thinking']), [
+      null,
+      'greeting back',
+      null,
+    ]);
+    expect((messages[0] as Map).containsKey('thinking'), isFalse);
+  });
+
   test('Ollama Cloud completion omits local keep-alive controls', () async {
     final http = _QueuedAdapter([
       _Reply.stream([

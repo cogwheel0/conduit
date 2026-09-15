@@ -18,21 +18,21 @@ dependencies:
     sdk: flutter
   
   # State Management
-  flutter_riverpod: 3.4.2
+  flutter_riverpod: ^3.4.3
   
   # Navigation
-  go_router: ^17.0.0
+  go_router: ^18.0.1
   
   # Network & API
   dio: ^5.9.0
   ollama_dart: ^2.4.0
-  openai_dart: ^7.0.1
+  openai_dart: ^8.1.0
   mcp_dart: ^2.4.0
   http_parser: ^4.0.2
   
   
   # Storage
-  flutter_secure_storage: ^10.0.0
+  flutter_secure_storage: ^11.1.1
   hive_ce: ^2.14.0
   hive_ce_flutter: ^2.3.2
   shared_preferences: ^2.3.2
@@ -65,10 +65,9 @@ dependencies:
   vad: 0.0.8
   record: ^7.1.1
   audio_session: ^0.2.2
-  permission_handler: ^12.0.1
+  permission_handler: ^13.0.2
   image_picker: ^1.2.3
-  # Retained on beta: latest stable 11.0.2 conflicts with share_plus via win32 as of 2026-06-10.
-  file_picker: ^12.0.0-beta.5
+  file_picker: ^13.0.0
   receive_sharing_intent: ^1.9.0
   flutter_image_compress: ^2.5.1
   path_provider: ^2.1.4
@@ -87,7 +86,7 @@ dependencies:
   freezed_annotation: ^3.0.0
   wakelock_plus: ^1.7.0
   share_plus: ^13.2.1
-  riverpod_annotation: 4.0.6
+  riverpod_annotation: ^4.0.7
   flutter_local_notifications: ^22.1.0
   connectivity_plus: ^7.3.0
   flutter_cache_manager: ^3.4.1
@@ -124,18 +123,22 @@ dependency_overrides:
   # PCM stream instead of using VAD's internal recorder. Remove this override
   # once VAD publishes Record 7 support (upstream issue #22).
   record: 7.1.1
+  # objective_c 9.6.1's build hook references Architecture.arm64e, which no
+  # published code_assets release defines, so native-assets compilation fails
+  # on macOS for every flutter test/run. Drop once a code_assets with arm64e
+  # ships (or objective_c stops referencing it).
+  objective_c: 9.6.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
   build_runner: ^2.15.1
-  # Freezed 4 uses the analyzer grammar required by Dart 3.13.
-  freezed: 4.0.0-dev.3
+  freezed: ^4.0.1
   json_serializable: ^6.11.1
   flutter_native_splash: ^2.4.6
-  riverpod_generator: 4.0.8
-  riverpod_lint: 3.1.8
+  riverpod_generator: ^4.0.9
+  riverpod_lint: ^3.1.9
   mocktail: ^1.0.4
   checks: ^0.3.1
   collection: ^1.19.1

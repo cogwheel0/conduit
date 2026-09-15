@@ -13,6 +13,12 @@ const String kConduitDirectNoFinalReplayOutputIdPrefix =
 const String kConduitDirectTransport = 'direct';
 const String kConduitDirectRawAssistantContentMetadataKey =
     'conduitDirectRawAssistantContent';
+
+/// Raw provider reasoning for a completed direct assistant. Visible content
+/// only carries the escaped presentation, so this is what adapters replay
+/// (Ollama's `thinking` field) on later turns.
+const String kConduitDirectRawAssistantReasoningMetadataKey =
+    'conduitDirectRawAssistantReasoning';
 const String kConduitDirectIncompleteAnswerReplayText =
     '[Previous response ended before producing a final answer.]';
 

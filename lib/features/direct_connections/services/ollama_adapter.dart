@@ -1029,6 +1029,7 @@ ollama.ChatMessage _ollamaMessage(DirectChatMessage message) {
   return _DirectOllamaChatMessage(
     rawRole: message.role,
     content: text,
+    thinking: message.role == 'assistant' ? message.reasoning : null,
     images: images.isEmpty ? null : images,
   );
 }
@@ -1040,6 +1041,7 @@ final class _DirectOllamaChatMessage extends ollama.ChatMessage {
   _DirectOllamaChatMessage({
     required this.rawRole,
     required super.content,
+    super.thinking,
     super.images,
   }) : super(
          role:

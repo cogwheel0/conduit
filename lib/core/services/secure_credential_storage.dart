@@ -39,10 +39,9 @@ class SecureCredentialStorage {
   /// Get Android-specific secure storage options
   AndroidOptions _getAndroidOptions() {
     return const AndroidOptions(
-      // Keep legacy Android storage readable until a storageNamespace migration
-      // can move both stored data and wrapped keys.
-      // ignore: deprecated_member_use
-      sharedPreferencesName: 'conduit_secure_prefs',
+      // Same name as the pre-v11 sharedPreferencesName so the plugin's
+      // LegacyNamespaceKeyRecovery keeps existing Android data readable.
+      storageNamespace: 'conduit_secure_prefs',
       preferencesKeyPrefix: 'conduit_',
       // Avoid auto-wipe on transient errors; handle gracefully in code
       resetOnError: false,

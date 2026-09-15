@@ -16,6 +16,8 @@ import 'openrouter_file_annotations.dart';
 const String kDirectTransport = kConduitDirectTransport;
 const String kDirectRawAssistantContentMetadataKey =
     kConduitDirectRawAssistantContentMetadataKey;
+const String kDirectRawAssistantReasoningMetadataKey =
+    kConduitDirectRawAssistantReasoningMetadataKey;
 const String kDirectProviderMetadataKey = 'directProviderMetadata';
 const String kDirectMcpApprovalMetadataKey = 'directMcpApproval';
 const String kDirectContextSummaryMetadataKey = 'directContextSummaryV1';
@@ -403,11 +405,7 @@ List<ChatMessage> withDirectConversationSystemPrompt({
 /// presentation. Every other message retains the established sanitization
 /// path.
 String outboundProviderReplayText(ChatMessage message) {
-  final hasTerminalDirectProvenance =
-      message.role.trim().toLowerCase() == 'assistant' &&
-      !message.isStreaming &&
-      message.metadata?['transport'] == kDirectTransport;
-  if (hasTerminalDirectProvenance) {
+  if (_hasTerminalDirectProvenance(message)) {
     final output = message.output;
     if (output != null && output.isNotEmpty) {
       final mirror = parseConduitDirectReplayOutput(output);
@@ -440,6 +438,21 @@ String outboundProviderReplayText(ChatMessage message) {
     }
   }
   return ToolCallsParser.sanitizeForApi(message.content);
+}
+
+bool _hasTerminalDirectProvenance(ChatMessage message) =>
+    message.role.trim().toLowerCase() == 'assistant' &&
+    !message.isStreaming &&
+    message.metadata?['transport'] == kDirectTransport;
+
+/// Raw reasoning captured for a completed direct assistant, or null. Shares
+/// the provenance gate of [outboundProviderReplayText] so persisted metadata
+/// on other messages cannot inject reasoning into a request.
+String? outboundProviderReplayReasoning(ChatMessage message) {
+  if (!_hasTerminalDirectProvenance(message)) return null;
+  final reasoning = message.metadata?[kDirectRawAssistantReasoningMetadataKey];
+  if (reasoning is! String || reasoning.trim().isEmpty) return null;
+  return reasoning;
 }
 
 bool _hasDirectGeneratedImage(ChatMessage message) =>
@@ -714,7 +727,12 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
 
     if (parts.isNotEmpty || annotations.isNotEmpty) {
       result.add(
-        DirectChatMessage(role: role, parts: parts, annotations: annotations),
+        DirectChatMessage(
+          role: role,
+          parts: parts,
+          annotations: annotations,
+          reasoning: outboundProviderReplayReasoning(message),
+        ),
       );
     }
   }

@@ -3957,6 +3957,18 @@
   "@notificationsPermissionDenied": {
     "description": "Shown when the user enables notifications but the OS permission was denied."
   },
+  "notificationSystemSettingsTitle": "System notification settings",
+  "@notificationSystemSettingsTitle": {
+    "description": "Row that opens the OS notification settings for this app."
+  },
+  "notificationSystemSettingsDescription": "Change permission, sound, and banner options for Conduit.",
+  "@notificationSystemSettingsDescription": {
+    "description": "Subtitle for the row that opens the OS notification settings."
+  },
+  "notificationSystemSettingsOpenFailed": "Couldn't open system notification settings.",
+  "@notificationSystemSettingsOpenFailed": {
+    "description": "Shown when the OS notification settings screen could not be launched."
+  },
   "workspaceTitle": "Workspace",
   "workspaceSubtitle": "Manage server resources and access",
   "workspaceModels": "Models",

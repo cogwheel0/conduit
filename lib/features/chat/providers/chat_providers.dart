@@ -16964,9 +16964,14 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
             ...?base.metadata,
             kDirectRawAssistantContentMetadataKey: accumulator.text,
           }
+          ..remove(kDirectRawAssistantReasoningMetadataKey)
           ..remove(kDirectProviderMetadataKey)
           ..remove(kDirectMcpApprovalMetadataKey)
           ..remove(kOpenRouterFileAnnotationsMetadataKey);
+    if (accumulator.reasoning.trim().isNotEmpty) {
+      completedMetadata[kDirectRawAssistantReasoningMetadataKey] =
+          accumulator.reasoning;
+    }
     if (accumulator.providerMetadata != null) {
       completedMetadata[kDirectProviderMetadataKey] =
           accumulator.providerMetadata;
