@@ -257,9 +257,9 @@ String _buildStreamingReasoningDetails(
   return rendered.isEmpty ? '' : '$rendered\n';
 }
 
-/// Result of [renderRawReasoningTagsInSnapshot]. When the snapshot ends inside
-/// an unterminated reasoning block, [openPrefix] is the rendered text before
-/// that block and [openReasoning] its text so far, so later deltas can keep
+/// Result of [_renderRawReasoningEvents]. When the events end inside an
+/// unterminated reasoning block, [openPrefix] is the rendered text before that
+/// block and [openReasoning] its text so far, so later deltas can keep
 /// extending the same block.
 typedef _RawReasoningSnapshot = ({
   String content,
@@ -267,36 +267,35 @@ typedef _RawReasoningSnapshot = ({
   String? openReasoning,
 });
 
-/// Collapses raw reasoning tags inside a cumulative content snapshot into
-/// rendered reasoning details. Snapshots bypass the per-delta splitter: the
-/// server's non-streaming handler never converts tags, and pipes that emit
-/// `chat:message`/`replace` stream their own cumulative text. Answer text is
-/// kept verbatim (snapshot text is never escaped); an unterminated block
-/// renders as still thinking.
+/// Collapses raw reasoning tags inside a terminal content snapshot into
+/// rendered reasoning details. Answer text is kept verbatim (snapshot text is
+/// never escaped); an unterminated block renders as still thinking. The live
+/// snapshot path uses [_renderRawReasoningEvents] with the stream's own
+/// splitter so a fragment split at the snapshot boundary is held, not flushed.
 @visibleForTesting
-String renderRawReasoningTagsInSnapshot(String content) =>
-    _renderRawReasoningTagsInSnapshot(content).content;
-
-_RawReasoningSnapshot _renderRawReasoningTagsInSnapshot(String content) {
-  if (!content.contains('<') && !content.contains('◁')) {
-    return (content: content, openPrefix: null, openReasoning: null);
-  }
+String renderRawReasoningTagsInSnapshot(String content) {
   final splitter = StreamingReasoningTagSplitter();
   final events = [...splitter.feed(content), ...splitter.flush()];
-  final sawTag =
-      splitter.isInsideReasoning ||
-      events.any((event) => event is! RawReasoningTagText);
-  if (!sawTag) {
-    return (content: content, openPrefix: null, openReasoning: null);
-  }
+  return _renderRawReasoningEvents(
+    events,
+    insideReasoning: splitter.isInsideReasoning,
+  ).content;
+}
+
+/// Text events are emitted verbatim; a fragment the splitter still holds is
+/// deliberately absent from the result.
+_RawReasoningSnapshot _renderRawReasoningEvents(
+  List<RawReasoningTagEvent> events, {
+  required bool insideReasoning,
+}) {
   final buffer = StringBuffer();
   final reasoning = StringBuffer();
-  var insideReasoning = false;
+  var openBlock = false;
   void closeReasoning({required bool done}) {
+    openBlock = false;
     if (done && reasoning.toString().trim().isEmpty) {
       // Mirror the server: a completed block without text is dropped.
       reasoning.clear();
-      insideReasoning = false;
       return;
     }
     final rendered = _buildStreamingReasoningDetails(
@@ -308,7 +307,6 @@ _RawReasoningSnapshot _renderRawReasoningTagsInSnapshot(String content) {
       ..clear()
       ..write(joined);
     reasoning.clear();
-    insideReasoning = false;
   }
 
   for (final event in events) {
@@ -316,13 +314,13 @@ _RawReasoningSnapshot _renderRawReasoningTagsInSnapshot(String content) {
       case RawReasoningTagText(:final text):
         buffer.write(text);
       case RawReasoningTagReasoning(:final text):
-        insideReasoning = true;
+        openBlock = true;
         reasoning.write(text);
       case RawReasoningTagEnd():
         closeReasoning(done: true);
     }
   }
-  if (insideReasoning || splitter.isInsideReasoning) {
+  if (openBlock || insideReasoning) {
     final openPrefix = buffer.toString();
     final openReasoning = reasoning.toString();
     closeReasoning(done: false);
@@ -1078,15 +1076,23 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   /// including any raw reasoning tag the splitter is still holding or has
   /// open; later deltas continue from the snapshot, not from stale tag state.
   void replaceVisibleAssistantSnapshot(String content) {
+    // Snapshots bypass the per-delta path: the server's non-streaming handler
+    // never converts reasoning tags, and pipes that emit chat:message/replace
+    // stream their own cumulative text. Re-feed the stream's splitter without
+    // flushing so a tag fragment split at the snapshot boundary (`<thi`,
+    // `</thi`) stays held for the next delta or the terminal flush.
     rawReasoningTags.reset();
-    final snapshot = _renderRawReasoningTagsInSnapshot(content);
+    final events = rawReasoningTags.feed(content);
+    final snapshot = _renderRawReasoningEvents(
+      events,
+      insideReasoning: rawReasoningTags.isInsideReasoning,
+    );
     replaceVisibleAssistantContent(snapshot.content);
     final openReasoning = snapshot.openReasoning;
     if (openReasoning == null) return;
-    // The snapshot ends inside an unterminated block. Re-arm the splitter
-    // and the reasoning accumulators so a later delta (`more</think>`)
-    // extends and closes that block instead of starting a second one.
-    rawReasoningTags.feed(content);
+    // The snapshot ends inside an unterminated block: seed the reasoning
+    // accumulators so a later delta (`more</think>`) extends and closes that
+    // block instead of starting a second one.
     inReasoningBlock = true;
     reasoningStartedAt = DateTime.now();
     reasoningPrefix = snapshot.openPrefix ?? '';

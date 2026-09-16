@@ -1067,6 +1067,60 @@ void main() {
       },
     );
 
+    test('tag fragments split at a snapshot boundary resolve with later deltas '
+        'or flush verbatim on done', () async {
+      Future<_CallbackLog> run(String snapshot, String? delta) async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+        await pumpMicrotasks();
+        registrar.emitChatEvent('chat:message', {
+          'content': snapshot,
+        }, messageId: 'msg-1');
+        if (delta != null) {
+          registrar.emitChatEvent('chat:completion', {
+            'choices': [
+              {
+                'delta': {'content': delta},
+              },
+            ],
+          }, messageId: 'msg-1');
+        } else {
+          registrar.emitChatEvent('chat:completion', {
+            'done': true,
+          }, messageId: 'msg-1');
+        }
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+        return log;
+      }
+
+      final partialOpen = await run('Klar!<thi', 'nk>Plan</think>Ans');
+      var content = partialOpen.messages.last.content;
+      check(content).startsWith('Klar!\n<details type="reasoning" done="true"');
+      check(content).contains('&gt; Plan');
+      check(content).endsWith('</details>\nAns');
+      check(content).not((c) => c.contains('<thi'));
+
+      final partialClose = await run('Klar!<think>plan</thi', 'nk>\n\nAns');
+      content = partialClose.messages.last.content;
+      check(content).contains(
+        '<summary>Thought for 0 seconds</summary>\n&gt; plan\n</details>',
+      );
+      check(content).endsWith('</details>\n\n\nAns');
+
+      final terminal = await run('Klar!<thi', null);
+      check(terminal.messages.last.content).equals('Klar!<thi');
+    });
+
     test('a completed echo carrying a stale prefix does not truncate content, '
         'while a genuine outlet rewrite still applies', () async {
       Future<_BufferedCallbackLog> run(String echoContent) async {
@@ -6124,7 +6178,7 @@ void main() {
   group('renderRawReasoningTagsInSnapshot', () {
     test('returns content unchanged without reasoning tags', () {
       const content = 'plain <b>bold</b> and ◁ arrow';
-      check(renderRawReasoningTagsInSnapshot(content)).identicalTo(content);
+      check(renderRawReasoningTagsInSnapshot(content)).equals(content);
     });
 
     test('drops an empty completed block and shows an empty open block', () {
