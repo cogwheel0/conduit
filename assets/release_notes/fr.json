@@ -90,6 +90,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.6",
+      "title": "Nouveautés",
+      "intro": "Bonjour ! Le raisonnement reste dans son propre bloc pendant qu'il s'affiche. Les balises think n'apparaissent plus dans la réponse. Les PDF arrivent de nouveau au modèle. La voix est transcrite quand vous arrêtez de parler, et le bouton haut-parleur fonctionne. La barre de défilement du chat ne saute plus.",
+      "bullets": [
+        {
+          "text": "Raisonnement : il reste dans son propre bloc pendant que le modèle écrit. Les balises think n'apparaissent plus dans la réponse. Les blocs d'outils restent au bon endroit.",
+          "icon": "polish"
+        },
+        {
+          "text": "Voix et fichiers : quand vous arrêtez de parler, Transcription s'affiche. Sur Android, la reconnaissance sur l'appareil utilise n'importe quel moteur installé. Le bouton haut-parleur arrête la réponse déjà en cours. Les pièces jointes PDF sont renvoyées au modèle. Les citations peuvent afficher le titre de la page. Si une session proxy expire, vous pouvez vous reconnecter sans vous déconnecter.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes : à la configuration, vous pouvez vérifier le Desktop Gateway même si l'interrupteur est encore éteint.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

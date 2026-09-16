@@ -90,6 +90,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.6",
+      "title": "Novinky",
+      "intro": "Ahoj! Premýšľanie ostane vo vlastnom bloku, kým sa streamuje. Think tagy sa v odpovedi už neobjavia. PDF zasa dorazia k modelu. Reč sa zmení na text, keď prestaneš hovoriť, a tlačidlo reproduktora funguje. Posuvník chatu už neskáče.",
+      "bullets": [
+        {
+          "text": "Premýšľanie: ostane vo vlastnom bloku, kým model píše. Think tagy sa v odpovedi už neobjavia. Bloky nástrojov ostanú na správnom mieste.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hlas a súbory: keď prestaneš hovoriť, objaví sa Prepisujem. Rozpoznávanie reči v Androide použije akýkoľvek nainštalovaný rozpoznávač. Tlačidlo reproduktora zastaví odpoveď, ktorá už hrá. PDF prílohy sa zasa pošlú modelu. Citácie môžu ukázať názov stránky. Keď vyprší proxy relácia, môžeš sa znova prihlásiť bez odhlásenia.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: pri nastavení môžeš skontrolovať Desktop Gateway, aj keď je prepínač ešte vypnutý.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

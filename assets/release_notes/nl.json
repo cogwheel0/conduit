@@ -90,6 +90,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.6",
+      "title": "Nieuw",
+      "intro": "Hoi! Het redeneren blijft in zijn eigen blok terwijl het streamt. Think-tags verschijnen niet meer in het antwoord. PDF's komen weer bij het model aan. Spraak wordt omgezet in tekst als je stopt met praten, en de luidsprekerknop werkt. De chat-scrollbar springt niet meer.",
+      "bullets": [
+        {
+          "text": "Redeneren: het blijft in zijn eigen blok terwijl het model schrijft. Think-tags verschijnen niet meer in het antwoord. Toolblokken blijven op de juiste plek.",
+          "icon": "polish"
+        },
+        {
+          "text": "Spraak en bestanden: als je stopt met praten, verschijnt Transcriberen. Android-apparaatherkenning gebruikt elke geïnstalleerde herkenner. De luidsprekerknop stopt het antwoord dat al speelt. PDF-bijlagen gaan weer naar het model. Citaten kunnen paginatitels tonen. Als een proxy-sessie verloopt, kun je opnieuw inloggen zonder uit te loggen.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: tijdens het instellen kun je de Desktop Gateway controleren, ook als de schakelaar nog uit staat.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

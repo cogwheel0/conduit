@@ -90,6 +90,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.6",
+      "title": "Novità",
+      "intro": "Ciao! Il ragionamento resta nel suo blocco mentre scorre. I tag think non compaiono più nella risposta. I PDF arrivano di nuovo al modello. La voce viene trascritta quando smetti di parlare, e il pulsante altoparlante funziona. La barra di scorrimento della chat non salta più.",
+      "bullets": [
+        {
+          "text": "Ragionamento: resta nel suo blocco mentre il modello scrive. I tag think non compaiono più nella risposta. I blocchi degli strumenti restano al posto giusto.",
+          "icon": "polish"
+        },
+        {
+          "text": "Voce e file: quando smetti di parlare, compare Trascrizione. Su Android, il riconoscimento sul dispositivo usa qualsiasi riconoscitore installato. Il pulsante altoparlante ferma la risposta già in riproduzione. Gli allegati PDF vengono inviati di nuovo al modello. Le citazioni possono mostrare il titolo della pagina. Se una sessione proxy scade, puoi accedere di nuovo senza disconnetterti.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: in fase di configurazione puoi controllare il Desktop Gateway anche se l'interruttore è ancora spento.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

@@ -90,6 +90,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.6",
+      "title": "What's new",
+      "intro": "Hi! Reasoning stays in its own block as it streams. Think tags no longer appear in the answer. PDFs reach the model again. Speech turns into text after you stop talking, and the speaker button works. I also stopped the chat scrollbar from jumping.",
+      "bullets": [
+        {
+          "text": "Reasoning: it stays in its own block while the model writes. Think tags no longer appear in the answer. Tool blocks stay in the right place.",
+          "icon": "polish"
+        },
+        {
+          "text": "Voice and files: after you stop talking, Transcribing appears. Android device speech uses any installed recognizer. The speaker button stops the reply that is already playing. PDF attachments are sent to the model again. Citations can show page titles. If a proxy session expires, you can sign in again without logging out.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: you can check the Desktop Gateway during setup even when the toggle is still off.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

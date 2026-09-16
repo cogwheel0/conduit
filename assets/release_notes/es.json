@@ -90,6 +90,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.6",
+      "title": "Novedades",
+      "intro": "¡Hola! El razonamiento se queda en su propio bloque mientras se transmite. Las etiquetas think ya no aparecen en la respuesta. Los PDF llegan otra vez al modelo. La voz se transcribe cuando dejas de hablar, y el botón de altavoz funciona. La barra de desplazamiento del chat ya no salta.",
+      "bullets": [
+        {
+          "text": "Razonamiento: se queda en su propio bloque mientras el modelo escribe. Las etiquetas think ya no aparecen en la respuesta. Los bloques de herramientas se quedan en su sitio.",
+          "icon": "polish"
+        },
+        {
+          "text": "Voz y archivos: cuando dejas de hablar, aparece Transcribiendo. En Android, el reconocimiento en el dispositivo usa cualquier reconocedor instalado. El botón de altavoz detiene la respuesta que ya suena. Los PDF se envían otra vez al modelo. Las citas pueden mostrar el título de la página. Si caduca una sesión de proxy, puedes iniciar sesión otra vez sin cerrar sesión.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: durante la configuración puedes comprobar el Desktop Gateway aunque el interruptor siga apagado.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

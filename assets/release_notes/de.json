@@ -90,6 +90,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.6",
+      "title": "Neuigkeiten",
+      "intro": "Hallo! Das Nachdenken bleibt in seinem eigenen Block, während es streamt. Think-Tags erscheinen nicht mehr in der Antwort. PDFs kommen wieder beim Modell an. Die Stimme wird transkribiert, wenn du aufhörst zu reden, und der Lautsprecher-Knopf funktioniert. Der Chat-Scrollbar springt nicht mehr.",
+      "bullets": [
+        {
+          "text": "Nachdenken: es bleibt in seinem eigenen Block, während das Modell schreibt. Think-Tags erscheinen nicht mehr in der Antwort. Tool-Blöcke bleiben an der richtigen Stelle.",
+          "icon": "polish"
+        },
+        {
+          "text": "Sprache und Dateien: wenn du aufhörst zu reden, erscheint Transkribieren. Android-Gerätesprache nutzt jeden installierten Erkenner. Der Lautsprecher-Knopf stoppt die Antwort, die schon läuft. PDF-Anhänge werden wieder an das Modell geschickt. Zitate können Seitentitel zeigen. Wenn eine Proxy-Sitzung abläuft, kannst du dich wieder anmelden, ohne dich abzumelden.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: beim Einrichten kannst du das Desktop Gateway prüfen, auch wenn der Schalter noch aus ist.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }

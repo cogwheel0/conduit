@@ -90,6 +90,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.6",
+      "title": "Co nowego",
+      "intro": "Cześć! Rozumowanie zostaje we własnym bloku, gdy się streamuje. Tagi think nie pojawiają się już w odpowiedzi. PDF-y znowu docierają do modelu. Głos zamienia się w tekst, gdy przestajesz mówić, a przycisk głośnika działa. Pasek przewijania czatu już nie skacze.",
+      "bullets": [
+        {
+          "text": "Rozumowanie: zostaje we własnym bloku, gdy model pisze. Tagi think nie pojawiają się już w odpowiedzi. Bloki narzędzi zostają na swoim miejscu.",
+          "icon": "polish"
+        },
+        {
+          "text": "Głos i pliki: gdy przestajesz mówić, pojawia się Transkrypcja. Rozpoznawanie mowy na Androidzie używa dowolnego zainstalowanego silnika. Przycisk głośnika zatrzymuje odpowiedź, która już gra. Załączniki PDF są znowu wysyłane do modelu. Cytowania mogą pokazywać tytuł strony. Jeśli sesja proxy wygaśnie, możesz zalogować się ponownie bez wylogowania.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: podczas konfiguracji możesz sprawdzić Desktop Gateway nawet gdy przełącznik jest jeszcze wyłączony.",
+          "icon": "hermes"
+        }
+      ]
     }
   ]
 }
