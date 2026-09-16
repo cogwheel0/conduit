@@ -268,13 +268,20 @@ String renderRawReasoningTagsInSnapshot(String content) {
   if (!content.contains('<') && !content.contains('◁')) return content;
   final splitter = StreamingReasoningTagSplitter();
   final events = [...splitter.feed(content), ...splitter.flush()];
-  if (!events.any((event) => event is RawReasoningTagReasoning)) {
-    return content;
-  }
+  final sawTag =
+      splitter.isInsideReasoning ||
+      events.any((event) => event is! RawReasoningTagText);
+  if (!sawTag) return content;
   final buffer = StringBuffer();
   final reasoning = StringBuffer();
   var insideReasoning = false;
   void closeReasoning({required bool done}) {
+    if (done && reasoning.toString().trim().isEmpty) {
+      // Mirror the server: a completed block without text is dropped.
+      reasoning.clear();
+      insideReasoning = false;
+      return;
+    }
     final rendered = _buildStreamingReasoningDetails(
       reasoning.toString(),
       done: done,

@@ -6090,6 +6090,13 @@ void main() {
       check(renderRawReasoningTagsInSnapshot(content)).identicalTo(content);
     });
 
+    test('drops an empty completed block and shows an empty open block', () {
+      check(renderRawReasoningTagsInSnapshot('a<think></think>b')).equals('ab');
+      final open = renderRawReasoningTagsInSnapshot('a<think>');
+      check(open).startsWith('a\n<details type="reasoning" done="false"');
+      check(open).not((c) => c.contains('<think>'));
+    });
+
     test('renders attributed and plain tag blocks in order', () {
       final rendered = renderRawReasoningTagsInSnapshot(
         'a<think source="m">one</think>b<thinking>two</thinking>c',
