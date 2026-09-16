@@ -2960,7 +2960,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     String extentKeyFor(ChatMessage message) => ChatRowExtentMemory.keyFor(
       messageId: message.id,
-      contentLength: message.content.length,
+      layoutSignature: Object.hash(
+        message.content,
+        message.followUps.length,
+        message.attachmentIds?.length,
+        message.files?.length,
+        message.codeExecutions.length,
+        message.sources.length,
+        message.versions.length,
+      ),
       viewportWidth: viewportWidth,
       textScale: textScale,
     );

@@ -309,7 +309,7 @@ void main() {
     memory.debugClear();
     String key(int i) => ChatRowExtentMemory.keyFor(
       messageId: 'm$i',
-      contentLength: 10,
+      layoutSignature: 10,
       viewportWidth: 400,
       textScale: 1,
     );
@@ -319,7 +319,7 @@ void main() {
       memory.lookup(
         ChatRowExtentMemory.keyFor(
           messageId: 'm0',
-          contentLength: 11,
+          layoutSignature: 11,
           viewportWidth: 400,
           textScale: 1,
         ),

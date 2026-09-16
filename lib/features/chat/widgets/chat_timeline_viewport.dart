@@ -2171,9 +2171,10 @@ double estimateChatRowExtent({
 /// Process-wide memory of measured chat row heights, so a chat that was
 /// scrolled before reopens with exact extents instead of estimates.
 ///
-/// Keys carry the message id, its content length, the viewport width, and
-/// the text scale; any of those changing yields a fresh key, so an entry can
-/// never describe a row laid out under different inputs.
+/// Keys carry the message id, a signature of everything in the message that
+/// affects its height, the viewport width, and the text scale; any of those
+/// changing yields a fresh key, so an entry can never describe a row laid
+/// out under different inputs.
 class ChatRowExtentMemory {
   ChatRowExtentMemory._();
 
@@ -2186,10 +2187,10 @@ class ChatRowExtentMemory {
 
   static String keyFor({
     required String messageId,
-    required int contentLength,
+    required int layoutSignature,
     required double viewportWidth,
     required double textScale,
-  }) => '$messageId|$contentLength|${viewportWidth.round()}|$textScale';
+  }) => '$messageId|$layoutSignature|${viewportWidth.round()}|$textScale';
 
   double? lookup(String key) {
     final extent = _extents.remove(key);
