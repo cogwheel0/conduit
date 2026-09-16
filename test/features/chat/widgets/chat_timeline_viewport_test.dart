@@ -280,6 +280,8 @@ void main() {
     check(long).isGreaterThan(short);
     check(estimateChatRowExtentForText('x' * 4000, 400))
         .isGreaterThan(estimateChatRowExtentForText('x' * 4000, 1200));
+    check(estimateChatRowExtentForText('x' * 4000, 400, textScale: 2))
+        .isGreaterThan(long);
   });
 
   _viewportTest('content extent stays exact once rows have been laid out', (

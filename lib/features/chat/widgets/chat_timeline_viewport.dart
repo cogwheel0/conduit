@@ -2122,12 +2122,16 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
 /// Rough height of a chat row showing [text] in a [viewportWidth]-wide
 /// transcript. Only the text length feeds in, so the value is O(1) and never
 /// changes with scroll position; it stands in until the row is measured.
-double estimateChatRowExtentForText(String text, double viewportWidth) {
+double estimateChatRowExtentForText(
+  String text,
+  double viewportWidth, {
+  double textScale = 1,
+}) {
   // ponytail: average glyph width and line height for body text; markdown,
   // code, and images are not modelled. Refine only if the thumb still drifts.
   const chrome = 72.0;
-  const lineHeight = 22.0;
-  const glyphWidth = 8.0;
+  final lineHeight = 22.0 * textScale;
+  final glyphWidth = 8.0 * textScale;
   const minCharsPerLine = 20.0;
   final charsPerLine = math.max(
     minCharsPerLine,

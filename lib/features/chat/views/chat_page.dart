@@ -2946,6 +2946,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
 
     final viewportWidth = MediaQuery.sizeOf(context).width;
+    final textScale = MediaQuery.textScalerOf(context).scale(1);
     double? estimateRowExtent(int renderIndex) {
       final sourceIndex = timeline.sourceIndexAtRenderIndex(renderIndex);
       if (sourceIndex == null ||
@@ -2956,6 +2957,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return estimateChatRowExtentForText(
         timeline.historyMessages[sourceIndex].content,
         viewportWidth,
+        textScale: textScale,
       );
     }
 
