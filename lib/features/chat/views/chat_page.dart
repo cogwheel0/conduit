@@ -2947,18 +2947,42 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     final viewportWidth = MediaQuery.sizeOf(context).width;
     final textScale = MediaQuery.textScalerOf(context).scale(1);
-    double? estimateRowExtent(int renderIndex) {
+    final extentMemory = ChatRowExtentMemory.instance;
+    ChatMessage? historyMessageAtRenderIndex(int renderIndex) {
       final sourceIndex = timeline.sourceIndexAtRenderIndex(renderIndex);
       if (sourceIndex == null ||
           sourceIndex < 0 ||
           sourceIndex >= timeline.historyMessages.length) {
         return null;
       }
-      return estimateChatRowExtentForText(
-        timeline.historyMessages[sourceIndex].content,
-        viewportWidth,
-        textScale: textScale,
-      );
+      return timeline.historyMessages[sourceIndex];
+    }
+
+    String extentKeyFor(ChatMessage message) => ChatRowExtentMemory.keyFor(
+      messageId: message.id,
+      contentLength: message.content.length,
+      viewportWidth: viewportWidth,
+      textScale: textScale,
+    );
+    double? estimateRowExtent(int renderIndex) {
+      final message = historyMessageAtRenderIndex(renderIndex);
+      if (message == null) return null;
+      return extentMemory.lookup(extentKeyFor(message)) ??
+          estimateChatRowExtent(
+            text: message.content,
+            viewportWidth: viewportWidth,
+            textScale: textScale,
+            isUser: message.role == 'user',
+            attachmentCount: message.attachmentIds?.length ?? 0,
+            imageCount: message.files?.length ?? 0,
+            followUpCount: message.followUps.length,
+          );
+    }
+
+    void rememberRowExtent(int renderIndex, double extent) {
+      final message = historyMessageAtRenderIndex(renderIndex);
+      if (message == null || message.isStreaming) return;
+      extentMemory.record(extentKeyFor(message), extent);
     }
 
     return ChatTimelineViewport(
@@ -2967,6 +2991,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       messageIds: messageIds,
       rowRebuildKeys: _rowRebuildKeysMemo,
       estimateRowExtent: estimateRowExtent,
+      onRowExtentMeasured: rememberRowExtent,
       initialAnchor: _initialScrollAnchor,
       pinnedUserMessageId: _wantsPinToTop ? _pinnedUserMessageId : null,
       liveFooter: timeline.runningFooterHost == null

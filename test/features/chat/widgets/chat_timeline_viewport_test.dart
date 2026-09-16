@@ -285,14 +285,73 @@ void main() {
     check(-position.minScrollExtent).isCloseTo(olderRowsExtent, 1);
   });
 
-  test('row extent estimate grows with text and never depends on layout', () {
-    final short = estimateChatRowExtentForText('hi', 400);
-    final long = estimateChatRowExtentForText('x' * 4000, 400);
+  test('row extent estimate grows with text, scale, and attachments', () {
+    double estimate(String text, double width, {double scale = 1}) =>
+        estimateChatRowExtent(
+          text: text,
+          viewportWidth: width,
+          textScale: scale,
+        );
+    final short = estimate('hi', 400);
+    final long = estimate('x' * 4000, 400);
     check(long).isGreaterThan(short);
-    check(estimateChatRowExtentForText('x' * 4000, 400))
-        .isGreaterThan(estimateChatRowExtentForText('x' * 4000, 1200));
-    check(estimateChatRowExtentForText('x' * 4000, 400, textScale: 2))
-        .isGreaterThan(long);
+    check(long).isGreaterThan(estimate('x' * 4000, 1200));
+    check(estimate('x' * 4000, 400, scale: 2)).isGreaterThan(long);
+    check(estimateChatRowExtent(text: '', viewportWidth: 400, imageCount: 1))
+        .isGreaterThan(estimateChatRowExtent(text: '', viewportWidth: 400));
+    check(estimateChatRowExtent(text: 'hi', viewportWidth: 400, isUser: true))
+        .isLessThan(estimateChatRowExtent(text: 'hi', viewportWidth: 400));
+  });
+
+  test('row extent memory returns recorded heights and evicts oldest', () {
+    final memory = ChatRowExtentMemory.instance;
+    addTearDown(memory.debugClear);
+    memory.debugClear();
+    String key(int i) => ChatRowExtentMemory.keyFor(
+      messageId: 'm$i',
+      contentLength: 10,
+      viewportWidth: 400,
+      textScale: 1,
+    );
+    memory.record(key(0), 120);
+    check(memory.lookup(key(0))).equals(120);
+    check(
+      memory.lookup(
+        ChatRowExtentMemory.keyFor(
+          messageId: 'm0',
+          contentLength: 11,
+          viewportWidth: 400,
+          textScale: 1,
+        ),
+      ),
+    ).isNull();
+    for (var i = 1; i <= 2000; i += 1) {
+      memory.record(key(i), i.toDouble());
+    }
+    check(memory.debugLength).equals(2000);
+    check(memory.lookup(key(0))).isNull();
+    check(memory.lookup(key(2000))).equals(2000);
+  });
+
+  _viewportTest('measured row heights are reported by source index', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final ids = List<String>.generate(30, (index) => 'message-$index');
+    final reported = <int, double>{};
+    await tester.pumpWidget(
+      _viewportHost(
+        _viewport(
+          controller: controller,
+          ids: ids,
+          rowHeight: (id) => id == 'message-29' ? 90 : 52,
+          onRowExtentMeasured: (index, extent) => reported[index] = extent,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    check(reported[29]).equals(90);
+    check(reported[28]).equals(52);
   });
 
   _viewportTest('content extent stays exact once rows have been laid out', (
@@ -2772,6 +2831,7 @@ Widget _viewport({
   bool hideUntilSettled = false,
   double Function(String id)? rowHeight,
   double? Function(int index)? estimateRowExtent,
+  void Function(int index, double extent)? onRowExtentMeasured,
   ChatTimelineRowBuilder? rowBuilder,
   List<Object?> rowRebuildKeys = const <Object?>[],
   ValueChanged<ChatTimelineViewportMetrics>? onMetricsChanged,
@@ -2789,6 +2849,7 @@ Widget _viewport({
     messageIds: ids,
     rowRebuildKeys: rowRebuildKeys,
     estimateRowExtent: estimateRowExtent,
+    onRowExtentMeasured: onRowExtentMeasured,
     initialAnchor: initialAnchor,
     pinnedUserMessageId: pinnedUserMessageId,
     liveFooter: liveFooter,

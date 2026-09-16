@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:math' as math;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
@@ -284,6 +285,7 @@ class ChatTimelineViewport extends StatefulWidget {
     this.hideUntilSettled = false,
     this.rowRebuildKeys = const <Object?>[],
     this.estimateRowExtent,
+    this.onRowExtentMeasured,
     super.key,
   }) : assert(
          rowRebuildKeys.length == 0 ||
@@ -304,6 +306,10 @@ class ChatTimelineViewport extends StatefulWidget {
   /// out. It must depend only on the row's own content so the scroll extent
   /// stays stable while other rows mount and unmount.
   final double? Function(int sourceIndex)? estimateRowExtent;
+
+  /// Reports a measured row height for a [messageIds] index whenever it
+  /// changes, so callers can remember it beyond this viewport's lifetime.
+  final void Function(int sourceIndex, double extent)? onRowExtentMeasured;
   final ChatScrollAnchor? initialAnchor;
   final ChatTimelineRowBuilder rowBuilder;
   final String? pinnedUserMessageId;
@@ -794,7 +800,17 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         ..multiply(box.getTransformTo(viewport));
       final rect = MatrixUtils.transformRect(transform, Offset.zero & box.size);
       if (rect.isFinite) rects[id] = rect;
-      _rowExtents[id] = box.size.height;
+      final extent = box.size.height;
+      if (_rowExtents[id] != extent) {
+        _rowExtents[id] = extent;
+        final index = _messageIndexById[id];
+        if (index != null) {
+          widget.onRowExtentMeasured?.call(
+            _timelineEntries[index].sourceIndex,
+            extent,
+          );
+        }
+      }
     }
     return Map<String, Rect>.unmodifiable(rects);
   }
@@ -2119,17 +2135,22 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   }
 }
 
-/// Rough height of a chat row showing [text] in a [viewportWidth]-wide
-/// transcript. Only the text length feeds in, so the value is O(1) and never
-/// changes with scroll position; it stands in until the row is measured.
-double estimateChatRowExtentForText(
-  String text,
-  double viewportWidth, {
+/// Rough height of a chat row in a [viewportWidth]-wide transcript. Only the
+/// row's own content feeds in, so the value is O(1) and never changes with
+/// scroll position; it stands in until the row is measured.
+double estimateChatRowExtent({
+  required String text,
+  required double viewportWidth,
   double textScale = 1,
+  bool isUser = false,
+  int attachmentCount = 0,
+  int imageCount = 0,
+  int followUpCount = 0,
 }) {
-  // ponytail: average glyph width and line height for body text; markdown,
-  // code, and images are not modelled. Refine only if the thumb still drifts.
-  const chrome = 72.0;
+  // ponytail: flat per-kind terms plus body-text lines, as paseo does; code
+  // blocks, tables, and markdown structure are not modelled. Refine only if
+  // the thumb still drifts.
+  final chrome = isUser ? 56.0 : 88.0;
   final lineHeight = 22.0 * textScale;
   final glyphWidth = 8.0 * textScale;
   const minCharsPerLine = 20.0;
@@ -2137,8 +2158,56 @@ double estimateChatRowExtentForText(
     minCharsPerLine,
     (viewportWidth - 96) / glyphWidth,
   );
-  final lines = math.max(1, (text.length / charsPerLine).ceil());
-  return chrome + lines * lineHeight;
+  final lines = text.isEmpty
+      ? 0
+      : math.max(1, (text.length / charsPerLine).ceil());
+  return chrome +
+      lines * lineHeight +
+      attachmentCount * 72 +
+      imageCount * 220 +
+      followUpCount * 44 * textScale;
+}
+
+/// Process-wide memory of measured chat row heights, so a chat that was
+/// scrolled before reopens with exact extents instead of estimates.
+///
+/// Keys carry the message id, its content length, the viewport width, and
+/// the text scale; any of those changing yields a fresh key, so an entry can
+/// never describe a row laid out under different inputs.
+class ChatRowExtentMemory {
+  ChatRowExtentMemory._();
+
+  static final ChatRowExtentMemory instance = ChatRowExtentMemory._();
+
+  static const int _capacity = 2000;
+
+  final LinkedHashMap<String, double> _extents =
+      LinkedHashMap<String, double>();
+
+  static String keyFor({
+    required String messageId,
+    required int contentLength,
+    required double viewportWidth,
+    required double textScale,
+  }) => '$messageId|$contentLength|${viewportWidth.round()}|$textScale';
+
+  double? lookup(String key) {
+    final extent = _extents.remove(key);
+    if (extent != null) _extents[key] = extent;
+    return extent;
+  }
+
+  void record(String key, double extent) {
+    _extents.remove(key);
+    _extents[key] = extent;
+    if (_extents.length > _capacity) _extents.remove(_extents.keys.first);
+  }
+
+  @visibleForTesting
+  int get debugLength => _extents.length;
+
+  @visibleForTesting
+  void debugClear() => _extents.clear();
 }
 
 /// SliverChildBuilderDelegate whose `shouldRebuild` defaults to true, which
