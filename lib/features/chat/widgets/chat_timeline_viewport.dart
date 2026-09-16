@@ -2190,7 +2190,7 @@ class ChatRowExtentMemory {
     required int layoutSignature,
     required double viewportWidth,
     required double textScale,
-  }) => '$messageId|$layoutSignature|${viewportWidth.round()}|$textScale';
+  }) => '$messageId|$layoutSignature|$viewportWidth|$textScale';
 
   double? lookup(String key) {
     final extent = _extents.remove(key);

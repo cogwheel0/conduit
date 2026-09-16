@@ -2958,16 +2958,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return timeline.historyMessages[sourceIndex];
     }
 
+    bool? layoutRowIsArchived(String messageId) {
+      final row = layoutMetadata.indexByMessageId[messageId];
+      return row == null ? null : layoutMetadata.rows[row].isArchivedVariant;
+    }
+
     String extentKeyFor(ChatMessage message) => ChatRowExtentMemory.keyFor(
       messageId: message.id,
       layoutSignature: Object.hash(
         message.content,
+        message.isStreaming,
+        message.statusHistory.length,
         message.followUps.length,
         message.attachmentIds?.length,
         message.files?.length,
         message.codeExecutions.length,
         message.sources.length,
         message.versions.length,
+        layoutRowIsArchived(message.id),
       ),
       viewportWidth: viewportWidth,
       textScale: textScale,
