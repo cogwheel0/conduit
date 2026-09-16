@@ -150,10 +150,7 @@ final class _HermesDecisionCardState extends State<HermesDecisionCard> {
     );
   }
 
-  List<Widget> _buildBatch(
-    AppLocalizations l10n,
-    ConduitThemeExtension theme,
-  ) {
+  List<Widget> _buildBatch(AppLocalizations l10n, ConduitThemeExtension theme) {
     return [
       if (widget.questions.length > 1) ...[
         Text(
@@ -180,7 +177,10 @@ final class _HermesDecisionCardState extends State<HermesDecisionCard> {
     ];
   }
 
-  List<Widget> _buildSingle(AppLocalizations l10n, ConduitThemeExtension theme) {
+  List<Widget> _buildSingle(
+    AppLocalizations l10n,
+    ConduitThemeExtension theme,
+  ) {
     if (widget.kind == HermesDecisionKind.mcpSetup) {
       return [
         Text(

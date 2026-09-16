@@ -21,7 +21,11 @@ void main() {
             question: 'First?',
             choices: ['one', 'two'],
           ),
-          HermesClarifyQuestion(qid: 'q1', question: 'Second?', multiSelect: true),
+          HermesClarifyQuestion(
+            qid: 'q1',
+            question: 'Second?',
+            multiSelect: true,
+          ),
         ],
         answers: const {'q0': 'one'},
       ),

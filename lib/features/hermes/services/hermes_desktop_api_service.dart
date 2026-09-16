@@ -556,6 +556,7 @@ final class HermesDesktopApiService
     approvalId: approvalId,
     choice: choice,
   );
+
   /// Responds to one pending decision, returning how many clarify questions
   /// remain unanswered (0 = fully resolved). [questionId] is required only for
   /// per-question batch clarify submissions.

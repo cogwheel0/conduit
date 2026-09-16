@@ -384,9 +384,8 @@ void main() {
     final staleToken = registry.registerPending(key, onCancelled: () {});
     final currentToken = registry.registerPending(key, onCancelled: () {});
 
-    check(
-      registry.bindRunId(key, cancelToken: staleToken, runId: 'stale-run'),
-    ).isFalse();
+    check(registry.bindRunId(key, cancelToken: staleToken, runId: 'stale-run'))
+        .isFalse();
     check(registry.runIdFor(key)).isNull();
     check(
       registry.bindRunId(key, cancelToken: currentToken, runId: 'current-run'),
@@ -1543,9 +1542,8 @@ void main() {
     final first = questions.first as Map;
     check(first['qid']).equals('q0');
     check(first['question']).equals('First?');
-    check(first['choices'] as List).deepEquals(
-      const ['one (Recommended)', 'two'],
-    );
+    check(first['choices'] as List)
+        .deepEquals(const ['one (Recommended)', 'two']);
     final second = questions.last as Map;
     check(second['qid']).equals('q1');
     check(second['multiSelect']).equals(true);

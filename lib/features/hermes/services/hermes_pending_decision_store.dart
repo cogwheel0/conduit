@@ -410,7 +410,10 @@ List<HermesClarifyQuestion> _sanitizeQuestions(
       entry['qid'],
       sensitiveValues: sensitiveValues,
     );
-    final question = _sanitizePrompt(entry['question']?.toString(), sensitiveValues);
+    final question = _sanitizePrompt(
+      entry['question']?.toString(),
+      sensitiveValues,
+    );
     if (qid == null || question == null) continue;
     result.add(
       HermesClarifyQuestion(
