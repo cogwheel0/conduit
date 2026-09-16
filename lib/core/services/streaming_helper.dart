@@ -1478,10 +1478,20 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
   };
 
+  /// Before an interleaved event (tool tile, explicit reasoning delta), held
+  /// answer text must land first to keep stream order. Inside an open block
+  /// the held fragment is a possible closer (`</thi`); it belongs to the
+  /// collapsed body, where order is invisible, and flushing it would stop the
+  /// later `nk>` from closing the block and swallow the answer into it.
+  void flushRawReasoningTagsForInterleavedEvent() {
+    if (rawReasoningTags.isInsideReasoning) return;
+    flushRawReasoningTags();
+  }
+
   void handleStreamingChoiceDelta(Map<dynamic, dynamic> delta) {
     final reasoning = openWebUIStreamingReasoningDelta(delta);
     if (reasoning.isNotEmpty) {
-      flushRawReasoningTags();
+      flushRawReasoningTagsForInterleavedEvent();
       applyStreamingReasoningDelta(reasoning);
     }
 
@@ -1532,7 +1542,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     ]);
     hasInjectedSemanticDetails = true;
     // Held-back model text must land before the tile to keep stream order.
-    flushRawReasoningTags();
+    flushRawReasoningTagsForInterleavedEvent();
     appendVisibleAssistantChunk(
       '\n$status\n',
       updateImages: false,
@@ -1639,7 +1649,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         appendVisibleAssistantText(content);
 
       case OpenWebUIReasoningDelta(:final content):
-        flushRawReasoningTags();
+        flushRawReasoningTagsForInterleavedEvent();
         applyStreamingReasoningDelta(content);
 
       case OpenWebUIOutputUpdate(:final output, :final blocks):

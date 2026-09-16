@@ -1121,6 +1121,50 @@ void main() {
       check(terminal.messages.last.content).equals('Klar!<thi');
     });
 
+    test('a tool status between a split closer and its remainder keeps the '
+        'answer outside the reasoning block', () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('chat:message', {
+        'content': 'Klar!<think>plan</thi',
+      }, messageId: 'msg-1');
+      registrar.emitChatEvent('chat:completion', {
+        'tool_calls': [
+          {
+            'id': 'call-1',
+            'function': {'name': 'search'},
+          },
+        ],
+      }, messageId: 'msg-1');
+      registrar.emitChatEvent('chat:completion', {
+        'choices': [
+          {
+            'delta': {'content': 'nk>Answer'},
+          },
+        ],
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
+
+      final content = log.messages.last.content;
+      check(content).startsWith('Klar!\n<details type="reasoning" done="true"');
+      check(content).contains('&gt; plan\n</details>');
+      check(content).contains('<details type="tool_calls"');
+      check(content).endsWith('</details>\nAnswer');
+      check(content).not((c) => c.contains('&gt; plan&lt;/thi'));
+      check(content).not((c) => c.contains('Answer\n</details>'));
+    });
+
     test('a completed echo carrying a stale prefix does not truncate content, '
         'while a genuine outlet rewrite still applies', () async {
       Future<_BufferedCallbackLog> run(String echoContent) async {
