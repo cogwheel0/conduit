@@ -154,7 +154,10 @@ class VoiceInputService {
   String get deviceLocaleTag =>
       WidgetsBinding.instance.platformDispatcher.locale.toLanguageTag();
   bool get hasServerStt => _api != null;
-  bool get isUsingServerStt => _usingServerStt;
+
+  /// True while a finished server recording is being transcribed, whether the
+  /// stop was manual or triggered by voice activity detection (issue #707).
+  final ValueNotifier<bool> transcribing = ValueNotifier<bool>(false);
   SttPreference get preference => _preference;
   bool get prefersServerOnly => _preference == SttPreference.serverOnly;
   bool get prefersDeviceOnly => _preference == SttPreference.deviceOnly;
@@ -881,7 +884,12 @@ class VoiceInputService {
             _transcriptEventController?.hasListener ?? false,
       );
       if (samples != null && samples.isNotEmpty && shouldProcessSamples) {
-        await _processVadSamples(samples);
+        transcribing.value = true;
+        try {
+          await _processVadSamples(samples);
+        } finally {
+          transcribing.value = false;
+        }
       }
     } else {
       final wasUsingNativeLocalStt = _usingNativeLocalStt;
@@ -1461,6 +1469,7 @@ class VoiceInputService {
     if (!_responseCaptureFailureController.isClosed) {
       await _responseCaptureFailureController.close();
     }
+    transcribing.dispose();
   }
 }
 

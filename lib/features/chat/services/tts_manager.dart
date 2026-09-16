@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../../core/models/backend_config.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/background_streaming_handler.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/semantic_details.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import 'native_tts_service.dart';
@@ -562,6 +563,14 @@ class TtsManager {
       // Try fallback to device TTS if server fails. Only emit a terminal
       // error when no fallback is possible or the fallback fails too, so a
       // successful fallback keeps the controller's active message (#709).
+      DebugLogger.warning(
+        'tts-playback-start-failed',
+        scope: 'tts/manager',
+        data: {
+          'server': shouldUseServer,
+          'errorType': e.runtimeType.toString(),
+        },
+      );
       if (shouldUseServer && _deviceEngineAvailable) {
         try {
           // Create a new session with useServerTts: false so device TTS
