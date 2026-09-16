@@ -238,6 +238,50 @@ void main() {
     check(rowPadding.bottom).equals(0);
   });
 
+  _viewportTest('row extent estimates make the content extent exact before '
+      'any row has been laid out', (tester) async {
+    final controller = _controller(tester);
+    final ids = List<String>.generate(60, (index) => 'message-$index');
+    // The tall row sits far above the initial window, so only the estimate
+    // can account for it before it is ever built.
+    double heightOf(String id) => id == 'message-10' ? 3000 : 40;
+    final exactExtent =
+        _topContentInset +
+        ids.fold<double>(0, (sum, id) => sum + heightOf(id)) +
+        80;
+
+    await tester.pumpWidget(
+      _viewportHost(
+        _viewport(
+          controller: controller,
+          ids: ids,
+          followLatest: false,
+          rowHeight: heightOf,
+          estimateRowExtent: (index) => heightOf(ids[index]),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable))
+        .position;
+    expect(find.byKey(const ValueKey<String>('label-message-0')), findsNothing);
+    check(
+      position.maxScrollExtent -
+          position.minScrollExtent +
+          position.viewportDimension,
+    ).isCloseTo(exactExtent, 1);
+  });
+
+  test('row extent estimate grows with text and never depends on layout', () {
+    final short = estimateChatRowExtentForText('hi', 400);
+    final long = estimateChatRowExtentForText('x' * 4000, 400);
+    check(long).isGreaterThan(short);
+    check(estimateChatRowExtentForText('x' * 4000, 400))
+        .isGreaterThan(estimateChatRowExtentForText('x' * 4000, 1200));
+  });
+
   _viewportTest('content extent stays exact once rows have been laid out', (
     tester,
   ) async {
@@ -2714,6 +2758,7 @@ Widget _viewport({
   Widget? trailingContent,
   bool hideUntilSettled = false,
   double Function(String id)? rowHeight,
+  double? Function(int index)? estimateRowExtent,
   ChatTimelineRowBuilder? rowBuilder,
   List<Object?> rowRebuildKeys = const <Object?>[],
   ValueChanged<ChatTimelineViewportMetrics>? onMetricsChanged,
@@ -2730,6 +2775,7 @@ Widget _viewport({
     ownerGeneration: ownerGeneration,
     messageIds: ids,
     rowRebuildKeys: rowRebuildKeys,
+    estimateRowExtent: estimateRowExtent,
     initialAnchor: initialAnchor,
     pinnedUserMessageId: pinnedUserMessageId,
     liveFooter: liveFooter,

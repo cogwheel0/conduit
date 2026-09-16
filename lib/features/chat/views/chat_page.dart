@@ -2945,11 +2945,26 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       positionSettled: _pinToTopPositionSettled,
     );
 
+    final viewportWidth = MediaQuery.sizeOf(context).width;
+    double? estimateRowExtent(int renderIndex) {
+      final sourceIndex = timeline.sourceIndexAtRenderIndex(renderIndex);
+      if (sourceIndex == null ||
+          sourceIndex < 0 ||
+          sourceIndex >= timeline.historyMessages.length) {
+        return null;
+      }
+      return estimateChatRowExtentForText(
+        timeline.historyMessages[sourceIndex].content,
+        viewportWidth,
+      );
+    }
+
     return ChatTimelineViewport(
       controller: _timelineViewportController,
       ownerGeneration: _conversationOwnerGeneration,
       messageIds: messageIds,
       rowRebuildKeys: _rowRebuildKeysMemo,
+      estimateRowExtent: estimateRowExtent,
       initialAnchor: _initialScrollAnchor,
       pinnedUserMessageId: _wantsPinToTop ? _pinnedUserMessageId : null,
       liveFooter: timeline.runningFooterHost == null

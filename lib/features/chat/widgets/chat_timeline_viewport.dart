@@ -283,6 +283,7 @@ class ChatTimelineViewport extends StatefulWidget {
     this.trailingContent,
     this.hideUntilSettled = false,
     this.rowRebuildKeys = const <Object?>[],
+    this.estimateRowExtent,
     super.key,
   }) : assert(
          rowRebuildKeys.length == 0 ||
@@ -298,6 +299,11 @@ class ChatTimelineViewport extends StatefulWidget {
   final int ownerGeneration;
   final List<String> messageIds;
   final List<Object?> rowRebuildKeys;
+
+  /// Height guess for a row at a [messageIds] index that has never been laid
+  /// out. It must depend only on the row's own content so the scroll extent
+  /// stays stable while other rows mount and unmount.
+  final double? Function(int sourceIndex)? estimateRowExtent;
   final ChatScrollAnchor? initialAnchor;
   final ChatTimelineRowBuilder rowBuilder;
   final String? pinnedUserMessageId;
@@ -1983,6 +1989,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
                     centerIndex: centerIndex,
                     reverse: true,
                     rowExtents: _rowExtents,
+                    estimateRowExtent: widget.estimateRowExtent,
                   ),
                 ),
               ),
@@ -2002,6 +2009,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
                     centerIndex: centerIndex,
                     reverse: false,
                     rowExtents: _rowExtents,
+                    estimateRowExtent: widget.estimateRowExtent,
                   ),
                 ),
               ),
@@ -2111,6 +2119,24 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   }
 }
 
+/// Rough height of a chat row showing [text] in a [viewportWidth]-wide
+/// transcript. Only the text length feeds in, so the value is O(1) and never
+/// changes with scroll position; it stands in until the row is measured.
+double estimateChatRowExtentForText(String text, double viewportWidth) {
+  // ponytail: average glyph width and line height for body text; markdown,
+  // code, and images are not modelled. Refine only if the thumb still drifts.
+  const chrome = 72.0;
+  const lineHeight = 22.0;
+  const glyphWidth = 8.0;
+  const minCharsPerLine = 20.0;
+  final charsPerLine = math.max(
+    minCharsPerLine,
+    (viewportWidth - 96) / glyphWidth,
+  );
+  final lines = math.max(1, (text.length / charsPerLine).ceil());
+  return chrome + lines * lineHeight;
+}
+
 /// SliverChildBuilderDelegate whose `shouldRebuild` defaults to true, which
 /// made every shell rebuild (drag-start setState, keyboard insets, pin
 /// transitions) rebuild every mounted row. Row content is derived entirely
@@ -2132,6 +2158,7 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
     required this.centerIndex,
     required this.reverse,
     required this.rowExtents,
+    required this.estimateRowExtent,
   }) : super(addSemanticIndexes: false);
 
   final ChatTimelineRowBuilder rowBuilder;
@@ -2139,9 +2166,10 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
   final int centerIndex;
   final bool reverse;
   final Map<String, double> rowExtents;
+  final double? Function(int sourceIndex)? estimateRowExtent;
 
-  String _idAt(int index) =>
-      entries[reverse ? centerIndex - 1 - index : centerIndex + index].id;
+  ({String id, int sourceIndex, Object? rebuildKey}) _entryAt(int index) =>
+      entries[reverse ? centerIndex - 1 - index : centerIndex + index];
 
   @override
   double? estimateMaxScrollOffset(
@@ -2155,7 +2183,9 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
     var total = trailingScrollOffset;
     var unknown = 0;
     for (var index = lastIndex + 1; index < count; index += 1) {
-      final extent = rowExtents[_idAt(index)];
+      final entry = _entryAt(index);
+      final extent =
+          rowExtents[entry.id] ?? estimateRowExtent?.call(entry.sourceIndex);
       if (extent == null) {
         unknown += 1;
       } else {
