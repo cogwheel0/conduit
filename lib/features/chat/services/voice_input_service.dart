@@ -158,6 +158,7 @@ class VoiceInputService {
   /// True while a finished server recording is being transcribed, whether the
   /// stop was manual or triggered by voice activity detection (issue #707).
   final ValueNotifier<bool> transcribing = ValueNotifier<bool>(false);
+  Future<void>? _pendingTranscription;
   SttPreference get preference => _preference;
   bool get prefersServerOnly => _preference == SttPreference.serverOnly;
   bool get prefersDeviceOnly => _preference == SttPreference.deviceOnly;
@@ -884,11 +885,14 @@ class VoiceInputService {
             _transcriptEventController?.hasListener ?? false,
       );
       if (samples != null && samples.isNotEmpty && shouldProcessSamples) {
-        transcribing.value = true;
+        final pending = _transcribeWithStatus(samples);
+        _pendingTranscription = pending;
         try {
-          await _processVadSamples(samples);
+          await pending;
         } finally {
-          transcribing.value = false;
+          if (identical(_pendingTranscription, pending)) {
+            _pendingTranscription = null;
+          }
         }
       }
     } else {
@@ -1187,6 +1191,15 @@ class VoiceInputService {
     }
   }
 
+  Future<void> _transcribeWithStatus(List<double> samples) async {
+    transcribing.value = true;
+    try {
+      await _processVadSamples(samples);
+    } finally {
+      transcribing.value = false;
+    }
+  }
+
   Future<void> _processVadSamples(List<double> samples) async {
     final api = _api;
     if (api == null) return;
@@ -1469,6 +1482,9 @@ class VoiceInputService {
     if (!_responseCaptureFailureController.isClosed) {
       await _responseCaptureFailureController.close();
     }
+    // A transcription started by an earlier stop may still be in flight; let
+    // it clear the notifier before the notifier goes away.
+    await _pendingTranscription;
     transcribing.dispose();
   }
 }
