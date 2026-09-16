@@ -1022,8 +1022,17 @@ String _mergeContentWithStructuredOutput(
   List<StructuredOutputBlock> outputBlocks,
 ) {
   final hasDetails = structuredOutputBlocksContainDetails(outputBlocks);
-  final baseContent = stripRenderedSemanticDetails(content);
+  var baseContent = stripRenderedSemanticDetails(content);
   final strippedSemanticDetails = baseContent != content;
+  // Content carrying rendered <details> wrappers is markdown Conduit already
+  // escaped once (the /api/chat/completed payload persists into the chat).
+  // Re-escaping it shows literal `&lt;` entities, and its longer escaped
+  // length shifts the offsets tool/reasoning blocks are spliced back at
+  // (issue #728). Restore the plain text before merging; code regions were
+  // never escaped and stay untouched.
+  if (strippedSemanticDetails) {
+    baseContent = unescapeRenderedAnswerText(baseContent);
+  }
   final outputPlainText = structuredOutputBlocksPlainText(outputBlocks);
   final hasOutputPlainText = outputPlainText.trim().isNotEmpty;
   final outputTextIsAuthoritative =

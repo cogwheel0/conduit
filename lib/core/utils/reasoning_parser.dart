@@ -641,3 +641,171 @@ class _SummaryResult {
 
   const _SummaryResult({required this.summary, required this.remaining});
 }
+
+/// One ordered piece of a streamed chunk after raw reasoning-tag splitting.
+sealed class RawReasoningTagEvent {
+  const RawReasoningTagEvent();
+}
+
+/// Answer text outside any reasoning tag pair.
+final class RawReasoningTagText extends RawReasoningTagEvent {
+  const RawReasoningTagText(this.text);
+  final String text;
+}
+
+/// Text inside an open reasoning tag pair (the tags themselves are dropped).
+final class RawReasoningTagReasoning extends RawReasoningTagEvent {
+  const RawReasoningTagReasoning(this.text);
+  final String text;
+}
+
+/// The closing tag of the open reasoning block was consumed.
+final class RawReasoningTagEnd extends RawReasoningTagEvent {
+  const RawReasoningTagEnd();
+}
+
+/// Splits streamed plain-text chunks around raw reasoning tag pairs such as
+/// `<think>…</think>`.
+///
+/// Open WebUI only converts these tags into reasoning blocks on its socket
+/// path; SSE fallbacks, pipes, and backends that emit the tags themselves
+/// deliver them verbatim inside `delta.content`. A trailing fragment that
+/// could still grow into a tag (`<thi`) is held back until the next chunk or
+/// [flush], so a tag split across chunks is still recognized. Callers must
+/// [flush] before rendering any interleaved event (tool status, explicit
+/// reasoning delta) so held text keeps its place in the stream.
+class StreamingReasoningTagSplitter {
+  StreamingReasoningTagSplitter({List<(String, String)>? tagPairs})
+    : _tagPairs = tagPairs ?? defaultReasoningTagPairs;
+
+  /// Longest text held back while an attributed opening tag (`<think foo=`)
+  /// is still unterminated; beyond this the text is treated as prose.
+  static const int maxHeldLength = 256;
+
+  final List<(String, String)> _tagPairs;
+  String _pending = '';
+  (String, String)? _open;
+
+  static bool _isXmlTag(String tag) => tag.startsWith('<') && tag.endsWith('>');
+
+  /// Same opening-tag grammar as the server (`_start_tag_pattern`) and
+  /// [ReasoningParser.segments]: XML-like tags may carry attributes.
+  static RegExp _openPattern(String startTag) {
+    if (_isXmlTag(startTag)) {
+      final name = RegExp.escape(startTag.substring(1, startTag.length - 1));
+      return RegExp('<$name(?:\\s[^>]*)?>');
+    }
+    return RegExp(RegExp.escape(startTag));
+  }
+
+  /// An attributed XML opening tag that has started but not yet closed.
+  static RegExp _unclosedOpenPattern(String startTag) {
+    final name = RegExp.escape(startTag.substring(1, startTag.length - 1));
+    return RegExp('<$name\\s[^>]*\$');
+  }
+
+  /// Whether the last consumed tag opened a reasoning block.
+  bool get isInsideReasoning => _open != null;
+
+  List<RawReasoningTagEvent> feed(String chunk) {
+    if (chunk.isEmpty) return const [];
+    final events = <RawReasoningTagEvent>[];
+    var buffer = _pending + chunk;
+    _pending = '';
+    while (buffer.isNotEmpty) {
+      final open = _open;
+      if (open == null) {
+        RegExpMatch? match;
+        (String, String)? matched;
+        for (final pair in _tagPairs) {
+          final candidate = _openPattern(pair.$1).firstMatch(buffer);
+          if (candidate != null &&
+              (match == null || candidate.start < match.start)) {
+            match = candidate;
+            matched = pair;
+          }
+        }
+        if (match == null || matched == null) {
+          final hold = _openingHoldLength(buffer);
+          final emit = buffer.substring(0, buffer.length - hold);
+          if (emit.isNotEmpty) events.add(RawReasoningTagText(emit));
+          _pending = buffer.substring(buffer.length - hold);
+          break;
+        }
+        if (match.start > 0) {
+          events.add(RawReasoningTagText(buffer.substring(0, match.start)));
+        }
+        _open = matched;
+        buffer = buffer.substring(match.end);
+      } else {
+        final endIndex = buffer.indexOf(open.$2);
+        if (endIndex == -1) {
+          final hold = _partialTagSuffixLength(buffer, [open.$2]);
+          final emit = buffer.substring(0, buffer.length - hold);
+          if (emit.isNotEmpty) events.add(RawReasoningTagReasoning(emit));
+          _pending = buffer.substring(buffer.length - hold);
+          break;
+        }
+        if (endIndex > 0) {
+          events.add(RawReasoningTagReasoning(buffer.substring(0, endIndex)));
+        }
+        events.add(const RawReasoningTagEnd());
+        _open = null;
+        buffer = buffer.substring(endIndex + open.$2.length);
+      }
+    }
+    return events;
+  }
+
+  /// Drops held-back text and any open block, for when a server snapshot
+  /// replaces the visible content wholesale.
+  void reset() {
+    _pending = '';
+    _open = null;
+  }
+
+  /// Releases any held-back fragment as ordinary text or reasoning text.
+  List<RawReasoningTagEvent> flush() {
+    final pending = _pending;
+    _pending = '';
+    if (pending.isEmpty) return const [];
+    return [
+      _open == null
+          ? RawReasoningTagText(pending)
+          : RawReasoningTagReasoning(pending),
+    ];
+  }
+
+  /// How much of [buffer]'s tail may still become an opening tag: a literal
+  /// prefix (`<thi`) or an attributed tag awaiting its `>` (`<think a="1"`),
+  /// the latter capped at [maxHeldLength].
+  int _openingHoldLength(String buffer) {
+    var hold = _partialTagSuffixLength(buffer, _tagPairs.map((p) => p.$1));
+    for (final pair in _tagPairs) {
+      if (!_isXmlTag(pair.$1)) continue;
+      final unclosed = _unclosedOpenPattern(pair.$1).firstMatch(buffer);
+      if (unclosed == null) continue;
+      final length = buffer.length - unclosed.start;
+      if (length <= maxHeldLength && length > hold) hold = length;
+    }
+    return hold;
+  }
+
+  /// Length of the longest suffix of [buffer] that is a proper prefix of any
+  /// tag in [tags].
+  static int _partialTagSuffixLength(String buffer, Iterable<String> tags) {
+    var longest = 0;
+    for (final tag in tags) {
+      final max = tag.length - 1 < buffer.length
+          ? tag.length - 1
+          : buffer.length;
+      for (var length = max; length > longest; length--) {
+        if (tag.startsWith(buffer.substring(buffer.length - length))) {
+          longest = length;
+          break;
+        }
+      }
+    }
+    return longest;
+  }
+}

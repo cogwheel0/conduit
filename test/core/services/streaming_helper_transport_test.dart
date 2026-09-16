@@ -137,6 +137,20 @@ class _BufferedCallbackLog extends _CallbackLog {
   }
 }
 
+/// Like [_BufferedCallbackLog], but a full replacement supersedes pending
+/// appends, as the real notifier's `replaceLastMessageContent` resets its
+/// streaming buffer to the replacement.
+class _ReplacingBufferedCallbackLog extends _BufferedCallbackLog {
+  @override
+  void replaceLastMessageContent(String c) {
+    streamingBuffer.clear();
+    super.replaceLastMessageContent(c);
+  }
+
+  @override
+  void bufferLastMessageContent(String c) => replaceLastMessageContent(c);
+}
+
 /// Adapter that optionally returns a canned poll response.
 class _StubAdapter implements HttpClientAdapter {
   _StubAdapter({this.pollResponse, this.pollResponses});
@@ -840,6 +854,315 @@ void main() {
       check(assistantPayload).isNotNull();
       check(assistantPayload!.single['content']).equals('Hello world');
       check(log.messages.last.content).equals('Hello world');
+    });
+
+    test('httpStream collapses raw <think> tags into reasoning details '
+        'even when a tag is split across deltas', () async {
+      final log = _ReplacingBufferedCallbackLog();
+      final api = _RecordingChatCompletedApi();
+      final chunks = [
+        'Klar, Ben!',
+        '<thi',
+        'nk>\nDer Benutzer fragt nach "m',
+        'orgen".</think>',
+        '\n\nMorgen 24°.',
+      ];
+      final byteStream = Stream<List<int>>.fromIterable([
+        for (final chunk in chunks)
+          _sseFrame({
+            'choices': [
+              {
+                'delta': {'content': chunk},
+              },
+            ],
+          }),
+        _sseDone(),
+      ]);
+
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          byteStream: byteStream,
+          abort: () async {},
+        ),
+        log: log,
+        api: api,
+        // The real notifier exposes its unflushed buffer as visible content;
+        // the reasoning prefix is captured from it.
+        getVisibleStreamingContent: () =>
+            log.messages.last.content + log.streamingBuffer.toString(),
+      );
+
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      final content = log.messages.last.content;
+      check(content).not((c) => c.contains('<think>'));
+      check(content).not((c) => c.contains('</think>'));
+      check(content)
+          .startsWith('Klar, Ben!\n<details type="reasoning" done="true"');
+      check(content)
+          .contains('&gt; Der Benutzer fragt nach &quot;morgen&quot;.');
+      check(content).endsWith('</details>\n\n\nMorgen 24°.');
+      final assistantPayload = api.capturedMessages
+          ?.where((m) => m['id'] == 'msg-1')
+          .toList();
+      check(assistantPayload!.single['content']).equals(content);
+    });
+
+    test('held-back partial tag text keeps its place before an interleaved '
+        'tool status tile', () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('chat:completion', {
+        'choices': [
+          {
+            'delta': {'content': 'Hello <'},
+          },
+        ],
+      }, messageId: 'msg-1');
+      registrar.emitChatEvent('chat:completion', {
+        'tool_calls': [
+          {
+            'id': 'call-1',
+            'function': {'name': 'search'},
+          },
+        ],
+      }, messageId: 'msg-1');
+      registrar.emitChatEvent('chat:completion', {
+        'choices': [
+          {
+            'delta': {'content': 'b'},
+          },
+        ],
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
+
+      final content = log.messages.last.content;
+      check(content).startsWith('Hello <\n<details type="tool_calls"');
+      check(content).endsWith('</details>\nb');
+    });
+
+    test('a content snapshot discards held-back partial tag state', () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('chat:completion', {
+        'choices': [
+          {
+            'delta': {'content': 'Hello <'},
+          },
+        ],
+      }, messageId: 'msg-1');
+      registrar.emitChatEvent('chat:message', {
+        'content': 'Replaced',
+      }, messageId: 'msg-1');
+      registrar.emitChatEvent('chat:completion', {
+        'choices': [
+          {
+            'delta': {'content': 'b'},
+          },
+        ],
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
+
+      check(log.messages.last.content).equals('Replacedb');
+    });
+
+    test(
+      'a content snapshot with raw reasoning tags renders reasoning details',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:message', {
+          'content': 'Klar!<think>\nPlan a < b',
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+        var content = log.messages.last.content;
+        check(content)
+            .startsWith('Klar!\n<details type="reasoning" done="false"');
+        check(content).contains('&gt; Plan a &lt; b');
+        check(content).not((c) => c.contains('<think>'));
+
+        registrar.emitChatEvent('chat:message', {
+          'content': 'Klar!<think>\nPlan a < b</think>\n\nAnswer < here',
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+        content = log.messages.last.content;
+        check(content)
+            .startsWith('Klar!\n<details type="reasoning" done="true"');
+        check(content).endsWith('</details>\n\n\nAnswer < here');
+      },
+    );
+
+    test(
+      'deltas after a snapshot continue its unterminated reasoning block',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:message', {
+          'content': 'Klar!<think>\nPlan',
+        }, messageId: 'msg-1');
+        registrar.emitChatEvent('chat:completion', {
+          'choices': [
+            {
+              'delta': {'content': ' more</think>\n\nAnswer'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        final content = log.messages.last.content;
+        check(content)
+            .startsWith('Klar!\n<details type="reasoning" done="true"');
+        check(content).contains('&gt; Plan more');
+        check(content).endsWith('</details>\n\n\nAnswer');
+        check(RegExp('<details').allMatches(content).length).equals(1);
+      },
+    );
+
+    test('tag fragments split at a snapshot boundary resolve with later deltas '
+        'or flush verbatim on done', () async {
+      Future<_CallbackLog> run(String snapshot, String? delta) async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+        await pumpMicrotasks();
+        registrar.emitChatEvent('chat:message', {
+          'content': snapshot,
+        }, messageId: 'msg-1');
+        if (delta != null) {
+          registrar.emitChatEvent('chat:completion', {
+            'choices': [
+              {
+                'delta': {'content': delta},
+              },
+            ],
+          }, messageId: 'msg-1');
+        } else {
+          registrar.emitChatEvent('chat:completion', {
+            'done': true,
+          }, messageId: 'msg-1');
+        }
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+        return log;
+      }
+
+      final partialOpen = await run('Klar!<thi', 'nk>Plan</think>Ans');
+      var content = partialOpen.messages.last.content;
+      check(content).startsWith('Klar!\n<details type="reasoning" done="true"');
+      check(content).contains('&gt; Plan');
+      check(content).endsWith('</details>\nAns');
+      check(content).not((c) => c.contains('<thi'));
+
+      final partialClose = await run('Klar!<think>plan</thi', 'nk>\n\nAns');
+      content = partialClose.messages.last.content;
+      check(content).contains(
+        '<summary>Thought for 0 seconds</summary>\n&gt; plan\n</details>',
+      );
+      check(content).endsWith('</details>\n\n\nAns');
+
+      final terminal = await run('Klar!<thi', null);
+      check(terminal.messages.last.content).equals('Klar!<thi');
+    });
+
+    test('a tool status between a split closer and its remainder keeps the '
+        'answer outside the reasoning block', () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('chat:message', {
+        'content': 'Klar!<think>plan</thi',
+      }, messageId: 'msg-1');
+      registrar.emitChatEvent('chat:completion', {
+        'tool_calls': [
+          {
+            'id': 'call-1',
+            'function': {'name': 'search'},
+          },
+        ],
+      }, messageId: 'msg-1');
+      registrar.emitChatEvent('chat:completion', {
+        'choices': [
+          {
+            'delta': {'content': 'nk>Answer'},
+          },
+        ],
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
+
+      final content = log.messages.last.content;
+      check(content).startsWith('Klar!\n<details type="reasoning" done="true"');
+      check(content).contains('&gt; plan\n</details>');
+      check(content).contains('<details type="tool_calls"');
+      check(content).endsWith('</details>\nAnswer');
+      check(content).not((c) => c.contains('&gt; plan&lt;/thi'));
+      check(content).not((c) => c.contains('Answer\n</details>'));
     });
 
     test('a completed echo carrying a stale prefix does not truncate content, '
@@ -5893,6 +6216,31 @@ void main() {
       check(lastMsg.error!.content).equals('Persisted backend error');
       check(lastMsg.isStreaming).isFalse();
       check(log.finishCount).equals(1);
+    });
+  });
+
+  group('renderRawReasoningTagsInSnapshot', () {
+    test('returns content unchanged without reasoning tags', () {
+      const content = 'plain <b>bold</b> and ◁ arrow';
+      check(renderRawReasoningTagsInSnapshot(content)).equals(content);
+    });
+
+    test('drops an empty completed block and shows an empty open block', () {
+      check(renderRawReasoningTagsInSnapshot('a<think></think>b')).equals('ab');
+      final open = renderRawReasoningTagsInSnapshot('a<think>');
+      check(open).startsWith('a\n<details type="reasoning" done="false"');
+      check(open).not((c) => c.contains('<think>'));
+    });
+
+    test('renders attributed and plain tag blocks in order', () {
+      final rendered = renderRawReasoningTagsInSnapshot(
+        'a<think source="m">one</think>b<thinking>two</thinking>c',
+      );
+      check(rendered).startsWith('a\n<details type="reasoning" done="true"');
+      check(rendered).contains('&gt; one');
+      check(rendered).contains('</details>\nb\n<details type="reasoning"');
+      check(rendered).contains('&gt; two');
+      check(rendered).endsWith('</details>\nc');
     });
   });
 }

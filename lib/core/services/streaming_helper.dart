@@ -22,6 +22,7 @@ import '../../shared/theme/theme_extensions.dart';
 import '../utils/debug_logger.dart';
 import '../utils/embed_utils.dart';
 import '../utils/openwebui_source_parser.dart';
+import '../utils/reasoning_parser.dart';
 import '../utils/semantic_details.dart';
 import 'openwebui_response_stream.dart';
 import 'openwebui_stream_parser.dart';
@@ -254,6 +255,82 @@ String _buildStreamingReasoningDetails(
     ),
   ]);
   return rendered.isEmpty ? '' : '$rendered\n';
+}
+
+/// Result of [_renderRawReasoningEvents]. When the events end inside an
+/// unterminated reasoning block, [openPrefix] is the rendered text before that
+/// block and [openReasoning] its text so far, so later deltas can keep
+/// extending the same block.
+typedef _RawReasoningSnapshot = ({
+  String content,
+  String? openPrefix,
+  String? openReasoning,
+});
+
+/// Collapses raw reasoning tags inside a terminal content snapshot into
+/// rendered reasoning details. Answer text is kept verbatim (snapshot text is
+/// never escaped); an unterminated block renders as still thinking. The live
+/// snapshot path uses [_renderRawReasoningEvents] with the stream's own
+/// splitter so a fragment split at the snapshot boundary is held, not flushed.
+@visibleForTesting
+String renderRawReasoningTagsInSnapshot(String content) {
+  final splitter = StreamingReasoningTagSplitter();
+  final events = [...splitter.feed(content), ...splitter.flush()];
+  return _renderRawReasoningEvents(
+    events,
+    insideReasoning: splitter.isInsideReasoning,
+  ).content;
+}
+
+/// Text events are emitted verbatim; a fragment the splitter still holds is
+/// deliberately absent from the result.
+_RawReasoningSnapshot _renderRawReasoningEvents(
+  List<RawReasoningTagEvent> events, {
+  required bool insideReasoning,
+}) {
+  final buffer = StringBuffer();
+  final reasoning = StringBuffer();
+  var openBlock = false;
+  void closeReasoning({required bool done}) {
+    openBlock = false;
+    if (done && reasoning.toString().trim().isEmpty) {
+      // Mirror the server: a completed block without text is dropped.
+      reasoning.clear();
+      return;
+    }
+    final rendered = _buildStreamingReasoningDetails(
+      reasoning.toString(),
+      done: done,
+    );
+    final joined = _prependReasoningDetails(buffer.toString(), rendered);
+    buffer
+      ..clear()
+      ..write(joined);
+    reasoning.clear();
+  }
+
+  for (final event in events) {
+    switch (event) {
+      case RawReasoningTagText(:final text):
+        buffer.write(text);
+      case RawReasoningTagReasoning(:final text):
+        openBlock = true;
+        reasoning.write(text);
+      case RawReasoningTagEnd():
+        closeReasoning(done: true);
+    }
+  }
+  if (openBlock || insideReasoning) {
+    final openPrefix = buffer.toString();
+    final openReasoning = reasoning.toString();
+    closeReasoning(done: false);
+    return (
+      content: buffer.toString(),
+      openPrefix: openPrefix,
+      openReasoning: openReasoning,
+    );
+  }
+  return (content: buffer.toString(), openPrefix: null, openReasoning: null);
 }
 
 String _prependReasoningDetails(String prefix, String reasoningDetails) {
@@ -879,6 +956,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   var structuredOutputProfileFinished = false;
   var inReasoningBlock = false;
   DateTime? reasoningStartedAt;
+  // Raw `<think>`-style tags reach the plain-text append paths verbatim when
+  // the server did not convert them (SSE fallback, pipes, tag-emitting
+  // backends). Split them client-side into the same reasoning details the
+  // `reasoning_content` delta path renders.
+  final rawReasoningTags = StreamingReasoningTagSplitter();
+  late final void Function() flushRawReasoningTags;
   var reasoningPrefix = '';
   var reasoningContent = _StreamingTextAccumulator();
 
@@ -987,6 +1070,33 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (updateImages) {
       updateImagesFromCurrentContent();
     }
+  }
+
+  /// A server content snapshot supersedes everything streamed so far,
+  /// including any raw reasoning tag the splitter is still holding or has
+  /// open; later deltas continue from the snapshot, not from stale tag state.
+  void replaceVisibleAssistantSnapshot(String content) {
+    // Snapshots bypass the per-delta path: the server's non-streaming handler
+    // never converts reasoning tags, and pipes that emit chat:message/replace
+    // stream their own cumulative text. Re-feed the stream's splitter without
+    // flushing so a tag fragment split at the snapshot boundary (`<thi`,
+    // `</thi`) stays held for the next delta or the terminal flush.
+    rawReasoningTags.reset();
+    final events = rawReasoningTags.feed(content);
+    final snapshot = _renderRawReasoningEvents(
+      events,
+      insideReasoning: rawReasoningTags.isInsideReasoning,
+    );
+    replaceVisibleAssistantContent(snapshot.content);
+    final openReasoning = snapshot.openReasoning;
+    if (openReasoning == null) return;
+    // The snapshot ends inside an unterminated block: seed the reasoning
+    // accumulators so a later delta (`more</think>`) extends and closes that
+    // block instead of starting a second one.
+    inReasoningBlock = true;
+    reasoningStartedAt = DateTime.now();
+    reasoningPrefix = snapshot.openPrefix ?? '';
+    reasoningContent = _StreamingTextAccumulator(openReasoning);
   }
 
   void appendVisibleAssistantStructuredOutput(
@@ -1194,6 +1304,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   // execution, and finalize any pending reasoning block before completion.
   void wrappedFinishStreaming() {
     if (hasFinished) return;
+    flushRawReasoningTags();
     finalizeStreamingReasoning();
     finalizeStructuredOutputProjection();
     hasFinished = true;
@@ -1341,15 +1452,52 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     );
   }
 
+  void applyRawReasoningTagEvent(RawReasoningTagEvent event) {
+    switch (event) {
+      case RawReasoningTagText(:final text):
+        appendVisibleAssistantChunk(text);
+      case RawReasoningTagReasoning(:final text):
+        applyStreamingReasoningDelta(text);
+      case RawReasoningTagEnd():
+        finalizeStreamingReasoning();
+    }
+  }
+
+  /// Appends model-authored plain text, collapsing raw reasoning tags into
+  /// reasoning details as they stream. Conduit-owned semantic HTML (tool
+  /// status tiles) must go through [appendVisibleAssistantChunk] directly.
+  void appendVisibleAssistantText(String chunk) {
+    for (final event in rawReasoningTags.feed(chunk)) {
+      applyRawReasoningTagEvent(event);
+    }
+  }
+
+  flushRawReasoningTags = () {
+    for (final event in rawReasoningTags.flush()) {
+      applyRawReasoningTagEvent(event);
+    }
+  };
+
+  /// Before an interleaved event (tool tile, explicit reasoning delta), held
+  /// answer text must land first to keep stream order. Inside an open block
+  /// the held fragment is a possible closer (`</thi`); it belongs to the
+  /// collapsed body, where order is invisible, and flushing it would stop the
+  /// later `nk>` from closing the block and swallow the answer into it.
+  void flushRawReasoningTagsForInterleavedEvent() {
+    if (rawReasoningTags.isInsideReasoning) return;
+    flushRawReasoningTags();
+  }
+
   void handleStreamingChoiceDelta(Map<dynamic, dynamic> delta) {
     final reasoning = openWebUIStreamingReasoningDelta(delta);
     if (reasoning.isNotEmpty) {
+      flushRawReasoningTagsForInterleavedEvent();
       applyStreamingReasoningDelta(reasoning);
     }
 
     final content = delta['content']?.toString() ?? '';
     if (content.isNotEmpty) {
-      appendVisibleAssistantChunk(content);
+      appendVisibleAssistantText(content);
     }
   }
 
@@ -1393,6 +1541,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       ),
     ]);
     hasInjectedSemanticDetails = true;
+    // Held-back model text must land before the tile to keep stream order.
+    flushRawReasoningTagsForInterleavedEvent();
     appendVisibleAssistantChunk(
       '\n$status\n',
       updateImages: false,
@@ -1496,9 +1646,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }) {
     switch (update) {
       case OpenWebUIContentDelta(:final content):
-        appendVisibleAssistantChunk(content);
+        appendVisibleAssistantText(content);
 
       case OpenWebUIReasoningDelta(:final content):
+        flushRawReasoningTagsForInterleavedEvent();
         applyStreamingReasoningDelta(content);
 
       case OpenWebUIOutputUpdate(:final output, :final blocks):
@@ -1567,6 +1718,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
   void settleVisibleStreamingContent() {
     if (hasCompletedStreamingUi) return;
+    flushRawReasoningTags();
     finalizeStreamingReasoning();
     flushStreamingBuffer();
     applyAssistantServerPatch(
@@ -2092,7 +2244,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         scope: 'streaming/helper',
       );
       if (isVisibleTarget) {
-        replaceVisibleAssistantContent(content);
+        replaceVisibleAssistantSnapshot(content);
         applied = true;
       }
     }
@@ -2996,7 +3148,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       case 'event:message:delta':
         final content = payload?['content']?.toString() ?? '';
         if (content.isNotEmpty) {
-          appendVisibleAssistantChunk(content);
+          appendVisibleAssistantText(content);
         }
         return true;
 
@@ -3004,7 +3156,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       case 'replace':
         final content = payload?['content']?.toString() ?? '';
         if (content.isNotEmpty) {
-          replaceVisibleAssistantContent(content);
+          replaceVisibleAssistantSnapshot(content);
         }
         return true;
 
@@ -3125,6 +3277,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     // without any earlier terminal flush). The projector must materialize its
     // exact terminal render first for the same reason: a deferred projection
     // leaves the visible content up to ~50% behind the logical content.
+    flushRawReasoningTags();
     finalizeStreamingReasoning();
     finalizeStructuredOutputProjection();
     flushStreamingBuffer();
@@ -3396,7 +3549,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                   raw,
                 );
             if (raw.isNotEmpty && !keepLocalContent) {
-              replaceVisibleAssistantContent(raw);
+              replaceVisibleAssistantSnapshot(raw);
             }
           }
           if (completionTargetId != null && outputBlocks.isNotEmpty) {
@@ -3743,7 +3896,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             null) {
           final content = payload['content']?.toString() ?? '';
           if (content.isNotEmpty) {
-            appendVisibleAssistantChunk(content);
+            appendVisibleAssistantText(content);
           }
         }
       } else if ((type == 'chat:message' || type == 'replace') &&
@@ -3757,7 +3910,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             null) {
           final content = payload['content']?.toString() ?? '';
           if (content.isNotEmpty) {
-            replaceVisibleAssistantContent(content);
+            replaceVisibleAssistantSnapshot(content);
           }
         }
       } else if ((type == 'chat:message:files') && payload != null) {
@@ -3979,7 +4132,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             null) {
           final content = payload['content']?.toString() ?? '';
           if (content.isNotEmpty) {
-            appendVisibleAssistantChunk(content);
+            appendVisibleAssistantText(content);
           }
         }
       } else {
@@ -4019,7 +4172,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       if (type == 'message' && payload is Map) {
         final content = payload['content']?.toString() ?? '';
         if (content.isNotEmpty) {
-          appendVisibleAssistantChunk(content);
+          appendVisibleAssistantText(content);
         }
       } else {
         // Log channel events that might include follow-ups
@@ -4256,7 +4409,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           // Whitespace-only chunks are real content: dropping a " " or
           // "\n\n" delta glues words together and loses paragraph breaks.
           if (effectiveChunk.isNotEmpty) {
-            appendVisibleAssistantChunk(effectiveChunk);
+            appendVisibleAssistantText(effectiveChunk);
           }
         },
         onComplete: () {
@@ -4376,7 +4529,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               if (message is Map<String, dynamic>) {
                 final content = message['content']?.toString() ?? '';
                 if (content.isNotEmpty) {
-                  replaceVisibleAssistantContent(content);
+                  replaceVisibleAssistantSnapshot(content);
                 }
               }
             }
