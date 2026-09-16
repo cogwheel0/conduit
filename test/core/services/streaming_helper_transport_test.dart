@@ -993,6 +993,43 @@ void main() {
       check(log.messages.last.content).equals('Replacedb');
     });
 
+    test(
+      'a content snapshot with raw reasoning tags renders reasoning details',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:message', {
+          'content': 'Klar!<think>\nPlan a < b',
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+        var content = log.messages.last.content;
+        check(content)
+            .startsWith('Klar!\n<details type="reasoning" done="false"');
+        check(content).contains('&gt; Plan a &lt; b');
+        check(content).not((c) => c.contains('<think>'));
+
+        registrar.emitChatEvent('chat:message', {
+          'content': 'Klar!<think>\nPlan a < b</think>\n\nAnswer < here',
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+        content = log.messages.last.content;
+        check(content)
+            .startsWith('Klar!\n<details type="reasoning" done="true"');
+        check(content).endsWith('</details>\n\n\nAnswer < here');
+      },
+    );
+
     test('a completed echo carrying a stale prefix does not truncate content, '
         'while a genuine outlet rewrite still applies', () async {
       Future<_BufferedCallbackLog> run(String echoContent) async {
@@ -6044,6 +6081,24 @@ void main() {
       check(lastMsg.error!.content).equals('Persisted backend error');
       check(lastMsg.isStreaming).isFalse();
       check(log.finishCount).equals(1);
+    });
+  });
+
+  group('renderRawReasoningTagsInSnapshot', () {
+    test('returns content unchanged without reasoning tags', () {
+      const content = 'plain <b>bold</b> and ◁ arrow';
+      check(renderRawReasoningTagsInSnapshot(content)).identicalTo(content);
+    });
+
+    test('renders attributed and plain tag blocks in order', () {
+      final rendered = renderRawReasoningTagsInSnapshot(
+        'a<think source="m">one</think>b<thinking>two</thinking>c',
+      );
+      check(rendered).startsWith('a\n<details type="reasoning" done="true"');
+      check(rendered).contains('&gt; one');
+      check(rendered).contains('</details>\nb\n<details type="reasoning"');
+      check(rendered).contains('&gt; two');
+      check(rendered).endsWith('</details>\nc');
     });
   });
 }

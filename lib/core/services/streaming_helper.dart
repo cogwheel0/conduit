@@ -257,6 +257,53 @@ String _buildStreamingReasoningDetails(
   return rendered.isEmpty ? '' : '$rendered\n';
 }
 
+/// Collapses raw reasoning tags inside a cumulative content snapshot into
+/// rendered reasoning details. Snapshots bypass the per-delta splitter: the
+/// server's non-streaming handler never converts tags, and pipes that emit
+/// `chat:message`/`replace` stream their own cumulative text. Answer text is
+/// kept verbatim (snapshot text is never escaped); an unterminated block
+/// renders as still thinking.
+@visibleForTesting
+String renderRawReasoningTagsInSnapshot(String content) {
+  if (!content.contains('<') && !content.contains('◁')) return content;
+  final splitter = StreamingReasoningTagSplitter();
+  final events = [...splitter.feed(content), ...splitter.flush()];
+  if (!events.any((event) => event is RawReasoningTagReasoning)) {
+    return content;
+  }
+  final buffer = StringBuffer();
+  final reasoning = StringBuffer();
+  var insideReasoning = false;
+  void closeReasoning({required bool done}) {
+    final rendered = _buildStreamingReasoningDetails(
+      reasoning.toString(),
+      done: done,
+    );
+    final joined = _prependReasoningDetails(buffer.toString(), rendered);
+    buffer
+      ..clear()
+      ..write(joined);
+    reasoning.clear();
+    insideReasoning = false;
+  }
+
+  for (final event in events) {
+    switch (event) {
+      case RawReasoningTagText(:final text):
+        buffer.write(text);
+      case RawReasoningTagReasoning(:final text):
+        insideReasoning = true;
+        reasoning.write(text);
+      case RawReasoningTagEnd():
+        closeReasoning(done: true);
+    }
+  }
+  if (insideReasoning || splitter.isInsideReasoning) {
+    closeReasoning(done: false);
+  }
+  return buffer.toString();
+}
+
 String _prependReasoningDetails(String prefix, String reasoningDetails) {
   if (prefix.isEmpty || prefix.endsWith('\n')) {
     return '$prefix$reasoningDetails';
@@ -1001,7 +1048,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   /// open; later deltas continue from the snapshot, not from stale tag state.
   void replaceVisibleAssistantSnapshot(String content) {
     rawReasoningTags.reset();
-    replaceVisibleAssistantContent(content);
+    replaceVisibleAssistantContent(renderRawReasoningTagsInSnapshot(content));
   }
 
   void appendVisibleAssistantStructuredOutput(
