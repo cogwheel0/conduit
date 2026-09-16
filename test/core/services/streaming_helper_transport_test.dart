@@ -1030,6 +1030,43 @@ void main() {
       },
     );
 
+    test(
+      'deltas after a snapshot continue its unterminated reasoning block',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:message', {
+          'content': 'Klar!<think>\nPlan',
+        }, messageId: 'msg-1');
+        registrar.emitChatEvent('chat:completion', {
+          'choices': [
+            {
+              'delta': {'content': ' more</think>\n\nAnswer'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        final content = log.messages.last.content;
+        check(content)
+            .startsWith('Klar!\n<details type="reasoning" done="true"');
+        check(content).contains('&gt; Plan more');
+        check(content).endsWith('</details>\n\n\nAnswer');
+        check(RegExp('<details').allMatches(content).length).equals(1);
+      },
+    );
+
     test('a completed echo carrying a stale prefix does not truncate content, '
         'while a genuine outlet rewrite still applies', () async {
       Future<_BufferedCallbackLog> run(String echoContent) async {
