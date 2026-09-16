@@ -214,6 +214,88 @@ void main() {
     );
   });
 
+  _viewportTest('scrollbar track is inset by the toolbar and composer', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final ids = List<String>.generate(30, (index) => 'message-$index');
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
+
+    await tester.pumpWidget(
+      _viewportHost(_viewport(controller: controller, ids: ids)),
+    );
+    await tester.pump();
+
+    final scrollbarPadding = MediaQuery.paddingOf(
+      tester.element(find.byType(Scrollbar)),
+    );
+    check(scrollbarPadding.top).equals(_topContentInset);
+    check(scrollbarPadding.bottom).equals(80);
+    final rowPadding = MediaQuery.paddingOf(
+      tester.element(find.byType(CustomScrollView)),
+    );
+    check(rowPadding.bottom).equals(0);
+  });
+
+  _viewportTest('content extent stays exact once rows have been laid out', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final ids = List<String>.generate(40, (index) => 'message-$index');
+    double heightOf(String id) => id == 'message-20' ? 3000 : 40;
+    final exactExtent =
+        _topContentInset +
+        ids.fold<double>(0, (sum, id) => sum + heightOf(id)) +
+        80;
+
+    await tester.pumpWidget(
+      _viewportHost(
+        _viewport(
+          controller: controller,
+          ids: ids,
+          followLatest: false,
+          rowHeight: heightOf,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable))
+        .position;
+    double totalExtent() =>
+        position.maxScrollExtent -
+        position.minScrollExtent +
+        position.viewportDimension;
+
+    // Walk every row through the build window once.
+    for (
+      var offset = position.maxScrollExtent;
+      offset > position.minScrollExtent;
+      offset -= 400
+    ) {
+      position.jumpTo(offset);
+      await tester.pump();
+    }
+    position.jumpTo(position.minScrollExtent);
+    await tester.pump();
+
+    // Park the build window inside the tall row, where the built-row average
+    // used to inflate the estimate for every unbuilt row.
+    position.jumpTo(
+      position.minScrollExtent + _topContentInset + 20 * 40 + 1200,
+    );
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey<String>('label-message-20')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey<String>('label-message-0')), findsNothing);
+
+    check(totalExtent()).isCloseTo(exactExtent, 1);
+  });
+
   test(
     'viewport rejects simultaneous anchor maintenance and latest follow',
     () {

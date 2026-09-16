@@ -362,6 +362,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   final GlobalKey _endSentinelKey = GlobalKey();
   final ValueNotifier<double> _pinSupportSpace = ValueNotifier<double>(0);
   final Map<String, GlobalKey> _rowKeys = <String, GlobalKey>{};
+  final Map<String, double> _rowExtents = <String, double>{};
   final Map<String, int> _mountedRowCounts = <String, int>{};
   final Map<String, ({int sourceIndex, Object? rebuildKey, Widget widget})>
   _rowWidgetCache = {};
@@ -666,6 +667,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
 
   void _syncRowKeys() {
     _rowKeys.removeWhere((id, _) => !_messageIdSet.contains(id));
+    _rowExtents.removeWhere((id, _) => !_messageIdSet.contains(id));
     for (final id in _messageIds) {
       _rowKeys.putIfAbsent(id, GlobalKey.new);
     }
@@ -762,6 +764,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         ..multiply(box.getTransformTo(viewport));
       final rect = MatrixUtils.transformRect(transform, Offset.zero & box.size);
       if (rect.isFinite) rects[id] = rect;
+      _rowExtents[id] = box.size.height;
     }
     return Map<String, Rect>.unmodifiable(rects);
   }
@@ -1954,6 +1957,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
                     rowBuilder: widget.rowBuilder,
                     entries: _timelineEntries,
                     centerIndex: centerIndex,
+                    reverse: true,
+                    rowExtents: _rowExtents,
                   ),
                 ),
               ),
@@ -1971,6 +1976,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
                     rowBuilder: widget.rowBuilder,
                     entries: _timelineEntries,
                     centerIndex: centerIndex,
+                    reverse: false,
+                    rowExtents: _rowExtents,
                   ),
                 ),
               ),
@@ -2023,9 +2030,26 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       ),
     );
 
-    final scrollableTranscript = PlatformInfo.isIOS
-        ? CupertinoScrollbar(controller: _scrollController, child: transcript)
-        : Scrollbar(controller: _scrollController, child: transcript);
+    // Platform scrollbars take their track insets from MediaQuery padding.
+    // The toolbar and composer float over the transcript, so give the
+    // scrollbar those insets while the rows keep the real window padding.
+    final mediaQuery = MediaQuery.of(context);
+    final insetTranscript = MediaQuery(data: mediaQuery, child: transcript);
+    final scrollbarMediaQuery = mediaQuery.copyWith(
+      padding: EdgeInsets.only(
+        top: math.max(0, widget.topContentInset),
+        bottom: math.max(0, widget.bottomPadding),
+      ),
+    );
+    final scrollableTranscript = MediaQuery(
+      data: scrollbarMediaQuery,
+      child: PlatformInfo.isIOS
+          ? CupertinoScrollbar(
+              controller: _scrollController,
+              child: insetTranscript,
+            )
+          : Scrollbar(controller: _scrollController, child: insetTranscript),
+    );
 
     return Stack(
       key: _viewportKey,
@@ -2068,6 +2092,12 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
 /// transitions) rebuild every mounted row. Row content is derived entirely
 /// from [rowBuilder] and [entries]; per-row Consumers pick up message-level
 /// changes on their own, so identical inputs mean no rebuild is needed.
+///
+/// It also estimates the extent of unbuilt rows from heights the viewport
+/// recorded in [rowExtents] while those rows were mounted. The default
+/// extrapolation averages only
+/// the currently built rows, so one long response makes the scrollbar thumb
+/// jump as rows enter and leave the build window.
 class _TimelineRowDelegate extends SliverChildBuilderDelegate {
   const _TimelineRowDelegate(
     super.builder, {
@@ -2076,11 +2106,49 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
     required this.rowBuilder,
     required this.entries,
     required this.centerIndex,
+    required this.reverse,
+    required this.rowExtents,
   }) : super(addSemanticIndexes: false);
 
   final ChatTimelineRowBuilder rowBuilder;
   final List<({String id, int sourceIndex, Object? rebuildKey})> entries;
   final int centerIndex;
+  final bool reverse;
+  final Map<String, double> rowExtents;
+
+  String _idAt(int index) =>
+      entries[reverse ? centerIndex - 1 - index : centerIndex + index].id;
+
+  @override
+  double? estimateMaxScrollOffset(
+    int firstIndex,
+    int lastIndex,
+    double leadingScrollOffset,
+    double trailingScrollOffset,
+  ) {
+    final count = childCount;
+    if (count == null) return null;
+    var total = trailingScrollOffset;
+    var unknown = 0;
+    for (var index = lastIndex + 1; index < count; index += 1) {
+      final extent = rowExtents[_idAt(index)];
+      if (extent == null) {
+        unknown += 1;
+      } else {
+        total += extent;
+      }
+    }
+    if (unknown == 0) return total;
+    // ponytail: rows never laid out fall back to the mean of every known row
+    // height; that stays constant across the build window, which is what
+    // keeps the thumb still. Use a median if one giant row skews it.
+    final known = rowExtents.values;
+    final average = known.isEmpty
+        ? (trailingScrollOffset - leadingScrollOffset) /
+              (lastIndex - firstIndex + 1)
+        : known.reduce((a, b) => a + b) / known.length;
+    return total + unknown * average;
+  }
 
   @override
   bool shouldRebuild(covariant _TimelineRowDelegate oldDelegate) {
