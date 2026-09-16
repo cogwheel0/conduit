@@ -248,17 +248,26 @@ void main() {
         _topContentInset +
         ids.fold<double>(0, (sum, id) => sum + heightOf(id)) +
         80;
-
-    await tester.pumpWidget(
-      _viewportHost(
-        _viewport(
-          controller: controller,
-          ids: ids,
-          followLatest: false,
-          rowHeight: heightOf,
+    // Same tree shape for both scales so the viewport state survives and the
+    // remembered extents are cleared by the layout-input change, not by a
+    // fresh state.
+    Widget host(double scale) => _viewportHost(
+      Builder(
+        builder: (context) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: TextScaler.linear(scale)),
+          child: _viewport(
+            controller: controller,
+            ids: ids,
+            followLatest: false,
+            rowHeight: (id) => heightOf(id) * scale,
+            rowRebuildKeys: List<Object?>.filled(ids.length, scale),
+          ),
         ),
       ),
     );
+
+    await tester.pumpWidget(host(1));
     await tester.pumpAndSettle();
 
     final position = tester
@@ -292,8 +301,54 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const ValueKey<String>('label-message-0')), findsNothing);
-
     check(totalExtent()).isCloseTo(exactExtent, 1);
+
+    // A text scale change rewraps rows, so remembered extents are dropped and
+    // unbuilt rows are estimated from rows measured under the new scale.
+    await tester.pumpWidget(host(2));
+    await tester.pump();
+    // Walk down from the top through the tall row so rows 0-20 are measured
+    // at the new scale, then park inside the tall row. The trailing rows
+    // were never rebuilt, so only the median of remeasured rows gives the
+    // exact extent; stale scale-1 heights would fall short.
+    position.jumpTo(position.minScrollExtent);
+    await tester.pump();
+    final parkInsideTallRow =
+        position.minScrollExtent + _topContentInset + 20 * 80 + 1200;
+    for (
+      var offset = position.pixels;
+      offset < parkInsideTallRow;
+      offset += 400
+    ) {
+      position.jumpTo(offset);
+      await tester.pump();
+    }
+    position.jumpTo(parkInsideTallRow);
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey<String>('label-message-20')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('label-message-21')),
+      findsNothing,
+    );
+    // Measure from the tall row's real position: the sliver keeps stale
+    // offsets for leading rows it never rebuilt, which is Flutter's own
+    // imprecision and not what this estimate covers.
+    final tallRowTop =
+        tester
+            .getTopLeft(find.byKey(const ValueKey<String>('label-message-20')))
+            .dy -
+        tester.getTopLeft(find.byType(CustomScrollView)).dy;
+    final expected =
+        position.pixels -
+        position.minScrollExtent +
+        tallRowTop +
+        6000 +
+        19 * 80 +
+        80;
+    check(totalExtent()).isCloseTo(expected, 1);
   });
 
   test(

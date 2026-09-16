@@ -363,6 +363,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   final ValueNotifier<double> _pinSupportSpace = ValueNotifier<double>(0);
   final Map<String, GlobalKey> _rowKeys = <String, GlobalKey>{};
   final Map<String, double> _rowExtents = <String, double>{};
+  (double, TextScaler)? _rowExtentLayoutInputs;
   final Map<String, int> _mountedRowCounts = <String, int>{};
   final Map<String, ({int sourceIndex, Object? rebuildKey, Widget widget})>
   _rowWidgetCache = {};
@@ -432,6 +433,21 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     widget.controller._attach(this);
     _scrollController.addListener(_handleControllerChanged);
     _scheduleInitialPositionCallback(_restoreInitialPosition);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Row heights depend on the viewport width and text scale; remembered
+    // extents from another layout would misestimate unbuilt rows.
+    final layoutInputs = (
+      MediaQuery.sizeOf(context).width,
+      MediaQuery.textScalerOf(context),
+    );
+    if (_rowExtentLayoutInputs != layoutInputs) {
+      _rowExtentLayoutInputs = layoutInputs;
+      _rowExtents.clear();
+    }
   }
 
   @override
@@ -2036,7 +2052,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     final mediaQuery = MediaQuery.of(context);
     final insetTranscript = MediaQuery(data: mediaQuery, child: transcript);
     final scrollbarMediaQuery = mediaQuery.copyWith(
-      padding: EdgeInsets.only(
+      padding: mediaQuery.padding.copyWith(
         top: math.max(0, widget.topContentInset),
         bottom: math.max(0, widget.bottomPadding),
       ),
@@ -2139,15 +2155,15 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
       }
     }
     if (unknown == 0) return total;
-    // ponytail: rows never laid out fall back to the mean of every known row
-    // height; that stays constant across the build window, which is what
-    // keeps the thumb still. Use a median if one giant row skews it.
-    final known = rowExtents.values;
-    final average = known.isEmpty
+    // Rows never laid out fall back to the median known row height. Unlike
+    // the built-row mean, one giant response cannot drag it around as short
+    // rows mount, which is what keeps the thumb still.
+    final known = rowExtents.values.toList()..sort();
+    final typical = known.isEmpty
         ? (trailingScrollOffset - leadingScrollOffset) /
               (lastIndex - firstIndex + 1)
-        : known.reduce((a, b) => a + b) / known.length;
-    return total + unknown * average;
+        : known[known.length ~/ 2];
+    return total + unknown * typical;
   }
 
   @override
