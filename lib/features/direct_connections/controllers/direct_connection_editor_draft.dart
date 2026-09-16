@@ -158,6 +158,8 @@ enum DirectDraftValidationIssue {
 }
 
 const String kOpenRouterProviderPreset = 'openrouter';
+const String kMiniMaxProviderPreset = 'minimax';
+const String kMiniMaxCnProviderPreset = 'minimax-cn';
 
 Map<String, String> parseDirectCustomHeaders(String source) {
   final trimmed = source.trim();

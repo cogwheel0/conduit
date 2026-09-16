@@ -22,6 +22,11 @@ const String kApplePccRemoteModelId = 'private-cloud-compute';
 /// Canonical first-party OpenRouter API root.
 const String kOpenRouterApiBaseUrl = 'https://openrouter.ai/api/v1';
 
+/// MiniMax direct API roots and manually discoverable models.
+const String kMiniMaxApiBaseUrl = 'https://api.minimax.io/v1';
+const String kMiniMaxCnApiBaseUrl = 'https://api.minimaxi.com/v1';
+const List<String> kMiniMaxModelIds = ["MiniMax-M3", "MiniMax-M2.7"];
+
 /// OpenAI-family completion protocol selected for one connection profile.
 ///
 /// This remains profile data rather than a separate adapter key so OpenAI,
