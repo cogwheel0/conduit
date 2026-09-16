@@ -466,8 +466,9 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         messageIdsChanged ||
         !identical(oldWidget.rowRebuildKeys, widget.rowRebuildKeys) ||
         rowBuilderChanged;
-    if (rowBuilderChanged) {
-      _rowWidgetCache.clear();
+    if (rowBuilderChanged) _rowWidgetCache.clear();
+    if (rowBuilderChanged ||
+        oldWidget.horizontalPadding != widget.horizontalPadding) {
       _rowExtents.clear();
     }
     if ((oldWidget.maintainVisibleAnchor || widget.maintainVisibleAnchor) &&
