@@ -28,6 +28,8 @@ final class HermesPendingDesktopDecision {
     this.mcpAction,
     this.choices = const <String>[],
     this.multiSelect = false,
+    this.questions = const <HermesClarifyQuestion>[],
+    this.answers = const <String, String>{},
     this.profile,
   });
 
@@ -42,6 +44,14 @@ final class HermesPendingDesktopDecision {
   final String? mcpAction;
   final List<String> choices;
   final bool multiSelect;
+
+  /// Batch clarify questions (non-empty only for a batch clarification).
+  final List<HermesClarifyQuestion> questions;
+
+  /// Answers locked so far on a batch clarify, keyed by question [HermesClarifyQuestion.qid].
+  /// Restored from the gateway's reconnect replay so a resumed session keeps
+  /// its per-question ✓ state.
+  final Map<String, String> answers;
 
   /// Profile that owns the session, when it is not the connection's own (a Bot
   /// Mode chat). Persisted because the in-memory session→profile map is empty
@@ -72,6 +82,9 @@ final class HermesPendingDesktopDecision {
     if (mcpAction != null) 'mcp_action': mcpAction,
     if (choices.isNotEmpty) 'choices': choices,
     if (multiSelect) 'multi_select': true,
+    if (questions.isNotEmpty)
+      'questions': [for (final q in questions) q.toJson()],
+    if (answers.isNotEmpty) 'answers': answers,
     if (profile != null) 'profile': profile,
   });
 
@@ -123,6 +136,8 @@ final class HermesPendingDesktopDecision {
         mcpAction: mcpAction,
         choices: choices,
         multiSelect: value['multi_select'] == true,
+        questions: _sanitizeQuestions(value['questions']),
+        answers: _sanitizeAnswers(value['answers']),
         // Same validation the RPC layer applies before a profile can scope a
         // request, so a tampered store cannot redirect one.
         profile: switch (validateHermesBoundedString(
@@ -160,6 +175,8 @@ final class HermesPendingDecisionStore {
     String? mcpAction,
     Iterable<Object?> choices = const <Object?>[],
     bool multiSelect = false,
+    Object? questions,
+    Object? answers,
     Iterable<String> sensitiveValues = const <String>[],
     String? profile,
   }) => _serialize(() async {
@@ -212,6 +229,8 @@ final class HermesPendingDecisionStore {
           (sanitizedChoices.isEmpty
               ? previous?.multiSelect ?? multiSelect
               : multiSelect),
+      questions: _sanitizeQuestions(questions, sensitiveValues),
+      answers: _sanitizeAnswers(answers, sensitiveValues),
     );
     records
       ..removeWhere((candidate) => candidate.identity == record.identity)
@@ -265,6 +284,8 @@ final class HermesPendingDecisionStore {
               mcpAction: record.mcpAction,
               choices: record.choices,
               multiSelect: record.multiSelect,
+              questions: record.questions,
+              answers: record.answers,
               // A rebind (compaction lineage) must not drop the owning bot
               // profile, or the rebound decision answers under the connection.
               profile: record.profile,
@@ -373,4 +394,51 @@ String? _sanitizePrompt(String? value, Iterable<String> sensitiveValues) {
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
   return safe.isEmpty ? null : safe;
+}
+
+const int _maxHermesClarifyQuestions = 5;
+
+List<HermesClarifyQuestion> _sanitizeQuestions(
+  Object? value, [
+  Iterable<String> sensitiveValues = const <String>[],
+]) {
+  if (value is! Iterable) return const <HermesClarifyQuestion>[];
+  final result = <HermesClarifyQuestion>[];
+  for (final entry in value.take(_maxHermesClarifyQuestions)) {
+    if (entry is! Map) continue;
+    final qid = validateHermesOpaqueIdentifier(
+      entry['qid'],
+      sensitiveValues: sensitiveValues,
+    );
+    final question = _sanitizePrompt(entry['question']?.toString(), sensitiveValues);
+    if (qid == null || question == null) continue;
+    result.add(
+      HermesClarifyQuestion(
+        qid: qid,
+        question: question,
+        choices: _sanitizeChoices(entry['choices']),
+        multiSelect:
+            entry['multi_select'] == true || entry['multiSelect'] == true,
+      ),
+    );
+  }
+  return List.unmodifiable(result);
+}
+
+Map<String, String> _sanitizeAnswers(
+  Object? value, [
+  Iterable<String> sensitiveValues = const <String>[],
+]) {
+  if (value is! Map) return const <String, String>{};
+  final result = <String, String>{};
+  for (final entry in value.entries.take(_maxHermesClarifyQuestions)) {
+    final qid = validateHermesOpaqueIdentifier(
+      entry.key,
+      sensitiveValues: sensitiveValues,
+    );
+    if (qid == null) continue;
+    final answer = _sanitizePrompt(entry.value?.toString(), sensitiveValues);
+    if (answer != null) result[qid] = answer;
+  }
+  return Map.unmodifiable(result);
 }

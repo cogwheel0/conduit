@@ -272,10 +272,28 @@ class _HermesComposerPromptOverlayState
         _ => const <String>[],
       },
       multiSelect: decision['multiSelect'] == true,
-      onSubmit: (value) async {
-        if (!expiresAt.isAfter(DateTime.now().toUtc())) return false;
+      questions: switch (decision['questions']) {
+        final List values => [
+          for (final value in values) ?HermesClarifyQuestion.fromJson(value),
+        ],
+        _ => const <HermesClarifyQuestion>[],
+      },
+      answers: switch (decision['answers']) {
+        final Map values => <String, String>{
+          for (final entry in values.entries)
+            if (entry.key is String && entry.value is String)
+              entry.key as String: entry.value as String,
+        },
+        _ => const <String, String>{},
+      },
+      onSubmit: (value, {questionId}) async {
+        const failed = HermesDecisionSubmitOutcome(
+          resolved: false,
+          failed: true,
+        );
+        if (!expiresAt.isAfter(DateTime.now().toUtc())) return failed;
         final service = ref.read(hermesApiServiceProvider);
-        if (service is! HermesDesktopApiService) return false;
+        if (service is! HermesDesktopApiService) return failed;
         final configController = ref.read(hermesConfigProvider.notifier);
         final admission = configController.captureSessionActionAdmission();
         if (admission == null ||
@@ -284,15 +302,16 @@ class _HermesComposerPromptOverlayState
               ownerConversationId: ownerConversationId,
               storedSessionId: storedSessionId,
             )) {
-          return false;
+          return failed;
         }
         try {
-          await service.respondToDecision(
+          final remaining = await service.respondToDecision(
             runtimeId: runtimeId,
             storedSessionId: storedSessionId,
             requestId: requestId,
             kind: kind,
             value: value,
+            questionId: questionId,
             mcpServer: decision['mcpServer']?.toString(),
             mcpAction: decision['mcpAction']?.toString(),
           );
@@ -302,27 +321,35 @@ class _HermesComposerPromptOverlayState
                 ownerConversationId: ownerConversationId,
                 storedSessionId: storedSessionId,
               )) {
-            return false;
+            return failed;
           }
-          ref.read(chatMessagesProvider.notifier).updateMessageById(
-            message.id,
-            (message) {
-              final metadata = Map<String, dynamic>.from(
-                message.metadata ?? const {},
-              );
-              final current = metadata[kHermesDecisionMeta];
-              if (current is Map && current['requestId'] == requestId) {
-                metadata[kHermesDecisionMeta] = {
-                  ...current.cast<String, dynamic>(),
-                  'state': 'resolved',
-                };
-              }
-              return message.copyWith(metadata: metadata);
-            },
+          final resolved = remaining == 0;
+          // A batch answer that leaves questions outstanding keeps the card
+          // pending; only the final answer resolves the message metadata.
+          if (resolved) {
+            ref.read(chatMessagesProvider.notifier).updateMessageById(
+              message.id,
+              (message) {
+                final metadata = Map<String, dynamic>.from(
+                  message.metadata ?? const {},
+                );
+                final current = metadata[kHermesDecisionMeta];
+                if (current is Map && current['requestId'] == requestId) {
+                  metadata[kHermesDecisionMeta] = {
+                    ...current.cast<String, dynamic>(),
+                    'state': 'resolved',
+                  };
+                }
+                return message.copyWith(metadata: metadata);
+              },
+            );
+          }
+          return HermesDecisionSubmitOutcome(
+            resolved: resolved,
+            remaining: remaining,
           );
-          return true;
         } catch (_) {
-          return false;
+          return failed;
         }
       },
     );

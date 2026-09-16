@@ -556,12 +556,16 @@ final class HermesDesktopApiService
     approvalId: approvalId,
     choice: choice,
   );
-  Future<void> respondToDecision({
+  /// Responds to one pending decision, returning how many clarify questions
+  /// remain unanswered (0 = fully resolved). [questionId] is required only for
+  /// per-question batch clarify submissions.
+  Future<int> respondToDecision({
     required String runtimeId,
     String? storedSessionId,
     required String requestId,
     required HermesDecisionKind kind,
     required String value,
+    String? questionId,
     String? mcpServer,
     String? mcpAction,
   }) => _runtimeRespondToDecision(
@@ -570,6 +574,7 @@ final class HermesDesktopApiService
     requestId: requestId,
     kind: kind,
     value: value,
+    questionId: questionId,
     mcpServer: mcpServer,
     mcpAction: mcpAction,
   );

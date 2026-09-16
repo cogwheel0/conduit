@@ -4488,6 +4488,8 @@
   "hermesApprovalAllowSession": "セッション中は許可",
   "hermesApprovalAlwaysAllow": "常に許可",
   "hermesClarificationTitle": "Hermes が確認を求めています",
+  "hermesClarifyProgress": "{total} 件中 {answered} 件回答済み",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
   "hermesSudoTitle": "Hermes が sudo アクセスを必要としています",
   "hermesSecretTitle": "Hermes がシークレットを必要としています",
   "hermesMcpSetupTitle": "Hermes が MCP のセットアップを必要としています",

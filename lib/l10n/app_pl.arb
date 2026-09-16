@@ -6372,6 +6372,8 @@
   "hermesApprovalAllowSession": "Zezwól w sesji",
   "hermesApprovalAlwaysAllow": "Zawsze zezwalaj",
   "hermesClarificationTitle": "Hermes potrzebuje doprecyzowania",
+  "hermesClarifyProgress": "Odpowiedziano na {answered} z {total}",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
   "hermesSudoTitle": "Hermes potrzebuje dostępu sudo",
   "hermesSecretTitle": "Hermes potrzebuje sekretu",
   "hermesMcpSetupTitle": "Hermes potrzebuje konfiguracji MCP",

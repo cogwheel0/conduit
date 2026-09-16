@@ -3148,6 +3148,8 @@
   "hermesApprovalAllowSession": "Permitir durante la sesión",
   "hermesApprovalAlwaysAllow": "Permitir siempre",
   "hermesClarificationTitle": "Hermes necesita una aclaración",
+  "hermesClarifyProgress": "{answered} de {total} respondidas",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
   "hermesSudoTitle": "Hermes necesita acceso sudo",
   "hermesSecretTitle": "Hermes necesita un secreto",
   "hermesMcpSetupTitle": "Hermes necesita configurar MCP",

@@ -5819,6 +5819,18 @@
   "@hermesClarificationTitle": {
     "description": "Title of a Hermes card asking the user to clarify a request."
   },
+  "hermesClarifyProgress": "Answered {answered} of {total}",
+  "@hermesClarifyProgress": {
+    "description": "Progress line on a batch Hermes clarification card, counting the questions answered so far.",
+    "placeholders": {
+      "answered": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
   "hermesSudoTitle": "Hermes needs sudo access",
   "@hermesSudoTitle": {
     "description": "Title of a Hermes card requesting sudo access."

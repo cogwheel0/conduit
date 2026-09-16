@@ -1442,6 +1442,116 @@ void main() {
     check(completedUi).isTrue();
   });
 
+  test('maps a single clarify request onto prompt and choices', () async {
+    final fake = _FakeHermesApiService([
+      // The fake's api key is the single character 'k', so the prompt text
+      // avoids it: the transport redacts configured secrets from the prompt.
+      const HermesDecisionRequested(
+        kind: HermesDecisionKind.clarification,
+        requestId: 'req-1',
+        prompt: 'Select one',
+        raw: {
+          'request_id': 'req-1',
+          'question': 'Select one',
+          'choices': ['a', 'b'],
+        },
+      ),
+      const HermesRunDone(),
+    ]);
+
+    var message = ChatMessage(
+      id: 'm',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+
+    await dispatchHermesRun(
+      service: fake,
+      registry: HermesRunRegistry(),
+      assistantMessageId: 'm',
+      input: 'hi',
+      appendContent: (_) {},
+      appendStatus: (_) {},
+      updateMessage: (updater) => message = updater(message),
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    final decision = message.metadata?[kHermesDecisionMeta] as Map?;
+    check(decision).isNotNull();
+    check(decision!['state']).equals('pending');
+    check(decision['kind']).equals('clarification');
+    check(decision['prompt']).equals('Select one');
+    check(decision['choices'] as List).deepEquals(const ['a', 'b']);
+    check(decision.containsKey('questions')).isFalse();
+  });
+
+  test('maps a batch clarify request onto bounded decision metadata', () async {
+    final fake = _FakeHermesApiService([
+      const HermesDecisionRequested(
+        kind: HermesDecisionKind.clarification,
+        requestId: 'req-1',
+        raw: {
+          'request_id': 'req-1',
+          'questions': [
+            {
+              'qid': 'q0',
+              'question': 'First?',
+              'choices': ['one (Recommended)', 'two'],
+              'multi_select': false,
+            },
+            {
+              'qid': 'q1',
+              'question': 'Second?',
+              'choices': null,
+              'multi_select': true,
+            },
+          ],
+        },
+      ),
+      const HermesRunDone(),
+    ]);
+
+    var message = ChatMessage(
+      id: 'm',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+
+    await dispatchHermesRun(
+      service: fake,
+      registry: HermesRunRegistry(),
+      assistantMessageId: 'm',
+      input: 'hi',
+      appendContent: (_) {},
+      appendStatus: (_) {},
+      updateMessage: (updater) => message = updater(message),
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    final decision = message.metadata?[kHermesDecisionMeta] as Map?;
+    check(decision).isNotNull();
+    check(decision!['state']).equals('pending');
+    // A batch carries no single prompt; each question renders its own text.
+    check(decision.containsKey('prompt')).isFalse();
+    check(decision.containsKey('choices')).isFalse();
+    final questions = decision['questions'] as List;
+    check(questions).length.equals(2);
+    final first = questions.first as Map;
+    check(first['qid']).equals('q0');
+    check(first['question']).equals('First?');
+    check(first['choices'] as List).deepEquals(
+      const ['one (Recommended)', 'two'],
+    );
+    final second = questions.last as Map;
+    check(second['qid']).equals('q1');
+    check(second['multiSelect']).equals(true);
+    check(second.containsKey('choices')).isFalse();
+  });
+
   test(
     'reasoning status text is bounded, redacted, and control-safe',
     () async {

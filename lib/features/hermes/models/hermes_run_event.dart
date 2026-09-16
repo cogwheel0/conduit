@@ -86,6 +86,75 @@ final class HermesApprovalRequested extends HermesRunEvent {
 
 enum HermesDecisionKind { clarification, sudo, secret, mcpSetup }
 
+/// One question in a Hermes batch clarify request.
+///
+/// A batch clarify event carries `questions: [{qid, question, choices,
+/// multi_select}]` instead of the single-question `{question, choices,
+/// multi_select}`. Answers are keyed by [qid] on the wire (`clarify.respond`
+/// `question_id`) and replayed as a `{qid: answer}` map after a reconnect.
+final class HermesClarifyQuestion {
+  const HermesClarifyQuestion({
+    required this.qid,
+    required this.question,
+    this.choices = const <String>[],
+    this.multiSelect = false,
+  });
+
+  /// Stable wire identifier the gateway emits (`q0`, `q1`, ...).
+  final String qid;
+
+  final String question;
+  final List<String> choices;
+  final bool multiSelect;
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+    'qid': qid,
+    'question': question,
+    if (choices.isNotEmpty) 'choices': choices,
+    if (multiSelect) 'multiSelect': true,
+  };
+
+  /// Decodes a stored/metadata question map (camelCase) or a wire entry
+  /// (snake_case `multi_select`). Length/sensitivity bounds are the caller's
+  /// concern; this only coerces shape.
+  static HermesClarifyQuestion? fromJson(Object? value) {
+    if (value is! Map) return null;
+    final qid = value['qid'];
+    final question = value['question'];
+    if (qid is! String || qid.isEmpty || question is! String) return null;
+    final choices = value['choices'];
+    return HermesClarifyQuestion(
+      qid: qid,
+      question: question,
+      choices: choices is List
+          ? choices.whereType<String>().toList(growable: false)
+          : const <String>[],
+      multiSelect:
+          value['multiSelect'] == true || value['multi_select'] == true,
+    );
+  }
+}
+
+/// Result of answering one Hermes decision prompt.
+final class HermesDecisionSubmitOutcome {
+  const HermesDecisionSubmitOutcome({
+    required this.resolved,
+    this.remaining = 0,
+    this.failed = false,
+  });
+
+  /// Whether the whole decision is now resolved (no questions outstanding).
+  final bool resolved;
+
+  /// Questions still awaiting an answer after this submit (batch clarify only;
+  /// zero for single-question and non-clarify decisions).
+  final int remaining;
+
+  /// The submission did not reach the gateway. The card keeps the answer
+  /// editable and does not mark the question answered.
+  final bool failed;
+}
+
 /// A Desktop Gateway request that needs a structured user response.
 final class HermesDecisionRequested extends HermesRunEvent {
   const HermesDecisionRequested({

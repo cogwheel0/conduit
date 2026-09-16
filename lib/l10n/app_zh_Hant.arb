@@ -3148,6 +3148,8 @@
   "hermesApprovalAllowSession": "本次工作階段允許",
   "hermesApprovalAlwaysAllow": "永遠允許",
   "hermesClarificationTitle": "Hermes 需要釐清",
+  "hermesClarifyProgress": "已回答 {answered}/{total}",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
   "hermesSudoTitle": "Hermes 需要 sudo 權限",
   "hermesSecretTitle": "Hermes 需要一組密鑰",
   "hermesMcpSetupTitle": "Hermes 需要設定 MCP",

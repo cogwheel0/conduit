@@ -191,6 +191,12 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
                 multiSelect:
                     kind == HermesDecisionKind.clarification &&
                     payload['multi_select'] == true,
+                questions: kind == HermesDecisionKind.clarification
+                    ? payload['questions']
+                    : null,
+                answers: kind == HermesDecisionKind.clarification
+                    ? payload['answers']
+                    : null,
               ),
             );
             controller.add(
@@ -500,6 +506,8 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       mcpAction: event.payload['action']?.toString(),
       choices: _desktopDecisionChoices(event.payload['choices']),
       multiSelect: event.payload['multi_select'] == true,
+      questions: event.payload['questions'],
+      answers: event.payload['answers'],
       sensitiveValues: config.sensitiveValues,
       profile: _sessionProfiles[storedId],
     );
@@ -514,6 +522,8 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     String? mcpAction,
     Iterable<Object?> choices = const <Object?>[],
     bool multiSelect = false,
+    Object? questions,
+    Object? answers,
   }) => HermesPendingDecisionStore.upsert(
     origin: _origin,
     storedSessionId: binding.storedId,
@@ -525,6 +535,8 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     mcpAction: mcpAction,
     choices: choices,
     multiSelect: multiSelect,
+    questions: questions,
+    answers: answers,
     sensitiveValues: config.sensitiveValues,
     profile: _sessionProfiles[binding.storedId],
   );
@@ -972,12 +984,17 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     );
   }
 
-  Future<void> _runtimeRespondToDecision({
+  /// Responds to one pending decision and returns how many clarify questions
+  /// remain unanswered (0 = the decision is fully resolved). Non-clarify and
+  /// single-question decisions always return 0; batch clarify returns the
+  /// server's `remaining` count so the card can keep rendering its progress.
+  Future<int> _runtimeRespondToDecision({
     required String runtimeId,
     String? storedSessionId,
     required String requestId,
     required HermesDecisionKind kind,
     required String value,
+    String? questionId,
     String? mcpServer,
     String? mcpAction,
   }) async {
@@ -993,7 +1010,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         server: mcpServer,
         action: mcpAction,
       );
-      return;
+      return 0;
     }
     final method = switch (kind) {
       HermesDecisionKind.clarification => 'clarify.respond',
@@ -1007,19 +1024,36 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       HermesDecisionKind.secret => 'value',
       HermesDecisionKind.mcpSetup => throw StateError('unreachable'),
     };
-    await _rpc.request<Object?>(
+    final result = await _rpc.request<Object?>(
       method,
       params: {
         'session_id': runtimeId,
         'request_id': requestId,
         valueKey: value,
+        if (questionId != null && questionId.isNotEmpty)
+          'question_id': questionId,
         ..._runtimeScope(runtimeId),
       },
     );
-    await HermesPendingDecisionStore.resolve(
-      origin: _origin,
-      runtimeId: runtimeId,
-      requestId: requestId,
-    );
+    final remaining = kind == HermesDecisionKind.clarification
+        ? _clarifyRemainingCount(result)
+        : 0;
+    if (remaining == 0) {
+      await HermesPendingDecisionStore.resolve(
+        origin: _origin,
+        runtimeId: runtimeId,
+        requestId: requestId,
+      );
+    }
+    return remaining;
   }
+}
+
+/// Number of unanswered questions in a `clarify.respond` result. The batch
+/// gateway replies `{"status": "ok", "remaining": [qid, ...]}`; single-question
+/// and non-clarify replies omit `remaining` and count as fully resolved.
+int _clarifyRemainingCount(Object? result) {
+  if (result is! Map) return 0;
+  final remaining = result['remaining'];
+  return remaining is List ? remaining.length : 0;
 }

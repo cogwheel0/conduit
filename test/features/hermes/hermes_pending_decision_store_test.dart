@@ -216,4 +216,90 @@ void main() {
     );
     check(records.single.profile).equals('researcher');
   });
+
+  test('persists batch clarify questions and replayed answers', () async {
+    await HermesPendingDecisionStore.upsert(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+      runtimeId: 'runtime-1',
+      requestId: 'request-1',
+      kind: HermesPendingDesktopDecisionKind.clarification,
+      questions: const [
+        {
+          'qid': 'q0',
+          'question': 'First?',
+          'choices': ['one', 'two'],
+          'multi_select': false,
+        },
+        {
+          'qid': 'q1',
+          'question': 'Second?',
+          'choices': ['red', 'blue'],
+          'multi_select': true,
+        },
+      ],
+      answers: const {'q0': 'one'},
+    );
+
+    final record = (await HermesPendingDecisionStore.forSession(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+    )).single;
+    check(record.questions).length.equals(2);
+    check(record.questions[0].qid).equals('q0');
+    check(record.questions[0].question).equals('First?');
+    check(record.questions[0].choices).deepEquals(const ['one', 'two']);
+    check(record.questions[1].multiSelect).isTrue();
+    check(record.answers).deepEquals(const {'q0': 'one'});
+  });
+
+  test('drops batch questions without a bounded qid and question', () async {
+    await HermesPendingDecisionStore.upsert(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+      runtimeId: 'runtime-1',
+      requestId: 'request-1',
+      kind: HermesPendingDesktopDecisionKind.clarification,
+      questions: const [
+        {'question': 'missing qid'},
+        {'qid': 'q1'},
+        {'qid': 'q2', 'question': 'Kept'},
+      ],
+    );
+
+    final record = (await HermesPendingDecisionStore.forSession(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+    )).single;
+    check(record.questions).length.equals(1);
+    check(record.questions.single.qid).equals('q2');
+  });
+
+  test('a rebind carries batch questions and answers forward', () async {
+    await HermesPendingDecisionStore.upsert(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-old',
+      runtimeId: 'runtime-old',
+      requestId: 'request-1',
+      kind: HermesPendingDesktopDecisionKind.clarification,
+      questions: const [
+        {'qid': 'q0', 'question': 'First?'},
+      ],
+      answers: const {'q0': 'one'},
+    );
+
+    await HermesPendingDecisionStore.rebindSession(
+      origin: 'https://hermes.example:443',
+      fromStoredSessionId: 'stored-old',
+      toStoredSessionId: 'stored-new',
+      runtimeId: 'runtime-new',
+    );
+
+    final record = (await HermesPendingDecisionStore.forSession(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-new',
+    )).single;
+    check(record.questions.single.qid).equals('q0');
+    check(record.answers).deepEquals(const {'q0': 'one'});
+  });
 }

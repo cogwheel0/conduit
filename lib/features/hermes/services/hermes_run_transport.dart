@@ -1405,6 +1405,12 @@ void _handleEvent(
               prompt,
               sensitiveValues: sensitiveValues,
             );
+      final safeQuestions = kind == HermesDecisionKind.clarification
+          ? _boundedHermesClarifyQuestions(
+              raw['questions'],
+              sensitiveValues: sensitiveValues,
+            )
+          : const <HermesClarifyQuestion>[];
       updateMessage((message) {
         final metadata = Map<String, dynamic>.from(
           message.metadata ?? const {},
@@ -1414,11 +1420,19 @@ void _handleEvent(
           'kind': kind.name,
           'requestId': safeRequestId,
           'runtimeId': safeRuntimeId,
-          'prompt': ?safePrompt,
+          // A batch clarify carries no single prompt; each question renders
+          // its own text. Only single-question decisions surface `prompt`.
+          if (safeQuestions.isEmpty) 'prompt': ?safePrompt,
           if (kind == HermesDecisionKind.clarification) ...{
-            if (raw['choices'] is List)
-              'choices': _boundedHermesDecisionChoices(raw['choices']),
-            if (raw['multi_select'] == true) 'multiSelect': true,
+            if (safeQuestions.isNotEmpty)
+              'questions': [
+                for (final question in safeQuestions) question.toJson(),
+              ]
+            else ...{
+              if (raw['choices'] is List)
+                'choices': _boundedHermesDecisionChoices(raw['choices']),
+              if (raw['multi_select'] == true) 'multiSelect': true,
+            },
           },
           if (kind == HermesDecisionKind.mcpSetup) ...{
             'mcpServer': validateHermesBoundedString(
@@ -1521,6 +1535,35 @@ List<String> _boundedHermesDecisionChoices(Object? value) {
     for (final item in value.take(8))
       ?validateHermesBoundedString(item, maxCharacters: 80),
   ];
+}
+
+List<HermesClarifyQuestion> _boundedHermesClarifyQuestions(
+  Object? value, {
+  required Iterable<String> sensitiveValues,
+}) {
+  if (value is! Iterable) return const <HermesClarifyQuestion>[];
+  final result = <HermesClarifyQuestion>[];
+  for (final entry in value.take(5)) {
+    if (entry is! Map) continue;
+    final qid = _validatedHermesOpaqueIdentifier(
+      entry['qid'] is String ? entry['qid'] as String : null,
+      sensitiveValues: sensitiveValues,
+    );
+    final question = _sanitizeHermesApprovalSummary(
+      entry['question']?.toString() ?? '',
+      sensitiveValues: sensitiveValues,
+    );
+    if (qid == null || question == null) continue;
+    result.add(
+      HermesClarifyQuestion(
+        qid: qid,
+        question: question,
+        choices: _boundedHermesDecisionChoices(entry['choices']),
+        multiSelect: entry['multi_select'] == true,
+      ),
+    );
+  }
+  return result;
 }
 
 String _sanitizeHermesToolName(

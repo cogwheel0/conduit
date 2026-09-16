@@ -328,7 +328,8 @@ void main() {
           data: AppTheme.light(TweakcnThemes.t3Chat),
           child: HermesDecisionCard(
             kind: HermesDecisionKind.clarification,
-            onSubmit: (_) async => true,
+            onSubmit: (_, {questionId}) async =>
+                const HermesDecisionSubmitOutcome(resolved: true),
           ),
         ),
       ),
@@ -352,9 +353,9 @@ void main() {
             kind: HermesDecisionKind.mcpSetup,
             mcpServer: 'github',
             mcpAction: 'authorize',
-            onSubmit: (answer) async {
+            onSubmit: (answer, {questionId}) async {
               answers.add(answer);
-              return true;
+              return const HermesDecisionSubmitOutcome(resolved: true);
             },
           ),
         ),
@@ -377,7 +378,10 @@ void main() {
           data: AppTheme.light(TweakcnThemes.t3Chat),
           child: HermesDecisionCard(
             kind: HermesDecisionKind.clarification,
-            onSubmit: (_) async => false,
+            onSubmit: (_, {questionId}) async => const HermesDecisionSubmitOutcome(
+              resolved: false,
+              failed: true,
+            ),
           ),
         ),
       ),
@@ -401,9 +405,9 @@ void main() {
             kind: HermesDecisionKind.clarification,
             choices: const ['alpha', 'beta'],
             multiSelect: true,
-            onSubmit: (value) async {
+            onSubmit: (value, {questionId}) async {
               answer = value;
-              return true;
+              return const HermesDecisionSubmitOutcome(resolved: true);
             },
           ),
         ),
@@ -417,5 +421,106 @@ void main() {
     await tester.tap(find.text('Send response'));
     await tester.pump();
     expect(answer, '["alpha","beta"]');
+  });
+
+  testWidgets('renders one section per batch question and submits per question', (
+    tester,
+  ) async {
+    final submitted = <(String?, String)>[];
+    await tester.pumpWidget(
+      CupertinoApp(
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Theme(
+          data: AppTheme.light(TweakcnThemes.t3Chat),
+          child: HermesDecisionCard(
+            kind: HermesDecisionKind.clarification,
+            questions: const [
+              HermesClarifyQuestion(
+                qid: 'q0',
+                question: 'First question?',
+                choices: ['one', 'two'],
+              ),
+              HermesClarifyQuestion(qid: 'q1', question: 'Second question?'),
+            ],
+            onSubmit: (value, {questionId}) async {
+              submitted.add((questionId, value));
+              return const HermesDecisionSubmitOutcome(
+                resolved: false,
+                remaining: 1,
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('First question?'), findsOneWidget);
+    expect(find.text('Second question?'), findsOneWidget);
+    expect(find.text('Answered 0 of 2'), findsOneWidget);
+    expect(find.byType(TextField), findsNWidgets(2));
+
+    // Answer the first question by choosing a chip.
+    await tester.tap(find.text('one'));
+    await tester.pump();
+    await tester.tap(find.text('Send response').first);
+    await tester.pump();
+
+    expect(submitted, [('q0', 'one')]);
+    expect(find.text('Answered 1 of 2'), findsOneWidget);
+    expect(find.byIcon(Icons.check_circle), findsOneWidget);
+  });
+
+  testWidgets('restores answered state from the gateway replay', (tester) async {
+    await tester.pumpWidget(
+      CupertinoApp(
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Theme(
+          data: AppTheme.light(TweakcnThemes.t3Chat),
+          child: HermesDecisionCard(
+            kind: HermesDecisionKind.clarification,
+            questions: const [
+              HermesClarifyQuestion(qid: 'q0', question: 'First question?'),
+              HermesClarifyQuestion(qid: 'q1', question: 'Second question?'),
+            ],
+            answers: const {'q0': 'already answered'},
+            onSubmit: (_, {questionId}) async =>
+                const HermesDecisionSubmitOutcome(resolved: false),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Answered 1 of 2'), findsOneWidget);
+    expect(find.byIcon(Icons.check_circle), findsOneWidget);
+    // The replayed answer is restored into the question's field.
+    expect(find.text('already answered'), findsOneWidget);
+  });
+
+  testWidgets('resolves the batch card after the final answer', (tester) async {
+    await tester.pumpWidget(
+      CupertinoApp(
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Theme(
+          data: AppTheme.light(TweakcnThemes.t3Chat),
+          child: HermesDecisionCard(
+            kind: HermesDecisionKind.clarification,
+            questions: const [
+              HermesClarifyQuestion(qid: 'q0', question: 'Only remaining?'),
+            ],
+            onSubmit: (_, {questionId}) async =>
+                const HermesDecisionSubmitOutcome(resolved: true),
+          ),
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextField), 'done');
+    await tester.tap(find.text('Send response'));
+    await tester.pump();
+
+    expect(find.text('Response sent'), findsOneWidget);
   });
 }

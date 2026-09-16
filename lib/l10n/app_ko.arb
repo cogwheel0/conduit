@@ -2926,6 +2926,8 @@
   "hermesApprovalAllowSession": "세션 동안 허용",
   "hermesApprovalAlwaysAllow": "항상 허용",
   "hermesClarificationTitle": "Hermes에 설명이 필요합니다",
+  "hermesClarifyProgress": "{total}개 중 {answered}개 답변됨",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
   "hermesSudoTitle": "Hermes에 sudo 액세스가 필요합니다",
   "hermesSecretTitle": "Hermes에 시크릿이 필요합니다",
   "hermesMcpSetupTitle": "Hermes에 MCP 설정이 필요합니다",

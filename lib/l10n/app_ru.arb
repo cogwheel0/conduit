@@ -3183,6 +3183,8 @@
   "hermesApprovalAllowSession": "Разрешить на сеанс",
   "hermesApprovalAlwaysAllow": "Всегда разрешать",
   "hermesClarificationTitle": "Hermes требуется уточнение",
+  "hermesClarifyProgress": "Отвечено на {answered} из {total}",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
   "hermesSudoTitle": "Hermes требуется доступ sudo",
   "hermesSecretTitle": "Hermes требуется секрет",
   "hermesMcpSetupTitle": "Hermes требуется настройка MCP",

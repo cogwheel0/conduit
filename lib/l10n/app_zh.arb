@@ -3148,6 +3148,8 @@
   "hermesApprovalAllowSession": "本次会话允许",
   "hermesApprovalAlwaysAllow": "始终允许",
   "hermesClarificationTitle": "Hermes 需要澄清",
+  "hermesClarifyProgress": "已回答 {answered}/{total}",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
   "hermesSudoTitle": "Hermes 需要 sudo 权限",
   "hermesSecretTitle": "Hermes 需要一个密钥",
   "hermesMcpSetupTitle": "Hermes 需要设置 MCP",

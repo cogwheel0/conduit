@@ -4803,6 +4803,8 @@
   "hermesApprovalAllowSession": "Povolit pro relaci",
   "hermesApprovalAlwaysAllow": "Vždy povolit",
   "hermesClarificationTitle": "Hermes potřebuje upřesnění",
+  "hermesClarifyProgress": "Zodpovězeno {answered} z {total}",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
   "hermesSudoTitle": "Hermes potřebuje přístup sudo",
   "hermesSecretTitle": "Hermes potřebuje tajný klíč",
   "hermesMcpSetupTitle": "Hermes potřebuje nastavení MCP",

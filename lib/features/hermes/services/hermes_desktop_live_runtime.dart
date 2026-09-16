@@ -302,6 +302,8 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
         prompt: clarify['question']?.toString(),
         choices: _desktopDecisionChoices(clarify['choices']),
         multiSelect: clarify['multi_select'] == true,
+        questions: clarify['questions'],
+        answers: clarify['answers'],
         sensitiveValues: config.sensitiveValues,
         profile: _sessionProfiles[binding.storedId],
       );

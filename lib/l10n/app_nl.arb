@@ -3148,6 +3148,8 @@
   "hermesApprovalAllowSession": "Toestaan voor sessie",
   "hermesApprovalAlwaysAllow": "Altijd toestaan",
   "hermesClarificationTitle": "Hermes heeft verduidelijking nodig",
+  "hermesClarifyProgress": "{answered} van {total} beantwoord",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
   "hermesSudoTitle": "Hermes heeft sudo-toegang nodig",
   "hermesSecretTitle": "Hermes heeft een geheim nodig",
   "hermesMcpSetupTitle": "Hermes heeft MCP-configuratie nodig",
