@@ -214,6 +214,259 @@ void main() {
     );
   });
 
+  _viewportTest('scrollbar track is inset by the toolbar and composer', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final ids = List<String>.generate(30, (index) => 'message-$index');
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
+
+    await tester.pumpWidget(
+      _viewportHost(_viewport(controller: controller, ids: ids)),
+    );
+    await tester.pump();
+
+    final scrollbarPadding = MediaQuery.paddingOf(
+      tester.element(find.byType(Scrollbar)),
+    );
+    check(scrollbarPadding.top).equals(_topContentInset);
+    check(scrollbarPadding.bottom).equals(80);
+    final rowPadding = MediaQuery.paddingOf(
+      tester.element(find.byType(CustomScrollView)),
+    );
+    check(rowPadding.bottom).equals(0);
+  });
+
+  _viewportTest('row extent estimates make the content extent exact before '
+      'any row has been laid out', (tester) async {
+    final controller = _controller(tester);
+    final ids = List<String>.generate(60, (index) => 'message-$index');
+    // The tall row sits far above both the initial centre and the latest
+    // window, so only the estimate can account for it before it is built.
+    double heightOf(String id) => id == 'message-30' ? 3000 : 200;
+    // Everything above the anchored latest row lives in the reverse sliver,
+    // whose extent is the negative minimum scroll offset. The top clearance
+    // cancels against the viewport anchor, so the rows alone remain.
+    final olderRowsExtent = ids
+        .take(ids.length - 1)
+        .fold<double>(0, (sum, id) => sum + heightOf(id));
+    final built = <String>{};
+
+    await tester.pumpWidget(
+      _viewportHost(
+        _viewport(
+          controller: controller,
+          ids: ids,
+          followLatest: false,
+          initialAnchor: const ChatScrollAnchor(
+            messageId: 'message-59',
+            offsetWithinMessage: 0,
+            loadedCount: 60,
+          ),
+          estimateRowExtent: (index) => heightOf(ids[index]),
+          rowBuilder: (context, index) {
+            final id = ids[index];
+            built.add(id);
+            return SizedBox(
+              height: heightOf(id),
+              child: Text(id, key: ValueKey<String>('label-$id')),
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable))
+        .position;
+    check(built).not((it) => it.contains('message-30'));
+    check(-position.minScrollExtent).isCloseTo(olderRowsExtent, 1);
+  });
+
+  test('row extent estimate grows with text, scale, and attachments', () {
+    double estimate(String text, double width, {double scale = 1}) =>
+        estimateChatRowExtent(
+          text: text,
+          viewportWidth: width,
+          textScale: scale,
+        );
+    final short = estimate('hi', 400);
+    final long = estimate('x' * 4000, 400);
+    check(long).isGreaterThan(short);
+    check(long).isGreaterThan(estimate('x' * 4000, 1200));
+    check(estimate('x' * 4000, 400, scale: 2)).isGreaterThan(long);
+    check(estimateChatRowExtent(text: '', viewportWidth: 400, imageCount: 1))
+        .isGreaterThan(estimateChatRowExtent(text: '', viewportWidth: 400));
+    check(estimateChatRowExtent(text: 'hi', viewportWidth: 400, isUser: true))
+        .isLessThan(estimateChatRowExtent(text: 'hi', viewportWidth: 400));
+  });
+
+  test('row extent memory returns recorded heights and evicts oldest', () {
+    final memory = ChatRowExtentMemory.instance;
+    addTearDown(memory.debugClear);
+    memory.debugClear();
+    String key(int i) => ChatRowExtentMemory.keyFor(
+      messageId: 'm$i',
+      layoutSignature: 10,
+      viewportWidth: 400,
+      textScale: 1,
+    );
+    memory.record(key(0), 120);
+    check(memory.lookup(key(0))).equals(120);
+    check(
+      memory.lookup(
+        ChatRowExtentMemory.keyFor(
+          messageId: 'm0',
+          layoutSignature: 11,
+          viewportWidth: 400,
+          textScale: 1,
+        ),
+      ),
+    ).isNull();
+    for (var i = 1; i <= 2000; i += 1) {
+      memory.record(key(i), i.toDouble());
+    }
+    check(memory.debugLength).equals(2000);
+    check(memory.lookup(key(0))).isNull();
+    check(memory.lookup(key(2000))).equals(2000);
+  });
+
+  _viewportTest('measured row heights are reported by source index', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final ids = List<String>.generate(30, (index) => 'message-$index');
+    final reported = <int, double>{};
+    await tester.pumpWidget(
+      _viewportHost(
+        _viewport(
+          controller: controller,
+          ids: ids,
+          rowHeight: (id) => id == 'message-29' ? 90 : 52,
+          onRowExtentMeasured: (index, extent) => reported[index] = extent,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    check(reported[29]).equals(90);
+    check(reported[28]).equals(52);
+  });
+
+  _viewportTest('content extent stays exact once rows have been laid out', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final ids = List<String>.generate(40, (index) => 'message-$index');
+    double heightOf(String id) => id == 'message-20' ? 3000 : 40;
+    final exactExtent =
+        _topContentInset +
+        ids.fold<double>(0, (sum, id) => sum + heightOf(id)) +
+        80;
+    // Same tree shape for both scales so the viewport state survives and the
+    // remembered extents are cleared by the layout-input change, not by a
+    // fresh state.
+    Widget host(double scale) => _viewportHost(
+      Builder(
+        builder: (context) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: TextScaler.linear(scale)),
+          child: _viewport(
+            controller: controller,
+            ids: ids,
+            followLatest: false,
+            rowHeight: (id) => heightOf(id) * scale,
+            rowRebuildKeys: List<Object?>.filled(ids.length, scale),
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(host(1));
+    await tester.pumpAndSettle();
+
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable))
+        .position;
+    double totalExtent() =>
+        position.maxScrollExtent -
+        position.minScrollExtent +
+        position.viewportDimension;
+
+    // Walk every row through the build window once.
+    for (
+      var offset = position.maxScrollExtent;
+      offset > position.minScrollExtent;
+      offset -= 400
+    ) {
+      position.jumpTo(offset);
+      await tester.pump();
+    }
+    position.jumpTo(position.minScrollExtent);
+    await tester.pump();
+
+    // Park the build window inside the tall row, where the built-row average
+    // used to inflate the estimate for every unbuilt row.
+    position.jumpTo(
+      position.minScrollExtent + _topContentInset + 20 * 40 + 1200,
+    );
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey<String>('label-message-20')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey<String>('label-message-0')), findsNothing);
+    check(totalExtent()).isCloseTo(exactExtent, 1);
+
+    // A text scale change rewraps rows, so remembered extents are dropped and
+    // unbuilt rows are estimated from rows measured under the new scale.
+    await tester.pumpWidget(host(2));
+    await tester.pump();
+    // Walk down from the top through the tall row so rows 0-20 are measured
+    // at the new scale, then park inside the tall row. The trailing rows
+    // were never rebuilt, so only the median of remeasured rows gives the
+    // exact extent; stale scale-1 heights would fall short.
+    position.jumpTo(position.minScrollExtent);
+    await tester.pump();
+    final parkInsideTallRow =
+        position.minScrollExtent + _topContentInset + 20 * 80 + 1200;
+    for (
+      var offset = position.pixels;
+      offset < parkInsideTallRow;
+      offset += 400
+    ) {
+      position.jumpTo(offset);
+      await tester.pump();
+    }
+    position.jumpTo(parkInsideTallRow);
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey<String>('label-message-20')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('label-message-21')),
+      findsNothing,
+    );
+    // Measure from the tall row's real position: the sliver keeps stale
+    // offsets for leading rows it never rebuilt, which is Flutter's own
+    // imprecision and not what this estimate covers.
+    final tallRowTop =
+        tester
+            .getTopLeft(find.byKey(const ValueKey<String>('label-message-20')))
+            .dy -
+        tester.getTopLeft(find.byType(CustomScrollView)).dy;
+    final expected =
+        position.pixels -
+        position.minScrollExtent +
+        tallRowTop +
+        6000 +
+        19 * 80 +
+        80;
+    check(totalExtent()).isCloseTo(expected, 1);
+  });
+
   test(
     'viewport rejects simultaneous anchor maintenance and latest follow',
     () {
@@ -2577,6 +2830,8 @@ Widget _viewport({
   Widget? trailingContent,
   bool hideUntilSettled = false,
   double Function(String id)? rowHeight,
+  double? Function(int index)? estimateRowExtent,
+  void Function(int index, double extent)? onRowExtentMeasured,
   ChatTimelineRowBuilder? rowBuilder,
   List<Object?> rowRebuildKeys = const <Object?>[],
   ValueChanged<ChatTimelineViewportMetrics>? onMetricsChanged,
@@ -2593,6 +2848,8 @@ Widget _viewport({
     ownerGeneration: ownerGeneration,
     messageIds: ids,
     rowRebuildKeys: rowRebuildKeys,
+    estimateRowExtent: estimateRowExtent,
+    onRowExtentMeasured: onRowExtentMeasured,
     initialAnchor: initialAnchor,
     pinnedUserMessageId: pinnedUserMessageId,
     liveFooter: liveFooter,

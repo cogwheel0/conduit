@@ -2945,11 +2945,69 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       positionSettled: _pinToTopPositionSettled,
     );
 
+    final viewportWidth = MediaQuery.sizeOf(context).width;
+    final textScale = MediaQuery.textScalerOf(context).scale(1);
+    final extentMemory = ChatRowExtentMemory.instance;
+    ChatMessage? historyMessageAtRenderIndex(int renderIndex) {
+      final sourceIndex = timeline.sourceIndexAtRenderIndex(renderIndex);
+      if (sourceIndex == null ||
+          sourceIndex < 0 ||
+          sourceIndex >= timeline.historyMessages.length) {
+        return null;
+      }
+      return timeline.historyMessages[sourceIndex];
+    }
+
+    bool? layoutRowIsArchived(String messageId) {
+      final row = layoutMetadata.indexByMessageId[messageId];
+      return row == null ? null : layoutMetadata.rows[row].isArchivedVariant;
+    }
+
+    String extentKeyFor(ChatMessage message) => ChatRowExtentMemory.keyFor(
+      messageId: message.id,
+      layoutSignature: Object.hash(
+        message.content,
+        message.isStreaming,
+        message.statusHistory.length,
+        message.followUps.length,
+        message.attachmentIds?.length,
+        message.files?.length,
+        message.codeExecutions.length,
+        message.sources.length,
+        message.versions.length,
+        layoutRowIsArchived(message.id),
+      ),
+      viewportWidth: viewportWidth,
+      textScale: textScale,
+    );
+    double? estimateRowExtent(int renderIndex) {
+      final message = historyMessageAtRenderIndex(renderIndex);
+      if (message == null) return null;
+      return extentMemory.lookup(extentKeyFor(message)) ??
+          estimateChatRowExtent(
+            text: message.content,
+            viewportWidth: viewportWidth,
+            textScale: textScale,
+            isUser: message.role == 'user',
+            attachmentCount: message.attachmentIds?.length ?? 0,
+            imageCount: message.files?.length ?? 0,
+            followUpCount: message.followUps.length,
+          );
+    }
+
+    void rememberRowExtent(int renderIndex, double extent) {
+      final message = historyMessageAtRenderIndex(renderIndex);
+      if (message == null || message.isStreaming) return;
+      extentMemory.record(extentKeyFor(message), extent);
+    }
+
     return ChatTimelineViewport(
       controller: _timelineViewportController,
       ownerGeneration: _conversationOwnerGeneration,
       messageIds: messageIds,
       rowRebuildKeys: _rowRebuildKeysMemo,
+      estimateRowExtent: estimateRowExtent,
+      onRowExtentMeasured: rememberRowExtent,
       initialAnchor: _initialScrollAnchor,
       pinnedUserMessageId: _wantsPinToTop ? _pinnedUserMessageId : null,
       liveFooter: timeline.runningFooterHost == null

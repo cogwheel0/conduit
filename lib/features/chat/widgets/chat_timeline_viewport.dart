@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:math' as math;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
@@ -283,6 +284,8 @@ class ChatTimelineViewport extends StatefulWidget {
     this.trailingContent,
     this.hideUntilSettled = false,
     this.rowRebuildKeys = const <Object?>[],
+    this.estimateRowExtent,
+    this.onRowExtentMeasured,
     super.key,
   }) : assert(
          rowRebuildKeys.length == 0 ||
@@ -298,6 +301,15 @@ class ChatTimelineViewport extends StatefulWidget {
   final int ownerGeneration;
   final List<String> messageIds;
   final List<Object?> rowRebuildKeys;
+
+  /// Height guess for a row at a [messageIds] index that has never been laid
+  /// out. It must depend only on the row's own content so the scroll extent
+  /// stays stable while other rows mount and unmount.
+  final double? Function(int sourceIndex)? estimateRowExtent;
+
+  /// Reports a measured row height for a [messageIds] index whenever it
+  /// changes, so callers can remember it beyond this viewport's lifetime.
+  final void Function(int sourceIndex, double extent)? onRowExtentMeasured;
   final ChatScrollAnchor? initialAnchor;
   final ChatTimelineRowBuilder rowBuilder;
   final String? pinnedUserMessageId;
@@ -362,6 +374,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   final GlobalKey _endSentinelKey = GlobalKey();
   final ValueNotifier<double> _pinSupportSpace = ValueNotifier<double>(0);
   final Map<String, GlobalKey> _rowKeys = <String, GlobalKey>{};
+  final Map<String, double> _rowExtents = <String, double>{};
+  (double, TextScaler)? _rowExtentLayoutInputs;
   final Map<String, int> _mountedRowCounts = <String, int>{};
   final Map<String, ({int sourceIndex, Object? rebuildKey, Widget widget})>
   _rowWidgetCache = {};
@@ -434,6 +448,21 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Row heights depend on the viewport width and text scale; remembered
+    // extents from another layout would misestimate unbuilt rows.
+    final layoutInputs = (
+      MediaQuery.sizeOf(context).width,
+      MediaQuery.textScalerOf(context),
+    );
+    if (_rowExtentLayoutInputs != layoutInputs) {
+      _rowExtentLayoutInputs = layoutInputs;
+      _rowExtents.clear();
+    }
+  }
+
+  @override
   void didUpdateWidget(covariant ChatTimelineViewport oldWidget) {
     super.didUpdateWidget(oldWidget);
     final previousMessageIds = _messageIds;
@@ -450,6 +479,10 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         !identical(oldWidget.rowRebuildKeys, widget.rowRebuildKeys) ||
         rowBuilderChanged;
     if (rowBuilderChanged) _rowWidgetCache.clear();
+    if (rowBuilderChanged ||
+        oldWidget.horizontalPadding != widget.horizontalPadding) {
+      _rowExtents.clear();
+    }
     if ((oldWidget.maintainVisibleAnchor || widget.maintainVisibleAnchor) &&
         (_freeAnchor == null || _rowRect(_freeAnchor!.messageId) == null)) {
       // Capture before the new child configuration is laid out. This is the
@@ -511,6 +544,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     _metricsSnapshot = null;
     _lastReportedMetrics = null;
     _rowWidgetCache.clear();
+    _rowExtents.clear();
     _anchorCorrectionAttempts = 0;
     _initialPositionResolved = false;
     _initialEmptyFallbackVisible = false;
@@ -645,13 +679,16 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     for (var index = 0; index < widget.messageIds.length; index += 1) {
       final id = widget.messageIds[index];
       if (seen.add(id)) {
-        entries.add((
-          id: id,
-          sourceIndex: index,
-          rebuildKey: widget.rowRebuildKeys.isEmpty
-              ? widget.rowBuilder
-              : widget.rowRebuildKeys[index],
-        ));
+        final rebuildKey = widget.rowRebuildKeys.isEmpty
+            ? widget.rowBuilder
+            : widget.rowRebuildKeys[index];
+        // A changed row may lay out at a different height; forget the
+        // remembered extent so the estimate does not treat it as exact.
+        final cached = _rowWidgetCache[id];
+        if (cached != null && cached.rebuildKey != rebuildKey) {
+          _rowExtents.remove(id);
+        }
+        entries.add((id: id, sourceIndex: index, rebuildKey: rebuildKey));
       }
     }
     _timelineEntries = List.unmodifiable(entries);
@@ -666,6 +703,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
 
   void _syncRowKeys() {
     _rowKeys.removeWhere((id, _) => !_messageIdSet.contains(id));
+    _rowExtents.removeWhere((id, _) => !_messageIdSet.contains(id));
     for (final id in _messageIds) {
       _rowKeys.putIfAbsent(id, GlobalKey.new);
     }
@@ -762,6 +800,17 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         ..multiply(box.getTransformTo(viewport));
       final rect = MatrixUtils.transformRect(transform, Offset.zero & box.size);
       if (rect.isFinite) rects[id] = rect;
+      final extent = box.size.height;
+      if (_rowExtents[id] != extent) {
+        _rowExtents[id] = extent;
+        final index = _messageIndexById[id];
+        if (index != null) {
+          widget.onRowExtentMeasured?.call(
+            _timelineEntries[index].sourceIndex,
+            extent,
+          );
+        }
+      }
     }
     return Map<String, Rect>.unmodifiable(rects);
   }
@@ -1954,6 +2003,9 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
                     rowBuilder: widget.rowBuilder,
                     entries: _timelineEntries,
                     centerIndex: centerIndex,
+                    reverse: true,
+                    rowExtents: _rowExtents,
+                    estimateRowExtent: widget.estimateRowExtent,
                   ),
                 ),
               ),
@@ -1971,6 +2023,9 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
                     rowBuilder: widget.rowBuilder,
                     entries: _timelineEntries,
                     centerIndex: centerIndex,
+                    reverse: false,
+                    rowExtents: _rowExtents,
+                    estimateRowExtent: widget.estimateRowExtent,
                   ),
                 ),
               ),
@@ -2023,9 +2078,26 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       ),
     );
 
-    final scrollableTranscript = PlatformInfo.isIOS
-        ? CupertinoScrollbar(controller: _scrollController, child: transcript)
-        : Scrollbar(controller: _scrollController, child: transcript);
+    // Platform scrollbars take their track insets from MediaQuery padding.
+    // The toolbar and composer float over the transcript, so give the
+    // scrollbar those insets while the rows keep the real window padding.
+    final mediaQuery = MediaQuery.of(context);
+    final insetTranscript = MediaQuery(data: mediaQuery, child: transcript);
+    final scrollbarMediaQuery = mediaQuery.copyWith(
+      padding: mediaQuery.padding.copyWith(
+        top: math.max(0, widget.topContentInset),
+        bottom: math.max(0, widget.bottomPadding),
+      ),
+    );
+    final scrollableTranscript = MediaQuery(
+      data: scrollbarMediaQuery,
+      child: PlatformInfo.isIOS
+          ? CupertinoScrollbar(
+              controller: _scrollController,
+              child: insetTranscript,
+            )
+          : Scrollbar(controller: _scrollController, child: insetTranscript),
+    );
 
     return Stack(
       key: _viewportKey,
@@ -2063,11 +2135,93 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   }
 }
 
+/// Rough height of a chat row in a [viewportWidth]-wide transcript. Only the
+/// row's own content feeds in, so the value is O(1) and never changes with
+/// scroll position; it stands in until the row is measured.
+double estimateChatRowExtent({
+  required String text,
+  required double viewportWidth,
+  double textScale = 1,
+  bool isUser = false,
+  int attachmentCount = 0,
+  int imageCount = 0,
+  int followUpCount = 0,
+}) {
+  // ponytail: flat per-kind terms plus body-text lines, as paseo does; code
+  // blocks, tables, and markdown structure are not modelled. Refine only if
+  // the thumb still drifts.
+  final chrome = isUser ? 56.0 : 88.0;
+  final lineHeight = 22.0 * textScale;
+  final glyphWidth = 8.0 * textScale;
+  const minCharsPerLine = 20.0;
+  final charsPerLine = math.max(
+    minCharsPerLine,
+    (viewportWidth - 96) / glyphWidth,
+  );
+  final lines = text.isEmpty
+      ? 0
+      : math.max(1, (text.length / charsPerLine).ceil());
+  return chrome +
+      lines * lineHeight +
+      attachmentCount * 72 +
+      imageCount * 220 +
+      followUpCount * 44 * textScale;
+}
+
+/// Process-wide memory of measured chat row heights, so a chat that was
+/// scrolled before reopens with exact extents instead of estimates.
+///
+/// Keys carry the message id, a signature of everything in the message that
+/// affects its height, the viewport width, and the text scale; any of those
+/// changing yields a fresh key, so an entry can never describe a row laid
+/// out under different inputs.
+class ChatRowExtentMemory {
+  ChatRowExtentMemory._();
+
+  static final ChatRowExtentMemory instance = ChatRowExtentMemory._();
+
+  static const int _capacity = 2000;
+
+  final LinkedHashMap<String, double> _extents =
+      LinkedHashMap<String, double>();
+
+  static String keyFor({
+    required String messageId,
+    required int layoutSignature,
+    required double viewportWidth,
+    required double textScale,
+  }) => '$messageId|$layoutSignature|$viewportWidth|$textScale';
+
+  double? lookup(String key) {
+    final extent = _extents.remove(key);
+    if (extent != null) _extents[key] = extent;
+    return extent;
+  }
+
+  void record(String key, double extent) {
+    _extents.remove(key);
+    _extents[key] = extent;
+    if (_extents.length > _capacity) _extents.remove(_extents.keys.first);
+  }
+
+  @visibleForTesting
+  int get debugLength => _extents.length;
+
+  @visibleForTesting
+  void debugClear() => _extents.clear();
+}
+
 /// SliverChildBuilderDelegate whose `shouldRebuild` defaults to true, which
 /// made every shell rebuild (drag-start setState, keyboard insets, pin
 /// transitions) rebuild every mounted row. Row content is derived entirely
 /// from [rowBuilder] and [entries]; per-row Consumers pick up message-level
 /// changes on their own, so identical inputs mean no rebuild is needed.
+///
+/// It also estimates the extent of unbuilt rows from heights the viewport
+/// recorded in [rowExtents] while those rows were mounted. The default
+/// extrapolation averages only
+/// the currently built rows, so one long response makes the scrollbar thumb
+/// jump as rows enter and leave the build window.
 class _TimelineRowDelegate extends SliverChildBuilderDelegate {
   const _TimelineRowDelegate(
     super.builder, {
@@ -2076,11 +2230,53 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
     required this.rowBuilder,
     required this.entries,
     required this.centerIndex,
+    required this.reverse,
+    required this.rowExtents,
+    required this.estimateRowExtent,
   }) : super(addSemanticIndexes: false);
 
   final ChatTimelineRowBuilder rowBuilder;
   final List<({String id, int sourceIndex, Object? rebuildKey})> entries;
   final int centerIndex;
+  final bool reverse;
+  final Map<String, double> rowExtents;
+  final double? Function(int sourceIndex)? estimateRowExtent;
+
+  ({String id, int sourceIndex, Object? rebuildKey}) _entryAt(int index) =>
+      entries[reverse ? centerIndex - 1 - index : centerIndex + index];
+
+  @override
+  double? estimateMaxScrollOffset(
+    int firstIndex,
+    int lastIndex,
+    double leadingScrollOffset,
+    double trailingScrollOffset,
+  ) {
+    final count = childCount;
+    if (count == null) return null;
+    var total = trailingScrollOffset;
+    var unknown = 0;
+    for (var index = lastIndex + 1; index < count; index += 1) {
+      final entry = _entryAt(index);
+      final extent =
+          rowExtents[entry.id] ?? estimateRowExtent?.call(entry.sourceIndex);
+      if (extent == null) {
+        unknown += 1;
+      } else {
+        total += extent;
+      }
+    }
+    if (unknown == 0) return total;
+    // Rows never laid out fall back to the median known row height. Unlike
+    // the built-row mean, one giant response cannot drag it around as short
+    // rows mount, which is what keeps the thumb still.
+    final known = rowExtents.values.toList()..sort();
+    final typical = known.isEmpty
+        ? (trailingScrollOffset - leadingScrollOffset) /
+              (lastIndex - firstIndex + 1)
+        : known[known.length ~/ 2];
+    return total + unknown * typical;
+  }
 
   @override
   bool shouldRebuild(covariant _TimelineRowDelegate oldDelegate) {
