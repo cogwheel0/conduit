@@ -1,6 +1,8 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/conversation_parsing.dart';
 import 'package:conduit/core/services/direct_replay_output.dart';
+import 'package:conduit/core/services/structured_output.dart';
+import 'package:conduit/core/services/structured_output_renderer.dart';
 import 'package:conduit/features/direct_connections/services/direct_chat_bridge.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -1463,6 +1465,69 @@ void main() {
         check(result['title']).equals('Chat');
         check((result['messages'] as List<Map<String, dynamic>>)).isEmpty();
       });
+    });
+  });
+
+  group('stored once-rendered content (issue #728)', () {
+    test('is not escaped twice and keeps tool blocks at their offsets', () {
+      final output = [
+        {
+          'type': 'message',
+          'id': 'm1',
+          'content': [
+            {'type': 'output_text', 'text': 'Klar! a < b'},
+          ],
+        },
+        {
+          'type': 'function_call',
+          'id': 'fc1',
+          'call_id': 'c1',
+          'name': 'get_weather',
+          'arguments': '{}',
+          'status': 'completed',
+        },
+        {
+          'type': 'function_call_output',
+          'id': 'fco1',
+          'call_id': 'c1',
+          'output': [
+            {'type': 'input_text', 'text': '24'},
+          ],
+        },
+        {
+          'type': 'message',
+          'id': 'm2',
+          'content': [
+            {'type': 'output_text', 'text': 'Morgen 24°.'},
+          ],
+        },
+      ];
+      final rendered = renderStructuredOutputBlocks(
+        parseOpenWebUIStructuredOutput(output),
+      );
+      final conversation = parseFullConversationModel({
+        'id': 'conv-1',
+        'chat': {
+          'messages': [
+            {
+              'id': 'a1',
+              'role': 'assistant',
+              'content': rendered,
+              'output': output,
+              'done': true,
+              'timestamp': 1700000000,
+            },
+          ],
+        },
+      });
+      // Separator blank lines around the tool block may repeat; entities and
+      // block order must not change.
+      check(
+        conversation.messages.single.content.replaceAll(
+          RegExp(r'\n{3,}'),
+          '\n\n',
+        ),
+      ).equals(rendered);
     });
   });
 }

@@ -641,3 +641,127 @@ class _SummaryResult {
 
   const _SummaryResult({required this.summary, required this.remaining});
 }
+
+/// One ordered piece of a streamed chunk after raw reasoning-tag splitting.
+sealed class RawReasoningTagEvent {
+  const RawReasoningTagEvent();
+}
+
+/// Answer text outside any reasoning tag pair.
+final class RawReasoningTagText extends RawReasoningTagEvent {
+  const RawReasoningTagText(this.text);
+  final String text;
+}
+
+/// Text inside an open reasoning tag pair (the tags themselves are dropped).
+final class RawReasoningTagReasoning extends RawReasoningTagEvent {
+  const RawReasoningTagReasoning(this.text);
+  final String text;
+}
+
+/// The closing tag of the open reasoning block was consumed.
+final class RawReasoningTagEnd extends RawReasoningTagEvent {
+  const RawReasoningTagEnd();
+}
+
+/// Splits streamed plain-text chunks around raw reasoning tag pairs such as
+/// `<think>…</think>`.
+///
+/// Open WebUI only converts these tags into reasoning blocks on its socket
+/// path; SSE fallbacks, pipes, and backends that emit the tags themselves
+/// deliver them verbatim inside `delta.content`. A trailing fragment that
+/// could still grow into a tag (`<thi`) is held back until the next chunk or
+/// [flush], so a tag split across chunks is still recognized.
+class StreamingReasoningTagSplitter {
+  StreamingReasoningTagSplitter({List<(String, String)>? tagPairs})
+    : _tagPairs = tagPairs ?? defaultReasoningTagPairs;
+
+  final List<(String, String)> _tagPairs;
+  String _pending = '';
+  (String, String)? _open;
+
+  /// Whether the last consumed tag opened a reasoning block.
+  bool get isInsideReasoning => _open != null;
+
+  List<RawReasoningTagEvent> feed(String chunk) {
+    if (chunk.isEmpty) return const [];
+    final events = <RawReasoningTagEvent>[];
+    var buffer = _pending + chunk;
+    _pending = '';
+    while (buffer.isNotEmpty) {
+      final open = _open;
+      if (open == null) {
+        var matchIndex = -1;
+        (String, String)? matched;
+        for (final pair in _tagPairs) {
+          final index = buffer.indexOf(pair.$1);
+          if (index != -1 && (matchIndex == -1 || index < matchIndex)) {
+            matchIndex = index;
+            matched = pair;
+          }
+        }
+        if (matched == null) {
+          final hold = _partialTagSuffixLength(
+            buffer,
+            _tagPairs.map((p) => p.$1),
+          );
+          final emit = buffer.substring(0, buffer.length - hold);
+          if (emit.isNotEmpty) events.add(RawReasoningTagText(emit));
+          _pending = buffer.substring(buffer.length - hold);
+          break;
+        }
+        if (matchIndex > 0) {
+          events.add(RawReasoningTagText(buffer.substring(0, matchIndex)));
+        }
+        _open = matched;
+        buffer = buffer.substring(matchIndex + matched.$1.length);
+      } else {
+        final endIndex = buffer.indexOf(open.$2);
+        if (endIndex == -1) {
+          final hold = _partialTagSuffixLength(buffer, [open.$2]);
+          final emit = buffer.substring(0, buffer.length - hold);
+          if (emit.isNotEmpty) events.add(RawReasoningTagReasoning(emit));
+          _pending = buffer.substring(buffer.length - hold);
+          break;
+        }
+        if (endIndex > 0) {
+          events.add(RawReasoningTagReasoning(buffer.substring(0, endIndex)));
+        }
+        events.add(const RawReasoningTagEnd());
+        _open = null;
+        buffer = buffer.substring(endIndex + open.$2.length);
+      }
+    }
+    return events;
+  }
+
+  /// Releases any held-back fragment as ordinary text or reasoning text.
+  List<RawReasoningTagEvent> flush() {
+    final pending = _pending;
+    _pending = '';
+    if (pending.isEmpty) return const [];
+    return [
+      _open == null
+          ? RawReasoningTagText(pending)
+          : RawReasoningTagReasoning(pending),
+    ];
+  }
+
+  /// Length of the longest suffix of [buffer] that is a proper prefix of any
+  /// tag in [tags].
+  static int _partialTagSuffixLength(String buffer, Iterable<String> tags) {
+    var longest = 0;
+    for (final tag in tags) {
+      final max = tag.length - 1 < buffer.length
+          ? tag.length - 1
+          : buffer.length;
+      for (var length = max; length > longest; length--) {
+        if (tag.startsWith(buffer.substring(buffer.length - length))) {
+          longest = length;
+          break;
+        }
+      }
+    }
+    return longest;
+  }
+}

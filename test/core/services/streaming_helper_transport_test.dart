@@ -137,6 +137,20 @@ class _BufferedCallbackLog extends _CallbackLog {
   }
 }
 
+/// Like [_BufferedCallbackLog], but a full replacement supersedes pending
+/// appends, as the real notifier's `replaceLastMessageContent` resets its
+/// streaming buffer to the replacement.
+class _ReplacingBufferedCallbackLog extends _BufferedCallbackLog {
+  @override
+  void replaceLastMessageContent(String c) {
+    streamingBuffer.clear();
+    super.replaceLastMessageContent(c);
+  }
+
+  @override
+  void bufferLastMessageContent(String c) => replaceLastMessageContent(c);
+}
+
 /// Adapter that optionally returns a canned poll response.
 class _StubAdapter implements HttpClientAdapter {
   _StubAdapter({this.pollResponse, this.pollResponses});
@@ -840,6 +854,63 @@ void main() {
       check(assistantPayload).isNotNull();
       check(assistantPayload!.single['content']).equals('Hello world');
       check(log.messages.last.content).equals('Hello world');
+    });
+
+    test('httpStream collapses raw <think> tags into reasoning details '
+        'even when a tag is split across deltas', () async {
+      final log = _ReplacingBufferedCallbackLog();
+      final api = _RecordingChatCompletedApi();
+      final chunks = [
+        'Klar, Ben!',
+        '<thi',
+        'nk>\nDer Benutzer fragt nach "m',
+        'orgen".</think>',
+        '\n\nMorgen 24°.',
+      ];
+      final byteStream = Stream<List<int>>.fromIterable([
+        for (final chunk in chunks)
+          _sseFrame({
+            'choices': [
+              {
+                'delta': {'content': chunk},
+              },
+            ],
+          }),
+        _sseDone(),
+      ]);
+
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          byteStream: byteStream,
+          abort: () async {},
+        ),
+        log: log,
+        api: api,
+        // The real notifier exposes its unflushed buffer as visible content;
+        // the reasoning prefix is captured from it.
+        getVisibleStreamingContent: () =>
+            log.messages.last.content + log.streamingBuffer.toString(),
+      );
+
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      final content = log.messages.last.content;
+      check(content).not((c) => c.contains('<think>'));
+      check(content).not((c) => c.contains('</think>'));
+      check(content)
+          .startsWith('Klar, Ben!\n<details type="reasoning" done="true"');
+      check(content)
+          .contains('&gt; Der Benutzer fragt nach &quot;morgen&quot;.');
+      check(content).endsWith('</details>\n\n\nMorgen 24°.');
+      final assistantPayload = api.capturedMessages
+          ?.where((m) => m['id'] == 'msg-1')
+          .toList();
+      check(assistantPayload!.single['content']).equals(content);
     });
 
     test('a completed echo carrying a stale prefix does not truncate content, '

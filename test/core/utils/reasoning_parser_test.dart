@@ -244,4 +244,58 @@ void main() {
       check(entry.formattedDuration).equals('30 seconds');
     });
   });
+
+  group('StreamingReasoningTagSplitter', () {
+    List<Object> collect(Iterable<RawReasoningTagEvent> events) => [
+      for (final event in events)
+        switch (event) {
+          RawReasoningTagText(:final text) => 'text:$text',
+          RawReasoningTagReasoning(:final text) => 'reason:$text',
+          RawReasoningTagEnd() => 'end',
+        },
+    ];
+
+    test('splits tags that arrive across chunks and keeps text order', () {
+      final splitter = StreamingReasoningTagSplitter();
+      final events = <RawReasoningTagEvent>[
+        ...splitter.feed('Klar!<thi'),
+        ...splitter.feed('nk>\nDer Benutzer'),
+        ...splitter.feed(' fragt.</th'),
+        ...splitter.feed('ink>\n\nMorgen 24°.'),
+      ];
+      check(collect(events)).deepEquals([
+        'text:Klar!',
+        'reason:\nDer Benutzer',
+        'reason: fragt.',
+        'end',
+        'text:\n\nMorgen 24°.',
+      ]);
+      check(splitter.isInsideReasoning).isFalse();
+    });
+
+    test('holds a possible tag prefix back and releases it on flush', () {
+      final splitter = StreamingReasoningTagSplitter();
+      check(collect(splitter.feed('a <'))).deepEquals(['text:a ']);
+      check(collect(splitter.feed('b'))).deepEquals(['text:<b']);
+      check(collect(splitter.feed('<think>open'))).deepEquals(['reason:open']);
+      check(collect(splitter.flush())).deepEquals([]);
+      check(collect(splitter.feed(' more'))).deepEquals(['reason: more']);
+      check(splitter.isInsideReasoning).isTrue();
+    });
+
+    test('handles several reasoning blocks and non-XML tags', () {
+      final splitter = StreamingReasoningTagSplitter();
+      final events = splitter.feed(
+        '<think>one</think>mid◁think▷two◁/think▷end',
+      );
+      check(collect(events)).deepEquals([
+        'reason:one',
+        'end',
+        'text:mid',
+        'reason:two',
+        'end',
+        'text:end',
+      ]);
+    });
+  });
 }

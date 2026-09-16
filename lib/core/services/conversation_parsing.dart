@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:html_unescape/html_unescape.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/conversation.dart';
@@ -1017,13 +1018,23 @@ String _reconcileDirectReplayContent(
   return replayPresentation;
 }
 
+final _storedContentUnescape = HtmlUnescape();
+
 String _mergeContentWithStructuredOutput(
   String content,
   List<StructuredOutputBlock> outputBlocks,
 ) {
   final hasDetails = structuredOutputBlocksContainDetails(outputBlocks);
-  final baseContent = stripRenderedSemanticDetails(content);
+  var baseContent = stripRenderedSemanticDetails(content);
   final strippedSemanticDetails = baseContent != content;
+  // Content carrying rendered <details> wrappers is markdown Conduit already
+  // escaped once (the /api/chat/completed payload persists into the chat).
+  // Re-escaping it shows literal `&lt;` entities, and its longer escaped
+  // length shifts the offsets tool/reasoning blocks are spliced back at
+  // (issue #728). Restore the plain text before merging.
+  if (strippedSemanticDetails && baseContent.contains('&')) {
+    baseContent = _storedContentUnescape.convert(baseContent);
+  }
   final outputPlainText = structuredOutputBlocksPlainText(outputBlocks);
   final hasOutputPlainText = outputPlainText.trim().isNotEmpty;
   final outputTextIsAuthoritative =
