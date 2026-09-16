@@ -158,7 +158,7 @@ class VoiceInputService {
   /// True while a finished server recording is being transcribed, whether the
   /// stop was manual or triggered by voice activity detection (issue #707).
   final ValueNotifier<bool> transcribing = ValueNotifier<bool>(false);
-  Future<void>? _pendingTranscription;
+  final Set<Future<void>> _activeTranscriptions = <Future<void>>{};
   SttPreference get preference => _preference;
   bool get prefersServerOnly => _preference == SttPreference.serverOnly;
   bool get prefersDeviceOnly => _preference == SttPreference.deviceOnly;
@@ -885,15 +885,7 @@ class VoiceInputService {
             _transcriptEventController?.hasListener ?? false,
       );
       if (samples != null && samples.isNotEmpty && shouldProcessSamples) {
-        final pending = _transcribeWithStatus(samples);
-        _pendingTranscription = pending;
-        try {
-          await pending;
-        } finally {
-          if (identical(_pendingTranscription, pending)) {
-            _pendingTranscription = null;
-          }
-        }
+        await _transcribeWithStatus(samples);
       }
     } else {
       final wasUsingNativeLocalStt = _usingNativeLocalStt;
@@ -1191,13 +1183,21 @@ class VoiceInputService {
     }
   }
 
-  Future<void> _transcribeWithStatus(List<double> samples) async {
+  /// Runs one transcription while keeping [transcribing] true for as long as
+  /// any transcription is still in flight; VAD stops can overlap.
+  Future<void> _transcribeWithStatus(List<double> samples) {
+    late final Future<void> task;
+    task = () async {
+      try {
+        await _processVadSamples(samples);
+      } finally {
+        _activeTranscriptions.remove(task);
+        transcribing.value = _activeTranscriptions.isNotEmpty;
+      }
+    }();
+    _activeTranscriptions.add(task);
     transcribing.value = true;
-    try {
-      await _processVadSamples(samples);
-    } finally {
-      transcribing.value = false;
-    }
+    return task;
   }
 
   Future<void> _processVadSamples(List<double> samples) async {
@@ -1484,7 +1484,7 @@ class VoiceInputService {
     }
     // A transcription started by an earlier stop may still be in flight; let
     // it clear the notifier before the notifier goes away.
-    await _pendingTranscription;
+    await Future.wait(_activeTranscriptions.toList());
     transcribing.dispose();
   }
 }
