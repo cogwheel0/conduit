@@ -11455,6 +11455,17 @@ Future<void> durableSend(
       ...durableAttachmentFiles,
       ...contextFiles,
     ];
+    // The completion runner builds the top-level request `files` from the
+    // in-memory user message, so the resolved attachments must land there too,
+    // not only on the durable rows (issue #729).
+    if (durableAttachmentFiles.isNotEmpty) {
+      ref
+          .read(chatMessagesProvider.notifier)
+          .updateMessageById(
+            userMessageId,
+            (ChatMessage m) => m.copyWith(files: durableFiles),
+          );
+    }
 
     final completion = RequestCompletionPayload(
       assistantMessageId: assistantMessageId,

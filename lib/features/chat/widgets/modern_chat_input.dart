@@ -511,6 +511,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   Widget? _cachedComposerGlassBackdrop;
   bool _pendingFocus = false;
   bool _isRecording = false;
+  // Server STT transcribes after the recording stops; show that instead of
+  // leaving the composer stuck on "Recording…" (issue #707).
+  bool _isTranscribing = false;
   bool _hasText = false; // track locally without rebuilding on each keystroke
   bool _hasComposerFocus = false;
   bool _isMultiline = false; // track multiline for dynamic border radius
@@ -1207,6 +1210,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final l10n = AppLocalizations.of(context)!;
     final layoutText = text.isNotEmpty
         ? text
+        : _isTranscribing
+        ? l10n.transcribingAudio
         : _isRecording
         ? l10n.recordingAudio
         : widget.placeholder ?? l10n.messageHintText;
@@ -1273,6 +1278,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final l10n = AppLocalizations.of(context)!;
     final layoutText = text.isNotEmpty
         ? text
+        : _isTranscribing
+        ? l10n.transcribingAudio
         : _isRecording
         ? l10n.recordingAudio
         : widget.placeholder ?? l10n.messageHintText;
@@ -3923,7 +3930,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               final TextStyle baseChatStyle = _composerInputTextStyle(
                 _isRecording,
               );
-              final inputPlaceholder = _isRecording
+              final inputPlaceholder = _isTranscribing
+                  ? AppLocalizations.of(context)!.transcribingAudio
+                  : _isRecording
                   ? AppLocalizations.of(context)!.recordingAudio
                   : widget.placeholder ??
                         AppLocalizations.of(context)!.messageHintText;
@@ -5019,10 +5028,26 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
   }
 
+  Future<void> _stopVoiceListening() async {
+    final transcribing = _voiceInputService.isUsingServerStt;
+    if (transcribing && mounted) {
+      setState(() => _isTranscribing = true);
+    }
+    try {
+      await _voiceInputService.stopListening();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isTranscribing = false;
+          _isRecording = false;
+        });
+      }
+    }
+  }
+
   Future<void> _stopVoice() async {
-    await _voiceInputService.stopListening();
+    await _stopVoiceListening();
     if (!mounted) return;
-    setState(() => _isRecording = false);
     ConduitHaptics.selectionClick();
   }
 
@@ -5031,9 +5056,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       await _stopVoice();
       return;
     }
-    await _voiceInputService.stopListening();
+    await _stopVoiceListening();
     if (!mounted) return;
-    setState(() => _isRecording = false);
     ConduitHaptics.lightImpact();
     _sendMessage();
   }

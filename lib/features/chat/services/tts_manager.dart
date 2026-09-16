@@ -559,9 +559,9 @@ class TtsManager {
       }
       return session;
     } catch (e) {
-      _emitEvent(TtsError(e.toString()));
-
-      // Try fallback to device TTS if server fails
+      // Try fallback to device TTS if server fails. Only emit a terminal
+      // error when no fallback is possible or the fallback fails too, so a
+      // successful fallback keeps the controller's active message (#709).
       if (shouldUseServer && _deviceEngineAvailable) {
         try {
           // Create a new session with useServerTts: false so device TTS
@@ -577,6 +577,8 @@ class TtsManager {
         } catch (e2) {
           _emitEvent(TtsError(e2.toString()));
         }
+      } else {
+        _emitEvent(TtsError(e.toString()));
       }
 
       _activeSession = null;

@@ -284,6 +284,47 @@ void main() {
       expect(error!.response?.statusCode, 401);
     });
 
+    test(
+      'redirect on auth validation endpoint notifies only cookie-fronted servers',
+      () async {
+        Future<int> redirectNotifications(Map<String, String> headers) async {
+          var authFailureCount = 0;
+          final interceptor = ApiAuthInterceptor(
+            serverUrl: _serverUrl,
+            authToken: 'token',
+            customHeaders: headers,
+            onAuthTokenInvalid: () => authFailureCount++,
+          );
+          final requestHandler = _TestRequestInterceptorHandler();
+          interceptor.onRequest(
+            RequestOptions(path: '/api/v1/auths/'),
+            requestHandler,
+          );
+          final dispatched = await requestHandler.forwardedRequest;
+          final handler = _TestErrorInterceptorHandler();
+          interceptor.onError(
+            DioException(
+              requestOptions: dispatched!,
+              response: Response<dynamic>(
+                requestOptions: dispatched,
+                statusCode: 302,
+                headers: Headers.fromMap({
+                  'location': ['https://auth.example/login'],
+                }),
+              ),
+              type: DioExceptionType.badResponse,
+            ),
+            handler,
+          );
+          await handler.done;
+          return authFailureCount;
+        }
+
+        expect(await redirectNotifications({'cookie': 'session=abc'}), 1);
+        expect(await redirectNotifications(const {}), 0);
+      },
+    );
+
     test('401 on auth validation endpoint notifies auth failure', () async {
       var authFailureCount = 0;
       final interceptor = ApiAuthInterceptor(

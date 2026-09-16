@@ -261,6 +261,7 @@ class SettingsService {
       _reduceMotionKey: settings.reduceMotion,
       _animationSpeedKey: settings.animationSpeed,
       _disableHapticsWhileStreamingKey: settings.disableHapticsWhileStreaming,
+      PreferenceKeys.citationShowTitles: settings.citationShowTitles,
       _highContrastKey: settings.highContrast,
       _darkModeKey: settings.darkMode,
       _voiceHoldToTalkKey: settings.voiceHoldToTalk,
@@ -641,6 +642,8 @@ class SettingsService {
           PreferencesStore.get<num>(_animationSpeedKey)?.toDouble() ?? 1.0,
       disableHapticsWhileStreaming:
           PreferencesStore.get<bool>(_disableHapticsWhileStreamingKey) ?? false,
+      citationShowTitles:
+          PreferencesStore.get<bool>(PreferenceKeys.citationShowTitles) ?? false,
       highContrast: PreferencesStore.get<bool>(_highContrastKey) ?? false,
       darkMode: PreferencesStore.get<bool>(_darkModeKey) ?? true,
       defaultModel: PreferencesStore.get<String>(_defaultModelKey),
@@ -732,6 +735,7 @@ class AppSettings {
   final bool reduceMotion;
   final double animationSpeed;
   final bool disableHapticsWhileStreaming;
+  final bool citationShowTitles;
   final bool highContrast;
   final bool darkMode;
   final String? defaultModel;
@@ -771,6 +775,7 @@ class AppSettings {
     this.reduceMotion = false,
     this.animationSpeed = 1.0,
     this.disableHapticsWhileStreaming = false,
+    this.citationShowTitles = false,
     this.highContrast = false,
     this.darkMode = true,
     this.defaultModel,
@@ -811,6 +816,7 @@ class AppSettings {
     bool? reduceMotion,
     double? animationSpeed,
     bool? disableHapticsWhileStreaming,
+    bool? citationShowTitles,
     bool? highContrast,
     bool? darkMode,
     Object? defaultModel = const _DefaultValue(),
@@ -851,6 +857,7 @@ class AppSettings {
       animationSpeed: animationSpeed ?? this.animationSpeed,
       disableHapticsWhileStreaming:
           disableHapticsWhileStreaming ?? this.disableHapticsWhileStreaming,
+      citationShowTitles: citationShowTitles ?? this.citationShowTitles,
       highContrast: highContrast ?? this.highContrast,
       darkMode: darkMode ?? this.darkMode,
       defaultModel: defaultModel is _DefaultValue
@@ -917,6 +924,7 @@ class AppSettings {
         other.reduceMotion == reduceMotion &&
         other.animationSpeed == animationSpeed &&
         other.disableHapticsWhileStreaming == disableHapticsWhileStreaming &&
+        other.citationShowTitles == citationShowTitles &&
         other.highContrast == highContrast &&
         other.darkMode == darkMode &&
         other.defaultModel == defaultModel &&
@@ -960,6 +968,7 @@ class AppSettings {
       reduceMotion,
       animationSpeed,
       disableHapticsWhileStreaming,
+      citationShowTitles,
       highContrast,
       darkMode,
       defaultModel,
@@ -1052,6 +1061,14 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> setDisableHapticsWhileStreaming(bool value) async {
     state = state.copyWith(disableHapticsWhileStreaming: value);
     await SettingsService.setDisableHapticsWhileStreaming(value);
+  }
+
+  Future<void> setCitationShowTitles(bool value) async {
+    state = state.copyWith(citationShowTitles: value);
+    await SettingsService._putPreference(
+      PreferenceKeys.citationShowTitles,
+      value,
+    );
   }
 
   Future<void> setNotificationsEnabled(bool value) async {

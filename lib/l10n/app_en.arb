@@ -1632,6 +1632,14 @@
   "@disableHapticsWhileStreamingDescription": {
     "description": "Subtitle for the setting that suppresses assistant response streaming haptics."
   },
+  "citationShowTitles": "Show citation page titles",
+  "@citationShowTitles": {
+    "description": "Toggle title for labeling inline citation badges with page titles instead of domains."
+  },
+  "citationShowTitlesDescription": "Use page titles instead of website domains in citation badges",
+  "@citationShowTitlesDescription": {
+    "description": "Subtitle for the citation page titles toggle."
+  },
   "androidAssistantTitle": "Android digital assistant",
   "@androidAssistantTitle": {
     "description": "Tile title for configuring the Android digital assistant trigger."
@@ -2162,6 +2170,10 @@
   "@recordingAudio": {
     "description": "Status text while recording audio."
   },
+  "transcribingAudio": "Transcribing...",
+  "@transcribingAudio": {
+    "description": "Status text while a finished voice recording is being transcribed by the server."
+  },
   "preparingRecording": "Preparing...",
   "@preparingRecording": {
     "description": "Status text while preparing to record."
@@ -2345,6 +2357,10 @@
   "proxyAuthLoading": "Loading authentication page...",
   "@proxyAuthLoading": {
     "description": "Loading message while the proxy login page loads."
+  },
+  "proxyAuthSignInAgain": "Sign in through proxy again",
+  "@proxyAuthSignInAgain": {
+    "description": "Button on the connection issue page that reopens the reverse-proxy sign-in without signing out of Conduit."
   },
   "proxyAuthFailed": "Proxy authentication failed",
   "@proxyAuthFailed": {

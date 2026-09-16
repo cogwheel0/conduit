@@ -1,7 +1,9 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../core/models/chat_message.dart';
 import '../../../core/services/haptic_service.dart';
+import '../../../core/services/settings_service.dart';
 import '../../theme/theme_extensions.dart';
 import '../../utils/external_link_launcher.dart';
 import 'source_reference_helper.dart';
@@ -37,7 +39,7 @@ TextStyle _badgeCountTextStyle(BuildContext context, Color color) {
 /// A compact inline citation badge showing source domain/title.
 ///
 /// Uses the app's design system for consistency with other chips and badges.
-class CitationBadge extends StatelessWidget {
+class CitationBadge extends ConsumerWidget {
   const CitationBadge({
     super.key,
     required this.sourceIndex,
@@ -55,7 +57,10 @@ class CitationBadge extends StatelessWidget {
   final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final showTitles = ref.watch(
+      appSettingsProvider.select((settings) => settings.citationShowTitles),
+    );
     final theme = context.conduitTheme;
     final badgeTextStyle = _badgeLabelTextStyle(context, theme.textSecondary);
 
@@ -70,6 +75,7 @@ class CitationBadge extends StatelessWidget {
     final inlineTitle = SourceReferenceHelper.getInlineSourceLabel(
       source,
       sourceIndex,
+      preferTitle: showTitles,
     );
     final displayTitle = SourceReferenceHelper.formatDisplayTitle(inlineTitle);
 
@@ -107,7 +113,7 @@ class CitationBadge extends StatelessWidget {
 /// A grouped citation badge for multiple sources like [1,2,3].
 ///
 /// Shows first source with +N indicator for additional sources.
-class CitationBadgeGroup extends StatelessWidget {
+class CitationBadgeGroup extends ConsumerWidget {
   const CitationBadgeGroup({
     super.key,
     required this.sourceIndices,
@@ -125,7 +131,10 @@ class CitationBadgeGroup extends StatelessWidget {
   final void Function(int index)? onSourceTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final showTitles = ref.watch(
+      appSettingsProvider.select((settings) => settings.citationShowTitles),
+    );
     if (sourceIndices.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -157,6 +166,7 @@ class CitationBadgeGroup extends StatelessWidget {
     final firstTitle = SourceReferenceHelper.getInlineSourceLabel(
       firstSource,
       firstIndex,
+      preferTitle: showTitles,
     );
     final displayTitle = SourceReferenceHelper.formatDisplayTitle(firstTitle);
     final additionalCount = sourceIndices.length - 1;
@@ -183,6 +193,7 @@ class CitationBadgeGroup extends StatelessWidget {
                         SourceReferenceHelper.getInlineSourceLabel(
                           sources[index],
                           index,
+                          preferTitle: showTitles,
                         ),
                       ),
                       overflow: TextOverflow.ellipsis,

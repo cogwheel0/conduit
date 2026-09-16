@@ -154,6 +154,7 @@ class VoiceInputService {
   String get deviceLocaleTag =>
       WidgetsBinding.instance.platformDispatcher.locale.toLanguageTag();
   bool get hasServerStt => _api != null;
+  bool get isUsingServerStt => _usingServerStt;
   SttPreference get preference => _preference;
   bool get prefersServerOnly => _preference == SttPreference.serverOnly;
   bool get prefersDeviceOnly => _preference == SttPreference.deviceOnly;

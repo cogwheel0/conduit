@@ -300,10 +300,27 @@ class ApiAuthInterceptor extends Interceptor {
             responseOwnsCurrentSession &&
             (code == 401 || code == 403)) {
       _handleAuthorizationError(path: path, statusCode: code);
+    } else if (statusCode case final code?
+        when !suppressAuthFailureNotification &&
+            responseOwnsCurrentSession &&
+            code >= 300 &&
+            code < 400 &&
+            hasProxyCookieHeader &&
+            _shouldNotifyAuthFailure(path)) {
+      // The service client never follows redirects. A redirect on the session
+      // endpoint of a cookie-fronted server is the auth proxy bouncing us to
+      // its login page: the proxy session expired (issues #690, #698).
+      _notifyAuthFailure(
+        '$code redirect on session endpoint - proxy session likely expired',
+      );
     }
 
     handler.next(err);
   }
+
+  /// Whether this client carries a reverse-proxy session cookie.
+  bool get hasProxyCookieHeader =>
+      customHeaders.keys.any((key) => key.toLowerCase() == 'cookie');
 
   void _handleAuthorizationError({
     required String path,

@@ -59,7 +59,6 @@ BaseOptions buildSchemeLessPlaintextHealthProbeOptions(String baseUrl) {
 
 /// Merges proxy cookies into headers without leaving alternate-cased Cookie
 /// fields or duplicate cookie names. Newly captured values are authoritative.
-@visibleForTesting
 Map<String, String> mergeCapturedProxyCookiesIntoHeaders({
   required Map<String, String> headers,
   required Map<String, String> capturedCookies,
