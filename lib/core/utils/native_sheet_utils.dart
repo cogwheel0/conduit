@@ -209,6 +209,14 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
       sttLanguageField,
       silenceSlider,
     ],
+    NativeSheetItemConfig(
+      id: 'voice-barge-in',
+      title: l10n.voiceBargeIn,
+      subtitle: l10n.voiceBargeInDescription,
+      sfSymbol: 'waveform',
+      kind: NativeSheetItemKind.toggle,
+      value: appSettings.voiceBargeInEnabled,
+    ),
   ];
 
   final ttsItems = <NativeSheetItemConfig>[

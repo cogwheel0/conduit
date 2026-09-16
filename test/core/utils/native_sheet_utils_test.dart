@@ -1,5 +1,6 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/model.dart';
+import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/core/utils/native_sheet_utils.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
@@ -41,6 +42,41 @@ void main() {
 
     check(item).isNull();
   });
+
+  test('native barge-in toggle is off by default', () {
+    final parts = buildNativeAudioSheetParts(l10n, const AppSettings());
+    final bargeIn = parts.mainSections.first.items.singleWhere(
+      (item) => item.id == 'voice-barge-in',
+    );
+
+    check(bargeIn.kind).equals(NativeSheetItemKind.toggle);
+    check(bargeIn.title).equals(l10n.voiceBargeIn);
+    check(bargeIn.subtitle).equals(l10n.voiceBargeInDescription);
+    check(bargeIn.value).equals(false);
+  });
+
+  for (final stt in SttPreference.values) {
+    for (final tts in TtsEngine.values) {
+      for (final enabled in [false, true]) {
+        test('native barge-in reflects $enabled with $stt and $tts', () {
+          final parts = buildNativeAudioSheetParts(
+            l10n,
+            AppSettings(
+              sttPreference: stt,
+              ttsEngine: tts,
+              voiceBargeInEnabled: enabled,
+            ),
+          );
+          final bargeIn = parts.mainSections
+              .expand((section) => section.items)
+              .singleWhere((item) => item.id == 'voice-barge-in');
+
+          check(bargeIn.kind).equals(NativeSheetItemKind.toggle);
+          check(bargeIn.value).equals(enabled);
+        });
+      }
+    }
+  }
 
   test('native speech-rate slider shows its value only once', () {
     final parts = buildNativeAudioSheetParts(l10n, const AppSettings());

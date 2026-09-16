@@ -573,6 +573,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .read(appSettingsProvider.notifier)
                 .setOpenRouterImageGenerationModel(value);
           }
+        case 'voice-barge-in':
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setVoiceBargeInEnabled(value);
+          }
         case 'stt-silence-duration':
           final ms = switch (value) {
             final int i => i,
