@@ -242,13 +242,16 @@ void main() {
       'any row has been laid out', (tester) async {
     final controller = _controller(tester);
     final ids = List<String>.generate(60, (index) => 'message-$index');
-    // The tall row sits far above the initial window, so only the estimate
-    // can account for it before it is ever built.
-    double heightOf(String id) => id == 'message-10' ? 3000 : 40;
-    final exactExtent =
-        _topContentInset +
-        ids.fold<double>(0, (sum, id) => sum + heightOf(id)) +
-        80;
+    // The tall row sits far above both the initial centre and the latest
+    // window, so only the estimate can account for it before it is built.
+    double heightOf(String id) => id == 'message-30' ? 3000 : 200;
+    // Everything above the anchored latest row lives in the reverse sliver,
+    // whose extent is the negative minimum scroll offset. The top clearance
+    // cancels against the viewport anchor, so the rows alone remain.
+    final olderRowsExtent = ids
+        .take(ids.length - 1)
+        .fold<double>(0, (sum, id) => sum + heightOf(id));
+    final built = <String>{};
 
     await tester.pumpWidget(
       _viewportHost(
@@ -256,8 +259,20 @@ void main() {
           controller: controller,
           ids: ids,
           followLatest: false,
-          rowHeight: heightOf,
+          initialAnchor: const ChatScrollAnchor(
+            messageId: 'message-59',
+            offsetWithinMessage: 0,
+            loadedCount: 60,
+          ),
           estimateRowExtent: (index) => heightOf(ids[index]),
+          rowBuilder: (context, index) {
+            final id = ids[index];
+            built.add(id);
+            return SizedBox(
+              height: heightOf(id),
+              child: Text(id, key: ValueKey<String>('label-$id')),
+            );
+          },
         ),
       ),
     );
@@ -266,12 +281,8 @@ void main() {
     final position = tester
         .state<ScrollableState>(find.byType(Scrollable))
         .position;
-    expect(find.byKey(const ValueKey<String>('label-message-0')), findsNothing);
-    check(
-      position.maxScrollExtent -
-          position.minScrollExtent +
-          position.viewportDimension,
-    ).isCloseTo(exactExtent, 1);
+    check(built).not((it) => it.contains('message-30'));
+    check(-position.minScrollExtent).isCloseTo(olderRowsExtent, 1);
   });
 
   test('row extent estimate grows with text and never depends on layout', () {
