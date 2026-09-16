@@ -7,16 +7,34 @@ import org.junit.Test
 
 class NativeSttLanguagePolicyTest {
     @Test
-    fun offlinePlatformFallbackRequiresVerifiedOnDeviceRecognizer() {
+    fun offlineModePrefersSystemOnDeviceRecognizer() {
         assertTrue(
-            NativeSttLanguagePolicy.platformRecognizerAvailable(
+            NativeSttLanguagePolicy.usesSystemOnDeviceRecognizer(
                 allowOnlineFallback = false,
                 sdkInt = 31,
-                recognitionAvailable = true,
                 onDeviceRecognitionAvailable = true
             )
         )
         assertFalse(
+            NativeSttLanguagePolicy.usesSystemOnDeviceRecognizer(
+                allowOnlineFallback = true,
+                sdkInt = 31,
+                onDeviceRecognitionAvailable = true
+            )
+        )
+        assertFalse(
+            NativeSttLanguagePolicy.usesSystemOnDeviceRecognizer(
+                allowOnlineFallback = false,
+                sdkInt = 30,
+                onDeviceRecognitionAvailable = true
+            )
+        )
+    }
+
+    @Test
+    fun offlineModeFallsBackToAnyInstalledRecognizer() {
+        // GrapheneOS: no Android System Intelligence, third-party service installed.
+        assertTrue(
             NativeSttLanguagePolicy.platformRecognizerAvailable(
                 allowOnlineFallback = false,
                 sdkInt = 31,
@@ -24,11 +42,27 @@ class NativeSttLanguagePolicyTest {
                 onDeviceRecognitionAvailable = false
             )
         )
+        assertTrue(
+            NativeSttLanguagePolicy.platformRecognizerAvailable(
+                allowOnlineFallback = false,
+                sdkInt = 31,
+                recognitionAvailable = false,
+                onDeviceRecognitionAvailable = true
+            )
+        )
+        assertFalse(
+            NativeSttLanguagePolicy.platformRecognizerAvailable(
+                allowOnlineFallback = false,
+                sdkInt = 31,
+                recognitionAvailable = false,
+                onDeviceRecognitionAvailable = false
+            )
+        )
         assertFalse(
             NativeSttLanguagePolicy.platformRecognizerAvailable(
                 allowOnlineFallback = false,
                 sdkInt = 30,
-                recognitionAvailable = true,
+                recognitionAvailable = false,
                 onDeviceRecognitionAvailable = true
             )
         )

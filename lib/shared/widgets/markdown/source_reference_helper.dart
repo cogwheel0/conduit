@@ -35,8 +35,33 @@ class SourceReferenceHelper {
   ///
   /// OpenWebUI prefers a stripped URL/domain for inline source chips whenever
   /// a canonical URL is available, even if the expanded source list uses a
-  /// richer title.
-  static String getInlineSourceLabel(ChatSourceReference source, int index) {
+  /// richer title. With [preferTitle], a descriptive page title/name wins and
+  /// the domain remains the fallback.
+  static String getInlineSourceLabel(
+    ChatSourceReference source,
+    int index, {
+    bool preferTitle = false,
+  }) {
+    if (preferTitle) {
+      final metadata = primaryMetadata(source);
+      final nested = nestedSourceMetadata(source);
+      for (final candidate in [
+        metadata?['title'],
+        metadata?['name'],
+        source.title,
+        nested?['title'],
+        nested?['name'],
+      ]) {
+        if (candidate is! String) continue;
+        final label = candidate.trim();
+        if (label.isNotEmpty &&
+            !looksLikeUrl(label) &&
+            !_looksLikeDomain(label)) {
+          return label;
+        }
+      }
+    }
+
     final title = source.title;
     final url = getSourceUrl(source);
     if (title != null &&

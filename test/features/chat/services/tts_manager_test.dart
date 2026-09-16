@@ -257,6 +257,38 @@ void main() {
     });
   });
 
+  group('TtsManager server fallback', () {
+    test('a successful device fallback emits no terminal error', () async {
+      // The controller clears its active message on TtsError; emitting one
+      // before a fallback that then plays leaves Stop unable to stop (#709).
+      final api = _FailingApiService();
+      final native = _FakeNativeTtsService();
+      TtsManager.instance.setApiService(api);
+      await TtsManager.instance.debugSetNativeTtsService(native);
+      await TtsManager.instance.updateConfig(
+        const TtsConfig(preferServer: true),
+      );
+      final errors = <TtsEvent>[];
+      final sub = TtsManager.instance.events
+          .where((event) => event is TtsError)
+          .listen(errors.add);
+      try {
+        final session = await TtsManager.instance.speak('Hello there.');
+        await pumpEventQueue();
+
+        check(session).isNotNull();
+        check(session!.useServerTts).isFalse();
+        check(errors).isEmpty();
+      } finally {
+        await sub.cancel();
+        TtsManager.instance.setApiService(null);
+        await TtsManager.instance.reset();
+        await TtsManager.instance.debugSetNativeTtsService(null);
+        api.disposeWorker();
+      }
+    });
+  });
+
   group('TtsManager server voice resolution', () {
     late _RecordingApiService api;
 
@@ -575,6 +607,19 @@ class _FakeNativeTtsService extends NativeTtsService {
 
   @override
   Future<bool> stop() async => true;
+}
+
+class _FailingApiService extends _RecordingApiService {
+  _FailingApiService() : super._(WorkerManager(maxConcurrentTasks: 1));
+
+  @override
+  Future<({Uint8List bytes, String mimeType})> generateSpeech({
+    required String text,
+    String? voice,
+    double? speed,
+  }) async {
+    throw StateError('server tts unavailable');
+  }
 }
 
 class _RecordingApiService extends ApiService {

@@ -29,11 +29,20 @@ final class _RiverpodHermesConnectionGateway
     if (sameConnection && live is HermesDesktopApiService) {
       return live.health();
     }
-    if (draft.desktopCredentials?.nativeTokens != null) {
-      throw StateError('Save the Hermes server before testing its sign-in.');
-    }
+    // During onboarding (and before the Hermes toggle is enabled) there is no
+    // live service, so probe with a throwaway one. Persist a refresh-token
+    // rotation only when the draft is the saved gateway, so testing a
+    // different draft can never overwrite or clear the saved credentials
+    // (issue #683).
+    final persistRotations =
+        sameConnection && draft.desktopCredentials?.nativeTokens != null;
     final service = HermesDesktopApiService(
       config: draft.copyWith(enabled: true),
+      onCredentialsChanged: persistRotations
+          ? (credentials) => _ref
+                .read(hermesConfigProvider.notifier)
+                .setDesktopNativeTokens(credentials.nativeTokens)
+          : null,
     );
     try {
       return await service.health();

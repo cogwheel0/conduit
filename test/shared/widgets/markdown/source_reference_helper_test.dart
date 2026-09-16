@@ -24,6 +24,30 @@ void main() {
       check(label).equals('Readable title');
     });
 
+    test('preferTitle uses the page title and keeps the domain fallback', () {
+      const titled = ChatSourceReference(
+        title: 'How solar panels work',
+        url: 'https://www.example.com/solar',
+      );
+      const untitled = ChatSourceReference(
+        title: 'example.com',
+        url: 'https://www.example.com/other',
+      );
+
+      check(
+        SourceReferenceHelper.getInlineSourceLabel(titled, 0, preferTitle: true),
+      ).equals('How solar panels work');
+      check(
+        SourceReferenceHelper.getInlineSourceLabel(
+          untitled,
+          0,
+          preferTitle: true,
+        ),
+      ).equals('example.com');
+      check(SourceReferenceHelper.getInlineSourceLabel(titled, 0))
+          .equals('example.com');
+    });
+
     test('uses metadata url when canonical url is absent', () {
       const source = ChatSourceReference(
         title: 'Readable title',

@@ -218,6 +218,12 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
       return;
     }
 
+    // Finish cancelling any previous playback BEFORE assigning the new
+    // message id; the cancellation callback would otherwise clear it and the
+    // next tap restarts instead of stopping (issue #709).
+    await stop();
+    if (!ref.mounted) return;
+
     // Prepare sentence split for highlighting
     final cleanText = ConduitMarkdownPreprocessor.cleanText(text);
     final sentences = _service.splitTextForSpeech(cleanText);

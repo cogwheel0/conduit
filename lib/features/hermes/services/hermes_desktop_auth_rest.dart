@@ -10,7 +10,12 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
         timeout: const Duration(seconds: 10),
       );
       return _rpc.isReady;
-    } catch (_) {
+    } catch (error) {
+      DebugLogger.warning(
+        'desktop-health-probe-failed',
+        scope: 'hermes/desktop',
+        data: {'errorType': error.runtimeType.toString()},
+      );
       return false;
     }
   }

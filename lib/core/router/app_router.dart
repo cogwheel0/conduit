@@ -354,6 +354,9 @@ class RouterNotifier extends ChangeNotifier {
           // Keep user on the login/authentication flow to show inline errors
           return null;
         }
+        // Proxy re-authentication keeps the token and runs from the
+        // connection issue page; do not bounce it back there.
+        if (location == Routes.proxyAuth) return null;
         // Otherwise show connection issue page for recoverable auth errors
         return location == Routes.connectionIssue
             ? null

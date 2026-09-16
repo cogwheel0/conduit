@@ -444,6 +444,26 @@ class AppCustomizationPage extends ConsumerWidget {
               .read(appSettingsProvider.notifier)
               .setTemporaryChatByDefault(!settings.temporaryChatByDefault),
         ),
+        const SizedBox(height: Spacing.sm),
+        CustomizationTile(
+          leading: _buildIconBadge(
+            context,
+            Icons.link_rounded,
+            color: theme.buttonPrimary,
+          ),
+          title: l10n.citationShowTitles,
+          subtitle: l10n.citationShowTitlesDescription,
+          trailing: AdaptiveSwitch(
+            value: settings.citationShowTitles,
+            onChanged: (value) => ref
+                .read(appSettingsProvider.notifier)
+                .setCitationShowTitles(value),
+          ),
+          showChevron: false,
+          onTap: () => ref
+              .read(appSettingsProvider.notifier)
+              .setCitationShowTitles(!settings.citationShowTitles),
+        ),
         if (Platform.isAndroid) ...[
           const SizedBox(height: Spacing.sm),
           CustomizationTile(

@@ -1909,7 +1909,18 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   List<_AssistantFooterAction> _buildFooterActions() {
     final l10n = AppLocalizations.of(context)!;
-    final ttsState = ref.read(textToSpeechControllerProvider);
+    // Watch only the playback fields the footer renders so Listen/Stop stays
+    // current without rebuilding on every spoken word (#709).
+    final ttsState = ref.watch(
+      textToSpeechControllerProvider.select(
+        (state) => (
+          activeMessageId: state.activeMessageId,
+          status: state.status,
+          initialized: state.initialized,
+          available: state.available,
+        ),
+      ),
+    );
     final isChatStreaming = ref.read(isChatStreamingProvider);
     final activeUsage = _resolveActiveUsage();
     final messageId = _messageId;

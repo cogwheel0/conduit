@@ -1632,6 +1632,14 @@
   "@disableHapticsWhileStreamingDescription": {
     "description": "Subtitle for the setting that suppresses assistant response streaming haptics."
   },
+  "citationShowTitles": "Pokazuj tytuły stron w cytowaniach",
+  "@citationShowTitles": {
+    "description": "Toggle title for labeling inline citation badges with page titles instead of domains."
+  },
+  "citationShowTitlesDescription": "Używaj tytułów stron zamiast domen w odznakach cytowań",
+  "@citationShowTitlesDescription": {
+    "description": "Subtitle for the citation page titles toggle."
+  },
   "androidAssistantTitle": "Asystent systemu Android",
   "@androidAssistantTitle": {
     "description": "Tile title for configuring the Android digital assistant trigger."
@@ -2159,6 +2167,7 @@
     "description": "Description for audio recording option."
   },
   "recordingAudio": "Nagrywanie…",
+  "transcribingAudio": "Transkrypcja…",
   "@recordingAudio": {
     "description": "Status text while recording audio."
   },
@@ -2346,6 +2355,7 @@
   "@proxyAuthLoading": {
     "description": "Loading message while the proxy login page loads."
   },
+  "proxyAuthSignInAgain": "Zaloguj się ponownie przez proxy",
   "proxyAuthFailed": "Uwierzytelnianie przez proxy nie powiodło się",
   "@proxyAuthFailed": {
     "description": "Error message when proxy authentication fails."
