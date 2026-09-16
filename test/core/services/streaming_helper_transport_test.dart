@@ -913,6 +913,50 @@ void main() {
       check(assistantPayload!.single['content']).equals(content);
     });
 
+    test('held-back partial tag text keeps its place before an interleaved '
+        'tool status tile', () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('chat:completion', {
+        'choices': [
+          {
+            'delta': {'content': 'Hello <'},
+          },
+        ],
+      }, messageId: 'msg-1');
+      registrar.emitChatEvent('chat:completion', {
+        'tool_calls': [
+          {
+            'id': 'call-1',
+            'function': {'name': 'search'},
+          },
+        ],
+      }, messageId: 'msg-1');
+      registrar.emitChatEvent('chat:completion', {
+        'choices': [
+          {
+            'delta': {'content': 'b'},
+          },
+        ],
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
+
+      final content = log.messages.last.content;
+      check(content).startsWith('Hello <\n<details type="tool_calls"');
+      check(content).endsWith('</details>\nb');
+    });
+
     test('a completed echo carrying a stale prefix does not truncate content, '
         'while a genuine outlet rewrite still applies', () async {
       Future<_BufferedCallbackLog> run(String echoContent) async {

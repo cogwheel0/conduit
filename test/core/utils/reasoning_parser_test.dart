@@ -283,6 +283,23 @@ void main() {
       check(splitter.isInsideReasoning).isTrue();
     });
 
+    test('matches attributed XML tags, also when split across chunks', () {
+      final splitter = StreamingReasoningTagSplitter();
+      final events = <RawReasoningTagEvent>[
+        ...splitter.feed('Hi <thinking source="mo'),
+        ...splitter.feed('del">deep</thinking> bye'),
+      ];
+      check(collect(events))
+          .deepEquals(['text:Hi ', 'reason:deep', 'end', 'text: bye']);
+    });
+
+    test('releases an over-long unterminated attributed tag as prose', () {
+      final splitter = StreamingReasoningTagSplitter();
+      final prose =
+          '<think ${'a' * StreamingReasoningTagSplitter.maxHeldLength}';
+      check(collect(splitter.feed(prose))).deepEquals(['text:$prose']);
+    });
+
     test('handles several reasoning blocks and non-XML tags', () {
       final splitter = StreamingReasoningTagSplitter();
       final events = splitter.feed(

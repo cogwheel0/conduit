@@ -671,14 +671,38 @@ final class RawReasoningTagEnd extends RawReasoningTagEvent {
 /// path; SSE fallbacks, pipes, and backends that emit the tags themselves
 /// deliver them verbatim inside `delta.content`. A trailing fragment that
 /// could still grow into a tag (`<thi`) is held back until the next chunk or
-/// [flush], so a tag split across chunks is still recognized.
+/// [flush], so a tag split across chunks is still recognized. Callers must
+/// [flush] before rendering any interleaved event (tool status, explicit
+/// reasoning delta) so held text keeps its place in the stream.
 class StreamingReasoningTagSplitter {
   StreamingReasoningTagSplitter({List<(String, String)>? tagPairs})
     : _tagPairs = tagPairs ?? defaultReasoningTagPairs;
 
+  /// Longest text held back while an attributed opening tag (`<think foo=`)
+  /// is still unterminated; beyond this the text is treated as prose.
+  static const int maxHeldLength = 256;
+
   final List<(String, String)> _tagPairs;
   String _pending = '';
   (String, String)? _open;
+
+  static bool _isXmlTag(String tag) => tag.startsWith('<') && tag.endsWith('>');
+
+  /// Same opening-tag grammar as the server (`_start_tag_pattern`) and
+  /// [ReasoningParser.segments]: XML-like tags may carry attributes.
+  static RegExp _openPattern(String startTag) {
+    if (_isXmlTag(startTag)) {
+      final name = RegExp.escape(startTag.substring(1, startTag.length - 1));
+      return RegExp('<$name(?:\\s[^>]*)?>');
+    }
+    return RegExp(RegExp.escape(startTag));
+  }
+
+  /// An attributed XML opening tag that has started but not yet closed.
+  static RegExp _unclosedOpenPattern(String startTag) {
+    final name = RegExp.escape(startTag.substring(1, startTag.length - 1));
+    return RegExp('<$name\\s[^>]*\$');
+  }
 
   /// Whether the last consumed tag opened a reasoning block.
   bool get isInsideReasoning => _open != null;
@@ -691,30 +715,28 @@ class StreamingReasoningTagSplitter {
     while (buffer.isNotEmpty) {
       final open = _open;
       if (open == null) {
-        var matchIndex = -1;
+        RegExpMatch? match;
         (String, String)? matched;
         for (final pair in _tagPairs) {
-          final index = buffer.indexOf(pair.$1);
-          if (index != -1 && (matchIndex == -1 || index < matchIndex)) {
-            matchIndex = index;
+          final candidate = _openPattern(pair.$1).firstMatch(buffer);
+          if (candidate != null &&
+              (match == null || candidate.start < match.start)) {
+            match = candidate;
             matched = pair;
           }
         }
-        if (matched == null) {
-          final hold = _partialTagSuffixLength(
-            buffer,
-            _tagPairs.map((p) => p.$1),
-          );
+        if (match == null || matched == null) {
+          final hold = _openingHoldLength(buffer);
           final emit = buffer.substring(0, buffer.length - hold);
           if (emit.isNotEmpty) events.add(RawReasoningTagText(emit));
           _pending = buffer.substring(buffer.length - hold);
           break;
         }
-        if (matchIndex > 0) {
-          events.add(RawReasoningTagText(buffer.substring(0, matchIndex)));
+        if (match.start > 0) {
+          events.add(RawReasoningTagText(buffer.substring(0, match.start)));
         }
         _open = matched;
-        buffer = buffer.substring(matchIndex + matched.$1.length);
+        buffer = buffer.substring(match.end);
       } else {
         final endIndex = buffer.indexOf(open.$2);
         if (endIndex == -1) {
@@ -745,6 +767,21 @@ class StreamingReasoningTagSplitter {
           ? RawReasoningTagText(pending)
           : RawReasoningTagReasoning(pending),
     ];
+  }
+
+  /// How much of [buffer]'s tail may still become an opening tag: a literal
+  /// prefix (`<thi`) or an attributed tag awaiting its `>` (`<think a="1"`),
+  /// the latter capped at [maxHeldLength].
+  int _openingHoldLength(String buffer) {
+    var hold = _partialTagSuffixLength(buffer, _tagPairs.map((p) => p.$1));
+    for (final pair in _tagPairs) {
+      if (!_isXmlTag(pair.$1)) continue;
+      final unclosed = _unclosedOpenPattern(pair.$1).firstMatch(buffer);
+      if (unclosed == null) continue;
+      final length = buffer.length - unclosed.start;
+      if (length <= maxHeldLength && length > hold) hold = length;
+    }
+    return hold;
   }
 
   /// Length of the longest suffix of [buffer] that is a proper prefix of any

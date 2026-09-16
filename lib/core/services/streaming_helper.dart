@@ -1378,6 +1378,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   void handleStreamingChoiceDelta(Map<dynamic, dynamic> delta) {
     final reasoning = openWebUIStreamingReasoningDelta(delta);
     if (reasoning.isNotEmpty) {
+      flushRawReasoningTags();
       applyStreamingReasoningDelta(reasoning);
     }
 
@@ -1427,6 +1428,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       ),
     ]);
     hasInjectedSemanticDetails = true;
+    // Held-back model text must land before the tile to keep stream order.
+    flushRawReasoningTags();
     appendVisibleAssistantChunk(
       '\n$status\n',
       updateImages: false,
@@ -1533,6 +1536,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         appendVisibleAssistantText(content);
 
       case OpenWebUIReasoningDelta(:final content):
+        flushRawReasoningTags();
         applyStreamingReasoningDelta(content);
 
       case OpenWebUIOutputUpdate(:final output, :final blocks):

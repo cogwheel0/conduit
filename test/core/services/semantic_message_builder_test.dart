@@ -414,34 +414,35 @@ void main() {
       check(rendered).not((it) => it.contains('<details type="reasoning">'));
     });
 
-    test('separates text and semantic details onto Markdown block boundaries', () {
-      final rendered = renderSemanticMessageBlocks([
-        const SemanticTextBlock('I will search for that.'),
-        SemanticDetailsBlock.toolCall(
-          id: 'call-1',
-          name: 'search_web',
-          arguments: const {'query': 'current news'},
-          done: true,
-          result: const {'results': []},
-        ),
-        const SemanticTextBlock('Here is the answer.'),
-      ]);
+    test(
+      'separates text and semantic details onto Markdown block boundaries',
+      () {
+        final rendered = renderSemanticMessageBlocks([
+          const SemanticTextBlock('I will search for that.'),
+          SemanticDetailsBlock.toolCall(
+            id: 'call-1',
+            name: 'search_web',
+            arguments: const {'query': 'current news'},
+            done: true,
+            result: const {'results': []},
+          ),
+          const SemanticTextBlock('Here is the answer.'),
+        ]);
 
-      check(rendered).contains(
-        'I will search for that.\n\n<details type="tool_calls"',
-      );
-      check(rendered).contains('</details>\n\nHere is the answer.');
+        check(rendered)
+            .contains('I will search for that.\n\n<details type="tool_calls"');
+        check(rendered).contains('</details>\n\nHere is the answer.');
 
-      final parsed = md.Document(
-        extensionSet: md.ExtensionSet.gitHubWeb,
-        blockSyntaxes: const [DetailsBlockSyntax()],
-        encodeHtml: false,
-      ).parse(rendered);
-      final details = _descendantElements(
-        parsed,
-      ).where((element) => element.tag == 'details');
-      check(details).length.equals(1);
-    });
+        final parsed = md.Document(
+          extensionSet: md.ExtensionSet.gitHubWeb,
+          blockSyntaxes: const [DetailsBlockSyntax()],
+          encodeHtml: false,
+        ).parse(rendered);
+        final details = _descendantElements(parsed)
+            .where((element) => element.tag == 'details');
+        check(details).length.equals(1);
+      },
+    );
 
     test('preserves slashes in reasoning bodies while escaping tags', () {
       final rendered = renderSemanticMessageBlocks([
@@ -457,6 +458,18 @@ void main() {
       // Closing tags inside the body must remain neutralized so they cannot
       // prematurely terminate the <details> block.
       check(rendered).contains('&lt;/details&gt;');
+    });
+  });
+  group('unescapeRenderedAnswerText', () {
+    test('round-trips rendered answer text and leaves code regions alone', () {
+      const source =
+          'a < b and `x &lt; y`\n\n```dart\nList&lt;int&gt;\n```\n\n    &amp;code\n\nc > d';
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock(source),
+      ]);
+      check(rendered).contains('a &lt; b');
+      check(rendered).contains('c &gt; d');
+      check(unescapeRenderedAnswerText(rendered)).equals(source);
     });
   });
 }

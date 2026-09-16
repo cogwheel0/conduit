@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:html_unescape/html_unescape.dart';
 import 'package:markdown/markdown.dart' as md;
 
 // Escape only the characters needed to neutralize HTML tags (`&`, `<`, `>`)
@@ -596,5 +597,65 @@ String _escapeText(String value) {
     sourceStart += rawLine.length + 1;
   }
 
+  return result.join('\n');
+}
+
+final _renderedAnswerUnescape = HtmlUnescape();
+
+/// Inverse of the answer-text escaping in [renderSemanticMessageBlocks] for
+/// content Conduit rendered once and later reads back (for example from the
+/// persisted chat). Entities are decoded only outside fenced code, indented
+/// code, inline code spans, and angle autolinks, where the escaper never wrote
+/// them, so stored code keeps its literal `&lt;`.
+String unescapeRenderedAnswerText(String value) {
+  if (!value.contains('&')) return value;
+  final lines = value.split('\n');
+  final result = <String>[];
+  String? openFenceChar;
+  var openFenceLength = 0;
+  var previousBlankOrIndentedCode = true;
+  for (final rawLine in lines) {
+    final line = rawLine.endsWith('\r')
+        ? rawLine.substring(0, rawLine.length - 1)
+        : rawLine;
+    if (openFenceChar != null) {
+      result.add(rawLine);
+      final close = _closingFence.firstMatch(line);
+      if (close != null) {
+        final run = close.group(1)!;
+        if (run[0] == openFenceChar && run.length >= openFenceLength) {
+          openFenceChar = null;
+          openFenceLength = 0;
+        }
+      }
+      continue;
+    }
+    final open =
+        _openingBacktickFence.firstMatch(line) ??
+        _openingTildeFence.firstMatch(line);
+    if (open != null) {
+      final run = open.group(1)!;
+      openFenceChar = run[0];
+      openFenceLength = run.length;
+      result.add(rawLine);
+      previousBlankOrIndentedCode = false;
+      continue;
+    }
+    final isBlank = line.trim().isEmpty;
+    if (!isBlank &&
+        previousBlankOrIndentedCode &&
+        _indentedCodeLine.hasMatch(line)) {
+      result.add(rawLine);
+      continue;
+    }
+    previousBlankOrIndentedCode = isBlank;
+    result.add(
+      rawLine.splitMapJoin(
+        _safeInlineMarkdown,
+        onMatch: (match) => match[0] ?? '',
+        onNonMatch: _renderedAnswerUnescape.convert,
+      ),
+    );
+  }
   return result.join('\n');
 }
