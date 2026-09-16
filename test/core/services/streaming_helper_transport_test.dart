@@ -957,6 +957,42 @@ void main() {
       check(content).endsWith('</details>\nb');
     });
 
+    test('a content snapshot discards held-back partial tag state', () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('chat:completion', {
+        'choices': [
+          {
+            'delta': {'content': 'Hello <'},
+          },
+        ],
+      }, messageId: 'msg-1');
+      registrar.emitChatEvent('chat:message', {
+        'content': 'Replaced',
+      }, messageId: 'msg-1');
+      registrar.emitChatEvent('chat:completion', {
+        'choices': [
+          {
+            'delta': {'content': 'b'},
+          },
+        ],
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
+
+      check(log.messages.last.content).equals('Replacedb');
+    });
+
     test('a completed echo carrying a stale prefix does not truncate content, '
         'while a genuine outlet rewrite still applies', () async {
       Future<_BufferedCallbackLog> run(String echoContent) async {

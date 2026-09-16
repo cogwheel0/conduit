@@ -471,6 +471,18 @@ void main() {
       check(rendered).contains('c &gt; d');
       check(unescapeRenderedAnswerText(rendered)).equals(source);
     });
+
+    test('keeps parser-confirmed multiline spans and indented code', () {
+      const source =
+          'see `a\n&gt;b` here\n\n# Heading\n    &lt;div&gt;\n\nand < that';
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock(source),
+      ]);
+      check(rendered).contains('`a\n&gt;b`');
+      check(rendered).contains('    &lt;div&gt;');
+      check(rendered).contains('and &lt; that');
+      check(unescapeRenderedAnswerText(rendered)).equals(source);
+    });
   });
 }
 

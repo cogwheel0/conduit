@@ -757,6 +757,13 @@ class StreamingReasoningTagSplitter {
     return events;
   }
 
+  /// Drops held-back text and any open block, for when a server snapshot
+  /// replaces the visible content wholesale.
+  void reset() {
+    _pending = '';
+    _open = null;
+  }
+
   /// Releases any held-back fragment as ordinary text or reasoning text.
   List<RawReasoningTagEvent> flush() {
     final pending = _pending;

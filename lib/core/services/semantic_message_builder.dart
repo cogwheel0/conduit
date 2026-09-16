@@ -437,17 +437,21 @@ List<_SourceSpan> _parserConfirmedMultilineCodeSpans(String value) {
   ];
 }
 
-String _escapeInlineMarkdownSegment(String value) => value.splitMapJoin(
+String _transformInlineMarkdownSegment(
+  String value,
+  String Function(String) transform,
+) => value.splitMapJoin(
   _safeInlineMarkdown,
   onMatch: (match) => match[0] ?? '',
-  onNonMatch: _semanticTextEscape.convert,
+  onNonMatch: transform,
 );
 
-({String text, int nextSpanIndex}) _escapeInlineMarkdownLine(
+({String text, int nextSpanIndex}) _transformInlineMarkdownLine(
   String line, {
   required int sourceStart,
   required List<_SourceSpan> protectedSpans,
   required int spanIndex,
+  required String Function(String) transform,
 }) {
   final sourceEnd = sourceStart + line.length;
   var nextSpanIndex = spanIndex;
@@ -458,7 +462,7 @@ String _escapeInlineMarkdownSegment(String value) => value.splitMapJoin(
 
   final result = StringBuffer();
   void writeEscaped(String value) {
-    final escaped = _escapeInlineMarkdownSegment(value);
+    final escaped = _transformInlineMarkdownSegment(value, transform);
     result.write(
       result.isEmpty ? _restoreMarkdownBlockquotePrefix(escaped) : escaped,
     );
@@ -518,7 +522,23 @@ String _escapeInlineMarkdownSegment(String value) => value.splitMapJoin(
 /// Unlike [_escape], this is only safe for top-level answer text; `<details>`
 /// attributes/summaries/bodies are HTML-unescaped wholesale at parse time and
 /// must keep full escaping.
-String _escapeText(String value) {
+String _escapeText(String value) =>
+    _transformAnswerText(value, _semanticTextEscape.convert);
+
+final _renderedAnswerUnescape = HtmlUnescape();
+
+/// Inverse of [_escapeText] for answer text Conduit rendered once and later
+/// reads back (for example from the persisted chat). It walks the exact same
+/// parser-confirmed code regions, so entities are decoded only where the
+/// escaper wrote them and stored code keeps its literal `&lt;`.
+String unescapeRenderedAnswerText(String value) => value.contains('&')
+    ? _transformAnswerText(value, _renderedAnswerUnescape.convert)
+    : value;
+
+/// Applies [transform] to plain answer text outside fenced/indented code,
+/// inline code spans, and angle autolinks. See [_escapeText] for the region
+/// rules; both directions must share this walk so they cannot drift.
+String _transformAnswerText(String value, String Function(String) transform) {
   final lines = value.split('\n');
   final multilineCodeSpans = _parserConfirmedMultilineCodeSpans(value);
   final indentedCodeLines = _parserConfirmedIndentedCodeLines(value);
@@ -586,76 +606,17 @@ String _escapeText(String value) {
     // Outside any code block: preserve only parser-recognized inline code and
     // angle autolinks. In particular, `<details>` and `<summary>` do not match
     // these alternatives and remain escaped.
-    final escapedLine = _escapeInlineMarkdownLine(
+    final escapedLine = _transformInlineMarkdownLine(
       line,
       sourceStart: sourceStart,
       protectedSpans: multilineCodeSpans,
       spanIndex: multilineSpanIndex,
+      transform: transform,
     );
     result.add(escapedLine.text);
     multilineSpanIndex = escapedLine.nextSpanIndex;
     sourceStart += rawLine.length + 1;
   }
 
-  return result.join('\n');
-}
-
-final _renderedAnswerUnescape = HtmlUnescape();
-
-/// Inverse of the answer-text escaping in [renderSemanticMessageBlocks] for
-/// content Conduit rendered once and later reads back (for example from the
-/// persisted chat). Entities are decoded only outside fenced code, indented
-/// code, inline code spans, and angle autolinks, where the escaper never wrote
-/// them, so stored code keeps its literal `&lt;`.
-String unescapeRenderedAnswerText(String value) {
-  if (!value.contains('&')) return value;
-  final lines = value.split('\n');
-  final result = <String>[];
-  String? openFenceChar;
-  var openFenceLength = 0;
-  var previousBlankOrIndentedCode = true;
-  for (final rawLine in lines) {
-    final line = rawLine.endsWith('\r')
-        ? rawLine.substring(0, rawLine.length - 1)
-        : rawLine;
-    if (openFenceChar != null) {
-      result.add(rawLine);
-      final close = _closingFence.firstMatch(line);
-      if (close != null) {
-        final run = close.group(1)!;
-        if (run[0] == openFenceChar && run.length >= openFenceLength) {
-          openFenceChar = null;
-          openFenceLength = 0;
-        }
-      }
-      continue;
-    }
-    final open =
-        _openingBacktickFence.firstMatch(line) ??
-        _openingTildeFence.firstMatch(line);
-    if (open != null) {
-      final run = open.group(1)!;
-      openFenceChar = run[0];
-      openFenceLength = run.length;
-      result.add(rawLine);
-      previousBlankOrIndentedCode = false;
-      continue;
-    }
-    final isBlank = line.trim().isEmpty;
-    if (!isBlank &&
-        previousBlankOrIndentedCode &&
-        _indentedCodeLine.hasMatch(line)) {
-      result.add(rawLine);
-      continue;
-    }
-    previousBlankOrIndentedCode = isBlank;
-    result.add(
-      rawLine.splitMapJoin(
-        _safeInlineMarkdown,
-        onMatch: (match) => match[0] ?? '',
-        onNonMatch: _renderedAnswerUnescape.convert,
-      ),
-    );
-  }
   return result.join('\n');
 }

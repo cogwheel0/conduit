@@ -996,6 +996,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
   }
 
+  /// A server content snapshot supersedes everything streamed so far,
+  /// including any raw reasoning tag the splitter is still holding or has
+  /// open; later deltas continue from the snapshot, not from stale tag state.
+  void replaceVisibleAssistantSnapshot(String content) {
+    rawReasoningTags.reset();
+    replaceVisibleAssistantContent(content);
+  }
+
   void appendVisibleAssistantStructuredOutput(
     StructuredOutputStreamingAppend projection,
   ) {
@@ -2131,7 +2139,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         scope: 'streaming/helper',
       );
       if (isVisibleTarget) {
-        replaceVisibleAssistantContent(content);
+        replaceVisibleAssistantSnapshot(content);
         applied = true;
       }
     }
@@ -3043,7 +3051,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       case 'replace':
         final content = payload?['content']?.toString() ?? '';
         if (content.isNotEmpty) {
-          replaceVisibleAssistantContent(content);
+          replaceVisibleAssistantSnapshot(content);
         }
         return true;
 
@@ -3436,7 +3444,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                   raw,
                 );
             if (raw.isNotEmpty && !keepLocalContent) {
-              replaceVisibleAssistantContent(raw);
+              replaceVisibleAssistantSnapshot(raw);
             }
           }
           if (completionTargetId != null && outputBlocks.isNotEmpty) {
@@ -3797,7 +3805,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             null) {
           final content = payload['content']?.toString() ?? '';
           if (content.isNotEmpty) {
-            replaceVisibleAssistantContent(content);
+            replaceVisibleAssistantSnapshot(content);
           }
         }
       } else if ((type == 'chat:message:files') && payload != null) {
@@ -4416,7 +4424,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               if (message is Map<String, dynamic>) {
                 final content = message['content']?.toString() ?? '';
                 if (content.isNotEmpty) {
-                  replaceVisibleAssistantContent(content);
+                  replaceVisibleAssistantSnapshot(content);
                 }
               }
             }
