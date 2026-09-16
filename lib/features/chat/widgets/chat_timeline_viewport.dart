@@ -466,7 +466,10 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         messageIdsChanged ||
         !identical(oldWidget.rowRebuildKeys, widget.rowRebuildKeys) ||
         rowBuilderChanged;
-    if (rowBuilderChanged) _rowWidgetCache.clear();
+    if (rowBuilderChanged) {
+      _rowWidgetCache.clear();
+      _rowExtents.clear();
+    }
     if ((oldWidget.maintainVisibleAnchor || widget.maintainVisibleAnchor) &&
         (_freeAnchor == null || _rowRect(_freeAnchor!.messageId) == null)) {
       // Capture before the new child configuration is laid out. This is the
@@ -528,6 +531,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     _metricsSnapshot = null;
     _lastReportedMetrics = null;
     _rowWidgetCache.clear();
+    _rowExtents.clear();
     _anchorCorrectionAttempts = 0;
     _initialPositionResolved = false;
     _initialEmptyFallbackVisible = false;
@@ -662,13 +666,16 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     for (var index = 0; index < widget.messageIds.length; index += 1) {
       final id = widget.messageIds[index];
       if (seen.add(id)) {
-        entries.add((
-          id: id,
-          sourceIndex: index,
-          rebuildKey: widget.rowRebuildKeys.isEmpty
-              ? widget.rowBuilder
-              : widget.rowRebuildKeys[index],
-        ));
+        final rebuildKey = widget.rowRebuildKeys.isEmpty
+            ? widget.rowBuilder
+            : widget.rowRebuildKeys[index];
+        // A changed row may lay out at a different height; forget the
+        // remembered extent so the estimate does not treat it as exact.
+        final cached = _rowWidgetCache[id];
+        if (cached != null && cached.rebuildKey != rebuildKey) {
+          _rowExtents.remove(id);
+        }
+        entries.add((id: id, sourceIndex: index, rebuildKey: rebuildKey));
       }
     }
     _timelineEntries = List.unmodifiable(entries);
