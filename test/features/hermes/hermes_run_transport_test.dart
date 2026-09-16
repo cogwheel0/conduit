@@ -384,8 +384,9 @@ void main() {
     final staleToken = registry.registerPending(key, onCancelled: () {});
     final currentToken = registry.registerPending(key, onCancelled: () {});
 
-    check(registry.bindRunId(key, cancelToken: staleToken, runId: 'stale-run'))
-        .isFalse();
+    check(
+      registry.bindRunId(key, cancelToken: staleToken, runId: 'stale-run'),
+    ).isFalse();
     check(registry.runIdFor(key)).isNull();
     check(
       registry.bindRunId(key, cancelToken: currentToken, runId: 'current-run'),
