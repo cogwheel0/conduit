@@ -384,10 +384,15 @@ final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
         let convertedFrame = window?.convert(screenFrame, from: nil) ?? screenFrame
         let windowBounds = window?.bounds ?? UIScreen.main.bounds
         let windowHeight = windowBounds.height
-        // Ignore floating/split keyboards that are not docked to the bottom:
-        // their visibleHeight includes the gap below the keyboard and must
-        // not become the attachment height.
-        guard convertedFrame.maxY >= windowHeight - 1 else { return }
+        // Ignore floating/split keyboards: only a full-size docked keyboard
+        // spans the window width with its bottom at the window bottom. A
+        // floating keyboard dragged near the bottom edge can pass the maxY
+        // check, but its compact height must not become the attachment height.
+        guard convertedFrame.maxY >= windowHeight - 1,
+              convertedFrame.width >= windowBounds.width - 1
+        else {
+            return
+        }
         let visibleHeight = max(0, windowHeight - convertedFrame.minY)
 
         guard visibleHeight > NativeKeyboardAttachmentInputView.minimumHeight
