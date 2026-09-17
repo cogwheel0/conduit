@@ -75,6 +75,9 @@ final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
         self?.handleAction(action)
     }
 
+    /// Restores the last-known heights and starts observing keyboard frames.
+    /// Restored values seed the cold-start fallback only; session freshness
+    /// flags stay false until a frame notification arrives this launch.
     private init() {
         // Restored heights are fallback-only: a saved value may no longer
         // match the current keyboard configuration (toggled predictive bar,
@@ -328,6 +331,9 @@ final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
         return capturedFirstResponder
     }
 
+    /// Height to size the attachment input view for presentation.
+    /// Prefers the current-session notification height for this orientation,
+    /// then a valid layout-guide read, then the persisted fallback.
     private func measuredKeyboardHeight(for responder: UIResponder) -> CGFloat {
         // Prefer the notification-driven system height: it is the same frame
         // Flutter uses for viewInsets.bottom, so matching it avoids a resize
@@ -365,6 +371,9 @@ final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
         return cachedKeyboardHeight
     }
 
+    /// Records full-size docked system keyboard frames per orientation.
+    /// Ignores frames while the attachment is presented (they describe the
+    /// panel itself) and non-docked configurations such as floating keyboards.
     @objc
     private func handleKeyboardFrameChange(_ notification: Notification) {
         guard let frameValue = notification.userInfo?[
@@ -492,6 +501,7 @@ final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
         return nil
     }
 
+    /// Reads a previously persisted height, or nil when absent or implausible.
     private static func persistedHeight(forKey key: String) -> CGFloat? {
         let stored = UserDefaults.standard.double(forKey: key)
         guard stored > Double(
@@ -502,6 +512,7 @@ final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
         return CGFloat(stored)
     }
 
+    /// Persists a validated system keyboard height for future cold starts.
     private static func persistHeight(_ height: CGFloat, forKey key: String) {
         UserDefaults.standard.set(Double(height), forKey: key)
     }
