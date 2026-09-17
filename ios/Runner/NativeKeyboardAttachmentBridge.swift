@@ -62,18 +62,62 @@ final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
     private var actions: [NativeKeyboardAttachmentAction] = []
     private var shouldPresentOnNextFocus = false
     private var cachedKeyboardHeight = NativeKeyboardAttachmentInputView.defaultHeight
+    private var portraitSystemKeyboardHeight: CGFloat?
+    private var landscapeSystemKeyboardHeight: CGFloat?
+    private var portraitMeasuredThisSession = false
+    private var landscapeMeasuredThisSession = false
+    private static let persistedPortraitHeightKey =
+        "conduit.keyboardAttachment.portraitHeight"
+    private static let persistedLandscapeHeightKey =
+        "conduit.keyboardAttachment.landscapeHeight"
     private lazy var attachmentInputView = NativeKeyboardAttachmentInputView {
         [weak self] action in
         self?.handleAction(action)
     }
 
+    /// Restores the last-known heights and starts observing keyboard frames.
+    /// Restored values seed the cold-start fallback only; session freshness
+    /// flags stay false until a frame notification arrives this launch.
     private init() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleKeyboardFrameChange(_:)),
-            name: UIResponder.keyboardDidChangeFrameNotification,
-            object: nil
+        // Restored heights are fallback-only: a saved value may no longer
+        // match the current keyboard configuration (toggled predictive bar,
+        // changed locale, OS update), so they must not shadow a fresh
+        // current-session measurement or layout-guide read. The session flags
+        // stay false until a frame notification arrives this launch.
+        portraitSystemKeyboardHeight = Self.persistedHeight(
+            forKey: Self.persistedPortraitHeightKey
         )
+        landscapeSystemKeyboardHeight = Self.persistedHeight(
+            forKey: Self.persistedLandscapeHeightKey
+        )
+        if let portrait = portraitSystemKeyboardHeight,
+           portrait > NativeKeyboardAttachmentInputView.minimumHeight
+        {
+            cachedKeyboardHeight = portrait
+        } else if let landscape = landscapeSystemKeyboardHeight,
+                  landscape > NativeKeyboardAttachmentInputView.minimumHeight
+        {
+            cachedKeyboardHeight = landscape
+        }
+        // Observe will/did show and will/did change frame so the first system
+        // keyboard presentation is captured. Relying only on didChangeFrame
+        // misses the initial show on newer iOS releases, leaving the cache at
+        // the 300pt fallback while the Liquid Glass keyboard is taller — the
+        // attachment then presents shorter and Flutter's viewInsets shrink,
+        // which reads as a jump down.
+        for name in [
+            UIResponder.keyboardWillShowNotification,
+            UIResponder.keyboardDidShowNotification,
+            UIResponder.keyboardWillChangeFrameNotification,
+            UIResponder.keyboardDidChangeFrameNotification,
+        ] {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleKeyboardFrameChange(_:)),
+                name: name,
+                object: nil
+            )
+        }
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleKeyboardDidHide(_:)),
@@ -287,27 +331,49 @@ final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
         return capturedFirstResponder
     }
 
+    /// Height to size the attachment input view for presentation.
+    /// Prefers the current-session notification height for this orientation,
+    /// then a valid layout-guide read, then the persisted fallback.
     private func measuredKeyboardHeight(for responder: UIResponder) -> CGFloat {
-        guard #available(iOS 15.0, *) else {
-            return cachedKeyboardHeight
+        // Prefer the notification-driven system height: it is the same frame
+        // Flutter uses for viewInsets.bottom, so matching it avoids a resize
+        // jump. keyboardLayoutGuide is the fallback when visible — it holds
+        // the current truth even before any frame notification arrives — and
+        // restored cross-launch values come last, only for hidden-keyboard
+        // cold starts where nothing fresher exists.
+        if let systemHeight = systemKeyboardHeightForCurrentOrientation() {
+            cachedKeyboardHeight = systemHeight
+            return systemHeight
         }
+        if #available(iOS 15.0, *) {
+            let measurementView: UIView? = if let view = responder as? UIView {
+                view.window ?? view
+            } else {
+                UIApplication.shared.connectedScenes
+                    .compactMap { $0 as? UIWindowScene }
+                    .flatMap(\.windows)
+                    .first { $0.isKeyWindow }
+            }
 
-        let measurementView: UIView? = if let view = responder as? UIView {
-            view.window ?? view
-        } else {
-            UIApplication.shared.connectedScenes
-                .compactMap { $0 as? UIWindowScene }
-                .flatMap(\.windows)
-                .first { $0.isKeyWindow }
+            let height = measurementView?.keyboardLayoutGuide.layoutFrame.height ?? 0
+            if height > NativeKeyboardAttachmentInputView.minimumHeight {
+                // Layout-guide reads are not trusted as the system height
+                // cache: only use them to size this presentation, without
+                // overwriting the notification-driven cache that must keep
+                // tracking the real system keyboard.
+                return height
+            }
         }
-
-        let height = measurementView?.keyboardLayoutGuide.layoutFrame.height ?? 0
-        if height > NativeKeyboardAttachmentInputView.minimumHeight {
-            cachedKeyboardHeight = height
+        if let persistedHeight = persistedHeightForCurrentOrientation() {
+            cachedKeyboardHeight = persistedHeight
+            return persistedHeight
         }
         return cachedKeyboardHeight
     }
 
+    /// Records full-size docked system keyboard frames per orientation.
+    /// Ignores frames while the attachment is presented (they describe the
+    /// panel itself) and non-docked configurations such as floating keyboards.
     @objc
     private func handleKeyboardFrameChange(_ notification: Notification) {
         guard let frameValue = notification.userInfo?[
@@ -316,17 +382,55 @@ final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
             return
         }
 
+        // While the attachment is presented, keyboard frames describe the
+        // attachment itself. Caching them would overwrite the real system
+        // keyboard height with the (possibly stale) attachment height and
+        // lock in the short-panel jump on the next presentation.
+        guard !isPresented else { return }
+
         let screenFrame = frameValue.cgRectValue
         let window = activeResponderView?.window ?? keyWindow
         let convertedFrame = window?.convert(screenFrame, from: nil) ?? screenFrame
-        let windowHeight = window?.bounds.height ?? UIScreen.main.bounds.height
-        let visibleHeight = max(0, windowHeight - convertedFrame.minY)
-
-        guard visibleHeight > NativeKeyboardAttachmentInputView.minimumHeight,
-              visibleHeight != cachedKeyboardHeight
+        let windowBounds = window?.bounds ?? UIScreen.main.bounds
+        let windowHeight = windowBounds.height
+        // Ignore floating/split keyboards: only a full-size docked keyboard
+        // spans the window width with its bottom at the window bottom. A
+        // floating keyboard dragged near the bottom edge can pass the maxY
+        // check, but its compact height must not become the attachment height.
+        guard convertedFrame.maxY >= windowHeight - 1,
+              convertedFrame.width >= windowBounds.width - 1
         else {
             return
         }
+        let visibleHeight = max(0, windowHeight - convertedFrame.minY)
+
+        guard visibleHeight > NativeKeyboardAttachmentInputView.minimumHeight
+        else {
+            return
+        }
+
+        let isLandscape = windowBounds.width > windowBounds.height
+        if isLandscape {
+            if landscapeSystemKeyboardHeight != visibleHeight {
+                landscapeSystemKeyboardHeight = visibleHeight
+                Self.persistHeight(
+                    visibleHeight,
+                    forKey: Self.persistedLandscapeHeightKey
+                )
+            }
+            landscapeMeasuredThisSession = true
+        } else {
+            if portraitSystemKeyboardHeight != visibleHeight {
+                portraitSystemKeyboardHeight = visibleHeight
+                Self.persistHeight(
+                    visibleHeight,
+                    forKey: Self.persistedPortraitHeightKey
+                )
+            }
+            portraitMeasuredThisSession = true
+        }
+
+        guard visibleHeight != cachedKeyboardHeight else { return }
 
         cachedKeyboardHeight = visibleHeight
         attachmentInputView.updatePreferredHeight(visibleHeight)
@@ -350,6 +454,67 @@ final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
             .compactMap { $0 as? UIWindowScene }
             .flatMap(\.windows)
             .first { $0.isKeyWindow }
+    }
+
+    /// Notification-driven system keyboard height for the current orientation.
+    /// This is the same frame Flutter reports via viewInsets.bottom, so using
+    /// it for the attachment height keeps the insets stable (no jump). Only
+    /// current-session measurements qualify — restored cross-launch values
+    /// stay fallback-only via persistedHeightForCurrentOrientation().
+    private func systemKeyboardHeightForCurrentOrientation() -> CGFloat? {
+        let bounds = activeResponderView?.window?.bounds
+            ?? keyWindow?.bounds ?? UIScreen.main.bounds
+        let isLandscape = bounds.width > bounds.height
+        let measuredThisSession = isLandscape
+            ? landscapeMeasuredThisSession
+            : portraitMeasuredThisSession
+        guard measuredThisSession else { return nil }
+        let orientedHeight = isLandscape
+            ? landscapeSystemKeyboardHeight
+            : portraitSystemKeyboardHeight
+        if let orientedHeight,
+           orientedHeight > NativeKeyboardAttachmentInputView.minimumHeight
+        {
+            return orientedHeight
+        }
+        // Wrong-orientation cached heights must not shadow the layout-guide
+        // fallback: when the system keyboard is visible in a previously
+        // unmeasured orientation, the layout guide holds the current truth.
+        return nil
+    }
+
+    /// Best-known persisted height for the current orientation. Used only when
+    /// neither a current-session measurement nor a valid layout-guide read is
+    /// available (keyboard hidden on cold start).
+    private func persistedHeightForCurrentOrientation() -> CGFloat? {
+        let bounds = activeResponderView?.window?.bounds
+            ?? keyWindow?.bounds ?? UIScreen.main.bounds
+        let isLandscape = bounds.width > bounds.height
+        let orientedHeight = isLandscape
+            ? landscapeSystemKeyboardHeight
+            : portraitSystemKeyboardHeight
+        if let orientedHeight,
+           orientedHeight > NativeKeyboardAttachmentInputView.minimumHeight
+        {
+            return orientedHeight
+        }
+        return nil
+    }
+
+    /// Reads a previously persisted height, or nil when absent or implausible.
+    private static func persistedHeight(forKey key: String) -> CGFloat? {
+        let stored = UserDefaults.standard.double(forKey: key)
+        guard stored > Double(
+            NativeKeyboardAttachmentInputView.minimumHeight
+        ) else {
+            return nil
+        }
+        return CGFloat(stored)
+    }
+
+    /// Persists a validated system keyboard height for future cold starts.
+    private static func persistHeight(_ height: CGFloat, forKey key: String) {
+        UserDefaults.standard.set(Double(height), forKey: key)
     }
 
     private static func installInputViewSwizzleIfNeeded() -> Bool {
