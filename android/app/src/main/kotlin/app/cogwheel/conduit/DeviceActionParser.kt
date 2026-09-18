@@ -172,7 +172,7 @@ object DeviceActionParser {
     private fun splitTopLevel(raw: String): List<String> {
         val parts = mutableListOf<String>()
         val current = StringBuilder()
-        var inString = false
+        var activeQuote: Char? = null
         var escaped = false
         for (char in raw) {
             when {
@@ -180,15 +180,19 @@ object DeviceActionParser {
                     current.append(char)
                     escaped = false
                 }
-                char == '\\' && inString -> {
+                activeQuote != null && char == '\\' -> {
                     current.append(char)
                     escaped = true
                 }
-                char == '"' -> {
-                    inString = !inString
+                char == activeQuote -> {
+                    activeQuote = null
                     current.append(char)
                 }
-                !inString && (char == ',' || char == ';') -> {
+                activeQuote == null && (char == '"' || char == '\'') -> {
+                    activeQuote = char
+                    current.append(char)
+                }
+                activeQuote == null && (char == ',' || char == ';') -> {
                     if (current.isNotBlank()) parts.add(current.toString().trim())
                     current.clear()
                 }

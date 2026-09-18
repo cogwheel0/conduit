@@ -265,7 +265,10 @@ final aicoreAdapterProvider = Provider<AicoreAdapter>((ref) {
   final adapter = AicoreAdapter();
   // The on-device assistant's web lookup tool borrows the Ollama Cloud
   // web-search API key when a cloud profile carries one; the bridge keeps
-  // the latest key and falls back to keyless search without it.
+  // the latest key and falls back to keyless search without it. This
+  // intentionally ignores profile.enabled: turning a cloud connection off
+  // only hides its models, while its key keeps powering on-device web
+  // search.
   void pushKey(AsyncValue<List<DirectConnectionProfile>>? profiles) {
     final value = profiles?.value;
     final key = value
@@ -278,7 +281,11 @@ final aicoreAdapterProvider = Provider<AicoreAdapter>((ref) {
     adapter.setWebSearchKey(key);
   }
 
-  pushKey(ref.watch(effectiveDirectConnectionProfilesProvider));
+  pushKey(ref.read(effectiveDirectConnectionProfilesProvider));
+  // listen (not watch): subscribing would rebuild this provider — and
+  // replace the platform handler with a fresh adapter — on every profile
+  // edit, stranding active runs whose ids live in the old adapter's run
+  // map. Key updates only need the listener.
   ref.listen<AsyncValue<List<DirectConnectionProfile>>>(
     effectiveDirectConnectionProfilesProvider,
     (_, next) => pushKey(next),

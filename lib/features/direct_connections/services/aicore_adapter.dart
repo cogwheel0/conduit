@@ -6,6 +6,7 @@ import 'package:flutter/services.dart' show MissingPluginException, PlatformExce
 import 'package:uuid/uuid.dart';
 
 import '../../../core/platform/conduit_platform_apis.g.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../models/direct_completion.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/direct_remote_model.dart';
@@ -34,8 +35,11 @@ final class AicoreAdapter implements DirectProviderAdapter, AicoreFlutterApi {
 
   /// Pushes the Ollama web-search API key (empty clears it) that the
   /// bridge's web_lookup tool uses before falling back to keyless search.
+  /// Fire-and-forget: the handler only exists on Android, and a failed
+  /// channel call on another platform must not surface as an uncaught
+  /// asynchronous error.
   void setWebSearchKey(String apiKey) {
-    _hostApi.setWebSearchKey(apiKey);
+    unawaited(_hostApi.setWebSearchKey(apiKey).catchError((Object _) {}));
   }
 
   /// Never throws: availability failures are surfaced as an unavailable
@@ -176,6 +180,14 @@ final class AicoreAdapter implements DirectProviderAdapter, AicoreFlutterApi {
       cancelToken.whenCancel.then((_) async {
         try {
           await _hostApi.cancel(runId);
+        } catch (error) {
+          // Native cancellation is best effort; a failed channel call must
+          // not surface as an uncaught asynchronous error.
+          DebugLogger.log(
+            'aicore-cancel-failed',
+            scope: 'direct/aicore',
+            data: {'error': error.runtimeType.toString()},
+          );
         } finally {
           await _cancelRun(runId);
         }

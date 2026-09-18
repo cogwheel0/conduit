@@ -137,7 +137,7 @@ class DeviceActionExecutor(private val context: Context) {
                 "Ask the user to name a city."
         val label = resolved.second ?: place ?: "your area"
         val (latitude, longitude) = resolved.first
-        val cacheKey = "%.3f,%.3f".format(Locale.US, latitude, longitude)
+        val cacheKey = "%.3f,%.3f:%d".format(Locale.US, latitude, longitude, requestedDays)
         weatherCache[cacheKey]?.let { (at, text) ->
             if (System.currentTimeMillis() - at < WEATHER_CACHE_MILLIS) return text
         }
@@ -410,7 +410,13 @@ class DeviceActionExecutor(private val context: Context) {
             ?: throw IllegalArgumentException("A calendar event needs a title.")
         val beginTime = Calendar.getInstance().apply {
             parseDateAndTime(args)
+            // Lenient calendars silently normalize impossible dates
+            // (2026-02-31 becomes March); reject them instead.
+            isLenient = false
         }
+        // Force field resolution so an invalid date throws before the
+        // calendar intent is built.
+        beginTime.timeInMillis
         val durationMinutes = args.optInt("durationMinutes", 30)
             .takeIf { it in 1..24 * 60 } ?: 30
         val beginMillis = beginTime.timeInMillis

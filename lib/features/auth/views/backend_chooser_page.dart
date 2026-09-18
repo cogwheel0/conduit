@@ -179,8 +179,12 @@ bool debugShowAllAndroidBackends = kDebugMode;
 
 bool _isAndroidModelAvailable(AsyncValue<PlatformAicoreStatus>? status) =>
     debugShowAllAndroidBackends ||
-    (status?.hasValue == true &&
-        status!.requireValue.status == PlatformAicoreStatusKind.available);
+    switch (status?.value?.status) {
+      PlatformAicoreStatusKind.available ||
+      PlatformAicoreStatusKind.downloadable ||
+      PlatformAicoreStatusKind.downloading => true,
+      _ => false,
+    };
 
 Future<void> _selectAndroidModel(
   BuildContext context,

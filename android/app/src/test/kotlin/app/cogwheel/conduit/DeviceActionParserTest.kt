@@ -181,6 +181,15 @@ class DeviceActionParserTest {
     }
 
     @Test
+    fun singleQuotedValueWithCommaSurvivesArgSplitting() {
+        val call = DeviceActionParser.parse(
+            "call:compose_sms{body:'Hi, there'}",
+        )
+        assertEquals(DeviceActions.COMPOSE_SMS, call?.name)
+        assertEquals("Hi, there", call?.args?.getString("body"))
+    }
+
+    @Test
     fun leavesShortSnippetsUntouched() {
         assertEquals("short", DeviceActionExecutor.truncateSnippet("short", 400))
     }

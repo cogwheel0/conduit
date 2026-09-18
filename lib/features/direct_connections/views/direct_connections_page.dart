@@ -146,8 +146,10 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
         );
       }
     } finally {
-      if (mounted) setState(() => _aicoreDownloading = false);
-      ref.invalidate(aicoreStatusProvider);
+      if (mounted) {
+        setState(() => _aicoreDownloading = false);
+        ref.invalidate(aicoreStatusProvider);
+      }
     }
   }
 

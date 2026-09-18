@@ -155,79 +155,76 @@ class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) 
     }
 
     override fun start(request: PlatformAicoreCompletionRequest) {
-        scope.launch {
-            startInternal(request)
+        // Track the whole run lifecycle synchronously: startInternal suspends
+        // in checkStatus before any inference work, and a cancel() that lands
+        // during that window must still reach this job. Replacing a run with
+        // the same id also cancels the old job instead of leaking it.
+        runs.remove(request.runId)?.cancel()
+        val job = scope.launch {
+            try {
+                startInternal(request)
+            } catch (error: Throwable) {
+                if (error is CancellationException) {
+                    // Cancellation reaches Dart through its own cancel
+                    // channel; still terminate the event stream.
+                } else {
+                    Log.w(TAG, "AICore turn failed", error)
+                    emitError(request.runId, friendlyInferenceMessage(error))
+                }
+            } finally {
+                // The turn is only complete for listeners once the event
+                // stream reaches a terminal event, however many tool
+                // rounds ran before it.
+                emitDone(request.runId)
+            }
+        }
+        runs[request.runId] = job
+        job.invokeOnCompletion {
+            if (runs[request.runId] === job) runs.remove(request.runId)
         }
     }
 
     private suspend fun startInternal(request: PlatformAicoreCompletionRequest) {
-        try {
-            Log.i(
-                TAG,
-                "start: runId=${request.runId.take(8)} turns=${request.messages.size}",
-            )
-            val generativeModel = obtainModel()
-            if (Build.VERSION.SDK_INT < MIN_SUPPORTED_SDK) {
-                throw IllegalStateException("Gemini Nano requires Android 8.0 or newer.")
-            }
-            if (generativeModel.checkStatus() != FeatureStatus.AVAILABLE) {
-                throw IllegalStateException(
-                    "Gemini Nano is not ready on this device. Check the connection settings."
-                )
-            }
-            Log.i(TAG, "start: checkStatus ok")
-
-            val systemText = listOfNotNull(
-                request.messages
-                    .filter { it.role == ROLE_SYSTEM }
-                    .joinToString("\n\n") { it.content }
-                    .trim()
-                    .takeIf { it.isNotEmpty() },
-                if (request.deviceTools) DEVICE_TOOL_SCHEMA else null,
-            ).filterNotNull().joinToString("\n\n")
-            val turns = request.messages.filter { it.role != ROLE_SYSTEM }
-            if (turns.isEmpty()) {
-                throw IllegalArgumentException("The request contained no message content.")
-            }
-
-            val job = scope.launch {
-                try {
-                    runConversationTurn(
-                        runId = request.runId,
-                        generativeModel = generativeModel,
-                        systemText = systemText,
-                        turns = turns,
-                        deviceTools = request.deviceTools,
-                        toolRoundsRemaining = MAX_TOOL_ROUNDS,
-                        temperature = request.temperature,
-                        topK = request.topK,
-                        seed = request.seed,
-                        maxOutputTokens = request.maxOutputTokens,
-                    )
-                } catch (error: Throwable) {
-                    if (error is CancellationException) {
-                        // Cancellation reaches Dart through its own cancel
-                        // channel; still terminate the event stream.
-                    } else {
-                        Log.w(TAG, "AICore turn failed", error)
-                        emitError(request.runId, friendlyInferenceMessage(error))
-                    }
-                } finally {
-                    // The turn is only complete for listeners once the event
-                    // stream reaches a terminal event, however many tool
-                    // rounds ran before it.
-                    emitDone(request.runId)
-                }
-            }
-            runs[request.runId] = job
-            job.invokeOnCompletion {
-                runs.remove(request.runId)
-            }
-        } catch (error: Throwable) {
-            if (error is CancellationException) throw error
-            Log.w(TAG, "AICore inference failed to start", error)
-            emitError(request.runId, friendlyInferenceMessage(error))
+        Log.i(
+            TAG,
+            "start: runId=${request.runId.take(8)} turns=${request.messages.size}",
+        )
+        val generativeModel = obtainModel()
+        if (Build.VERSION.SDK_INT < MIN_SUPPORTED_SDK) {
+            throw IllegalStateException("Gemini Nano requires Android 8.0 or newer.")
         }
+        if (generativeModel.checkStatus() != FeatureStatus.AVAILABLE) {
+            throw IllegalStateException(
+                "Gemini Nano is not ready on this device. Check the connection settings."
+            )
+        }
+        Log.i(TAG, "start: checkStatus ok")
+
+        val systemText = listOfNotNull(
+            request.messages
+                .filter { it.role == ROLE_SYSTEM }
+                .joinToString("\n\n") { it.content }
+                .trim()
+                .takeIf { it.isNotEmpty() },
+            if (request.deviceTools) DEVICE_TOOL_SCHEMA else null,
+        ).filterNotNull().joinToString("\n\n")
+        val turns = request.messages.filter { it.role != ROLE_SYSTEM }
+        if (turns.isEmpty()) {
+            throw IllegalArgumentException("The request contained no message content.")
+        }
+
+        runConversationTurn(
+            runId = request.runId,
+            generativeModel = generativeModel,
+            systemText = systemText,
+            turns = turns,
+            deviceTools = request.deviceTools,
+            toolRoundsRemaining = MAX_TOOL_ROUNDS,
+            temperature = request.temperature,
+            topK = request.topK,
+            seed = request.seed,
+            maxOutputTokens = request.maxOutputTokens,
+        )
     }
 
     /**
@@ -264,6 +261,14 @@ class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) 
         )
         if (!deviceTools) return
         val call = DeviceActionParser.parse(fullText) ?: return
+        if (toolRoundsRemaining <= 0) {
+            // The tool budget is exhausted; do not execute another action.
+            emitContent(
+                runId,
+                "I've reached the limit of device actions for this request.",
+            )
+            return
+        }
         val result = actionExecutor.execute(call.name, call.args)
         Log.i(TAG, "tool-exec: ${call.name} args=$call.args result=$result")
         emitToolCall(
@@ -274,11 +279,6 @@ class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) 
                 .put("result", result)
                 .toString(),
         )
-        if (toolRoundsRemaining <= 0) {
-            // The whitelist is exhausted; narrate the outcome directly.
-            emitContent(runId, result)
-            return
-        }
         val assistantTurn =
             PlatformAicoreMessage(role = ROLE_ASSISTANT, content = fullText.trim())
         val fittedResult = fitToolResultToTokenBudget(
@@ -289,12 +289,18 @@ class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) 
             reserveTokens = maxOutputTokens?.toInt()?.takeIf { it > 0 }
                 ?: OUTPUT_TOKEN_RESERVE,
         )
+        // Untrusted tool output (web results carry remote page content) must
+        // not arm another tool round: the follow-up turn drops the device-tool
+        // schema unless the previous action's narration was locally produced.
+        val followUpDeviceTools = deviceTools &&
+            call.name != DeviceActions.WEB_SEARCH &&
+            call.name != DeviceActions.WEB_LOOKUP
         runConversationTurn(
             runId = runId,
             generativeModel = generativeModel,
             systemText = systemText,
             turns = turns + assistantTurn + toolResultMessage(fittedResult),
-            deviceTools = deviceTools,
+            deviceTools = followUpDeviceTools,
             toolRoundsRemaining = toolRoundsRemaining - 1,
             temperature = temperature,
             topK = topK,
@@ -365,7 +371,11 @@ class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) 
         return try {
             val baseTokens = countPromptTokens(generativeModel, systemText, baseTurns)
                 ?: return text
-            val budget = limit - reserveTokens - baseTokens
+            // getTokenLimit covers input AND output, so the whole follow-up
+            // prompt (base turns plus the tool message) must fit under
+            // limit - reserve. baseTokens is only used to attribute the
+            // tool-text token share, not subtracted from the budget.
+            val budget = limit - reserveTokens
             var tokens = countPromptTokens(
                 generativeModel,
                 systemText,
@@ -476,8 +486,11 @@ class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) 
                 throw error
             } else {
                 Log.w(TAG, "AICore inference failed", error)
-                emitError(runId, friendlyInferenceMessage(error))
-                return buffered.toString()
+                // Abort the turn: buffered text from a failed stream must
+                // not reach tool parsing or execution. The run-level
+                // handler emits the single error event; its finally emits
+                // the terminal event.
+                throw error
             }
         }
         if (!streamingLive) {

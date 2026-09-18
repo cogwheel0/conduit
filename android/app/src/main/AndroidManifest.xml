@@ -46,6 +46,13 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="http" />
         </intent>
+        <!-- open_app enumerates launcher activities; package visibility on
+             Android 11+ needs this declaration or third-party apps are
+             omitted from the result. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
     </queries>
 
     <!-- Custom Application class creates notification channels at startup to prevent
