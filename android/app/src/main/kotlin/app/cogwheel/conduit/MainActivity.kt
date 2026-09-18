@@ -517,6 +517,7 @@ class MainActivity : FlutterFragmentActivity() {
     private lateinit var backgroundStreamingHandler: BackgroundStreamingHandler
     private lateinit var nativeSttBridge: NativeSttBridge
     private lateinit var nativeTtsBridge: NativeTtsBridge
+    private var aicoreBridge: AicoreBridge? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         reconcileInterruptedShareImportIfNeeded()
@@ -619,6 +620,13 @@ class MainActivity : FlutterFragmentActivity() {
         nativeSttBridge.setup(flutterEngine)
         nativeTtsBridge = NativeTtsBridge(this)
         nativeTtsBridge.setup(flutterEngine)
+        // Gemini Nano via AICore needs API 26+ and the system AICore service;
+        // the bridge reports unavailable on every other device.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val bridge = AicoreBridge(flutterEngine.dartExecutor.binaryMessenger)
+            bridge.setup(flutterEngine)
+            aicoreBridge = bridge
+        }
 
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ASSISTANT_CHANNEL)
         shareChannel = MethodChannel(
@@ -1734,6 +1742,8 @@ class MainActivity : FlutterFragmentActivity() {
         if (::backgroundStreamingHandler.isInitialized) {
             backgroundStreamingHandler.cleanup()
         }
+        aicoreBridge?.dispose()
+        aicoreBridge = null
         super.onDestroy()
     }
 }

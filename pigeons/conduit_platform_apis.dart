@@ -28,6 +28,10 @@ enum PlatformPccQuotaStatus {
 
 enum PlatformPccEventKind { content, usage, fallback, error, done }
 
+enum PlatformAicoreStatusKind { unavailable, downloadable, downloading, available }
+
+enum PlatformAicoreEventKind { content, error, done }
+
 enum PlatformNativeSheetItemKind {
   navigation,
   textField,
@@ -851,6 +855,78 @@ class PlatformPccStreamEvent {
   int? outputTokenCount;
   int? reasoningTokenCount;
   int? totalTokenCount;
+}
+
+/// Status of Gemini Nano inside Android's AICore system service.
+class PlatformAicoreStatus {
+  PlatformAicoreStatus({
+    required this.status,
+    this.message,
+    this.tokenLimit,
+  });
+
+  PlatformAicoreStatusKind status;
+  String? message;
+  int? tokenLimit;
+}
+
+class PlatformAicoreMessage {
+  PlatformAicoreMessage({required this.role, required this.content});
+
+  String role;
+  String content;
+}
+
+class PlatformAicoreCompletionRequest {
+  PlatformAicoreCompletionRequest({
+    required this.runId,
+    required this.messages,
+    this.systemInstruction,
+    this.temperature,
+    this.maxOutputTokens,
+    this.topK,
+    this.seed,
+  });
+
+  String runId;
+  List<PlatformAicoreMessage> messages;
+  String? systemInstruction;
+  double? temperature;
+  int? maxOutputTokens;
+  int? topK;
+  int? seed;
+}
+
+class PlatformAicoreStreamEvent {
+  PlatformAicoreStreamEvent({
+    required this.runId,
+    required this.kind,
+    this.content,
+  });
+
+  String runId;
+  PlatformAicoreEventKind kind;
+  String? content;
+}
+
+@HostApi()
+abstract class AicoreHostApi {
+  @async
+  PlatformAicoreStatus getStatus();
+
+  /// Runs the AICore model download to completion. Returns whether the
+  /// download finished successfully.
+  @async
+  bool downloadModel();
+
+  void start(PlatformAicoreCompletionRequest request);
+
+  void cancel(String runId);
+}
+
+@FlutterApi()
+abstract class AicoreFlutterApi {
+  void onEvent(PlatformAicoreStreamEvent event);
 }
 
 @HostApi()
