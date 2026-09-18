@@ -14302,6 +14302,9 @@ Map<String, dynamic> _directContextSummaryParameters(
   int maxTokens,
 ) => switch (profile.adapterKey) {
   kApplePccAdapterKey => <String, dynamic>{'max_tokens': maxTokens},
+  kAndroidAicoreAdapterKey => <String, dynamic>{
+    'max_output_tokens': maxTokens,
+  },
   kOpenAiCompatibleAdapterKey => <String, dynamic>{
     profile.openAiApiMode == DirectOpenAiApiMode.responses
             ? 'max_output_tokens'
@@ -16415,6 +16418,16 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     ref.read(imageGenerationEnabledProvider.notifier).set(false);
   }
   try {
+    DebugLogger.log(
+      'direct-dispatch-start',
+      scope: 'direct-connections/chat',
+      data: {
+        'adapterKey': route.profile.adapterKey,
+        'remoteModelId': route.binding.remoteModelId,
+        'messageCount': directMessages.length,
+        'hasTools': toolRuntime != null,
+      },
+    );
     run = adapter.startCompletion(
       route.profile,
       DirectCompletionRequest(
@@ -16470,6 +16483,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
   StackTrace? terminalFailureStack;
   var uiProjectionIsCurrent = false;
   Object? uiProjectionToken;
+  var withheldLogged = false;
 
   try {
     final iterator = StreamIterator<DirectStreamEvent>(run.events);
@@ -16728,6 +16742,20 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
           final placeholderWasStreaming = notifier.isMessageStreaming(
             assistantMessageId,
           );
+          if (!withheldLogged && !placeholderWasStreaming) {
+            withheldLogged = true;
+            DebugLogger.info(
+              'direct-projection-no-streaming-placeholder',
+              scope: 'direct-connections/chat',
+              data: {
+                'assistantMessageId': assistantMessageId,
+                'visibleLastId':
+                    (ref.read(chatMessagesProvider) as List<ChatMessage>)
+                        .lastOrNull
+                        ?.id,
+              },
+            );
+          }
           final visibleProjectionToken = notifier
               .directStreamingProjectionTokenForMessage(assistantMessageId);
           final visibleProjectionIsCurrent =
@@ -16831,6 +16859,14 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
           // before incremental appends can resume safely.
           uiProjectionIsCurrent = false;
           uiProjectionToken = null;
+          if (!withheldLogged) {
+            withheldLogged = true;
+            DebugLogger.info(
+              'direct-projection-withheld',
+              scope: 'direct-connections/chat',
+              data: {'assistantMessageId': assistantMessageId},
+            );
+          }
         }
         if ((projectedEvent is DirectMcpApprovalRequested ||
                 projectedEvent is DirectMcpApprovalResolved) &&
