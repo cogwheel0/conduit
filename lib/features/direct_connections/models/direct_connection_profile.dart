@@ -19,6 +19,12 @@ const String kApplePccProfileId = 'apple-pcc';
 const String kApplePccBaseUrl = 'pcc://apple';
 const String kApplePccRemoteModelId = 'private-cloud-compute';
 
+/// App-owned adapter for Android's AICore system service (Gemini Nano).
+const String kAndroidAicoreAdapterKey = 'android-aicore';
+const String kAndroidOnDeviceProfileId = 'android-on-device';
+const String kAndroidOnDeviceBaseUrl = 'aicore://on-device';
+const String kAndroidOnDeviceRemoteModelId = 'gemini-nano';
+
 /// Canonical first-party OpenRouter API root.
 const String kOpenRouterApiBaseUrl = 'https://openrouter.ai/api/v1';
 
@@ -125,6 +131,13 @@ final class DirectConnectionProfile {
     baseUrl: kAppleOnDeviceBaseUrl,
   );
 
+  factory DirectConnectionProfile.androidOnDevice() => DirectConnectionProfile(
+    id: kAndroidOnDeviceProfileId,
+    name: 'Android On-Device',
+    adapterKey: kAndroidAicoreAdapterKey,
+    baseUrl: kAndroidOnDeviceBaseUrl,
+  );
+
   static const int currentSchemaVersion = 1;
 
   final int schemaVersion;
@@ -199,6 +212,11 @@ final class DirectConnectionProfile {
       adapterKey == kApplePccAdapterKey &&
       baseUrl == kAppleOnDeviceBaseUrl;
 
+  bool get isAndroidOnDevice =>
+      id == kAndroidOnDeviceProfileId &&
+      adapterKey == kAndroidAicoreAdapterKey &&
+      baseUrl == kAndroidOnDeviceBaseUrl;
+
   final bool allowSelfSignedCertificates;
   final String? mtlsCertificateChainPem;
   final String? mtlsCertificateLabel;
@@ -240,6 +258,17 @@ final class DirectConnectionProfile {
           allowSelfSignedCertificates ||
           _hasTlsCredentialMaterial) {
         return 'Apple Foundation Models are app-managed connections.';
+      }
+      return null;
+    }
+    if (adapterKey == kAndroidAicoreAdapterKey) {
+      if (!isAndroidOnDevice ||
+          (apiKey ?? '').isNotEmpty ||
+          customHeaders.isNotEmpty ||
+          manualModelIds.isNotEmpty ||
+          allowSelfSignedCertificates ||
+          _hasTlsCredentialMaterial) {
+        return 'Android AICore is an app-managed connection.';
       }
       return null;
     }

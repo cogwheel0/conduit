@@ -23,6 +23,7 @@ import '../models/ollama_keep_alive.dart';
 import '../models/ollama_thinking.dart';
 import '../models/openwebui_direct_connection.dart';
 import '../services/direct_adapter_helpers.dart';
+import '../services/aicore_adapter.dart';
 import '../services/apple_pcc_adapter.dart';
 import '../services/direct_connection_profile_store.dart';
 import '../services/direct_http_client.dart';
@@ -232,6 +233,19 @@ final appleOnDeviceEnabledProvider =
       AppleOnDeviceEnabledController.new,
     );
 
+class AndroidAicoreEnabledController extends _QueuedBoolPreferenceController {
+  @override
+  String get preferenceKey => PreferenceKeys.androidAicoreEnabled;
+
+  @override
+  bool get defaultValue => true;
+}
+
+final androidAicoreEnabledProvider =
+    NotifierProvider<AndroidAicoreEnabledController, bool>(
+      AndroidAicoreEnabledController.new,
+    );
+
 class ApplePccOnDeviceFallbackController
     extends _QueuedBoolPreferenceController {
   @override
@@ -246,6 +260,25 @@ final applePccOnDeviceFallbackProvider =
 final applePccPlatformSupportedProvider = Provider<bool>(
   (ref) => Platform.isIOS,
 );
+
+final aicoreAdapterProvider = Provider<AicoreAdapter>((ref) => AicoreAdapter());
+
+/// Gemini Nano never exists off Android, so status probes must not reach the
+/// platform channel there. Returning [PlatformAicoreStatusKind.unavailable]
+/// keeps every consumer on the same "not on this device" path.
+PlatformAicoreStatus _unsupportedAndroidPlatformStatus() =>
+    PlatformAicoreStatus(status: PlatformAicoreStatusKind.unavailable);
+
+final aicorePlatformSupportedProvider = Provider<bool>(
+  (ref) => Platform.isAndroid,
+);
+
+final aicoreStatusProvider = FutureProvider<PlatformAicoreStatus>((ref) {
+  if (!ref.watch(aicorePlatformSupportedProvider)) {
+    return _unsupportedAndroidPlatformStatus();
+  }
+  return ref.watch(aicoreAdapterProvider).status();
+});
 
 final applePccAdapterProvider = Provider<ApplePccAdapter>(
   (ref) => ApplePccAdapter(
@@ -444,6 +477,7 @@ final directProviderAdapterRegistryProvider =
         OpenAiCompatibleAdapter(clientPool: pool),
         OllamaAdapter(clientPool: pool),
         ref.watch(applePccAdapterProvider),
+        ref.watch(aicoreAdapterProvider),
       ]);
     });
 
@@ -1804,6 +1838,8 @@ final effectiveDirectConnectionProfilesProvider =
       final onDeviceEnabled = ref.watch(appleOnDeviceEnabledProvider);
       final pccEnabled = ref.watch(applePccEnabledProvider);
       final pccSupported = ref.watch(applePccPlatformSupportedProvider);
+      final aicoreEnabled = ref.watch(androidAicoreEnabledProvider);
+      final aicoreSupported = ref.watch(aicorePlatformSupportedProvider);
       final local = ref.watch(directConnectionProfilesProvider);
       // Device profile storage remains the required source. Preserve its
       // loading/error gates even when Riverpod carries a previous value.
@@ -1817,55 +1853,44 @@ final effectiveDirectConnectionProfilesProvider =
         return const AsyncLoading<List<DirectConnectionProfile>>();
       }
 
+      List<DirectConnectionProfile> withBuiltIns(
+        List<DirectConnectionProfile> profiles,
+      ) => _withAndroidProfile(
+        _withAppleProfiles(
+          profiles,
+          onDeviceEnabled: onDeviceEnabled,
+          pccEnabled: pccEnabled,
+          supported: pccSupported,
+        ),
+        aicoreEnabled: aicoreEnabled,
+        supported: aicoreSupported,
+      );
+
       final localProfiles = local.requireValue;
       if (!ref.watch(openWebUiDirectConnectionsAvailableProvider)) {
-        return AsyncData(
-          _withAppleProfiles(
-            localProfiles,
-            onDeviceEnabled: onDeviceEnabled,
-            pccEnabled: pccEnabled,
-            supported: pccSupported,
-          ),
-        );
+        return AsyncData(withBuiltIns(localProfiles));
       }
 
       final remote = ref.watch(openWebUiDirectConnectionsProvider);
       if (remote.isLoading) {
-        final availableLocal = _withAppleProfiles(
-          localProfiles,
-          onDeviceEnabled: onDeviceEnabled,
-          pccEnabled: pccEnabled,
-          supported: pccSupported,
-        );
+        final availableLocal = withBuiltIns(localProfiles);
         return availableLocal.isEmpty
             ? const AsyncLoading<List<DirectConnectionProfile>>()
             : AsyncData(availableLocal);
       }
       if (remote.hasError) {
-        return AsyncData(
-          _withAppleProfiles(
-            localProfiles,
-            onDeviceEnabled: onDeviceEnabled,
-            pccEnabled: pccEnabled,
-            supported: pccSupported,
-          ),
-        );
+        return AsyncData(withBuiltIns(localProfiles));
       }
       final remoteProfiles = remote.value?.compatibleProfiles;
 
       final localIds = localProfiles.map((profile) => profile.id).toSet();
       return AsyncData(
-        _withAppleProfiles(
-          <DirectConnectionProfile>[
-            ...localProfiles,
-            ...?remoteProfiles?.where(
-              (profile) => !localIds.contains(profile.id),
-            ),
-          ],
-          onDeviceEnabled: onDeviceEnabled,
-          pccEnabled: pccEnabled,
-          supported: pccSupported,
-        ),
+        withBuiltIns(<DirectConnectionProfile>[
+          ...localProfiles,
+          ...?remoteProfiles?.where(
+            (profile) => !localIds.contains(profile.id),
+          ),
+        ]),
       );
     });
 
@@ -1875,6 +1900,8 @@ final effectiveDirectConnectionProfilesFutureProvider =
       final onDeviceEnabled = ref.watch(appleOnDeviceEnabledProvider);
       final pccEnabled = ref.watch(applePccEnabledProvider);
       final pccSupported = ref.watch(applePccPlatformSupportedProvider);
+      final aicoreEnabled = ref.watch(androidAicoreEnabledProvider);
+      final aicoreSupported = ref.watch(aicorePlatformSupportedProvider);
       final effective = ref.watch(effectiveDirectConnectionProfilesProvider);
       if (effective.hasValue) return effective.requireValue;
       if (effective.hasError) {
@@ -1893,33 +1920,45 @@ final effectiveDirectConnectionProfilesFutureProvider =
           : Future<OpenWebUiDirectConnectionsSnapshot?>.value(null);
       final local = await localFuture;
       if (!remoteAvailable) {
-        return _withAppleProfiles(
-          local,
-          onDeviceEnabled: onDeviceEnabled,
-          pccEnabled: pccEnabled,
-          supported: pccSupported,
+        return _withAndroidProfile(
+          _withAppleProfiles(
+            local,
+            onDeviceEnabled: onDeviceEnabled,
+            pccEnabled: pccEnabled,
+            supported: pccSupported,
+          ),
+          aicoreEnabled: aicoreEnabled,
+          supported: aicoreSupported,
         );
       }
       try {
         final remote = await remoteFuture;
         final localIds = local.map((profile) => profile.id).toSet();
-        return _withAppleProfiles(
-          <DirectConnectionProfile>[
-            ...local,
-            ...?remote?.compatibleProfiles.where(
-              (profile) => !localIds.contains(profile.id),
-            ),
-          ],
-          onDeviceEnabled: onDeviceEnabled,
-          pccEnabled: pccEnabled,
-          supported: pccSupported,
+        return _withAndroidProfile(
+          _withAppleProfiles(
+            <DirectConnectionProfile>[
+              ...local,
+              ...?remote?.compatibleProfiles.where(
+                (profile) => !localIds.contains(profile.id),
+              ),
+            ],
+            onDeviceEnabled: onDeviceEnabled,
+            pccEnabled: pccEnabled,
+            supported: pccSupported,
+          ),
+          aicoreEnabled: aicoreEnabled,
+          supported: aicoreSupported,
         );
       } catch (_) {
-        return _withAppleProfiles(
-          local,
-          onDeviceEnabled: onDeviceEnabled,
-          pccEnabled: pccEnabled,
-          supported: pccSupported,
+        return _withAndroidProfile(
+          _withAppleProfiles(
+            local,
+            onDeviceEnabled: onDeviceEnabled,
+            pccEnabled: pccEnabled,
+            supported: pccSupported,
+          ),
+          aicoreEnabled: aicoreEnabled,
+          supported: aicoreSupported,
         );
       }
     });
@@ -1939,6 +1978,18 @@ List<DirectConnectionProfile> _withAppleProfiles(
     ),
     if (onDeviceEnabled) DirectConnectionProfile.appleOnDevice(),
     if (pccEnabled) DirectConnectionProfile.applePrivateCloudCompute(),
+  ];
+}
+
+List<DirectConnectionProfile> _withAndroidProfile(
+  List<DirectConnectionProfile> profiles, {
+  required bool aicoreEnabled,
+  required bool supported,
+}) {
+  if (!aicoreEnabled || !supported) return profiles;
+  return <DirectConnectionProfile>[
+    ...profiles.where((profile) => profile.id != kAndroidOnDeviceProfileId),
+    DirectConnectionProfile.androidOnDevice(),
   ];
 }
 
@@ -1994,6 +2045,13 @@ class DirectModelDiscoveryController
     // publication already owned by the future below.
     ref.watch(
       directConnectionProfilesProvider.select((profiles) => profiles.hasError),
+    );
+    // AICore availability is runtime state, not a profile field: the Gemini
+    // Nano model downloads on demand, so a status transition (e.g. the
+    // settings refresh or a finished download invalidating the status) must
+    // re-run discovery even though the profile itself did not change.
+    ref.watch(
+      aicoreStatusProvider.select((value) => value.value?.status),
     );
     ref.listen<AsyncValue<List<DirectConnectionProfile>>>(
       effectiveDirectConnectionProfilesProvider,
