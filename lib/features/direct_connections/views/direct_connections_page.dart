@@ -103,6 +103,11 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      // The AICore system download can finish while the app is backgrounded.
+      if (ref.read(aicorePlatformSupportedProvider) &&
+          ref.read(androidAicoreEnabledProvider)) {
+        ref.invalidate(aicoreStatusProvider);
+      }
       unawaited(_refreshOpenWebUiConnections());
     }
   }
@@ -115,6 +120,34 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
       await ref.read(openWebUiDirectConnectionsProvider.notifier).reload();
     } catch (_) {
       // The controller publishes its error state for the inline retry UI.
+    }
+  }
+
+  bool _aicoreDownloading = false;
+
+  Future<void> _downloadAicoreModel() async {
+    if (_aicoreDownloading) return;
+    setState(() => _aicoreDownloading = true);
+    try {
+      final ok = await ref.read(aicoreAdapterProvider).downloadModel();
+      if (mounted) {
+        UiUtils.showMessage(
+          context,
+          ok
+              ? AppLocalizations.of(context)!.aicoreStatusAvailable
+              : AppLocalizations.of(context)!.aicoreDownloadFailed,
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        UiUtils.showMessage(
+          context,
+          AppLocalizations.of(context)!.aicoreDownloadFailed,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _aicoreDownloading = false);
+      ref.invalidate(aicoreStatusProvider);
     }
   }
 
@@ -146,6 +179,14 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
         : null;
     final applePccOnDeviceFallback =
         applePlatformSupported && ref.watch(applePccOnDeviceFallbackProvider);
+    // Same platform gate as the Apple toggles: the AICore toggle defaults to
+    // enabled, so non-Android platforms must not watch its status provider.
+    final aicorePlatformSupported = ref.watch(aicorePlatformSupportedProvider);
+    final aicoreEnabled =
+        aicorePlatformSupported && ref.watch(androidAicoreEnabledProvider);
+    final aicoreStatus = aicoreEnabled
+        ? ref.watch(aicoreStatusProvider)
+        : null;
     final directModels =
         ref.watch(directModelDiscoveryProvider).value?.models ??
         const <Model>[];
@@ -204,6 +245,10 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
             UiUtils.showMessage(context, l10n.applePccUnavailable);
           }
         },
+        aicoreStatus: aicoreStatus,
+        aicoreDownloading: _aicoreDownloading,
+        onRefreshAicore: () => ref.invalidate(aicoreStatusProvider),
+        onDownloadAicore: _downloadAicoreModel,
         modelsWithoutContextLimit: modelsWithoutContextLimit,
         contextLengthOverrides: contextLengthOverrides,
         onContextLengthChanged: (modelId, contextLength) => unawaited(
@@ -302,6 +347,10 @@ class DirectConnectionsContent extends StatelessWidget {
     this.onRefreshAppleOnDevice,
     this.onRefreshApplePcc,
     this.onShowApplePccQuotaOptions,
+    this.aicoreStatus,
+    this.aicoreDownloading = false,
+    this.onRefreshAicore,
+    this.onDownloadAicore,
     this.modelsWithoutContextLimit = const <Model>[],
     this.contextLengthOverrides = const <String, int>{},
     this.onContextLengthChanged,
@@ -332,6 +381,10 @@ class DirectConnectionsContent extends StatelessWidget {
   final VoidCallback? onRefreshAppleOnDevice;
   final VoidCallback? onRefreshApplePcc;
   final VoidCallback? onShowApplePccQuotaOptions;
+  final AsyncValue<PlatformAicoreStatus>? aicoreStatus;
+  final bool aicoreDownloading;
+  final VoidCallback? onRefreshAicore;
+  final VoidCallback? onDownloadAicore;
   final List<Model> modelsWithoutContextLimit;
   final Map<String, int> contextLengthOverrides;
   final void Function(String modelId, int contextLength)?
@@ -363,6 +416,17 @@ class DirectConnectionsContent extends StatelessWidget {
             onRefresh: onRefreshApplePcc,
             onShowQuotaOptions: onShowApplePccQuotaOptions,
           ),
+        const SizedBox(height: Spacing.xl),
+      ],
+      if (aicoreStatus != null) ...[
+        SettingsSectionHeader(title: l10n.backendChooserAndroidSectionTitle),
+        const SizedBox(height: Spacing.sm),
+        _AicoreModelSection(
+          status: aicoreStatus!,
+          downloading: aicoreDownloading,
+          onRefresh: onRefreshAicore,
+          onDownload: onDownloadAicore,
+        ),
         const SizedBox(height: Spacing.xl),
       ],
       if (modelsWithoutContextLimit.isNotEmpty &&
@@ -653,6 +717,98 @@ class _AppleModelSection extends StatelessWidget {
       PlatformPccQuotaStatus.limitReached => l10n.applePccQuotaReached,
       PlatformPccQuotaStatus.belowLimit ||
       PlatformPccQuotaStatus.unknown => l10n.applePccStatusAvailable,
+    };
+  }
+}
+
+class _AicoreModelSection extends StatelessWidget {
+  const _AicoreModelSection({
+    required this.status,
+    this.downloading = false,
+    this.onRefresh,
+    this.onDownload,
+  });
+
+  final AsyncValue<PlatformAicoreStatus> status;
+  final bool downloading;
+  final VoidCallback? onRefresh;
+  final VoidCallback? onDownload;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final value = status.value;
+    final details = <String>[];
+    if (status.isLoading && value == null) {
+      details.add(l10n.loadingShort);
+    } else if (value == null) {
+      details.add(l10n.androidOnDeviceUnavailable);
+    } else {
+      details.add(_availabilityLabel(l10n, value));
+      if (value.tokenLimit case final tokens?) {
+        details.add(
+          l10n.directContextLimit(_formatTokenCount(context, tokens)),
+        );
+      }
+    }
+
+    final busy =
+        downloading || value?.status == PlatformAicoreStatusKind.downloading;
+
+    return InsetGroupedList(
+      useNativeSurface: PlatformInfo.isIOS,
+      children: [
+        UtilityRow(
+          key: const ValueKey<String>('android-aicore-status-row'),
+          leading: Icon(
+            PlatformInfo.isIOS
+                ? CupertinoIcons.device_phone_portrait
+                : Icons.phone_android_rounded,
+            color: context.conduitTheme.buttonPrimary,
+          ),
+          title: l10n.backendChooserAndroidOnDeviceTitle,
+          subtitle: details.join(' · '),
+          subtitleMaxLines: 2,
+          titleFontWeight: PlatformInfo.isIOS ? FontWeight.w400 : null,
+          trailing: status.isLoading || busy
+              ? const SizedBox.square(
+                  dimension: IconSize.medium,
+                  child: CircularProgressIndicator.adaptive(strokeWidth: 2),
+                )
+              : onRefresh == null
+              ? null
+              : Icon(
+                  PlatformInfo.isIOS
+                      ? CupertinoIcons.refresh
+                      : Icons.refresh_rounded,
+                  color: context.conduitTheme.buttonPrimary,
+                ),
+          onTap: status.isLoading || busy ? null : onRefresh,
+        ),
+        if (value?.status == PlatformAicoreStatusKind.downloadable &&
+            !busy &&
+            onDownload != null)
+          UtilityRow(
+            key: const ValueKey<String>('android-aicore-download-row'),
+            title: l10n.aicoreDownloadTitle,
+            subtitle: l10n.aicoreStatusDownloadable,
+            showChevron: true,
+            onTap: onDownload,
+          ),
+      ],
+    );
+  }
+
+  String _availabilityLabel(
+    AppLocalizations l10n,
+    PlatformAicoreStatus value,
+  ) {
+    return switch (value.status) {
+      PlatformAicoreStatusKind.available => l10n.aicoreStatusAvailable,
+      PlatformAicoreStatusKind.downloadable => l10n.aicoreStatusDownloadable,
+      PlatformAicoreStatusKind.downloading => l10n.aicoreStatusDownloading,
+      PlatformAicoreStatusKind.unavailable =>
+        value.message ?? l10n.androidOnDeviceUnavailable,
     };
   }
 }

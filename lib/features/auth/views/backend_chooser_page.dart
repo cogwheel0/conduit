@@ -13,6 +13,7 @@ import '../../direct_connections/providers/direct_connection_providers.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
+import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/utility_components.dart';
 
 /// First-run screen letting a fresh install choose its chat backend.
@@ -28,6 +29,9 @@ class BackendChooserPage extends ConsumerWidget {
         : null;
     final applePccStatus = PlatformInfo.isIOS
         ? ref.watch(applePccStatusProvider)
+        : null;
+    final aicoreStatus = PlatformInfo.isAndroid
+        ? ref.watch(aicoreStatusProvider)
         : null;
     final appleRows = <Widget>[
       if (_isAppleModelAvailable(appleOnDeviceStatus))
@@ -59,6 +63,19 @@ class BackendChooserPage extends ConsumerWidget {
             l10n,
             PlatformAppleModel.privateCloudCompute,
           ),
+        ),
+    ];
+
+    final androidRows = <Widget>[
+      if (_isAndroidModelAvailable(aicoreStatus))
+        UtilitySelectionRow(
+          leading: const _AndroidModelIcon(),
+          title: l10n.backendChooserAndroidOnDeviceTitle,
+          subtitle: l10n.backendChooserAndroidOnDeviceSubtitle,
+          selected: false,
+          showSelectionIndicator: false,
+          trailing: _chooserChevron(context),
+          onTap: () => _selectAndroidModel(context, ref, l10n),
         ),
     ];
 
@@ -115,6 +132,14 @@ class BackendChooserPage extends ConsumerWidget {
               children: appleRows,
             ),
           ],
+          if (androidRows.isNotEmpty) ...[
+            const SizedBox(height: Spacing.lg),
+            InsetGroupedList(
+              title: l10n.backendChooserAndroidSectionTitle,
+              dividerIndent: _providerDividerIndent,
+              children: androidRows,
+            ),
+          ],
           const SizedBox(height: Spacing.lg),
           InsetGroupedList(
             title: l10n.backendChooserModelApisSectionTitle,
@@ -148,6 +173,129 @@ bool _isAppleModelAvailable(AsyncValue<PlatformPccStatus>? status) =>
         status!.requireValue.availability ==
             PlatformPccAvailability.available &&
         !status.requireValue.quotaLimitReached);
+
+@visibleForTesting
+bool debugShowAllAndroidBackends = kDebugMode;
+
+bool _isAndroidModelAvailable(AsyncValue<PlatformAicoreStatus>? status) =>
+    debugShowAllAndroidBackends ||
+    (status?.hasValue == true &&
+        status!.requireValue.status == PlatformAicoreStatusKind.available);
+
+Future<void> _selectAndroidModel(
+  BuildContext context,
+  WidgetRef ref,
+  AppLocalizations l10n,
+) async {
+  final unavailable = l10n.androidOnDeviceUnavailable;
+  try {
+    var status = await ref.refresh(aicoreStatusProvider.future);
+    if (!context.mounted) return;
+    if (status.status == PlatformAicoreStatusKind.downloadable) {
+      // The Gemini Nano copy AICore provisions for third-party apps is a
+      // separate download from the system model, so the chooser offers it
+      // in place instead of detouring through the connections page.
+      final downloaded = await _downloadAndroidModel(context, ref, l10n);
+      if (!context.mounted) return;
+      if (!downloaded) return;
+      status = await ref.refresh(aicoreStatusProvider.future);
+      if (!context.mounted) return;
+    } else if (status.status == PlatformAicoreStatusKind.downloading) {
+      AdaptiveSnackBar.show(
+        context,
+        message: l10n.aicoreStatusDownloading,
+        type: AdaptiveSnackBarType.info,
+      );
+      return;
+    }
+    if (status.status != PlatformAicoreStatusKind.available) {
+      AdaptiveSnackBar.show(
+        context,
+        message: status.message ?? unavailable,
+        type: AdaptiveSnackBarType.warning,
+      );
+      return;
+    }
+
+    await ref
+        .read(androidAicoreEnabledProvider.notifier)
+        .setEnabled(true);
+    if (!context.mounted) return;
+    if (PreferencesStore.getString(PreferenceKeys.directHistoryPolicy) ==
+        null) {
+      await ref
+          .read(directHistoryPolicyProvider.notifier)
+          .setPolicy(DirectHistoryPolicy.localOnly);
+    }
+    if (!context.mounted) return;
+    await ref
+        .read(preferredBackendProvider.notifier)
+        .set(PreferredBackend.direct);
+    if (context.mounted) context.go(Routes.chat);
+  } catch (_) {
+    if (!context.mounted) return;
+    AdaptiveSnackBar.show(
+      context,
+      message: unavailable,
+      type: AdaptiveSnackBarType.error,
+    );
+  }
+}
+
+/// Runs the AICore model download behind a non-dismissible progress dialog.
+/// Returns whether the download finished successfully.
+Future<bool> _downloadAndroidModel(
+  BuildContext context,
+  WidgetRef ref,
+  AppLocalizations l10n,
+) async {
+  BuildContext? dialogContext;
+  final dialogFuture = ThemedDialogs.showCustom<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) {
+      dialogContext = ctx;
+      return ThemedDialogs.buildBase(
+        context: ctx,
+        title: l10n.backendChooserAndroidOnDeviceTitle,
+        content: Row(
+          children: [
+            const SizedBox.square(
+              dimension: 20,
+              child: CircularProgressIndicator.adaptive(strokeWidth: 2),
+            ),
+            const SizedBox(width: Spacing.md),
+            Expanded(child: Text(l10n.aicoreStatusDownloading)),
+          ],
+        ),
+      );
+    },
+  );
+  bool downloaded;
+  try {
+    downloaded = await ref.read(aicoreAdapterProvider).downloadModel();
+  } catch (_) {
+    downloaded = false;
+  } finally {
+    if (dialogContext?.mounted == true) {
+      Navigator.of(dialogContext!).pop();
+    }
+    await dialogFuture.catchError((_) {});
+  }
+  if (context.mounted && !downloaded) {
+    // The refreshed status may name the actual failure; prefer it over the
+    // generic download-failed string.
+    final refreshed = await ref.read(aicoreStatusProvider.future);
+    if (context.mounted) {
+      AdaptiveSnackBar.show(
+        context,
+        message: refreshed.message ?? l10n.aicoreDownloadFailed,
+        type: AdaptiveSnackBarType.error,
+      );
+    }
+  }
+  return downloaded;
+}
 
 Future<void> _selectAppleModel(
   BuildContext context,
@@ -310,6 +458,30 @@ class _AppleModelIcon extends StatelessWidget {
             : (context.usesCupertinoChrome
                   ? CupertinoIcons.device_phone_portrait
                   : Icons.smartphone_rounded),
+        color: theme.buttonPrimary,
+        size: IconSize.medium,
+      ),
+    );
+  }
+}
+
+class _AndroidModelIcon extends StatelessWidget {
+  const _AndroidModelIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    return Container(
+      width: _providerLogoSize,
+      height: _providerLogoSize,
+      decoration: BoxDecoration(
+        color: theme.buttonPrimary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppBorderRadius.md),
+      ),
+      child: Icon(
+        context.usesCupertinoChrome
+            ? CupertinoIcons.device_phone_portrait
+            : Icons.phone_android_rounded,
         color: theme.buttonPrimary,
         size: IconSize.medium,
       ),

@@ -5135,6 +5135,42 @@
   "@applePccUnavailable": {
     "description": "Fallback shown when Apple PCC cannot be selected during onboarding."
   },
+  "backendChooserAndroidSectionTitle": "Gemini Nano",
+  "@backendChooserAndroidSectionTitle": {
+    "description": "Section title for available Android model choices on the first-run backend chooser."
+  },
+  "backendChooserAndroidOnDeviceTitle": "Android On-Device",
+  "@backendChooserAndroidOnDeviceTitle": {
+    "description": "Title of the Android on-device model option on the first-run backend chooser."
+  },
+  "backendChooserAndroidOnDeviceSubtitle": "Run Google's Gemini Nano on this device, even offline.",
+  "@backendChooserAndroidOnDeviceSubtitle": {
+    "description": "Description of the Android on-device model option on the first-run backend chooser."
+  },
+  "androidOnDeviceUnavailable": "Android On-Device is not available on this device.",
+  "@androidOnDeviceUnavailable": {
+    "description": "Fallback shown when the Android on-device model cannot be selected during onboarding."
+  },
+  "aicoreStatusAvailable": "Available",
+  "@aicoreStatusAvailable": {
+    "description": "Status label shown when the AICore model is ready to use."
+  },
+  "aicoreStatusDownloadable": "Model not downloaded yet.",
+  "@aicoreStatusDownloadable": {
+    "description": "Status label shown when the AICore model can be downloaded."
+  },
+  "aicoreStatusDownloading": "Downloading model…",
+  "@aicoreStatusDownloading": {
+    "description": "Status label shown while the AICore model is downloading."
+  },
+  "aicoreDownloadTitle": "Download model",
+  "@aicoreDownloadTitle": {
+    "description": "Title of the row that starts the AICore model download."
+  },
+  "aicoreDownloadFailed": "The Gemini Nano download failed. Try again later.",
+  "@aicoreDownloadFailed": {
+    "description": "Message shown when the AICore model download does not complete."
+  },
   "applePccStatusAvailable": "Available",
   "@applePccStatusAvailable": {
     "description": "Apple PCC availability label."
