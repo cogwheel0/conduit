@@ -42,7 +42,13 @@ class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) 
     private val runs = mutableMapOf<String, Job>()
     private val actionExecutor by lazy { DeviceActionExecutor(appContext) }
     @Volatile
+    private var webSearchApiKey: String? = null
+    @Volatile
     private var model: GenerativeModel? = null
+
+    /** Context token limit as reported by the loaded model, read once. */
+    @Volatile
+    private var cachedTokenLimit: Int? = null
 
     fun setup(flutterEngine: FlutterEngine) {
         AicoreHostApi.setUp(flutterEngine.dartExecutor.binaryMessenger, this)
@@ -273,16 +279,21 @@ class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) 
             emitContent(runId, result)
             return
         }
+        val assistantTurn =
+            PlatformAicoreMessage(role = ROLE_ASSISTANT, content = fullText.trim())
+        val fittedResult = fitToolResultToTokenBudget(
+            generativeModel = generativeModel,
+            systemText = systemText,
+            baseTurns = turns + assistantTurn,
+            result = result,
+            reserveTokens = maxOutputTokens?.toInt()?.takeIf { it > 0 }
+                ?: OUTPUT_TOKEN_RESERVE,
+        )
         runConversationTurn(
             runId = runId,
             generativeModel = generativeModel,
             systemText = systemText,
-            turns = turns +
-                PlatformAicoreMessage(role = ROLE_ASSISTANT, content = fullText.trim()) +
-                PlatformAicoreMessage(
-                    role = ROLE_USER,
-                    content = "Tool result: $result. Reply to the user in one or two sentences.",
-                ),
+            turns = turns + assistantTurn + toolResultMessage(fittedResult),
             deviceTools = deviceTools,
             toolRoundsRemaining = toolRoundsRemaining - 1,
             temperature = temperature,
@@ -290,6 +301,105 @@ class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) 
             seed = seed,
             maxOutputTokens = maxOutputTokens,
         )
+    }
+
+    /** The follow-up user turn that carries a tool result into the model. */
+    private fun toolResultMessage(result: String) = PlatformAicoreMessage(
+        role = ROLE_USER,
+        content = "Tool result: $result. Reply to the user in one or two sentences.",
+    )
+
+    /** Token count of a whole prompt; null when the API is unavailable. */
+    private suspend fun countPromptTokens(
+        generativeModel: GenerativeModel,
+        systemText: String,
+        turns: List<PlatformAicoreMessage>,
+    ): Int? = try {
+        generativeModel
+            .countTokens(
+                buildRequest(
+                    prompt = buildPrompt(turns),
+                    systemText = systemText,
+                    temperature = null,
+                    topK = null,
+                    seed = null,
+                    maxOutputTokens = null,
+                ),
+            )
+            .totalTokens
+            .takeIf { it > 0 }
+    } catch (_: Throwable) {
+        null
+    }
+
+    /**
+     * Caps a tool result so the follow-up turn fits the model's context
+     * window. An absolute character cap applies first; beyond that the
+     * result is trimmed proportionally, measured with the model's own
+     * countTokens against getTokenLimit — Nano's web results (near-full
+     * page text from Ollama) can dwarf the small on-device window and fail
+     * with "Input text length exceeds the limit". Both measurements are
+     * best-effort: when either is unavailable, the character caps still
+     * bound the prompt.
+     */
+    private suspend fun fitToolResultToTokenBudget(
+        generativeModel: GenerativeModel,
+        systemText: String,
+        baseTurns: List<PlatformAicoreMessage>,
+        result: String,
+        reserveTokens: Int,
+    ): String {
+        var text = result
+        if (text.length > MAX_TOOL_RESULT_CHARS) {
+            text = text.take(MAX_TOOL_RESULT_CHARS).trimEnd() + " …[truncated]"
+        }
+        if (text.length < TOKEN_GUARD_MIN_CHARS) return text
+        val limit = cachedTokenLimit
+            ?: try {
+                generativeModel.getTokenLimit().takeIf { it > 0 }
+                    ?.also { cachedTokenLimit = it }
+            } catch (_: Throwable) {
+                null
+            }
+            ?: DEFAULT_TOKEN_LIMIT
+        return try {
+            val baseTokens = countPromptTokens(generativeModel, systemText, baseTurns)
+                ?: return text
+            val budget = limit - reserveTokens - baseTokens
+            var tokens = countPromptTokens(
+                generativeModel,
+                systemText,
+                baseTurns + toolResultMessage(text),
+            ) ?: return text
+            var attempts = 0
+            while (tokens > budget && attempts < 4) {
+                val resultTokens = (tokens - baseTokens).coerceAtLeast(1)
+                val overshoot = tokens - budget
+                val cut = (overshoot * (text.length.toDouble() / resultTokens) * 1.1)
+                    .toInt() + 48
+                if (cut >= text.length - 48) {
+                    return TOOL_RESULT_OVERFLOW_FALLBACK
+                }
+                text = text.removeSuffix(" …[truncated]").trimEnd()
+                    .dropLast(cut) + " …[truncated]"
+                tokens = countPromptTokens(
+                    generativeModel,
+                    systemText,
+                    baseTurns + toolResultMessage(text),
+                ) ?: return text
+                attempts++
+            }
+            if (attempts > 0) {
+                Log.i(
+                    TAG,
+                    "tool-result fitted: ${result.length} -> ${text.length} chars " +
+                        "($tokens/$budget tool tokens)",
+                )
+            }
+            text
+        } catch (_: Throwable) {
+            text
+        }
     }
 
     /**
@@ -330,12 +440,20 @@ class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) 
                             emitContent(runId, text)
                         } else {
                             buffered.append(text)
-                            // Buffer only while the reply could still be a
-                            // tool-call; prose switches to live streaming.
-                            if (!isPossibleToolCall(buffered.toString())) {
-                                streamingLive = true
-                                emitContent(runId, buffered.toString())
-                                emittedCharacters += buffered.length
+                            // Keep buffering while the reply could still be
+                            // a tool-call (starts with a brace or fence, or
+                            // is too short to judge). Prose past the buffer
+                            // window switches to live streaming.
+                            val trimmed = buffered.toString().trimStart()
+                            if (!trimmed.startsWith("{") && !trimmed.startsWith("```")) {
+                                if (trimmed.length >= TOOL_CALL_PREFIX_LIMIT &&
+                                    !trimmed.contains('{') &&
+                                    !trimmed.contains('`')
+                                ) {
+                                    streamingLive = true
+                                    emitContent(runId, buffered.toString())
+                                    emittedCharacters += buffered.length
+                                }
                             }
                         }
                     }
@@ -378,12 +496,6 @@ class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) 
         return ""
     }
 
-    private fun isPossibleToolCall(text: String): Boolean {
-        val trimmed = text.trimStart()
-        if (trimmed.startsWith("```")) return true
-        return trimmed.startsWith("{")
-    }
-
     private fun buildRequest(
         prompt: String,
         systemText: String,
@@ -422,6 +534,13 @@ class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) 
 
     override fun cancel(runId: String) {
         runs.remove(runId)?.cancel()
+    }
+
+    override fun setWebSearchKey(apiKey: String) {
+        val effective = apiKey.takeIf { it.isNotBlank() }
+        webSearchApiKey = effective
+        actionExecutor.webSearchApiKey = effective
+        Log.i(TAG, "web-search key pushed: ${effective != null}")
     }
 
     private fun emitContent(runId: String, text: String) {
@@ -498,6 +617,30 @@ class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) 
         /** Bounded device-action chain per user request: tool → result → next. */
         private const val MAX_TOOL_ROUNDS = 2
 
+        /** Absolute cap on tool narration injected into a follow-up turn. */
+        private const val MAX_TOOL_RESULT_CHARS = 4_500
+
+        /** Token headroom left for the model's answer in a follow-up turn. */
+        private const val OUTPUT_TOKEN_RESERVE = 1_200
+
+        /** Tool results below this length skip token-count trimming. */
+        private const val TOKEN_GUARD_MIN_CHARS = 1_000
+
+        /** Fallback window when getTokenLimit is unavailable (Nano ~8K). */
+        private const val DEFAULT_TOKEN_LIMIT = 8_192
+
+        private const val TOOL_RESULT_OVERFLOW_FALLBACK =
+            "The tool result was too large to fit this model's context window. " +
+                "Answer briefly from what you know and offer to search a narrower topic."
+
+        /**
+         * How many characters of a reply are buffered before concluding it
+         * is prose and switching to live streaming. Small enough to stay
+         * imperceptible; large enough to cover Nano's usual intro sentence
+         * before a tool-call.
+         */
+        private const val TOOL_CALL_PREFIX_LIMIT = 60
+
         /**
          * Tool-call contract appended to the system instruction. The strict
          * whole-reply-JSON rule plus [DeviceActionParser]'s whitelist keep
@@ -519,12 +662,13 @@ class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) 
                 "- calendar_event {\"title\",\"date\":\"yyyy-MM-dd\",\"time\":\"HH:mm\"?," +
                 "\"durationMinutes\"?,\"description\"?}\n" +
                 "- play_media {\"query\"}\n" +
-                "- web_search {\"query\"}\n" +
                 "- open_app {\"appName\"}\n" +
                 "- compose_sms {\"to\"?,\"body\"}\n" +
                 "- share_text {\"text\"}\n" +
                 "- get_weather {\"location\"?,\"days\"?} — omit location for the user's " +
                 "local area (uses the device location if available), 1-3 days\n" +
+                "- web_search {\"query\",\"maxResults\"?} — search the live web and " +
+                    "answer from the results in this chat\n" +
                 "For anything else, answer normally. Never invent other tools."
     }
 }

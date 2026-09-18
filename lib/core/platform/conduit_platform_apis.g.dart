@@ -4218,6 +4218,26 @@ class AicoreHostApi {
     )
     ;
   }
+
+  /// Supplies the Ollama web-search API key used by the web_lookup tool;
+  /// empty clears it and the tool falls back to keyless search.
+  Future<void> setWebSearchKey(String apiKey) async {
+    final pigeonVar_channelName = 'dev.flutter.pigeon.conduit.AicoreHostApi.setWebSearchKey$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[apiKey]);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+        pigeonVar_replyList,
+        pigeonVar_channelName,
+        isNullValid: true,
+    )
+    ;
+  }
 }
 
 abstract class AicoreFlutterApi {

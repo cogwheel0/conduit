@@ -261,7 +261,30 @@ final applePccPlatformSupportedProvider = Provider<bool>(
   (ref) => Platform.isIOS,
 );
 
-final aicoreAdapterProvider = Provider<AicoreAdapter>((ref) => AicoreAdapter());
+final aicoreAdapterProvider = Provider<AicoreAdapter>((ref) {
+  final adapter = AicoreAdapter();
+  // The on-device assistant's web lookup tool borrows the Ollama Cloud
+  // web-search API key when a cloud profile carries one; the bridge keeps
+  // the latest key and falls back to keyless search without it.
+  void pushKey(AsyncValue<List<DirectConnectionProfile>>? profiles) {
+    final value = profiles?.value;
+    final key = value
+        ?.where(
+          (profile) => profile.adapterKey == kOllamaAdapterKey && profile.isOllamaCloud,
+        )
+        .map((profile) => profile.apiKey ?? '')
+        .firstWhere((key) => key.trim().isNotEmpty, orElse: () => '') ??
+        '';
+    adapter.setWebSearchKey(key);
+  }
+
+  pushKey(ref.watch(effectiveDirectConnectionProfilesProvider));
+  ref.listen<AsyncValue<List<DirectConnectionProfile>>>(
+    effectiveDirectConnectionProfilesProvider,
+    (_, next) => pushKey(next),
+  );
+  return adapter;
+});
 
 /// Gemini Nano never exists off Android, so status probes must not reach the
 /// platform channel there. Returning [PlatformAicoreStatusKind.unavailable]

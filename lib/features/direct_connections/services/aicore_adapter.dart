@@ -32,6 +32,12 @@ final class AicoreAdapter implements DirectProviderAdapter, AicoreFlutterApi {
   @override
   String get key => kAndroidAicoreAdapterKey;
 
+  /// Pushes the Ollama web-search API key (empty clears it) that the
+  /// bridge's web_lookup tool uses before falling back to keyless search.
+  void setWebSearchKey(String apiKey) {
+    _hostApi.setWebSearchKey(apiKey);
+  }
+
   /// Never throws: availability failures are surfaced as an unavailable
   /// status carrying the underlying reason, so the settings card can show
   /// why the platform service is not usable instead of a bare fallback.

@@ -32,6 +32,10 @@ import java.util.Locale
 class DeviceActionExecutor(private val context: Context) {
     private var torchOn: Boolean = false
 
+    /** Ollama web-search API key, pushed from Dart when a cloud profile has one. */
+    @Volatile
+    var webSearchApiKey: String? = null
+
     /** Forecast summaries by resolved place, valid for a few minutes. */
     private val weatherCache = mutableMapOf<String, Pair<Long, String>>()
 
@@ -46,11 +50,12 @@ class DeviceActionExecutor(private val context: Context) {
                 DeviceActions.DIAL -> dial(args)
                 DeviceActions.CALENDAR_EVENT -> calendarEvent(args)
                 DeviceActions.PLAY_MEDIA -> playMedia(args)
-                DeviceActions.WEB_SEARCH -> webSearch(args)
+                DeviceActions.WEB_SEARCH -> webLookup(args, webSearchApiKey)
                 DeviceActions.OPEN_APP -> openApp(args)
                 DeviceActions.COMPOSE_SMS -> composeSms(args)
                 DeviceActions.SHARE_TEXT -> shareText(args)
                 DeviceActions.GET_WEATHER -> getWeather(args)
+                DeviceActions.WEB_LOOKUP -> webLookup(args, webSearchApiKey)
                 else -> throw IllegalArgumentException("Unknown tool '$name'.")
             }
         }
@@ -220,10 +225,127 @@ class DeviceActionExecutor(private val context: Context) {
         val connection = URL(url).openConnection() as HttpURLConnection
         connection.connectTimeout = 10_000
         connection.readTimeout = 10_000
+        connection.setRequestProperty("User-Agent", HTTP_USER_AGENT)
         try {
             connection.inputStream.bufferedReader().use { reader: BufferedReader ->
                 return JSONObject(reader.readText())
             }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    /**
+     * Fetches live web results and returns them as a compact list the model
+     * can answer from in this chat. Uses the Ollama web-search API when an
+     * Ollama Cloud API key has been supplied, falling back to keyless Bing
+     * RSS (whose terms cover rendering results for personal, non-commercial
+     * use).
+     */
+    private fun webLookup(args: JSONObject, ollamaApiKey: String?): String {
+        val query = args.optString("query").takeIf { it.isNotBlank() }
+            ?: throw IllegalArgumentException("A search query is required.")
+        val maxResults = args.optInt("maxResults", 5).coerceIn(1, 5)
+        if (!ollamaApiKey.isNullOrBlank()) {
+            try {
+                android.util.Log.i(
+                    TAG,
+                    "web_lookup via ollama (query=${query.take(40)})",
+                )
+                val payload = postJson(
+                    url = "$OLLAMA_BASE/api/web_search",
+                    body = JSONObject()
+                        .put("query", query)
+                        .put("max_results", maxResults),
+                    bearerToken = ollamaApiKey,
+                )
+                val results = formatOllamaSearchResults(payload, maxResults)
+                if (results.isNotEmpty()) return results
+                android.util.Log.i(TAG, "ollama search returned no results; falling back")
+            } catch (error: Exception) {
+                android.util.Log.w(
+                    TAG,
+                    "ollama search failed (${error.message ?: error.javaClass.simpleName}); falling back",
+                )
+                // Ollama search failed (network, quota, auth) — fall through
+                // to the keyless source rather than failing the turn.
+            }
+        } else {
+            android.util.Log.i(TAG, "web_lookup via bing (no ollama key)")
+        }
+        val url = "$BING_BASE/search?" +
+            "q=${URLEncoder.encode(query, "UTF-8")}&format=rss&count=$maxResults"
+        val xml = fetchText(url)
+        val results = parseBingRss(xml)
+        if (results.isEmpty()) return "No web results found for '$query'."
+        return results.mapIndexed { index, result ->
+            "${index + 1}. ${result.first} — ${result.second} (${result.third})"
+        }.joinToString("\n")
+    }
+
+    private fun postJson(url: String, body: JSONObject, bearerToken: String): JSONObject {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.connectTimeout = 10_000
+        connection.readTimeout = 10_000
+        connection.requestMethod = "POST"
+        connection.doOutput = true
+        connection.setRequestProperty("Content-Type", "application/json")
+        connection.setRequestProperty("User-Agent", HTTP_USER_AGENT)
+        connection.setRequestProperty(
+            "Authorization",
+            "Bearer ${bearerToken.trim()}",
+        )
+        try {
+            connection.outputStream.use { it.write(body.toString().toByteArray()) }
+            val code = connection.responseCode
+            if (code !in 200..299) {
+                val errorBody = try {
+                    connection.errorStream?.bufferedReader()?.use { it.readText() }
+                } catch (_: Exception) {
+                    null
+                }?.take(200)
+                throw IllegalStateException(
+                    "HTTP $code" + (errorBody?.takeIf { it.isNotBlank() }?.let { ": $it" } ?: ""),
+                )
+            }
+            return JSONObject(
+                connection.inputStream.bufferedReader().use { it.readText() },
+            )
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    /** Renders Ollama search results as indexed narration lines. */
+    fun formatOllamaSearchResults(body: JSONObject, maxResults: Int): String {
+        val results = body.optJSONArray("results") ?: return ""
+        val lines = mutableListOf<String>()
+        for (index in 0 until results.length().coerceAtMost(maxResults)) {
+            val result = results.optJSONObject(index) ?: continue
+            val title = result.optString("title").takeIf { it.isNotBlank() }
+                ?: result.optString("url")
+            val content = truncateSnippet(
+                result.optString("content"),
+                SNIPPET_CHAR_LIMIT,
+            ).takeIf { it.isNotBlank() }
+            if (content == null && title.isBlank()) continue
+            lines.add(
+                "${lines.size + 1}. $title" +
+                    (content?.let { " — $it" } ?: "") +
+                    " (${result.optString("url")})",
+            )
+        }
+        return lines.joinToString("\n")
+    }
+
+    private fun fetchText(url: String): String {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.connectTimeout = 10_000
+        connection.readTimeout = 10_000
+        connection.setRequestProperty("User-Agent", HTTP_USER_AGENT)
+        connection.setRequestProperty("Accept", "application/rss+xml, text/xml")
+        try {
+            return connection.inputStream.bufferedReader().use { it.readText() }
         } finally {
             connection.disconnect()
         }
@@ -320,17 +442,6 @@ class DeviceActionExecutor(private val context: Context) {
         return "Asked your music app to play '$query'."
     }
 
-    private fun webSearch(args: JSONObject): String {
-        val query = args.optString("query").takeIf { it.isNotBlank() }
-            ?: throw IllegalArgumentException("A search query is required.")
-        context.startActivity(
-            Intent(Intent.ACTION_WEB_SEARCH)
-                .putExtra("query", query)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-        )
-        return "Searched the web for '$query'."
-    }
-
     private fun openApp(args: JSONObject): String {
         val name = args.optString("appName").takeIf { it.isNotBlank() }
             ?: throw IllegalArgumentException("An app name is required.")
@@ -399,11 +510,81 @@ class DeviceActionExecutor(private val context: Context) {
     }
 
     companion object {
+        private const val TAG = "DeviceActionExecutor"
         const val SET_ALARM_PERMISSION = Manifest.permission.SET_ALARM
 
         private const val WEATHER_BASE = "https://api.open-meteo.com"
         private const val GEOCODING_BASE = "https://geocoding-api.open-meteo.com"
+        private const val BING_BASE = "https://www.bing.com"
+        private const val OLLAMA_BASE = "https://ollama.com"
         private const val WEATHER_CACHE_MILLIS = 10L * 60L * 1000L
+
+        /**
+         * A plain app user agent. Android's default ("Dalvik/...") is blocked
+         * by some web application firewalls (observed on ollama.com with a
+         * bare HTML 403), so every request we make announces itself.
+         */
+        private const val HTTP_USER_AGENT = "conduit-android/4.1.6"
+
+        /**
+         * Per-result cap on web-result page content. Ollama's web_search
+         * returns near-full article text; Gemini Nano's context window is
+         * small (8K tokens), so unbounded content overflows the follow-up
+         * prompt ("Input text length exceeds the limit").
+         */
+        const val SNIPPET_CHAR_LIMIT = 400
+
+        /** Cuts [text] to [maxChars] at a word boundary, with an ellipsis. */
+        fun truncateSnippet(text: String, maxChars: Int): String {
+            if (text.length <= maxChars) return text
+            val cut = text.take(maxChars)
+            val lastSpace = cut.lastIndexOf(' ')
+            val trimmed = if (lastSpace > maxChars / 2) cut.take(lastSpace) else cut
+            return "$trimmed…"
+        }
+
+        /**
+         * Parses a Bing RSS search feed into (title, description, url) triples.
+         * Kept here (unit-testable) and tolerant: Bing's feed shape has been
+         * stable for years, and a parse miss degrades to "no results".
+         */
+        fun parseBingRss(xml: String): List<Triple<String, String, String>> {
+            val results = mutableListOf<Triple<String, String, String>>()
+            val items = xml.split("<item>").drop(1)
+            for (item in items.take(5)) {
+                val title = extractTag(item, "title") ?: continue
+                val link = extractTag(item, "link") ?: ""
+                val description = extractTag(item, "description") ?: ""
+                results.add(
+                    Triple(
+                        unescapeXml(title),
+                        unescapeXml(description),
+                        unescapeXml(link),
+                    )
+                )
+            }
+            return results
+        }
+
+        private fun extractTag(source: String, tag: String): String? {
+            val start = source.indexOf("<$tag")
+            if (start < 0) return null
+            val openEnd = source.indexOf('>', start)
+            if (openEnd < 0) return null
+            val close = source.indexOf("</$tag>", openEnd)
+            if (close < 0) return null
+            return source.substring(openEnd + 1, close).trim()
+        }
+
+        private fun unescapeXml(value: String): String = value
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&apos;", "'")
+            .replace(Regex("<[^>]{1,120}>"), "")
+            .trim()
 
         /** Rounds to one decimal, collapsing NaN into a dash. */
         fun round1(value: Double): String =

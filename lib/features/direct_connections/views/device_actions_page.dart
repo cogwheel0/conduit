@@ -96,9 +96,11 @@ const List<DeviceActionGroup> kDeviceActionGroups = <DeviceActionGroup>[
         example: '"Open Spotify"',
       ),
       DeviceAction(
-        name: 'Web search',
-        description: 'Hands a query to the device web search.',
-        example: '"Search the web for weather tomorrow"',
+        name: 'Web lookup',
+        description:
+            'Searches the live web and answers in this chat from the results, '
+            'with sources.',
+        example: '"Look up who won the 2026 Champions League"',
       ),
       DeviceAction(
         name: 'Share sheet',

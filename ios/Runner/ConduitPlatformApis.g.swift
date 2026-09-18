@@ -3717,6 +3717,9 @@ protocol AicoreHostApi {
   func downloadModel(completion: @escaping (Result<Bool, Error>) -> Void)
   func start(request: PlatformAicoreCompletionRequest) throws
   func cancel(runId: String) throws
+  /// Supplies the Ollama web-search API key used by the web_lookup tool;
+  /// empty clears it and the tool falls back to keyless search.
+  func setWebSearchKey(apiKey: String) throws
 }
 
 /// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
@@ -3786,6 +3789,23 @@ class AicoreHostApiSetup {
       }
     } else {
       cancelChannel.setMessageHandler(nil)
+    }
+    /// Supplies the Ollama web-search API key used by the web_lookup tool;
+    /// empty clears it and the tool falls back to keyless search.
+    let setWebSearchKeyChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.AicoreHostApi.setWebSearchKey\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      setWebSearchKeyChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let apiKeyArg = args[0] as! String
+        do {
+          try api.setWebSearchKey(apiKey: apiKeyArg)
+          reply(wrapResult(nil))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      setWebSearchKeyChannel.setMessageHandler(nil)
     }
   }
 }

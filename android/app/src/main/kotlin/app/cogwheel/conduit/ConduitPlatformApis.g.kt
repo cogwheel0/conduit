@@ -3856,6 +3856,11 @@ interface AicoreHostApi {
   fun downloadModel(callback: (Result<Boolean>) -> Unit)
   fun start(request: PlatformAicoreCompletionRequest)
   fun cancel(runId: String)
+  /**
+   * Supplies the Ollama web-search API key used by the web_lookup tool;
+   * empty clears it and the tool falls back to keyless search.
+   */
+  fun setWebSearchKey(apiKey: String)
 
   companion object {
     /** The codec used by AicoreHostApi. */
@@ -3928,6 +3933,24 @@ interface AicoreHostApi {
             val runIdArg = args[0] as String
             val wrapped: List<Any?> = try {
               api.cancel(runIdArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              ConduitPlatformApisPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.conduit.AicoreHostApi.setWebSearchKey$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val apiKeyArg = args[0] as String
+            val wrapped: List<Any?> = try {
+              api.setWebSearchKey(apiKeyArg)
               listOf(null)
             } catch (exception: Throwable) {
               ConduitPlatformApisPigeonUtils.wrapError(exception)

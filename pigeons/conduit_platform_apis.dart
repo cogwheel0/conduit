@@ -932,6 +932,10 @@ abstract class AicoreHostApi {
   void start(PlatformAicoreCompletionRequest request);
 
   void cancel(String runId);
+
+  /// Supplies the Ollama web-search API key used by the web_lookup tool;
+  /// empty clears it and the tool falls back to keyless search.
+  void setWebSearchKey(String apiKey);
 }
 
 @FlutterApi()
