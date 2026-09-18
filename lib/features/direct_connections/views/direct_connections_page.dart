@@ -426,6 +426,7 @@ class DirectConnectionsContent extends StatelessWidget {
           downloading: aicoreDownloading,
           onRefresh: onRefreshAicore,
           onDownload: onDownloadAicore,
+          onOpenActions: () => context.pushNamed(RouteNames.deviceActions),
         ),
         const SizedBox(height: Spacing.xl),
       ],
@@ -727,12 +728,14 @@ class _AicoreModelSection extends StatelessWidget {
     this.downloading = false,
     this.onRefresh,
     this.onDownload,
+    this.onOpenActions,
   });
 
   final AsyncValue<PlatformAicoreStatus> status;
   final bool downloading;
   final VoidCallback? onRefresh;
   final VoidCallback? onDownload;
+  final VoidCallback? onOpenActions;
 
   @override
   Widget build(BuildContext context) {
@@ -794,6 +797,14 @@ class _AicoreModelSection extends StatelessWidget {
             subtitle: l10n.aicoreStatusDownloadable,
             showChevron: true,
             onTap: onDownload,
+          ),
+        if (onOpenActions != null)
+          UtilityRow(
+            key: const ValueKey<String>('android-aicore-actions-row'),
+            title: l10n.deviceActionsTitle,
+            subtitle: l10n.deviceActionsRowSubtitle,
+            showChevron: true,
+            onTap: onOpenActions,
           ),
       ],
     );

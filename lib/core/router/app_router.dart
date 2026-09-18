@@ -50,6 +50,7 @@ import '../../features/direct_connections/providers/direct_connection_providers.
 import '../../features/direct_connections/views/direct_connection_editor_page.dart';
 import '../../features/direct_connections/views/direct_connections_page.dart';
 import '../../features/direct_connections/views/direct_mcp_server_editor_page.dart';
+import '../../features/direct_connections/views/device_actions_page.dart';
 import '../../l10n/app_localizations.dart';
 import '../models/server_config.dart';
 
@@ -643,6 +644,14 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         child: DirectConnectionsPage(
           isOnboarding: state.uri.queryParameters['onboarding'] == 'true',
         ),
+      ),
+    ),
+    GoRoute(
+      path: Routes.deviceActions,
+      name: RouteNames.deviceActions,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const DeviceActionsPage(),
       ),
     ),
     GoRoute(

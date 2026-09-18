@@ -5171,6 +5171,18 @@
   "@aicoreDownloadFailed": {
     "description": "Message shown when the AICore model download does not complete."
   },
+  "deviceActionsTitle": "What the assistant can do",
+  "@deviceActionsTitle": {
+    "description": "Title of the on-device assistant capability catalog page and its entry row."
+  },
+  "deviceActionsSubtitle": "On-device actions the assistant can run when you ask. Everything either performs a benign device change or opens a screen you can back out of.",
+  "@deviceActionsSubtitle": {
+    "description": "Intro text on the on-device assistant capability page."
+  },
+  "deviceActionsRowSubtitle": "Alarms, timers, flashlight, volume, settings and more.",
+  "@deviceActionsRowSubtitle": {
+    "description": "Subtitle of the row that opens the on-device assistant capability page."
+  },
   "applePccStatusAvailable": "Available",
   "@applePccStatusAvailable": {
     "description": "Apple PCC availability label."
