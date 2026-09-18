@@ -205,7 +205,16 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
                     emit(
                         mapOf(
                             "type" to "error",
-                            "message" to "Android TTS failed with code $errorCode"
+                            "message" to when (errorCode) {
+                                TextToSpeech.ERROR_NOT_INSTALLED_YET ->
+                                    "The text-to-speech voice is not installed on this device yet. " +
+                                        "Open Android's text-to-speech settings and download a voice."
+                                TextToSpeech.ERROR_OUTPUT ->
+                                    "The text-to-speech audio output failed."
+                                TextToSpeech.ERROR_SERVICE ->
+                                    "The text-to-speech service failed. Try again."
+                                else -> "Android TTS failed with code $errorCode"
+                            }
                         )
                     )
                 }

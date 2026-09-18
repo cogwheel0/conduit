@@ -296,6 +296,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   bool _awaitingAssistant = false;
   bool _assistantFinalized = false;
   bool _streamingTtsStarted = false;
+  bool _gateBlockedLogged = false;
   bool _iosAudioSessionManagedExternally = false;
   bool _markedCallConnected = false;
   bool _pausedDuringSpeech = false;
@@ -779,7 +780,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
       final resumeBargeIn =
           _awaitingAssistant &&
-          ref.read(appSettingsProvider).voiceBargeInEnabled &&
+          _bargeInEnabled() &&
           (_voiceInput?.willUseNativeLocalStt ?? false);
       if (_pausedDuringAssistantTurn) {
         _mutedDuringSpeech = false;
@@ -943,6 +944,11 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
       switch (event) {
         case TtsStarted():
+          DebugLogger.info(
+            'tts-started',
+            scope: 'chat/voice_mode',
+            data: {'phase': state.phase.name},
+          );
           if (_awaitingAssistant && state.phase != ChatVoiceModePhase.paused) {
             if (_activeAssistantSpeechChunkIndex < 0 &&
                 _assistantSpeechChunks.isNotEmpty) {
@@ -957,6 +963,11 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         case TtsCancelled():
           break;
         case TtsError(:final message):
+          DebugLogger.warning(
+            'tts-error',
+            scope: 'chat/voice_mode',
+            data: {'message': message},
+          );
           state = state.copyWith(errorMessage: message);
           // Failed speech still ends the assistant turn. Without this the
           // recognizer stopped for playback is never restarted, leaving voice
@@ -1321,8 +1332,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
             _awaitingAssistant ||
             state.phase == ChatVoiceModePhase.sending ||
             state.phase == ChatVoiceModePhase.speaking;
-        if (assistantActive &&
-            !ref.read(appSettingsProvider).voiceBargeInEnabled) {
+        if (assistantActive && !_bargeInEnabled()) {
           _pendingFinalTranscripts.clear();
           return;
         }
@@ -1387,14 +1397,28 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     }
   }
 
+  /// Whether the recognizer may keep listening while an assistant turn runs.
+  ///
+  /// On-device AICore inference and the native recognizer share the same
+  /// system service: a live speech session holds the model and leaves the
+  /// queued response stalled for minutes (observed as endless "Thinking" on
+  /// Gemini Nano until the mic path released). Barge-in therefore stays a
+  /// hosted-transport feature for on-device models.
+  bool _bargeInEnabled() {
+    if (ref.read(selectedModelProvider)?.capabilities?['android_aicore'] ==
+        true) {
+      return false;
+    }
+    return ref.read(appSettingsProvider).voiceBargeInEnabled;
+  }
+
   Future<void> _sendTranscript(String transcript, int token) async {
     if (!_isCurrent(token)) return;
 
     try {
       final input = _voiceInput!;
       final keepListening =
-          ref.read(appSettingsProvider).voiceBargeInEnabled &&
-          input.isUsingNativeLocalStt;
+          _bargeInEnabled() && input.isUsingNativeLocalStt;
       await _serviceLifecycleGate.runExclusive(() async {
         if (!_isCurrent(token)) return;
         var inputOwnsResponseCapture = false;
@@ -1428,6 +1452,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
       _streamingTtsStarted = true;
       _assistantFinalized = false;
+      _gateBlockedLogged = false;
       _awaitingAssistant = true;
       _lastFedAssistantText = '';
       _activeAssistantMessageId = null;
@@ -1524,6 +1549,13 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       return;
     }
 
+    if (_lastFedAssistantText.isEmpty) {
+      DebugLogger.info(
+        'voice-first-content',
+        scope: 'chat/voice_mode',
+        data: {'length': text.length, 'phase': state.phase.name},
+      );
+    }
     _lastFedAssistantText = text;
     unawaited(_textToSpeech!.feedStreamingText(text));
   }
@@ -1533,6 +1565,20 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         !_awaitingAssistant ||
         !_streamingTtsStarted ||
         _assistantFinalized) {
+      if (_awaitingAssistant && !_gateBlockedLogged) {
+        _gateBlockedLogged = true;
+        DebugLogger.info(
+          'voice-gate-blocked',
+          scope: 'chat/voice_mode',
+          data: {
+            'disposed': _disposed,
+            'awaitingAssistant': _awaitingAssistant,
+            'streamingTtsStarted': _streamingTtsStarted,
+            'assistantFinalized': _assistantFinalized,
+            'messageCount': messages.length,
+          },
+        );
+      }
       return;
     }
 
