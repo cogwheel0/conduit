@@ -155,6 +155,7 @@ enum PlatformAicoreEventKind {
   content,
   error,
   done,
+  tool,
 }
 
 enum PlatformNativeSheetItemKind {
@@ -3644,6 +3645,7 @@ class PlatformAicoreCompletionRequest {
     required this.runId,
     required this.messages,
     this.systemInstruction,
+    this.deviceTools = false,
     this.temperature,
     this.maxOutputTokens,
     this.topK,
@@ -3655,6 +3657,10 @@ class PlatformAicoreCompletionRequest {
   List<PlatformAicoreMessage> messages;
 
   String? systemInstruction;
+
+  /// Whether the bridge may execute whitelisted on-device actions when the
+  /// model returns a tool-call for this turn.
+  bool deviceTools;
 
   double? temperature;
 
@@ -3669,6 +3675,7 @@ class PlatformAicoreCompletionRequest {
       runId,
       messages,
       systemInstruction,
+      deviceTools,
       temperature,
       maxOutputTokens,
       topK,
@@ -3685,10 +3692,11 @@ class PlatformAicoreCompletionRequest {
       runId: result[0]! as String,
       messages: (result[1]! as List<Object?>).cast<PlatformAicoreMessage>(),
       systemInstruction: result[2] as String?,
-      temperature: result[3] as double?,
-      maxOutputTokens: result[4] as int?,
-      topK: result[5] as int?,
-      seed: result[6] as int?,
+      deviceTools: result[3]! as bool,
+      temperature: result[4] as double?,
+      maxOutputTokens: result[5] as int?,
+      topK: result[6] as int?,
+      seed: result[7] as int?,
     );
   }
 
@@ -3701,7 +3709,7 @@ class PlatformAicoreCompletionRequest {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(runId, other.runId) && _deepEquals(messages, other.messages) && _deepEquals(systemInstruction, other.systemInstruction) && _deepEquals(temperature, other.temperature) && _deepEquals(maxOutputTokens, other.maxOutputTokens) && _deepEquals(topK, other.topK) && _deepEquals(seed, other.seed);
+    return _deepEquals(runId, other.runId) && _deepEquals(messages, other.messages) && _deepEquals(systemInstruction, other.systemInstruction) && _deepEquals(deviceTools, other.deviceTools) && _deepEquals(temperature, other.temperature) && _deepEquals(maxOutputTokens, other.maxOutputTokens) && _deepEquals(topK, other.topK) && _deepEquals(seed, other.seed);
   }
 
   @override
@@ -3710,7 +3718,7 @@ class PlatformAicoreCompletionRequest {
 
   @override
   String toString() {
-    return 'PlatformAicoreCompletionRequest(runId: $runId, messages: $messages, systemInstruction: $systemInstruction, temperature: $temperature, maxOutputTokens: $maxOutputTokens, topK: $topK, seed: $seed)';
+    return 'PlatformAicoreCompletionRequest(runId: $runId, messages: $messages, systemInstruction: $systemInstruction, deviceTools: $deviceTools, temperature: $temperature, maxOutputTokens: $maxOutputTokens, topK: $topK, seed: $seed)';
   }
 }
 
@@ -3719,6 +3727,7 @@ class PlatformAicoreStreamEvent {
     required this.runId,
     required this.kind,
     this.content,
+    this.toolCall,
   });
 
   String runId;
@@ -3727,11 +3736,16 @@ class PlatformAicoreStreamEvent {
 
   String? content;
 
+  /// For `tool` events: a JSON object `{name, args, result}` describing the
+  /// executed device action and its narration result.
+  String? toolCall;
+
   List<Object?> _toList() {
     return <Object?>[
       runId,
       kind,
       content,
+      toolCall,
     ];
   }
 
@@ -3744,6 +3758,7 @@ class PlatformAicoreStreamEvent {
       runId: result[0]! as String,
       kind: result[1]! as PlatformAicoreEventKind,
       content: result[2] as String?,
+      toolCall: result[3] as String?,
     );
   }
 
@@ -3756,7 +3771,7 @@ class PlatformAicoreStreamEvent {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(runId, other.runId) && _deepEquals(kind, other.kind) && _deepEquals(content, other.content);
+    return _deepEquals(runId, other.runId) && _deepEquals(kind, other.kind) && _deepEquals(content, other.content) && _deepEquals(toolCall, other.toolCall);
   }
 
   @override
@@ -3765,7 +3780,7 @@ class PlatformAicoreStreamEvent {
 
   @override
   String toString() {
-    return 'PlatformAicoreStreamEvent(runId: $runId, kind: $kind, content: $content)';
+    return 'PlatformAicoreStreamEvent(runId: $runId, kind: $kind, content: $content, toolCall: $toolCall)';
   }
 }
 

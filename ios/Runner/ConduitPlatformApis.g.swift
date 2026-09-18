@@ -236,6 +236,7 @@ enum PlatformAicoreEventKind: Int, CaseIterable {
   case content = 0
   case error = 1
   case done = 2
+  case tool = 3
 }
 
 enum PlatformNativeSheetItemKind: Int, CaseIterable {
@@ -3206,6 +3207,9 @@ struct PlatformAicoreCompletionRequest: Hashable, CustomStringConvertible {
   var runId: String
   var messages: [PlatformAicoreMessage]
   var systemInstruction: String? = nil
+  /// Whether the bridge may execute whitelisted on-device actions when the
+  /// model returns a tool-call for this turn.
+  var deviceTools: Bool
   var temperature: Double? = nil
   var maxOutputTokens: Int64? = nil
   var topK: Int64? = nil
@@ -3217,15 +3221,17 @@ struct PlatformAicoreCompletionRequest: Hashable, CustomStringConvertible {
     let runId = pigeonVar_list[0] as! String
     let messages = pigeonVar_list[1] as! [PlatformAicoreMessage]
     let systemInstruction: String? = nilOrValue(pigeonVar_list[2])
-    let temperature: Double? = nilOrValue(pigeonVar_list[3])
-    let maxOutputTokens: Int64? = nilOrValue(pigeonVar_list[4])
-    let topK: Int64? = nilOrValue(pigeonVar_list[5])
-    let seed: Int64? = nilOrValue(pigeonVar_list[6])
+    let deviceTools = pigeonVar_list[3] as! Bool
+    let temperature: Double? = nilOrValue(pigeonVar_list[4])
+    let maxOutputTokens: Int64? = nilOrValue(pigeonVar_list[5])
+    let topK: Int64? = nilOrValue(pigeonVar_list[6])
+    let seed: Int64? = nilOrValue(pigeonVar_list[7])
 
     return PlatformAicoreCompletionRequest(
       runId: runId,
       messages: messages,
       systemInstruction: systemInstruction,
+      deviceTools: deviceTools,
       temperature: temperature,
       maxOutputTokens: maxOutputTokens,
       topK: topK,
@@ -3237,6 +3243,7 @@ struct PlatformAicoreCompletionRequest: Hashable, CustomStringConvertible {
       runId,
       messages,
       systemInstruction,
+      deviceTools,
       temperature,
       maxOutputTokens,
       topK,
@@ -3247,7 +3254,7 @@ struct PlatformAicoreCompletionRequest: Hashable, CustomStringConvertible {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.runId, rhs.runId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.messages, rhs.messages) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.systemInstruction, rhs.systemInstruction) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.temperature, rhs.temperature) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.maxOutputTokens, rhs.maxOutputTokens) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.topK, rhs.topK) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.seed, rhs.seed)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.runId, rhs.runId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.messages, rhs.messages) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.systemInstruction, rhs.systemInstruction) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.deviceTools, rhs.deviceTools) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.temperature, rhs.temperature) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.maxOutputTokens, rhs.maxOutputTokens) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.topK, rhs.topK) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.seed, rhs.seed)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -3255,6 +3262,7 @@ struct PlatformAicoreCompletionRequest: Hashable, CustomStringConvertible {
     ConduitPlatformApisPigeonInternal.deepHash(value: runId, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: messages, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: systemInstruction, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: deviceTools, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: temperature, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: maxOutputTokens, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: topK, hasher: &hasher)
@@ -3262,7 +3270,7 @@ struct PlatformAicoreCompletionRequest: Hashable, CustomStringConvertible {
   }
 
   public var description: String {
-    return "PlatformAicoreCompletionRequest(runId: \(String(describing: runId)), messages: \(String(describing: messages)), systemInstruction: \(String(describing: systemInstruction)), temperature: \(String(describing: temperature)), maxOutputTokens: \(String(describing: maxOutputTokens)), topK: \(String(describing: topK)), seed: \(String(describing: seed)))"
+    return "PlatformAicoreCompletionRequest(runId: \(String(describing: runId)), messages: \(String(describing: messages)), systemInstruction: \(String(describing: systemInstruction)), deviceTools: \(String(describing: deviceTools)), temperature: \(String(describing: temperature)), maxOutputTokens: \(String(describing: maxOutputTokens)), topK: \(String(describing: topK)), seed: \(String(describing: seed)))"
   }
 }
 
@@ -3271,6 +3279,9 @@ struct PlatformAicoreStreamEvent: Hashable, CustomStringConvertible {
   var runId: String
   var kind: PlatformAicoreEventKind
   var content: String? = nil
+  /// For `tool` events: a JSON object `{name, args, result}` describing the
+  /// executed device action and its narration result.
+  var toolCall: String? = nil
 
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
@@ -3278,11 +3289,13 @@ struct PlatformAicoreStreamEvent: Hashable, CustomStringConvertible {
     let runId = pigeonVar_list[0] as! String
     let kind = pigeonVar_list[1] as! PlatformAicoreEventKind
     let content: String? = nilOrValue(pigeonVar_list[2])
+    let toolCall: String? = nilOrValue(pigeonVar_list[3])
 
     return PlatformAicoreStreamEvent(
       runId: runId,
       kind: kind,
-      content: content
+      content: content,
+      toolCall: toolCall
     )
   }
   func toList() -> [Any?] {
@@ -3290,13 +3303,14 @@ struct PlatformAicoreStreamEvent: Hashable, CustomStringConvertible {
       runId,
       kind,
       content,
+      toolCall,
     ]
   }
   static func == (lhs: PlatformAicoreStreamEvent, rhs: PlatformAicoreStreamEvent) -> Bool {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.runId, rhs.runId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.kind, rhs.kind) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.content, rhs.content)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.runId, rhs.runId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.kind, rhs.kind) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.content, rhs.content) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.toolCall, rhs.toolCall)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -3304,10 +3318,11 @@ struct PlatformAicoreStreamEvent: Hashable, CustomStringConvertible {
     ConduitPlatformApisPigeonInternal.deepHash(value: runId, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: kind, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: content, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: toolCall, hasher: &hasher)
   }
 
   public var description: String {
-    return "PlatformAicoreStreamEvent(runId: \(String(describing: runId)), kind: \(String(describing: kind)), content: \(String(describing: content)))"
+    return "PlatformAicoreStreamEvent(runId: \(String(describing: runId)), kind: \(String(describing: kind)), content: \(String(describing: content)), toolCall: \(String(describing: toolCall)))"
   }
 }
 

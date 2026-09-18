@@ -30,7 +30,7 @@ enum PlatformPccEventKind { content, usage, fallback, error, done }
 
 enum PlatformAicoreStatusKind { unavailable, downloadable, downloading, available }
 
-enum PlatformAicoreEventKind { content, error, done }
+enum PlatformAicoreEventKind { content, error, done, tool }
 
 enum PlatformNativeSheetItemKind {
   navigation,
@@ -882,6 +882,7 @@ class PlatformAicoreCompletionRequest {
     required this.runId,
     required this.messages,
     this.systemInstruction,
+    this.deviceTools = false,
     this.temperature,
     this.maxOutputTokens,
     this.topK,
@@ -891,6 +892,10 @@ class PlatformAicoreCompletionRequest {
   String runId;
   List<PlatformAicoreMessage> messages;
   String? systemInstruction;
+
+  /// Whether the bridge may execute whitelisted on-device actions when the
+  /// model returns a tool-call for this turn.
+  bool deviceTools;
   double? temperature;
   int? maxOutputTokens;
   int? topK;
@@ -902,11 +907,16 @@ class PlatformAicoreStreamEvent {
     required this.runId,
     required this.kind,
     this.content,
+    this.toolCall,
   });
 
   String runId;
   PlatformAicoreEventKind kind;
   String? content;
+
+  /// For `tool` events: a JSON object `{name, args, result}` describing the
+  /// executed device action and its narration result.
+  String? toolCall;
 }
 
 @HostApi()

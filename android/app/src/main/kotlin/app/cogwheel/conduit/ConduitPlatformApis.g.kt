@@ -284,7 +284,8 @@ enum class PlatformAicoreStatusKind(val raw: Int) {
 enum class PlatformAicoreEventKind(val raw: Int) {
   CONTENT(0),
   ERROR(1),
-  DONE(2);
+  DONE(2),
+  TOOL(3);
 
   companion object {
     fun ofRaw(raw: Int): PlatformAicoreEventKind? {
@@ -3148,6 +3149,11 @@ data class PlatformAicoreCompletionRequest (
   val runId: String,
   val messages: List<PlatformAicoreMessage>,
   val systemInstruction: String? = null,
+  /**
+   * Whether the bridge may execute whitelisted on-device actions when the
+   * model returns a tool-call for this turn.
+   */
+  val deviceTools: Boolean,
   val temperature: Double? = null,
   val maxOutputTokens: Long? = null,
   val topK: Long? = null,
@@ -3159,11 +3165,12 @@ data class PlatformAicoreCompletionRequest (
       val runId = pigeonVar_list[0] as String
       val messages = pigeonVar_list[1] as List<PlatformAicoreMessage>
       val systemInstruction = pigeonVar_list[2] as String?
-      val temperature = pigeonVar_list[3] as Double?
-      val maxOutputTokens = pigeonVar_list[4] as Long?
-      val topK = pigeonVar_list[5] as Long?
-      val seed = pigeonVar_list[6] as Long?
-      return PlatformAicoreCompletionRequest(runId, messages, systemInstruction, temperature, maxOutputTokens, topK, seed)
+      val deviceTools = pigeonVar_list[3] as Boolean
+      val temperature = pigeonVar_list[4] as Double?
+      val maxOutputTokens = pigeonVar_list[5] as Long?
+      val topK = pigeonVar_list[6] as Long?
+      val seed = pigeonVar_list[7] as Long?
+      return PlatformAicoreCompletionRequest(runId, messages, systemInstruction, deviceTools, temperature, maxOutputTokens, topK, seed)
     }
   }
   fun toList(): List<Any?> {
@@ -3171,6 +3178,7 @@ data class PlatformAicoreCompletionRequest (
       runId,
       messages,
       systemInstruction,
+      deviceTools,
       temperature,
       maxOutputTokens,
       topK,
@@ -3185,7 +3193,7 @@ data class PlatformAicoreCompletionRequest (
       return true
     }
     val other = other as PlatformAicoreCompletionRequest
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.runId, other.runId) && ConduitPlatformApisPigeonUtils.deepEquals(this.messages, other.messages) && ConduitPlatformApisPigeonUtils.deepEquals(this.systemInstruction, other.systemInstruction) && ConduitPlatformApisPigeonUtils.deepEquals(this.temperature, other.temperature) && ConduitPlatformApisPigeonUtils.deepEquals(this.maxOutputTokens, other.maxOutputTokens) && ConduitPlatformApisPigeonUtils.deepEquals(this.topK, other.topK) && ConduitPlatformApisPigeonUtils.deepEquals(this.seed, other.seed)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.runId, other.runId) && ConduitPlatformApisPigeonUtils.deepEquals(this.messages, other.messages) && ConduitPlatformApisPigeonUtils.deepEquals(this.systemInstruction, other.systemInstruction) && ConduitPlatformApisPigeonUtils.deepEquals(this.deviceTools, other.deviceTools) && ConduitPlatformApisPigeonUtils.deepEquals(this.temperature, other.temperature) && ConduitPlatformApisPigeonUtils.deepEquals(this.maxOutputTokens, other.maxOutputTokens) && ConduitPlatformApisPigeonUtils.deepEquals(this.topK, other.topK) && ConduitPlatformApisPigeonUtils.deepEquals(this.seed, other.seed)
   }
 
   override fun hashCode(): Int {
@@ -3193,6 +3201,7 @@ data class PlatformAicoreCompletionRequest (
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.runId)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.messages)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.systemInstruction)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.deviceTools)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.temperature)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.maxOutputTokens)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.topK)
@@ -3200,7 +3209,7 @@ data class PlatformAicoreCompletionRequest (
     return result
   }
   override fun toString(): String {
-    return "PlatformAicoreCompletionRequest(runId=$runId, messages=$messages, systemInstruction=$systemInstruction, temperature=$temperature, maxOutputTokens=$maxOutputTokens, topK=$topK, seed=$seed)"
+    return "PlatformAicoreCompletionRequest(runId=$runId, messages=$messages, systemInstruction=$systemInstruction, deviceTools=$deviceTools, temperature=$temperature, maxOutputTokens=$maxOutputTokens, topK=$topK, seed=$seed)"
   }
 }
 
@@ -3208,7 +3217,12 @@ data class PlatformAicoreCompletionRequest (
 data class PlatformAicoreStreamEvent (
   val runId: String,
   val kind: PlatformAicoreEventKind,
-  val content: String? = null
+  val content: String? = null,
+  /**
+   * For `tool` events: a JSON object `{name, args, result}` describing the
+   * executed device action and its narration result.
+   */
+  val toolCall: String? = null
 )
  {
   companion object {
@@ -3216,7 +3230,8 @@ data class PlatformAicoreStreamEvent (
       val runId = pigeonVar_list[0] as String
       val kind = pigeonVar_list[1] as PlatformAicoreEventKind
       val content = pigeonVar_list[2] as String?
-      return PlatformAicoreStreamEvent(runId, kind, content)
+      val toolCall = pigeonVar_list[3] as String?
+      return PlatformAicoreStreamEvent(runId, kind, content, toolCall)
     }
   }
   fun toList(): List<Any?> {
@@ -3224,6 +3239,7 @@ data class PlatformAicoreStreamEvent (
       runId,
       kind,
       content,
+      toolCall,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -3234,7 +3250,7 @@ data class PlatformAicoreStreamEvent (
       return true
     }
     val other = other as PlatformAicoreStreamEvent
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.runId, other.runId) && ConduitPlatformApisPigeonUtils.deepEquals(this.kind, other.kind) && ConduitPlatformApisPigeonUtils.deepEquals(this.content, other.content)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.runId, other.runId) && ConduitPlatformApisPigeonUtils.deepEquals(this.kind, other.kind) && ConduitPlatformApisPigeonUtils.deepEquals(this.content, other.content) && ConduitPlatformApisPigeonUtils.deepEquals(this.toolCall, other.toolCall)
   }
 
   override fun hashCode(): Int {
@@ -3242,10 +3258,11 @@ data class PlatformAicoreStreamEvent (
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.runId)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.kind)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.content)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.toolCall)
     return result
   }
   override fun toString(): String {
-    return "PlatformAicoreStreamEvent(runId=$runId, kind=$kind, content=$content)"
+    return "PlatformAicoreStreamEvent(runId=$runId, kind=$kind, content=$content, toolCall=$toolCall)"
   }
 }
 private open class ConduitPlatformApisPigeonCodec : StandardMessageCodec() {
