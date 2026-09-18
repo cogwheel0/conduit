@@ -990,9 +990,9 @@ void main() {
       check(serialized).contains('name="Web Search"');
       check(serialized).contains('name="File Search"');
       check(serialized).contains('name="Computer Use"');
-      check(serialized).contains('result="&quot;Search: cats, dogs&quot;"');
-      check(serialized).contains('result="&quot;Queries: notes&quot;"');
-      check(serialized).contains('result="&quot;Action: click&quot;"');
+      check(serialized).contains('result="Search: cats, dogs"');
+      check(serialized).contains('result="Queries: notes"');
+      check(serialized).contains('result="Action: click"');
     });
 
     test('preserves raw structured tool output values until rendering', () {

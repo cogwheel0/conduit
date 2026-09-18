@@ -100,6 +100,37 @@ class ConduitMarkdownPreprocessor {
     r'^ {0,3}(~{3,})[^\n]*\n[\s\S]*?^ {0,3}\3~*[ \t]*(?=\n|$)',
     multiLine: true,
   );
+  /// Semantic `<details ...>` blocks (Open WebUI tool-call / reasoning /
+  /// code-interpreter blocks). Requires the `<summary>` child so literal
+  /// `<details>` examples without one are never matched.
+  static final _semanticDetailsOpen = RegExp(
+    r'<details\s+[^>]*\btype\s*=\s*"(?:tool_calls|reasoning|code_interpreter)"[^>]*>',
+    caseSensitive: false,
+  );
+  static final _semanticDetailsFullBlock = RegExp(
+    r'<details\s+[^>]*\btype\s*=\s*"(?:tool_calls|reasoning|code_interpreter)"[^>]*>'
+    r'[\s\S]*?</details>',
+    caseSensitive: false,
+  );
+  /// Closing `</details>` tag, matched case-insensitively to mirror
+  /// DetailsBlockSyntax._closingTagPattern.
+  static final _closingTagCaseInsensitive = RegExp(
+    r'</\s*details\s*>',
+    caseSensitive: false,
+  );
+
+  /// `type=` attribute of an unterminated semantic `<details` tag, matched
+  /// against a bounded window when scanning for truncated tails (issue #677).
+  static final _unterminatedSemanticType = RegExp(
+    "\\btype\\s*=\\s*[\"']?(?:tool_calls|reasoning|code_interpreter)",
+    caseSensitive: false,
+  );
+
+  static final _detailsSummaryCheck = RegExp(
+    r'<\s*summary[\s>]',
+    caseSensitive: false,
+  );
+
   static final _allDetailsBlocks = RegExp(
     r'<details[^>]*>[\s\S]*?</details>',
     multiLine: true,
@@ -172,8 +203,20 @@ class ConduitMarkdownPreprocessor {
     // Strip link reference definitions using markdown package
     output = _stripLinkReferenceDefinitions(output);
 
-    // Fix fence issues
-    output = _normalizeFences(output);
+    // Fix fence issues (structure only; auto-close runs after the hoister).
+    output = _normalizeFenceStructure(output);
+
+    // A model answer that leaves a fence unclosed would otherwise have
+    // _autoCloseUnmatchedFence turn everything after that fence — including
+    // semantic tool-call/reasoning blocks appended after the answer — into
+    // a fenced code region that renders as a raw wall (issue #677). While
+    // the fence is still unclosed, hoist those semantic blocks out of the
+    // region, close the fence, and re-append the blocks after it on block
+    // boundaries. Deliberately fenced code (a closed fence the model wrote)
+    // is untouched.
+    output = _hoistSemanticDetailsFromUnclosedFence(output);
+
+    output = _autoCloseUnmatchedFence(output);
 
     // Fix Setext heading false positives
     output = output.replaceAllMapped(
@@ -219,6 +262,15 @@ class ConduitMarkdownPreprocessor {
         (match) => '${match[1]}\n\n${match[2]}',
       );
     }
+
+    // A persisted message can end inside a semantic details block (an
+    // interrupted stream was saved mid-tag, or a server truncated the
+    // content). The per-line block parser can never match an unterminated
+    // tag, so the tail renders as raw text. The streaming path already
+    // strips such tails via stripTrailingIncompleteToolCallDetailsCanonical;
+    // strip here too so saved/reloaded messages heal the same way. Handles
+    // both a complete-but-unclosed block and a tag truncated mid-attributes.
+    output = _stripUnterminatedSemanticDetailsTail(output);
 
     return output;
   }
@@ -339,7 +391,7 @@ class ConduitMarkdownPreprocessor {
   // Private Helpers
   // ============================================================
 
-  static String _normalizeFences(String input) {
+  static String _normalizeFenceStructure(String input) {
     var output = input;
 
     // Move fences after list markers to new line
@@ -363,14 +415,196 @@ class ConduitMarkdownPreprocessor {
       (match) => '${match[1]}\n```',
     );
 
-    // Auto-close unmatched fence
-    final fenceCount = _fenceAtBolRegex.allMatches(output).length;
+    return output;
+  }
+
+  /// Appends a closing fence when the content leaves a fence open, so the
+  /// region renders as code instead of swallowing everything after it.
+  /// Split from [_normalizeFenceStructure] so the semantic-details hoister
+  /// can run while the last fence is still unclosed (issue #677).
+  static String _autoCloseUnmatchedFence(String input) {
+    final fenceCount = _fenceAtBolRegex.allMatches(input).length;
     if (fenceCount.isOdd) {
+      var output = input;
       if (!output.endsWith('\n')) output += '\n';
-      output += '```';
+      return '$output```';
+    }
+    return input;
+  }
+
+  /// Hoists semantic `<details>` blocks out of an unclosed fenced code
+  /// region (issue #677).
+  ///
+  /// When the model answer leaves a ``` fence open and semantic
+  /// tool-call/reasoning blocks were appended after the answer, closing the
+  /// fence first would swallow the blocks into a code region rendered as a
+  /// raw wall. This pass runs BEFORE [_autoCloseUnmatchedFence]: it finds
+  /// the last genuinely unclosed fence opener (no matching closer after it,
+  /// parser pairing rule), moves every complete *semantic* block (typed
+  /// tool_calls/reasoning/code_interpreter with a `<summary>` child) out of
+  /// that region, closes the fence, and re-appends the blocks after it on
+  /// block boundaries. Code text between hoisted blocks stays inside the
+  /// fence; deliberately closed fences are never touched (the region only
+  /// exists when a closer is missing), and blocks without `<summary>`
+  /// (literal examples) stay verbatim.
+  static String _hoistSemanticDetailsFromUnclosedFence(String input) {
+    if (!input.contains('```') && !input.contains('~~~')) {
+      return input;
+    }
+    if (!_semanticDetailsOpen.hasMatch(input)) {
+      return input;
     }
 
-    return output;
+    // Parser-faithful sequential fence walk. A fence-looking line OPENS a
+    // code block when none is open; while a block is open, a line closes it
+    // only when it uses the same character, is at least as long as the
+    // opener run, and carries no info string (CommonMark). Anything else
+    // inside an open block is code content, never a fence. After the walk,
+    // the last opener seen while still open is the unclosed one.
+    final fenceish = RegExp(r'^ {0,3}(`{3,}|~{3,})[^\n]*$', multiLine: true);
+    String? openChar;
+    var openLen = 0;
+    var lastOpenStart = -1;
+    String? lastOpenRun;
+    for (final m in fenceish.allMatches(input)) {
+      final run = m.group(1)!;
+      final ch = run[0];
+      if (openChar != null) {
+        final info = input
+            .substring(m.start, m.end)
+            .replaceFirst(RegExp('^ {0,3}(`{3,}|~{3,})'), '');
+        final closes =
+            ch == openChar && run.length >= openLen && info.isEmpty;
+        if (closes) {
+          openChar = null;
+          openLen = 0;
+        }
+        continue;
+      }
+      openChar = ch;
+      openLen = run.length;
+      lastOpenStart = m.start;
+      lastOpenRun = run;
+    }
+    if (openChar == null || lastOpenStart == -1) return input;
+    final lastUnclosedStart = lastOpenStart;
+    final lastUnclosedRun = lastOpenRun!;
+
+    final region = input.substring(lastUnclosedStart);
+    if (!_semanticDetailsOpen.hasMatch(region)) return input;
+
+    // Move each complete semantic block: keep code text in place, collect
+    // blocks, then close the fence and re-append the blocks after it.
+    final hoisted = StringBuffer();
+    final kept = StringBuffer();
+    var index = 0;
+    var hoistedAny = false;
+    while (index < region.length) {
+      RegExpMatch? next;
+      for (final m in _semanticDetailsFullBlock.allMatches(region)) {
+        if (m.start >= index) {
+          next = m;
+          break;
+        }
+      }
+      if (next == null) break;
+      kept.write(region.substring(index, next.start));
+      final block = region.substring(next.start, next.end);
+      if (_detailsSummaryCheck.hasMatch(block)) {
+        hoisted.write('\n\n$block');
+        hoistedAny = true;
+      } else {
+        kept.write(block);
+      }
+      index = next.end;
+    }
+    if (!hoistedAny) return input;
+    kept.write(region.substring(index));
+
+    // Close the synthetic fence with the opener's own run and re-append the
+    // hoisted blocks after it on block boundaries.
+    final prefix = input.substring(0, lastUnclosedStart);
+    var rebuilt = '$prefix${kept.toString()}\n$lastUnclosedRun';
+    rebuilt = rebuilt.endsWith('\n') ? rebuilt : '$rebuilt\n';
+    return '$rebuilt${hoisted.toString()}';
+  }
+
+  /// Strips a trailing semantic `<details …>` block that never closes
+  /// (issue #677).
+  ///
+  /// A message persisted mid-stream can end after a semantic open tag
+  /// without `</details>` ever arriving; the per-line parser renders the
+  /// incomplete block as raw text. The streaming path already strips such
+  /// tails via stripTrailingIncompleteToolCallDetailsCanonical; strip here
+  /// too so saved/reloaded messages heal the same way. A tag truncated
+  /// mid-attributes (no `>` at all) is handled inside
+  /// [_normalizeDetailsOpenTags]'s unterminated-tag branch.
+  static String _stripUnterminatedSemanticDetailsTail(String input) {
+    if (input.isEmpty) return input;
+    // Fast bail: nothing to strip without a `<details` marker, and the
+    // heavy _semanticDetailsOpen regex must never run over adversarial
+    // input with many unterminated markers ([^>]* backtracks per marker —
+    // quadratic on streaming payloads; the bounded-work test covers it).
+    if (!_detailsTagMarker.hasMatch(input)) return input;
+    // Fast bail: with a closing tag present, only a tail AFTER the last
+    // semantic open tag could be unterminated; find that marker via the
+    // literal scan and verify it with the full pattern on the bounded tag.
+    final lower = input.toLowerCase();
+    var lastMarker = -1;
+    var from = 0;
+    while (true) {
+      final i = lower.indexOf('<details', from);
+      if (i == -1) break;
+      lastMarker = i;
+      from = i + 8;
+    }
+    if (lastMarker == -1) return input;
+
+    // Quote-aware scan from the marker to its terminator (mirrors the
+    // normalizer's scan). Bounded to the join limit.
+    var pos = lastMarker;
+    String? quote;
+    var awaitingValue = false;
+    var end = -1;
+    final scanLimit = lastMarker + 256 * 1024 < input.length
+        ? lastMarker + 256 * 1024
+        : input.length;
+    while (pos < scanLimit) {
+      final ch = input[pos];
+      if (quote != null) {
+        if (ch == quote) quote = null;
+      } else if (ch == '"' || ch == "'") {
+        if (awaitingValue) {
+          quote = ch;
+          awaitingValue = false;
+        }
+      } else if (ch == '=') {
+        awaitingValue = true;
+      } else if (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r') {
+        // keep awaitingValue across whitespace
+      } else {
+        awaitingValue = false;
+      }
+      if (quote == null && ch == '>') {
+        end = pos;
+        break;
+      }
+      pos++;
+    }
+    if (end == -1) {
+      // Truncated tag: the normalizer's truncation branch already drops
+      // semantic tails; nothing further here.
+      return input;
+    }
+
+    final tag = input.substring(lastMarker, end + 1);
+    if (!_semanticDetailsOpen.hasMatch(tag)) return input;
+
+    final closing = _closingTagCaseInsensitive
+        .allMatches(input, end + 1)
+        .toList(growable: false);
+    if (closing.isNotEmpty) return input;
+    return input.substring(0, lastMarker).trimRight();
   }
 
   static String _separateConsecutiveLinks(String input) {
@@ -494,6 +728,7 @@ class ConduitMarkdownPreprocessor {
     var copyFrom = 0;
     var searchFrom = 0;
     var scannedTotal = 0;
+    var dropTrailing = false;
     while (true) {
       final idx = _nextDetailsMarker(input, searchFrom);
       if (idx == -1) break;
@@ -550,7 +785,27 @@ class ConduitMarkdownPreprocessor {
         return buffer.toString();
       }
       if (end == -1) {
-        // Unterminated tag — copy verbatim and continue after the marker.
+        // Unterminated tag. When the quote-aware scan reached EOF (pos past
+        // the last character), the tag never terminates: a truncated
+        // SEMANTIC tag (interrupted stream saved mid-open-tag) renders as
+        // raw text no matter what, so drop the tail entirely (issue #677).
+        // The type attribute sits near the start of a real tag; a bounded
+        // window keeps this check O(1) per marker. When the scan was cut
+        // short by the join limit instead, the tag may still close beyond
+        // the limit — copy verbatim, never drop. Ordinary/literal
+        // unterminated tags are also copied verbatim as before.
+        final reachedEof = pos >= input.length;
+        if (reachedEof) {
+          final windowEnd =
+              idx + 2048 < input.length ? idx + 2048 : input.length;
+          if (_unterminatedSemanticType.hasMatch(
+            input.substring(idx, windowEnd),
+          )) {
+            copyFrom = input.length;
+            dropTrailing = true;
+            break;
+          }
+        }
         buffer.write(input.substring(idx, idx + '<details'.length));
         searchFrom = idx + '<details'.length;
         copyFrom = searchFrom;
@@ -568,8 +823,13 @@ class ConduitMarkdownPreprocessor {
       copyFrom = end + 1;
     }
     buffer.write(input.substring(copyFrom));
-    return buffer.toString();
+    return dropTrailing
+        ? buffer.toString().trimRight()
+        : buffer.toString();
   }
+
+  /// Drops a truncated SEMANTIC `<details` tail mid-attributes and trims
+  /// trailing whitespace left behind by the drop (issue #677).
 
   /// Escapes raw `<`/`>` inside the quoted attribute values of a single-line
   /// `<details ...>` opening tag so the tag regex reaches the real
