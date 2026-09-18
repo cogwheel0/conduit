@@ -65,4 +65,25 @@ class DeviceActionParserTest {
         assertEquals(DeviceActions.DIAL, call?.name)
         assertEquals(0, call?.args?.length())
     }
+
+    @Test
+    fun parsesWeatherCall() {
+        val call = DeviceActionParser.parse(
+            """{"tool":"get_weather","args":{"location":"Madrid","days":2}}""",
+        )
+        assertEquals(DeviceActions.GET_WEATHER, call?.name)
+        assertEquals("Madrid", call?.args?.getString("location"))
+        assertEquals(2, call?.args?.getInt("days"))
+    }
+
+    @Test
+    fun weatherCodesMapToDescriptions() {
+        assertEquals("clear sky", DeviceActionExecutor.weatherDescription(0))
+        assertEquals("partly cloudy", DeviceActionExecutor.weatherDescription(2))
+        assertEquals("fog", DeviceActionExecutor.weatherDescription(45))
+        assertEquals("heavy rain", DeviceActionExecutor.weatherDescription(65))
+        assertEquals("rain showers", DeviceActionExecutor.weatherDescription(82))
+        assertEquals("thunderstorm with hail", DeviceActionExecutor.weatherDescription(99))
+        assertEquals("unknown conditions", DeviceActionExecutor.weatherDescription(42))
+    }
 }

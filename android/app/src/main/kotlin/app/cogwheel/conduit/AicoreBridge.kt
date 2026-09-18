@@ -259,6 +259,7 @@ class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) 
         if (!deviceTools) return
         val call = DeviceActionParser.parse(fullText) ?: return
         val result = actionExecutor.execute(call.name, call.args)
+        Log.i(TAG, "tool-exec: ${call.name} args=$call.args result=$result")
         emitToolCall(
             runId,
             JSONObject()
@@ -363,6 +364,11 @@ class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) 
         }
         if (!streamingLive) {
             val full = buffered.toString()
+            Log.i(
+                TAG,
+                "tool-detect: parsed=${DeviceActionParser.parse(full) != null} " +
+                    "text=${full.take(120).replace("\n", " ")}",
+            )
             if (DeviceActionParser.parse(full) == null && full.isNotBlank()) {
                 // It never was a tool-call; surface what the model wrote.
                 emitContent(runId, full)
@@ -503,7 +509,7 @@ class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) 
                 "Available tools:\n" +
                 "- set_alarm {\"hour\":0-23,\"minute\":0-59,\"label\"?}\n" +
                 "- set_timer {\"seconds\":1-86400,\"label\"?}\n" +
-                "- flashlight {\"on\":true|false}\n" +
+                "- flashlight {\"on\":true|false} (on=false turns it off)\n" +
                 "- set_volume {\"stream\":\"media\"|\"ring\"|\"alarm\"|\"notification\"," +
                 "\"volumePercent\":0-100}\n" +
                 "- open_settings {\"screen\":\"wifi\"|\"bluetooth\"|\"sound\"|\"display\"|" +
@@ -517,6 +523,8 @@ class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) 
                 "- open_app {\"appName\"}\n" +
                 "- compose_sms {\"to\"?,\"body\"}\n" +
                 "- share_text {\"text\"}\n" +
+                "- get_weather {\"location\"?,\"days\"?} — omit location for the user's " +
+                "local area (uses the device location if available), 1-3 days\n" +
                 "For anything else, answer normally. Never invent other tools."
     }
 }

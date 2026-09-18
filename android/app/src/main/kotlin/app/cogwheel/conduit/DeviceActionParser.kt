@@ -21,6 +21,7 @@ object DeviceActions {
     const val OPEN_APP = "open_app"
     const val COMPOSE_SMS = "compose_sms"
     const val SHARE_TEXT = "share_text"
+    const val GET_WEATHER = "get_weather"
 
     val names = setOf(
         SET_ALARM,
@@ -35,6 +36,7 @@ object DeviceActions {
         OPEN_APP,
         COMPOSE_SMS,
         SHARE_TEXT,
+        GET_WEATHER,
     )
 }
 

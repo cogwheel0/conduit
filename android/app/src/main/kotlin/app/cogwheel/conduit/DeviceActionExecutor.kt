@@ -4,40 +4,55 @@ import android.Manifest
 import android.app.SearchManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.hardware.camera2.CameraManager
+import android.location.LocationManager
 import android.media.AudioManager
 import android.net.Uri
 import android.provider.AlarmClock
 import android.provider.CalendarContract
 import android.provider.Settings
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.BufferedReader
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
 import java.util.Calendar
 import java.util.Locale
 
 /**
  * Executes whitelisted, fully user-visible device actions behind the model
- * tool-call loop. Every action either completes a benign device change or
- * opens a system surface, so no confirmation gate is needed at this tier.
- * The narration returned here is fed back to the model as the tool result.
+ * tool-call loop. Every action either completes a benign device change,
+ * opens a system surface, or reads public data (weather). The narration
+ * returned here is fed back to the model as the tool result.
  */
 class DeviceActionExecutor(private val context: Context) {
     private var torchOn: Boolean = false
 
-    fun execute(name: String, args: JSONObject): String = try {
-        when (name) {
-            DeviceActions.SET_ALARM -> setAlarm(args)
-            DeviceActions.SET_TIMER -> setTimer(args)
-            DeviceActions.FLASHLIGHT -> setFlashlight(args)
-            DeviceActions.SET_VOLUME -> setVolume(args)
-            DeviceActions.OPEN_SETTINGS -> openSettings(args)
-            DeviceActions.DIAL -> dial(args)
-            DeviceActions.CALENDAR_EVENT -> calendarEvent(args)
-            DeviceActions.PLAY_MEDIA -> playMedia(args)
-            DeviceActions.WEB_SEARCH -> webSearch(args)
-            DeviceActions.OPEN_APP -> openApp(args)
-            DeviceActions.COMPOSE_SMS -> composeSms(args)
-            DeviceActions.SHARE_TEXT -> shareText(args)
-            else -> throw IllegalArgumentException("Unknown tool '$name'.")
+    /** Forecast summaries by resolved place, valid for a few minutes. */
+    private val weatherCache = mutableMapOf<String, Pair<Long, String>>()
+
+    suspend fun execute(name: String, args: JSONObject): String = try {
+        withContext(kotlinx.coroutines.Dispatchers.IO) {
+            when (name) {
+                DeviceActions.SET_ALARM -> setAlarm(args)
+                DeviceActions.SET_TIMER -> setTimer(args)
+                DeviceActions.FLASHLIGHT -> setFlashlight(args)
+                DeviceActions.SET_VOLUME -> setVolume(args)
+                DeviceActions.OPEN_SETTINGS -> openSettings(args)
+                DeviceActions.DIAL -> dial(args)
+                DeviceActions.CALENDAR_EVENT -> calendarEvent(args)
+                DeviceActions.PLAY_MEDIA -> playMedia(args)
+                DeviceActions.WEB_SEARCH -> webSearch(args)
+                DeviceActions.OPEN_APP -> openApp(args)
+                DeviceActions.COMPOSE_SMS -> composeSms(args)
+                DeviceActions.SHARE_TEXT -> shareText(args)
+                DeviceActions.GET_WEATHER -> getWeather(args)
+                else -> throw IllegalArgumentException("Unknown tool '$name'.")
+            }
         }
     } catch (error: Exception) {
         "The '$name' action failed: ${error.message ?: error.javaClass.simpleName}"
@@ -96,6 +111,122 @@ class DeviceActionExecutor(private val context: Context) {
         cameraManager.setTorchMode(cameraId, on)
         torchOn = on
         return if (on) "Flashlight on." else "Flashlight off."
+    }
+
+    /**
+     * Reads public weather data (Open-Meteo, keyless) and returns a compact
+     * narration the model can answer from. A named area is geocoded; without
+     * one, the device's last known location is used when location permission
+     * has been granted. A missing location is a soft outcome the model can
+     * explain, not a failure.
+     */
+    private fun getWeather(args: JSONObject): String {
+        val place = args.optString("location").takeIf { it.isNotBlank() }
+        val requestedDays = (args.optInt("days", 1)).coerceIn(1, 3)
+        if (place == null && !hasLocationPermission()) {
+            return "I could not read the device location because location permission " +
+                "is not granted for Conduit. Ask the user to name a city instead."
+        }
+        val resolved = place?.let { geocode(it) } ?: deviceLocation()
+            ?: return "I could not find a place for this weather request. " +
+                "Ask the user to name a city."
+        val label = resolved.second ?: place ?: "your area"
+        val (latitude, longitude) = resolved.first
+        val cacheKey = "%.3f,%.3f".format(Locale.US, latitude, longitude)
+        weatherCache[cacheKey]?.let { (at, text) ->
+            if (System.currentTimeMillis() - at < WEATHER_CACHE_MILLIS) return text
+        }
+        val days = requestedDays
+        val query = "latitude=$latitude&longitude=$longitude" +
+            "&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m" +
+            "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max" +
+            "&timezone=auto&forecast_days=$days"
+        val body = fetchJson("$WEATHER_BASE/v1/forecast?$query")
+        val current = body.optJSONObject("current")
+        val daily = body.optJSONObject("daily")
+        if (current == null || daily == null) {
+            throw IllegalStateException("Weather service returned no data.")
+        }
+        val timezone = body.optString("timezone", "")
+        val parts = mutableListOf<String>()
+        parts.add(
+            "$label — now ${round1(current.optDouble("temperature_2m", Double.NaN))}°C" +
+                ", feels ${round1(current.optDouble("apparent_temperature", Double.NaN))}°C" +
+                ", ${weatherDescription(current.optInt("weather_code", -1))}" +
+                ", wind ${round1(current.optDouble("wind_speed_10m", Double.NaN))} km/h" +
+                (if (timezone.isNotEmpty()) " (timezone $timezone)" else ""),
+        )
+        val maxima = daily.optJSONArray("temperature_2m_max")
+        val minima = daily.optJSONArray("temperature_2m_min")
+        val rain = daily.optJSONArray("precipitation_probability_max")
+        val days_ = daily.optJSONArray("time") ?: org.json.JSONArray()
+        for (index in 0 until days_.length().coerceAtMost(3)) {
+            if (index >= (maxima?.length() ?: 0)) break
+            val day = days_.optString(index)
+            val text = buildString {
+                append("Day $day: high ")
+                append(round1(maxima?.optDouble(index, Double.NaN) ?: Double.NaN))
+                append("°C, low ")
+                append(round1(minima?.optDouble(index, Double.NaN) ?: Double.NaN))
+                append("°C")
+                rain?.optInt(index, -1)?.takeIf { it >= 0 }?.let {
+                    append(", rain chance $it%")
+                }
+            }
+            parts.add(text)
+        }
+        val narration = parts.joinToString(". ")
+        weatherCache[cacheKey] = System.currentTimeMillis() to narration
+        return narration
+    }
+
+    /** Geocodes a place name; returns (lat,lon) to display label, or null. */
+    private fun geocode(place: String): Pair<Pair<Double, Double>, String>? {
+        val body = fetchJson(
+            "$GEOCODING_BASE/api/v1/search?name=" +
+                URLEncoder.encode(place, "UTF-8") + "&count=1&language=en&format=json"
+        )
+        val first = body.optJSONArray("results")?.optJSONObject(0)
+            ?: return null
+        return Pair(
+            Pair(first.optDouble("latitude", Double.NaN), first.optDouble("longitude", Double.NaN)),
+            first.optString("name", place),
+        )
+    }
+
+    private fun hasLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
+
+    private fun deviceLocation(): Pair<Pair<Double, Double>, String?>? {
+        val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val last = listOfNotNull(
+            LocationManager.PASSIVE_PROVIDER,
+            LocationManager.NETWORK_PROVIDER,
+            LocationManager.GPS_PROVIDER,
+        ).mapNotNull { provider ->
+            try {
+                manager.getLastKnownLocation(provider)
+            } catch (_: SecurityException) {
+                null
+            }
+        }.maxByOrNull { it.time } ?: return null
+        return Pair(Pair(last.latitude, last.longitude), null as String?)
+    }
+
+    private fun fetchJson(url: String): JSONObject {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.connectTimeout = 10_000
+        connection.readTimeout = 10_000
+        try {
+            connection.inputStream.bufferedReader().use { reader: BufferedReader ->
+                return JSONObject(reader.readText())
+            }
+        } finally {
+            connection.disconnect()
+        }
     }
 
     private fun setVolume(args: JSONObject): String {
@@ -269,6 +400,38 @@ class DeviceActionExecutor(private val context: Context) {
 
     companion object {
         const val SET_ALARM_PERMISSION = Manifest.permission.SET_ALARM
+
+        private const val WEATHER_BASE = "https://api.open-meteo.com"
+        private const val GEOCODING_BASE = "https://geocoding-api.open-meteo.com"
+        private const val WEATHER_CACHE_MILLIS = 10L * 60L * 1000L
+
+        /** Rounds to one decimal, collapsing NaN into a dash. */
+        fun round1(value: Double): String =
+            if (value.isNaN()) "-" else String.format(Locale.US, "%.1f", value)
+
+        /** WMO 4677 weather-code to short description. */
+        fun weatherDescription(code: Int): String = when (code) {
+            0 -> "clear sky"
+            1 -> "mainly clear"
+            2 -> "partly cloudy"
+            3 -> "overcast"
+            45, 48 -> "fog"
+            51, 53, 55 -> "light drizzle"
+            56, 57 -> "freezing drizzle"
+            61 -> "light rain"
+            63 -> "rain"
+            65 -> "heavy rain"
+            66, 67 -> "freezing rain"
+            71 -> "light snow"
+            73 -> "snow"
+            75 -> "heavy snow"
+            77 -> "snow grains"
+            80, 81, 82 -> "rain showers"
+            85, 86 -> "snow showers"
+            95 -> "thunderstorm"
+            96, 99 -> "thunderstorm with hail"
+            else -> "unknown conditions"
+        }
 
         fun volumeIndexFor(maximum: Int, percent: Int): Int =
             (maximum * percent + 50) / 100

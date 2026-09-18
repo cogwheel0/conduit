@@ -105,6 +105,13 @@ const List<DeviceActionGroup> kDeviceActionGroups = <DeviceActionGroup>[
         description: 'Opens the Android share sheet with text you ask for.',
         example: '"Share this address with text"',
       ),
+      DeviceAction(
+        name: 'Weather',
+        description:
+            'Answers with live weather for a named area, or your local area '
+            'when location permission is granted.',
+        example: '"What is the weather in Madrid?" / "Weather here today"',
+      ),
     ],
   ),
 ];
