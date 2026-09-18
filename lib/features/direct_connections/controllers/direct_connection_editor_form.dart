@@ -116,6 +116,12 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
       _adapterKey = profile.adapterKey;
       _providerPreset = profile.isOpenRouter
           ? kOpenRouterProviderPreset
+          : profile.adapterKey == kOpenAiCompatibleAdapterKey &&
+                profile.baseUrl == kMiniMaxApiBaseUrl
+          ? kMiniMaxProviderPreset
+          : profile.adapterKey == kOpenAiCompatibleAdapterKey &&
+                profile.baseUrl == kMiniMaxCnApiBaseUrl
+          ? kMiniMaxCnProviderPreset
           : profile.adapterKey;
       _openAiApiMode = profile.openAiApiMode;
       _authentication =
@@ -150,6 +156,9 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
     required String openRouterDefaultName,
   }) {
     if (providerPreset == value) return;
+    final wasMiniMax =
+        providerPreset == kMiniMaxProviderPreset ||
+        providerPreset == kMiniMaxCnProviderPreset;
     _providerPreset = value;
     _adapterKey = value == kOllamaAdapterKey
         ? kOllamaAdapterKey
@@ -160,15 +169,27 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
       baseUrl.text = switch (value) {
         kOllamaAdapterKey => 'https://ollama.com',
         kOpenRouterProviderPreset => kOpenRouterApiBaseUrl,
+        kMiniMaxProviderPreset => kMiniMaxApiBaseUrl,
+        kMiniMaxCnProviderPreset => kMiniMaxCnApiBaseUrl,
         _ => 'https://api.openai.com/v1',
       };
+      if (value == kMiniMaxProviderPreset ||
+          value == kMiniMaxCnProviderPreset) {
+        models.text = kMiniMaxModelIds.join('\n');
+      } else if (wasMiniMax && models.text == kMiniMaxModelIds.join('\n')) {
+        models.clear();
+      }
       if (mode.isNew &&
           (name.text == 'My provider' ||
               name.text == ollamaDefaultName ||
-              name.text == openRouterDefaultName)) {
+              name.text == openRouterDefaultName ||
+              name.text == 'MiniMax' ||
+              name.text == 'MiniMax (China)')) {
         name.text = switch (value) {
           kOllamaAdapterKey => ollamaDefaultName,
           kOpenRouterProviderPreset => openRouterDefaultName,
+          kMiniMaxProviderPreset => 'MiniMax',
+          kMiniMaxCnProviderPreset => 'MiniMax (China)',
           _ => 'My provider',
         };
       }

@@ -11,6 +11,46 @@ import 'package:conduit/features/direct_connections/services/direct_connection_p
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'MiniMax regional presets round-trip and clear default models on exit',
+    () {
+      final editor = _EditorHarness();
+      addTearDown(editor.dispose);
+      editor.form.hydrate(null);
+      for (final preset in [kMiniMaxProviderPreset, kMiniMaxCnProviderPreset]) {
+        editor.form.selectProviderPreset(
+          preset,
+          ollamaDefaultName: 'Ollama Cloud',
+          openRouterDefaultName: 'OpenRouter',
+        );
+        editor.form.apiKey.text = 'test-key';
+        final result = editor.form.buildDraft(
+          validateFields: true,
+          openWebUiFallbackName: 'Connection',
+        );
+        expect(result.errors.hasAny, isFalse);
+        final profile = result.profile!;
+        expect(profile.adapterKey, kOpenAiCompatibleAdapterKey);
+        expect(profile.openAiApiMode, DirectOpenAiApiMode.chatCompletions);
+        expect(
+          profile.baseUrl,
+          preset == kMiniMaxProviderPreset
+              ? kMiniMaxApiBaseUrl
+              : kMiniMaxCnApiBaseUrl,
+        );
+        expect(profile.manualModelIds, kMiniMaxModelIds);
+        editor.form.hydrate(profile);
+        expect(editor.form.providerPreset, preset);
+      }
+      editor.form.selectProviderPreset(
+        kOpenAiCompatibleAdapterKey,
+        ollamaDefaultName: 'Ollama Cloud',
+        openRouterDefaultName: 'OpenRouter',
+      );
+      expect(editor.form.models.text, isEmpty);
+    },
+  );
+
   test('form owns provider transitions and profile creation', () {
     final editor = _EditorHarness();
     addTearDown(editor.dispose);

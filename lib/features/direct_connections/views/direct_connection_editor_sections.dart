@@ -99,18 +99,24 @@ final class DirectConnectionGeneralSection extends StatelessWidget {
   }
 }
 
-List<AdaptiveDropdownOption<String>> _providerOptions(AppLocalizations l10n) =>
-    [
-      AdaptiveDropdownOption(
-        value: kOpenAiCompatibleAdapterKey,
-        label: l10n.openAICompatible,
-      ),
-      AdaptiveDropdownOption(
-        value: kOpenRouterProviderPreset,
-        label: l10n.openRouterProviderName,
-      ),
-      AdaptiveDropdownOption(value: kOllamaAdapterKey, label: l10n.ollama),
-    ];
+List<AdaptiveDropdownOption<String>> _providerOptions(
+  AppLocalizations l10n,
+) => [
+  AdaptiveDropdownOption(
+    value: kOpenAiCompatibleAdapterKey,
+    label: l10n.openAICompatible,
+  ),
+  AdaptiveDropdownOption(
+    value: kOpenRouterProviderPreset,
+    label: l10n.openRouterProviderName,
+  ),
+  const AdaptiveDropdownOption(value: kMiniMaxProviderPreset, label: 'MiniMax'),
+  const AdaptiveDropdownOption(
+    value: kMiniMaxCnProviderPreset,
+    label: 'MiniMax (China)',
+  ),
+  AdaptiveDropdownOption(value: kOllamaAdapterKey, label: l10n.ollama),
+];
 
 List<AdaptiveDropdownOption<String>> _providerOptionsForForm(
   AppLocalizations l10n,
@@ -262,6 +268,22 @@ final class DirectConnectionProviderSection extends StatelessWidget {
             selected: form.providerPreset == kOpenRouterProviderPreset,
             showDivider: true,
             onTap: () => select(kOpenRouterProviderPreset),
+          ),
+          UtilitySelectionRow(
+            leading: const _ProviderIcon(icon: Icons.api_rounded),
+            title: 'MiniMax',
+            subtitle: null,
+            selected: form.providerPreset == kMiniMaxProviderPreset,
+            showDivider: true,
+            onTap: () => select(kMiniMaxProviderPreset),
+          ),
+          UtilitySelectionRow(
+            leading: const _ProviderIcon(icon: Icons.api_rounded),
+            title: 'MiniMax (China)',
+            subtitle: null,
+            selected: form.providerPreset == kMiniMaxCnProviderPreset,
+            showDivider: true,
+            onTap: () => select(kMiniMaxCnProviderPreset),
           ),
           UtilitySelectionRow(
             leading: const _ProviderIcon(icon: Icons.computer_outlined),
