@@ -5,6 +5,7 @@ import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/optimized_storage_service.dart';
+import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
@@ -110,6 +111,15 @@ final class _FixedHermesConfig extends HermesConfigController {
   HermesConfig build() => config;
 }
 
+final class _FixedAppSettings extends AppSettingsNotifier {
+  _FixedAppSettings(this.settings);
+
+  final AppSettings settings;
+
+  @override
+  AppSettings build() => settings;
+}
+
 ({
   ProviderContainer container,
   Completer<DirectModelDiscoveryState> discovery,
@@ -208,6 +218,102 @@ void main() {
 
     expect(fixture.container.read(selectedModelProvider), isNull);
     expect(fixture.container.read(isManualModelSelectionProvider), isFalse);
+  });
+
+  test('configured default wins over discovery list order', () async {
+    final profile = DirectConnectionProfile(
+      id: 'profile',
+      name: 'Provider',
+      adapterKey: kOllamaAdapterKey,
+      baseUrl: 'http://localhost:11434',
+    );
+    final registry = DirectModelRegistry();
+    final other = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'other-model'),
+    ]).single;
+    final preferred = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'preferred-model'),
+    ]).single;
+    final discovery = Completer<DirectModelDiscoveryState>();
+    final container = ProviderContainer(
+      overrides: [
+        reviewerModeProvider.overrideWithValue(false),
+        isAuthenticatedProvider2.overrideWithValue(false),
+        optimizedStorageServiceProvider.overrideWithValue(_Storage()),
+        directModelRegistryProvider.overrideWithValue(registry),
+        directModelDiscoveryProvider.overrideWith(
+          () => _PendingDiscovery(discovery),
+        ),
+        hermesConfigProvider.overrideWith(
+          () => _FixedHermesConfig(const HermesConfig()),
+        ),
+        appSettingsProvider.overrideWith(
+          () => _FixedAppSettings(
+            AppSettings(defaultModel: preferred.id),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    // Discovery reports the non-preferred model first, as a cold start's
+    // partial list can; the user's configured default must win anyway.
+    discovery.complete(DirectModelDiscoveryState(models: [other, preferred]));
+    await container.read(directModelDiscoveryProvider.future);
+    await container.read(modelsProvider.future);
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(container.read(selectedModelProvider)?.id, preferred.id);
+    expect(container.read(isManualModelSelectionProvider), isFalse);
+  });
+
+  test('missing configured default is awaited, not substituted', () async {
+    final profile = DirectConnectionProfile(
+      id: 'profile',
+      name: 'Provider',
+      adapterKey: kOllamaAdapterKey,
+      baseUrl: 'http://localhost:11434',
+    );
+    final registry = DirectModelRegistry();
+    final other = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'other-model'),
+    ]).single;
+    final missing = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'missing-model'),
+    ]).single;
+    final discovery = Completer<DirectModelDiscoveryState>();
+    final container = ProviderContainer(
+      overrides: [
+        reviewerModeProvider.overrideWithValue(false),
+        isAuthenticatedProvider2.overrideWithValue(false),
+        optimizedStorageServiceProvider.overrideWithValue(_Storage()),
+        directModelRegistryProvider.overrideWithValue(registry),
+        directModelDiscoveryProvider.overrideWith(
+          () => _PendingDiscovery(discovery),
+        ),
+        hermesConfigProvider.overrideWith(
+          () => _FixedHermesConfig(const HermesConfig()),
+        ),
+        appSettingsProvider.overrideWith(
+          () => _FixedAppSettings(
+            AppSettings(defaultModel: missing.id),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(modelsProvider.future);
+    // Discovery settles with only the non-preferred model available.
+    discovery.complete(DirectModelDiscoveryState(models: [other]));
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    // Substituting the arbitrary available model (the old behavior) is what
+    // made cold starts land on a "random" model; the reconcile must wait.
+    expect(container.read(selectedModelProvider), isNull);
+    expect(container.read(isManualModelSelectionProvider), isFalse);
   });
 
   test('direct reconciliation logs omit remote model identity', () async {

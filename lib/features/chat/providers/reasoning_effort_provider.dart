@@ -417,6 +417,9 @@ ReasoningEffortPolicy reasoningEffortPolicyForModel(
   if (binding.adapterKey == kApplePccAdapterKey) {
     return ReasoningEffortPolicy.unsupported;
   }
+  if (binding.adapterKey == kAndroidAicoreAdapterKey) {
+    return ReasoningEffortPolicy.unsupported;
+  }
   if (model.capabilities?['openrouter'] != true) {
     return ReasoningEffortPolicy.generic;
   }

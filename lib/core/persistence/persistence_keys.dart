@@ -105,6 +105,7 @@ final class PreferenceKeys {
   static const String appleOnDeviceEnabled = 'apple_on_device_enabled_v1';
   static const String applePccOnDeviceFallback =
       'apple_pcc_on_device_fallback_v1';
+  static const String androidAicoreEnabled = 'android_aicore_enabled_v1';
   static const String directContextLengthOverrides =
       'direct_context_length_overrides_v1';
   static const String reasoningEffortByModel = 'reasoning_effort_by_model_v1';

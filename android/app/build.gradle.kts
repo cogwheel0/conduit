@@ -76,6 +76,8 @@ dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     implementation("androidx.activity:activity:1.12.4")
     implementation("com.google.mlkit:genai-speech-recognition:1.0.0-alpha1")
+    // Gemini Nano via the AICore system service (ML Kit GenAI Prompt API).
+    implementation("com.google.mlkit:genai-prompt:1.0.0-beta4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     testImplementation("junit:junit:4.13.2")
     // Real org.json for JVM unit tests; the mockable android.jar only stubs it.
