@@ -2118,7 +2118,7 @@ class Models extends _$Models {
         preferredModelId:
             currentSelected != null && ref.read(isManualModelSelectionProvider)
             ? null
-            : ref.read(appSettingsProvider).defaultModel,
+            : _configuredDefaultModelId(ref),
       );
       if (identical(currentSelected, replacement)) return models;
 
@@ -2174,6 +2174,7 @@ class Models extends _$Models {
     final replacement = replacementForUnavailableLocalModel(
       models: models,
       current: currentSelected,
+      configuredDefaultId: _configuredDefaultModelId(ref),
     );
     ref.read(isManualModelSelectionProvider.notifier).set(false);
     ref.read(selectedModelProvider.notifier).set(replacement);
@@ -2320,6 +2321,7 @@ class Models extends _$Models {
           final replacement = replacementForUnavailableLocalModel(
             models: freshModels,
             current: currentSelected,
+            configuredDefaultId: _configuredDefaultModelId(ref),
           );
           ref.read(isManualModelSelectionProvider.notifier).set(false);
           ref.read(selectedModelProvider.notifier).set(replacement);
@@ -2432,7 +2434,19 @@ class Models extends _$Models {
 Model? replacementForUnavailableLocalModel({
   required Iterable<Model> models,
   required Model current,
+  String? configuredDefaultId,
 }) {
+  // A configured default that is still available beats an arbitrary
+  // substitute — e.g. when a direct connection is turned off, the chat
+  // should land on the user's default, not on whichever model happens to
+  // sort first.
+  final defaultMatch =
+      configuredDefaultId == null || configuredDefaultId.isEmpty
+      ? null
+      : models
+            .where((model) => model.id == configuredDefaultId)
+            .firstOrNull;
+  if (defaultMatch != null) return defaultMatch;
   if (isHermesModel(current)) {
     return models.where(isHermesModel).firstOrNull ?? models.firstOrNull;
   }
@@ -2561,7 +2575,7 @@ class SelectedModel extends _$SelectedModel {
         preferredModelId:
             current != null && ref.read(isManualModelSelectionProvider)
             ? null
-            : ref.read(appSettingsProvider).defaultModel,
+            : _configuredDefaultModelId(ref),
       ),
     );
   }
@@ -2984,8 +2998,10 @@ final defaultModelAutoSelectionProvider = Provider<void>((ref) {
           selected = models.firstWhere((model) => model.id == current.id);
         }
 
-        selected ??= models.isNotEmpty ? models.first : null;
-
+        // The configured default wins or nothing does: if it is not in the
+        // list yet (direct discovery still settling, for example), leaving
+        // the selection untouched is safer than pinning an arbitrary first
+        // model. defaultModelProvider re-resolves as the list changes.
         if (selected != null) {
           ref.read(selectedModelProvider.notifier).set(selected);
           DebugLogger.log(
@@ -4610,6 +4626,21 @@ Future<Model?> defaultModel(Ref ref) async {
 Future<Model?> _resolveDefaultModel(Ref ref) async {
   DebugLogger.log('provider-called', scope: 'models/default');
 
+  // Boot-time resolution must see the user's real default model, not the
+  // placeholder settings state emitted while preferences hydrate; an early
+  // read otherwise drops every resolver into its first-model fallback. The
+  // production bootstrap awaits this before providers exist, so this is a
+  // no-op in the app and a belt-and-braces for embedded containers.
+  if (!PreferencesStore.isReady) {
+    try {
+      await PreferencesStore.ensureInitialized();
+    } catch (_) {
+      // Store unavailable (unit test without mocks): resolve from whatever
+      // the settings snapshot carries instead of failing the default.
+    }
+    if (!ref.mounted) return null;
+  }
+
   final storage = ref.read(optimizedStorageServiceProvider);
   // This provider is commonly consumed through a one-shot `.future` read.
   // Snapshot mutable inputs instead of subscribing across awaits: invalidating
@@ -4739,7 +4770,7 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
     final configuredDefaultId =
         currentSelected != null && ref.read(isManualModelSelectionProvider)
         ? null
-        : ref.read(appSettingsProvider).defaultModel;
+        : _configuredDefaultModelId(ref);
     final Model? standalone;
     if (preferredBackend == PreferredBackend.hermes) {
       standalone = hermesConfig.isUsable
@@ -5169,6 +5200,18 @@ Model? _modelForPreferredBackend(
   };
 }
 
+/// The user's configured default model id, reading the loaded preference
+/// store directly so boot-time decisions never observe a stale settings
+/// snapshot. Returns null when unset (or before the store has loaded, in
+/// which case reconciliation simply defers to a later pass).
+String? _configuredDefaultModelId(Ref ref) {
+  final fromState = ref.read(appSettingsProvider).defaultModel;
+  if (fromState != null && fromState.isNotEmpty) return fromState;
+  if (!PreferencesStore.isReady) return null;
+  final fromStore = PreferencesStore.get<String>(PreferenceKeys.defaultModel);
+  return fromStore == null || fromStore.isEmpty ? null : fromStore;
+}
+
 Model? _accountlessSelection({
   required Iterable<Model> models,
   required Model? current,
@@ -5195,6 +5238,13 @@ Model? _accountlessSelection({
       _matchesPreferredBackend(currentMatch, preferredBackend)) {
     return currentMatch;
   }
+
+  // A configured default that is not (yet) in the list must not be silently
+  // replaced by an arbitrary model: discovery listeners re-run this decision
+  // once the list settles, so return null and wait. Substituting the first
+  // model here is what made a cold start land on a "random" model.
+  if (preferredModelId != null && preferredModelId.isNotEmpty) return null;
+
   return _modelForPreferredBackend(available, preferredBackend) ??
       switch (preferredBackend) {
         PreferredBackend.owui ||

@@ -5733,6 +5733,8 @@
   "@directConnectProviderTitle": {"description":"Heading above the direct provider setup form."},
   "directConnectionEnabledSubtitle": "Show models from this connection in the model picker.",
   "@directConnectionEnabledSubtitle": {"description":"Description of an enabled direct connection."},
+  "directConnectionOllamaCloudToggleSubtitle": "Show this connection's models in the model picker. Its API key still powers web search for on-device models while off.",
+  "@directConnectionOllamaCloudToggleSubtitle": {"description":"Enabled-toggle description for Ollama Cloud connections: models hide when off, but the key keeps powering on-device web search."},
   "directConnectionDetailsTitle": "Connection details",
   "@directConnectionDetailsTitle": {"description":"Section title above direct provider endpoint and authentication fields."},
   "directBaseUrlDescription": "Include the API prefix expected by the provider, usually /v1.",

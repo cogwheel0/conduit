@@ -5892,6 +5892,54 @@
   "@applePccUnavailable": {
     "description": "Fallback shown when Apple PCC cannot be selected during onboarding."
   },
+  "backendChooserAndroidSectionTitle": "Gemini Nano",
+  "@backendChooserAndroidSectionTitle": {
+    "description": "Section title for available Android model choices on the first-run backend chooser."
+  },
+  "backendChooserAndroidOnDeviceTitle": "Android On-Device",
+  "@backendChooserAndroidOnDeviceTitle": {
+    "description": "Title of the Android on-device model option on the first-run backend chooser."
+  },
+  "backendChooserAndroidOnDeviceSubtitle": "Uruchamiaj Gemini Nano od Google na tym urządzeniu, także offline.",
+  "@backendChooserAndroidOnDeviceSubtitle": {
+    "description": "Description of the Android on-device model option on the first-run backend chooser."
+  },
+  "androidOnDeviceUnavailable": "Android On-Device jest niedostępny na tym urządzeniu.",
+  "@androidOnDeviceUnavailable": {
+    "description": "Fallback shown when the Android on-device model cannot be selected during onboarding."
+  },
+  "aicoreStatusAvailable": "Dostępne",
+  "@aicoreStatusAvailable": {
+    "description": "Status label shown when the AICore model is ready to use."
+  },
+  "aicoreStatusDownloadable": "Model nie został jeszcze pobrany.",
+  "@aicoreStatusDownloadable": {
+    "description": "Status label shown when the AICore model can be downloaded."
+  },
+  "aicoreStatusDownloading": "Pobieranie modelu…",
+  "@aicoreStatusDownloading": {
+    "description": "Status label shown while the AICore model is downloading."
+  },
+  "aicoreDownloadTitle": "Pobierz model",
+  "@aicoreDownloadTitle": {
+    "description": "Title of the row that starts the AICore model download."
+  },
+  "aicoreDownloadFailed": "Pobieranie Gemini Nano nie powiodło się. Spróbuj ponownie później.",
+  "@aicoreDownloadFailed": {
+    "description": "Message shown when the AICore model download does not complete."
+  },
+  "deviceActionsTitle": "Co potrafi asystent",
+  "@deviceActionsTitle": {
+    "description": "Title of the on-device assistant capability catalog page and its entry row."
+  },
+  "deviceActionsSubtitle": "Działania na urządzeniu, które asystent może wykonać na Twoje życzenie. Każde z nich albo wykonuje bezpieczną zmianę na urządzeniu, albo otwiera ekran, z którego można wrócić.",
+  "@deviceActionsSubtitle": {
+    "description": "Intro text on the on-device assistant capability page."
+  },
+  "deviceActionsRowSubtitle": "Alarmy, minutniki, latarka, głośność, ustawienia i więcej.",
+  "@deviceActionsRowSubtitle": {
+    "description": "Subtitle of the row that opens the on-device assistant capability page."
+  },
   "applePccStatusAvailable": "Dostępna",
   "@applePccStatusAvailable": {
     "description": "Apple PCC availability label."
@@ -6293,6 +6341,10 @@
   "directConnectionEnabledSubtitle": "Pokazuj modele z tego połączenia w selektorze modeli.",
   "@directConnectionEnabledSubtitle": {
     "description": "Description of an enabled direct connection."
+  },
+  "directConnectionOllamaCloudToggleSubtitle": "Pokazuj modele tego połączenia w selektorze modeli. Po wyłączeniu jego klucz API nadal obsługuje wyszukiwanie w sieci dla modeli na urządzeniu.",
+  "@directConnectionOllamaCloudToggleSubtitle": {
+    "description": "Enabled-toggle description for Ollama Cloud connections: models hide when off, but the key keeps powering on-device web search."
   },
   "directConnectionDetailsTitle": "Szczegóły połączenia",
   "@directConnectionDetailsTitle": {

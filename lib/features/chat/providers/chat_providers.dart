@@ -20,6 +20,7 @@ import 'package:yaml/yaml.dart' as yaml;
 import '../../../core/auth/auth_state_manager.dart';
 import '../../../core/auth/api_auth_interceptor.dart';
 import '../../../core/auth/openwebui_account_owner_marker.dart';
+import '../../../core/persistence/preferences_store.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/model.dart';
 import '../../../core/models/openwebui_chat_prompt.dart';
@@ -7568,9 +7569,12 @@ Future<void> restoreDefaultModel(dynamic ref) async {
   ref.read(isManualModelSelectionProvider.notifier).set(false);
 
   // If auto-select (no explicit default), clear the cached default model
-  // so defaultModelProvider will fetch from server
+  // so defaultModelProvider will fetch from server. Only when preferences
+  // have actually loaded: a cold-start read of the placeholder settings
+  // state must not erase the cached default before hydration knows better.
   final settingsDefault = ref.read(appSettingsProvider).defaultModel;
-  if (settingsDefault == null || settingsDefault.isEmpty) {
+  if ((settingsDefault == null || settingsDefault.isEmpty) &&
+      PreferencesStore.isReady) {
     final storage = ref.read(optimizedStorageServiceProvider);
     if (ref is Ref && !ref.mounted) return;
     await storage.saveLocalDefaultModel(null);
