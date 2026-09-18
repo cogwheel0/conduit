@@ -1,7 +1,9 @@
 package app.cogwheel.conduit
 
+import android.content.Context
 import android.os.Build
 import android.util.Log
+import org.json.JSONObject
 import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.prompt.GenerateContentRequest
@@ -34,10 +36,11 @@ import kotlinx.coroutines.withTimeoutOrNull
  * for [FeatureStatus.AVAILABLE] and reports failures as stream error events
  * instead of throwing across the channel.
  */
-class AicoreBridge(messenger: BinaryMessenger) : AicoreHostApi {
+class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) : AicoreHostApi {
     private val flutterApi = AicoreFlutterApi(messenger)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val runs = mutableMapOf<String, Job>()
+    private val actionExecutor by lazy { DeviceActionExecutor(appContext) }
     @Volatile
     private var model: GenerativeModel? = null
 
@@ -168,27 +171,47 @@ class AicoreBridge(messenger: BinaryMessenger) : AicoreHostApi {
             }
             Log.i(TAG, "start: checkStatus ok")
 
-            val systemText = request.messages
-                .filter { it.role == ROLE_SYSTEM }
-                .joinToString("\n\n") { it.content }
-                .trim()
+            val systemText = listOfNotNull(
+                request.messages
+                    .filter { it.role == ROLE_SYSTEM }
+                    .joinToString("\n\n") { it.content }
+                    .trim()
+                    .takeIf { it.isNotEmpty() },
+                if (request.deviceTools) DEVICE_TOOL_SCHEMA else null,
+            ).filterNotNull().joinToString("\n\n")
             val turns = request.messages.filter { it.role != ROLE_SYSTEM }
-            val prompt = buildPrompt(turns)
-            if (prompt.isEmpty()) {
+            if (turns.isEmpty()) {
                 throw IllegalArgumentException("The request contained no message content.")
             }
 
-            val builder = generateContentRequest(TextPart(prompt)) {
-                request.temperature?.let { temperature = it.toFloat() }
-                request.topK?.let { topK = it.toInt() }
-                request.seed?.let { seed = it.toInt() }
-                request.maxOutputTokens?.let { maxOutputTokens = it.toInt() }
-                if (systemText.isNotEmpty()) {
-                    systemInstruction = SystemInstruction(systemText)
-                }
-            }
             val job = scope.launch {
-                runStreaming(request.runId, generativeModel, builder)
+                try {
+                    runConversationTurn(
+                        runId = request.runId,
+                        generativeModel = generativeModel,
+                        systemText = systemText,
+                        turns = turns,
+                        deviceTools = request.deviceTools,
+                        toolRoundsRemaining = MAX_TOOL_ROUNDS,
+                        temperature = request.temperature,
+                        topK = request.topK,
+                        seed = request.seed,
+                        maxOutputTokens = request.maxOutputTokens,
+                    )
+                } catch (error: Throwable) {
+                    if (error is CancellationException) {
+                        // Cancellation reaches Dart through its own cancel
+                        // channel; still terminate the event stream.
+                    } else {
+                        Log.w(TAG, "AICore turn failed", error)
+                        emitError(request.runId, friendlyInferenceMessage(error))
+                    }
+                } finally {
+                    // The turn is only complete for listeners once the event
+                    // stream reaches a terminal event, however many tool
+                    // rounds ran before it.
+                    emitDone(request.runId)
+                }
             }
             runs[request.runId] = job
             job.invokeOnCompletion {
@@ -198,6 +221,179 @@ class AicoreBridge(messenger: BinaryMessenger) : AicoreHostApi {
             if (error is CancellationException) throw error
             Log.w(TAG, "AICore inference failed to start", error)
             emitError(request.runId, friendlyInferenceMessage(error))
+        }
+    }
+
+    /**
+     * One generation pass plus the device-action loop. A reply that is a
+     * valid whitelisted tool-call is executed and the narration is appended
+     * as a user turn before the model writes its user-facing answer; any
+     * other reply streams straight to Dart.
+     */
+    private suspend fun runConversationTurn(
+        runId: String,
+        generativeModel: GenerativeModel,
+        systemText: String,
+        turns: List<PlatformAicoreMessage>,
+        deviceTools: Boolean,
+        toolRoundsRemaining: Int,
+        temperature: Double? = null,
+        topK: Long? = null,
+        seed: Long? = null,
+        maxOutputTokens: Long? = null,
+    ) {
+        val request = buildRequest(
+            prompt = buildPrompt(turns),
+            systemText = systemText,
+            temperature = temperature,
+            topK = topK,
+            seed = seed,
+            maxOutputTokens = maxOutputTokens,
+        )
+        val fullText = streamWithToolDetection(
+            runId = runId,
+            generativeModel = generativeModel,
+            request = request,
+            deviceTools = deviceTools,
+        )
+        if (!deviceTools) return
+        val call = DeviceActionParser.parse(fullText) ?: return
+        val result = actionExecutor.execute(call.name, call.args)
+        emitToolCall(
+            runId,
+            JSONObject()
+                .put("name", call.name)
+                .put("args", call.args)
+                .put("result", result)
+                .toString(),
+        )
+        if (toolRoundsRemaining <= 0) {
+            // The whitelist is exhausted; narrate the outcome directly.
+            emitContent(runId, result)
+            return
+        }
+        runConversationTurn(
+            runId = runId,
+            generativeModel = generativeModel,
+            systemText = systemText,
+            turns = turns +
+                PlatformAicoreMessage(role = ROLE_ASSISTANT, content = fullText.trim()) +
+                PlatformAicoreMessage(
+                    role = ROLE_USER,
+                    content = "Tool result: $result. Reply to the user in one or two sentences.",
+                ),
+            deviceTools = deviceTools,
+            toolRoundsRemaining = toolRoundsRemaining - 1,
+            temperature = temperature,
+            topK = topK,
+            seed = seed,
+            maxOutputTokens = maxOutputTokens,
+        )
+    }
+
+    /**
+     * Streams a generation, buffering the reply while it still looks like a
+     * tool-call (leading `{` or code fence) so the user never sees raw JSON.
+     * Non-tool replies switch to live streaming after the first chunk.
+     * Returns the complete reply text.
+     */
+    private suspend fun streamWithToolDetection(
+        runId: String,
+        generativeModel: GenerativeModel,
+        request: GenerateContentRequest,
+        deviceTools: Boolean,
+    ): String {
+        val startedAt = android.os.SystemClock.elapsedRealtime()
+        var firstChunkAt = -1L
+        var chunkCount = 0
+        var emittedCharacters = 0
+        val buffered = StringBuilder()
+        var streamingLive = !deviceTools
+        try {
+            val stream = generativeModel.generateContentStream(request)
+            // Nano on the TPU emits chunks faster than the UI thread should
+            // spend on channel encoding, so collect on a worker dispatcher;
+            // each emit hops to Main for the platform channel send.
+            withContext(Dispatchers.Default) {
+                stream.collect { chunk: GenerateContentResponse ->
+                    val text = chunk.candidates.firstOrNull()?.text
+                    if (!text.isNullOrEmpty()) {
+                        if (firstChunkAt < 0L) {
+                            firstChunkAt =
+                                android.os.SystemClock.elapsedRealtime() - startedAt
+                            Log.i(TAG, "first chunk after ${firstChunkAt}ms")
+                        }
+                        chunkCount++
+                        if (streamingLive) {
+                            emittedCharacters += text.length
+                            emitContent(runId, text)
+                        } else {
+                            buffered.append(text)
+                            // Buffer only while the reply could still be a
+                            // tool-call; prose switches to live streaming.
+                            if (!isPossibleToolCall(buffered.toString())) {
+                                streamingLive = true
+                                emitContent(runId, buffered.toString())
+                                emittedCharacters += buffered.length
+                            }
+                        }
+                    }
+                }
+            }
+            Log.i(
+                TAG,
+                "stream done: chunks=$chunkCount firstChunk=${firstChunkAt}ms " +
+                    "total=${android.os.SystemClock.elapsedRealtime() - startedAt}ms " +
+                    "chars=$emittedCharacters",
+            )
+        } catch (error: Throwable) {
+            if (error is CancellationException) {
+                Log.i(
+                    TAG,
+                    "stream cancelled: chunks=$chunkCount " +
+                        "firstChunk=${firstChunkAt}ms " +
+                        "elapsed=${android.os.SystemClock.elapsedRealtime() - startedAt}ms",
+                )
+                throw error
+            } else {
+                Log.w(TAG, "AICore inference failed", error)
+                emitError(runId, friendlyInferenceMessage(error))
+                return buffered.toString()
+            }
+        }
+        if (!streamingLive) {
+            val full = buffered.toString()
+            if (DeviceActionParser.parse(full) == null && full.isNotBlank()) {
+                // It never was a tool-call; surface what the model wrote.
+                emitContent(runId, full)
+            }
+            return full
+        }
+        return ""
+    }
+
+    private fun isPossibleToolCall(text: String): Boolean {
+        val trimmed = text.trimStart()
+        if (trimmed.startsWith("```")) return true
+        return trimmed.startsWith("{")
+    }
+
+    private fun buildRequest(
+        prompt: String,
+        systemText: String,
+        temperature: Double?,
+        topK: Long?,
+        seed: Long?,
+        maxOutputTokens: Long?,
+    ): GenerateContentRequest {
+        return generateContentRequest(TextPart(prompt)) {
+            temperature?.let { this.temperature = it.toFloat() }
+            topK?.let { this.topK = it.toInt() }
+            seed?.let { this.seed = it.toInt() }
+            maxOutputTokens?.let { this.maxOutputTokens = it.toInt() }
+            if (systemText.isNotEmpty()) {
+                systemInstruction = SystemInstruction(systemText)
+            }
         }
     }
 
@@ -216,58 +412,6 @@ class AicoreBridge(messenger: BinaryMessenger) : AicoreHostApi {
             val speaker = if (message.role == ROLE_USER) "User" else "Assistant"
             "$speaker: ${message.content}"
         } + "\n\nAssistant:"
-    }
-
-    private suspend fun runStreaming(
-        runId: String,
-        generativeModel: GenerativeModel,
-        request: GenerateContentRequest,
-    ) {
-        val startedAt = android.os.SystemClock.elapsedRealtime()
-        var firstChunkAt = -1L
-        var chunkCount = 0
-        var emittedCharacters = 0
-        try {
-            val stream = generativeModel.generateContentStream(request)
-            // Nano on the TPU emits chunks faster than the UI thread should
-            // spend on channel encoding, so collect on a worker dispatcher;
-            // each emit hops to Main for the platform channel send.
-            withContext(Dispatchers.Default) {
-                stream.collect { chunk: GenerateContentResponse ->
-                    val text = chunk.candidates.firstOrNull()?.text
-                    if (!text.isNullOrEmpty()) {
-                        if (firstChunkAt < 0L) {
-                            firstChunkAt =
-                                android.os.SystemClock.elapsedRealtime() - startedAt
-                            Log.i(TAG, "first chunk after ${firstChunkAt}ms")
-                        }
-                        chunkCount++
-                        emittedCharacters += text.length
-                        emitContent(runId, text)
-                    }
-                }
-            }
-            Log.i(
-                TAG,
-                "stream done: chunks=$chunkCount firstChunk=${firstChunkAt}ms " +
-                    "total=${android.os.SystemClock.elapsedRealtime() - startedAt}ms " +
-                    "chars=$emittedCharacters",
-            )
-            emitDone(runId)
-        } catch (error: Throwable) {
-            if (error is CancellationException) {
-                Log.i(
-                    TAG,
-                    "stream cancelled: chunks=$chunkCount " +
-                        "firstChunk=${firstChunkAt}ms " +
-                        "elapsed=${android.os.SystemClock.elapsedRealtime() - startedAt}ms",
-                )
-                emitDone(runId)
-            } else {
-                Log.w(TAG, "AICore inference failed", error)
-                emitError(runId, friendlyInferenceMessage(error))
-            }
-        }
     }
 
     override fun cancel(runId: String) {
@@ -309,6 +453,18 @@ class AicoreBridge(messenger: BinaryMessenger) : AicoreHostApi {
         }
     }
 
+    private fun emitToolCall(runId: String, payload: String) {
+        scope.launch {
+            flutterApi.onEvent(
+                PlatformAicoreStreamEvent(
+                    runId = runId,
+                    kind = PlatformAicoreEventKind.TOOL,
+                    toolCall = payload,
+                )
+            ) { _ -> }
+        }
+    }
+
     private fun friendlyReason(error: Throwable): String {
         val message = error.message?.takeIf { it.isNotBlank() }
         val name = error.javaClass.simpleName
@@ -331,5 +487,36 @@ class AicoreBridge(messenger: BinaryMessenger) : AicoreHostApi {
         private const val DOWNLOAD_TIMEOUT_MILLIS = 30L * 60L * 1000L
         private const val ROLE_SYSTEM = "system"
         private const val ROLE_USER = "user"
+        private const val ROLE_ASSISTANT = "assistant"
+
+        /** Bounded device-action chain per user request: tool → result → next. */
+        private const val MAX_TOOL_ROUNDS = 2
+
+        /**
+         * Tool-call contract appended to the system instruction. The strict
+         * whole-reply-JSON rule plus [DeviceActionParser]'s whitelist keep
+         * prose or code from triggering actions.
+         */
+        private const val DEVICE_TOOL_SCHEMA =
+            "DEVICE TOOLS: You can perform on-device actions. To use one, reply with ONLY " +
+                "a JSON object and no other text: {\"tool\":\"<name>\",\"args\":{...}}. " +
+                "Available tools:\n" +
+                "- set_alarm {\"hour\":0-23,\"minute\":0-59,\"label\"?}\n" +
+                "- set_timer {\"seconds\":1-86400,\"label\"?}\n" +
+                "- flashlight {\"on\":true|false}\n" +
+                "- set_volume {\"stream\":\"media\"|\"ring\"|\"alarm\"|\"notification\"," +
+                "\"volumePercent\":0-100}\n" +
+                "- open_settings {\"screen\":\"wifi\"|\"bluetooth\"|\"sound\"|\"display\"|" +
+                "\"airplane\"|\"battery\"|\"date\"|\"security\"|\"storage\"|\"apps\"|" +
+                "\"hotspot\"|\"notifications\"|\"home\"|\"vpn\"}\n" +
+                "- dial {\"number\"?}\n" +
+                "- calendar_event {\"title\",\"date\":\"yyyy-MM-dd\",\"time\":\"HH:mm\"?," +
+                "\"durationMinutes\"?,\"description\"?}\n" +
+                "- play_media {\"query\"}\n" +
+                "- web_search {\"query\"}\n" +
+                "- open_app {\"appName\"}\n" +
+                "- compose_sms {\"to\"?,\"body\"}\n" +
+                "- share_text {\"text\"}\n" +
+                "For anything else, answer normally. Never invent other tools."
     }
 }

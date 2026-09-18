@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/services.dart' show MissingPluginException, PlatformException;
@@ -189,6 +190,9 @@ final class AicoreAdapter implements DirectProviderAdapter, AicoreFlutterApi {
                         .join('\n'),
                   ),
               ],
+              // The bridge executes whitelisted on-device actions itself and
+              // reports them back as tool events; MCP runtimes stay rejected.
+              deviceTools: true,
               temperature: options.temperature,
               maxOutputTokens: options.maximumResponseTokens,
               topK: options.topK,
@@ -220,6 +224,20 @@ final class AicoreAdapter implements DirectProviderAdapter, AicoreFlutterApi {
         if (content != null && content.isNotEmpty) {
           run.controller.add(DirectContentDelta(content));
         }
+      case PlatformAicoreEventKind.tool:
+        final call = _decodeToolCall(event.toolCall);
+        if (call != null) {
+          run.controller.add(
+            DirectToolCallCompleted(
+              id: const Uuid().v4(),
+              name: call['name'] as String? ?? 'device_action',
+              arguments: call['args'] is Map<String, dynamic>
+                  ? call['args'] as Map<String, dynamic>
+                  : const <String, dynamic>{},
+              result: call['result'],
+            ),
+          );
+        }
       case PlatformAicoreEventKind.error:
         _finishWithError(
           event.runId,
@@ -228,6 +246,15 @@ final class AicoreAdapter implements DirectProviderAdapter, AicoreFlutterApi {
       case PlatformAicoreEventKind.done:
         _finish(event.runId, const DirectStreamDone());
     }
+  }
+
+  Map<String, dynamic>? _decodeToolCall(String? payload) {
+    if (payload == null || payload.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(payload);
+      if (decoded is Map<String, dynamic>) return decoded;
+    } catch (_) {}
+    return null;
   }
 
   void _finishWithError(String runId, String message) {

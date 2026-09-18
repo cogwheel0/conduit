@@ -623,7 +623,7 @@ class MainActivity : FlutterFragmentActivity() {
         // Gemini Nano via AICore needs API 26+ and the system AICore service;
         // the bridge reports unavailable on every other device.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val bridge = AicoreBridge(flutterEngine.dartExecutor.binaryMessenger)
+            val bridge = AicoreBridge(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
             bridge.setup(flutterEngine)
             aicoreBridge = bridge
         }
