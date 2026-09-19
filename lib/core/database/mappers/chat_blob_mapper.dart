@@ -19,6 +19,8 @@ library;
 
 import 'dart:convert';
 
+import '../../utils/semantic_details.dart';
+
 /// Normalized chat-level row data (CDT-RFC-001 §6.1).
 ///
 /// Envelope fields ([title], [folderId], [pinned], [archived], [createdAt],
@@ -482,5 +484,87 @@ class ChatBlobMapper {
     }
 
     return true;
+  }
+
+  /// Projects Conduit's display-only semantic `<details>` markup out of every
+  /// message `content` in [blob] before the blob is pushed to the server
+  /// (issue #703).
+  ///
+  /// [rowsToBlob] is deliberately verbatim (round-trip invariant), but the
+  /// server must never receive the rendered tool-call/reasoning wrappers that
+  /// Conduit keeps for local display: Open WebUI strips `<details>` from
+  /// persisted content and stores tool calls as structured `output` items,
+  /// so persisting the rendered copy bloats stored chats, re-sends the
+  /// markup to the model on continuations, and corrupts shares/exports.
+  ///
+  /// Apply AFTER [rowsToBlob], at push time only; the round-trip invariant is
+  /// untouched. Returns a NEW blob — message maps are copied, never mutated,
+  /// because [rowsToBlob] reuses the row [MessageRowData.payload] maps by
+  /// reference. Projected: `content` of every map-shaped entry of
+  /// `history.messages` (and nested `versions`) and of the top-level linear
+  /// `messages` list when the original blob had one. String content is
+  /// projected via [projectContentForServerPersistence]; list content
+  /// (multimodal arrays) has each string element projected. All other data
+  /// passes through verbatim.
+  static Map<String, dynamic> projectChatBlobForServerPush(
+    Map<String, dynamic> blob,
+  ) {
+    final projected = <String, dynamic>{...blob};
+
+    final history = blob['history'];
+    if (history is Map) {
+      final historyCopy = <Object?, Object?>{...history};
+      final historyMessages = historyCopy['messages'];
+      if (historyMessages is Map) {
+        historyCopy['messages'] = <Object?, Object?>{
+          for (final entry in historyMessages.entries)
+            entry.key: _projectMessageContent(entry.value),
+        };
+      }
+      projected['history'] = historyCopy;
+    }
+
+    final linearMessages = blob['messages'];
+    if (linearMessages is List) {
+      projected['messages'] = [
+        for (final entry in linearMessages) _projectMessageContent(entry),
+      ];
+    }
+
+    return projected;
+  }
+
+  /// Copies one message map with its `content` (and any nested `versions`)
+  /// projected; non-map entries pass through verbatim.
+  static Object? _projectMessageContent(Object? message) {
+    if (message is! Map) return message;
+    final copy = <Object?, Object?>{...message};
+    copy['content'] = _projectContentField(copy['content']);
+    final versions = copy['versions'];
+    if (versions is List) {
+      copy['versions'] = [
+        for (final version in versions) _projectMessageContent(version),
+      ];
+    }
+    return copy;
+  }
+
+  /// Projects one `content` value: string content via
+  /// [projectContentForServerPersistence]; list content element-wise for
+  /// string elements; anything else verbatim.
+  static Object? _projectContentField(Object? content) {
+    if (content is String) {
+      return projectContentForServerPersistence(content);
+    }
+    if (content is List) {
+      return [
+        for (final element in content)
+          if (element is String)
+            projectContentForServerPersistence(element)
+          else
+            element,
+      ];
+    }
+    return content;
   }
 }

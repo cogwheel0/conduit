@@ -412,6 +412,71 @@ void main() {
       },
     );
 
+    test(
+      'projects semantic <details> markup out of the pushed blob (issue 703)',
+      () async {
+        server.seedChat(
+          id: 'srv-703',
+          blob: {
+            'title': 'Title srv-703',
+            'history': {
+              'messages': {
+                'srv-703-m1': {
+                  'id': 'srv-703-m1',
+                  'parentId': null,
+                  'role': 'user',
+                  'content': 'run the tool',
+                },
+              },
+              'currentId': 'srv-703-m1',
+            },
+          },
+          createdAt: 100,
+          updatedAt: 150,
+        );
+        await seedLocalChat(db, id: 'srv-703', messageCount: 2, dirty: true);
+
+        // The local assistant row carries Conduit's display-form content:
+        // rendered semantic <details> wrappers around the tool call.
+        const displayContent = '''<details type="tool_calls" done="true" id="call_703" name="mcp_tool_call" arguments="&quot;{&quot;q&quot;:&quot;1&quot;}&quot;" result="&quot;[10KB tool result]&quot;">
+<summary>Tool Executed</summary>
+</details>
+
+The plain answer.''';
+        await (db.update(
+          db.messages,
+        )..where((t) => t.id.equals('srv-703-m2'))).write(
+          MessagesCompanion(
+            content: Value(displayContent),
+            payload: Value(
+              jsonEncode(<String, dynamic>{
+                'id': 'srv-703-m2',
+                'parentId': 'srv-703-m1',
+                'childrenIds': <String>[],
+                'role': 'assistant',
+                'content': displayContent,
+                'timestamp': 1002,
+              }),
+            ),
+          ),
+        );
+
+        await push.pushUpdateChat('srv-703');
+
+        // The server received the plain-text projection, not the wrappers.
+        final stored = server.getChatById('srv-703')!;
+        final history = (stored['chat'] as Map)['history'] as Map;
+        final messages = history['messages'] as Map;
+        check((messages['srv-703-m2'] as Map)['content'])
+            .equals('The plain answer.');
+
+        // Local rows keep the display form (local state untouched).
+        final local = (await db.messagesDao.getForChat('srv-703'))
+            .firstWhere((m) => m.id == 'srv-703-m2');
+        check(local.content).equals(displayContent);
+      },
+    );
+
     test('clears dirty messages in batches for very large chats', () async {
       server.seedChat(
         id: 'srv-many',

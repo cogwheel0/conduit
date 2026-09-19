@@ -100,7 +100,12 @@ class PushSync {
       }
       final messages = await _db.messagesDao.getForChat(localId);
       final rows = chatRowsFromDb(chat, messages);
-      final blob = ChatBlobMapper.rowsToBlob(rows)..['id'] = '';
+      // Issue #703: local rows carry Conduit's display-form content (rendered
+      // semantic <details> wrappers); the server must receive the plain-text
+      // projection, so project the freshly built blob before it goes out.
+      final blob = ChatBlobMapper.projectChatBlobForServerPush(
+        ChatBlobMapper.rowsToBlob(rows),
+      )..['id'] = '';
       if (chat.folderId != null && chat.folderId!.startsWith('local:')) {
         DebugLogger.log(
           'create-defer-local-folder',
@@ -204,7 +209,11 @@ class PushSync {
       final messages = await _db.messagesDao.getForChat(chatId);
       final capturedMessageIds = [for (final m in messages) m.id];
       final rows = chatRowsFromDb(chat, messages);
-      final blob = ChatBlobMapper.rowsToBlob(rows);
+      // Issue #703: same push-time content projection as pushCreateChat —
+      // rowsToBlob is verbatim, so the server-bound copy must be projected.
+      final blob = ChatBlobMapper.projectChatBlobForServerPush(
+        ChatBlobMapper.rowsToBlob(rows),
+      );
 
       final resp = await _client.updateChat(chatId, blob);
       if (resp == null) {
