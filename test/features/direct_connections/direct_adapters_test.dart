@@ -841,6 +841,54 @@ void main() {
     check(model('malformed').capabilities.containsKey('reasoning')).isFalse();
   });
 
+  test('OpenRouter discovery hides Batch-API-only model variants', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'data': [
+          {'id': 'anthropic/claude-fable-5.1'},
+          {'id': 'anthropic/claude-fable-5.1:batch'},
+          {'id': 'google/gemini-3.8-flash:batch'},
+          {'id': 'meta-llama/llama-3.3-70b-instruct:free'},
+        ],
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final models = await adapter.listModels(
+      _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+    );
+
+    expect(models.map((model) => model.id), [
+      'anthropic/claude-fable-5.1',
+      'meta-llama/llama-3.3-70b-instruct:free',
+    ]);
+  });
+
+  test('non-OpenRouter discovery keeps models ending in :batch', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'data': [
+          {'id': 'local-model'},
+          {'id': 'local-model:batch'},
+        ],
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final models = await adapter.listModels(_openAiProfile());
+
+    expect(models.map((model) => model.id), [
+      'local-model',
+      'local-model:batch',
+    ]);
+  });
+
   for (final mode in DirectOpenAiApiMode.values) {
     test(
       'OpenRouter ${mode.storageValue} uses unified reasoning effort',
