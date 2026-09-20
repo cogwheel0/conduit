@@ -16427,7 +16427,6 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
       scope: 'direct-connections/chat',
       data: {
         'adapterKey': route.profile.adapterKey,
-        'remoteModelId': route.binding.remoteModelId,
         'messageCount': directMessages.length,
         'hasTools': toolRuntime != null,
       },

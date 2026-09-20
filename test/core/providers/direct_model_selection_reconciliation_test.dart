@@ -228,12 +228,16 @@ void main() {
       baseUrl: 'http://localhost:11434',
     );
     final registry = DirectModelRegistry();
-    final other = registry.replaceProfileModels(profile, [
+    // Mint both models in one call: replaceProfileModels re-registers the
+    // whole profile, so a second call would drop the first model's binding.
+    final minted = registry.replaceProfileModels(profile, [
       DirectRemoteModel(id: 'other-model'),
-    ]).single;
-    final preferred = registry.replaceProfileModels(profile, [
       DirectRemoteModel(id: 'preferred-model'),
-    ]).single;
+    ]);
+    final other = minted.first;
+    final preferred = minted.last;
+    expect(registry.resolve(other), isNotNull);
+    expect(registry.resolve(preferred), isNotNull);
     final discovery = Completer<DirectModelDiscoveryState>();
     final container = ProviderContainer(
       overrides: [
@@ -276,12 +280,13 @@ void main() {
       baseUrl: 'http://localhost:11434',
     );
     final registry = DirectModelRegistry();
-    final other = registry.replaceProfileModels(profile, [
+    final minted = registry.replaceProfileModels(profile, [
       DirectRemoteModel(id: 'other-model'),
-    ]).single;
-    final missing = registry.replaceProfileModels(profile, [
       DirectRemoteModel(id: 'missing-model'),
-    ]).single;
+    ]);
+    final other = minted.first;
+    final missing = minted.last;
+    expect(registry.resolve(other), isNotNull);
     final discovery = Completer<DirectModelDiscoveryState>();
     final container = ProviderContainer(
       overrides: [
