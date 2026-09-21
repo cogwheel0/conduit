@@ -1,3 +1,5 @@
+import 'package:meta/meta.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -5,7 +7,6 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
-import 'package:flutter/foundation.dart';
 import 'package:http_parser/http_parser.dart';
 import 'package:uuid/uuid.dart';
 

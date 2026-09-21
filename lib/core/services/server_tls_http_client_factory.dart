@@ -3,9 +3,13 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
-import 'package:flutter/foundation.dart';
 
 import 'package:conduit_core/models/server_config.dart';
+
+// Was Flutter's kIsWeb. This file configures a dart:io HttpClient, so on
+// web the whole path is inapplicable rather than merely different -- which
+// is what the original guard was saying too.
+const bool _kIsWeb = bool.fromEnvironment('dart.library.js_util');
 
 /// Builds server-scoped `dart:io` TLS clients for self-signed certs and mTLS.
 class ServerTlsHttpClientFactory {
@@ -33,7 +37,7 @@ class ServerTlsHttpClientFactory {
 
   /// Whether the server needs a custom `HttpClient` for TLS.
   static bool requiresCustomHttpClient(ServerConfig serverConfig) =>
-      !kIsWeb && serverConfig.needsCustomTlsClient;
+      !_kIsWeb && serverConfig.needsCustomTlsClient;
 
   /// Configures Dio to use the server's TLS settings for all requests.
   static void configureDio(
@@ -41,7 +45,7 @@ class ServerTlsHttpClientFactory {
     ServerConfig serverConfig, {
     String? userAgent,
   }) {
-    if (kIsWeb ||
+    if (_kIsWeb ||
         (!requiresCustomHttpClient(serverConfig) && userAgent == null)) {
       return;
     }

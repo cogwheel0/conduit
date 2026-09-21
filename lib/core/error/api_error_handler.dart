@@ -1,10 +1,13 @@
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import 'package:conduit_core/conduit_core.dart';
 
 import 'api_error.dart';
 import 'error_parser.dart';
 import '../utils/debug_logger.dart';
+
+// Was Flutter's kDebugMode. `dart.vm.product` is the same signal and
+// is available without Flutter.
+const bool _kDebugMode = !bool.fromEnvironment('dart.vm.product');
 
 /// Comprehensive API error handler with structured error parsing
 /// Handles all types of API errors and converts them to standardized format
@@ -315,7 +318,7 @@ class ApiErrorHandler {
 
   /// Log error details for debugging and monitoring
   void _logErrorDetails(DioException dioError, String httpMethod) {
-    if (!kDebugMode) return;
+    if (!_kDebugMode) return;
 
     final payload = <String, Object?>{
       'method': httpMethod.toUpperCase(),

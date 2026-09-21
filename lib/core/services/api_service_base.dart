@@ -120,7 +120,9 @@ abstract class _ApiServiceBase {
     // 3. Error handling interceptor (transforms errors to standardized format)
     _dio.interceptors.add(
       ApiErrorInterceptor(
-        logErrors: kDebugMode,
+        // Was Flutter's kDebugMode; the core cannot reach Flutter, and
+        // `dart.vm.product` is the same signal without it.
+        logErrors: !const bool.fromEnvironment('dart.vm.product'),
         throwApiErrors: true, // Transform DioExceptions to include ApiError
       ),
     );

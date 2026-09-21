@@ -1,11 +1,14 @@
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 
 import 'api_error.dart';
 import 'api_error_handler.dart';
 import '../utils/current_localizations.dart';
 import '../utils/debug_logger.dart';
 import '../../shared/utils/api_error_messages.dart';
+
+// Was Flutter's kDebugMode. `dart.vm.product` is the same signal and
+// is available without Flutter.
+const bool _kDebugMode = !bool.fromEnvironment('dart.vm.product');
 
 /// Dio interceptor for automatic error handling and transformation
 /// Converts all HTTP errors into standardized ApiError format
@@ -138,7 +141,7 @@ class ApiErrorInterceptor extends Interceptor {
 
   /// Log API error with structured information
   void _logApiError(ApiError apiError, DioException originalError) {
-    if (!kDebugMode) return;
+    if (!_kDebugMode) return;
 
     final payload = <String, Object?>{
       'type': apiError.type.name,
