@@ -180,7 +180,7 @@ final class _HermesDesktopAdministration {
     final authUrl = parseHermesOAuthUrl(started['auth_url']);
     if (flowId == null ||
         authUrl == null ||
-        !await launchUrl(authUrl, mode: LaunchMode.externalApplication)) {
+        !await _owner._openExternalUrl.open(authUrl)) {
       return null;
     }
     for (var attempt = 0; attempt < 60; attempt++) {
@@ -320,7 +320,11 @@ final class _HermesDesktopAdministration {
       await _owner._rpc.request<Object?>(
         'reload.mcp',
         // Bound sessions can include bot chats, which live in another profile.
-        params: {'confirm': true, 'session_id': id, ..._owner._runtimeScope(id)},
+        params: {
+          'confirm': true,
+          'session_id': id,
+          ..._owner._runtimeScope(id),
+        },
       );
     }
   }

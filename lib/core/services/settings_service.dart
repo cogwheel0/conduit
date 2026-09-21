@@ -1,6 +1,5 @@
 import 'dart:developer' as developer;
 
-import 'package:material_ui/material_ui.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -617,23 +616,6 @@ class SettingsService {
     // native Android voice-interaction session (ConduitVoiceInteractionSession)
     // reads that key directly, so no separate native dual-write is needed.
     await _putPreference(_androidAssistantTriggerKey, trigger.storageValue);
-  }
-
-  /// Get effective animation duration considering all settings
-  static Duration getEffectiveAnimationDuration(
-    BuildContext context,
-    Duration defaultDuration,
-    AppSettings settings,
-  ) {
-    // Check system reduced motion first
-    if (MediaQuery.of(context).disableAnimations || settings.reduceMotion) {
-      return Duration.zero;
-    }
-
-    // Apply user animation speed preference
-    final adjustedMs =
-        (defaultDuration.inMilliseconds / settings.animationSpeed).round();
-    return Duration(milliseconds: adjustedMs.clamp(50, 1000));
   }
 
   static AppSettings _loadSettingsSync() {

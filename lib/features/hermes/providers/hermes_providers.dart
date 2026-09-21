@@ -42,6 +42,7 @@ import '../services/hermes_local_document_trust_store.dart';
 import '../services/hermes_message_mapper.dart';
 import '../services/hermes_pending_decision_store.dart';
 import '../services/hermes_session_provenance.dart';
+import '../../../core/providers/host_ports.dart';
 
 final class _HermesCredentialRollbackFailure implements Exception {
   const _HermesCredentialRollbackFailure({
@@ -1339,6 +1340,7 @@ final hermesApiServiceProvider = Provider<HermesBackendService?>((ref) {
   if (config.mode == HermesBackendMode.desktopGateway) {
     final desktopService = HermesDesktopApiService(
       config: config,
+      openExternalUrl: ref.read(openExternalUrlProvider),
       onCredentialsChanged: (credentials) async {
         try {
           if (!ref.mounted) return;
@@ -1354,7 +1356,7 @@ final hermesApiServiceProvider = Provider<HermesBackendService?>((ref) {
         }
       },
     );
-    desktopService.startLifecycleObservation();
+    desktopService.startLifecycleObservation(ref.read(appLifecycleProvider));
     service = desktopService;
   } else {
     service = HermesApiService(config: config);

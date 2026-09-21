@@ -96,19 +96,19 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     );
   }
 
-  void _runtimeDidChangeAppLifecycleState(AppLifecycleState state) {
+  void _runtimeDidChangeAppLifecycleState(AppLifecyclePhase state) {
     switch (state) {
-      case AppLifecycleState.paused:
-      case AppLifecycleState.hidden:
-      case AppLifecycleState.detached:
+      case AppLifecyclePhase.paused:
+      case AppLifecyclePhase.hidden:
+      case AppLifecyclePhase.detached:
         // The OS may keep the socket alive. Reconcile on return instead of
         // closing a valid transport merely because the app backgrounded.
         _reconciliationStale = true;
-      case AppLifecycleState.resumed:
+      case AppLifecyclePhase.resumed:
         _foregroundReconciliation ??= _reconcileForeground().whenComplete(
           () => _foregroundReconciliation = null,
         );
-      case AppLifecycleState.inactive:
+      case AppLifecyclePhase.inactive:
         break;
     }
   }

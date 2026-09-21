@@ -6,7 +6,6 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:mcp_dart/mcp_dart.dart' as mcp;
-import 'package:url_launcher/url_launcher.dart';
 
 import '../models/direct_mcp_server.dart';
 import 'direct_mcp_server_store.dart';
@@ -38,7 +37,7 @@ final class DirectMcpOAuthCoordinator {
     this.requestTimeout = const Duration(seconds: 15),
   }) : _store = store,
        _client = client ?? http.Client(),
-       _launchBrowser = launchBrowser ?? _launchExternalBrowser,
+       _launchBrowser = launchBrowser ?? _refuseToLaunch,
        _now = now ?? DateTime.now;
 
   final DirectMcpServerStore _store;
@@ -946,8 +945,14 @@ final class _OAuthCallback {
   final String code;
 }
 
-Future<bool> _launchExternalBrowser(Uri uri) =>
-    launchUrl(uri, mode: LaunchMode.externalApplication);
+/// Refuses to open anything.
+///
+/// Opening a browser is a host capability, so the default here is the same
+/// answer `NullOpenExternalUrlPort` gives: a host that cannot open a URL
+/// says so, and the flow reports that it could not start rather than
+/// hanging on a callback that will never arrive. `direct_mcp_providers`
+/// injects the real one.
+Future<bool> _refuseToLaunch(Uri uri) async => false;
 
 String _randomValue(int byteCount) {
   final random = Random.secure();

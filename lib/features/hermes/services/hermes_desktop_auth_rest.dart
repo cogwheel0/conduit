@@ -81,10 +81,7 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
     );
 
     try {
-      final launched = await launchUrl(
-        authorize,
-        mode: LaunchMode.externalApplication,
-      );
+      final launched = await _openExternalUrl.open(authorize);
       if (!launched) throw StateError('Could not open Hermes sign-in.');
       final request = await (() async {
         await for (final candidate in server) {
@@ -316,7 +313,7 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
     int retry = 0,
   }) async {
     if (!hermesDashboardHeadersSupported(
-      platform: defaultTargetPlatform,
+      isIOS: Platform.isIOS,
       accessHeaders: config.accessHeaders,
     )) {
       throw StateError(

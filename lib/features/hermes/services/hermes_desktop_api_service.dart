@@ -4,11 +4,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:conduit_core/conduit_core.dart';
+import 'package:meta/meta.dart';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/utils/debug_logger.dart';
 
@@ -200,14 +199,15 @@ Uri? parseHermesOAuthUrl(Object? value) {
 /// Hermes Dashboard REST + Desktop Gateway implementation.
 ///
 final class HermesDesktopApiService
-    with WidgetsBindingObserver
     implements HermesBackendService, HermesDesktopTurnService {
   HermesDesktopApiService({
     required this.config,
     Dio? dio,
     HermesDesktopRpcClient? rpc,
+    OpenExternalUrlPort? openExternalUrl,
     this.onCredentialsChanged,
-  }) : _nativeTokens = config.desktopCredentials?.nativeTokens,
+  }) : _openExternalUrl = openExternalUrl ?? const NullOpenExternalUrlPort(),
+       _nativeTokens = config.desktopCredentials?.nativeTokens,
        _origin =
            HermesConfig.connectionOrigin(config.baseUrl) ??
            (throw const FormatException('Invalid Hermes Desktop URL.')),
@@ -227,6 +227,14 @@ final class HermesDesktopApiService
     _administration = _HermesDesktopAdministration(this);
     _rpc.setDefaultParams({'profile': config.desktopProfile});
   }
+
+  /// Opens OAuth sign-in pages.
+  ///
+  /// Hermes sign-in hands the user to their browser and waits for a loopback
+  /// callback. Which is a host capability, so it arrives as a port: the
+  /// sidecar has no browser and refuses, and the flow reports that it could
+  /// not start rather than waiting for a callback nothing will send.
+  final OpenExternalUrlPort _openExternalUrl;
 
   final String _origin;
   final Uri _root;
@@ -263,13 +271,20 @@ final class HermesDesktopApiService
   bool _authoritativeRunning = true;
   bool _supportsMcpRpcLifecycle = true;
   bool _reconciliationStale = false;
-  bool _observingLifecycle = false;
+  StreamSubscription<AppLifecyclePhase>? _lifecycleSubscription;
   int _desktopContract = 0;
 
-  void startLifecycleObservation() {
-    if (_closed || _observingLifecycle) return;
-    WidgetsBinding.instance.addObserver(this);
-    _observingLifecycle = true;
+  /// Starts reconciling the desktop transport across foreground changes.
+  ///
+  /// Takes the lifecycle from the host rather than `WidgetsBinding`: this
+  /// runtime is meant to run in the sidecar too, where there is no widget
+  /// tree to observe. A host with no lifecycle notion never emits, and the
+  /// reconciliation simply never becomes necessary.
+  void startLifecycleObservation(AppLifecyclePort lifecycle) {
+    if (_closed || _lifecycleSubscription != null) return;
+    _lifecycleSubscription = lifecycle.changes.listen(
+      _runtimeDidChangeAppLifecycleState,
+    );
   }
 
   Stream<HermesDesktopTurnState> get turnStates => _turnStates.stream;
@@ -349,10 +364,6 @@ final class HermesDesktopApiService
   Future<List<String>> listProfiles() => _authListProfiles();
   Future<HermesDesktopTokenSet> signInNative({String? provider}) =>
       _authSignInNative(provider: provider);
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) =>
-      _runtimeDidChangeAppLifecycleState(state);
 
   @override
   Future<String> createSession({String? title, CancelToken? cancelToken}) =>
@@ -579,7 +590,7 @@ final class HermesDesktopApiService
   void close() {
     if (_closed) return;
     _closed = true;
-    if (_observingLifecycle) WidgetsBinding.instance.removeObserver(this);
+    unawaited(_lifecycleSubscription?.cancel());
     _dio.close(force: true);
     unawaited(_dashboardBridge?.close());
     unawaited(_stateSubscription?.cancel());

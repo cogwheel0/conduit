@@ -19,6 +19,7 @@ import '../services/direct_mcp_server_store.dart';
 import '../services/direct_run_registry.dart';
 import '../../tools/providers/tools_providers.dart';
 import 'direct_connection_providers.dart';
+import '../../../core/providers/host_ports.dart';
 
 const String kDirectMcpToolIdPrefix = 'local_mcp:';
 
@@ -33,7 +34,10 @@ final directMcpOAuthCoordinatorProvider = Provider<DirectMcpOAuthCoordinator>((
 ) {
   ref.watch(incompleteLogoutFenceProvider);
   final store = ref.watch(directMcpServerStoreProvider);
-  final coordinator = DirectMcpOAuthCoordinator(store: store);
+  final coordinator = DirectMcpOAuthCoordinator(
+    store: store,
+    launchBrowser: ref.read(openExternalUrlProvider).open,
+  );
   ref.onDispose(() => unawaited(coordinator.close()));
   return coordinator;
 });
