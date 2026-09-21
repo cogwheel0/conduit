@@ -12,7 +12,10 @@
 // the analyzer catches, but a cut that swallows a leading doc comment is not.
 // So this moves ranges verbatim, never reformats, and asserts afterwards that
 // every line of the original still exists exactly once across the outputs.
+// ignore_for_file: depend_on_referenced_packages
 import 'dart:io';
+
+import 'package:analyzer/dart/analysis/utilities.dart';
 
 void main(List<String> args) {
   if (args.length != 2) {
@@ -60,31 +63,83 @@ void main(List<String> args) {
     for (var i = 0; i < original.length; i++)
       if (!removals.contains(i)) original[i],
   ];
-  // Anchor after the last hand-written part, so the new directives stay
-  // grouped with their peers and the generated one keeps the last slot.
-  final anchor = kept.lastIndexWhere(
-    (l) => l.startsWith("part '") && !l.endsWith(".g.dart';"),
-  );
-  if (anchor == -1) {
-    stderr.writeln('no existing `part` directive to anchor the new ones');
-    exit(1);
-  }
+  final anchor = _directiveAnchor(original, kept);
   final directives = bodies.keys.map((f) => "part '$f';").toList()..sort();
   kept.insertAll(anchor + 1, directives);
 
-  for (final entry in bodies.entries) {
-    File('$dir/${entry.key}').writeAsStringSync(
-      "part of '$libraryName';\n\n${entry.value.join('\n').trim()}\n",
-    );
-  }
-  library.writeAsStringSync('${kept.join('\n').trimRight()}\n');
+  final outputs = <String, String>{
+    library.path: '${kept.join('\n').trimRight()}\n',
+    for (final entry in bodies.entries)
+      '$dir/${entry.key}':
+          "part of '$libraryName';\n\n${entry.value.join('\n').trim()}\n",
+  };
 
+  // Verify before writing. Both checks matter and neither subsumes the
+  // other: preservation catches a dropped line, parsing catches a range that
+  // is merely in the wrong place. A stale plan -- ranges computed before the
+  // file was reformatted -- passes preservation with every part sliced
+  // mid-expression, which is exactly how this tool once produced 18 files of
+  // garbage that only `dart format` noticed.
   _assertNothingLost(original, kept, directives, bodies);
+  _assertStillParses(outputs);
+
+  outputs.forEach((path, content) => File(path).writeAsStringSync(content));
 
   stdout.writeln('$libraryName: ${original.length} -> ${kept.length} lines');
   for (final entry in bodies.entries) {
     stdout.writeln('  ${entry.key}: ${entry.value.length} lines');
   }
+}
+
+/// Preservation alone is not enough: a range that is off by a few lines
+/// still relocates every line exactly once, so only parsing reveals that the
+/// pieces no longer form valid Dart. Checked before anything is written, so
+/// a bad plan leaves the tree untouched.
+void _assertStillParses(Map<String, String> outputs) {
+  final broken = <String>[];
+  for (final entry in outputs.entries) {
+    final result = parseString(
+      content: entry.value,
+      path: entry.key,
+      throwIfDiagnostics: false,
+    );
+    for (final error in result.errors) {
+      broken.add('  ${entry.key}: ${error.message}');
+    }
+  }
+  if (broken.isNotEmpty) {
+    stderr.writeln('output does not parse, the ranges are wrong:');
+    broken.take(10).forEach(stderr.writeln);
+    exit(1);
+  }
+}
+
+/// Finds the line to insert the new `part` directives after: the last
+/// hand-written part if the library has one, so the generated part keeps the
+/// last slot, and otherwise the end of the directive block. That end comes
+/// from the parser rather than a line scan, because a wrapped
+/// `export ... show a, b, c;` spans several lines and only the last of them
+/// closes the directive.
+int _directiveAnchor(List<String> original, List<String> kept) {
+  final existing = kept.lastIndexWhere(
+    (l) => l.startsWith("part '") && !l.endsWith(".g.dart';"),
+  );
+  if (existing != -1) return existing;
+
+  final parsed = parseString(
+    content: original.join('\n'),
+    path: 'anchor',
+    throwIfDiagnostics: false,
+  );
+  if (parsed.unit.directives.isEmpty) {
+    stderr.writeln('library has no directives to anchor the new parts after');
+    exit(1);
+  }
+  final lastLine = parsed.lineInfo
+      .getLocation(parsed.unit.directives.last.end - 1)
+      .lineNumber;
+  // Directives precede every declaration, so removals never shift this line.
+  return lastLine - 1;
 }
 
 /// Proves the move was a pure relocation: every non-blank line of the original
