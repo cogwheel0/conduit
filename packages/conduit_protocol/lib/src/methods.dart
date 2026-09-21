@@ -55,14 +55,16 @@ abstract final class ConduitMethods {
   /// Forgets a server and everything stored against it.
   static const String serversRemove = 'servers.remove';
 
-  /// Connects to one server, making it the active one.
+  /// Makes one server active, keeping the others.
   ///
-  /// Destructive, and named for it. The core signs out, deletes the stored
-  /// token and saved credentials, and replaces the configured list with just
-  /// this server -- because it stores exactly one auth token
-  /// (`auth_token_v3`, a single key), so "signed into two servers at once"
-  /// is not a state it can represent. A UI must confirm before calling this
-  /// when another server is configured.
+  /// The session being left is moved into the per-server token vault and the
+  /// target's is taken up if it has one, so switching between servers you
+  /// are signed into does not ask for credentials again. The adopted token is
+  /// validated against the server before the session is published.
+  ///
+  /// Not destructive: the other configured servers and their sessions
+  /// survive. `auth.signOut` is what ends sessions, and it empties the vault
+  /// rather than only the active slot.
   static const String serversConnect = 'servers.connect';
 
   /// The current session, without a token.

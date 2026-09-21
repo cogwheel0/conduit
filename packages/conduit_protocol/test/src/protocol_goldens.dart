@@ -174,7 +174,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "isActive": false,
   "allowSelfSignedCertificates": false,
   "hasMutualTlsCredentials": false,
-  "customHeaderNames": []
+  "customHeaderNames": [],
+  "hasStoredSession": false
 }''',
 
   'serverSummaryFull': r'''
@@ -191,7 +192,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "customHeaderNames": [
     "X-Conduit-Tenant",
     "CF-Access-Client-Id"
-  ]
+  ],
+  "hasStoredSession": true
 }''',
 
   'serverDraft': r'''
@@ -221,7 +223,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "isActive": true,
       "allowSelfSignedCertificates": false,
       "hasMutualTlsCredentials": false,
-      "customHeaderNames": []
+      "customHeaderNames": [],
+      "hasStoredSession": false
     }
   ],
   "activeServerId": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d"

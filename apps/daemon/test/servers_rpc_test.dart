@@ -94,6 +94,13 @@ void main() {
     decodeResult: ServerSummary.fromJson,
   );
 
+  Future<ServerList> connect(String id) => callTyped<ServerList>(
+    peer,
+    ConduitMethods.serversConnect,
+    params: ServerRef(id: id).toJson(),
+    decodeResult: ServerList.fromJson,
+  );
+
   group('servers.*', () {
     test('a fresh daemon has no servers, which is onboarding', () async {
       final result = await list();
@@ -289,30 +296,40 @@ void main() {
       );
     });
 
-    test('connect makes that server active and supersedes the rest', () async {
+    test('connect makes that server active and keeps the others', () async {
       final first = await add(
         const ServerDraft(name: 'Alpha', url: 'https://alpha.example.com'),
       );
-      await add(
+      final second = await add(
         const ServerDraft(name: 'Beta', url: 'https://beta.example.com'),
       );
 
-      final after = await callTyped<ServerList>(
-        peer,
-        ConduitMethods.serversConnect,
-        params: ServerRef(id: first.id).toJson(),
-        decodeResult: ServerList.fromJson,
+      final afterFirst = await connect(first.id);
+      expect(afterFirst.activeServerId, first.id);
+      expect(afterFirst.servers.where((s) => s.isActive).single.id, first.id);
+
+      // The one this whole work package exists for: switching accounts must
+      // not delete the account you switched away from.
+      expect(afterFirst.servers.map((s) => s.id), contains(second.id));
+
+      final afterSecond = await connect(second.id);
+      expect(afterSecond.activeServerId, second.id);
+      expect(afterSecond.servers.map((s) => s.id), contains(first.id));
+      expect(afterSecond.servers.where((s) => s.isActive).single.id, second.id);
+    });
+
+    test('a server with no session says so', () async {
+      final added = await add(
+        const ServerDraft(name: 'Fresh', url: 'https://fresh.example.com'),
       );
+      final after = await connect(added.id);
 
-      expect(after.activeServerId, first.id);
-      expect(after.servers.where((s) => s.isActive).single.id, first.id);
-
-      // The core keeps a single `auth_token_v3`, so connecting replaces the
-      // configured list rather than leaving a second server addressable with
-      // a token that does not belong to it. Asserted because it is
-      // surprising, and a caller that did not know would present this as
-      // "switch account" and quietly delete the user's other servers.
-      expect(after.servers.map((s) => s.id), <String>[first.id]);
+      // Nothing has signed in, so nothing may claim a stored session -- the
+      // UI uses this to decide between "switch" and "sign in".
+      expect(
+        after.servers.firstWhere((s) => s.id == added.id).hasStoredSession,
+        isFalse,
+      );
     });
 
     test('connecting to an unknown id is resource.notFound', () async {
@@ -337,12 +354,7 @@ void main() {
       final only = await add(
         const ServerDraft(name: 'Solo', url: 'https://solo.example.com'),
       );
-      await callTyped<ServerList>(
-        peer,
-        ConduitMethods.serversConnect,
-        params: ServerRef(id: only.id).toJson(),
-        decodeResult: ServerList.fromJson,
-      );
+      await connect(only.id);
 
       final after = await callTyped<ServerList>(
         peer,

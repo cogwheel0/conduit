@@ -115,6 +115,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     mtlsCertificateLabel: 'corp-client.pem',
     mtlsPrivateKeyLabel: 'corp-client-key.pem',
     customHeaderNames: <String>['X-Conduit-Tenant', 'CF-Access-Client-Id'],
+    hasStoredSession: true,
   ),
   'serverDraft': const ServerDraft(
     id: '7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d',

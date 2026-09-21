@@ -369,6 +369,92 @@ class OptimizedStorageService {
   Future<void> deleteAuthToken() =>
       _authStateLock.synchronized(_deleteAuthTokenUnlocked);
 
+  // ---------------------------------------------------------------------
+  // Per-server token vault
+  // ---------------------------------------------------------------------
+
+  /// Moves the session for [fromServerId] aside and takes up [toServerId]'s.
+  ///
+  /// One acquisition of [_authStateLock] for the whole exchange, not three.
+  /// The steps are individually harmless and collectively not: a login that
+  /// interleaved between the stash and the adopt would write a token for the
+  /// old server that the adopt then overwrites, and the user would end up on
+  /// the new server holding the old server's bearer.
+  ///
+  /// Returns whether [toServerId] has a live session afterwards. False means
+  /// the caller must present a sign-in form, which is an honest outcome
+  /// rather than a failure.
+  Future<bool> switchActiveServer({
+    String? fromServerId,
+    required String toServerId,
+  }) {
+    return _authStateLock.synchronized(() async {
+      // Switching to the server already active must not disturb anything.
+      // Without this the vault lookup below finds nothing -- correctly, since
+      // this server's session is in the live slot, not the vault -- and the
+      // "no session" branch deletes the very token that was live. Signing the
+      // user out for re-selecting the server they are on is a quiet enough
+      // failure that only a test asking for it would find it.
+      if (fromServerId == toServerId) {
+        final live = await _retrySecureStorageRead(
+          () => _getAuthTokenStrictUnlocked(bypassReadSuppression: true),
+          scope: 'storage/optimized/token-switch-noop',
+        );
+        return live != null && live.isNotEmpty;
+      }
+
+      if (fromServerId != null) {
+        // Copy before clearing, so the worst case is a token in two places
+        // rather than a session lost to a crash mid-switch. The adopt below
+        // removes the vault copy, reconciling it.
+        final outgoing = await _retrySecureStorageRead(
+          () => _getAuthTokenStrictUnlocked(bypassReadSuppression: true),
+          scope: 'storage/optimized/token-stash',
+        );
+        // Stashing an absent session would write an entry that later reads
+        // as "this server is signed in".
+        if (outgoing != null && outgoing.isNotEmpty) {
+          await _secureCredentialStorage.saveServerToken(
+            fromServerId,
+            outgoing,
+          );
+        }
+      }
+
+      await _setActiveServerIdUnlocked(toServerId);
+
+      final incoming = await _retrySecureStorageRead(
+        () => _secureCredentialStorage.getServerToken(toServerId),
+        scope: 'storage/optimized/token-adopt',
+      );
+      if (incoming == null || incoming.isEmpty) {
+        // Belt and braces: `_setActiveServerIdUnlocked` above already drops
+        // the token whenever the active id changes, so this is redundant
+        // today -- removing it does not fail any test, which is how it was
+        // found. It stays because the alternative is that this method's
+        // contract ("the target's session, or none") depends on a side
+        // effect of a differently-named method two lines up, and that is the
+        // kind of coupling that survives right up until someone reorders it.
+        await _deleteAuthTokenUnlocked();
+        return false;
+      }
+      await _saveAuthTokenUnlocked(incoming);
+      // A token lives in exactly one place. A stale vault copy is how a
+      // revoked session comes back.
+      await _secureCredentialStorage.deleteServerToken(toServerId);
+      return true;
+    });
+  }
+
+  /// Empties the vault. Sign-out calls this; see [deleteAllServerTokens].
+  Future<void> clearTokenVault() => _authStateLock.synchronized(
+    _secureCredentialStorage.deleteAllServerTokens,
+  );
+
+  /// Server ids holding a vaulted session, for the UI's "signed in" markers.
+  Future<Set<String>> vaultedServerIds() =>
+      _secureCredentialStorage.vaultedServerIds();
+
   /// Compare-and-delete: deletes the stored auth token ONLY if it still equals
   /// [expected]. Read + conditional delete run under [_authStateLock], so a
   /// superseded login can roll back its own token write without clobbering a
@@ -2421,6 +2507,13 @@ class OptimizedStorageService {
       // one key while the other secret and the sanitized owner remain writable.
       await attempt(_deleteAuthTokenUnlocked);
       await attempt(_deleteSavedCredentialsUnlocked);
+      // The vault too, and not only the active token: leaving another
+      // server's session in the keychain would make "sign out" untrue, and
+      // switching back would silently resurrect a session the user believed
+      // they had ended. `_clearAllUnlocked` gets this for free through
+      // `clearAll`, which wipes the whole store; this path is selective and
+      // has to say so.
+      await attempt(_secureCredentialStorage.deleteAllServerTokens);
       await attempt(_scrubServerConfigAuthArtifactsUnlocked);
       _stagedServerConfigCandidate = null;
     });

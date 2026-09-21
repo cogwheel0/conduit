@@ -1080,6 +1080,66 @@ class AuthStateManager extends _$AuthStateManager {
 
   /// Selects a newly verified server while making both durable and in-memory
   /// auth tokenless before the new API provider can be observed.
+  /// Switches to [config] without discarding the other configured servers.
+  ///
+  /// The counterpart to [selectUnauthenticatedServerConfig], which is the
+  /// *onboarding* path and deliberately destructive: it drops the stored
+  /// token, the saved credentials and every other server, because connecting
+  /// for the first time should not leave a previous account's session
+  /// reachable. That is the wrong shape for "switch account", which is what
+  /// this is.
+  ///
+  /// The session for the server being left is moved into the per-server
+  /// vault, and the target's is taken up if it has one. Returns whether a
+  /// session was restored; false means the target needs a sign-in, which is
+  /// the ordinary case the first time a second server is added.
+  ///
+  /// The adopted token is not trusted on sight. [refresh] re-reads it from
+  /// storage and validates it against the server exactly as a cold start
+  /// does, so a token the server revoked while this app was pointed
+  /// elsewhere lands in `tokenExpired` rather than in a session that fails on
+  /// its first real request.
+  Future<bool> switchToServerConfig(ServerConfig config) async {
+    final storage = ref.read(optimizedStorageServiceProvider);
+    final previousActiveId = await storage.getActiveServerId();
+    if (previousActiveId == config.id) return _current.isAuthenticated;
+
+    final attemptRevision = _beginAuthAttempt();
+    _update(
+      (current) => current.copyWith(
+        status: AuthStatus.loading,
+        isLoading: true,
+        clearError: true,
+      ),
+    );
+
+    final adopted = await storage.switchActiveServer(
+      fromServerId: previousActiveId,
+      toServerId: config.id,
+    );
+    if (_authAttemptSuperseded(attemptRevision)) return false;
+
+    // The API client is bound to a server and a token, and both just changed.
+    ref.invalidate(serverConfigsProvider);
+    ref.invalidate(activeServerProvider);
+    ref.invalidate(apiServiceProvider);
+
+    if (!adopted) {
+      _updateApiServiceToken(null);
+      final signedOut = const AuthState(
+        status: AuthStatus.unauthenticated,
+        isLoading: false,
+      );
+      _lastSettledState = signedOut;
+      _lastTransactionalSessionRevision = null;
+      _set(signedOut);
+      return false;
+    }
+
+    await refresh();
+    return _current.isAuthenticated;
+  }
+
   Future<void> selectUnauthenticatedServerConfig(ServerConfig config) async {
     final currentState = _current;
     final previousState =

@@ -38,6 +38,15 @@ abstract class ServerSummary with _$ServerSummary {
     /// token for a reverse proxy, so the values stay daemon-side; the setup
     /// form edits them by sending replacements, not by reading them back.
     @Default(<String>[]) List<String> customHeaderNames,
+
+    /// Whether switching to this server would restore a session rather than
+    /// ask for credentials. True for the active server when it is signed in,
+    /// and for any server holding a vaulted token.
+    ///
+    /// A hint for the UI's "signed in" marker, not a guarantee: the server
+    /// may have revoked the token since, which is only discovered by using
+    /// it.
+    @Default(false) bool hasStoredSession,
   }) = _ServerSummary;
 
   factory ServerSummary.fromJson(Map<String, dynamic> json) =>

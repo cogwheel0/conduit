@@ -268,6 +268,95 @@ class SecureCredentialStorage {
     }
   }
 
+  // ---------------------------------------------------------------------
+  // Per-server token vault
+  // ---------------------------------------------------------------------
+  //
+  // [_authTokenKey] above is the *active* session, and the whole ownership
+  // machinery in OptimizedStorageService and AuthStateManager is built around
+  // there being exactly one. That stays true. The vault is where a token goes
+  // while its server is not the active one, so switching servers does not
+  // have to mean signing in again.
+  //
+  // Deliberately additive rather than a re-keying of the active token: the
+  // revocation markers, the incomplete-logout fence and the rollback
+  // arbitration all reason about "the token", and giving that phrase a
+  // parameter would touch every one of them.
+
+  static const String _serverTokenPrefix = 'auth_token_server_v1:';
+
+  static String _serverTokenKey(String serverId) =>
+      '$_serverTokenPrefix$serverId';
+
+  /// Stores [token] against [serverId] for later reuse.
+  Future<void> saveServerToken(String serverId, String token) async {
+    try {
+      await _secureStorage.write(key: _serverTokenKey(serverId), value: token);
+    } catch (e) {
+      DebugLogger.error(
+        'save-server-token-failed',
+        scope: 'credentials/token',
+        error: e,
+      );
+      rethrow;
+    }
+  }
+
+  /// Reads the vaulted token for [serverId].
+  ///
+  /// Strict, like [getAuthTokenStrict]: a platform read failure must not be
+  /// mistaken for "that server has no session", which would silently demand a
+  /// fresh sign-in for a server that is in fact still signed in.
+  Future<String?> getServerToken(String serverId) =>
+      _secureStorage.read(key: _serverTokenKey(serverId));
+
+  Future<void> deleteServerToken(String serverId) async {
+    try {
+      await _secureStorage.delete(key: _serverTokenKey(serverId));
+    } catch (e) {
+      DebugLogger.error(
+        'delete-server-token-failed',
+        scope: 'credentials/token',
+        error: e,
+      );
+      rethrow;
+    }
+  }
+
+  /// Empties the vault.
+  ///
+  /// Sign-out has to call this. Clearing only the active token would leave
+  /// every other server's session sitting in the keychain, so "sign out"
+  /// would not be true -- and switching back afterwards would silently
+  /// resurrect a session the user believed they had ended.
+  Future<void> deleteAllServerTokens() async {
+    try {
+      final all = await _secureStorage.readAll();
+      for (final key in all.keys) {
+        if (key.startsWith(_serverTokenPrefix)) {
+          await _secureStorage.delete(key: key);
+        }
+      }
+    } catch (e) {
+      DebugLogger.error(
+        'delete-server-tokens-failed',
+        scope: 'credentials/token',
+        error: e,
+      );
+      rethrow;
+    }
+  }
+
+  /// Server ids that currently hold a vaulted token.
+  Future<Set<String>> vaultedServerIds() async {
+    final all = await _secureStorage.readAll();
+    return <String>{
+      for (final key in all.keys)
+        if (key.startsWith(_serverTokenPrefix))
+          key.substring(_serverTokenPrefix.length),
+    };
+  }
+
   /// Save the Hermes Agent API key (bearer token for the direct Hermes backend).
   Future<void> saveHermesApiKey(String apiKey) async {
     try {

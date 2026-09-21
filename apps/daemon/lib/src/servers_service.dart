@@ -25,9 +25,24 @@ final class ServersService {
   Future<ServerList> list() async {
     final configs = await _storage.getServerConfigsStrict();
     final activeId = await _storage.getActiveServerId();
+    final vaulted = await _storage.vaultedServerIds();
+    // The active server's session is in the live slot rather than the vault,
+    // so it needs asking about separately -- otherwise the server you are
+    // signed into is the one server that does not say so.
+    final activeSignedIn =
+        _container.read(authStateManagerProvider).value?.isAuthenticated ??
+        false;
     return ServerList(
       servers: configs
-          .map((config) => _summarize(config, activeId: activeId))
+          .map(
+            (config) => _summarize(
+              config,
+              activeId: activeId,
+              hasStoredSession: config.id == activeId
+                  ? activeSignedIn
+                  : vaulted.contains(config.id),
+            ),
+          )
           .toList(growable: false),
       activeServerId: activeId,
     );
@@ -110,20 +125,13 @@ final class ServersService {
     return list();
   }
 
-  /// Connects to [id], and supersedes everything else.
+  /// Makes [id] the active server, keeping the others.
   ///
-  /// This is not the "switch account" that a multi-server sidebar implies,
-  /// and the method is named for what the core actually does:
-  /// `selectUnauthenticatedServerConfig` deletes the stored auth token,
-  /// deletes the saved credentials, and writes back a one-element config
-  /// list. That is coherent rather than careless -- the core keeps a single
-  /// `auth_token_v3`, so two simultaneous sessions are not a representable
-  /// state, and leaving the previous account's token in place while pointing
-  /// at a new server is exactly the leak the deletion prevents.
-  ///
-  /// Callers must confirm with the user first when another server is
-  /// configured. The returned list makes the outcome visible rather than
-  /// surprising.
+  /// Goes through `switchToServerConfig` rather than
+  /// `selectUnauthenticatedServerConfig`: the latter is the onboarding path
+  /// and deliberately drops the token, the saved credentials and every other
+  /// server, which is right for "connect for the first time" and wrong for
+  /// "switch account".
   Future<ServerList> connect(String id) async {
     final configs = await _storage.getServerConfigsStrict();
     final config = configs.firstWhere(
@@ -132,11 +140,12 @@ final class ServersService {
     );
 
     // Through the auth manager rather than writing the active id directly:
-    // the sign-out sequencing and the rollback-on-supersede handling live in
-    // the core, and skipping them is how a half-switched session happens.
+    // the token exchange, the client rebind and the rollback-on-supersede
+    // handling live in the core, and skipping them is how a half-switched
+    // session happens.
     await _container
         .read(authStateManagerProvider.notifier)
-        .selectUnauthenticatedServerConfig(config);
+        .switchToServerConfig(config);
     return list();
   }
 
@@ -151,20 +160,23 @@ final class ServersService {
   /// the one the core resolves against -- so trusting the flag can produce a
   /// list where `activeServerId` points at a server that reports
   /// `isActive: false`, or at two servers that both report true.
-  static ServerSummary _summarize(ServerConfig config, {String? activeId}) =>
-      ServerSummary(
-        id: config.id,
-        name: config.name,
-        url: config.url,
-        isActive: activeId == null ? config.isActive : config.id == activeId,
-        lastConnectedMs: config.lastConnected?.millisecondsSinceEpoch,
-        allowSelfSignedCertificates: config.allowSelfSignedCertificates,
-        hasMutualTlsCredentials: config.hasMutualTlsCredentials,
-        mtlsCertificateLabel: config.mtlsCertificateLabel,
-        mtlsPrivateKeyLabel: config.mtlsPrivateKeyLabel,
-        customHeaderNames: config.customHeaders.keys.toList(growable: false)
-          ..sort(),
-      );
+  static ServerSummary _summarize(
+    ServerConfig config, {
+    String? activeId,
+    bool hasStoredSession = false,
+  }) => ServerSummary(
+    id: config.id,
+    name: config.name,
+    url: config.url,
+    isActive: activeId == null ? config.isActive : config.id == activeId,
+    lastConnectedMs: config.lastConnected?.millisecondsSinceEpoch,
+    allowSelfSignedCertificates: config.allowSelfSignedCertificates,
+    hasMutualTlsCredentials: config.hasMutualTlsCredentials,
+    mtlsCertificateLabel: config.mtlsCertificateLabel,
+    mtlsPrivateKeyLabel: config.mtlsPrivateKeyLabel,
+    customHeaderNames: config.customHeaders.keys.toList(growable: false)
+      ..sort(),
+  );
 
   static RpcError _notFound(String id) => RpcError(
     code: ConduitErrorCodes.notFound,
