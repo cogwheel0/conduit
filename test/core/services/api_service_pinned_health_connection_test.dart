@@ -26,8 +26,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/connectivity_service.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:dio/dio.dart';

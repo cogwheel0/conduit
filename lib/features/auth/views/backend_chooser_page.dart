@@ -12,7 +12,9 @@ import '../../../platform/conduit_platform_apis.g.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 
 import '../../../shared/services/navigation_service.dart';
-import '../../direct_connections/providers/direct_connection_providers.dart';
+
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';

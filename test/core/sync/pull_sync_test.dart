@@ -4,9 +4,9 @@ import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart'
     show kLocalConversationWorkerThreshold;
 import 'package:conduit_core/services/worker_manager.dart';
-import 'package:conduit/core/sync/chat_locks.dart';
+import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/id_remapper.dart';
-import 'package:conduit/core/sync/pull_sync.dart';
+import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';

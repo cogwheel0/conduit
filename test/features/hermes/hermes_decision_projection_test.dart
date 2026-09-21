@@ -1,6 +1,6 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/features/hermes/services/hermes_decision_projection.dart';
-import 'package:conduit/features/hermes/services/hermes_pending_decision_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_decision_projection.dart';
+import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

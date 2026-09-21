@@ -3,7 +3,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/platform/webview_cookie_helper.dart';
-import 'package:conduit/core/services/api_service.dart';
+import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit/features/auth/views/authentication_page.dart';

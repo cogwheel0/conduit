@@ -4,10 +4,10 @@ import 'dart:convert';
 import 'package:meta/meta.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit/features/chat/providers/knowledge_cache_provider.dart';
-import 'package:conduit/features/workspace/models/workspace_knowledge.dart';
+import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/providers/workspace_session.dart';
 

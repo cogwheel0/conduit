@@ -8,15 +8,15 @@ import 'package:uuid/uuid.dart';
 
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/notes_dao.dart';
-import 'package:conduit/core/database/database_provider.dart';
+import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/note_mapper.dart';
 import 'package:conduit_core/models/note.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/connectivity_service.dart';
-import 'package:conduit/core/sync/chat_locks.dart';
-import 'package:conduit/core/sync/sync_engine.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
+import 'package:conduit_core/sync/chat_locks.dart';
+import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 
 part 'notes_providers.g.dart';
 

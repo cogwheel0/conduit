@@ -6,7 +6,8 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/sync/sync_engine.dart';
+import 'package:conduit_core/sync/sync_engine.dart';
+
 import '../../../core/services/haptic_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';

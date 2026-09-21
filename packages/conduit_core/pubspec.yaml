@@ -15,6 +15,11 @@ dependencies:
   # owns the schema, so drift belongs here rather than in the front-ends.
   archive: ^4.0.9
   xml: ^7.0.1
+  mcp_dart: ^2.4.0
+  http: ^1.5.0
+  http_parser: ^4.0.2
+  ollama_dart: ^2.4.0
+  web_socket_channel: ^3.0.3
   collection: ^1.19.1
   hive_ce: ^2.14.0
   intl: ^0.20.2

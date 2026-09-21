@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:checks/checks.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

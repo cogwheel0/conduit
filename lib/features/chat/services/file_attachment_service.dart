@@ -9,13 +9,15 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as path;
 
-import '../../../core/providers/app_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/models/file_info.dart';
+
 import '../../../shared/utils/file_type_utils.dart';
+
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
-import '../../direct_connections/direct_connections.dart';
-import '../../hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/direct_connections/direct_connections.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 
 /// Standard web image formats that LLMs can process directly.
 const Set<String> _standardImageFormats = {

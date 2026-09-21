@@ -3,9 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:conduit/features/direct_connections/models/direct_completion.dart';
-import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
-import 'package:conduit/features/direct_connections/services/openwebui_direct_completion_relay.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/services/openwebui_direct_completion_relay.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 

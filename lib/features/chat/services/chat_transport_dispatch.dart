@@ -3,21 +3,23 @@ import 'dart:async';
 import 'package:conduit_core/models/chat_message.dart';
 
 import '../../../shared/services/flutter_ui_requests.dart';
-import '../../../core/providers/app_providers.dart'
+
+import 'package:conduit_core/providers/app_providers.dart'
     show
         activeChatIdsProvider,
         activeConversationProvider,
         conversationsProvider,
         isTemporaryChat,
         refreshConversationsCache;
-import '../../../core/services/api_service.dart';
+import 'package:conduit_core/services/api_service.dart';
 
 import 'package:conduit_core/services/chat_completion_transport.dart';
 
 import 'package:conduit_core/services/socket_service.dart';
 
 import '../../../core/services/streaming_helper.dart';
-import '../../../core/sync/sync_engine.dart';
+
+import 'package:conduit_core/sync/sync_engine.dart';
 
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/utils/debug_logger.dart';

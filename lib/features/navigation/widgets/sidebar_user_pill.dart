@@ -15,11 +15,13 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:conduit_core/models/user.dart';
 
 import '../../../core/network/image_header_utils.dart';
-import '../../../core/providers/app_providers.dart';
+
+import 'package:conduit_core/providers/app_providers.dart';
 
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 
-import '../../../core/services/api_service.dart';
+import 'package:conduit_core/services/api_service.dart';
+
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
 import '../../../shared/services/navigation_service.dart';
@@ -28,16 +30,20 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../core/utils/native_sheet_utils.dart';
-import '../../../core/utils/user_avatar_utils.dart';
+
+import 'package:conduit_core/utils/user_avatar_utils.dart';
 
 import 'package:conduit_core/utils/user_display_name.dart';
 
-import '../../hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/user_avatar.dart';
-import '../../auth/providers/unified_auth_providers.dart';
+
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../providers/sidebar_providers.dart';
 import 'sidebar_tab_registry.dart';

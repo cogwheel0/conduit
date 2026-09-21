@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import 'package:conduit_core/models/backend_config.dart';
 
-import '../../../core/services/api_service.dart';
+import 'package:conduit_core/services/api_service.dart';
 
 import 'package:conduit_core/services/settings_service.dart';
 

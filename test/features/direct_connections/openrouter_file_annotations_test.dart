@@ -1,11 +1,11 @@
 import 'dart:convert';
 
 import 'package:conduit_core/models/chat_message.dart';
-import 'package:conduit/features/direct_connections/models/direct_completion.dart';
-import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
-import 'package:conduit/features/direct_connections/services/direct_chat_bridge.dart';
-import 'package:conduit/features/direct_connections/services/direct_local_document_service.dart';
-import 'package:conduit/features/direct_connections/services/openrouter_file_annotations.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_local_document_service.dart';
+import 'package:conduit_core/features/direct_connections/services/openrouter_file_annotations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

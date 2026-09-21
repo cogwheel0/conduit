@@ -3,15 +3,15 @@ import 'dart:async';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../features/auth/providers/unified_auth_providers.dart';
-import '../database/database_provider.dart';
-import '../providers/app_providers.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/host_ports.dart';
-import '../services/connectivity_service.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
-import 'pull_sync.dart';
-import 'sync_api_client.dart';
-import 'sync_engine.dart';
+import 'package:conduit_core/sync/pull_sync.dart';
+import 'package:conduit_core/sync/sync_api_client.dart';
+import 'package:conduit_core/sync/sync_engine.dart';
 
 part 'sync_triggers.g.dart';
 
@@ -294,4 +294,3 @@ class SyncTriggers extends _$SyncTriggers {
     );
   }
 }
-

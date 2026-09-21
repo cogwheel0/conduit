@@ -11,8 +11,9 @@ import 'package:conduit_core/voice/voice_session.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/model.dart';
 
-import '../../../core/providers/app_providers.dart'
+import 'package:conduit_core/providers/app_providers.dart'
     show selectedModelProvider, socketServiceProvider;
+
 import '../../../core/services/background_streaming_handler.dart';
 import '../../../core/services/callkit_service.dart';
 
@@ -28,7 +29,8 @@ import '../services/text_to_speech_service.dart';
 import '../services/voice_input_service.dart';
 import '../voice_call/voice_call_eligibility.dart';
 import 'chat_voice_audio_session_coordinator.dart';
-import '../../tools/providers/tools_providers.dart';
+
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 
 /// Re-exported so the move of the voice session model into
 /// `conduit_core` is invisible to callers: these names were public here

@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
-import 'package:conduit/features/hermes/services/hermes_local_document_trust_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';

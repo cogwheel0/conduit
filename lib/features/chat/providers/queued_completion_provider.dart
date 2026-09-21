@@ -8,17 +8,18 @@ import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
 
-import '../../../core/database/database_provider.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../../core/services/connectivity_service.dart';
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
 
 import 'package:conduit_core/sync/clock.dart';
 
-import '../../../core/sync/sync_engine.dart';
+import 'package:conduit_core/sync/sync_engine.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
-import '../../hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+
 import 'chat_providers.dart'
     show chatMessagesProvider, conversationUsesOpenWebUiStorage;
 

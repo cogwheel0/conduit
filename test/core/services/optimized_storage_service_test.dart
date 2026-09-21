@@ -11,7 +11,7 @@ import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/persistence/hive_boxes.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
-import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/cache_manager.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';

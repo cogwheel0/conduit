@@ -13,20 +13,21 @@ import 'package:synchronized/synchronized.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../features/chat/services/file_attachment_service.dart';
-import '../../features/direct_connections/direct_connections.dart';
-import '../../features/hermes/models/hermes_chat_input.dart';
-import '../../features/hermes/models/hermes_config.dart';
-import '../../features/hermes/models/hermes_model.dart';
-import '../../features/hermes/providers/hermes_providers.dart';
-import '../../features/hermes/services/hermes_local_document_service.dart';
+
+import 'package:conduit_core/features/direct_connections/direct_connections.dart';
+import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
 
 import 'package:conduit_core/models/file_info.dart';
 
-import '../providers/app_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
-import 'api_service.dart';
+import 'package:conduit_core/services/api_service.dart';
 
 import 'package:conduit_core/services/attachment_upload_queue.dart';
 

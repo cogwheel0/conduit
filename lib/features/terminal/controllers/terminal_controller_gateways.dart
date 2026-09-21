@@ -8,7 +8,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-import '../../tools/providers/tools_providers.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+
 import '../models/terminal_models.dart';
 import '../providers/terminal_providers.dart';
 import '../services/terminal_service.dart';

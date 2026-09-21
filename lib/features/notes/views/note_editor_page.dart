@@ -21,16 +21,18 @@ import 'package:conduit_core/auth/api_auth_interceptor.dart';
 
 import 'package:conduit_core/database/app_database.dart';
 
-import '../../../core/database/database_provider.dart';
+import 'package:conduit_core/database/database_provider.dart';
 
 import 'package:conduit_core/database/mappers/note_mapper.dart';
 import 'package:conduit_core/models/note.dart';
 
-import '../../../core/providers/app_providers.dart';
-import '../../../core/services/connectivity_service.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
+
 import '../../../core/services/ios_native_dropdown_bridge.dart';
-import '../../../core/sync/sync_engine.dart';
-import '../../../core/sync/chat_locks.dart';
+
+import 'package:conduit_core/sync/sync_engine.dart';
+import 'package:conduit_core/sync/chat_locks.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -47,7 +49,9 @@ import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/themed_sheets.dart';
-import '../../auth/providers/unified_auth_providers.dart';
+
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+
 import '../../chat/services/voice_input_service.dart';
 import '../providers/notes_providers.dart';
 import '../services/note_audio_upload_service.dart';

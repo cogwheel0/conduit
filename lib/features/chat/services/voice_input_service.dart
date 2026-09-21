@@ -12,8 +12,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:vad/vad.dart' show VadHandler;
 
-import '../../../core/providers/app_providers.dart';
-import '../../../core/services/api_service.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
 
 import 'package:conduit_core/services/settings_service.dart';
 

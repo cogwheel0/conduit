@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/features/direct_connections/services/direct_local_document_service.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_local_document_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _testSigningKey = <int>[

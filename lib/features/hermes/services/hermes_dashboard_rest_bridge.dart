@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
-import '../models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+
 import 'hermes_dashboard_cookie_store.dart';
-import 'hermes_dashboard_bridge.dart';
+
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart';
 
 final class HermesDashboardRestBridge implements HermesDashboardBridge {
   HermesDashboardRestBridge({required this.config, required Uri root})

@@ -1,6 +1,5 @@
-
 import 'package:meta/meta.dart';
-import 'workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 
 @immutable
 class WorkspaceSectionCapabilities {

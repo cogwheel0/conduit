@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
-import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';

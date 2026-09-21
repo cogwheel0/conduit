@@ -6,7 +6,7 @@ import 'package:meta/meta.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
-import 'api_service.dart';
+import 'package:conduit_core/services/api_service.dart';
 
 enum UserLocationFailureReason {
   servicesDisabled,

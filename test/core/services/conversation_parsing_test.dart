@@ -3,7 +3,7 @@ import 'package:conduit_core/services/conversation_parsing.dart';
 import 'package:conduit_core/services/direct_replay_output.dart';
 import 'package:conduit_core/services/structured_output.dart';
 import 'package:conduit_core/services/structured_output_renderer.dart';
-import 'package:conduit/features/direct_connections/services/direct_chat_bridge.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

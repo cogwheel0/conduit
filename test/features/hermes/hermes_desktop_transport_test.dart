@@ -3,11 +3,11 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/features/hermes/services/hermes_desktop_api_service.dart';
-import 'package:conduit/features/hermes/services/hermes_desktop_transport.dart';
-import 'package:conduit/features/hermes/services/hermes_json_guard.dart';
-import 'package:conduit/features/hermes/models/hermes_config.dart';
-import 'package:conduit/features/hermes/models/hermes_mcp.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
+import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_mcp.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';

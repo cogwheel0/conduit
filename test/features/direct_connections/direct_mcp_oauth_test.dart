@@ -3,9 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/services/secure_credential_storage.dart';
-import 'package:conduit/features/direct_connections/models/direct_mcp_server.dart';
-import 'package:conduit/features/direct_connections/services/direct_mcp_oauth.dart';
-import 'package:conduit/features/direct_connections/services/direct_mcp_server_store.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_mcp_oauth.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_mcp_server_store.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';

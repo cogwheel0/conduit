@@ -10,7 +10,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as path;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+
 import '../features/chat/providers/chat_providers.dart';
 import '../features/chat/services/file_attachment_service.dart';
 import '../features/chat/voice_call/voice_call_eligibility.dart';

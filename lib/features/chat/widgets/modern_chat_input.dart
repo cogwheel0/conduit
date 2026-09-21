@@ -29,25 +29,31 @@ import '../services/ios_keyboard_attachment_bridge.dart';
 import '../providers/context_attachments_provider.dart';
 import '../providers/knowledge_cache_provider.dart';
 import '../../notes/providers/notes_providers.dart';
-import '../../tools/providers/tools_providers.dart';
+
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+
 import '../../prompts/providers/prompts_providers.dart';
 import '../../hermes/controllers/hermes_busy_turn_controller.dart';
-import '../../hermes/models/hermes_model.dart';
-import '../../hermes/models/hermes_config.dart';
-import '../../hermes/providers/hermes_providers.dart';
-import '../../hermes/services/hermes_local_document_service.dart';
-import '../../direct_connections/direct_connections.dart';
-import '../../direct_connections/providers/direct_mcp_providers.dart';
-import '../../direct_connections/services/direct_mcp_client.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
+import 'package:conduit_core/features/direct_connections/direct_connections.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_mcp_client.dart';
+
 import '../../direct_connections/views/direct_mcp_content_sheet.dart';
-import '../../workspace/models/workspace_resources.dart';
+
+import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 
 import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/prompt.dart';
 import 'package:conduit_core/models/toggle_filter.dart';
 
-import '../../../core/providers/app_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+
 import '../../../shared/services/navigation_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/location_service.dart';
@@ -76,7 +82,9 @@ import '../../../shared/widgets/horizontal_overflow_fade.dart';
 import 'package:conduit_core/utils/prompt_variable_parser.dart';
 
 import '../../prompts/widgets/prompt_variable_dialog.dart';
-import '../../auth/providers/unified_auth_providers.dart';
+
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+
 import 'chat_input_intents.dart';
 import 'expanded_text_editor.dart';
 import 'composer_overflow_items.dart';

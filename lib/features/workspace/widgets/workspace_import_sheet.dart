@@ -6,7 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
-import 'package:conduit/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';

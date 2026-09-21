@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
-import 'package:conduit/features/direct_connections/services/direct_http_client.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_http_client.dart';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:fake_async/fake_async.dart';

@@ -1,6 +1,6 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/features/hermes/models/hermes_config.dart';
-import 'package:conduit/features/hermes/services/hermes_desktop_connection_coordinator.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_connection_coordinator.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

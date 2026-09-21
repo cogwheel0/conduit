@@ -5,7 +5,7 @@ library;
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:conduit/core/sync/sync_api_client.dart';
+import 'package:conduit_core/sync/sync_api_client.dart';
 
 import 'fake_open_webui_server.dart';
 

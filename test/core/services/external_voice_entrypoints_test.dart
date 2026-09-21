@@ -1,14 +1,14 @@
 import 'dart:async';
 
 import 'package:conduit_core/persistence/preferences_store.dart';
-import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit/platform/app_intents_service.dart';
 import 'package:conduit/platform/home_widget_service.dart';
 import 'package:conduit/platform/quick_actions_service.dart';
 import 'package:conduit/platform/android_assistant_handler.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/voice_call/presentation/voice_call_launcher.dart';
-import 'package:conduit/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';

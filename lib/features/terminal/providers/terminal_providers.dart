@@ -7,8 +7,9 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'package:conduit_core/network/conduit_user_agent.dart';
 
-import '../../../core/providers/app_providers.dart';
-import '../../tools/providers/tools_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+
 import '../models/terminal_models.dart';
 import '../services/terminal_service.dart';
 

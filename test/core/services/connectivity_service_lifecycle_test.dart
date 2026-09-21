@@ -4,8 +4,8 @@ import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/server_config.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/connectivity_service.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

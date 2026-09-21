@@ -2,10 +2,10 @@ import 'dart:async';
 
 import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/services/secure_credential_storage.dart';
-import 'package:conduit/features/direct_connections/models/direct_mcp_server.dart';
-import 'package:conduit/features/direct_connections/providers/direct_mcp_providers.dart';
-import 'package:conduit/features/direct_connections/services/direct_mcp_oauth.dart';
-import 'package:conduit/features/direct_connections/services/direct_mcp_server_store.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_mcp_oauth.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_mcp_server_store.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_items.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/direct_connections/views/direct_connections_page.dart';

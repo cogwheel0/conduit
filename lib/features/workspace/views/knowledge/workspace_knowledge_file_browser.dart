@@ -9,7 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit/features/chat/widgets/server_file_picker_sheet.dart';
-import 'package:conduit/features/workspace/models/workspace_knowledge.dart';
+import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart';
 import 'package:conduit/features/workspace/providers/workspace_knowledge_files.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/l10n/app_localizations.dart';

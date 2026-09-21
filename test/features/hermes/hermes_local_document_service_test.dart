@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:checks/checks.dart';
-import 'package:conduit/features/hermes/services/hermes_local_document_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

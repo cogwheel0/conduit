@@ -12,9 +12,10 @@ import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_selection_sheet.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
-import '../models/ollama_keep_alive.dart';
-import '../models/ollama_thinking.dart';
-import '../providers/direct_connection_providers.dart';
+
+import 'package:conduit_core/features/direct_connections/models/ollama_keep_alive.dart';
+import 'package:conduit_core/features/direct_connections/models/ollama_thinking.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 
 enum _OllamaModelAction { load, unload, keepAlive, thinking }
 

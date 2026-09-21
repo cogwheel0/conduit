@@ -1,8 +1,8 @@
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/features/hermes/models/hermes_run_event.dart';
-import 'package:conduit/features/hermes/services/hermes_stream_parser.dart';
+import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
+import 'package:conduit_core/features/hermes/services/hermes_stream_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Stream<List<int>> _sse(List<String> chunks) =>

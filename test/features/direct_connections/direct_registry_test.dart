@@ -2,12 +2,12 @@ import 'dart:async';
 
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/model.dart';
-import 'package:conduit/features/direct_connections/models/direct_completion.dart';
-import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
-import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
-import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
-import 'package:conduit/features/direct_connections/services/direct_provider_adapter.dart';
-import 'package:conduit/features/direct_connections/services/direct_run_registry.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_run_registry.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 

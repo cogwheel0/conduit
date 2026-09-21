@@ -1,4 +1,4 @@
-import 'package:conduit/features/workspace/models/workspace_resources.dart';
+import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:riverpod/riverpod.dart';

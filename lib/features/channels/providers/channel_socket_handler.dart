@@ -5,7 +5,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/models/channel_message.dart';
 
-import '../../../core/providers/app_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 
 import 'package:conduit_core/services/socket_service.dart';
 

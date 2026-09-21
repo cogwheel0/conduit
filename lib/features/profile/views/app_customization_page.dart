@@ -18,13 +18,16 @@ import '../../../core/utils/tts_voice_utils.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/theme/tweakcn_themes.dart';
 import '../../../shared/widgets/adaptive_selection_sheet.dart';
-import '../../tools/providers/tools_providers.dart';
+
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 
 import 'package:conduit_core/models/tool.dart';
 
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../core/providers/app_providers.dart';
+
+import 'package:conduit_core/providers/app_providers.dart';
+
 import '../../../l10n/app_localizations.dart';
 import '../../chat/providers/text_to_speech_provider.dart';
 import '../../chat/services/voice_input_service.dart';

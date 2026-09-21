@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/features/hermes/models/hermes_chat_input.dart';
+import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openai_dart/openai_dart.dart' as openai;
 

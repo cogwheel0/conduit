@@ -6,11 +6,11 @@ library;
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
-import 'package:conduit/core/sync/chat_locks.dart';
+import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/clock.dart';
-import 'package:conduit/core/sync/deletion_reconcile.dart' show ReconcileReason;
-import 'package:conduit/core/sync/note_deletion_reconcile.dart';
-import 'package:conduit/core/sync/sync_api_client.dart';
+import 'package:conduit_core/sync/deletion_reconcile.dart' show ReconcileReason;
+import 'package:conduit_core/sync/note_deletion_reconcile.dart';
+import 'package:conduit_core/sync/sync_api_client.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 

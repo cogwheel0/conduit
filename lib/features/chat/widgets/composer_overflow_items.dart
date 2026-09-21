@@ -5,8 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit_core/models/toggle_filter.dart';
 import 'package:conduit_core/models/tool.dart';
-import '../../direct_connections/providers/direct_mcp_providers.dart';
-import '../../tools/providers/tools_providers.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+
 import '../providers/chat_providers.dart';
 
 class ComposerOverflowActionIds {

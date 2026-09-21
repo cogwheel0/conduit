@@ -34,7 +34,7 @@ import 'platform/flutter_log_sink.dart';
 import 'platform/flutter_worker_port.dart';
 import 'platform/flutter_database_opener.dart';
 
-import 'core/providers/app_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 
 import 'package:conduit_core/providers/host_ports.dart';
 
@@ -59,7 +59,8 @@ import 'platform/carplay_service.dart';
 import 'package:conduit_core/services/readiness_gated_secure_storage.dart';
 import 'package:conduit_core/services/settings_service.dart';
 
-import 'core/sync/request_completion_runner_provider.dart';
+import 'package:conduit_core/sync/request_completion_runner_provider.dart';
+
 import 'core/utils/tts_voice_utils.dart';
 import 'core/utils/current_localizations.dart';
 import 'features/chat/services/request_completion_runner.dart';
@@ -72,7 +73,9 @@ import 'features/release_notes/data/release_notes_repository.dart';
 import 'features/release_notes/release_notes_presenter.dart';
 import 'l10n/conduit_localizations.dart';
 import 'shared/widgets/legacy_design_compatibility.dart';
-import 'features/tools/providers/tools_providers.dart';
+
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+
 import 'features/workspace/providers/workspace_capabilities_provider.dart';
 import 'features/workspace/workspace_navigation.dart';
 
@@ -92,9 +95,13 @@ import 'shared/theme/theme_extensions.dart';
 import 'shared/theme/theme_providers.dart';
 import 'platform/frame_profiler.dart';
 import 'features/direct_connections/providers/apple_pcc_providers.dart';
-import 'features/direct_connections/providers/direct_connection_providers.dart';
+
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+
 import 'shared/services/app_package_info.dart';
-import 'features/hermes/providers/hermes_providers.dart';
+
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+
 import 'features/hermes/services/hermes_dashboard_rest_bridge.dart';
 
 const bool _enableFlutterDriverExtension = bool.fromEnvironment(

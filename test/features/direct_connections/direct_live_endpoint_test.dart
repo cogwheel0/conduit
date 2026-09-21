@@ -1,11 +1,11 @@
 import 'dart:io';
 
-import 'package:conduit/features/direct_connections/models/direct_completion.dart';
-import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
-import 'package:conduit/features/direct_connections/services/direct_http_client.dart';
-import 'package:conduit/features/direct_connections/services/ollama_adapter.dart';
-import 'package:conduit/features/direct_connections/services/ollama_cloud_tools.dart';
-import 'package:conduit/features/direct_connections/services/openai_compatible_adapter.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_http_client.dart';
+import 'package:conduit_core/features/direct_connections/services/ollama_adapter.dart';
+import 'package:conduit_core/features/direct_connections/services/ollama_cloud_tools.dart';
+import 'package:conduit_core/features/direct_connections/services/openai_compatible_adapter.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 

@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:conduit/core/providers/storage_providers.dart';
-import 'package:conduit/features/direct_connections/models/direct_mcp_content.dart';
-import 'package:conduit/features/direct_connections/models/direct_mcp_server.dart';
-import 'package:conduit/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/providers/storage_providers.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_mcp_content.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
 import 'package:conduit/features/direct_connections/views/direct_mcp_content_sheet.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';

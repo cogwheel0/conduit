@@ -5,7 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+
 import '../../features/chat/providers/text_to_speech_provider.dart';
 import '../../features/chat/models/model_selector_layout.dart';
 import '../../features/chat/providers/reasoning_effort_provider.dart';
@@ -16,9 +17,10 @@ import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/tool.dart';
 
 import '../network/image_header_utils.dart';
-import '../providers/app_providers.dart';
-import '../../features/hermes/providers/hermes_providers.dart';
-import '../../features/hermes/models/hermes_model.dart';
+
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 

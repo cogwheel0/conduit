@@ -4,9 +4,9 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/models/channel.dart';
 import 'package:conduit_core/models/channel_message.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../../core/services/api_service.dart';
-import '../../auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 
 part 'channel_providers.g.dart';
 

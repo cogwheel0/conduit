@@ -14,7 +14,7 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../core/providers/storage_providers.dart';
+import 'package:conduit_core/providers/storage_providers.dart';
 
 import 'package:conduit_core/services/optimized_storage_service.dart';
 

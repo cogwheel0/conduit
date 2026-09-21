@@ -1,12 +1,12 @@
 import 'dart:async';
 
-import 'package:conduit/core/services/api_service.dart';
+import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit/features/terminal/models/terminal_models.dart';
 import 'package:conduit/features/terminal/providers/terminal_providers.dart';
 import 'package:conduit/features/terminal/services/terminal_service.dart';
 import 'package:conduit/features/terminal/widgets/terminal_tab.dart';
-import 'package:conduit/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:material_ui/material_ui.dart';

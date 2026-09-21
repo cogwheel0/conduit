@@ -9,7 +9,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
-import '../../../core/services/api_service.dart';
+import 'package:conduit_core/services/api_service.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 

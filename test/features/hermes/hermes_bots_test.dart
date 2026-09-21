@@ -1,9 +1,9 @@
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/features/hermes/models/hermes_bot.dart';
-import 'package:conduit/features/hermes/providers/hermes_providers.dart';
-import 'package:conduit/features/hermes/services/hermes_pending_decision_store.dart';
+import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

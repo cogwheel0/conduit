@@ -2,7 +2,8 @@ import 'dart:async';
 
 import 'package:riverpod/riverpod.dart';
 
-import '../../../../../core/providers/app_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+
 import '../../../../shared/services/navigation_service.dart';
 import '../../voice_mode/chat_voice_mode_controller.dart';
 import '../voice_call_eligibility.dart';

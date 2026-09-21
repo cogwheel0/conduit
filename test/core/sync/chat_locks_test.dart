@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/sync/chat_locks.dart';
+import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

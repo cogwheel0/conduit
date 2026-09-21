@@ -3,11 +3,11 @@ import 'package:riverpod/riverpod.dart';
 import 'package:conduit_core/models/knowledge_base.dart';
 import 'package:conduit_core/models/knowledge_base_file.dart';
 
-import '../../../core/services/api_service.dart';
+import 'package:conduit_core/services/api_service.dart';
 
 import 'package:conduit_core/services/cache_manager.dart';
 
-import '../../../core/providers/app_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 

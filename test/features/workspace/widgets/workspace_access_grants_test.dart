@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
-import 'package:conduit/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';

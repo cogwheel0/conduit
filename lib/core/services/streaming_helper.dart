@@ -12,7 +12,7 @@ import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 
-import '../../core/providers/app_providers.dart' show isTemporaryChat;
+import 'package:conduit_core/providers/app_providers.dart' show isTemporaryChat;
 
 import 'package:conduit_core/services/socket_service.dart';
 
@@ -35,7 +35,7 @@ import 'package:conduit_core/services/semantic_message_builder.dart';
 
 import 'package:conduit_core/services/streaming_response_controller.dart';
 
-import 'api_service.dart';
+import 'package:conduit_core/services/api_service.dart';
 
 import 'package:conduit_core/services/structured_output.dart';
 import 'package:conduit_core/services/structured_output_renderer.dart';

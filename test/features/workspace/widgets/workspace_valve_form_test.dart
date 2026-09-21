@@ -1,7 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:conduit/features/workspace/models/workspace_resources.dart';
+import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/widgets/workspace_valve_form.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';

@@ -8,7 +8,8 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/providers/app_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+
 import '../../../shared/services/navigation_service.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -18,8 +19,10 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/file_type_utils.dart';
 import '../../../shared/utils/locale_display_formatters.dart';
-import '../../hermes/services/hermes_session_provenance.dart';
-import '../../tools/providers/tools_providers.dart';
+
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+
 import '../providers/chat_providers.dart';
 import '../utils/file_utils.dart';
 import '../utils/message_targeting.dart';

@@ -2,10 +2,10 @@ import 'dart:async';
 
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/channel_message.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/channels/providers/channel_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';

@@ -4,8 +4,9 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/widgets.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../../core/providers/app_providers.dart';
-import '../../../core/database/local_conversation_loader.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/database/local_conversation_loader.dart';
+
 import '../../../shared/services/navigation_service.dart';
 
 import 'package:conduit_core/services/settings_service.dart';

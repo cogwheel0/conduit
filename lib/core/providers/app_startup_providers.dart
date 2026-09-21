@@ -6,16 +6,18 @@ import 'package:flutter/scheduler.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../database/local_conversation_loader.dart';
-import '../database/database_provider.dart';
-import '../auth/auth_state_manager.dart';
+import 'package:conduit_core/database/local_conversation_loader.dart';
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart';
 
 import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
 
-import '../../features/hermes/services/hermes_session_provenance.dart';
-import '../providers/app_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+
 import '../sync/sync_triggers.dart';
-import '../../features/auth/providers/unified_auth_providers.dart';
+
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 
 import 'package:conduit_core/services/interaction_activity.dart';
 
@@ -25,7 +27,8 @@ import '../../platform/carplay_service.dart';
 import '../../platform/home_widget_service.dart';
 import '../services/image_attachment_cache_service.dart';
 import '../services/media_upload_controller.dart';
-import '../services/api_service.dart';
+
+import 'package:conduit_core/services/api_service.dart';
 
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/user.dart';
@@ -34,7 +37,8 @@ import '../services/background_streaming_handler.dart';
 
 import 'package:conduit_core/services/socket_service.dart';
 
-import '../services/connectivity_service.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
+
 import '../../platform/share_receiver_service.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -45,15 +49,18 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 
-import '../../features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+
 import '../../features/chat/providers/chat_providers.dart';
 import '../../features/chat/providers/context_attachments_provider.dart';
 import '../../features/chat/providers/knowledge_cache_provider.dart';
 import '../../features/chat/providers/remap_route_sync_provider.dart';
 import '../../features/channels/providers/channel_providers.dart';
 import '../../features/channels/providers/channel_socket_handler.dart';
-import '../../features/direct_connections/direct_connections.dart';
-import '../../features/hermes/models/hermes_model.dart';
+
+import 'package:conduit_core/features/direct_connections/direct_connections.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+
 import '../../features/notifications/providers/notification_socket_listener.dart';
 import '../../features/notifications/services/local_notification_service.dart';
 import '../../shared/theme/theme_providers.dart';

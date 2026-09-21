@@ -2,13 +2,13 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/features/hermes/models/hermes_capabilities.dart';
-import 'package:conduit/features/hermes/models/hermes_job.dart';
-import 'package:conduit/features/hermes/models/hermes_session.dart';
-import 'package:conduit/features/hermes/models/hermes_run_event.dart';
-import 'package:conduit/features/hermes/models/hermes_toolset.dart';
-import 'package:conduit/features/hermes/services/hermes_message_mapper.dart';
-import 'package:conduit/features/hermes/services/hermes_stream_parser.dart';
+import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
+import 'package:conduit_core/features/hermes/models/hermes_job.dart';
+import 'package:conduit_core/features/hermes/models/hermes_session.dart';
+import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
+import 'package:conduit_core/features/hermes/models/hermes_toolset.dart';
+import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
+import 'package:conduit_core/features/hermes/services/hermes_stream_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// These fixtures are real responses captured from a live Hermes Agent server

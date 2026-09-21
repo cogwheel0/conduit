@@ -1,4 +1,4 @@
-import 'package:conduit/features/direct_connections/services/direct_run_registry.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_run_registry.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

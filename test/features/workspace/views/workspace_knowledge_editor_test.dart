@@ -5,10 +5,10 @@ import 'package:go_router/go_router.dart';
 
 import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/models/user.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
-import 'package:conduit/features/workspace/models/workspace_knowledge.dart';
+import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_knowledge_files.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';

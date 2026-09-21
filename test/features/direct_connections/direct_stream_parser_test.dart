@@ -3,10 +3,10 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/features/direct_connections/models/direct_completion.dart';
-import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
-import 'package:conduit/features/direct_connections/services/direct_adapter_helpers.dart';
-import 'package:conduit/features/direct_connections/services/ollama_stream_parser.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
+import 'package:conduit_core/features/direct_connections/services/ollama_stream_parser.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 

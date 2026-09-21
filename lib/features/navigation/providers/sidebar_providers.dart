@@ -6,12 +6,14 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 
-import '../../../core/providers/app_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../shared/widgets/sidebar_layout_constants.dart';
-import '../../hermes/providers/hermes_providers.dart';
+
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+
 import '../../terminal/providers/terminal_providers.dart';
 import '../models/sidebar_navigation_model.dart';
 import '../widgets/sidebar_tab_registry.dart';

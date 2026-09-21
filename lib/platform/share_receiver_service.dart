@@ -9,12 +9,15 @@ import 'package:riverpod/riverpod.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+
 import '../features/chat/providers/chat_providers.dart';
 import '../features/chat/services/file_attachment_service.dart';
-import '../features/direct_connections/direct_connections.dart';
-import '../features/hermes/models/hermes_model.dart';
-import '../core/providers/app_providers.dart';
+
+import 'package:conduit_core/features/direct_connections/direct_connections.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+
 import '../core/services/media_upload_controller.dart';
 
 import 'package:path/path.dart' as path;

@@ -21,7 +21,7 @@ import '../../../shared/widgets/sidebar_layout_contract.dart';
 
 import 'dart:async';
 
-import '../../../core/providers/app_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 
 import 'package:conduit_core/services/interaction_activity.dart';
 
@@ -30,34 +30,37 @@ import '../../../core/services/native_sheet_hydration_service.dart';
 
 import 'package:conduit_core/services/performance_profiler.dart';
 
-import '../../../core/services/api_service.dart';
-import '../../../core/services/connectivity_service.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
 
 import 'package:conduit_core/services/settings_service.dart';
 
-import '../../../core/database/database_provider.dart';
+import 'package:conduit_core/database/database_provider.dart';
 
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/models/chat_transcript_window.dart';
 
-import '../../auth/providers/unified_auth_providers.dart';
-import '../../direct_connections/providers/direct_connection_providers.dart';
-import '../../direct_connections/services/direct_chat_bridge.dart';
-import '../../direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+
 import '../../direct_connections/widgets/direct_mcp_message_interactions.dart';
 import '../providers/chat_providers.dart';
 import '../providers/openwebui_chat_prompt_provider.dart';
-import '../../hermes/models/hermes_model.dart';
-import '../../hermes/models/hermes_bot.dart';
-import '../../hermes/models/hermes_config.dart';
-import '../../hermes/providers/hermes_providers.dart';
-import '../../hermes/services/hermes_decision_projection.dart';
-import '../../hermes/services/hermes_desktop_api_service.dart';
-import '../../hermes/services/hermes_local_document_trust_store.dart';
-import '../../hermes/services/hermes_message_mapper.dart';
-import '../../hermes/services/hermes_pending_decision_store.dart';
-import '../../hermes/services/hermes_session_provenance.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_decision_projection.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
+import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+
 import '../../hermes/widgets/hermes_bot_avatar.dart';
 import '../../hermes/widgets/hermes_message_interactions.dart';
 
@@ -88,7 +91,9 @@ import '../voice_mode/chat_voice_mode_controller.dart';
 import '../voice_mode/chat_voice_mode_overlay.dart';
 import '../voice_call/presentation/voice_call_launcher.dart';
 import '../../../core/services/media_upload_controller.dart';
-import '../../tools/providers/tools_providers.dart';
+
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+
 import '../../release_notes/widgets/release_notes_banner.dart';
 
 import 'package:conduit_core/models/chat_message.dart';

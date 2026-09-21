@@ -1,8 +1,8 @@
 import 'dart:convert';
 
-import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
-import 'package:conduit/features/direct_connections/models/openwebui_direct_connection.dart';
-import 'package:conduit/features/direct_connections/services/openwebui_direct_connection_store.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/openwebui_direct_connection.dart';
+import 'package:conduit_core/features/direct_connections/services/openwebui_direct_connection_store.dart';
 import 'package:checks/checks.dart';
 import 'package:flutter_test/flutter_test.dart';
 

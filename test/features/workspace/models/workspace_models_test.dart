@@ -5,9 +5,9 @@ import 'package:conduit_core/models/knowledge_base.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/prompt.dart';
 import 'package:conduit_core/models/tool.dart';
-import 'package:conduit/features/workspace/models/workspace_common.dart';
-import 'package:conduit/features/workspace/models/workspace_knowledge.dart';
-import 'package:conduit/features/workspace/models/workspace_resources.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart';
+import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 
 void main() {
   test('shared workspace contracts parse grants, owners, and pagination', () {

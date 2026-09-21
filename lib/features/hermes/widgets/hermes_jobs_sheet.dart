@@ -18,9 +18,10 @@ import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/utils/utf16_sanitizer.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_sheets.dart';
-import '../models/hermes_job.dart';
-import '../providers/hermes_providers.dart';
-import '../utils/hermes_schedule_format.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_job.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/utils/hermes_schedule_format.dart';
 
 const _nativeJobTogglePrefix = 'hermes-job-toggle:';
 const _nativeJobsSheetId = 'hermes-scheduled-agents';

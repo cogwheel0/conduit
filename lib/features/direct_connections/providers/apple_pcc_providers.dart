@@ -2,7 +2,8 @@ import 'package:riverpod/riverpod.dart';
 
 import '../../../platform/conduit_platform_apis.g.dart';
 import '../services/apple_pcc_adapter.dart';
-import 'direct_connection_providers.dart';
+
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 
 /// Apple Intelligence providers (WP-1.12).
 ///

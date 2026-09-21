@@ -20,8 +20,10 @@ import '../controllers/direct_connection_editor_draft.dart';
 import '../controllers/direct_connection_editor_form.dart';
 import '../controllers/direct_connection_editor_workflow.dart';
 import '../controllers/riverpod_direct_connection_editor_gateway.dart';
-import '../models/direct_connection_profile.dart';
-import '../models/direct_remote_model.dart';
+
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
+
 import 'direct_connection_editor_sections.dart';
 
 enum DirectEditorEntry { overview, chooser }

@@ -1,6 +1,6 @@
 import 'package:riverpod/riverpod.dart';
 
-import 'package:conduit/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 import 'package:conduit/features/workspace/providers/workspace_session.dart';
 import 'package:meta/meta.dart';
 

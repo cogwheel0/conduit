@@ -2,10 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:conduit/features/direct_connections/models/direct_completion.dart';
-import 'package:conduit/features/direct_connections/models/direct_mcp_server.dart';
-import 'package:conduit/features/direct_connections/services/direct_mcp_client.dart';
-import 'package:conduit/features/direct_connections/services/ollama_cloud_tools.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_mcp_client.dart';
+import 'package:conduit_core/features/direct_connections/services/ollama_cloud_tools.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mcp_dart/mcp_dart.dart' as mcp;
 

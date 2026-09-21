@@ -6,7 +6,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import 'package:conduit_core/auth/webview_origin.dart';
 
-import 'hermes_dashboard_access.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_access.dart';
 
 Map<String, String> hermesHeadersWithoutAccessCredentials(
   Map<String, String> headers,

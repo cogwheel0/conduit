@@ -1,8 +1,8 @@
 import 'package:riverpod/riverpod.dart';
 
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 
 class WorkspaceSessionChanged implements Exception {
   const WorkspaceSessionChanged();

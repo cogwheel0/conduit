@@ -6,7 +6,7 @@ import 'dart:typed_data';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
-import 'package:conduit/core/services/api_service.dart';
+import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/chat_completion_transport.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/services/worker_manager.dart';

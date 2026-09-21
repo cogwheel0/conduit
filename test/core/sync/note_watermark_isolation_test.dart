@@ -9,8 +9,8 @@ library;
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/sync_meta_dao.dart';
-import 'package:conduit/core/sync/note_sync.dart' show kNotePullOverlapNs;
-import 'package:conduit/core/sync/pull_sync.dart' show kPullOverlapSeconds;
+import 'package:conduit_core/sync/note_sync.dart' show kNotePullOverlapNs;
+import 'package:conduit_core/sync/pull_sync.dart' show kPullOverlapSeconds;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 

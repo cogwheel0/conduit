@@ -1,11 +1,11 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/auth/auth_state_manager.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:dio/dio.dart';

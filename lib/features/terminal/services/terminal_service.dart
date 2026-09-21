@@ -6,7 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
-import '../../../core/services/api_service.dart';
+import 'package:conduit_core/services/api_service.dart';
 
 import 'package:conduit_core/utils/json_normalization.dart';
 

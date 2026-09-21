@@ -12,8 +12,9 @@ import '../features/chat/services/file_attachment_service.dart';
 import '../features/chat/voice_call/presentation/voice_call_launcher.dart';
 import '../shared/services/navigation_service.dart';
 import '../core/services/media_upload_controller.dart';
-import '../core/providers/app_providers.dart';
-import '../features/auth/providers/unified_auth_providers.dart';
+
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 

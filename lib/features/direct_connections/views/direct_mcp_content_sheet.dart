@@ -11,11 +11,12 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_dropdown_field.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_sheets.dart';
-import '../models/direct_completion.dart';
-import '../models/direct_mcp_content.dart';
-import '../models/direct_mcp_server.dart';
-import '../providers/direct_mcp_providers.dart';
-import '../services/direct_mcp_client.dart';
+
+import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_mcp_content.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_mcp_client.dart';
 
 class DirectMcpContentSheet extends ConsumerStatefulWidget {
   const DirectMcpContentSheet({super.key});

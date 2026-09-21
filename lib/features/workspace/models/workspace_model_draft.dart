@@ -1,7 +1,6 @@
-
 import 'package:meta/meta.dart';
-import 'workspace_common.dart';
-import 'workspace_resources.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 
 /// Known meta keys that get a dedicated editor field. Any other key present in
 /// [WorkspaceModelSummary.meta] is preserved verbatim through [extraMeta] so we

@@ -4,16 +4,16 @@ import 'package:riverpod/riverpod.dart';
 import 'package:dio/dio.dart' show DioException;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/providers/knowledge_cache_provider.dart';
 import 'package:conduit/features/prompts/providers/prompts_providers.dart';
-import 'package:conduit/features/tools/providers/tools_providers.dart';
-import 'package:conduit/features/workspace/models/workspace_common.dart';
-import 'package:conduit/features/workspace/models/workspace_knowledge.dart';
-import 'package:conduit/features/workspace/models/workspace_resources.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart';
+import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/providers/workspace_session.dart';
 
 part 'workspace_providers.g.dart';

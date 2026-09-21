@@ -1,6 +1,6 @@
 import 'package:conduit_core/models/model.dart';
-import '../services/api_service.dart';
-import '../../features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 
 /// Extracts the profile image URL from a model's metadata.
 ///

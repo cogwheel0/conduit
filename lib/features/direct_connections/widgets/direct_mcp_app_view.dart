@@ -7,8 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
-import '../models/direct_mcp_app.dart';
-import '../services/direct_mcp_apps_protocol.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_mcp_app.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_mcp_apps_protocol.dart';
 
 typedef DirectMcpAppMessageHandler = FutureOr<void> Function(
   DirectMcpAppInboundMessage message,
