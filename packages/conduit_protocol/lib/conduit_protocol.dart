@@ -8,6 +8,7 @@
 /// regression shows up as a failing build, not as a runtime surprise.
 library;
 
+export 'src/auth.dart';
 export 'src/capabilities.dart';
 export 'src/events.dart';
 export 'src/handshake.dart';
@@ -15,5 +16,6 @@ export 'src/methods.dart';
 export 'src/peer_helpers.dart';
 export 'src/protocol_version.dart';
 export 'src/rpc_error.dart';
+export 'src/servers.dart';
 export 'src/subprotocol.dart';
 export 'src/system.dart';

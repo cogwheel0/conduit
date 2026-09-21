@@ -70,8 +70,7 @@ abstract class RpcError with _$RpcError implements Exception {
           json_rpc_codes.METHOD_NOT_FOUND => ConduitErrorCodes.methodNotFound,
           json_rpc_codes.INVALID_PARAMS => ConduitErrorCodes.invalidParams,
           json_rpc_codes.PARSE_ERROR ||
-          json_rpc_codes.INVALID_REQUEST =>
-            ConduitErrorCodes.protocolViolation,
+          json_rpc_codes.INVALID_REQUEST => ConduitErrorCodes.protocolViolation,
           _ => ConduitErrorCodes.internal,
         },
         debugMessage: error.message,

@@ -78,7 +78,10 @@ Future<R> callTyped<R>(
   required R Function(Map<String, dynamic> json) decodeResult,
 }) async {
   try {
-    final raw = await peer.sendRequest(name, params ?? const <String, dynamic>{});
+    final raw = await peer.sendRequest(
+      name,
+      params ?? const <String, dynamic>{},
+    );
     return decodeResult(
       raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{},
     );

@@ -75,14 +75,104 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     choice: 'allow',
     remember: true,
   ),
-  'pongResult': const PongResult(
-    uptimeMs: 421337,
-    serverTimeMs: 1789000000000,
+  'pongResult': const PongResult(uptimeMs: 421337, serverTimeMs: 1789000000000),
+  'shutdownResult': const ShutdownResult(
+    flushed: false,
+    pendingOutboxEntries: 2,
   ),
-  'shutdownResult': const ShutdownResult(flushed: false, pendingOutboxEntries: 2),
   'diagnosticsExport': const DiagnosticsExport(
     path: '/home/u/.config/Conduit/staging/diagnostics-2026-09-21.zip',
     sizeBytes: 148213,
+  ),
+
+  // Nested inside handshakeResponse, so it is encoded there -- but its own
+  // `fromJson` had never been exercised until the missing-fixture check in
+  // protocol_golden_test.dart went looking.
+  'daemonPaths': const DaemonPaths(
+    userData: '/home/u/.config/Conduit',
+    database: '/home/u/.config/Conduit/db',
+    cache: '/home/u/.config/Conduit/cache',
+    logs: '/home/u/.config/Conduit/logs',
+    staging: '/home/u/.config/Conduit/staging',
+  ),
+
+  // servers.* and auth.* (WP-2.1). Two variants of ServerSummary on purpose:
+  // the redacted-secrets shape is the one that carries the security claim, so
+  // it is golden-checked rather than trusted.
+  'serverSummaryMinimal': const ServerSummary(
+    id: '7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d',
+    name: 'Home',
+    url: 'https://chat.example.com',
+  ),
+  'serverSummaryFull': const ServerSummary(
+    id: '7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d',
+    name: 'Work',
+    url: 'https://openwebui.corp.example.com',
+    isActive: true,
+    lastConnectedMs: 1758412800000,
+    allowSelfSignedCertificates: true,
+    hasMutualTlsCredentials: true,
+    mtlsCertificateLabel: 'corp-client.pem',
+    mtlsPrivateKeyLabel: 'corp-client-key.pem',
+    hasApiKey: true,
+    customHeaderNames: <String>['X-Conduit-Tenant', 'CF-Access-Client-Id'],
+  ),
+  'serverDraft': const ServerDraft(
+    id: '7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d',
+    name: 'Work',
+    url: 'https://openwebui.corp.example.com',
+    allowSelfSignedCertificates: true,
+    apiKey: 'sk-not-a-real-key',
+    customHeaders: <String, String>{'X-Conduit-Tenant': 'acme'},
+  ),
+  'serverRef': const ServerRef(id: '7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d'),
+  'serverList': const ServerList(
+    servers: <ServerSummary>[
+      ServerSummary(
+        id: '7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d',
+        name: 'Home',
+        url: 'https://chat.example.com',
+        isActive: true,
+      ),
+    ],
+    activeServerId: '7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d',
+  ),
+  'authSnapshotSignedOut': const AuthSnapshot(phase: AuthPhase.unauthenticated),
+  'authSnapshotSignedIn': const AuthSnapshot(
+    phase: AuthPhase.authenticated,
+    isAuthenticated: true,
+    hasToken: true,
+    user: AuthUser(
+      id: 'c3a1b2d4-5e6f-4708-9a1b-2c3d4e5f6071',
+      name: 'Ada Lovelace',
+      email: 'ada@example.com',
+      role: 'admin',
+      avatarUrl: '/api/v1/users/c3a1b2d4/avatar',
+    ),
+  ),
+  'authSnapshotError': const AuthSnapshot(
+    phase: AuthPhase.credentialError,
+    errorCode: ConduitErrorCodes.invalidCredentials,
+    errorArgs: <String, String>{'attempt': '3'},
+  ),
+  'authUser': const AuthUser(
+    id: 'c3a1b2d4-5e6f-4708-9a1b-2c3d4e5f6071',
+    name: 'Ada Lovelace',
+  ),
+  'passwordLogin': const PasswordLogin(
+    username: 'ada@example.com',
+    password: 'correct horse battery staple',
+  ),
+  'apiKeyLogin': const ApiKeyLogin(apiKey: 'sk-not-a-real-key'),
+  'externalAuthCompletion': const ExternalAuthCompletion(
+    origin: 'https://chat.example.com',
+    cookies: <String, String>{'oauth2_proxy': 'opaque-session-value'},
+    token: 'eyJhbGciOiJIUzI1NiJ9.not-a-real-token',
+  ),
+  'signOutRequest': const SignOutRequest(keepServerDetails: false),
+  'signOutResult': const SignOutResult(
+    outcome: SignOutOutcome.localDataClearedSessionCleanupIncomplete,
+    remaining: <String>['cookies'],
   ),
 };
 
@@ -104,6 +194,21 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'pongResult': PongResult.fromJson,
       'shutdownResult': ShutdownResult.fromJson,
       'diagnosticsExport': DiagnosticsExport.fromJson,
+      'daemonPaths': DaemonPaths.fromJson,
+      'serverSummaryMinimal': ServerSummary.fromJson,
+      'serverSummaryFull': ServerSummary.fromJson,
+      'serverDraft': ServerDraft.fromJson,
+      'serverRef': ServerRef.fromJson,
+      'serverList': ServerList.fromJson,
+      'authSnapshotSignedOut': AuthSnapshot.fromJson,
+      'authSnapshotSignedIn': AuthSnapshot.fromJson,
+      'authSnapshotError': AuthSnapshot.fromJson,
+      'authUser': AuthUser.fromJson,
+      'passwordLogin': PasswordLogin.fromJson,
+      'apiKeyLogin': ApiKeyLogin.fromJson,
+      'externalAuthCompletion': ExternalAuthCompletion.fromJson,
+      'signOutRequest': SignOutRequest.fromJson,
+      'signOutResult': SignOutResult.fromJson,
     };
 
 /// Every fixture's `toJson`, so the checker can encode without `dynamic`.

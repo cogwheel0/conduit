@@ -157,4 +157,158 @@ const Map<String, String> protocolGoldens = <String, String>{
   "sizeBytes": 148213
 }''',
 
+  'daemonPaths': r'''
+{
+  "userData": "/home/u/.config/Conduit",
+  "database": "/home/u/.config/Conduit/db",
+  "cache": "/home/u/.config/Conduit/cache",
+  "logs": "/home/u/.config/Conduit/logs",
+  "staging": "/home/u/.config/Conduit/staging"
+}''',
+
+  'serverSummaryMinimal': r'''
+{
+  "id": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d",
+  "name": "Home",
+  "url": "https://chat.example.com",
+  "isActive": false,
+  "allowSelfSignedCertificates": false,
+  "hasMutualTlsCredentials": false,
+  "hasApiKey": false,
+  "customHeaderNames": []
+}''',
+
+  'serverSummaryFull': r'''
+{
+  "id": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d",
+  "name": "Work",
+  "url": "https://openwebui.corp.example.com",
+  "isActive": true,
+  "lastConnectedMs": 1758412800000,
+  "allowSelfSignedCertificates": true,
+  "hasMutualTlsCredentials": true,
+  "mtlsCertificateLabel": "corp-client.pem",
+  "mtlsPrivateKeyLabel": "corp-client-key.pem",
+  "hasApiKey": true,
+  "customHeaderNames": [
+    "X-Conduit-Tenant",
+    "CF-Access-Client-Id"
+  ]
+}''',
+
+  'serverDraft': r'''
+{
+  "id": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d",
+  "name": "Work",
+  "url": "https://openwebui.corp.example.com",
+  "allowSelfSignedCertificates": true,
+  "apiKey": "sk-not-a-real-key",
+  "clearApiKey": false,
+  "clearMutualTls": false,
+  "customHeaders": {
+    "X-Conduit-Tenant": "acme"
+  }
+}''',
+
+  'serverRef': r'''
+{
+  "id": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d"
+}''',
+
+  'serverList': r'''
+{
+  "servers": [
+    {
+      "id": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d",
+      "name": "Home",
+      "url": "https://chat.example.com",
+      "isActive": true,
+      "allowSelfSignedCertificates": false,
+      "hasMutualTlsCredentials": false,
+      "hasApiKey": false,
+      "customHeaderNames": []
+    }
+  ],
+  "activeServerId": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d"
+}''',
+
+  'authSnapshotSignedOut': r'''
+{
+  "phase": "unauthenticated",
+  "isAuthenticated": false,
+  "isLoading": false,
+  "hasToken": false,
+  "errorArgs": {},
+  "isReviewerMode": false
+}''',
+
+  'authSnapshotSignedIn': r'''
+{
+  "phase": "authenticated",
+  "isAuthenticated": true,
+  "isLoading": false,
+  "hasToken": true,
+  "user": {
+    "id": "c3a1b2d4-5e6f-4708-9a1b-2c3d4e5f6071",
+    "name": "Ada Lovelace",
+    "email": "ada@example.com",
+    "role": "admin",
+    "avatarUrl": "/api/v1/users/c3a1b2d4/avatar"
+  },
+  "errorArgs": {},
+  "isReviewerMode": false
+}''',
+
+  'authSnapshotError': r'''
+{
+  "phase": "credentialError",
+  "isAuthenticated": false,
+  "isLoading": false,
+  "hasToken": false,
+  "errorCode": "auth.invalidCredentials",
+  "errorArgs": {
+    "attempt": "3"
+  },
+  "isReviewerMode": false
+}''',
+
+  'authUser': r'''
+{
+  "id": "c3a1b2d4-5e6f-4708-9a1b-2c3d4e5f6071",
+  "name": "Ada Lovelace"
+}''',
+
+  'passwordLogin': r'''
+{
+  "username": "ada@example.com",
+  "password": "correct horse battery staple"
+}''',
+
+  'apiKeyLogin': r'''
+{
+  "apiKey": "sk-not-a-real-key"
+}''',
+
+  'externalAuthCompletion': r'''
+{
+  "origin": "https://chat.example.com",
+  "cookies": {
+    "oauth2_proxy": "opaque-session-value"
+  },
+  "token": "eyJhbGciOiJIUzI1NiJ9.not-a-real-token"
+}''',
+
+  'signOutRequest': r'''
+{
+  "keepServerDetails": false
+}''',
+
+  'signOutResult': r'''
+{
+  "outcome": "localDataClearedSessionCleanupIncomplete",
+  "remaining": [
+    "cookies"
+  ]
+}''',
+
 };

@@ -3,9 +3,9 @@
 /// Both peers reference these constants instead of string literals, so a
 /// renamed method is a compile error on the side that forgot to follow.
 ///
-/// Only the `system.*` family is implemented in M0. The remaining namespaces
-/// are declared here as prefixes so later milestones extend a known surface
-/// (section 4) rather than inventing one.
+/// `system.*`, `servers.*` and `auth.*` are implemented. The remaining
+/// namespaces are declared here as prefixes so later milestones extend a
+/// known surface (section 4) rather than inventing one.
 abstract final class ConduitMethods {
   // ---------------------------------------------------------------------
   // system.* — implemented in WP-0.4.
@@ -36,6 +36,57 @@ abstract final class ConduitMethods {
   /// Answer a `ui.request` event. Carries the request id and the user's
   /// choice, or a cancellation.
   static const String uiRespond = 'ui.respond';
+
+  // ---------------------------------------------------------------------
+  // servers.* and auth.* -- implemented in WP-2.1.
+  // ---------------------------------------------------------------------
+
+  /// Every configured server plus which one is active.
+  static const String serversList = 'servers.list';
+
+  /// Adds a server and returns it. Does not make it active; `servers.select`
+  /// is a separate step, because adding a second server from Settings must
+  /// not sign the user out of the first.
+  static const String serversAdd = 'servers.add';
+
+  /// Edits a server in place. Secret fields left null keep their value.
+  static const String serversUpdate = 'servers.update';
+
+  /// Forgets a server and everything stored against it.
+  static const String serversRemove = 'servers.remove';
+
+  /// Makes one server active. Every other namespace addresses the active
+  /// server implicitly, so this is what "switch account" means.
+  static const String serversSelect = 'servers.select';
+
+  /// The current session, without a token.
+  static const String authStatus = 'auth.status';
+
+  /// Username and password against Open WebUI's own login.
+  static const String authLoginWithPassword = 'auth.loginWithPassword';
+
+  /// Same credentials against the server's configured LDAP directory.
+  static const String authLoginWithLdap = 'auth.loginWithLdap';
+
+  /// An Open WebUI API key, used as a bearer token.
+  static const String authLoginWithApiKey = 'auth.loginWithApiKey';
+
+  /// Attempts to restore a session from stored credentials, validating them
+  /// against the server first. Called once per launch.
+  static const String authSilentLogin = 'auth.silentLogin';
+
+  /// Finishes an SSO, OAuth or proxy sign-in that ran in an Electron window.
+  static const String authCompleteExternal = 'auth.completeExternal';
+
+  /// Whether stored credentials exist, so the UI can show "signing in"
+  /// instead of a login form while `auth.silentLogin` runs.
+  static const String authHasSavedCredentials = 'auth.hasSavedCredentials';
+
+  /// Signs out, with the keep-server-details choice.
+  static const String authSignOut = 'auth.signOut';
+
+  /// Turns the reviewer/demo path on or off.
+  static const String authSetReviewerMode = 'auth.setReviewerMode';
 
   // ---------------------------------------------------------------------
   // Namespace prefixes for later milestones (section 4).
