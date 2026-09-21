@@ -3,7 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
+import 'package:collection/collection.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -500,14 +500,6 @@ class DirectConnectionProfilesController
       );
     }
     ref.read(directRunRegistryProvider).resumeAdmissionAfterAppDataClearAbort();
-    // Some pure Riverpod tests intentionally do not initialize a Flutter
-    // binding. The secure-storage plugin cannot be invoked in that state; keep
-    // those provider graphs empty and override-friendly without masking any
-    // storage failure in the app or in binding-backed tests.
-    if (Platform.environment['FLUTTER_TEST'] == 'true' &&
-        BindingBase.debugBindingType() == null) {
-      return Future.value(const []);
-    }
     return _store.load();
   }
 
@@ -2188,7 +2180,7 @@ class DirectModelDiscoveryController
           previousMinted != null &&
           previousProfile != null &&
           previousCached != null &&
-          listEquals(previousCached, cached) &&
+          const ListEquality<Object?>().equals(previousCached, cached) &&
           sameDirectConnectionProfileValues(previousProfile, outcome.profile) &&
           previousMinted.every((item) {
             final binding = registry.resolve(item);
@@ -2603,7 +2595,10 @@ bool _transportChanged(
 ) =>
     _profileSignature(previous) != _profileSignature(next) ||
     previous.enabled != next.enabled ||
-    !listEquals(previous.manualModelIds, next.manualModelIds);
+    !const ListEquality<Object?>().equals(
+      previous.manualModelIds,
+      next.manualModelIds,
+    );
 
 void _invalidateDirectProfileTransportBestEffort(
   DirectHttpClientPool pool,

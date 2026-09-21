@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/carplay_service.dart';
+import 'package:conduit/platform/carplay_service.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/voice_mode/chat_voice_mode_controller.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';

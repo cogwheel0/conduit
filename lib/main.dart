@@ -54,7 +54,7 @@ import 'core/services/native_sheet_bridge.dart';
 import 'core/services/native_sheet_hydration_service.dart';
 import 'shared/services/navigation_service.dart';
 import 'shared/services/raster_media_policy.dart';
-import 'core/services/carplay_service.dart';
+import 'platform/carplay_service.dart';
 
 import 'package:conduit_core/services/readiness_gated_secure_storage.dart';
 import 'package:conduit_core/services/settings_service.dart';
@@ -84,7 +84,7 @@ import 'package:conduit_core/models/tool.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
-import 'core/services/quick_actions_service.dart';
+import 'platform/quick_actions_service.dart';
 import 'core/providers/app_startup_providers.dart';
 import 'features/notifications/services/local_notification_service.dart';
 import 'shared/widgets/sign_out_options_dialog.dart';

@@ -7,22 +7,22 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../platform/conduit_platform_apis.g.dart';
+import 'conduit_platform_apis.g.dart';
 
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 
-import '../providers/app_providers.dart';
+import '../core/providers/app_providers.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
-import '../../shared/services/navigation_service.dart';
-import '../../features/chat/providers/chat_providers.dart';
-import '../../features/chat/providers/context_attachments_provider.dart';
-import '../../features/auth/providers/unified_auth_providers.dart';
-import '../../features/chat/voice_call/presentation/voice_call_launcher.dart';
-import '../../features/chat/services/file_attachment_service.dart';
-import 'media_upload_controller.dart';
+import '../shared/services/navigation_service.dart';
+import '../features/chat/providers/chat_providers.dart';
+import '../features/chat/providers/context_attachments_provider.dart';
+import '../features/auth/providers/unified_auth_providers.dart';
+import '../features/chat/voice_call/presentation/voice_call_launcher.dart';
+import '../features/chat/services/file_attachment_service.dart';
+import '../core/services/media_upload_controller.dart';
 
 import 'package:conduit_core/services/share_staging_cleanup.dart';
 

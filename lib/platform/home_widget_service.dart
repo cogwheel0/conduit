@@ -10,17 +10,17 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as path;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../features/auth/providers/unified_auth_providers.dart';
-import '../../features/chat/providers/chat_providers.dart';
-import '../../features/chat/services/file_attachment_service.dart';
-import '../../features/chat/voice_call/voice_call_eligibility.dart';
-import '../../l10n/app_localizations.dart';
+import '../features/auth/providers/unified_auth_providers.dart';
+import '../features/chat/providers/chat_providers.dart';
+import '../features/chat/services/file_attachment_service.dart';
+import '../features/chat/voice_call/voice_call_eligibility.dart';
+import '../l10n/app_localizations.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'app_intents_service.dart';
-import 'media_upload_controller.dart';
-import '../../shared/services/navigation_service.dart';
+import '../core/services/media_upload_controller.dart';
+import '../shared/services/navigation_service.dart';
 
 part 'home_widget_service.g.dart';
 

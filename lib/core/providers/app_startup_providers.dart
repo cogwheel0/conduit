@@ -20,9 +20,9 @@ import '../../features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/services/interaction_activity.dart';
 
 import '../../shared/services/navigation_service.dart';
-import '../services/app_intents_service.dart';
-import '../services/carplay_service.dart';
-import '../services/home_widget_service.dart';
+import '../../platform/app_intents_service.dart';
+import '../../platform/carplay_service.dart';
+import '../../platform/home_widget_service.dart';
 import '../services/image_attachment_cache_service.dart';
 import '../services/media_upload_controller.dart';
 import '../services/api_service.dart';
@@ -35,7 +35,7 @@ import '../services/background_streaming_handler.dart';
 import 'package:conduit_core/services/socket_service.dart';
 
 import '../services/connectivity_service.dart';
-import '../services/share_receiver_service.dart';
+import '../../platform/share_receiver_service.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 

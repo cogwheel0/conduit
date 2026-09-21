@@ -72,7 +72,7 @@ import '../../../shared/widgets/markdown/markdown_compile_service.dart';
 
 import 'package:conduit_markdown/conduit_markdown.dart';
 
-import '../../../core/utils/android_assistant_handler.dart';
+import '../../../platform/android_assistant_handler.dart';
 import '../widgets/model_selector_sheet.dart';
 import '../widgets/modern_chat_input.dart';
 import '../widgets/user_message_bubble.dart';

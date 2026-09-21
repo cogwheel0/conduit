@@ -8,15 +8,15 @@ import 'package:material_ui/material_ui.dart';
 import 'package:quick_actions/quick_actions.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../providers/app_providers.dart';
+import '../core/providers/app_providers.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'app_intents_service.dart';
-import '../../shared/services/navigation_service.dart';
-import '../../features/auth/providers/unified_auth_providers.dart';
-import '../../features/chat/voice_call/voice_call_eligibility.dart';
-import '../../shared/theme/theme_providers.dart';
+import '../shared/services/navigation_service.dart';
+import '../features/auth/providers/unified_auth_providers.dart';
+import '../features/chat/voice_call/voice_call_eligibility.dart';
+import '../shared/theme/theme_providers.dart';
 
 part 'quick_actions_service.g.dart';
 

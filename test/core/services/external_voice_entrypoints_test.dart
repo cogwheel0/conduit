@@ -2,10 +2,10 @@ import 'dart:async';
 
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/app_intents_service.dart';
-import 'package:conduit/core/services/home_widget_service.dart';
-import 'package:conduit/core/services/quick_actions_service.dart';
-import 'package:conduit/core/utils/android_assistant_handler.dart';
+import 'package:conduit/platform/app_intents_service.dart';
+import 'package:conduit/platform/home_widget_service.dart';
+import 'package:conduit/platform/quick_actions_service.dart';
+import 'package:conduit/platform/android_assistant_handler.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/voice_call/presentation/voice_call_launcher.dart';
 import 'package:conduit/features/hermes/models/hermes_model.dart';

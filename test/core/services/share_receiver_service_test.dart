@@ -13,7 +13,7 @@ import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:path/path.dart' as p;
 import 'package:drift/native.dart';
 
-import 'package:conduit/core/services/share_receiver_service.dart';
+import 'package:conduit/platform/share_receiver_service.dart';
 import 'package:conduit_core/services/share_staging_cleanup.dart';
 import 'package:conduit/features/chat/services/file_attachment_service.dart';
 import 'package:conduit/features/hermes/models/hermes_model.dart';
