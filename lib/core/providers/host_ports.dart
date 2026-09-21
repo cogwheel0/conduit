@@ -81,3 +81,13 @@ final cookieJarProvider = Provider<CookieJarPort>(
 final connectivityPortProvider = Provider<ConnectivityPort>(
   (ref) => const AlwaysOnlineConnectivityPort(),
 );
+
+/// Schedules coalesced streaming flushes (WP-1.10).
+///
+/// Defaults to a microtask, which is correct where there are no frames and
+/// deterministic in tests. `main.dart` binds the frame-callback version,
+/// whose timing is what keeps the streaming tail rendering in the same frame
+/// it was flushed in.
+final flushSchedulerProvider = Provider<FlushScheduler>(
+  (ref) => const MicrotaskFlushScheduler(),
+);

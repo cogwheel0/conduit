@@ -17,6 +17,7 @@ import 'platform/flutter_app_lifecycle.dart';
 import 'platform/flutter_clipboard_port.dart';
 import 'platform/flutter_connectivity_port.dart';
 import 'platform/flutter_cookie_jar.dart';
+import 'platform/flutter_flush_scheduler.dart';
 import 'platform/flutter_secure_key_value_store.dart';
 import 'platform/flutter_key_value_store.dart';
 import 'platform/flutter_log_sink.dart';
@@ -268,6 +269,9 @@ void main() {
             FlutterConnectivityPort(),
           ),
           cookieJarProvider.overrideWithValue(const FlutterCookieJar()),
+          flushSchedulerProvider.overrideWithValue(
+            const FlutterFlushScheduler(),
+          ),
           clipboardPortProvider.overrideWithValue(
             const FlutterClipboardPort(),
           ),
