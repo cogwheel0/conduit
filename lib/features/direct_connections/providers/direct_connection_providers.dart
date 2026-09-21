@@ -11,7 +11,7 @@ import '../../../core/database/database_provider.dart';
 import 'package:conduit_core/models/model.dart' as model;
 import '../../../core/persistence/persistence_keys.dart';
 import '../../../core/persistence/preferences_store.dart';
-import '../../../core/platform/conduit_platform_apis.g.dart';
+import '../../../platform/conduit_platform_apis.g.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/secure_credential_storage.dart';
 import '../../../core/services/socket_service.dart';

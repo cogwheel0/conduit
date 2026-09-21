@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
-import '../../../core/platform/conduit_platform_apis.g.dart';
+import '../../../platform/conduit_platform_apis.g.dart';
 
 class IosKeyboardAttachmentBridge
     implements NativeKeyboardAttachmentFlutterApi {

@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../platform/conduit_platform_apis.g.dart';
+import '../../platform/conduit_platform_apis.g.dart';
 import '../persistence/persistence_keys.dart';
 import '../persistence/preferences_store.dart';
 import '../providers/app_providers.dart';

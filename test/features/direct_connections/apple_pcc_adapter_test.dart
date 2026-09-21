@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
+import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/services/direct_adapter_helpers.dart';

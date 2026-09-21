@@ -8,7 +8,7 @@ import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/secure_credential_storage.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
-import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
+import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/features/direct_connections/services/apple_pcc_adapter.dart';
 import 'package:conduit/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';

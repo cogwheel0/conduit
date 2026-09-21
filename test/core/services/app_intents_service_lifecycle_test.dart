@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
+import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/core/services/app_intents_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;

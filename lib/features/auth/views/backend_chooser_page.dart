@@ -6,7 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/persistence/persistence_keys.dart';
 import '../../../core/persistence/preferences_store.dart';
-import '../../../core/platform/conduit_platform_apis.g.dart';
+import '../../../platform/conduit_platform_apis.g.dart';
 import '../../../core/providers/backend_mode_providers.dart';
 import '../../../shared/services/navigation_service.dart';
 import '../../direct_connections/providers/direct_connection_providers.dart';
