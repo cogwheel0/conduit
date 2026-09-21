@@ -28,11 +28,11 @@ function run(command, args, cwd) {
 }
 
 console.log('> conduitd')
-run(
-  'dart',
-  ['compile', 'exe', 'bin/conduitd.dart', '-o', 'build/conduitd'],
-  join(repoRoot, 'apps', 'daemon'),
-)
+// `dart build cli`, not `dart compile exe`: the latter refuses to run once a
+// dependency has build hooks, and drift brings sqlite3, which has them. The
+// output is a bundle — the binary plus a sibling lib/ holding libsqlite3 —
+// so packaging has to ship the directory, not just the executable.
+run('dart', ['build', 'cli'], join(repoRoot, 'apps', 'daemon'))
 
 run('node', [join(here, 'build-ui.mjs')], repoRoot)
 run('npx', ['tsc'], electronDir)

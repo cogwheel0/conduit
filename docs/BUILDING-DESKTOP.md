@@ -1,5 +1,12 @@
 # Building Conduit Desktop
 
+> **The daemon is a bundle, not a single executable.** `dart compile exe`
+> refuses to run once any dependency has build hooks, and `drift` brings
+> `sqlite3`, which has them. `dart build cli` produces
+> `apps/daemon/build/cli/<os>_<arch>/bundle/` containing `bin/conduitd` and a
+> sibling `lib/libsqlite3.so`. The binary cannot be lifted out on its own, so
+> packaging ships the directory.
+
 The desktop client is an Electron shell around two Dart programs: `conduitd`,
 a native sidecar that will host the shared core, and a Jaspr renderer that
 talks to it over a loopback JSON-RPC WebSocket. See
@@ -45,7 +52,7 @@ here is checked in — all of it is git-ignored and rebuilt.
 | `web/theme.css` | `dart run conduit_theme:generate_theme_css` | repo root |
 | `web/app.css` | `npx tailwindcss -i styles/app.css -o ../../apps/desktop_ui/web/app.css` | `desktop/electron` |
 | `web/main.dart.js` | `dart compile js -O2 -o web/main.dart.js lib/main.dart` | `apps/desktop_ui` |
-| `conduitd` binary | `dart compile exe bin/conduitd.dart -o build/conduitd` | `apps/daemon` |
+| `conduitd` bundle | `dart build cli` | `apps/daemon` |
 | Electron `out/*.js` | `npm run build:ts` | `desktop/electron` |
 
 The last four are wrapped by `npm run build` and `npm run dev` in

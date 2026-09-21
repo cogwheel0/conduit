@@ -190,6 +190,35 @@ export function resolveDaemonPath(options: {
 }): string {
   const name = process.platform === 'win32' ? 'conduitd.exe' : 'conduitd'
   return options.isPackaged
-    ? join(options.resourcesPath, 'conduitd', name)
-    : join(options.repoRoot, 'apps', 'daemon', 'build', name)
+    ? join(options.resourcesPath, 'conduitd', 'bin', name)
+    : join(
+        options.repoRoot,
+        'apps',
+        'daemon',
+        'build',
+        'cli',
+        dartBuildTarget(),
+        'bundle',
+        'bin',
+        name,
+      )
+}
+
+/**
+ * The `<os>_<arch>` directory `dart build cli` writes its bundle into.
+ *
+ * `dart compile exe` produced a single self-contained file and would have
+ * needed none of this, but it refuses to run once any dependency has build
+ * hooks — which `drift` introduced by way of `sqlite3`. The bundle keeps the
+ * native library in a sibling `lib/`, so the binary cannot be lifted out of
+ * it on its own.
+ */
+export function dartBuildTarget(
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+): string {
+  const os =
+    platform === 'win32' ? 'windows' : platform === 'darwin' ? 'macos' : 'linux'
+  const cpu = arch === 'arm64' ? 'arm64' : 'x64'
+  return `${os}_${cpu}`
 }
