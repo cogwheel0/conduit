@@ -96,9 +96,11 @@ flutter test
 ```
 
 `flutter analyze` and `flutter test` are the local gates before handing work
-off. GitHub Actions only runs localization validation (`.github/workflows/l10n.yml`)
-and releases (`.github/workflows/release.yml`). Nothing checks analyzer or test
-health on every push, so run them yourself.
+off. `.github/workflows/ci.yml` runs the same two on every pull request, along
+with the desktop packages and an end-to-end Electron launch test; see
+[BUILDING-DESKTOP.md](BUILDING-DESKTOP.md#verify). The other workflows are
+localization validation (`.github/workflows/l10n.yml`) and releases
+(`.github/workflows/release.yml`).
 
 Tests use `flutter_test` with `package:checks` for assertions and `mocktail` for
 mocks. Lints come from `flutter_lints` plus `riverpod_lint`.
@@ -121,6 +123,19 @@ flutter build ios --release
 Translations live in `lib/l10n/*.arb`, configured by `l10n.yaml`. English
 (`app_en.arb`) is the template; every other locale mirrors its keys.
 
+ARB files are grouped into namespaces by filename prefix. `app_*.arb` is the
+shared catalog, consumed by the Flutter app through `gen-l10n` and by the
+desktop UI through slang. Desktop-only strings live in
+`lib/l10n/desktop/desktop_*.arb`. Each namespace is checked against its own
+English template, so a key missing from `desktop_de.arb` is not reported
+against the mobile catalog.
+
+The subdirectory is load-bearing: `gen-l10n` scans `arb-dir` non-recursively
+and refuses to run when two files in it declare the same `@@locale`. Keeping
+non-mobile namespaces one level down is what lets both generators read the
+same tree. The validators scan recursively and pick each namespace's own
+`_en.arb` as its template.
+
 Do not hand-edit the generated localization Dart. Edit the ARB inputs and let
 codegen regenerate. Two helpers validate the result, and CI runs the same
 checks:
@@ -130,8 +145,12 @@ dart run tool/validate_arb_locales.dart
 dart run tool/verify_arb_descriptions.dart
 ```
 
-Every key in `app_en.arb` needs an `@key` entry with a `description`, and that
-description is the only context a translator gets.
+Every key in an English template needs an `@key` entry with a `description`,
+and that description is the only context a translator gets.
+
+The desktop UI cannot use slang's ARB importer directly; see
+[BUILDING-DESKTOP.md](BUILDING-DESKTOP.md#known-deviations-from-planmd) for
+why, and `tool/arb_to_slang.dart` for the conversion.
 
 ## Project layout
 
@@ -158,6 +177,28 @@ lib/
   l10n/                 ARB translation sources
   shared/               reusable widgets, theme tokens, task infrastructure
 ```
+
+The repository is a Dart pub workspace: one `flutter pub get` at the root
+resolves the mobile app and every desktop package into a single
+`pubspec.lock`.
+
+```text
+packages/
+  conduit_protocol/     DTOs + JSON-RPC contracts shared by the daemon and the desktop UI
+  conduit_theme/        tweakcn palettes as plain ARGB ints, plus the CSS generator
+apps/
+  daemon/               conduitd, the desktop sidecar (dart compile exe)
+  desktop_ui/           Jaspr client-mode renderer
+desktop/
+  electron/             Electron main + preload, build scripts, Playwright tests
+  packaging/            Homebrew, winget, AUR and Flathub manifests (M9)
+```
+
+`packages/conduit_theme` is the source of truth for the colour palettes;
+`lib/shared/theme/tweakcn_themes.dart` is a thin `Color` adapter over it, so a
+palette edit reaches both front-ends. See
+[BUILDING-DESKTOP.md](BUILDING-DESKTOP.md) to build the desktop client and
+[docs/desktop/PLAN.md](desktop/PLAN.md) for the roadmap.
 
 ## Conventions
 
