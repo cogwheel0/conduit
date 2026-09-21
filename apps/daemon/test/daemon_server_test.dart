@@ -11,6 +11,8 @@ import 'package:json_rpc_2/json_rpc_2.dart' as json_rpc;
 import 'package:test/test.dart';
 import 'package:web_socket_channel/io.dart';
 
+import 'support/null_sink.dart';
+
 /// 43+ chars, as [BootstrapConfig] requires.
 const String _token = 'cJkVQ1mEo3nT7pZs9YbXwF2gH5LdRaUvNi0KqMtBxCe';
 const String _wrongToken = 'ZZZZZ1mEo3nT7pZs9YbXwF2gH5LdRaUvNi0KqMtBxCe';
@@ -32,7 +34,7 @@ void main() {
       directories: DaemonDirectories.create(tempDir.path),
       daemonVersion: '0.0.0-test',
       // Silence the log; a failing test should print expectations, not noise.
-      log: DaemonLog(level: 'error', sink: _NullSink()),
+      log: DaemonLog(level: 'error', sink: NullSink()),
     );
     port = await server.start();
   });
@@ -140,9 +142,9 @@ void main() {
       request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $_token');
       final authorized = await request.close();
       expect(authorized.statusCode, HttpStatus.ok);
-      final body =
-          jsonDecode(await authorized.transform(utf8.decoder).join())
-              as Map<String, dynamic>;
+      final body = jsonDecode(
+        await authorized.transform(utf8.decoder).join(),
+      ) as Map<String, dynamic>;
       expect(body['ok'], isTrue);
       expect(body['protocolVersion'], kConduitProtocolVersion);
     });
@@ -244,33 +246,35 @@ void main() {
       expect(export.sizeBytes, greaterThan(0));
     });
 
-    test('an unknown method is a typo; a reserved one is a missing milestone',
-        () async {
-      final peer = await connect();
-      addTearDown(peer.close);
-      await handshake(peer);
+    test(
+      'an unknown method is a typo; a reserved one is a missing milestone',
+      () async {
+        final peer = await connect();
+        addTearDown(peer.close);
+        await handshake(peer);
 
-      await expectLater(
-        callVoid(peer, 'bogus.method'),
-        throwsA(
-          isA<RpcError>().having(
-            (e) => e.code,
-            'code',
-            ConduitErrorCodes.methodNotFound,
+        await expectLater(
+          callVoid(peer, 'bogus.method'),
+          throwsA(
+            isA<RpcError>().having(
+              (e) => e.code,
+              'code',
+              ConduitErrorCodes.methodNotFound,
+            ),
           ),
-        ),
-      );
-      await expectLater(
-        callVoid(peer, 'chats.list'),
-        throwsA(
-          isA<RpcError>().having(
-            (e) => e.code,
-            'code',
-            ConduitErrorCodes.unsupported,
+        );
+        await expectLater(
+          callVoid(peer, 'chats.list'),
+          throwsA(
+            isA<RpcError>().having(
+              (e) => e.code,
+              'code',
+              ConduitErrorCodes.unsupported,
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
 
     test('shutdown replies before the socket goes away', () async {
       final peer = await connect();
@@ -319,10 +323,10 @@ void main() {
 
       await _settle();
 
-      expect(
-        received.map((e) => e.event).toList(),
-        <String>[ConduitEvents.turnDelta, ConduitEvents.syncStatus],
-      );
+      expect(received.map((e) => e.event).toList(), <String>[
+        ConduitEvents.turnDelta,
+        ConduitEvents.syncStatus,
+      ]);
       expect(received.first.payload['text'], 'yes');
       // Sequence numbers are allocated globally, so the gap from the two
       // filtered events is visible — that is what lets a reconnecting client
@@ -339,9 +343,8 @@ void main() {
         callTyped<EventSubscription>(
           peer,
           ConduitMethods.eventsSubscribe,
-          params: const EventSubscription(
-            events: <String>['turn.nope'],
-          ).toJson(),
+          params: const EventSubscription(events: <String>['turn.nope'])
+              .toJson(),
           decodeResult: EventSubscription.fromJson,
         ),
         throwsA(
@@ -381,12 +384,3 @@ void main() {
 /// Lets queued microtasks and socket frames drain.
 Future<void> _settle() =>
     Future<void>.delayed(const Duration(milliseconds: 150));
-
-class _NullSink implements IOSink {
-  @override
-  void writeln([Object? object = '']) {}
-  @override
-  void write(Object? object) {}
-  @override
-  noSuchMethod(Invocation invocation) => null;
-}
