@@ -4,7 +4,7 @@ import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../../../core/database/support/transcript_chain_fixture.dart';
+import 'package:conduit_core/testing.dart';
 
 /// Characterization suite for [ChatTranscriptPagingNotifier].
 ///

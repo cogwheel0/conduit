@@ -40,7 +40,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:conduit/platform/flutter_secure_key_value_store.dart';
 
-import '../../../support/gated_close_database.dart';
+import 'package:conduit_core/testing.dart';
 
 const _directDocumentTestKey = <int>[
   0,

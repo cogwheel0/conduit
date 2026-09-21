@@ -16,7 +16,7 @@ import 'package:hive_ce/hive.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 
-import '../../support/gated_close_database.dart';
+import 'package:conduit_core/testing.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

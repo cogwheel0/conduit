@@ -9,7 +9,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../../support/gated_close_database.dart';
+import 'package:conduit_core/testing.dart';
 
 const _alpha = ServerConfig(
   id: 'alpha',

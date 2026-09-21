@@ -14,8 +14,7 @@ import 'package:conduit/features/chat/services/request_completion_runner.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../../support/fake_open_webui_server.dart';
-import '../../support/fake_sync_api_client.dart';
+import 'package:conduit_core/testing.dart';
 
 /// Mutable epoch-seconds clock.
 class _Clock implements SyncClock {

@@ -25,8 +25,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../../support/fake_open_webui_server.dart';
-import '../../support/fake_sync_api_client.dart';
+import 'package:conduit_core/testing.dart';
 
 /// Externally mutable provider value, so `ref.listen`ers inside
 /// [SyncTriggers] observe edges without recreating the notifier.

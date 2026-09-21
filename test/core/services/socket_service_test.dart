@@ -9,7 +9,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
-import '../../support/fake_app_lifecycle.dart';
+import 'package:conduit_core/testing.dart';
 
 Future<void> _flushMicrotasks([int count = 1]) async {
   for (var i = 0; i < count; i++) {

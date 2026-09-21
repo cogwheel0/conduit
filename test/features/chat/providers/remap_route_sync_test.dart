@@ -15,8 +15,8 @@ import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../../../support/fake_open_webui_server.dart';
-import '../../../support/fake_sync_api_client.dart';
+import 'package:conduit_core/testing.dart';
+
 import '../../../support/openwebui_storage_test_overrides.dart';
 
 /// Wiring C: when a `local:` id is remapped, the active-chat / pending-folder

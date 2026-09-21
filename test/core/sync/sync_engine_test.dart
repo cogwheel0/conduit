@@ -26,8 +26,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:mocktail/mocktail.dart';
 
-import '../../support/fake_open_webui_server.dart';
-import '../../support/fake_sync_api_client.dart';
+import 'package:conduit_core/testing.dart';
 
 class _FailableFtsDatabase extends AppDatabase {
   _FailableFtsDatabase(super.e);

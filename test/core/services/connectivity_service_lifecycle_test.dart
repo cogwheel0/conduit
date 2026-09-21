@@ -11,7 +11,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../../support/fake_app_lifecycle.dart';
+import 'package:conduit_core/testing.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
