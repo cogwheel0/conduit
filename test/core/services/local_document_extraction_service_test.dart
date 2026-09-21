@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/services/local_document_extraction_service.dart';
+import 'package:conduit_core/services/local_document_extraction_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

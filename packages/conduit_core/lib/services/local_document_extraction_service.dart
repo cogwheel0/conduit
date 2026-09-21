@@ -4,7 +4,6 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
-import 'package:pdfrx/pdfrx.dart';
 import 'package:xml/xml.dart';
 import 'package:xml/xml_events.dart'
     show XmlEndElementEvent, XmlStartElementEvent, parseEvents;
@@ -250,6 +249,19 @@ final class LocalPdfExtraction {
   final String text;
   final int pageCount;
   final bool isEncrypted;
+}
+
+/// Thrown by a [LocalPdfExtractor] for a password-protected document.
+///
+/// Declared here rather than reusing the PDF engine's own exception so this
+/// file stays free of Flutter: `pdfrx`, the only engine currently able to
+/// satisfy the typedef, depends on the Flutter SDK. An adapter that wraps it
+/// translates `PdfPasswordException` into this on the way out.
+final class LocalPdfPasswordException implements Exception {
+  const LocalPdfPasswordException();
+
+  @override
+  String toString() => 'LocalPdfPasswordException';
 }
 
 typedef LocalPdfExtractor = Future<LocalPdfExtraction> Function(
@@ -544,7 +556,7 @@ final class LocalDocumentExtractionService {
         maxPages: limits.maxPdfPages,
         maxCharacters: maxCharacters,
       );
-    } on PdfPasswordException {
+    } on LocalPdfPasswordException {
       throw _documentFailure(
         LocalDocumentExtractionError.encryptedDocument,
         name,

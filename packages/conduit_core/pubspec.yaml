@@ -13,6 +13,8 @@ environment:
 dependencies:
   # `QueryExecutor` is part of the DatabaseOpener port's signature. The core
   # owns the schema, so drift belongs here rather than in the front-ends.
+  archive: ^4.0.9
+  xml: ^7.0.1
   collection: ^1.19.1
   hive_ce: ^2.14.0
   intl: ^0.20.2
