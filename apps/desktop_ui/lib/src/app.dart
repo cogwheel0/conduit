@@ -1,9 +1,14 @@
+import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
+import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import 'package:jaspr_router/jaspr_router.dart';
 
 import 'pages/diagnostics_page.dart';
+import 'pages/onboarding_page.dart';
+import 'pages/sign_in_page.dart';
 import 'pages/status_page.dart';
+import 'rpc/session_providers.dart';
 
 /// The desktop app shell and its routes.
 ///
@@ -19,11 +24,13 @@ class ConduitDesktopApp extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     return Router(
-      // A reload, a restored session or a hand-typed URL can land on the
-      // file name rather than the clean path. Normalizing here keeps that
-      // from rendering the not-found page.
-      redirect: (context, state) =>
-          state.location == '/index.html' ? '/' : null,
+      redirect: (context, state) {
+        // A reload, a restored session or a hand-typed URL can land on the
+        // file name rather than the clean path. Normalizing here keeps that
+        // from rendering the not-found page.
+        if (state.location == '/index.html') return '/';
+        return _sessionRedirect(context, state.location);
+      },
       routes: <RouteBase>[
         ShellRoute(
           builder: (context, state, child) => _Shell(child: child),
@@ -46,6 +53,16 @@ class ConduitDesktopApp extends StatelessComponent {
               path: '/diagnostics',
               redirect: (context, state) => '/diagnostics/core',
             ),
+            Route(
+              path: '/onboarding',
+              title: 'Connect to server',
+              builder: (context, state) => const OnboardingPage(),
+            ),
+            Route(
+              path: '/sign-in',
+              title: 'Sign in',
+              builder: (context, state) => const SignInPage(),
+            ),
           ],
         ),
       ],
@@ -61,6 +78,51 @@ class ConduitDesktopApp extends StatelessComponent {
       ),
     );
   }
+}
+
+/// Sends a window to onboarding or sign-in when it has no session.
+String? _sessionRedirect(BuildContext context, String location) =>
+    sessionRedirectFor(
+      location: location,
+      needsOnboarding: context.watch(needsOnboardingProvider),
+      auth: context.watch(authStatusProvider),
+    );
+
+/// The routing decision, as a pure function of what is currently known.
+///
+/// Separated from the provider reads so it can be tested as the table of
+/// cases it is. Three rules, and the first is the one that matters:
+///
+///  * **Never redirect on an unknown state.** A redirect is not something a
+///    later rebuild can take back, so acting before both queries settle is
+///    what makes a signed-in user's window flash onboarding on every launch.
+///  * Diagnostics is always reachable. It is where someone goes when the core
+///    will not start, and gating it behind a working session would hide it
+///    exactly when it is needed.
+///  * An error is not an answer. If the daemon cannot say whether a session
+///    exists, the banner explains that far better than a login form does.
+@visibleForTesting
+String? sessionRedirectFor({
+  required String location,
+  required AsyncValue<bool> needsOnboarding,
+  required AsyncValue<AuthSnapshot> auth,
+}) {
+  if (location.startsWith('/diagnostics')) return null;
+  if (needsOnboarding.isLoading || needsOnboarding.hasError) return null;
+
+  if (needsOnboarding.requireValue) {
+    return location == '/onboarding' ? null : '/onboarding';
+  }
+  if (location == '/onboarding') return '/';
+
+  final snapshot = auth.value;
+  if (snapshot == null) return null;
+  // Reviewer mode is a complete session with no server and no credentials,
+  // so it must not be sent to a sign-in form it can never satisfy.
+  if (snapshot.isAuthenticated || snapshot.isReviewerMode) {
+    return location == '/sign-in' ? '/' : null;
+  }
+  return location == '/sign-in' ? null : '/sign-in';
 }
 
 /// The persistent chrome every route renders inside.
