@@ -1,7 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
 
-import 'package:conduit/core/error/api_error_handler.dart';
+import 'package:conduit_core/error/api_error_handler.dart';
 import 'package:conduit_core/models/prompt.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';

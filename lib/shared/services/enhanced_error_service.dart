@@ -3,9 +3,10 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 
-import '../../core/error/api_error.dart';
-import '../../core/error/api_error_handler.dart';
-import '../../core/error/api_error_interceptor.dart';
+import 'package:conduit_core/error/api_error.dart';
+import 'package:conduit_core/error/api_error_handler.dart';
+import 'package:conduit_core/error/api_error_interceptor.dart';
+
 import '../../core/utils/current_localizations.dart';
 import '../utils/api_error_messages.dart';
 import '../theme/theme_extensions.dart';

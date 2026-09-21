@@ -1,4 +1,4 @@
-import 'package:conduit/core/error/api_error.dart';
+import 'package:conduit_core/error/api_error.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/conduit_core.dart';
 

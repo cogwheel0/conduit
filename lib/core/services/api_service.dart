@@ -37,7 +37,9 @@ import '../../features/workspace/models/workspace_common.dart';
 import '../../features/workspace/models/workspace_knowledge.dart';
 import '../../features/workspace/models/workspace_resources.dart';
 import '../auth/api_auth_interceptor.dart';
-import '../error/api_error_interceptor.dart';
+
+import 'package:conduit_core/error/api_error_interceptor.dart';
+
 import '../sync/sync_api_client.dart' show SyncTerminalException;
 // Tool-call details are parsed in the UI layer to render collapsible blocks
 import 'connectivity_service.dart';

@@ -5,7 +5,7 @@
 library;
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/error/api_error.dart';
+import 'package:conduit_core/error/api_error.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/shared/utils/api_error_messages.dart';
 import 'package:conduit_core/conduit_core.dart';
@@ -114,9 +114,7 @@ void main() {
 
     test('falls back to the code when the server said nothing', () {
       const error = ApiError.server();
-      check(
-        describeApiError(error, l10n),
-      ).equals(l10n.serverErrorGeneric);
+      check(describeApiError(error, l10n)).equals(l10n.serverErrorGeneric);
     });
 
     test('treats blank server prose as absent', () {

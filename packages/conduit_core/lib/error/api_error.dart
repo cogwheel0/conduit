@@ -56,7 +56,9 @@ class ApiError implements Exception {
 
   const ApiError.authentication({
     String? message,
-    ErrorMessage messageCode = const ErrorMessage(CoreErrorCode.authSessionExpired),
+    ErrorMessage messageCode = const ErrorMessage(
+      CoreErrorCode.authSessionExpired,
+    ),
     String? endpoint,
     String? method,
     int? statusCode,
@@ -86,7 +88,9 @@ class ApiError implements Exception {
 
   const ApiError.validation({
     String? message,
-    ErrorMessage messageCode = const ErrorMessage(CoreErrorCode.validationGeneric),
+    ErrorMessage messageCode = const ErrorMessage(
+      CoreErrorCode.validationGeneric,
+    ),
     String? endpoint,
     String? method,
     Map<String, List<String>> fieldErrors = const {},
@@ -104,7 +108,9 @@ class ApiError implements Exception {
 
   const ApiError.badRequest({
     String? message,
-    ErrorMessage messageCode = const ErrorMessage(CoreErrorCode.validationGeneric),
+    ErrorMessage messageCode = const ErrorMessage(
+      CoreErrorCode.validationGeneric,
+    ),
     String? endpoint,
     String? method,
     ParsedErrorResponse? details,
@@ -152,7 +158,9 @@ class ApiError implements Exception {
 
   const ApiError.rateLimit({
     String? message,
-    ErrorMessage messageCode = const ErrorMessage(CoreErrorCode.rateLimitExceeded),
+    ErrorMessage messageCode = const ErrorMessage(
+      CoreErrorCode.rateLimitExceeded,
+    ),
     String? endpoint,
     String? method,
     int? statusCode,
@@ -182,7 +190,9 @@ class ApiError implements Exception {
 
   const ApiError.security({
     String? message,
-    ErrorMessage messageCode = const ErrorMessage(CoreErrorCode.securityCertificate),
+    ErrorMessage messageCode = const ErrorMessage(
+      CoreErrorCode.securityCertificate,
+    ),
     String? endpoint,
     String? method,
   }) : this._(
@@ -378,10 +388,7 @@ class ApiError implements Exception {
         other.endpoint == endpoint &&
         other.method == method &&
         other.statusCode == statusCode &&
-        const DeepCollectionEquality().equals(
-          other.fieldErrors,
-          fieldErrors,
-        );
+        const DeepCollectionEquality().equals(other.fieldErrors, fieldErrors);
   }
 
   @override

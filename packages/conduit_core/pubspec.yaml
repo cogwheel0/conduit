@@ -14,6 +14,10 @@ dependencies:
   # `QueryExecutor` is part of the DatabaseOpener port's signature. The core
   # owns the schema, so drift belongs here rather than in the front-ends.
   collection: ^1.19.1
+  # The core raises and classifies API errors, and `ApiError` is built from a
+  # `DioException`. dio is pure Dart, so this costs the package nothing in
+  # portability; the HTTP client itself follows in a later tranche.
+  dio: ^5.9.0
   drift: ^2.34.2
   freezed_annotation: ^3.0.0
   json_annotation: ^4.12.0
