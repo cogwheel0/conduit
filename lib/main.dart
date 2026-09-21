@@ -21,6 +21,9 @@ import 'platform/flutter_cookie_jar.dart';
 import 'platform/flutter_flush_scheduler.dart';
 import 'platform/flutter_post_frame_scheduler.dart';
 import 'platform/ios_display_boost.dart';
+import 'core/services/share_staging_cleanup.dart'
+    show shareStagingDirectoryName;
+import 'platform/ios_share_staging.dart';
 import 'platform/just_audio_playback.dart';
 import 'platform/record_audio_capture.dart';
 import 'platform/flutter_secure_key_value_store.dart';
@@ -138,6 +141,9 @@ void main() {
   DebugLogger.sink = const FlutterLogSink();
   AudioPlaybackPort.hostFactory = JustAudioPlayback.new;
   DisplayBoostPort.hostDefault = const IosDisplayBoost();
+  ShareStagingPort.hostDefault = IosShareStaging(
+    stagingDirectoryName: shareStagingDirectoryName,
+  );
   AudioCapturePort.hostFactory = RecordAudioCapture.new;
   // The preference store is a host capability too (WP-1.2); installed
   // before bootstrap awaits its first synchronous read.

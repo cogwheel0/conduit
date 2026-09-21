@@ -20,7 +20,7 @@ import '../../../core/utils/debug_logger.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
 import '../providers/unified_auth_providers.dart';
-import '../../../core/auth/webview_cookie_helper.dart' show isWebViewSupported;
+import '../../../platform/webview_cookie_helper.dart' show isWebViewSupported;
 import '../../../shared/widgets/connection_components.dart';
 import '../../../shared/widgets/utility_components.dart';
 

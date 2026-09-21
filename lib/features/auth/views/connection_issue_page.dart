@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/auth_state_manager.dart';
-import '../../../core/auth/webview_cookie_helper.dart';
+import '../../../platform/webview_cookie_helper.dart';
 import 'package:conduit_core/models/server_config.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';

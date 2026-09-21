@@ -13,7 +13,7 @@ import 'package:conduit/core/services/haptic_service.dart';
 import 'package:uuid/uuid.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
-import '../../../core/auth/webview_cookie_helper.dart';
+import '../../../platform/webview_cookie_helper.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';

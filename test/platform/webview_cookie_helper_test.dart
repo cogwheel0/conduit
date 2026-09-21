@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/auth/webview_cookie_helper.dart';
+import 'package:conduit/platform/webview_cookie_helper.dart';
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';

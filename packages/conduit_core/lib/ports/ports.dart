@@ -27,5 +27,6 @@ export 'key_value_store.dart';
 export 'log_sink.dart';
 export 'paths_port.dart';
 export 'secure_key_value_store.dart';
+export 'share_staging_port.dart';
 export 'ui_request_port.dart';
 export 'worker_port.dart';

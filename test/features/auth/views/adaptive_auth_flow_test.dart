@@ -2,7 +2,7 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
-import 'package:conduit/core/auth/webview_cookie_helper.dart';
+import 'package:conduit/platform/webview_cookie_helper.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';

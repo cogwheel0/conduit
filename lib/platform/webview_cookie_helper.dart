@@ -3,9 +3,9 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
-import '../persistence/persistence_keys.dart';
-import '../persistence/preferences_store.dart';
-import '../utils/debug_logger.dart';
+import '../core/persistence/persistence_keys.dart';
+import '../core/persistence/preferences_store.dart';
+import '../core/utils/debug_logger.dart';
 
 final Set<WebsiteDataType> _appleWebsiteDataTypes = <WebsiteDataType>{
   WebsiteDataType.WKWebsiteDataTypeLocalStorage,

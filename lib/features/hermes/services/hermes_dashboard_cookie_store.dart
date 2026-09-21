@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 
-import '../../../core/auth/webview_cookie_helper.dart';
+import '../../../platform/webview_cookie_helper.dart';
 import '../../../core/persistence/persistence_keys.dart';
 import '../../../core/persistence/preferences_store.dart';
 import 'package:meta/meta.dart';

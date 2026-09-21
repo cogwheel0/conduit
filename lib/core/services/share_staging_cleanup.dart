@@ -1,14 +1,12 @@
 import 'dart:io';
 
-import 'package:flutter/services.dart';
 import 'package:path/path.dart' as path;
+import 'package:conduit_core/conduit_core.dart';
 import 'package:uuid/uuid.dart';
 
 import '../utils/debug_logger.dart';
 
 const shareStagingDirectoryName = 'conduit-shared-intents';
-const _shareReceiverChannelName = 'conduit/share_receiver_text';
-const _shareReceiverChannel = MethodChannel(_shareReceiverChannelName);
 const _ownedTemporaryStagingDirectories = {
   shareStagingDirectoryName,
   'conduit-native-paste',
@@ -33,7 +31,6 @@ final _uuidPrefixedFileName = RegExp(
 final _convertedUploadDirectoryName = RegExp(r'^conduit_img_[A-Za-z0-9_-]+$');
 const _convertedUploadFileName = 'converted.jpg';
 const _uuid = Uuid();
-Directory? _cachedNativeShareStagingRoot;
 
 typedef StagingFileDelete = Future<void> Function(File file);
 typedef StagingDirectoryDelete = Future<void> Function(Directory directory);
@@ -698,28 +695,8 @@ Future<_ShareStagingPathResolution> _resolveOwnedStagingFileWithStatus(
   );
 }
 
-Future<Directory?> _nativeShareStagingRoot() async {
-  if (!Platform.isIOS) return null;
-  final cached = _cachedNativeShareStagingRoot;
-  if (cached != null) return cached;
-  final rawPath = await _shareReceiverChannel.invokeMethod<String>(
-    'shareStagingDirectoryPath',
-  );
-  if (rawPath == null || rawPath.trim().isEmpty) {
-    throw const FileSystemException('Native share staging root unavailable');
-  }
-  final normalized = path.normalize(path.absolute(rawPath));
-  if (path.basename(normalized) != shareStagingDirectoryName) {
-    throw const FileSystemException('Native share staging root is invalid');
-  }
-  final root = Directory(normalized);
-  if (await FileSystemEntity.type(root.path, followLinks: false) !=
-      FileSystemEntityType.directory) {
-    throw const FileSystemException('Native share staging root is not usable');
-  }
-  _cachedNativeShareStagingRoot = root;
-  return root;
-}
+Future<Directory?> _nativeShareStagingRoot() =>
+    ShareStagingPort.hostDefault.nativeStagingRoot();
 
 Future<String?> _resolveRegularFileDirectlyUnderRoot(
   String filePath,

@@ -1,10 +1,12 @@
 import 'package:conduit_core/conduit_core.dart';
 
-import '../core/auth/webview_cookie_helper.dart';
+import 'webview_cookie_helper.dart';
 
 /// The Flutter app's [CookieJarPort] (WP-1.5, WP-1.16).
 ///
-/// Delegates to `WebViewCookieHelper`, which stays put: serializing purges,
+/// Delegates to `WebViewCookieHelper`, now beside it in `lib/platform`:
+/// it drives `flutter_inappwebview`, so it never belonged under `lib/core`.
+/// Serializing purges,
 /// claiming generation-checked clear requirements and coordinating with the
 /// durable incomplete-logout fence is WebView bookkeeping, not business
 /// logic. The port is the seam; the helper is this host's implementation of
