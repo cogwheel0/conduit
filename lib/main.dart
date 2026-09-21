@@ -91,6 +91,8 @@ import 'shared/widgets/sign_out_options_dialog.dart';
 import 'shared/theme/theme_extensions.dart';
 import 'shared/theme/theme_providers.dart';
 import 'platform/frame_profiler.dart';
+import 'features/direct_connections/providers/apple_pcc_providers.dart';
+import 'features/direct_connections/providers/direct_connection_providers.dart';
 
 const bool _enableFlutterDriverExtension = bool.fromEnvironment(
   'ENABLE_FLUTTER_DRIVER_EXTENSION',
@@ -303,6 +305,9 @@ void main() {
           ),
           signOutResetTargetsProvider.overrideWithValue(
             themePreferenceResetTargets,
+          ),
+          hostDirectProviderAdaptersProvider.overrideWith(
+            (ref) => [ref.watch(applePccAdapterProvider)],
           ),
           clipboardPortProvider.overrideWithValue(const FlutterClipboardPort()),
           secureStorageProvider.overrideWithValue(

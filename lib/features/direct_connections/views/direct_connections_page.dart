@@ -25,6 +25,7 @@ import '../models/openwebui_direct_connection.dart';
 import '../providers/direct_connection_providers.dart';
 import '../providers/direct_mcp_providers.dart';
 import '../services/direct_chat_bridge.dart';
+import '../providers/apple_pcc_providers.dart';
 
 const List<int> _directContextLengthOptions = <int>[
   4096,

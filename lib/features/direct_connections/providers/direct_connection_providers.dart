@@ -13,7 +13,6 @@ import 'package:conduit_core/models/model.dart' as model;
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 
-import '../../../platform/conduit_platform_apis.g.dart';
 import '../../../core/providers/app_providers.dart';
 
 import 'package:conduit_core/services/secure_credential_storage.dart';
@@ -27,7 +26,6 @@ import '../models/ollama_keep_alive.dart';
 import '../models/ollama_thinking.dart';
 import '../models/openwebui_direct_connection.dart';
 import '../services/direct_adapter_helpers.dart';
-import '../services/apple_pcc_adapter.dart';
 import '../services/direct_connection_profile_store.dart';
 import '../services/direct_http_client.dart';
 import '../services/direct_model_cache_store.dart';
@@ -247,42 +245,6 @@ final applePccOnDeviceFallbackProvider =
       ApplePccOnDeviceFallbackController.new,
     );
 
-final applePccPlatformSupportedProvider = Provider<bool>(
-  (ref) => Platform.isIOS,
-);
-
-final applePccAdapterProvider = Provider<ApplePccAdapter>(
-  (ref) => ApplePccAdapter(
-    allowOnDeviceFallback: () => ref.read(applePccOnDeviceFallbackProvider),
-  ),
-);
-
-/// Apple Intelligence never exists off iOS, so status probes must not reach
-/// the platform channel there. Returning [PlatformPccAvailability.unsupported]
-/// keeps every consumer on the same "not on this device" path.
-PlatformPccStatus _unsupportedApplePlatformStatus() => PlatformPccStatus(
-  availability: PlatformPccAvailability.unsupported,
-  quotaStatus: PlatformPccQuotaStatus.unknown,
-  quotaLimitReached: false,
-  canIncreaseQuota: false,
-);
-
-final applePccStatusProvider = FutureProvider<PlatformPccStatus>((ref) {
-  if (!ref.watch(applePccPlatformSupportedProvider)) {
-    return _unsupportedApplePlatformStatus();
-  }
-  return ref
-      .watch(applePccAdapterProvider)
-      .status(PlatformAppleModel.privateCloudCompute);
-});
-
-final appleOnDeviceStatusProvider = FutureProvider<PlatformPccStatus>((ref) {
-  if (!ref.watch(applePccPlatformSupportedProvider)) {
-    return _unsupportedApplePlatformStatus();
-  }
-  return ref.watch(applePccAdapterProvider).status(PlatformAppleModel.onDevice);
-});
-
 final directConnectionProfileStoreProvider =
     Provider<DirectConnectionProfileStore>((ref) {
       return DirectConnectionProfileStore(
@@ -441,13 +403,29 @@ typedef _DirectProfileMutationResources = ({
   DirectRunRegistry runRegistry,
 });
 
+/// True only where Apple Intelligence can exist. Pure `dart:io`, so it stays
+/// here rather than moving with the pigeon-bound providers.
+final applePccPlatformSupportedProvider = Provider<bool>(
+  (ref) => Platform.isIOS,
+);
+
+/// Adapters only a particular host can build.
+///
+/// The OpenAI-compatible and Ollama adapters are plain HTTP and belong here.
+/// Apple Intelligence is not: its adapter implements a pigeon callback
+/// interface, so it exists only where Flutter does. The host registers it
+/// rather than this file naming it, which is what lets this file move into
+/// `conduit_core`.
+final hostDirectProviderAdaptersProvider =
+    Provider<List<DirectProviderAdapter>>((ref) => const []);
+
 final directProviderAdapterRegistryProvider =
     Provider<DirectProviderAdapterRegistry>((ref) {
       final pool = ref.watch(directHttpClientPoolProvider);
       return DirectProviderAdapterRegistry([
         OpenAiCompatibleAdapter(clientPool: pool),
         OllamaAdapter(clientPool: pool),
-        ref.watch(applePccAdapterProvider),
+        ...ref.watch(hostDirectProviderAdaptersProvider),
       ]);
     });
 

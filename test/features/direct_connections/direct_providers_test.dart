@@ -28,6 +28,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:conduit/platform/flutter_secure_key_value_store.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
+import 'package:conduit/features/direct_connections/providers/apple_pcc_providers.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
