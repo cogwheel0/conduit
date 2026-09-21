@@ -1,7 +1,7 @@
+import 'package:conduit_core/conduit_core.dart';
+
 import 'dart:async';
 
-
-import 'display_boost.dart';
 import 'package:meta/meta.dart';
 
 /// Process-wide signal that the user is actively interacting with a scroll
@@ -53,7 +53,7 @@ class InteractionActivity {
   /// If no interaction follows (a tap), the boost auto-releases after
   /// [touchBoostGrace].
   void notifyTouchDown() {
-    DisplayBoost.begin();
+    DisplayBoostPort.hostDefault.begin();
     if (_activeInteractions > 0) return;
     if (_coolingDown) {
       // Hand the boost tail from the cool-down to the touch grace timer;
@@ -68,7 +68,9 @@ class InteractionActivity {
     _touchBoostTimer?.cancel();
     _touchBoostTimer = Timer(touchBoostGrace, () {
       _touchBoostTimer = null;
-      if (_activeInteractions == 0 && !_coolingDown) DisplayBoost.end();
+      if (_activeInteractions == 0 && !_coolingDown) {
+        DisplayBoostPort.hostDefault.end();
+      }
     });
   }
 
@@ -81,7 +83,7 @@ class InteractionActivity {
     _activeInteractions += 1;
     // Idempotent: pointer-down usually boosted already, but interactions can
     // also start from pointer-signal scrolling with no touch-down.
-    DisplayBoost.begin();
+    DisplayBoostPort.hostDefault.begin();
   }
 
   void endInteraction() {
@@ -96,7 +98,7 @@ class InteractionActivity {
       _cooldownTimer = null;
       // The cool-down doubles as the boost tail: an immediate re-fling
       // never sees the panel mid-ramp-down.
-      DisplayBoost.end();
+      DisplayBoostPort.hostDefault.end();
       _releaseWaiters();
     });
   }

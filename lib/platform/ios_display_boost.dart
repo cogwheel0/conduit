@@ -3,10 +3,10 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import '../utils/debug_logger.dart';
+import 'package:conduit/core/utils/debug_logger.dart';
+import 'package:conduit_core/conduit_core.dart';
 
-/// Asks the platform to hold the display at its peak refresh rate for the
-/// duration of a user interaction.
+/// The iOS [DisplayBoostPort] (WP-1.12).
 ///
 /// ProMotion idles the panel down to 10–40 Hz and only ramps back up
 /// reactively after frames start arriving; frame-cadence profiling showed
@@ -16,7 +16,9 @@ import '../utils/debug_logger.dart';
 /// boost is held (see ios/Runner/DisplayBoostBridge.swift). Android instead
 /// requests its peak display mode once at startup (MainActivity), so no
 /// boost calls are needed there.
-abstract final class DisplayBoost {
+class IosDisplayBoost implements DisplayBoostPort {
+  const IosDisplayBoost();
+
   // A/B-verified on device (profile build, cold panel): with the boost
   // disabled, drags after an idle gap were visibly not smooth — the panel
   // ramping from its 40 Hz idle step mid-fling. With it enabled, cadence
@@ -37,12 +39,14 @@ abstract final class DisplayBoost {
   /// repeated begins (pointer-down, drag-start), keeping the boost alive
   /// past the native safety window; a single latched begin would let the
   /// guard expire mid-interaction.
-  static void begin() {
+  @override
+  void begin() {
     if (!_supported) return;
     unawaited(_invoke('begin'));
   }
 
-  static void end() {
+  @override
+  void end() {
     if (!_supported) return;
     unawaited(_invoke('end'));
   }
