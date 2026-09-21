@@ -299,11 +299,6 @@ mixin _ModelsApi on _ApiServiceBase {
         .toList(growable: false);
   }
 
-  Future<List<String>> getWorkspaceModelTags() async {
-    final response = await _dio.get('/api/v1/models/tags');
-    return workspaceStringList(response.data);
-  }
-
   /// Base models available to compose custom workspace models from. Open WebUI
   /// serves these at `/api/v1/models/base` (the raw connections/pipelines,
   /// distinct from the user-facing `/models/list`).

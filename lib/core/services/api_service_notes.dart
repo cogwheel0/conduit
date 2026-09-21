@@ -56,23 +56,6 @@ mixin _NotesApi on _ApiServiceBase {
     }
   }
 
-  /// Get paginated note list (title, id, timestamps only)
-  Future<List<Map<String, dynamic>>> getNoteList({int? page}) async {
-    _traceApi('Fetching note list, page: $page');
-    final queryParams = <String, dynamic>{};
-    if (page != null) queryParams['page'] = page;
-
-    final response = await _dio.get(
-      '/api/v1/notes/list',
-      queryParameters: queryParams.isNotEmpty ? queryParams : null,
-    );
-    final data = response.data;
-    if (data is List) {
-      return data.cast<Map<String, dynamic>>();
-    }
-    return [];
-  }
-
   /// Search notes by title/content.
   Future<List<Map<String, dynamic>>> searchNotes({
     String? query,

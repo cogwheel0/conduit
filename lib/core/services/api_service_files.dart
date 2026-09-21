@@ -222,55 +222,6 @@ mixin _FilesApi on _ApiServiceBase {
     }
   }
 
-  Future<List<FileInfo>> getAllFiles() async {
-    _traceApi('Fetching all files (admin)');
-    return getUserFiles();
-  }
-
-  Future<String> uploadFileWithProgress(
-    String filePath,
-    String fileName, {
-    Function(int sent, int total)? onProgress,
-  }) async {
-    _traceApi('Uploading file with progress: $fileName');
-
-    final formData = FormData.fromMap({
-      'file': await MultipartFile.fromFile(filePath, filename: fileName),
-    });
-
-    final response = await _dio.post(
-      '/api/v1/files/',
-      data: formData,
-      onSendProgress: onProgress,
-    );
-
-    return response.data['id'] as String;
-  }
-
-  Future<Map<String, dynamic>> updateFileContent(
-    String fileId,
-    String content,
-  ) async {
-    _traceApi('Updating file content: $fileId');
-    final response = await _dio.post(
-      '/api/v1/files/$fileId/data/content/update',
-      data: {'content': content},
-    );
-    return response.data as Map<String, dynamic>;
-  }
-
-  Future<String> getFileHtmlContent(String fileId) async {
-    _traceApi('Fetching file HTML content: $fileId');
-    final response = await _dio.get('/api/v1/files/$fileId/content/html');
-    return response.data as String;
-  }
-
-  /// Get the URL for a file's content (for direct access/playback).
-  /// This URL can be used directly by audio/video players.
-  String getFileContentUrl(String fileId) {
-    return '$baseUrl/api/v1/files/$fileId/content';
-  }
-
   Future<void> deleteFile(String fileId) async {
     _traceApi('Deleting file: $fileId');
     await _dio.delete('/api/v1/files/$fileId');
@@ -286,25 +237,6 @@ mixin _FilesApi on _ApiServiceBase {
       '/api/v1/files/$fileId/metadata',
       data: {'filename': ?filename, 'metadata': ?metadata},
     );
-    return response.data as Map<String, dynamic>;
-  }
-
-  Future<List<Map<String, dynamic>>> getFilesByType(String contentType) async {
-    _traceApi('Fetching files by type: $contentType');
-    final response = await _dio.get(
-      '/api/v1/files/',
-      queryParameters: {'content_type': contentType},
-    );
-    final data = response.data;
-    if (data is List) {
-      return data.cast<Map<String, dynamic>>();
-    }
-    return [];
-  }
-
-  Future<Map<String, dynamic>> getFileStats() async {
-    _traceApi('Fetching file statistics');
-    final response = await _dio.get('/api/v1/files/stats');
     return response.data as Map<String, dynamic>;
   }
 

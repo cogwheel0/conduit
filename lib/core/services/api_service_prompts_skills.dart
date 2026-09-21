@@ -204,11 +204,6 @@ mixin _PromptsSkillsApi on _ApiServiceBase {
         : null;
   }
 
-  Future<List<String>> getWorkspacePromptTags() async {
-    final response = await _dio.get('/api/v1/prompts/tags');
-    return workspaceStringList(response.data);
-  }
-
   Future<WorkspacePromptDetail?> updateWorkspacePromptMetadata(
     String id, {
     required String name,
@@ -295,64 +290,6 @@ mixin _PromptsSkillsApi on _ApiServiceBase {
       queryParameters: {'from_id': fromId, 'to_id': toId},
     );
     return Map<String, dynamic>.from(response.data as Map);
-  }
-
-  Future<Map<String, dynamic>> createPrompt({
-    required String title,
-    required String content,
-    String? command,
-    String? description,
-    List<String>? tags,
-  }) async {
-    // The workspace prompt API expects a bare command token (no leading slash).
-    // Strip any caller-supplied slash and slugify the title for the fallback.
-    final normalizedCommand = command?.trim().isNotEmpty == true
-        ? WorkspacePromptCommand.strip(command!)
-        : WorkspacePromptCommand.slugify(title);
-    final created = await createWorkspacePrompt(
-      WorkspacePromptForm(
-        command: normalizedCommand,
-        name: title,
-        content: content,
-        meta: description == null ? null : {'description': description},
-        tags: tags ?? const [],
-      ),
-    );
-    if (created == null) throw StateError('Prompt create returned no record.');
-    return <String, dynamic>{
-      'id': created.id,
-      'command': created.command,
-      'name': created.name,
-      'content': created.content,
-    };
-  }
-
-  Future<void> updatePrompt(
-    String id, {
-    String? title,
-    String? content,
-    String? description,
-    List<String>? tags,
-  }) async {
-    final current = await getWorkspacePrompt(id);
-    if (current == null) throw StateError('Prompt "$id" was not found.');
-    await updateWorkspacePrompt(
-      id,
-      WorkspacePromptForm(
-        command: current.command,
-        name: title ?? current.name,
-        content: content ?? current.content,
-        data: current.data,
-        meta: description == null
-            ? current.meta
-            : {...?current.meta, 'description': description},
-        tags: tags ?? current.tags,
-        accessGrants: current.accessGrants
-            .map(WorkspaceAccessGrantInput.fromGrant)
-            .toList(growable: false),
-        versionId: current.versionId,
-      ),
-    );
   }
 
   Future<void> deletePrompt(String id) async {

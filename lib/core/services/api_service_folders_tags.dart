@@ -157,23 +157,6 @@ mixin _FoldersTagsApi on _ApiServiceBase {
     return responseData is Map<String, dynamic> ? responseData : null;
   }
 
-  Future<Map<String, dynamic>?> updateFolderSystemPrompt(
-    String id,
-    String? systemPrompt,
-  ) async {
-    final folder = await getFolderById(id);
-    final data = _coerceJsonMap(folder?['data']) ?? <String, dynamic>{};
-    final trimmed = systemPrompt?.trim();
-
-    if (trimmed == null || trimmed.isEmpty) {
-      data['system_prompt'] = '';
-    } else {
-      data['system_prompt'] = trimmed;
-    }
-
-    return updateFolder(id, data: data);
-  }
-
   Future<void> updateFolderParent(String id, String? parentId) async {
     _traceApi('Updating folder parent: $id -> $parentId');
     await _dio.post(
@@ -196,29 +179,6 @@ mixin _FoldersTagsApi on _ApiServiceBase {
       '/api/v1/chats/$conversationId/folder',
       data: {'folder_id': folderId},
     );
-  }
-
-  Future<List<Conversation>> getFolderConversationSummaries(
-    String folderId,
-  ) async {
-    // The backend endpoint has a hardcoded limit of 10 items per page,
-    // so we use parallel pagination to fetch all conversations efficiently.
-    return _fetchAllPagedConversationSummaries(
-      endpoint: '/api/v1/chats/folder/$folderId/list',
-      expectedPageSize: 10,
-      debugLabel: 'folder-$folderId',
-    );
-  }
-
-  // Tags
-  Future<List<String>> getConversationTags(String conversationId) async {
-    _traceApi('Fetching tags for conversation: $conversationId');
-    final response = await _dio.get('/api/v1/chats/$conversationId/tags');
-    final data = response.data;
-    if (data is List) {
-      return data.map(_tagNameFromEntry).whereType<String>().toList();
-    }
-    return [];
   }
 
   Future<void> addTagToConversation(String conversationId, String tag) async {

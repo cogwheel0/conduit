@@ -241,13 +241,6 @@ mixin _ChannelsApi on _ApiServiceBase {
     return response.data as bool;
   }
 
-  /// Gets or creates a DM channel with the given user.
-  Future<Map<String, dynamic>?> getDmChannel(String userId) async {
-    _traceApi('Getting DM channel with user: $userId');
-    final response = await _dio.get('/api/v1/channels/users/$userId');
-    return response.data as Map<String, dynamic>?;
-  }
-
   /// Updates current user's active status in a channel.
   Future<bool> updateMemberActiveStatus(
     String channelId, {
@@ -263,35 +256,6 @@ mixin _ChannelsApi on _ApiServiceBase {
       data: {'is_active': isActive},
     );
     return response.data as bool;
-  }
-
-  /// Adds members to a channel.
-  Future<List<dynamic>> addChannelMembers(
-    String channelId, {
-    List<String>? userIds,
-    List<String>? groupIds,
-  }) async {
-    _traceApi('Adding members to channel: $channelId');
-    final response = await _dio.post(
-      '/api/v1/channels/$channelId'
-      '/update/members/add',
-      data: {'user_ids': ?userIds, 'group_ids': ?groupIds},
-    );
-    return response.data as List<dynamic>;
-  }
-
-  /// Removes members from a channel.
-  Future<int> removeChannelMembers(
-    String channelId, {
-    required List<String> userIds,
-  }) async {
-    _traceApi('Removing members from channel: $channelId');
-    final response = await _dio.post(
-      '/api/v1/channels/$channelId'
-      '/update/members/remove',
-      data: {'user_ids': userIds},
-    );
-    return response.data as int;
   }
 
   /// Fetches a single message with thread info and reactions.
@@ -351,27 +315,6 @@ mixin _ChannelsApi on _ApiServiceBase {
       data: {'is_pinned': isPinned},
     );
     return response.data as Map<String, dynamic>?;
-  }
-
-  /// Fetches pinned messages for a channel.
-  Future<List<Map<String, dynamic>>> getPinnedMessages(
-    String channelId, {
-    int page = 1,
-  }) async {
-    _traceApi('Fetching pinned messages: $channelId');
-    final response = await _dio.get(
-      '/api/v1/channels/$channelId/messages'
-      '/pinned',
-      queryParameters: {'page': page},
-    );
-    final data = response.data;
-    if (data is List) {
-      return _hydrateChannelMessageDataList(
-        channelId,
-        data.cast<Map<String, dynamic>>(),
-      );
-    }
-    return [];
   }
 
   /// Fetches message data (files, attachments).

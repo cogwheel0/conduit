@@ -1,91 +1,6 @@
 part of 'api_service.dart';
 
 mixin _ChatListsApi on _ApiServiceBase {
-  // Conversations - Updated to use correct OpenWebUI API
-  Future<List<Conversation>> getConversations({int? limit, int? skip}) async {
-    final pinnedFuture = _fetchConversationSummaries(
-      '/api/v1/chats/pinned',
-      debugLabel: 'parse_pinned_conversations',
-      pinned: true,
-    );
-    final archivedFuture = _fetchConversationSummaries(
-      '/api/v1/chats/archived',
-      debugLabel: 'parse_archived_conversations',
-      archived: true,
-    );
-
-    List<Conversation> allRegularChats = [];
-
-    if (limit == null) {
-      // Fetch all conversations using parallel pagination for better performance
-      // Main chats endpoint uses 50 items per page
-      allRegularChats = await _fetchAllPagedConversationSummaries(
-        endpoint: '/api/v1/chats/',
-        baseParams: {'include_folders': true, 'include_pinned': true},
-        expectedPageSize: 50,
-        debugLabel: 'conversations',
-      );
-    } else {
-      // Original single page fetch
-      final pageQuery = <String, dynamic>{
-        'include_folders': true,
-        'include_pinned': true,
-      };
-      if (limit > 0) {
-        pageQuery['page'] = (((skip ?? 0) / limit).floor() + 1).clamp(
-          1,
-          1 << 30,
-        );
-      }
-      final regularResponse = await _dio.get(
-        '/api/v1/chats/',
-        // Convert skip/limit to 1-based page index expected by OpenWebUI.
-        // Example: skip=0 => page=1, skip=limit => page=2, etc.
-        queryParameters: pageQuery,
-        options: Options(responseType: ResponseType.bytes),
-      );
-      allRegularChats = await _parseConversationSummaryPayload(
-        regular: regularResponse.data,
-        debugLabel: 'parse_conversation_page_single',
-      );
-    }
-
-    final pinnedAndArchived = await Future.wait<List<Conversation>>([
-      pinnedFuture,
-      archivedFuture,
-    ]);
-    final pinnedChatList = pinnedAndArchived[0];
-    final archivedChatList = pinnedAndArchived[1];
-    final regularChatList = allRegularChats;
-
-    DebugLogger.log(
-      'summary',
-      scope: 'api/conversations',
-      data: {
-        'regular': regularChatList.length,
-        'pinned': pinnedChatList.length,
-        'archived': archivedChatList.length,
-      },
-    );
-
-    final conversations = _mergeConversationSummaries(
-      pinned: pinnedChatList,
-      archived: archivedChatList,
-      regular: regularChatList,
-    );
-
-    DebugLogger.log(
-      'parse-complete',
-      scope: 'api/conversations',
-      data: {
-        'total': conversations.length,
-        'pinned': conversations.where((c) => c.pinned).length,
-        'archived': conversations.where((c) => c.archived).length,
-      },
-    );
-    return conversations;
-  }
-
   /// Fetches a single page of chat summaries for sidebar pagination.
   ///
   /// This mirrors OpenWebUI's sidebar behavior where the main chat list loads
@@ -114,15 +29,6 @@ mixin _ChatListsApi on _ApiServiceBase {
     return _parseConversationSummaryPayload(
       regular: response.data,
       debugLabel: 'parse_conversation_page_$safePage',
-    );
-  }
-
-  /// Fetches pinned chat summaries for the sidebar.
-  Future<List<Conversation>> getPinnedConversationSummaries() async {
-    return _fetchConversationSummaries(
-      '/api/v1/chats/pinned',
-      debugLabel: 'parse_pinned_conversations',
-      pinned: true,
     );
   }
 
@@ -282,24 +188,5 @@ mixin _ChatListsApi on _ApiServiceBase {
       _traceApi('messages search request failed gracefully: ${e.type}');
       return const [];
     }
-  }
-
-  /// Get chat statistics and analytics
-  Future<Map<String, dynamic>> getChatStats({
-    String? userId,
-    DateTime? fromDate,
-    DateTime? toDate,
-  }) async {
-    _traceApi('Fetching chat statistics');
-    final queryParams = <String, dynamic>{};
-    if (userId != null) queryParams['user_id'] = userId;
-    if (fromDate != null) queryParams['from_date'] = fromDate.toIso8601String();
-    if (toDate != null) queryParams['to_date'] = toDate.toIso8601String();
-
-    final response = await _dio.get(
-      '/api/v1/chats/stats',
-      queryParameters: queryParams,
-    );
-    return response.data as Map<String, dynamic>;
   }
 }

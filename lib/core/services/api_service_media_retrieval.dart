@@ -51,23 +51,6 @@ mixin _MediaRetrievalApi on _ApiServiceBase {
     return Uint8List.fromList(data);
   }
 
-  Future<List<Map<String, dynamic>>> processFilesBatch(
-    List<String> fileIds, {
-    String? operation,
-    Map<String, dynamic>? options,
-  }) async {
-    _traceApi('Processing files batch: ${fileIds.length} files');
-    final response = await _dio.post(
-      '/api/v1/retrieval/process/files/batch',
-      data: {'file_ids': fileIds, 'operation': ?operation, 'options': ?options},
-    );
-    final data = response.data;
-    if (data is List) {
-      return data.cast<Map<String, dynamic>>();
-    }
-    return [];
-  }
-
   Future<Map<String, dynamic>?> processWebpage({
     required String url,
     String? collectionName,
@@ -105,107 +88,6 @@ mixin _MediaRetrievalApi on _ApiServiceBase {
     } catch (e) {
       _traceApi('Process YouTube failed: $e');
       return null;
-    }
-  }
-
-  // Web Search
-  Future<Map<String, dynamic>> performWebSearch(List<String> queries) async {
-    _traceApi('Performing web search for queries: $queries');
-    try {
-      final response = await _dio.post(
-        '/api/v1/retrieval/process/web/search',
-        data: {'queries': queries},
-      );
-
-      DebugLogger.log(
-        'status',
-        scope: 'api/web-search',
-        data: {'code': response.statusCode},
-      );
-      DebugLogger.log(
-        'response-type',
-        scope: 'api/web-search',
-        data: {'type': response.data.runtimeType},
-      );
-      DebugLogger.log('fetch-ok', scope: 'api/web-search');
-
-      return response.data as Map<String, dynamic>;
-    } catch (e) {
-      _traceApi('Web search API error: $e');
-      if (e is DioException) {
-        DebugLogger.error('error-response', scope: 'api/web-search', error: e);
-        _traceApi('Web search error status: ${e.response?.statusCode}');
-      }
-      rethrow;
-    }
-  }
-
-  // Query a collection for content
-  Future<List<dynamic>> queryCollection(
-    String collectionName,
-    String query,
-  ) async {
-    _traceApi('Querying collection: $collectionName with query: $query');
-    try {
-      final response = await _dio.post(
-        '/api/v1/retrieval/query/collection',
-        data: {
-          'collection_names': [collectionName], // API expects an array
-          'query': query,
-          'k': 5, // Limit to top 5 results
-        },
-      );
-
-      _traceApi('Collection query response status: ${response.statusCode}');
-      _traceApi('Collection query response type: ${response.data.runtimeType}');
-      DebugLogger.log(
-        'query-ok',
-        scope: 'api/collection',
-        data: {'name': collectionName},
-      );
-
-      if (response.data is List) {
-        return response.data as List<dynamic>;
-      } else if (response.data is Map<String, dynamic>) {
-        // If the response is a map, check for common result keys
-        final data = response.data as Map<String, dynamic>;
-        if (data.containsKey('results')) {
-          return data['results'] as List<dynamic>? ?? [];
-        } else if (data.containsKey('documents')) {
-          return data['documents'] as List<dynamic>? ?? [];
-        } else if (data.containsKey('data')) {
-          return data['data'] as List<dynamic>? ?? [];
-        }
-      }
-
-      return [];
-    } catch (e) {
-      _traceApi('Collection query API error: $e');
-      if (e is DioException) {
-        _traceApi('Collection query error response: ${e.response?.data}');
-        _traceApi('Collection query error status: ${e.response?.statusCode}');
-      }
-      rethrow;
-    }
-  }
-
-  // Get retrieval configuration to check web search settings
-  Future<Map<String, dynamic>> getRetrievalConfig() async {
-    _traceApi('Getting retrieval configuration');
-    try {
-      final response = await _dio.get('/api/v1/retrieval/config');
-
-      _traceApi('Retrieval config response status: ${response.statusCode}');
-      DebugLogger.log('config-ok', scope: 'api/retrieval');
-
-      return response.data as Map<String, dynamic>;
-    } catch (e) {
-      _traceApi('Retrieval config API error: $e');
-      if (e is DioException) {
-        _traceApi('Retrieval config error response: ${e.response?.data}');
-        _traceApi('Retrieval config error status: ${e.response?.statusCode}');
-      }
-      rethrow;
     }
   }
 

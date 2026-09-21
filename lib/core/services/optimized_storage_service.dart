@@ -11,6 +11,7 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/models/socket_transport_availability.dart';
+
 import '../database/app_database.dart';
 import '../persistence/hive_boxes.dart';
 import '../persistence/persistence_keys.dart';

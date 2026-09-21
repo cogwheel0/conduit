@@ -8,11 +8,15 @@ import 'package:meta/meta.dart';
 import 'package:html_unescape/html_unescape.dart';
 
 import '../auth/api_auth_interceptor.dart';
+
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
+
 import '../../core/providers/app_providers.dart' show isTemporaryChat;
 import '../../core/services/socket_service.dart';
+
 import 'package:conduit_markdown/conduit_markdown.dart';
+
 import 'background_streaming_handler.dart';
 import 'chat_completion_transport.dart';
 
@@ -2148,12 +2152,18 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               ? null
               : patch.error ?? current.error;
           if (current.content == nextContent &&
-              const ListEquality<Object?>().equals(current.followUps, nextFollowUps) &&
+              const ListEquality<Object?>().equals(
+                current.followUps,
+                nextFollowUps,
+              ) &&
               _statusHistoriesEquivalent(
                 current.statusHistory,
                 nextStatusHistory,
               ) &&
-              const ListEquality<Object?>().equals(current.sources, nextSources) &&
+              const ListEquality<Object?>().equals(
+                current.sources,
+                nextSources,
+              ) &&
               _deepEquals(current.usage, nextUsage) &&
               _deepEquals(current.output, nextOutput) &&
               _deepEquals(current.files, nextFiles) &&

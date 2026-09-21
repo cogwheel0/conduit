@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
-
 import '../../platform/conduit_platform_apis.g.dart';
 import '../utils/debug_logger.dart';
+
 import 'package:meta/meta.dart';
 
 enum BackgroundStreamKind {

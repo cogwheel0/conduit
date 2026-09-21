@@ -185,36 +185,6 @@ mixin _KnowledgeBasesApi on _ApiServiceBase {
     return const [];
   }
 
-  Future<Map<String, dynamic>> addKnowledgeBaseItem(
-    String knowledgeBaseId, {
-    required String content,
-    String? title,
-    Map<String, dynamic>? metadata,
-  }) async {
-    _traceApi('Adding item to knowledge base: $knowledgeBaseId');
-    final response = await _dio.post(
-      '/api/v1/knowledge/$knowledgeBaseId/items',
-      data: {'content': content, 'title': ?title, 'metadata': ?metadata},
-    );
-    return response.data as Map<String, dynamic>;
-  }
-
-  Future<List<Map<String, dynamic>>> searchKnowledgeBase(
-    String knowledgeBaseId,
-    String query,
-  ) async {
-    _traceApi('Searching knowledge base: $knowledgeBaseId for: $query');
-    final response = await _dio.post(
-      '/api/v1/knowledge/$knowledgeBaseId/search',
-      data: {'query': query},
-    );
-    final data = response.data;
-    if (data is List) {
-      return data.cast<Map<String, dynamic>>();
-    }
-    return [];
-  }
-
   /// Search knowledge bases globally.
   Future<List<Map<String, dynamic>>> searchKnowledgeBases({
     String? query,

@@ -449,13 +449,6 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     _streamCancelActions[messageId] = action;
   }
 
-  /// Returns whether a cancel action is registered for the given
-  /// [messageId]. Useful in tests to verify cleanup.
-  @visibleForTesting
-  bool hasCancelActionForTest(String messageId) {
-    return _streamCancelActions.containsKey(messageId);
-  }
-
   // === Tasks control (parity with Web client) ===
   Future<void> stopTask(String taskId) async {
     try {

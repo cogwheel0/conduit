@@ -477,18 +477,4 @@ mixin _ChatsApi on _ApiServiceBase {
       debugLabel: 'parse_conversation_full',
     );
   }
-
-  /// Duplicate/copy a chat
-  Future<Conversation> duplicateChat(String chatId, {String? title}) async {
-    _traceApi('Duplicating chat: $chatId');
-    final response = await _dio.post(
-      '/api/v1/chats/$chatId/duplicate',
-      data: {'title': ?title},
-      options: Options(responseType: ResponseType.bytes),
-    );
-    return _parseConversationPayload(
-      response.data,
-      debugLabel: 'parse_conversation_full',
-    );
-  }
 }

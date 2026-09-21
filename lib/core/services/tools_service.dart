@@ -2,7 +2,9 @@ import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
 
 import '../error/api_error_handler.dart';
+
 import 'package:conduit_core/models/tool.dart';
+
 import '../providers/app_providers.dart';
 import 'api_service.dart';
 

@@ -1,7 +1,8 @@
 import 'dart:convert';
-import 'package:conduit_core/conduit_core.dart';
-import 'dart:math';
 
+import 'package:conduit_core/conduit_core.dart';
+
+import 'dart:math';
 
 import '../utils/debug_logger.dart';
 
@@ -33,8 +34,6 @@ class SecureCredentialStorage {
       'openwebui_direct_identity_key_v1';
   static Future<void> _openWebUiDirectIdentityKeyQueue = Future<void>.value();
   static bool _openWebUiDirectIdentityWritesBlocked = false;
-
-
 
   /// Save user credentials securely.
   ///

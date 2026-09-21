@@ -35,9 +35,7 @@ export '../network/same_origin_redirect_interceptor.dart'
     show isCredentialSafeRedirectTarget, nextSameOriginRedirectRequest;
 import '../../features/workspace/models/workspace_common.dart';
 import '../../features/workspace/models/workspace_knowledge.dart';
-import '../../features/workspace/models/workspace_prompt_command.dart';
 import '../../features/workspace/models/workspace_resources.dart';
-import '../../features/workspace/models/workspace_tool_content.dart';
 import '../auth/api_auth_interceptor.dart';
 import '../error/api_error_interceptor.dart';
 import '../sync/sync_api_client.dart' show SyncTerminalException;

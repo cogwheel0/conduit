@@ -75,31 +75,6 @@ mixin _UserSettingsApi on _ApiServiceBase {
     });
   }
 
-  Future<ServerUserSettings> updateUserDefaultModel(String? modelId) {
-    final authSnapshot = captureAuthSnapshot();
-    return serializeUserSettingsMutation(() async {
-      final settings = _deepCloneJsonMap(
-        await getUserSettings(authSnapshot: authSnapshot),
-      );
-      final ui = _coerceJsonMap(settings['ui']) ?? <String, dynamic>{};
-      final trimmed = _normalizeNullableString(modelId);
-
-      if (trimmed == null) {
-        ui.remove('models');
-      } else {
-        ui['models'] = <String>[trimmed];
-      }
-
-      settings['ui'] = ui;
-      final response = await _postUserSettings(
-        settings,
-        authSnapshot: authSnapshot,
-      );
-      final data = _coerceResponseMap(response.data) ?? settings;
-      return ServerUserSettings.fromJson(data);
-    });
-  }
-
   Future<ServerUserSettings> updateUserReasoningEffort(String? effort) {
     final authSnapshot = captureAuthSnapshot();
     return serializeUserSettingsMutation(() async {
