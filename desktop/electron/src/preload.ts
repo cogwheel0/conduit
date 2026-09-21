@@ -3,10 +3,12 @@ import { contextBridge, ipcRenderer } from 'electron'
 /**
  * What the renderer is allowed to know.
  *
- * Deliberately data-only for now. `contextIsolation` is on and
- * `nodeIntegration` is off, so this object is the entire surface between the
- * Jaspr bundle and the OS; every function added here is a capability granted
- * to anything the renderer ends up executing, including model output.
+ * `contextIsolation` is on and `nodeIntegration` is off, so this object is
+ * the entire surface between the Jaspr bundle and the OS; every function
+ * added here is a capability granted to anything the renderer ends up
+ * executing, including model output. It stayed data-only through M0 for that
+ * reason, and [openAuthWindow] is the first exception — see
+ * `registerAuthWindowChannel` in main for why that one is safe to grant.
  */
 export interface ConduitBridge {
   /** Loopback port `conduitd` bound, or 0 before it reports ready. */
@@ -17,7 +19,32 @@ export interface ConduitBridge {
   /** `main` | `quickAsk` | `headless`. */
   readonly windowKind: string
   readonly appVersion: string
+  /**
+   * Runs an external sign-in (SSO, OAuth, reverse proxy) in a separate
+   * window and resolves with what that session left behind.
+   *
+   * The renderer hands the result to `auth.completeExternal`; the daemon
+   * validates it against the server before committing, so a window closed
+   * halfway through cannot leave a half-authenticated state.
+   */
+  openAuthWindow(request: AuthWindowRequest): Promise<AuthWindowResult>
 }
+
+export interface AuthWindowRequest {
+  readonly startUrl: string
+  readonly serverUrl: string
+  readonly title?: string
+  readonly timeoutMs?: number
+}
+
+export type AuthWindowResult =
+  | {
+      readonly status: 'completed'
+      readonly origin: string
+      readonly cookies: Record<string, string>
+      readonly token?: string
+    }
+  | { readonly status: 'cancelled' | 'timeout' }
 
 // The main process injects these as `additionalArguments` at window creation,
 // so they are available synchronously — the renderer never has to await an
@@ -34,6 +61,10 @@ const bridge: ConduitBridge = {
   platform: process.platform,
   windowKind: readArgument('window-kind', 'main'),
   appVersion: readArgument('app-version', '0.0.0'),
+  openAuthWindow: (request) =>
+    ipcRenderer.invoke('conduit:auth-window', request) as Promise<
+      AuthWindowResult
+    >,
 }
 
 contextBridge.exposeInMainWorld('conduit', bridge)

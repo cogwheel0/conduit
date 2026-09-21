@@ -1,6 +1,7 @@
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 
+import '../external_sign_in.dart';
 import '../shell_bridge.dart';
 import 'rpc_client.dart';
 
@@ -12,6 +13,16 @@ final shellBridgeProvider = Provider<ShellBridge>(
   (ref) => throw UnimplementedError(
     'shellBridgeProvider must be overridden in the root ProviderScope',
   ),
+);
+
+/// Opens external sign-in windows, overridden in `main.dart` when the
+/// Electron shell is present.
+///
+/// Defaults to the unavailable implementation rather than throwing at read
+/// time, because the dev browser legitimately has no shell -- and a button
+/// that explains why beats one that silently does nothing.
+final externalSignInProvider = Provider<ExternalSignInPort>(
+  (ref) => const UnavailableExternalSignIn(),
 );
 
 /// The live connection to `conduitd`.

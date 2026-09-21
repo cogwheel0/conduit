@@ -28,7 +28,15 @@ Future<void> main() async {
   await LocaleSettings.setLocaleRaw(web.window.navigator.language);
 
   final container = ProviderContainer(
-    overrides: [shellBridgeProvider.overrideWithValue(bridge)],
+    overrides: [
+      shellBridgeProvider.overrideWithValue(bridge),
+      // Only when there is a shell to open a window. The dev browser keeps
+      // the unavailable default, which says so rather than doing nothing.
+      if (bridge.isElectron)
+        externalSignInProvider.overrideWithValue(
+          const ElectronExternalSignIn(),
+        ),
+    ],
   );
   // Start connecting before the first paint so the status card usually
   // renders already-connected rather than flashing "connecting".

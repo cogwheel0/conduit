@@ -2,7 +2,7 @@
   "name": "conduit-desktop",
   "productName": "Conduit",
   "version": "0.1.0",
-  "description": "Conduit desktop client — Electron shell around the conduitd sidecar and the Jaspr renderer.",
+  "description": "Conduit desktop client \u2014 Electron shell around the conduitd sidecar and the Jaspr renderer.",
   "license": "AGPL-3.0-or-later",
   "private": true,
   "main": "out/main.js",
@@ -13,7 +13,8 @@
     "build": "npm run build:ui && npm run build:ts",
     "dev": "node scripts/dev.mjs",
     "start": "electron .",
-    "test": "playwright test"
+    "test": "playwright test",
+    "test:unit": "tsc -p tsconfig.test.json && node --test \"out-test/tests/unit/**/*.test.js\""
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",

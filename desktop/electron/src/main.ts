@@ -1,6 +1,13 @@
-import { app, BrowserWindow, session, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, session, shell } from 'electron'
 import { join, resolve } from 'node:path'
 import { APP_ORIGIN, registerAppScheme, serveAppScheme } from './app-protocol.js'
+import {
+  AuthWindowRejected,
+  isAuthWindowContents,
+  runAuthWindow,
+  type AuthWindowRequest,
+  type AuthWindowResult,
+} from './auth-window.js'
 import { DaemonSupervisor, resolveDaemonPath } from './daemon.js'
 import { loadOrCreateSecrets, type CoreSecrets } from './secrets.js'
 import { WindowStateStore } from './window-state.js'
@@ -62,6 +69,7 @@ async function main(): Promise<void> {
   serveAppScheme(webRoot)
   installAuthHeaderInjection()
   hardenNavigation()
+  registerAuthWindowChannel()
 
   supervisor = new DaemonSupervisor(
     resolveDaemonPath({
@@ -176,6 +184,44 @@ function installAuthHeaderInjection(): void {
 }
 
 /**
+ * The renderer's one way to open an external sign-in.
+ *
+ * This is the only *function* on the bridge; everything else there is data.
+ * That is worth being deliberate about, because the renderer eventually
+ * displays model output, and every callable is a capability granted to
+ * whatever ends up executing there.
+ *
+ * What it grants is bounded by the window itself rather than by a check here:
+ * the flow gets a fresh in-memory session, so the cookies it can capture are
+ * only ones it created. Naming someone else's origin returns an empty jar,
+ * not their session. The residual capability is "show the user a browser
+ * window", which `shell.openExternal` already allows for any link.
+ */
+function registerAuthWindowChannel(): void {
+  ipcMain.handle(
+    'conduit:auth-window',
+    async (event, request: AuthWindowRequest): Promise<AuthWindowResult> => {
+      // Only the app origin may ask. A frame that somehow got loaded
+      // elsewhere in this window must not be able to start a flow and read
+      // back what it captures.
+      if (!event.senderFrame?.url.startsWith(APP_ORIGIN)) {
+        throw new Error('auth windows may only be opened by the app origin')
+      }
+      const parent = BrowserWindow.fromWebContents(event.sender)
+      try {
+        return await runAuthWindow(
+          request,
+          parent === null ? {} : { parent },
+        )
+      } catch (error) {
+        if (error instanceof AuthWindowRejected) throw error
+        throw new Error('the sign-in window could not be opened')
+      }
+    },
+  )
+}
+
+/**
  * Keeps the app origin from becoming a browser.
  *
  * Model output can contain links. Opening one in-place would replace the app
@@ -188,10 +234,19 @@ function hardenNavigation(): void {
       if (url.startsWith('https://') || url.startsWith('http://')) {
         void shell.openExternal(url)
       }
+      // Denied even for auth windows. Some providers try to open a popup;
+      // sending it to the real browser breaks the flow visibly rather than
+      // creating a second window with no session continuity, and the user
+      // can still complete it there and return.
       return { action: 'deny' }
     })
 
     contents.on('will-navigate', (event, url) => {
+      // An auth window is a browser on purpose, for the length of one
+      // sign-in: a proxy or an identity provider bounces through origins we
+      // do not know in advance. It has no preload and its own throwaway
+      // session, so letting it navigate grants nothing the app origin has.
+      if (isAuthWindowContents(contents)) return
       if (!url.startsWith(APP_ORIGIN)) {
         event.preventDefault()
         if (url.startsWith('https://') || url.startsWith('http://')) {

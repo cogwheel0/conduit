@@ -54,6 +54,7 @@ apps/desktop_ui/web/app.css
 desktop/electron/dist/
 desktop/electron/node_modules/
 desktop/electron/out/
+desktop/electron/out-test/
 desktop/electron/test-results/
 desktop/electron/playwright-report/
 

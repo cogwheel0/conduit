@@ -1,6 +1,7 @@
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 
+import '../external_sign_in.dart';
 import 'rpc_client.dart';
 import 'rpc_providers.dart';
 
@@ -124,6 +125,39 @@ class SessionActions {
   Future<AuthSnapshot> completeExternalSignIn(
     ExternalAuthCompletion completion,
   ) => _signIn(ConduitMethods.authCompleteExternal, completion.toJson());
+
+  /// Runs an external sign-in end to end: open the window, hand what it
+  /// captured to the daemon, let the daemon decide.
+  ///
+  /// Returns null when the user closed the window, which is a cancellation
+  /// and not a failure -- nothing is sent, and the form stays as it was.
+  Future<AuthSnapshot?> signInExternally({
+    required String serverUrl,
+    String? startUrl,
+  }) async {
+    final outcome = await _ref
+        .read(externalSignInProvider)
+        .run(
+          // Open WebUI's own sign-in page is the default entry point: a
+          // reverse proxy challenges on the way there, and a configured SSO
+          // provider is linked from it. A caller with a provider-specific
+          // authorize URL passes it instead.
+          startUrl: startUrl ?? serverUrl,
+          serverUrl: serverUrl,
+        );
+
+    return switch (outcome) {
+      ExternalSignInAbandoned() => null,
+      ExternalSignInCaptured(:final origin, :final cookies, :final token) =>
+        completeExternalSignIn(
+          ExternalAuthCompletion(
+            origin: origin,
+            cookies: cookies,
+            token: token,
+          ),
+        ),
+    };
+  }
 
   Future<AuthSnapshot> restoreSession() =>
       _signIn(ConduitMethods.authSilentLogin, null);

@@ -1,6 +1,7 @@
 @TestOn('vm')
 library;
 
+import 'package:conduit_desktop_ui/src/external_sign_in.dart';
 import 'package:conduit_desktop_ui/src/rpc/rpc_client.dart';
 import 'package:conduit_desktop_ui/src/rpc/rpc_providers.dart';
 import 'package:conduit_desktop_ui/src/rpc/session_providers.dart';
@@ -39,9 +40,36 @@ class _FakeRpcClient implements RpcClient {
       throw StateError('unexpected ${invocation.memberName}');
 }
 
-ProviderContainer _container(_FakeRpcClient client) {
+/// Stands in for the Electron auth window.
+class _FakeExternalSignIn implements ExternalSignInPort {
+  _FakeExternalSignIn(this.outcome);
+
+  final ExternalSignIn outcome;
+  int runs = 0;
+  String? lastStartUrl;
+
+  @override
+  Future<ExternalSignIn> run({
+    required String startUrl,
+    required String serverUrl,
+    String? title,
+  }) async {
+    runs++;
+    lastStartUrl = startUrl;
+    return outcome;
+  }
+}
+
+ProviderContainer _container(
+  _FakeRpcClient client, {
+  ExternalSignInPort? externalSignIn,
+}) {
   final container = ProviderContainer(
-    overrides: [rpcClientProvider.overrideWithValue(client)],
+    overrides: [
+      rpcClientProvider.overrideWithValue(client),
+      if (externalSignIn != null)
+        externalSignInProvider.overrideWithValue(externalSignIn),
+    ],
   );
   addTearDown(container.dispose);
   return container;
@@ -212,6 +240,133 @@ void main() {
       expect(client.calls.single.params, <String, dynamic>{
         'keepServerDetails': false,
       });
+    });
+
+    test('external sign-in hands the capture to the daemon', () async {
+      final client = _FakeRpcClient(<String, Object Function()>{
+        ConduitMethods.serversList: () => _oneServer,
+        ConduitMethods.authStatus: () => _signedOut,
+        ConduitMethods.authCompleteExternal: () => _signedIn,
+      });
+      final container = _container(
+        client,
+        externalSignIn: _FakeExternalSignIn(
+          const ExternalSignInCaptured(
+            origin: 'https://chat.example.com',
+            cookies: <String, String>{'oauth2_proxy': 'opaque'},
+            token: 'jwt-from-trusted-headers',
+          ),
+        ),
+      );
+
+      final snapshot = await container
+          .read(sessionActionsProvider)
+          .signInExternally(serverUrl: 'https://chat.example.com');
+
+      expect(snapshot?.isAuthenticated, isTrue);
+      expect(client.calls.single.params, <String, dynamic>{
+        'origin': 'https://chat.example.com',
+        'cookies': <String, String>{'oauth2_proxy': 'opaque'},
+        'token': 'jwt-from-trusted-headers',
+      });
+    });
+
+    test('a closed window sends nothing and is not an error', () async {
+      final client = _FakeRpcClient(<String, Object Function()>{
+        ConduitMethods.serversList: () => _oneServer,
+        ConduitMethods.authStatus: () => _signedOut,
+      });
+      final container = _container(
+        client,
+        externalSignIn: _FakeExternalSignIn(
+          const ExternalSignInAbandoned(timedOut: false),
+        ),
+      );
+
+      final snapshot = await container
+          .read(sessionActionsProvider)
+          .signInExternally(serverUrl: 'https://chat.example.com');
+
+      // Null, not a throw: the user closed it on purpose. And crucially no
+      // RPC -- `authCompleteExternal` has no fake, so calling it would fail.
+      expect(snapshot, isNull);
+      expect(client.calls, isEmpty);
+    });
+
+    test('a timeout is also a cancellation, not a failure', () async {
+      final container = _container(
+        _FakeRpcClient(const <String, Object Function()>{}),
+        externalSignIn: _FakeExternalSignIn(
+          const ExternalSignInAbandoned(timedOut: true),
+        ),
+      );
+
+      expect(
+        await container
+            .read(sessionActionsProvider)
+            .signInExternally(serverUrl: 'https://chat.example.com'),
+        isNull,
+      );
+    });
+
+    test('a capture without a token is still sent', () async {
+      final client = _FakeRpcClient(<String, Object Function()>{
+        ConduitMethods.authCompleteExternal: () => _signedOut,
+      });
+      final container = _container(
+        client,
+        externalSignIn: _FakeExternalSignIn(
+          const ExternalSignInCaptured(
+            origin: 'https://chat.example.com',
+            cookies: <String, String>{'authelia_session': 'opaque'},
+          ),
+        ),
+      );
+
+      // The proxy let us through and Open WebUI still wants credentials.
+      // That is a real outcome the daemon has to see, not a reason to skip
+      // the call.
+      final snapshot = await container
+          .read(sessionActionsProvider)
+          .signInExternally(serverUrl: 'https://chat.example.com');
+
+      expect(snapshot?.isAuthenticated, isFalse);
+      expect((client.calls.single.params!)['token'], isNull);
+    });
+
+    test('the server url is the default entry point', () async {
+      final external = _FakeExternalSignIn(
+        const ExternalSignInAbandoned(timedOut: false),
+      );
+      final container = _container(
+        _FakeRpcClient(const <String, Object Function()>{}),
+        externalSignIn: external,
+      );
+
+      await container
+          .read(sessionActionsProvider)
+          .signInExternally(serverUrl: 'https://chat.example.com');
+      expect(external.lastStartUrl, 'https://chat.example.com');
+
+      await container
+          .read(sessionActionsProvider)
+          .signInExternally(
+            serverUrl: 'https://chat.example.com',
+            startUrl: 'https://idp.example.com/authorize',
+          );
+      expect(external.lastStartUrl, 'https://idp.example.com/authorize');
+    });
+
+    test('the dev browser explains itself rather than doing nothing', () {
+      final container = _container(
+        _FakeRpcClient(const <String, Object Function()>{}),
+      );
+      expect(
+        () => container
+            .read(sessionActionsProvider)
+            .signInExternally(serverUrl: 'https://chat.example.com'),
+        throwsA(isA<UnsupportedError>()),
+      );
     });
 
     test('an unknown method is a failure, not a silent default', () async {

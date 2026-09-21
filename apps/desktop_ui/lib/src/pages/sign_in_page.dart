@@ -84,6 +84,7 @@ class _SignInPageState extends State<SignInPage> {
             },
           },
         ),
+        _ssoButton(context, serverUrl),
         button(
           [Component.text(t.app.backToServerSetup)],
           classes:
@@ -95,6 +96,67 @@ class _SignInPageState extends State<SignInPage> {
         ),
       ],
     );
+  }
+
+  /// Opens the server's own sign-in page in a real browser window.
+  ///
+  /// One button for SSO, OAuth and every reverse proxy, because from here
+  /// they are the same act: go to the server in a browser, come back with
+  /// whatever that left. Which of them actually happens is the server's and
+  /// the proxy's business, and the daemon works out what was achieved.
+  Component _ssoButton(BuildContext context, String? serverUrl) => button(
+    [Component.text(t.app.signInWithSso)],
+    classes:
+        'w-full rounded-[--radius] border border-border px-4 py-2 '
+        'text-foreground disabled:opacity-60',
+    type: ButtonType.button,
+    disabled: _busy || serverUrl == null,
+    onClick: serverUrl == null
+        ? null
+        : () => unawaited(_signInExternally(context, serverUrl)),
+  );
+
+  Future<void> _signInExternally(BuildContext context, String serverUrl) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final snapshot = await context
+          .read(sessionActionsProvider)
+          .signInExternally(serverUrl: serverUrl);
+      if (!mounted) return;
+      // Null is a closed window. Not a failure, and not worth an error
+      // message -- the user closed it on purpose.
+      if (snapshot == null) {
+        setState(() => _busy = false);
+        return;
+      }
+      if (snapshot.isAuthenticated) {
+        Router.of(context).replace('/');
+        return;
+      }
+      // The proxy let us through and Open WebUI still wants credentials, so
+      // the form below is the next step rather than an error.
+      setState(() {
+        _busy = false;
+        _error = snapshot.errorCode == null
+            ? null
+            : _describeCode(snapshot.errorCode);
+      });
+    } on RpcError catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = _describeCode(error.code);
+      });
+    } on UnsupportedError {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = t.app.proxyAuthPlatformNotSupported;
+      });
+    }
   }
 
   /// A radio group, not a row of buttons.
