@@ -1,9 +1,9 @@
 import 'dart:async';
 
 import 'package:conduit/core/database/database_provider.dart';
-import 'package:conduit/core/models/backend_config.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/models/user.dart';
+import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
@@ -20,11 +20,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_secure_key_value_store.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 void main() {
   test('concurrent direct identity key requests converge', () async {
     FlutterSecureStorage.setMockInitialValues(<String, String>{});
-    const storage = FlutterSecureStorage();
+    final storage = FlutterSecureKeyValueStore();
     final firstContainer = ProviderContainer(
       overrides: [secureStorageProvider.overrideWithValue(storage)],
     );
@@ -45,7 +47,7 @@ void main() {
 
   test('direct identity key survives provider container recreation', () async {
     FlutterSecureStorage.setMockInitialValues(<String, String>{});
-    const storage = FlutterSecureStorage();
+    final storage = FlutterSecureKeyValueStore();
     final firstContainer = ProviderContainer(
       overrides: [secureStorageProvider.overrideWithValue(storage)],
     );
@@ -565,7 +567,7 @@ void main() {
         PreferenceKeys.activeServerId: _server.id,
       });
       PreferencesStore.debugReset();
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
       final userSource = NotifierProvider<_MutableUser, User?>(
         () => _MutableUser(_user),
@@ -583,7 +585,7 @@ void main() {
           isAuthenticatedProvider2.overrideWithValue(true),
           authTokenProvider3.overrideWithValue('token'),
           currentUserProvider2.overrideWith((ref) => ref.watch(userSource)),
-          secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         ],
       );
 

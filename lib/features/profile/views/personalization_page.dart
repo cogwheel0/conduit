@@ -6,9 +6,9 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import '../../../core/models/model.dart';
-import '../../../core/models/server_user_settings.dart';
-import '../../../core/models/server_memory.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/server_user_settings.dart';
+import 'package:conduit_core/models/server_memory.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';

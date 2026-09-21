@@ -2,8 +2,8 @@ import 'dart:ui' show Tristate;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/conversation.dart';
-import 'package:conduit/core/services/navigation_service.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/core/sync/sync_engine.dart';
 import 'package:conduit/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';

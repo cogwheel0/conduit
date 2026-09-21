@@ -1,7 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/router/app_router.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
-import 'package:conduit/core/services/navigation_service.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
 import 'package:flutter_test/flutter_test.dart';
 

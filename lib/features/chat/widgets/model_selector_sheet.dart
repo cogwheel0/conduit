@@ -6,7 +6,7 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/models/model.dart';
+import 'package:conduit_core/models/model.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/settings_service.dart';

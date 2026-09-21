@@ -4,7 +4,7 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:web_socket/io_web_socket.dart' show IOWebSocket;
 import 'package:web_socket/web_socket.dart' as ws;
 
-import '../models/server_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 import '../network/conduit_user_agent.dart';
 import 'server_tls_http_client_factory.dart';
 

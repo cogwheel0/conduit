@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import '../models/conversation.dart';
+import 'package:conduit_core/models/conversation.dart';
 import '../providers/app_providers.dart';
 import '../services/conversation_parsing.dart';
 import '../services/worker_manager.dart';

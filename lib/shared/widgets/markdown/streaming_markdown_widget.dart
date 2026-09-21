@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/models/chat_message.dart';
+import 'package:conduit_core/models/chat_message.dart';
 import '../../utils/ask_conduit_context_menu.dart';
 import '../horizontal_gesture_ownership.dart';
 import 'compiled_markdown_document.dart';

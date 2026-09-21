@@ -41,24 +41,25 @@ import '../../direct_connections/providers/direct_mcp_providers.dart';
 import '../../direct_connections/services/direct_mcp_client.dart';
 import '../../direct_connections/views/direct_mcp_content_sheet.dart';
 import '../../workspace/models/workspace_resources.dart';
-import '../../../core/models/tool.dart';
-import '../../../core/models/model.dart';
-import '../../../core/models/prompt.dart';
-import '../../../core/models/toggle_filter.dart';
+import 'package:conduit_core/models/tool.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/prompt.dart';
+import 'package:conduit_core/models/toggle_filter.dart';
 import '../../../core/providers/app_providers.dart';
-import '../../../core/services/navigation_service.dart';
+import '../../../shared/services/navigation_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/location_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../chat/services/voice_input_service.dart';
-import '../../../core/models/knowledge_base.dart';
-import '../../../core/models/knowledge_base_file.dart';
+import 'package:conduit_core/models/knowledge_base.dart';
+import 'package:conduit_core/models/knowledge_base_file.dart';
 
 import '../../../shared/utils/platform_utils.dart';
 import '../../../shared/utils/adaptive_glass.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/core/providers/host_ports.dart';
 
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/model_avatar.dart';
@@ -2078,6 +2079,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       userName: user?.name ?? user?.email,
       userLanguage: locale.languageCode,
       userLocation: userLocation,
+      clipboard: ref.read(clipboardPortProvider),
     );
     final processor = PromptProcessor(
       parser: parser,

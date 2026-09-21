@@ -1,11 +1,11 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/notes/views/note_editor_page.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
-import 'package:conduit/shared/widgets/markdown/markdown_preprocessor.dart';
+import 'package:conduit_markdown/conduit_markdown.dart';
 import 'package:fleather/fleather.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';

@@ -1,8 +1,8 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 
 import 'display_boost.dart';
+import 'package:meta/meta.dart';
 
 /// Process-wide signal that the user is actively interacting with a scroll
 /// surface, so deferrable background work can stay off the UI isolate until

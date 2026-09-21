@@ -3,14 +3,14 @@ import 'dart:convert';
 import 'dart:ui' as ui;
 
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as path;
 
 import '../../../core/providers/app_providers.dart';
-import '../../../core/models/file_info.dart';
+import 'package:conduit_core/models/file_info.dart';
 import '../../../shared/utils/file_type_utils.dart';
 import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/debug_logger.dart';

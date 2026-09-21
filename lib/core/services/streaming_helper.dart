@@ -2,28 +2,22 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/foundation.dart';
+import 'package:collection/collection.dart';
+import 'package:conduit_core/conduit_core.dart';
+import 'package:meta/meta.dart';
 import 'package:html_unescape/html_unescape.dart';
-import 'package:material_ui/material_ui.dart';
 
 import '../auth/api_auth_interceptor.dart';
-import '../../core/models/chat_message.dart';
-import '../../core/models/conversation.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
 import '../../core/providers/app_providers.dart' show isTemporaryChat;
 import '../../core/services/socket_service.dart';
-import '../../core/utils/tool_calls_parser.dart';
+import 'package:conduit_markdown/conduit_markdown.dart';
 import 'background_streaming_handler.dart';
 import 'chat_completion_transport.dart';
-import 'navigation_service.dart';
 
-import '../../shared/widgets/themed_dialogs.dart';
-import '../../shared/theme/theme_extensions.dart';
 import '../utils/debug_logger.dart';
-import '../utils/embed_utils.dart';
 import '../utils/openwebui_source_parser.dart';
-import '../utils/reasoning_parser.dart';
-import '../utils/semantic_details.dart';
 import 'openwebui_response_stream.dart';
 import 'openwebui_stream_parser.dart';
 import 'performance_profiler.dart';
@@ -126,9 +120,9 @@ bool _statusUpdatesEquivalent(
       previous.hidden == next.hidden &&
       previous.count == next.count &&
       previous.query == next.query &&
-      listEquals(previous.queries, next.queries) &&
-      listEquals(previous.urls, next.urls) &&
-      listEquals(previous.items, next.items);
+      const ListEquality<Object?>().equals(previous.queries, next.queries) &&
+      const ListEquality<Object?>().equals(previous.urls, next.urls) &&
+      const ListEquality<Object?>().equals(previous.items, next.items);
 }
 
 bool _statusHistoriesEquivalent(
@@ -448,8 +442,8 @@ class ActiveChatStream {
   });
 
   final StreamingResponseController? controller;
-  final List<VoidCallback> socketSubscriptions;
-  final VoidCallback disposeWatchdog;
+  final List<void Function()> socketSubscriptions;
+  final void Function() disposeWatchdog;
   final bool Function() isDisposed;
 }
 
@@ -601,6 +595,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     void Function(dynamic response) acknowledge,
   )?
   onInteractivePrompt,
+
+  /// Asks the user when the server interrupts a stream for a confirmation or
+  /// a value, and surfaces server notifications (WP-1.7).
+  ///
+  /// Defaults to declining: with no UI attached the stream must still make
+  /// progress, and silently approving a server-initiated prompt is the one
+  /// answer that is never safe.
+  UiRequestPort uiRequests = const NullUiRequestPort(),
 
   /// Called when a `chat:active` event is received, indicating a background
   /// task has started (active=true) or completed (active=false).
@@ -1329,8 +1331,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
   // Socket subscriptions list - starts empty so non-socket flows can finish via onComplete.
   // HTTP subscription is tracked separately and cleaned up in disposeSocketSubscriptions.
-  final socketSubscriptions = <VoidCallback>[];
-  void addSocketSubscription(VoidCallback dispose) {
+  final socketSubscriptions = <void Function()>[];
+  void addSocketSubscription(void Function() dispose) {
     var disposed = false;
     socketSubscriptions.add(() {
       if (disposed) return;
@@ -1640,8 +1642,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
   void applyParsedOpenWebUIUpdate(
     OpenWebUIStreamUpdate update, {
-    required VoidCallback onDone,
-    VoidCallback? onStructuredDoneEvent,
+    required void Function() onDone,
+    void Function()? onStructuredDoneEvent,
     bool Function(String type, Object? data)? handleEvent,
   }) {
     switch (update) {
@@ -2146,12 +2148,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               ? null
               : patch.error ?? current.error;
           if (current.content == nextContent &&
-              listEquals(current.followUps, nextFollowUps) &&
+              const ListEquality<Object?>().equals(current.followUps, nextFollowUps) &&
               _statusHistoriesEquivalent(
                 current.statusHistory,
                 nextStatusHistory,
               ) &&
-              listEquals(current.sources, nextSources) &&
+              const ListEquality<Object?>().equals(current.sources, nextSources) &&
               _deepEquals(current.usage, nextUsage) &&
               _deepEquals(current.output, nextOutput) &&
               _deepEquals(current.files, nextFiles) &&
@@ -3765,7 +3767,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         if (map != null) {
           final notifType = map['type']?.toString() ?? 'info';
           final content = map['content']?.toString() ?? '';
-          _showSocketNotification(notifType, content);
+          uiRequests.notify(_noticeLevel(notifType), content);
         }
       } else if (type == 'request:user_input' && payload != null) {
         if (!matchesCurrentStreamSession(incomingSessionId)) {
@@ -3796,7 +3798,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               onInteractivePrompt(type.toString(), map, ack);
             } else {
               () async {
-                final confirmed = await _showConfirmationDialog(map);
+                final confirmed = await uiRequests.confirm(
+                  title: map['title']?.toString() ?? 'Confirm',
+                  message: map['message']?.toString() ?? '',
+                  confirmLabel: map['confirm_text']?.toString(),
+                  cancelLabel: map['cancel_text']?.toString(),
+                );
                 try {
                   ack(confirmed);
                 } catch (_) {}
@@ -3828,7 +3835,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final map = _asStringMap(payload);
           if (map != null) {
             () async {
-              final response = await _showInputDialog(map);
+              final response = await uiRequests.promptForText(
+                title: map['title']?.toString() ?? 'Input Required',
+                message: map['message']?.toString() ?? '',
+                placeholder: map['placeholder']?.toString(),
+                initialValue: map['value']?.toString(),
+                confirmLabel: map['confirm_text']?.toString(),
+                cancelLabel: map['cancel_text']?.toString(),
+              );
               try {
                 ack(response);
               } catch (_) {}
@@ -4762,119 +4776,10 @@ List<String> _parseFollowUpsField(dynamic raw) {
   return const <String>[];
 }
 
-void _showSocketNotification(String type, String content) {
-  if (content.isEmpty) return;
-  final ctx = NavigationService.context;
-  if (ctx == null) return;
-
-  final AdaptiveSnackBarType snackBarType;
-  switch (type) {
-    case 'success':
-      snackBarType = AdaptiveSnackBarType.success;
-    case 'error':
-      snackBarType = AdaptiveSnackBarType.error;
-    case 'warning':
-    case 'warn':
-      snackBarType = AdaptiveSnackBarType.warning;
-    default:
-      snackBarType = AdaptiveSnackBarType.info;
-  }
-
-  AdaptiveSnackBar.show(
-    ctx,
-    message: content,
-    type: snackBarType,
-    duration: const Duration(seconds: 4),
-  );
-}
-
-Future<bool> _showConfirmationDialog(Map<String, dynamic> data) async {
-  final ctx = NavigationService.context;
-  if (ctx == null) return false;
-  final title = data['title']?.toString() ?? 'Confirm';
-  final message = data['message']?.toString() ?? '';
-  final confirmText = data['confirm_text']?.toString() ?? 'Confirm';
-  final cancelText = data['cancel_text']?.toString() ?? 'Cancel';
-
-  return ThemedDialogs.confirm(
-    ctx,
-    title: title,
-    message: message,
-    confirmText: confirmText,
-    cancelText: cancelText,
-    barrierDismissible: false,
-  );
-}
-
-Future<String?> _showInputDialog(Map<String, dynamic> data) async {
-  final ctx = NavigationService.context;
-  if (ctx == null) return null;
-  final title = data['title']?.toString() ?? 'Input Required';
-  final message = data['message']?.toString() ?? '';
-  final placeholder = data['placeholder']?.toString() ?? '';
-  final initialValue = data['value']?.toString() ?? '';
-  final controller = TextEditingController(text: initialValue);
-
-  final result = await ThemedDialogs.showCustom<String>(
-    context: ctx,
-    barrierDismissible: false,
-    builder: (dialogCtx) {
-      return ThemedDialogs.buildBase(
-        context: dialogCtx,
-        title: title,
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (message.isNotEmpty) ...[
-              Text(
-                message,
-                style: AppTypography.bodyMediumStyle.copyWith(
-                  color: dialogCtx.conduitTheme.textSecondary,
-                ),
-              ),
-              const SizedBox(height: Spacing.md),
-            ],
-            AdaptiveTextField(
-              controller: controller,
-              autofocus: true,
-              placeholder: placeholder.isNotEmpty
-                  ? placeholder
-                  : 'Enter a value',
-              onSubmitted: (value) {
-                Navigator.of(dialogCtx)
-                    .pop(value.trim().isEmpty ? null : value.trim());
-              },
-            ),
-          ],
-        ),
-        actions: [
-          AdaptiveButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(null),
-            label: data['cancel_text']?.toString() ?? 'Cancel',
-            textColor: dialogCtx.conduitTheme.textSecondary,
-            style: AdaptiveButtonStyle.plain,
-          ),
-          AdaptiveButton(
-            onPressed: () {
-              final trimmed = controller.text.trim();
-              if (trimmed.isEmpty) {
-                Navigator.of(dialogCtx).pop(null);
-              } else {
-                Navigator.of(dialogCtx).pop(trimmed);
-              }
-            },
-            label: data['confirm_text']?.toString() ?? 'Submit',
-            textColor: dialogCtx.conduitTheme.buttonPrimary,
-            style: AdaptiveButtonStyle.plain,
-          ),
-        ],
-      );
-    },
-  );
-
-  controller.dispose();
-  if (result == null) return null;
-  final trimmed = result.trim();
-  return trimmed.isEmpty ? null : trimmed;
-}
+/// Maps Open WebUI's notification `type` string onto the port's levels.
+UiNoticeLevel _noticeLevel(String type) => switch (type) {
+  'success' => UiNoticeLevel.success,
+  'error' => UiNoticeLevel.error,
+  'warning' || 'warn' => UiNoticeLevel.warning,
+  _ => UiNoticeLevel.info,
+};

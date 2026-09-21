@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:conduit_core/conduit_core.dart';
 
 /// Allows first paint to honor a short startup deadline while keeping every
 /// later secure-storage operation behind the original in-flight Keychain call.
@@ -8,22 +8,19 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 /// `Future.timeout` does not cancel its source. Without this barrier, timing
 /// out the warmup and constructing providers can start a second iOS Keychain
 /// operation concurrently with the still-running first access.
-final class ReadinessGatedSecureStorage extends FlutterSecureStorage {
+///
+/// Since WP-1.3 this decorates a [SecureKeyValueStore] rather than extending
+/// `FlutterSecureStorage`. The gating is ordering logic that belongs to the
+/// core; the six platform option bags it used to forward were plugin
+/// configuration it never read.
+final class ReadinessGatedSecureStorage implements SecureKeyValueStore {
   ReadinessGatedSecureStorage({
-    required FlutterSecureStorage delegate,
+    required SecureKeyValueStore delegate,
     required Future<void> readiness,
   }) : _delegate = delegate,
-       _readiness = readiness,
-       super(
-         iOptions: delegate.iOptions,
-         aOptions: delegate.aOptions,
-         lOptions: delegate.lOptions,
-         wOptions: delegate.wOptions,
-         webOptions: delegate.webOptions,
-         mOptions: delegate.mOptions,
-       );
+       _readiness = readiness;
 
-  final FlutterSecureStorage _delegate;
+  final SecureKeyValueStore _delegate;
   final Future<void> _readiness;
 
   Future<T> _whenReady<T>(Future<T> Function() operation) async {
@@ -32,136 +29,26 @@ final class ReadinessGatedSecureStorage extends FlutterSecureStorage {
   }
 
   @override
-  Future<void> write({
-    required String key,
-    required String? value,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) => _whenReady(
-    () => _delegate.write(
-      key: key,
-      value: value,
-      iOptions: iOptions,
-      aOptions: aOptions,
-      lOptions: lOptions,
-      webOptions: webOptions,
-      mOptions: mOptions,
-      wOptions: wOptions,
-    ),
-  );
+  Future<void> write({required String key, required String? value}) =>
+      _whenReady(() => _delegate.write(key: key, value: value));
 
   @override
-  Future<String?> read({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) => _whenReady(
-    () => _delegate.read(
-      key: key,
-      iOptions: iOptions,
-      aOptions: aOptions,
-      lOptions: lOptions,
-      webOptions: webOptions,
-      mOptions: mOptions,
-      wOptions: wOptions,
-    ),
-  );
+  Future<String?> read({required String key}) =>
+      _whenReady(() => _delegate.read(key: key));
 
   @override
-  Future<bool> containsKey({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) => _whenReady(
-    () => _delegate.containsKey(
-      key: key,
-      iOptions: iOptions,
-      aOptions: aOptions,
-      lOptions: lOptions,
-      webOptions: webOptions,
-      mOptions: mOptions,
-      wOptions: wOptions,
-    ),
-  );
+  Future<bool> containsKey({required String key}) =>
+      _whenReady(() => _delegate.containsKey(key: key));
 
   @override
-  Future<void> delete({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) => _whenReady(
-    () => _delegate.delete(
-      key: key,
-      iOptions: iOptions,
-      aOptions: aOptions,
-      lOptions: lOptions,
-      webOptions: webOptions,
-      mOptions: mOptions,
-      wOptions: wOptions,
-    ),
-  );
+  Future<void> delete({required String key}) =>
+      _whenReady(() => _delegate.delete(key: key));
 
   @override
-  Future<Map<String, String>> readAll({
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) => _whenReady(
-    () => _delegate.readAll(
-      iOptions: iOptions,
-      aOptions: aOptions,
-      lOptions: lOptions,
-      webOptions: webOptions,
-      mOptions: mOptions,
-      wOptions: wOptions,
-    ),
-  );
+  Future<Map<String, String>> readAll() => _whenReady(_delegate.readAll);
 
   @override
-  Future<void> deleteAll({
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) => _whenReady(
-    () => _delegate.deleteAll(
-      iOptions: iOptions,
-      aOptions: aOptions,
-      lOptions: lOptions,
-      webOptions: webOptions,
-      mOptions: mOptions,
-      wOptions: wOptions,
-    ),
-  );
-
-  @override
-  Stream<bool>? get onCupertinoProtectedDataAvailabilityChanged =>
-      _delegate.onCupertinoProtectedDataAvailabilityChanged;
-
-  @override
-  Future<bool?> isCupertinoProtectedDataAvailable() =>
-      _whenReady(_delegate.isCupertinoProtectedDataAvailable);
+  Future<void> deleteAll() => _whenReady(_delegate.deleteAll);
 }
 
 /// Returns at the startup deadline without cancelling [readiness]. Callers can

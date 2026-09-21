@@ -12,7 +12,7 @@ import '../persistence/persistence_keys.dart';
 import '../persistence/preferences_store.dart';
 import '../providers/app_providers.dart';
 import '../utils/debug_logger.dart';
-import 'navigation_service.dart';
+import '../../shared/services/navigation_service.dart';
 import '../../features/chat/providers/chat_providers.dart';
 import '../../features/chat/providers/context_attachments_provider.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';

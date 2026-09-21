@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/auth/api_auth_interceptor.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/models/user.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';

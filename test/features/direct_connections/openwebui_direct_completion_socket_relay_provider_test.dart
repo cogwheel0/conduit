@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/models/socket_health.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/socket_health.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/socket_service.dart';

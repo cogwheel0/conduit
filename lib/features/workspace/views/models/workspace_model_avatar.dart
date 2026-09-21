@@ -7,7 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/network/conduit_user_agent.dart';
 import '../../../../core/network/image_header_utils.dart';
 import '../../../../core/providers/app_providers.dart';
-import '../../../../core/services/raster_media_policy.dart';
+import '../../../../shared/services/raster_media_policy.dart';
 import '../../../../shared/theme/theme_extensions.dart';
 
 /// Renders an inline model avatar or lazily loads the persisted server image.

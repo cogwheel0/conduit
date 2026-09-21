@@ -1,6 +1,5 @@
+import 'package:conduit_core/conduit_core.dart';
 import 'package:drift/drift.dart';
-import 'package:drift_flutter/drift_flutter.dart';
-import 'package:path_provider/path_provider.dart';
 
 import 'daos/app_cache_dao.dart';
 import 'daos/attachment_queue_dao.dart';
@@ -59,20 +58,16 @@ part 'app_database.g.dart';
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
-  /// Opens the database file for [serverId] on a background isolate.
+  /// Opens the database file for [serverId] through [opener].
   ///
-  /// This function is the single seam where at-rest encryption (SQLCipher)
-  /// can be introduced later (CDT-RFC-001 D-08).
-  factory AppDatabase.forServer(String serverId) {
-    return AppDatabase(
-      driftDatabase(
-        name: serverId,
-        native: DriftNativeOptions(
-          databaseDirectory: getApplicationSupportDirectory,
-        ),
-      ),
-    );
-  }
+  /// The opener decides where the file lives and how it is opened, because
+  /// that answer differs between the Flutter app and the `conduitd` sidecar
+  /// (WP-1.1). It is also the single seam where at-rest encryption
+  /// (SQLCipher) can be introduced later (CDT-RFC-001 D-08).
+  factory AppDatabase.forServer(
+    String serverId, {
+    required DatabaseOpenerPort opener,
+  }) => AppDatabase(opener.open(serverId));
 
   @override
   int get schemaVersion => 10;

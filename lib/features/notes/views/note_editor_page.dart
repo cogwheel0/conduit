@@ -21,7 +21,7 @@ import '../../../core/auth/api_auth_interceptor.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_provider.dart';
 import '../../../core/database/mappers/note_mapper.dart';
-import '../../../core/models/note.dart';
+import 'package:conduit_core/models/note.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/ios_native_dropdown_bridge.dart';

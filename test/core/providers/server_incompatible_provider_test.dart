@@ -1,5 +1,5 @@
-import 'package:conduit/core/models/backend_config.dart';
-import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';

@@ -1,9 +1,9 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:conduit_core/conduit_core.dart';
 
 import 'api_error.dart';
 import 'error_parser.dart';
-import '../utils/current_localizations.dart';
 import '../utils/debug_logger.dart';
 
 /// Comprehensive API error handler with structured error parsing
@@ -23,7 +23,6 @@ class ApiErrorHandler {
     Map<String, dynamic>? requestData,
     bool logErrorDetails = true,
   }) {
-    final l10n = currentAppLocalizations();
     try {
       if (error is DioException) {
         return _handleDioException(
@@ -36,7 +35,7 @@ class ApiErrorHandler {
         return error;
       } else {
         return ApiError.unknown(
-          message: l10n.errorMessage,
+          messageCode: const ErrorMessage(CoreErrorCode.generic),
           originalError: error,
           technical: error.toString(),
         );
@@ -54,7 +53,7 @@ class ApiErrorHandler {
         );
       }
       return ApiError.unknown(
-        message: l10n.errorMessage,
+        messageCode: const ErrorMessage(CoreErrorCode.generic),
         originalError: error,
         technical: 'Error transformation failed: $e',
       );
@@ -68,7 +67,6 @@ class ApiErrorHandler {
     String? method,
     required bool logErrorDetails,
   }) {
-    final l10n = currentAppLocalizations();
     final statusCode = dioError.response?.statusCode;
     final responseData = dioError.response?.data;
     final requestPath = endpoint ?? dioError.requestOptions.path;
@@ -80,7 +78,7 @@ class ApiErrorHandler {
     switch (dioError.type) {
       case DioExceptionType.connectionTimeout:
         return ApiError.timeout(
-          message: l10n.networkTimeoutError,
+          messageCode: const ErrorMessage(CoreErrorCode.networkTimeout),
           endpoint: requestPath,
           method: httpMethod,
           timeoutDuration: dioError.requestOptions.connectTimeout,
@@ -88,7 +86,7 @@ class ApiErrorHandler {
 
       case DioExceptionType.sendTimeout:
         return ApiError.timeout(
-          message: l10n.networkTimeoutError,
+          messageCode: const ErrorMessage(CoreErrorCode.networkTimeout),
           endpoint: requestPath,
           method: httpMethod,
           timeoutDuration: dioError.requestOptions.sendTimeout,
@@ -97,7 +95,7 @@ class ApiErrorHandler {
       case DioExceptionType.receiveTimeout:
       case DioExceptionType.transformTimeout:
         return ApiError.timeout(
-          message: l10n.serverErrorTimeout,
+          messageCode: const ErrorMessage(CoreErrorCode.serverTimeout),
           endpoint: requestPath,
           method: httpMethod,
           timeoutDuration: dioError.requestOptions.receiveTimeout,
@@ -105,14 +103,14 @@ class ApiErrorHandler {
 
       case DioExceptionType.badCertificate:
         return ApiError.security(
-          message: l10n.securityCertificateError,
+          messageCode: const ErrorMessage(CoreErrorCode.securityCertificate),
           endpoint: requestPath,
           method: httpMethod,
         );
 
       case DioExceptionType.connectionError:
         return ApiError.network(
-          message: l10n.networkGenericError,
+          messageCode: const ErrorMessage(CoreErrorCode.networkGeneric),
           endpoint: requestPath,
           method: httpMethod,
           originalError: dioError,
@@ -120,7 +118,7 @@ class ApiErrorHandler {
 
       case DioExceptionType.cancel:
         return ApiError.cancelled(
-          message: l10n.errorMessage,
+          messageCode: const ErrorMessage(CoreErrorCode.generic),
           endpoint: requestPath,
           method: httpMethod,
         );
@@ -136,7 +134,7 @@ class ApiErrorHandler {
 
       case DioExceptionType.unknown:
         return ApiError.unknown(
-          message: l10n.networkGenericError,
+          messageCode: const ErrorMessage(CoreErrorCode.networkGeneric),
           endpoint: requestPath,
           method: httpMethod,
           originalError: dioError,
@@ -153,10 +151,9 @@ class ApiErrorHandler {
     int? statusCode,
     dynamic responseData,
   ) {
-    final l10n = currentAppLocalizations();
     if (statusCode == null) {
       return ApiError.server(
-        message: l10n.serverErrorGeneric,
+        messageCode: const ErrorMessage(CoreErrorCode.serverGeneric),
         endpoint: requestPath,
         method: httpMethod,
         statusCode: null,
@@ -174,7 +171,7 @@ class ApiErrorHandler {
 
       case 401:
         return ApiError.authentication(
-          message: l10n.authSessionExpired,
+          messageCode: const ErrorMessage(CoreErrorCode.authSessionExpired),
           endpoint: requestPath,
           method: httpMethod,
           statusCode: statusCode,
@@ -182,7 +179,7 @@ class ApiErrorHandler {
 
       case 403:
         return ApiError.authorization(
-          message: l10n.authForbidden,
+          messageCode: const ErrorMessage(CoreErrorCode.authForbidden),
           endpoint: requestPath,
           method: httpMethod,
           statusCode: statusCode,
@@ -190,7 +187,7 @@ class ApiErrorHandler {
 
       case 404:
         return ApiError.notFound(
-          message: l10n.fileNotFound,
+          messageCode: const ErrorMessage(CoreErrorCode.fileNotFound),
           endpoint: requestPath,
           method: httpMethod,
           statusCode: statusCode,
@@ -206,7 +203,7 @@ class ApiErrorHandler {
 
       case 429:
         return ApiError.rateLimit(
-          message: l10n.rateLimitExceeded,
+          messageCode: const ErrorMessage(CoreErrorCode.rateLimitExceeded),
           endpoint: requestPath,
           method: httpMethod,
           statusCode: statusCode,
@@ -224,7 +221,7 @@ class ApiErrorHandler {
           );
         } else {
           return ApiError.client(
-            message: l10n.errorMessage,
+            messageCode: const ErrorMessage(CoreErrorCode.generic),
             endpoint: requestPath,
             method: httpMethod,
             statusCode: statusCode,
@@ -244,9 +241,9 @@ class ApiErrorHandler {
     final parsedError = _errorParser.parseErrorResponse(responseData);
 
     return ApiError.badRequest(
-      message:
-          parsedError.message ??
-          currentAppLocalizations().validationGenericError,
+      // Server prose when there is any; the UI falls back to the code.
+      message: parsedError.message,
+      messageCode: const ErrorMessage(CoreErrorCode.validationGeneric),
       endpoint: requestPath,
       method: httpMethod,
       details: parsedError,
@@ -263,7 +260,7 @@ class ApiErrorHandler {
     final parsedError = _errorParser.parseValidationError(responseData);
 
     return ApiError.validation(
-      message: currentAppLocalizations().validationGenericError,
+      messageCode: const ErrorMessage(CoreErrorCode.validationGeneric),
       endpoint: requestPath,
       method: httpMethod,
       fieldErrors: parsedError.fieldErrors,
@@ -280,28 +277,16 @@ class ApiErrorHandler {
     dynamic responseData,
   ) {
     final parsedError = _errorParser.parseErrorResponse(responseData);
-    final l10n = currentAppLocalizations();
 
-    String message;
-    switch (statusCode) {
-      case 500:
-        message = l10n.serverError500;
-        break;
-      case 502:
-        message = l10n.serverErrorUnavailable;
-        break;
-      case 503:
-        message = l10n.serverErrorUnavailable;
-        break;
-      case 504:
-        message = l10n.serverErrorTimeout;
-        break;
-      default:
-        message = l10n.serverErrorGeneric;
-    }
+    final messageCode = ErrorMessage(switch (statusCode) {
+      500 => CoreErrorCode.serverInternal,
+      502 || 503 => CoreErrorCode.serverUnavailable,
+      504 => CoreErrorCode.serverTimeout,
+      _ => CoreErrorCode.serverGeneric,
+    });
 
     return ApiError.server(
-      message: message,
+      messageCode: messageCode,
       endpoint: requestPath,
       method: httpMethod,
       statusCode: statusCode,
@@ -384,54 +369,5 @@ class ApiErrorHandler {
       default:
         return const Duration(seconds: 5);
     }
-  }
-
-  /// Get user-friendly error message with actionable advice
-  String getUserMessage(ApiError error) {
-    final baseMessage = error.message;
-    final l10n = currentAppLocalizations();
-
-    // Add actionable advice based on error type
-    switch (error.type) {
-      case ApiErrorType.network:
-        return '$baseMessage\n\n${l10n.pleaseCheckConnection}';
-      case ApiErrorType.timeout:
-        return '$baseMessage\n\n${l10n.requestTimedOut}';
-      case ApiErrorType.authentication:
-        return _withDistinctAdvice(baseMessage, l10n.authSessionExpired);
-      case ApiErrorType.authorization:
-        return _withDistinctAdvice(baseMessage, l10n.authForbidden);
-      case ApiErrorType.validation:
-        return _withDistinctAdvice(baseMessage, l10n.validationGenericError);
-      case ApiErrorType.rateLimit:
-        final delay = error.retryAfter;
-        if (delay != null) {
-          return '$baseMessage\n\n${l10n.rateLimitRetryAfter(_formatRetryDelay(delay))}';
-        }
-        return '$baseMessage\n\n${l10n.rateLimitRetrySoon}';
-      case ApiErrorType.server:
-        return _withDistinctAdvice(baseMessage, l10n.serverErrorGeneric);
-      default:
-        return baseMessage;
-    }
-  }
-
-  String _formatRetryDelay(Duration delay) {
-    final minutes = delay.inMinutes;
-    final seconds = delay.inSeconds % 60;
-    if (minutes > 0 && seconds > 0) {
-      return '${minutes}m ${seconds}s';
-    }
-    if (minutes > 0) {
-      return '${minutes}m';
-    }
-    return '${delay.inSeconds}s';
-  }
-
-  String _withDistinctAdvice(String baseMessage, String advice) {
-    if (baseMessage.trim() == advice.trim()) {
-      return baseMessage;
-    }
-    return '$baseMessage\n\n$advice';
   }
 }

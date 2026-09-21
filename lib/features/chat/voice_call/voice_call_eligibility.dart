@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:meta/meta.dart';
 
-import '../../../core/models/model.dart';
+import 'package:conduit_core/models/model.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/services/settings_service.dart';

@@ -6,9 +6,9 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:material_ui/material_ui.dart';
 
-import '../../../../core/models/chat_message.dart';
+import 'package:conduit_core/models/chat_message.dart';
 import '../../../../core/services/native_sheet_bridge.dart';
-import '../../../../core/services/raster_media_policy.dart';
+import '../../../../shared/services/raster_media_policy.dart';
 import '../../../../shared/theme/theme_extensions.dart';
 import '../../../../shared/utils/adaptive_glass.dart';
 import '../../../../shared/utils/external_link_launcher.dart';

@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit/core/database/database_provider.dart';
-import 'package:conduit/core/models/tool.dart';
+import 'package:conduit_core/models/tool.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/tools_service.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';

@@ -1,4 +1,4 @@
-import '../../../core/models/model.dart';
+import 'package:conduit_core/models/model.dart';
 
 const int kModelSelectorFallbackCount = 4;
 

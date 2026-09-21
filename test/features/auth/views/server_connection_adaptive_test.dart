@@ -1,6 +1,6 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/services/navigation_service.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/features/auth/views/backend_chooser_page.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';

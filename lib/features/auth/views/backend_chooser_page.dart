@@ -8,7 +8,7 @@ import '../../../core/persistence/persistence_keys.dart';
 import '../../../core/persistence/preferences_store.dart';
 import '../../../core/platform/conduit_platform_apis.g.dart';
 import '../../../core/providers/backend_mode_providers.dart';
-import '../../../core/services/navigation_service.dart';
+import '../../../shared/services/navigation_service.dart';
 import '../../direct_connections/providers/direct_connection_providers.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';

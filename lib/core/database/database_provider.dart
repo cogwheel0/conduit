@@ -3,10 +3,11 @@ import 'dart:io';
 
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../providers/app_providers.dart';
+import '../providers/host_ports.dart';
 import 'app_database.dart';
 import 'chat_database_repository.dart';
 import 'database_manager.dart';
@@ -70,6 +71,7 @@ class OpenWebUiDatabaseAccessNotifier
 /// Independent lifecycle owner for the permanent local-direct database.
 final directLocalDatabaseManagerProvider = Provider<DatabaseManager>((ref) {
   final manager = DatabaseManager(
+    opener: () => ref.read(databaseOpenerProvider),
     databaseFileName: (_) => kDirectLocalDatabaseFileName,
   );
   ref.onDispose(() => unawaited(manager.closeActive()));
@@ -103,7 +105,8 @@ final directLocalDatabaseProvider = Provider<AppDatabase>((ref) {
 
 /// Owns per-server database lifecycle; never recreated (keepAlive).
 @Riverpod(keepAlive: true)
-DatabaseManager databaseManager(Ref ref) => DatabaseManager();
+DatabaseManager databaseManager(Ref ref) =>
+    DatabaseManager(opener: () => ref.read(databaseOpenerProvider));
 
 typedef OpenWebUiDatabasePurge = Future<void> Function(String serverId);
 

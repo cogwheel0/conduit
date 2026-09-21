@@ -1,8 +1,8 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 
 import '../../../core/auth/auth_state_manager.dart';
-import '../../../core/models/user.dart';
-import '../../../core/models/server_config.dart';
+import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/models/server_config.dart';
 import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/utils/debug_logger.dart';
 

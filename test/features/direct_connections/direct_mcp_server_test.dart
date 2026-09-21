@@ -6,6 +6,7 @@ import 'package:conduit/features/direct_connections/services/direct_mcp_server_s
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:conduit/platform/flutter_secure_key_value_store.dart';
 
 void main() {
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
@@ -536,7 +537,7 @@ void main() {
   test(
     'store serializes mutations and persists only secure document',
     () async {
-      const platformStorage = FlutterSecureStorage();
+      final platformStorage = FlutterSecureKeyValueStore();
       final secure = SecureCredentialStorage(instance: platformStorage);
       final store = DirectMcpServerStore(secure);
       final first = DirectMcpServer(
@@ -562,7 +563,7 @@ void main() {
 
   test('store limits enabled MCP servers to the session maximum', () async {
     final store = DirectMcpServerStore(
-      SecureCredentialStorage(instance: const FlutterSecureStorage()),
+      SecureCredentialStorage(instance: FlutterSecureKeyValueStore()),
     );
 
     for (var index = 0; index < kDirectMcpMaxServers; index++) {
@@ -597,7 +598,7 @@ void main() {
   test(
     'store remembers, prunes, and conflicts on configuration drift',
     () async {
-      const platformStorage = FlutterSecureStorage();
+      final platformStorage = FlutterSecureKeyValueStore();
       final store = DirectMcpServerStore(
         SecureCredentialStorage(instance: platformStorage),
       );

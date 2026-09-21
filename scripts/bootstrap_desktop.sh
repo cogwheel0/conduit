@@ -25,6 +25,11 @@ flutter pub get
 step 'Generating mobile code (freezed, json_serializable, riverpod, drift)'
 dart run build_runner build
 
+step 'Generating conduit_core models'
+# The freezed/json_serializable models moved out of lib/core/models in M1, so
+# their generated code is produced here now, not by the root build.
+(cd packages/conduit_core && dart run build_runner build)
+
 step 'Generating conduit_protocol DTOs'
 (cd packages/conduit_protocol && dart run build_runner build)
 

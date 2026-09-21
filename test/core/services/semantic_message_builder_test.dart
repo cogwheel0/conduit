@@ -1,6 +1,6 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/semantic_message_builder.dart';
-import 'package:conduit/shared/widgets/markdown/renderer/details_block_syntax.dart';
+import 'package:conduit_markdown/conduit_markdown.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:markdown/markdown.dart' as md;
 

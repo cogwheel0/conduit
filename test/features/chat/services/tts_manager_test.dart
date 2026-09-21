@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/backend_config.dart';
-import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/services/native_tts_service.dart';

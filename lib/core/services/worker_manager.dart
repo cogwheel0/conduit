@@ -2,16 +2,17 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart';
+import 'package:conduit_core/conduit_core.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../services/performance_profiler.dart';
+import '../providers/host_ports.dart';
 import '../utils/debug_logger.dart';
 
 part 'worker_manager.g.dart';
 
 /// Signature of a task that can be executed by [WorkerManager].
-typedef WorkerTask<Q, R> = ComputeCallback<Q, R>;
+typedef WorkerTask<Q, R> = WorkerCallback<Q, R>;
 
 /// Coordinates CPU intensive work off the UI isolate with bounded concurrency.
 ///
@@ -20,22 +21,23 @@ typedef WorkerTask<Q, R> = ComputeCallback<Q, R>;
 /// isolate work with message copying semantics. On web the callback executes
 /// synchronously because secondary isolates are not supported.
 class WorkerManager {
+  /// [worker] decides whether a job leaves the calling isolate. It defaults
+  /// to inline, because "spawn an isolate" is a host capability the core
+  /// cannot assume (WP-1.5); `main.dart` injects the `compute`-backed one.
   WorkerManager({
     int maxConcurrentTasks = _defaultMaxConcurrentTasks,
-    @visibleForTesting bool? debugIsWebOverride,
+    WorkerPort worker = const InlineWorkerPort(),
   }) : _maxConcurrentTasks = math.max(1, maxConcurrentTasks),
-       _debugIsWebOverride = debugIsWebOverride;
+       _worker = worker;
 
   static const int _defaultMaxConcurrentTasks = 2;
 
   final int _maxConcurrentTasks;
-  final bool? _debugIsWebOverride;
+  final WorkerPort _worker;
   final Queue<_EnqueuedJob> _pendingJobs = Queue<_EnqueuedJob>();
   bool _disposed = false;
   int _activeJobs = 0;
   int _jobCounter = 0;
-
-  bool get _runsSynchronously => _debugIsWebOverride ?? kIsWeb;
 
   /// Schedule [callback] with [message] to run on a worker isolate.
   ///
@@ -56,12 +58,7 @@ class WorkerManager {
     final job = _EnqueuedJob(
       id: jobId,
       debugLabel: debugLabel,
-      run: () {
-        if (_runsSynchronously) {
-          return Future<R>.sync(() => callback(message));
-        }
-        return compute(callback, message);
-      },
+      run: () => _worker.run(callback, message),
       onComplete: (value) {
         if (!completer.isCompleted) {
           completer.complete(value as R);
@@ -167,8 +164,11 @@ class WorkerManager {
 class WorkerManagerNotifier extends _$WorkerManagerNotifier {
   @override
   WorkerManager build() {
-    final concurrency = kIsWeb ? 1 : WorkerManager._defaultMaxConcurrentTasks;
-    final manager = WorkerManager(maxConcurrentTasks: concurrency);
+    final worker = ref.watch(workerPortProvider);
+    final manager = WorkerManager(
+      maxConcurrentTasks: WorkerManager._defaultMaxConcurrentTasks,
+      worker: worker,
+    );
     ref.onDispose(manager.dispose);
     return manager;
   }

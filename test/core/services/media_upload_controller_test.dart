@@ -5,9 +5,9 @@ import 'dart:typed_data';
 
 import 'package:conduit/core/auth/api_auth_interceptor.dart';
 import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/models/file_info.dart';
-import 'package:conduit/core/models/model.dart';
-import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit_core/models/file_info.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/attachment_upload_queue.dart';
@@ -31,6 +31,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:conduit_core/conduit_core.dart';
 
 AppDatabase? _testUploadDatabase;
 
@@ -3581,7 +3582,7 @@ final class _OwnedFileSyncApiService extends ApiService {
     Completer<void>? fileInfoStarted,
     Completer<Map<String, dynamic>>? fileInfoResponse,
   }) : this._(
-         WorkerManager(debugIsWebOverride: true),
+         WorkerManager(worker: const InlineWorkerPort()),
          initialFiles: initialFiles,
          fileInfoStarted: fileInfoStarted,
          fileInfoResponse: fileInfoResponse,

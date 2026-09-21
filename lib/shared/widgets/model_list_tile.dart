@@ -5,7 +5,7 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 
-import '../../core/models/model.dart';
+import 'package:conduit_core/models/model.dart';
 import '../theme/theme_extensions.dart';
 import 'model_avatar.dart';
 import 'horizontal_gesture_ownership.dart';

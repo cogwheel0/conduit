@@ -9,6 +9,7 @@ import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -36,7 +37,7 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     PreferencesStore.debugReset();
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     HivePrefsMigrator.debugReset();
     tempDir = await Directory.systemTemp.createTemp('hive-prefs-migrator-test');
     Hive.init(tempDir.path);

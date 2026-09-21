@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 import '../../support/gated_close_database.dart';
 
@@ -29,7 +30,7 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     PreferencesStore.debugReset();
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-a');
 
     tempDirectory = await Directory.systemTemp.createTemp(

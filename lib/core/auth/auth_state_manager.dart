@@ -2,24 +2,24 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
+import 'package:meta/meta.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 // Types are used through app_providers.dart
 import '../providers/app_providers.dart';
-import '../models/user.dart';
-import '../models/server_config.dart';
+import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/models/server_config.dart';
 import '../services/api_service.dart';
 import '../services/optimized_storage_service.dart';
 import '../services/worker_manager.dart';
 import 'token_validator.dart';
 import 'auth_cache_manager.dart';
-import 'webview_cookie_helper.dart';
 import '../utils/debug_logger.dart';
 import '../utils/user_avatar_utils.dart';
 import '../persistence/persistence_keys.dart';
 import '../persistence/preferences_store.dart';
 import 'openwebui_account_owner_marker.dart';
+import '../providers/host_ports.dart';
 
 part 'auth_state_manager.g.dart';
 
@@ -674,7 +674,7 @@ class AuthStateManager extends _$AuthStateManager {
         }
         if (_authAttemptSuperseded(attemptRevision)) return;
         final webViewDataCleared =
-            await WebViewCookieHelper.ensurePendingLogoutDataCleared();
+            await ref.read(cookieJarProvider).completePendingClear();
         if (_authAttemptSuperseded(attemptRevision)) return;
         if (!webViewDataCleared) {
           _set(
@@ -2820,7 +2820,8 @@ class AuthStateManager extends _$AuthStateManager {
     // Queue the shared WKWebView/Android WebView purge before any newer auth
     // route can construct a WebView. Entry points serialize behind this future,
     // and tokenless route publication below waits for it to complete.
-    final webViewDataClear = WebViewCookieHelper.clearAllWebViewData();
+    final cookieJar = ref.read(cookieJarProvider);
+    final webViewDataClear = cookieJar.clearAll();
 
     var durableAuthDataCleared = false;
     var suppressionMarkerPersisted = false;
@@ -3007,10 +3008,12 @@ class AuthStateManager extends _$AuthStateManager {
         }
       }
     } finally {
-      var webViewDataCleared = !isWebViewSupported;
+      // A host with no browser surface has nothing to clear, so it is
+      // trivially clean; only a real surface can fail to purge.
+      var webViewDataCleared = !cookieJar.isSupported;
       try {
         final clearResult = await webViewDataClear;
-        webViewDataCleared = !isWebViewSupported || clearResult;
+        webViewDataCleared = !cookieJar.isSupported || clearResult;
         if (!webViewDataCleared) {
           terminalFailure ??= StateError(
             'The shared WebView session could not be cleared.',

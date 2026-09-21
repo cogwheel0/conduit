@@ -1,16 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:synchronized/synchronized.dart';
+import 'package:conduit_core/conduit_core.dart';
 
-import '../models/backend_config.dart';
-import '../models/model.dart';
-import '../models/server_config.dart';
-import '../models/user.dart';
-import '../models/tool.dart';
-import '../models/socket_transport_availability.dart';
+import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/models/tool.dart';
+import 'package:conduit_core/models/socket_transport_availability.dart';
 import '../database/app_database.dart';
 import '../persistence/hive_boxes.dart';
 import '../persistence/persistence_keys.dart';
@@ -94,10 +94,10 @@ final class OptimizedStorageDatabaseHandle {
 }
 
 /// Optimized storage service backed by Hive for non-sensitive data and
-/// FlutterSecureStorage for credentials.
+/// SecureKeyValueStore for credentials.
 class OptimizedStorageService {
   OptimizedStorageService({
-    required FlutterSecureStorage secureStorage,
+    required SecureKeyValueStore secureStorage,
     required HiveBoxes boxes,
     required WorkerManager workerManager,
     AppDatabase? Function()? database,

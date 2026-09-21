@@ -2,11 +2,11 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
-import '../../../core/models/chat_message.dart';
-import '../../../core/models/model.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/model.dart';
 import '../../../core/services/direct_replay_output.dart';
 import '../../../core/services/semantic_message_builder.dart';
-import '../../../core/utils/tool_calls_parser.dart';
+import 'package:conduit_markdown/conduit_markdown.dart';
 import '../models/direct_completion.dart';
 import '../models/direct_connection_profile.dart';
 import 'direct_local_document_service.dart';

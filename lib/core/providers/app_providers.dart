@@ -15,21 +15,21 @@ import '../services/attachment_upload_queue.dart';
 import '../auth/auth_state_manager.dart';
 import '../auth/openwebui_account_owner_marker.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
-import '../models/server_config.dart';
-import '../models/user.dart';
-import '../models/model.dart';
-import '../models/conversation.dart';
-import '../models/chat_message.dart';
-import '../models/account_metadata.dart';
-import '../models/backend_config.dart';
-import '../models/folder.dart';
-import '../models/file_info.dart';
-import '../models/server_about_info.dart';
-import '../models/server_memory.dart';
-import '../models/server_user_settings.dart';
-import '../models/tool.dart';
-import '../models/user_settings.dart';
-import '../models/knowledge_base.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/account_metadata.dart';
+import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/folder.dart';
+import 'package:conduit_core/models/file_info.dart';
+import 'package:conduit_core/models/server_about_info.dart';
+import 'package:conduit_core/models/server_memory.dart';
+import 'package:conduit_core/models/server_user_settings.dart';
+import 'package:conduit_core/models/tool.dart';
+import 'package:conduit_core/models/user_settings.dart';
+import 'package:conduit_core/models/knowledge_base.dart';
 import '../services/settings_service.dart';
 import '../services/optimized_storage_service.dart';
 import '../services/secure_credential_storage.dart';
@@ -39,7 +39,7 @@ import '../services/conversation_parsing.dart';
 import '../persistence/preferences_store.dart';
 import '../persistence/persistence_keys.dart';
 import '../utils/debug_logger.dart';
-import '../utils/server_version_compat.dart';
+import 'package:conduit_core/utils/server_version_compat.dart';
 import '../services/worker_manager.dart';
 import '../../shared/theme/tweakcn_themes.dart';
 import '../../shared/theme/app_theme.dart';
@@ -51,13 +51,14 @@ import '../../features/hermes/services/hermes_session_provenance.dart';
 import '../../features/direct_connections/direct_connections.dart';
 import '../../features/direct_connections/providers/direct_mcp_providers.dart';
 import 'backend_mode_providers.dart';
-import '../models/socket_transport_availability.dart';
+import 'package:conduit_core/models/socket_transport_availability.dart';
 import 'storage_providers.dart';
 
 import 'package:drift/drift.dart' show Value;
 
 import '../database/app_database.dart';
 import '../database/database_provider.dart';
+import 'host_ports.dart';
 import '../database/chat_database_repository.dart';
 import '../database/local_conversation_loader.dart';
 import '../database/mappers/conversation_assembler.dart';
@@ -1345,6 +1346,7 @@ final socketServiceFactoryProvider = Provider<SocketServiceFactory>((ref) {
     required websocketOnly,
     required allowWebsocketUpgrade,
   }) => SocketService(
+    lifecycle: ref.read(appLifecycleProvider),
     serverConfig: serverConfig,
     authToken: authToken,
     websocketOnly: websocketOnly,

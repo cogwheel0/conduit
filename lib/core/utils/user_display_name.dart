@@ -1,4 +1,4 @@
-import '../models/user.dart' as models;
+import 'package:conduit_core/models/user.dart' as models;
 
 String deriveUserDisplayName(dynamic user, {String fallback = 'User'}) {
   if (user == null) {

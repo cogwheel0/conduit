@@ -1,13 +1,13 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import 'package:meta/meta.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../database/app_database.dart';
 import '../database/database_provider.dart';
 import '../database/fts/fts_ddl.dart' show kFtsBuiltKey;
-import '../models/conversation.dart';
+import 'package:conduit_core/models/conversation.dart';
 import '../persistence/persistence_providers.dart';
 import '../providers/app_providers.dart';
 import '../services/connectivity_service.dart';

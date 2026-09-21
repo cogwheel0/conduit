@@ -1,9 +1,11 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
-import 'api_error_handler.dart';
 import 'api_error.dart';
+import 'api_error_handler.dart';
+import '../utils/current_localizations.dart';
 import '../utils/debug_logger.dart';
+import '../../shared/utils/api_error_messages.dart';
 
 /// Dio interceptor for automatic error handling and transformation
 /// Converts all HTTP errors into standardized ApiError format
@@ -180,7 +182,7 @@ class ApiErrorInterceptor extends Interceptor {
   static String getUserMessage(DioException error) {
     final apiError = extractApiError(error);
     if (apiError != null) {
-      return ApiErrorHandler().getUserMessage(apiError);
+      return userFacingApiError(apiError, currentAppLocalizations());
     }
 
     // Fallback to basic DioException handling

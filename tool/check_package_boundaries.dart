@@ -13,6 +13,30 @@
 //      lives in the core" stops being enforceable by review alone.
 import 'dart:io';
 
+/// Directories of `lib/` that no longer import Flutter and must stay that
+/// way (M1).
+///
+/// Extraction into `packages/conduit_core` proceeds one work package at a
+/// time. Each time a directory comes off Flutter it is added here, so the
+/// next WP cannot silently put the dependency back — which is exactly how an
+/// extraction stalls.
+const List<String> _flutterFreeDirectories = <String>[
+  'lib/core/database', // WP-1.1, WP-1.8
+  'lib/core/models', // WP-1.8
+  'lib/core/sync', // WP-1.1, WP-1.4, WP-1.8
+];
+
+/// Imports that make a directory non-portable to the daemon.
+const List<String> _flutterImports = <String>[
+  'package:flutter/',
+  'package:flutter_riverpod/',
+  'package:drift_flutter/',
+  'package:path_provider/',
+  'package:shared_preferences/',
+  'package:hive_ce_flutter/',
+  'package:flutter_secure_storage/',
+];
+
 /// Packages the desktop renderer imports, which therefore cannot touch
 /// `dart:io`, Flutter, or anything that reaches them.
 const List<String> _webSafePackages = <String>[
@@ -64,6 +88,21 @@ void main() {
         Directory(path),
         _webSafeForbidden,
         'must stay compilable with `dart compile js`',
+      ),
+    );
+  }
+
+  // `lib/platform` is deliberately absent: it exists precisely to hold the
+  // Flutter implementations of the core's ports.
+  for (final path in _flutterFreeDirectories) {
+    violations.addAll(
+      _scan(
+        Directory(path),
+        _flutterImports,
+        'was taken off Flutter by an M1 work package and must stay portable '
+        'to the conduitd sidecar; put the platform-specific part behind a '
+        'port in packages/conduit_core/lib/ports and implement it in '
+        'lib/platform',
       ),
     );
   }

@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/direct_connections/direct_connections.dart';
 import 'package:conduit/features/hermes/models/hermes_capabilities.dart';

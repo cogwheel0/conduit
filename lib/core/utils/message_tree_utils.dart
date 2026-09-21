@@ -1,4 +1,4 @@
-import '../models/chat_message.dart';
+import 'package:conduit_core/models/chat_message.dart';
 
 /// Returns a trimmed message id, or `null` when the value is blank.
 String? normalizeMessageId(Object? value) {

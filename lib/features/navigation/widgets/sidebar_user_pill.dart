@@ -12,14 +12,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../../core/models/user.dart';
+import 'package:conduit_core/models/user.dart';
 import '../../../core/network/image_header_utils.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
-import '../../../core/services/navigation_service.dart';
+import '../../../shared/services/navigation_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/native_sheet_utils.dart';

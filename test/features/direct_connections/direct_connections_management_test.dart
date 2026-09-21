@@ -1,6 +1,6 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
-import 'package:conduit/core/models/model.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:checks/checks.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';

@@ -3,7 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/external_link_launcher.dart';
 import '../../../shared/widgets/markdown/markdown_config.dart';
-import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
+import 'package:conduit_markdown/conduit_markdown.dart';
 import '../../../shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import '../../chat/utils/file_utils.dart';
 import '../../chat/widgets/enhanced_attachment.dart';

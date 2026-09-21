@@ -2,11 +2,11 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/conversation.dart';
-import 'package:conduit/core/models/folder.dart';
-import 'package:conduit/core/models/knowledge_base.dart';
-import 'package:conduit/core/models/model.dart';
-import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/folder.dart';
+import 'package:conduit_core/models/knowledge_base.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/providers/app_startup_providers.dart';

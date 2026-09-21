@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/utils/server_version_compat.dart';
+import 'package:conduit_core/utils/server_version_compat.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

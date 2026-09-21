@@ -11,8 +11,8 @@ import '../../features/chat/models/model_selector_layout.dart';
 import '../../features/chat/providers/reasoning_effort_provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../shared/theme/tweakcn_themes.dart';
-import '../models/model.dart';
-import '../models/tool.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/tool.dart';
 import '../network/image_header_utils.dart';
 import '../providers/app_providers.dart';
 import '../../features/hermes/providers/hermes_providers.dart';
@@ -23,7 +23,7 @@ import '../utils/model_sort_utils.dart';
 import '../utils/native_sheet_utils.dart';
 import 'native_sheet_avatar_bytes_hydrator.dart';
 import 'native_sheet_bridge.dart';
-import 'navigation_service.dart';
+import '../../shared/services/navigation_service.dart';
 import 'settings_service.dart';
 
 final nativeSheetHydrationServiceProvider =

@@ -1,6 +1,6 @@
-import 'package:flutter/foundation.dart';
 
 import '../app_database.dart';
+import 'package:meta/meta.dart';
 
 const int kChatTranscriptPageSize = 50;
 const int kChatTranscriptMaxTraversalRows = 10000;

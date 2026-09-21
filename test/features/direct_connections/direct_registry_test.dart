@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:conduit/core/models/chat_message.dart';
-import 'package:conduit/core/models/model.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';

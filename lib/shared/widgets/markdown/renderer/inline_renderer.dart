@@ -4,8 +4,8 @@ import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
-import '../../../../core/models/chat_message.dart';
-import '../../../../core/utils/citation_parser.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_markdown/conduit_markdown.dart';
 import '../compiled_markdown_document.dart';
 import '../citation_badge.dart';
 import 'latex_preprocessor.dart';

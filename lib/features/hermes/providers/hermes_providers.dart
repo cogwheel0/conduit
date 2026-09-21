@@ -7,8 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/auth/auth_state_manager.dart';
-import '../../../core/models/model.dart';
-import '../../../core/models/prompt.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/prompt.dart';
 import '../../../core/persistence/persistence_keys.dart';
 import '../../../core/persistence/preferences_store.dart';
 import '../../../core/providers/app_providers.dart'

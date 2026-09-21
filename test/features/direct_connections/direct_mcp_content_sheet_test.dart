@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mcp_dart/mcp_dart.dart' as mcp;
+import 'package:conduit/platform/flutter_secure_key_value_store.dart';
 
 void main() {
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
@@ -257,7 +258,7 @@ Future<ProviderContainer> _container({
   required DirectMcpPromptPreviewLoader promptLoader,
   required DirectMcpResourcePreviewLoader resourceLoader,
 }) async {
-  const storage = FlutterSecureStorage();
+  final storage = FlutterSecureKeyValueStore();
   final container = ProviderContainer(
     overrides: [
       secureStorageProvider.overrideWithValue(storage),

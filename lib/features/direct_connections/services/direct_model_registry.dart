@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import '../../../core/models/model.dart';
+import 'package:conduit_core/models/model.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/direct_remote_model.dart';
 import 'direct_connection_profile_store.dart';

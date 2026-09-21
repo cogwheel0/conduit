@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:riverpod/riverpod.dart';
+import 'package:conduit_core/conduit_core.dart';
 
 import '../database/database_manager.dart';
 import '../database/database_provider.dart';
@@ -10,24 +10,30 @@ import '../persistence/persistence_keys.dart';
 import '../persistence/preferences_store.dart';
 import '../services/optimized_storage_service.dart';
 import '../services/worker_manager.dart';
+import '../utils/debug_logger.dart';
 
-/// Provides a shared [FlutterSecureStorage] instance with platform-specific
-/// configuration.
-final secureStorageProvider = Provider<FlutterSecureStorage>((ref) {
-  return const FlutterSecureStorage(
-    aOptions: AndroidOptions(
-      // Same name as the pre-v11 sharedPreferencesName so the plugin's
-      // LegacyNamespaceKeyRecovery keeps existing Android data readable.
-      storageNamespace: 'conduit_secure_prefs',
-      preferencesKeyPrefix: 'conduit_',
-      // Avoid auto-wipe on transient errors; handled at call sites instead.
-      resetOnError: false,
-    ),
-    iOptions: IOSOptions(
-      accountName: 'conduit_secure_storage',
-      synchronizable: false,
-    ),
+/// Credential-grade storage for this host (WP-1.3).
+///
+/// `main.dart` binds `FlutterSecureKeyValueStore` behind a readiness gate,
+/// and the `conduitd` sidecar binds its own AES-GCM file store.
+///
+/// The default is in-memory rather than a throw. That is genuinely what a
+/// host without a keychain has, and it is also what tests already got:
+/// `flutter_secure_storage`'s own platform-channel mock made the previous
+/// default an empty in-memory store. Throwing would break several hundred
+/// tests to guard against a binding that production always supplies — so
+/// instead the omission is logged, loudly, once.
+final secureStorageProvider = Provider<SecureKeyValueStore>((ref) {
+  DebugLogger.warning(
+    'secure-storage-unbound',
+    scope: 'storage/secure',
+    data: const <String, Object?>{
+      'detail':
+          'No host SecureKeyValueStore was bound; credentials will not '
+          'survive a restart. main.dart binds FlutterSecureKeyValueStore.',
+    },
   );
+  return InMemorySecureKeyValueStore();
 });
 
 /// Optimized storage service backed by Hive plus secure storage.

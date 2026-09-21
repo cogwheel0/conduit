@@ -1,4 +1,4 @@
-import 'package:flutter/services.dart';
+import 'package:conduit_core/conduit_core.dart';
 import 'package:intl/intl.dart';
 
 /// Represents a parsed prompt variable.
@@ -296,15 +296,21 @@ class _TypeAndProperties {
 
 /// Resolves system variables to their actual values.
 class SystemVariableResolver {
+  /// [clipboard] resolves `{{CLIPBOARD}}`. It defaults to an always-empty
+  /// clipboard because reaching the system one is a host capability the core
+  /// does not have (WP-1.5) — Flutter uses a platform channel, the renderer
+  /// the async Clipboard API.
   const SystemVariableResolver({
     this.userName,
     this.userLanguage,
     this.userLocation,
+    this.clipboard = const NullClipboardPort(),
   });
 
   final String? userName;
   final String? userLanguage;
   final String? userLocation;
+  final ClipboardPort clipboard;
 
   /// Resolve a system variable to its value.
   /// Returns null if the variable cannot be resolved.
@@ -335,14 +341,10 @@ class SystemVariableResolver {
     }
   }
 
-  Future<String?> _getClipboard() async {
-    try {
-      final data = await Clipboard.getData(Clipboard.kTextPlain);
-      return data?.text ?? '';
-    } catch (_) {
-      return '';
-    }
-  }
+  /// Empty string rather than null on failure: `{{CLIPBOARD}}` should
+  /// disappear from the prompt, not leave the variable unresolved and block
+  /// the send.
+  Future<String?> _getClipboard() async => await clipboard.readText() ?? '';
 }
 
 /// Result of processing a prompt with variables.

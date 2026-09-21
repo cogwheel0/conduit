@@ -28,7 +28,7 @@ import '../../../core/network/image_header_utils.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/image_attachment_cache_service.dart';
 import '../../../core/services/performance_profiler.dart';
-import '../../../core/services/raster_media_policy.dart';
+import '../../../shared/services/raster_media_policy.dart';
 import '../../../core/services/worker_manager.dart';
 
 export '../../../core/services/image_attachment_cache_service.dart'

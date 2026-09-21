@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit_core/conduit_core.dart';
+import 'package:meta/meta.dart';
 
 /// Test-only interception point for preference writes.
 ///
@@ -10,24 +10,27 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// without replacing SharedPreferences' transitive platform implementation.
 @visibleForTesting
 typedef PreferenceWriteInterceptor = Future<bool?> Function(
-  SharedPreferences preferences,
+  KeyValueStore preferences,
   String key,
   Object? value,
 );
 
 /// Synchronous key-value preference store backed by a single preloaded
-/// [SharedPreferences] instance.
+/// [KeyValueStore].
 ///
 /// This is the seam that replaces the Hive `preferences_v1` box. The whole app
 /// reads simple config (theme, locale, settings, drawer/sidebar UI state,
 /// feature flags) SYNCHRONOUSLY during provider/widget build, so we deliberately
-/// use the **legacy** [SharedPreferences] API: after a single awaited
-/// [ensureInitialized] at bootstrap, every getter is synchronous against the
-/// in-memory cache and writes update that cache synchronously (the returned
-/// Future is just the disk flush).
+/// require a store that is fully loaded before first read: after a single
+/// awaited [ensureInitialized] at bootstrap, every getter is synchronous
+/// against the in-memory view and writes update that view synchronously (the
+/// returned Future is just the disk flush).
 ///
-/// Do NOT migrate this to `SharedPreferencesAsync`/`SharedPreferencesWithCache`:
-/// those have no synchronous getters and would break theme/locale on cold start.
+/// The backing store is injected (WP-1.2) rather than reached for directly,
+/// because `shared_preferences` is a Flutter plugin and the `conduitd`
+/// sidecar has to answer the same questions from its own file store. The
+/// static facade stays: most readers arrive from non-Riverpod code and need
+/// the synchronous getters.
 ///
 /// Exposed as a static (not a Riverpod provider) because most readers reach it
 /// from non-Riverpod code (e.g. `current_localizations.dart`) or static service
@@ -35,7 +38,16 @@ typedef PreferenceWriteInterceptor = Future<bool?> Function(
 class PreferencesStore {
   PreferencesStore._();
 
-  static SharedPreferences? _prefs;
+  static KeyValueStore? _prefs;
+
+  /// Loads the host's store. Installed at bootstrap — `main.dart` binds
+  /// `FlutterKeyValueStore.load`, the daemon binds its own.
+  static Future<KeyValueStore> Function()? _loader;
+
+  /// ignore: use_setters_to_change_properties
+  static void installLoader(Future<KeyValueStore> Function() loader) {
+    _loader = loader;
+  }
   static PreferenceWriteInterceptor? _debugWriteInterceptor;
   static bool _appDataClearBlocked = false;
   static int _activeWrites = 0;
@@ -45,7 +57,7 @@ class PreferencesStore {
   static bool get isReady => _prefs != null;
 
   /// The preloaded instance. Throws if [ensureInitialized] hasn't run.
-  static SharedPreferences get instance {
+  static KeyValueStore get instance {
     final prefs = _prefs;
     if (prefs == null) {
       throw StateError(
@@ -57,15 +69,24 @@ class PreferencesStore {
   }
 
   /// Preloads the shared instance. Safe to call multiple times.
-  static Future<SharedPreferences> ensureInitialized() async {
-    return _prefs ??= await SharedPreferences.getInstance();
+  static Future<KeyValueStore> ensureInitialized() async {
+    final existing = _prefs;
+    if (existing != null) return existing;
+    final loader = _loader;
+    if (loader == null) {
+      throw StateError(
+        'PreferencesStore has no host store. Call '
+        'PreferencesStore.installLoader(FlutterKeyValueStore.load) during '
+        'bootstrap, or debugOverride one in tests.',
+      );
+    }
+    return _prefs = await loader();
   }
 
-  /// Test seam: inject a (mock) instance. Pair with
-  /// `SharedPreferences.setMockInitialValues({...})`.
+  /// Test seam: inject a (mock) instance.
   @visibleForTesting
   static void debugOverride(
-    SharedPreferences prefs, {
+    KeyValueStore prefs, {
     PreferenceWriteInterceptor? writeInterceptor,
   }) {
     _prefs = prefs;

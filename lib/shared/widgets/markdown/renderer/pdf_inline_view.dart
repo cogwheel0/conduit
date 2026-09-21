@@ -16,7 +16,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:share_plus/share_plus.dart';
 
-import '../../../../core/models/server_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 import '../../../../core/network/image_header_utils.dart';
 import '../../../../core/providers/app_providers.dart';
 import '../../../../core/services/server_tls_http_client_factory.dart';

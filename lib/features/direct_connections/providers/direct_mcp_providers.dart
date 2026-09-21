@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart' show listEquals, visibleForTesting;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mcp_dart/mcp_dart.dart' as mcp;
 
-import '../../../core/models/tool.dart';
+import 'package:conduit_core/models/tool.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/secure_credential_storage.dart';
 import '../models/direct_completion.dart';

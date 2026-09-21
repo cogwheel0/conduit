@@ -11,6 +11,8 @@ environment:
 
 dependencies:
   args: ^2.5.0
+  conduit_core:
+    path: ../../packages/conduit_core
   conduit_protocol:
     path: ../../packages/conduit_protocol
   json_rpc_2: ^4.1.0

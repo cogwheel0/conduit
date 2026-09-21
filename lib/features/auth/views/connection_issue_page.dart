@@ -7,11 +7,11 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/auth_state_manager.dart';
 import '../../../core/auth/webview_cookie_helper.dart';
-import '../../../core/models/server_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/connectivity_service.dart';
-import '../../../core/services/navigation_service.dart';
+import '../../../shared/services/navigation_service.dart';
 import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../l10n/app_localizations.dart';

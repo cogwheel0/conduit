@@ -1,4 +1,4 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 
 import '../../../core/providers/backend_mode_providers.dart';
 import '../models/hermes_connection_contract.dart';

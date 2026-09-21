@@ -11,7 +11,7 @@ import '../providers/app_providers.dart';
 import '../providers/backend_mode_providers.dart';
 import '../../features/hermes/models/hermes_config.dart';
 import '../../features/hermes/providers/hermes_providers.dart';
-import '../services/navigation_service.dart';
+import '../../shared/services/navigation_service.dart';
 import '../services/performance_profiler.dart';
 import '../utils/debug_logger.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
@@ -51,7 +51,7 @@ import '../../features/direct_connections/views/direct_connection_editor_page.da
 import '../../features/direct_connections/views/direct_connections_page.dart';
 import '../../features/direct_connections/views/direct_mcp_server_editor_page.dart';
 import '../../l10n/app_localizations.dart';
-import '../models/server_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 
 /// App-local destinations that remain meaningful without an OpenWebUI account.
 /// Keep this list explicit so adding an OWUI-only profile route does not expose

@@ -8,7 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/navigation_service.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_knowledge.dart';
 import 'package:conduit/features/workspace/models/workspace_prompt_command.dart';

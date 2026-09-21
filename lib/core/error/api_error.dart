@@ -1,4 +1,6 @@
-import 'package:flutter/foundation.dart';
+import 'package:collection/collection.dart';
+import 'package:conduit_core/conduit_core.dart';
+import 'package:meta/meta.dart';
 
 /// Standardized API error representation
 /// Provides consistent error information across all API operations
@@ -6,7 +8,8 @@ import 'package:flutter/foundation.dart';
 class ApiError implements Exception {
   const ApiError._({
     required this.type,
-    required this.message,
+    required this.messageCode,
+    this.message,
     this.endpoint,
     this.method,
     this.statusCode,
@@ -20,13 +23,15 @@ class ApiError implements Exception {
 
   // Factory constructors for different error types
   const ApiError.network({
-    required String message,
+    String? message,
+    ErrorMessage messageCode = const ErrorMessage(CoreErrorCode.networkGeneric),
     String? endpoint,
     String? method,
     dynamic originalError,
     String? technical,
   }) : this._(
          type: ApiErrorType.network,
+         messageCode: messageCode,
          message: message,
          endpoint: endpoint,
          method: method,
@@ -35,12 +40,14 @@ class ApiError implements Exception {
        );
 
   const ApiError.timeout({
-    required String message,
+    String? message,
+    ErrorMessage messageCode = const ErrorMessage(CoreErrorCode.networkTimeout),
     String? endpoint,
     String? method,
     Duration? timeoutDuration,
   }) : this._(
          type: ApiErrorType.timeout,
+         messageCode: messageCode,
          message: message,
          endpoint: endpoint,
          method: method,
@@ -48,12 +55,14 @@ class ApiError implements Exception {
        );
 
   const ApiError.authentication({
-    required String message,
+    String? message,
+    ErrorMessage messageCode = const ErrorMessage(CoreErrorCode.authSessionExpired),
     String? endpoint,
     String? method,
     int? statusCode,
   }) : this._(
          type: ApiErrorType.authentication,
+         messageCode: messageCode,
          message: message,
          endpoint: endpoint,
          method: method,
@@ -61,12 +70,14 @@ class ApiError implements Exception {
        );
 
   const ApiError.authorization({
-    required String message,
+    String? message,
+    ErrorMessage messageCode = const ErrorMessage(CoreErrorCode.authForbidden),
     String? endpoint,
     String? method,
     int? statusCode,
   }) : this._(
          type: ApiErrorType.authorization,
+         messageCode: messageCode,
          message: message,
          endpoint: endpoint,
          method: method,
@@ -74,13 +85,15 @@ class ApiError implements Exception {
        );
 
   const ApiError.validation({
-    required String message,
+    String? message,
+    ErrorMessage messageCode = const ErrorMessage(CoreErrorCode.validationGeneric),
     String? endpoint,
     String? method,
     Map<String, List<String>> fieldErrors = const {},
     ParsedErrorResponse? details,
   }) : this._(
          type: ApiErrorType.validation,
+         messageCode: messageCode,
          message: message,
          endpoint: endpoint,
          method: method,
@@ -90,12 +103,14 @@ class ApiError implements Exception {
        );
 
   const ApiError.badRequest({
-    required String message,
+    String? message,
+    ErrorMessage messageCode = const ErrorMessage(CoreErrorCode.validationGeneric),
     String? endpoint,
     String? method,
     ParsedErrorResponse? details,
   }) : this._(
          type: ApiErrorType.badRequest,
+         messageCode: messageCode,
          message: message,
          endpoint: endpoint,
          method: method,
@@ -104,12 +119,14 @@ class ApiError implements Exception {
        );
 
   const ApiError.notFound({
-    required String message,
+    String? message,
+    ErrorMessage messageCode = const ErrorMessage(CoreErrorCode.fileNotFound),
     String? endpoint,
     String? method,
     int? statusCode,
   }) : this._(
          type: ApiErrorType.notFound,
+         messageCode: messageCode,
          message: message,
          endpoint: endpoint,
          method: method,
@@ -117,13 +134,15 @@ class ApiError implements Exception {
        );
 
   const ApiError.server({
-    required String message,
+    String? message,
+    ErrorMessage messageCode = const ErrorMessage(CoreErrorCode.serverGeneric),
     String? endpoint,
     String? method,
     int? statusCode,
     ParsedErrorResponse? details,
   }) : this._(
          type: ApiErrorType.server,
+         messageCode: messageCode,
          message: message,
          endpoint: endpoint,
          method: method,
@@ -132,13 +151,15 @@ class ApiError implements Exception {
        );
 
   const ApiError.rateLimit({
-    required String message,
+    String? message,
+    ErrorMessage messageCode = const ErrorMessage(CoreErrorCode.rateLimitExceeded),
     String? endpoint,
     String? method,
     int? statusCode,
     Duration? retryAfter,
   }) : this._(
          type: ApiErrorType.rateLimit,
+         messageCode: messageCode,
          message: message,
          endpoint: endpoint,
          method: method,
@@ -147,35 +168,41 @@ class ApiError implements Exception {
        );
 
   const ApiError.cancelled({
-    required String message,
+    String? message,
+    ErrorMessage messageCode = const ErrorMessage(CoreErrorCode.generic),
     String? endpoint,
     String? method,
   }) : this._(
          type: ApiErrorType.cancelled,
+         messageCode: messageCode,
          message: message,
          endpoint: endpoint,
          method: method,
        );
 
   const ApiError.security({
-    required String message,
+    String? message,
+    ErrorMessage messageCode = const ErrorMessage(CoreErrorCode.securityCertificate),
     String? endpoint,
     String? method,
   }) : this._(
          type: ApiErrorType.security,
+         messageCode: messageCode,
          message: message,
          endpoint: endpoint,
          method: method,
        );
 
   const ApiError.unknown({
-    required String message,
+    String? message,
+    ErrorMessage messageCode = const ErrorMessage(CoreErrorCode.generic),
     String? endpoint,
     String? method,
     dynamic originalError,
     String? technical,
   }) : this._(
          type: ApiErrorType.unknown,
+         messageCode: messageCode,
          message: message,
          endpoint: endpoint,
          method: method,
@@ -184,13 +211,15 @@ class ApiError implements Exception {
        );
 
   const ApiError.client({
-    required String message,
+    String? message,
+    ErrorMessage messageCode = const ErrorMessage(CoreErrorCode.generic),
     String? endpoint,
     String? method,
     int? statusCode,
     ParsedErrorResponse? details,
   }) : this._(
          type: ApiErrorType.badRequest,
+         messageCode: messageCode,
          message: message,
          endpoint: endpoint,
          method: method,
@@ -199,7 +228,16 @@ class ApiError implements Exception {
        );
 
   final ApiErrorType type;
-  final String message;
+
+  /// Server-supplied prose, when the API returned any.
+  ///
+  /// Null for failures the core classified itself: the core has no locale and
+  /// must not invent English (WP-1.6). Render with `resolveApiErrorMessage`
+  /// from lib/shared, which falls back to [messageCode].
+  final String? message;
+
+  /// The core's own classification. Always present, always localizable.
+  final ErrorMessage messageCode;
   final String? endpoint;
   final String? method;
   final int? statusCode;
@@ -258,6 +296,7 @@ class ApiError implements Exception {
   /// Create a copy with updated fields
   ApiError copyWith({
     ApiErrorType? type,
+    ErrorMessage? messageCode,
     String? message,
     String? endpoint,
     String? method,
@@ -271,6 +310,7 @@ class ApiError implements Exception {
   }) {
     return ApiError._(
       type: type ?? this.type,
+      messageCode: messageCode ?? this.messageCode,
       message: message ?? this.message,
       endpoint: endpoint ?? this.endpoint,
       method: method ?? this.method,
@@ -338,7 +378,10 @@ class ApiError implements Exception {
         other.endpoint == endpoint &&
         other.method == method &&
         other.statusCode == statusCode &&
-        mapEquals(other.fieldErrors, fieldErrors);
+        const DeepCollectionEquality().equals(
+          other.fieldErrors,
+          fieldErrors,
+        );
   }
 
   @override

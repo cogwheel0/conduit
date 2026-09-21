@@ -1,4 +1,4 @@
-import 'package:conduit/core/models/model.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/tools/providers/tools_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

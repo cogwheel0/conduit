@@ -1,8 +1,8 @@
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/chat_message.dart';
-import 'package:conduit/core/models/model.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit/core/services/direct_replay_output.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/services/direct_adapter_helpers.dart';

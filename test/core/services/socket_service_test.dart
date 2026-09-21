@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/core/network/conduit_user_agent.dart';
 import 'package:conduit/core/services/socket_service.dart';
+import 'package:conduit_core/conduit_core.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
+
+import '../../support/fake_app_lifecycle.dart';
 
 Future<void> _flushMicrotasks([int count = 1]) async {
   for (var i = 0; i < count; i++) {
@@ -18,15 +21,14 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('inactive remains foreground and does not force reconnect', () async {
-    final binding = TestWidgetsFlutterBinding.ensureInitialized();
-    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await _flushMicrotasks();
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
 
-    final service = _RecordingSocketService();
+    final service = _RecordingSocketService(lifecycle: lifecycle);
     addTearDown(service.dispose);
 
-    service.didChangeAppLifecycleState(AppLifecycleState.inactive);
-    service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    lifecycle.emit(AppLifecyclePhase.inactive);
+    lifecycle.emit(AppLifecyclePhase.resumed);
     await _flushMicrotasks(2);
 
     expect(service.isAppForeground, isTrue);
@@ -34,11 +36,11 @@ void main() {
   });
 
   test('best-effort connect observes a throwing socket factory', () async {
-    final binding = TestWidgetsFlutterBinding.ensureInitialized();
-    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await _flushMicrotasks();
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
 
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       socketFactory: (_, _, _) => throw StateError('factory failed'),
     );
@@ -55,9 +57,12 @@ void main() {
   });
 
   test('a waiterless forced fallback reports its factory failure', () async {
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
     final socketFactory = _RecordingSocketFactory();
     var factoryCalls = 0;
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       websocketOnly: true,
       socketFactory: (base, builder, config) {
@@ -93,17 +98,16 @@ void main() {
   });
 
   test('resuming from background forces a fresh socket connection', () async {
-    final binding = TestWidgetsFlutterBinding.ensureInitialized();
-    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await _flushMicrotasks();
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
 
-    final service = _RecordingSocketService();
+    final service = _RecordingSocketService(lifecycle: lifecycle);
     addTearDown(service.dispose);
 
-    service.didChangeAppLifecycleState(AppLifecycleState.paused);
+    lifecycle.emit(AppLifecyclePhase.paused);
     expect(service.isAppForeground, isFalse);
 
-    service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    lifecycle.emit(AppLifecyclePhase.resumed);
     await _flushMicrotasks(2);
 
     expect(service.isAppForeground, isTrue);
@@ -113,20 +117,19 @@ void main() {
   test(
     'resume reconnect is guarded while a forced connect is in flight',
     () async {
-      final binding = TestWidgetsFlutterBinding.ensureInitialized();
-      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await _flushMicrotasks();
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
 
       final connectGate = Completer<void>();
-      final service = _RecordingSocketService(connectGate: connectGate);
+      final service = _RecordingSocketService(connectGate: connectGate, lifecycle: lifecycle);
       addTearDown(service.dispose);
 
-      service.didChangeAppLifecycleState(AppLifecycleState.paused);
-      service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      lifecycle.emit(AppLifecyclePhase.paused);
+      lifecycle.emit(AppLifecyclePhase.resumed);
       await _flushMicrotasks(2);
 
-      service.didChangeAppLifecycleState(AppLifecycleState.hidden);
-      service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      lifecycle.emit(AppLifecyclePhase.hidden);
+      lifecycle.emit(AppLifecyclePhase.resumed);
       await _flushMicrotasks(2);
 
       expect(service.forceConnectCalls, [true]);
@@ -139,8 +142,11 @@ void main() {
   test(
     'force reconnect restores dynamic event listeners on the new socket',
     () async {
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
       final socketFactory = _RecordingSocketFactory();
       final service = SocketService(
+        lifecycle: lifecycle,
         serverConfig: _serverConfig,
         socketFactory: socketFactory.create,
       );
@@ -169,8 +175,11 @@ void main() {
   );
 
   test('forced reconnects coalesce until the active attempt settles', () async {
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
     final socketFactory = _RecordingSocketFactory();
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       authToken: 'session-token',
       socketFactory: socketFactory.create,
@@ -209,12 +218,12 @@ void main() {
   });
 
   test('pausing during handshake allows a fresh socket on resume', () async {
-    final binding = TestWidgetsFlutterBinding.ensureInitialized();
-    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await _flushMicrotasks();
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
 
     final socketFactory = _RecordingSocketFactory();
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       socketFactory: socketFactory.create,
     );
@@ -225,8 +234,8 @@ void main() {
 
     // The test socket deliberately emits no disconnect terminal event while
     // it is still negotiating.
-    service.didChangeAppLifecycleState(AppLifecycleState.paused);
-    service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    lifecycle.emit(AppLifecyclePhase.paused);
+    lifecycle.emit(AppLifecyclePhase.resumed);
     await _flushMicrotasks(2);
 
     expect(socketFactory.sockets, hasLength(2));
@@ -234,8 +243,11 @@ void main() {
   });
 
   test('going offline during handshake allows a fresh socket online', () async {
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
     final socketFactory = _RecordingSocketFactory();
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       socketFactory: socketFactory.create,
     );
@@ -281,8 +293,11 @@ void main() {
   );
 
   test('connect backs repeated Socket.IO retries off to one minute', () async {
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
     final socketFactory = _RecordingSocketFactory();
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       socketFactory: socketFactory.create,
     );
@@ -334,12 +349,12 @@ void main() {
   test(
     'resume reconnect emits onReconnect after the new socket connects',
     () async {
-      final binding = TestWidgetsFlutterBinding.ensureInitialized();
-      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await _flushMicrotasks();
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
 
       final socketFactory = _RecordingSocketFactory();
       final service = SocketService(
+        lifecycle: lifecycle,
         serverConfig: _serverConfig,
         socketFactory: socketFactory.create,
       );
@@ -351,8 +366,8 @@ void main() {
       });
       addTearDown(reconnectSub.cancel);
 
-      service.didChangeAppLifecycleState(AppLifecycleState.paused);
-      service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      lifecycle.emit(AppLifecyclePhase.paused);
+      lifecycle.emit(AppLifecyclePhase.resumed);
       await _flushMicrotasks(2);
 
       expect(socketFactory.sockets, hasLength(1));
@@ -369,12 +384,12 @@ void main() {
   test(
     'resume reconnect still emits onReconnect after watchdog releases latch',
     () async {
-      final binding = TestWidgetsFlutterBinding.ensureInitialized();
-      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await _flushMicrotasks();
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
 
       final socketFactory = _RecordingSocketFactory();
       final service = SocketService(
+        lifecycle: lifecycle,
         serverConfig: _serverConfig,
         socketFactory: socketFactory.create,
         resumeReconnectWatchdogTimeout: const Duration(milliseconds: 10),
@@ -387,8 +402,8 @@ void main() {
       });
       addTearDown(reconnectSub.cancel);
 
-      service.didChangeAppLifecycleState(AppLifecycleState.paused);
-      service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      lifecycle.emit(AppLifecyclePhase.paused);
+      lifecycle.emit(AppLifecyclePhase.resumed);
       await _flushMicrotasks(2);
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
@@ -404,8 +419,11 @@ void main() {
   );
 
   test('resume reconciles an already-connected background lease without replacing it', () async {
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
     final socketFactory = _RecordingSocketFactory();
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       socketFactory: socketFactory.create,
     );
@@ -423,11 +441,11 @@ void main() {
     final lease = service.acquireBackgroundActivityLease();
     addTearDown(lease.dispose);
 
-    service.didChangeAppLifecycleState(AppLifecycleState.paused);
+    lifecycle.emit(AppLifecyclePhase.paused);
     expect(socket.connected, isTrue);
     expect(socket.io.reconnection, isTrue);
 
-    service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    lifecycle.emit(AppLifecyclePhase.resumed);
     await _flushMicrotasks(2);
 
     expect(socketFactory.sockets, hasLength(1));
@@ -437,8 +455,11 @@ void main() {
   });
 
   test('background disables reconnect for an idle socket', () async {
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
     final socketFactory = _RecordingSocketFactory();
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       socketFactory: socketFactory.create,
     );
@@ -448,14 +469,17 @@ void main() {
     final socket = socketFactory.sockets.single;
     expect(socket.io.reconnection, isTrue);
 
-    service.didChangeAppLifecycleState(AppLifecycleState.paused);
+    lifecycle.emit(AppLifecyclePhase.paused);
     expect(socket.io.reconnection, isFalse);
     expect(service.backgroundActivityLeaseCount, 0);
   });
 
   test('late reconnect success is retired while transport is gated', () async {
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
     final socketFactory = _RecordingSocketFactory();
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       socketFactory: socketFactory.create,
     );
@@ -472,7 +496,7 @@ void main() {
     await _flushMicrotasks(2);
     expect(service.isConnected, isTrue);
 
-    service.didChangeAppLifecycleState(AppLifecycleState.paused);
+    lifecycle.emit(AppLifecyclePhase.paused);
     socket.connected = true;
     socket.emitReserved('reconnect', 1);
     await _flushMicrotasks(2);
@@ -485,8 +509,11 @@ void main() {
   test(
     'late initial connect cannot authenticate after the app pauses',
     () async {
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
       final socketFactory = _RecordingSocketFactory();
       final service = SocketService(
+        lifecycle: lifecycle,
         serverConfig: _serverConfig,
         authToken: 'session-token',
         socketFactory: socketFactory.create,
@@ -498,7 +525,7 @@ void main() {
       final outgoingEvents = <String>[];
       socket.onAnyOutgoing((event, _) => outgoingEvents.add(event.toString()));
 
-      service.didChangeAppLifecycleState(AppLifecycleState.paused);
+      lifecycle.emit(AppLifecyclePhase.paused);
       // Model the platform delivering a successful handshake callback after the
       // pause already retired the negotiating transport.
       socket.connected = true;
@@ -514,12 +541,12 @@ void main() {
   test(
     'late forced connect cannot authenticate or signal reconnect when offline',
     () async {
-      final binding = TestWidgetsFlutterBinding.ensureInitialized();
-      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await _flushMicrotasks();
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
 
       final socketFactory = _RecordingSocketFactory();
       final service = SocketService(
+        lifecycle: lifecycle,
         serverConfig: _serverConfig,
         authToken: 'session-token',
         socketFactory: socketFactory.create,
@@ -531,8 +558,8 @@ void main() {
       );
       addTearDown(reconnectSub.cancel);
 
-      service.didChangeAppLifecycleState(AppLifecycleState.paused);
-      service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      lifecycle.emit(AppLifecyclePhase.paused);
+      lifecycle.emit(AppLifecyclePhase.resumed);
       await _flushMicrotasks(2);
       final socket = socketFactory.sockets.single;
       final outgoingEvents = <String>[];
@@ -553,8 +580,11 @@ void main() {
   test(
     'resume while offline reconciles after network recovery connects',
     () async {
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
       final socketFactory = _RecordingSocketFactory();
       final service = SocketService(
+        lifecycle: lifecycle,
         serverConfig: _serverConfig,
         socketFactory: socketFactory.create,
       );
@@ -568,8 +598,8 @@ void main() {
       await service.connect();
       final socket = socketFactory.sockets.single;
       service.updateNetworkAvailability(false);
-      service.didChangeAppLifecycleState(AppLifecycleState.paused);
-      service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      lifecycle.emit(AppLifecyclePhase.paused);
+      lifecycle.emit(AppLifecyclePhase.resumed);
       await _flushMicrotasks(2);
 
       expect(socket.io.reconnection, isFalse);
@@ -712,8 +742,11 @@ void main() {
     });
 
     test('expired scopes and ninth-scope eviction leave gap tombstones', () {
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
       var now = DateTime(2026);
       final service = SocketService(
+        lifecycle: lifecycle,
         serverConfig: _serverConfig,
         now: () => now,
       );
@@ -770,7 +803,10 @@ void main() {
     );
 
     test('token rotation reports a replay gap to pending handlers', () {
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
       final service = SocketService(
+        lifecycle: lifecycle,
         serverConfig: _serverConfig,
         authToken: 'old-token',
       );
@@ -791,8 +827,11 @@ void main() {
   });
 
   test('active stream lease keeps reconnect enabled in background', () async {
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
     final socketFactory = _RecordingSocketFactory();
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       socketFactory: socketFactory.create,
     );
@@ -805,7 +844,7 @@ void main() {
       keepsAliveInBackground: true,
       handler: (_, _) {},
     );
-    service.didChangeAppLifecycleState(AppLifecycleState.paused);
+    lifecycle.emit(AppLifecyclePhase.paused);
 
     expect(socketFactory.sockets.single.io.reconnection, isTrue);
     expect(service.backgroundActivityLeaseCount, 1);
@@ -816,8 +855,11 @@ void main() {
   });
 
   test('a handler lease does not create the initial transport', () async {
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
     final socketFactory = _RecordingSocketFactory();
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       socketFactory: socketFactory.create,
     );
@@ -847,7 +889,7 @@ const _serverConfig = ServerConfig(
 );
 
 class _RecordingSocketService extends SocketService {
-  _RecordingSocketService({Completer<void>? connectGate})
+  _RecordingSocketService({Completer<void>? connectGate, super.lifecycle})
     : _connectGate = connectGate,
       super(serverConfig: _serverConfig);
 

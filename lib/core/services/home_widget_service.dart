@@ -18,7 +18,7 @@ import '../../l10n/app_localizations.dart';
 import '../utils/debug_logger.dart';
 import 'app_intents_service.dart';
 import 'media_upload_controller.dart';
-import 'navigation_service.dart';
+import '../../shared/services/navigation_service.dart';
 
 part 'home_widget_service.g.dart';
 

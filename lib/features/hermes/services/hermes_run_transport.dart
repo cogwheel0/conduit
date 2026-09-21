@@ -4,12 +4,12 @@ import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:meta/meta.dart';
 
-import '../../../core/models/chat_message.dart';
+import 'package:conduit_core/models/chat_message.dart';
 import '../../../core/services/openai_responses_codec.dart';
 import '../../../core/utils/debug_logger.dart';
-import '../../../core/utils/semantic_details.dart';
+import 'package:conduit_markdown/conduit_markdown.dart';
 import '../../../core/utils/unicode_prefix.dart';
 import '../models/hermes_run_event.dart';
 import '../providers/hermes_providers.dart';

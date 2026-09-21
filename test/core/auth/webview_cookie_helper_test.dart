@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 void main() {
   test('Hermes auth cookies remain tracked across automatic sign-in', () {
@@ -95,7 +96,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.incompleteLogoutFence: true,
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     addTearDown(PreferencesStore.debugReset);
 
     expect(WebViewCookieHelper.requiresSuccessfulFullClear, isTrue);
@@ -105,7 +106,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.incompleteLogoutFence: true,
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final container = ProviderContainer();
     final clearStarted = Completer<void>();
     final releaseClear = Completer<void>();

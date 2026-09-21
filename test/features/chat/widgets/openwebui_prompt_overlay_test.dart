@@ -1,4 +1,4 @@
-import 'package:conduit/core/models/openwebui_chat_prompt.dart';
+import 'package:conduit_core/models/openwebui_chat_prompt.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';

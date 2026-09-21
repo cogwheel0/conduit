@@ -7,6 +7,7 @@ import 'package:conduit/shared/widgets/sidebar_layout_constants.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 void main() {
   tearDown(PreferencesStore.debugReset);
@@ -15,7 +16,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.sidebarActiveTab: SidebarTabId.channels.name,
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final container = ProviderContainer();
     addTearDown(container.dispose);
 
@@ -25,7 +26,7 @@ void main() {
 
   test('set persists the selected tab identity', () async {
     SharedPreferences.setMockInitialValues({});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final container = ProviderContainer();
     addTearDown(container.dispose);
     final controller = container.read(sidebarActiveTabProvider.notifier);
@@ -41,7 +42,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.sidebarActiveTab: 2,
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final container = ProviderContainer();
     addTearDown(container.dispose);
 
@@ -71,7 +72,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.sidebarActiveTab: 1,
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final container = ProviderContainer();
     addTearDown(container.dispose);
 
@@ -103,7 +104,7 @@ void main() {
       SharedPreferences.setMockInitialValues({
         PreferenceKeys.sidebarActiveTab: 0,
       });
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       final container = ProviderContainer();
       addTearDown(container.dispose);
       final notifications = <SidebarTabId>[];
@@ -122,7 +123,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.sidebarTabletWidth: 440.0,
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final container = ProviderContainer();
     addTearDown(container.dispose);
 
@@ -163,7 +164,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.sidebarTabletWidth: 280.0,
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final container = ProviderContainer();
     addTearDown(container.dispose);
 

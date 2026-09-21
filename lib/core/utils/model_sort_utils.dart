@@ -1,4 +1,4 @@
-import '../models/model.dart';
+import 'package:conduit_core/models/model.dart';
 
 List<Model> sortModelsWithPinnedOrder(
   List<Model> models,

@@ -1,4 +1,4 @@
-import '../models/chat_message.dart';
+import 'package:conduit_core/models/chat_message.dart';
 
 /// Parses OpenWebUI style source payloads into flattened chat source references.
 List<ChatSourceReference> parseOpenWebUISourceList(dynamic raw) {

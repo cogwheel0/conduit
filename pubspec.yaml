@@ -15,6 +15,8 @@ environment:
 # Members declare `resolution: workspace`. Add new members here *and* there —
 # pub fails loudly if only one side is updated.
 workspace:
+  - packages/conduit_core
+  - packages/conduit_markdown
   - packages/conduit_protocol
   - packages/conduit_theme
   - apps/daemon
@@ -31,6 +33,10 @@ dependencies:
     sdk: flutter
   
   # Shared desktop/mobile packages (pub workspace members).
+  conduit_core:
+    path: packages/conduit_core
+  conduit_markdown:
+    path: packages/conduit_markdown
   conduit_theme:
     path: packages/conduit_theme
 

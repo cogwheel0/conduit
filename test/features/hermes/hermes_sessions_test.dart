@@ -17,6 +17,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 class _CaptureInterceptor extends Interceptor {
   _CaptureInterceptor(this.responseFor);
@@ -898,7 +899,7 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{
       PreferenceKeys.hermesLocalDocumentTrustPrincipal: principalId,
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     HermesLocalDocumentTrustStore.debugResetRuntimeState();
     addTearDown(() {
       HermesLocalDocumentTrustStore.debugResetRuntimeState();
@@ -967,7 +968,7 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{
       PreferenceKeys.hermesLocalDocumentTrustPrincipal: principalId,
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     HermesLocalDocumentTrustStore.debugResetRuntimeState();
     addTearDown(() {
       HermesLocalDocumentTrustStore.debugResetRuntimeState();
@@ -1033,7 +1034,7 @@ void main() {
       SharedPreferences.setMockInitialValues(<String, Object>{
         PreferenceKeys.hermesLocalDocumentTrustPrincipal: principalId,
       });
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       HermesLocalDocumentTrustStore.debugResetRuntimeState();
       addTearDown(() {
         HermesLocalDocumentTrustStore.debugResetRuntimeState();
@@ -1113,7 +1114,7 @@ void main() {
       SharedPreferences.setMockInitialValues(<String, Object>{
         PreferenceKeys.hermesLocalDocumentTrustPrincipal: principalId,
       });
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       HermesLocalDocumentTrustStore.debugResetRuntimeState();
       final purgeStarted = Completer<void>();
       final allowPurge = Completer<void>();
@@ -1205,7 +1206,7 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{
       PreferenceKeys.hermesLocalDocumentTrustPrincipal: principalId,
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     HermesLocalDocumentTrustStore.debugResetRuntimeState();
     addTearDown(() {
       HermesLocalDocumentTrustStore.debugResetRuntimeState();

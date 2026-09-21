@@ -1,4 +1,4 @@
-import '../../../core/models/chat_message.dart';
+import 'package:conduit_core/models/chat_message.dart';
 import 'hermes_pending_decision_store.dart';
 import 'hermes_run_transport.dart';
 

@@ -1,6 +1,7 @@
 import 'dart:async';
 
-import '../../../core/models/chat_message.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import '../../../shared/services/flutter_ui_requests.dart';
 import '../../../core/providers/app_providers.dart'
     show
         activeChatIdsProvider,
@@ -319,6 +320,9 @@ Future<bool> dispatchChatTransport({
 
   // 5. Attach streaming
   final activeStream = attachUnifiedChunkedStreaming(
+    // The Flutter surface for server-initiated prompts and notices
+    // (WP-1.7); the core decides when to ask, this renders it.
+    uiRequests: const FlutterUiRequests(),
     session: session,
     webSearchEnabled: webSearchEnabled,
     assistantMessageId: assistantMessageId,

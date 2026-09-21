@@ -3,12 +3,12 @@ import 'dart:collection';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:conduit_core/conduit_core.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
-import '../models/server_config.dart';
-import '../models/socket_health.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/socket_health.dart';
 import '../network/conduit_user_agent.dart';
 import '../utils/debug_logger.dart';
 import 'socket_tls_override.dart';
@@ -39,7 +39,7 @@ typedef SocketFactory = io.Socket Function(
   ServerConfig serverConfig,
 );
 
-class SocketService with WidgetsBindingObserver {
+class SocketService {
   final ServerConfig serverConfig;
   final bool websocketOnly;
   final bool allowWebsocketUpgrade;
@@ -427,6 +427,7 @@ class SocketService with WidgetsBindingObserver {
   Stream<void> get onReconnect => _reconnectController.stream;
 
   SocketService({
+    AppLifecyclePort lifecycle = const StaticAppLifecycle(),
     required this.serverConfig,
     String? authToken,
     this.websocketOnly = false,
@@ -440,27 +441,28 @@ class SocketService with WidgetsBindingObserver {
        _resumeReconnectWatchdogTimeout = resumeReconnectWatchdogTimeout,
        _socketFactory =
            socketFactory ?? createSocketWithOptionalBadCertOverride {
-    final binding = WidgetsBinding.instance;
-    final lifecycle = binding.lifecycleState;
-    _isAppForeground = lifecycle == null || _isLifecycleForeground(lifecycle);
-    _wasBackgrounded = lifecycle != null && _isLifecycleBackground(lifecycle);
-    binding.addObserver(this);
+    // `current` is still nullable: a real host may not have observed a phase
+    // yet (Flutter's binding reports null before the first frame). Treat that
+    // the same as foreground, which is what it meant before the port existed.
+    final phase = lifecycle.current;
+    _isAppForeground = phase == null || phase.isForeground;
+    _wasBackgrounded = phase != null && phase.isBackground;
+    _lifecycleSubscription = lifecycle.changes.listen(_onLifecyclePhase);
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    switch (state) {
-      case AppLifecycleState.paused:
-      case AppLifecycleState.hidden:
-      case AppLifecycleState.detached:
+  StreamSubscription<AppLifecyclePhase>? _lifecycleSubscription;
+
+  void _onLifecyclePhase(AppLifecyclePhase phase) {
+    switch (phase) {
+      case AppLifecyclePhase.paused:
+      case AppLifecyclePhase.hidden:
+      case AppLifecyclePhase.detached:
         _isAppForeground = false;
         _wasBackgrounded = true;
         _applyTransportActivityPolicy();
-        break;
-      case AppLifecycleState.inactive:
+      case AppLifecyclePhase.inactive:
         _isAppForeground = true;
-        break;
-      case AppLifecycleState.resumed:
+      case AppLifecyclePhase.resumed:
         _isAppForeground = true;
         final resumedFromBackground = _wasBackgrounded;
         if (resumedFromBackground) {
@@ -476,17 +478,8 @@ class SocketService with WidgetsBindingObserver {
             unawaited(_reconnectAfterResume());
           }
         }
-        break;
     }
   }
-
-  static bool _isLifecycleForeground(AppLifecycleState state) =>
-      state == AppLifecycleState.resumed || state == AppLifecycleState.inactive;
-
-  static bool _isLifecycleBackground(AppLifecycleState state) =>
-      state == AppLifecycleState.paused ||
-      state == AppLifecycleState.hidden ||
-      state == AppLifecycleState.detached;
 
   Future<void> _reconnectAfterResume() async {
     // A background activity lease can legitimately keep the existing
@@ -1088,7 +1081,8 @@ class SocketService with WidgetsBindingObserver {
       }
     } catch (_) {}
     _socket = null;
-    WidgetsBinding.instance.removeObserver(this);
+    unawaited(_lifecycleSubscription?.cancel());
+    _lifecycleSubscription = null;
     _clearBufferedReplayState();
     _chatEventHandlers.clear();
     _channelEventHandlers.clear();

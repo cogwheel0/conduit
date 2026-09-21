@@ -7,9 +7,9 @@ import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
-import 'package:conduit/core/models/user.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/models/model.dart';
+import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit/core/network/conduit_user_agent.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
@@ -26,6 +26,7 @@ import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/utility_components.dart';
+import 'package:conduit_core/conduit_core.dart';
 
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
@@ -368,7 +369,7 @@ void main() {
   testWidgets('same-origin draft avatar uses only the public product header', (
     tester,
   ) async {
-    final workerManager = WorkerManager(debugIsWebOverride: true);
+    final workerManager = WorkerManager(worker: const InlineWorkerPort());
     addTearDown(workerManager.dispose);
     final api = ApiService(
       serverConfig: const ServerConfig(

@@ -1,4 +1,4 @@
-import '../models/chat_message.dart';
+import 'package:conduit_core/models/chat_message.dart';
 
 /// Serializers for message fields OpenWebUI persists inside chat blobs.
 ///

@@ -1,8 +1,8 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit/features/workspace/models/workspace_common.dart';
 import 'package:conduit/features/workspace/providers/workspace_session.dart';
+import 'package:meta/meta.dart';
 
 /// A selectable relationship candidate rendered in the model editor pickers.
 @immutable

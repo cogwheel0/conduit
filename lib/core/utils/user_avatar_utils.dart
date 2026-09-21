@@ -1,4 +1,4 @@
-import '../models/user.dart' as models;
+import 'package:conduit_core/models/user.dart' as models;
 import '../services/api_service.dart';
 
 String? deriveUserProfileImage(dynamic user) {

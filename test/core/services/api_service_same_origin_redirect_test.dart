@@ -1,11 +1,12 @@
 import 'dart:io';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:conduit_core/conduit_core.dart';
 
 void main() {
   group('isCredentialSafeRedirectTarget', () {
@@ -68,7 +69,7 @@ void main() {
 
     setUp(() async {
       server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      workerManager = WorkerManager(debugIsWebOverride: true);
+      workerManager = WorkerManager(worker: const InlineWorkerPort());
       api = ApiService(
         serverConfig: ServerConfig(
           id: 'server',

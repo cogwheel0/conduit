@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 void main() {
   group('AppSettings', () {
@@ -405,7 +406,7 @@ void main() {
   group('SettingsService voice locale persistence', () {
     setUp(() async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     });
 
     tearDown(PreferencesStore.debugReset);
@@ -433,7 +434,7 @@ void main() {
   group('SettingsService OpenRouter image model persistence', () {
     setUp(() async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     });
 
     tearDown(PreferencesStore.debugReset);

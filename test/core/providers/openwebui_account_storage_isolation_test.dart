@@ -10,12 +10,12 @@ import 'package:conduit/core/database/chat_database_repository.dart';
 import 'package:conduit/core/database/database_manager.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/database/local_conversation_loader.dart';
-import 'package:conduit/core/models/chat_message.dart';
-import 'package:conduit/core/models/backend_config.dart';
-import 'package:conduit/core/models/conversation.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/models/socket_transport_availability.dart';
-import 'package:conduit/core/models/user.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/socket_transport_availability.dart';
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/providers/app_startup_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
@@ -35,6 +35,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 const _server = ServerConfig(
   id: 'same-server',
@@ -376,7 +377,7 @@ _harness({
 }) async {
   if (!PreferencesStore.isReady) {
     SharedPreferences.setMockInitialValues(<String, Object>{});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     addTearDown(PreferencesStore.debugReset);
   }
   final serverA = AppDatabase(NativeDatabase.memory());
@@ -603,7 +604,7 @@ void main() {
         PreferenceKeys.activeServerId: _server.id,
       });
       PreferencesStore.debugReset();
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
       const initialAuth = AuthState(
         status: AuthStatus.authenticated,
@@ -681,7 +682,7 @@ void main() {
       PreferenceKeys.activeServerId: _server.id,
     });
     PreferencesStore.debugReset();
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
     final auth = _MutableAuthStateManager(
       const AuthState(status: AuthStatus.authenticated, token: 'token-a'),
@@ -770,7 +771,7 @@ void main() {
       PreferenceKeys.activeServerId: _server.id,
     });
     PreferencesStore.debugReset();
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
     final firstServer = Completer<ServerConfig?>();
     final secondServer = Completer<ServerConfig?>();
@@ -836,7 +837,7 @@ void main() {
       PreferenceKeys.activeServerId: _server.id,
     });
     PreferencesStore.debugReset();
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
     final response = Completer<BackendConfig?>()
       ..complete(const BackendConfig(version: 'stable-version'));
@@ -1076,7 +1077,7 @@ void main() {
       PreferenceKeys.activeServerId: _server.id,
     });
     PreferencesStore.debugReset();
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
     final serverA = AppDatabase(NativeDatabase.memory());
     final serverB = AppDatabase(NativeDatabase.memory());
@@ -1248,7 +1249,7 @@ void main() {
         PreferenceKeys.activeServerId: _server.id,
       });
       PreferencesStore.debugReset();
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
       final serverDatabase = AppDatabase(NativeDatabase.memory());
       final direct = AppDatabase(NativeDatabase.memory());
@@ -1402,7 +1403,7 @@ void main() {
       });
       PreferencesStore.debugReset();
       HermesMixedSessionBindingTrustStore.debugResetRuntimeState();
-      final preferences = await SharedPreferences.getInstance();
+      final preferences = await FlutterKeyValueStore.load();
       var revocationWrites = 0;
       var enforceSingleRevocation = false;
       PreferencesStore.debugOverride(

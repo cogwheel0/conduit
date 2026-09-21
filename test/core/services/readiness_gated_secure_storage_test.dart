@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/readiness_gated_secure_storage.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:conduit_core/conduit_core.dart';
 
 void main() {
   test(
@@ -32,18 +32,17 @@ void main() {
   );
 }
 
-final class _RecordingSecureStorage extends FlutterSecureStorage {
+/// Counts reads; everything else behaves like an ordinary empty store.
+///
+/// It used to extend `FlutterSecureStorage` and inherit the rest. The port
+/// has no implementation to inherit, so it builds on the in-memory one the
+/// core ships for exactly this.
+final class _RecordingSecureStorage extends InMemorySecureKeyValueStore {
   var readCount = 0;
 
   @override
   Future<String?> read({
     required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
   }) async {
     readCount++;
     return 'stored-token';

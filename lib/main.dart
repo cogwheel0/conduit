@@ -12,11 +12,20 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'core/widgets/error_boundary.dart';
+import 'shared/widgets/error_boundary.dart';
+import 'platform/flutter_app_lifecycle.dart';
+import 'platform/flutter_clipboard_port.dart';
+import 'platform/flutter_connectivity_port.dart';
+import 'platform/flutter_cookie_jar.dart';
+import 'platform/flutter_secure_key_value_store.dart';
+import 'platform/flutter_key_value_store.dart';
+import 'platform/flutter_log_sink.dart';
+import 'platform/flutter_worker_port.dart';
+import 'platform/flutter_database_opener.dart';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'core/providers/app_providers.dart';
+import 'core/providers/host_ports.dart';
 import 'core/network/conduit_user_agent.dart';
 import 'core/persistence/hive_bootstrap.dart';
 import 'core/persistence/hive_prefs_migrator.dart';
@@ -26,9 +35,9 @@ import 'core/persistence/preferences_store.dart';
 import 'core/router/app_router.dart';
 import 'core/services/native_sheet_bridge.dart';
 import 'core/services/native_sheet_hydration_service.dart';
-import 'core/services/navigation_service.dart';
+import 'shared/services/navigation_service.dart';
 import 'core/services/performance_profiler.dart';
-import 'core/services/raster_media_policy.dart';
+import 'shared/services/raster_media_policy.dart';
 import 'core/services/carplay_service.dart';
 import 'core/services/readiness_gated_secure_storage.dart';
 import 'core/services/settings_service.dart';
@@ -50,7 +59,7 @@ import 'features/workspace/providers/workspace_capabilities_provider.dart';
 import 'features/workspace/workspace_navigation.dart';
 import 'core/utils/debug_logger.dart';
 import 'core/utils/system_ui_style.dart';
-import 'core/models/tool.dart';
+import 'package:conduit_core/models/tool.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
@@ -117,6 +126,13 @@ void _registerBundledLicenses() {
 }
 
 void main() {
+  // Diagnostics have no destination until a host gives them one (WP-1.5).
+  // Installed first, so startup itself is logged.
+  DebugLogger.sink = const FlutterLogSink();
+  // The preference store is a host capability too (WP-1.2); installed
+  // before bootstrap awaits its first synchronous read.
+  PreferencesStore.installLoader(FlutterKeyValueStore.load);
+
   if (_enableFlutterDriverExtension) {
     enableFlutterDriverExtension();
   }
@@ -165,19 +181,10 @@ void main() {
       // No need for SystemUiMode.edgeToEdge which is deprecated
       _startupTimeline?.instant('edge_to_edge_configured');
 
-      const secureStorage = FlutterSecureStorage(
-        aOptions: AndroidOptions(
-          // Same name as the pre-v11 sharedPreferencesName so the plugin's
-          // LegacyNamespaceKeyRecovery keeps existing Android data readable.
-          storageNamespace: 'conduit_secure_prefs',
-          preferencesKeyPrefix: 'conduit_',
-          resetOnError: false,
-        ),
-        iOptions: IOSOptions(
-          accountName: 'conduit_secure_storage',
-          synchronizable: false,
-        ),
-      );
+      // Platform options now live inside the adapter, so they cannot drift
+      // apart from the ones SecureCredentialStorage used to keep separately
+      // (WP-1.3).
+      final secureStorage = FlutterSecureKeyValueStore();
 
       // Start independent platform/file work together. Quick Actions still
       // completes before runApp so a cold-launch action cannot be lost, while
@@ -244,8 +251,26 @@ void main() {
         _startupTimeline = null;
       });
 
+      // One WidgetsBindingObserver for the whole app; every engine that
+      // cares about foreground/background now shares it (WP-1.4).
+      final appLifecycle = FlutterAppLifecycle();
+
       final providerContainer = ProviderContainer(
         overrides: [
+          // Host ports (M1). `lib/core` declares these without a value so it
+          // stays free of Flutter plugins; each host binds its own.
+          databaseOpenerProvider.overrideWithValue(
+            const FlutterDatabaseOpener(),
+          ),
+          appLifecycleProvider.overrideWithValue(appLifecycle),
+          workerPortProvider.overrideWithValue(const FlutterWorkerPort()),
+          connectivityPortProvider.overrideWithValue(
+            FlutterConnectivityPort(),
+          ),
+          cookieJarProvider.overrideWithValue(const FlutterCookieJar()),
+          clipboardPortProvider.overrideWithValue(
+            const FlutterClipboardPort(),
+          ),
           secureStorageProvider.overrideWithValue(
             ReadinessGatedSecureStorage(
               delegate: secureStorage,

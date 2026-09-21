@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:meta/meta.dart';
 
 /// Stable, persistence-safe identity for a sidebar destination.
 enum SidebarTabId { chats, hermes, terminal, notes, channels }

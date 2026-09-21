@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
-import '../../../core/models/model.dart';
+import 'package:conduit_core/models/model.dart';
 
 /// Sentinel model id prefix for the synthetic Hermes agent entry in the picker.
 const String kHermesModelIdPrefix = 'hermes:agent:';

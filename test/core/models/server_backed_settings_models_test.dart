@@ -1,10 +1,10 @@
 import 'package:checks/checks.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:conduit/core/models/account_metadata.dart';
-import 'package:conduit/core/models/backend_config.dart';
-import 'package:conduit/core/models/server_about_info.dart';
-import 'package:conduit/core/models/server_user_settings.dart';
+import 'package:conduit_core/models/account_metadata.dart';
+import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/server_about_info.dart';
+import 'package:conduit_core/models/server_user_settings.dart';
 
 void main() {
   group('ServerUserSettings.fromJson', () {

@@ -19,7 +19,7 @@ import 'media_upload_controller.dart';
 
 import 'package:path/path.dart' as path;
 
-import 'navigation_service.dart';
+import '../../shared/services/navigation_service.dart';
 import 'share_staging_cleanup.dart';
 import '../utils/debug_logger.dart';
 // Server chat creation/title generation occur on first send via chat providers

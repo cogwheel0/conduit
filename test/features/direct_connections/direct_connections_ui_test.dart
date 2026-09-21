@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/model.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_draft.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/l10n/app_localizations.dart';

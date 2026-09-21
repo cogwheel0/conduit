@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:conduit/core/providers/backend_mode_providers.dart';
-import 'package:conduit/core/services/navigation_service.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_draft.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
@@ -10,9 +10,9 @@ import 'package:conduit/features/direct_connections/models/openwebui_direct_conn
 import 'package:conduit/features/direct_connections/views/direct_connection_editor_page.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:conduit_core/conduit_core.dart';
 
 Future<void> directTestExpandAdvancedSettings(WidgetTester tester) async {
   final toggle = find.byKey(
@@ -260,7 +260,7 @@ final class DirectTestBlockingPreferredBackendController
 }
 
 final class DirectTestRejectingProfileWriteSecureStorage
-    implements FlutterSecureStorage {
+    implements SecureKeyValueStore {
   DirectTestRejectingProfileWriteSecureStorage(this.raw);
 
   final String raw;
@@ -268,24 +268,12 @@ final class DirectTestRejectingProfileWriteSecureStorage
   @override
   Future<String?> read({
     required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
   }) async => raw;
 
   @override
   Future<void> write({
     required String key,
     required String? value,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
   }) async {
     throw StateError('profile write failed');
   }

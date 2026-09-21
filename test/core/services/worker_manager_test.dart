@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:conduit_core/conduit_core.dart';
 
 _ControlledWorkerHarness? _controlledWorkerHarness;
 
@@ -62,7 +63,7 @@ void main() {
       _controlledWorkerHarness = harness;
       final manager = WorkerManager(
         maxConcurrentTasks: 2,
-        debugIsWebOverride: true,
+        worker: const InlineWorkerPort(),
       );
       addTearDown(manager.dispose);
 
@@ -93,7 +94,7 @@ void main() {
       _controlledWorkerHarness = harness;
       final manager = WorkerManager(
         maxConcurrentTasks: 1,
-        debugIsWebOverride: true,
+        worker: const InlineWorkerPort(),
       );
 
       final first = manager.schedule<int, String>(_controlledWorkerTask, 1);
@@ -119,7 +120,7 @@ void main() {
     });
 
     test('schedule rejects new jobs after dispose', () async {
-      final manager = WorkerManager(debugIsWebOverride: true);
+      final manager = WorkerManager(worker: const InlineWorkerPort());
       manager.dispose();
 
       await expectLater(
@@ -135,7 +136,7 @@ void main() {
     });
 
     test('propagates task errors', () async {
-      final manager = WorkerManager(debugIsWebOverride: true);
+      final manager = WorkerManager(worker: const InlineWorkerPort());
       addTearDown(manager.dispose);
 
       await expectLater(
@@ -151,7 +152,7 @@ void main() {
     });
 
     test('runs the callback synchronously on the web fallback path', () async {
-      final manager = WorkerManager(debugIsWebOverride: true);
+      final manager = WorkerManager(worker: const InlineWorkerPort());
       addTearDown(manager.dispose);
       var invoked = false;
 

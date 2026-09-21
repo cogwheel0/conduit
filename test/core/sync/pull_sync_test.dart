@@ -108,7 +108,7 @@ void main() {
   group('PullSync.run', () {
     test('large chat normalization uses the worker-offload seam', () async {
       var offloadCalls = 0;
-      final workerManager = WorkerManager(debugIsWebOverride: false);
+      final workerManager = WorkerManager();
       addTearDown(workerManager.dispose);
       pull = PullSync(
         client: client,

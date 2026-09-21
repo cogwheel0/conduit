@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:meta/meta.dart';
 
 enum ConnectionAttemptPhase { idle, connecting, connected, failed }
 

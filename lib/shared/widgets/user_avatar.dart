@@ -7,7 +7,7 @@ import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/services/raster_media_policy.dart';
+import '../services/raster_media_policy.dart';
 import '../services/brand_service.dart';
 import '../theme/theme_extensions.dart';
 

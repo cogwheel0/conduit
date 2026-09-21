@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../../core/models/channel.dart';
-import '../../../core/models/channel_message.dart';
+import 'package:conduit_core/models/channel.dart';
+import 'package:conduit_core/models/channel_message.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
 import '../../auth/providers/unified_auth_providers.dart';

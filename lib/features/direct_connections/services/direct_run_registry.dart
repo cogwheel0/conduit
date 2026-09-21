@@ -4,7 +4,7 @@ import 'dart:convert';
 
 import 'package:uuid/uuid.dart';
 
-import '../../../core/models/chat_message.dart';
+import 'package:conduit_core/models/chat_message.dart';
 import '../models/direct_completion.dart';
 import '../models/direct_mcp_server.dart';
 

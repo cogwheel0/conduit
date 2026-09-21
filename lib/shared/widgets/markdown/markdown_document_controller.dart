@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 
 import 'compiled_markdown_document.dart';
 import 'markdown_compile_service.dart';
+import 'package:meta/meta.dart';
 import 'streaming_markdown_preparation.dart';
 
 typedef MarkdownDocumentControllerListener = void Function(

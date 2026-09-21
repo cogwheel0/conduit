@@ -1,6 +1,6 @@
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
-import '../models/server_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 
 io.Socket createSocketWithOptionalBadCertOverride(
   String base,

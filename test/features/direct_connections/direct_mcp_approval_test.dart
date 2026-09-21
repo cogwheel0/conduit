@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit/core/services/secure_credential_storage.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/models/direct_mcp_server.dart';
@@ -15,9 +15,9 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart' as material_ui;
+import 'package:conduit_core/conduit_core.dart';
 
 void main() {
   const key = (
@@ -819,7 +819,7 @@ void main() {
   });
 }
 
-final class _FailingMcpSecureStorage implements FlutterSecureStorage {
+final class _FailingMcpSecureStorage implements SecureKeyValueStore {
   _FailingMcpSecureStorage(this.source);
 
   final String source;

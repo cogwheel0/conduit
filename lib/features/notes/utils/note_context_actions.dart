@@ -1,5 +1,5 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:conduit/core/models/note.dart';
+import 'package:conduit_core/models/note.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/features/notes/providers/notes_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';

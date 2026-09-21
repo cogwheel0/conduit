@@ -13,18 +13,21 @@ import 'package:checks/checks.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit_core/conduit_core.dart';
+import 'package:conduit/platform/flutter_secure_key_value_store.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 void main() {
   setUp(() async {
     FlutterSecureStorage.setMockInitialValues({});
     SharedPreferences.setMockInitialValues({});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
   });
 
   tearDown(PreferencesStore.debugReset);
 
   test('profile store keeps full profile only in secure storage', () async {
-    const platformStorage = FlutterSecureStorage();
+    final platformStorage = FlutterSecureKeyValueStore();
     final secure = SecureCredentialStorage(instance: platformStorage);
     final store = DirectConnectionProfileStore(secure);
     final profile = DirectConnectionProfile(
@@ -50,7 +53,7 @@ void main() {
     final preferences = PreferencesStore.instance;
     for (final secret in const ['top-secret', 'tenant-secret']) {
       expect(
-        preferences.getKeys().any(
+        preferences.keys.any(
           (key) => (preferences.get(key)?.toString() ?? '').contains(secret),
         ),
         isFalse,
@@ -68,7 +71,7 @@ void main() {
   test(
     'profile store round-trips per-model Ollama keep-alive values',
     () async {
-      const platformStorage = FlutterSecureStorage();
+      final platformStorage = FlutterSecureKeyValueStore();
       final secure = SecureCredentialStorage(instance: platformStorage);
       final store = DirectConnectionProfileStore(secure);
       final profile = DirectConnectionProfile(
@@ -310,7 +313,7 @@ void main() {
   test(
     'unsupported document version is surfaced without deleting data',
     () async {
-      const platformStorage = FlutterSecureStorage();
+      final platformStorage = FlutterSecureKeyValueStore();
       final secure = SecureCredentialStorage(instance: platformStorage);
       await secure.saveDirectConnectionProfiles('{"version":99,"profiles":[]}');
       final store = DirectConnectionProfileStore(secure);
@@ -323,7 +326,7 @@ void main() {
   test(
     'repository strips an origin change even when called directly',
     () async {
-      const platformStorage = FlutterSecureStorage();
+      final platformStorage = FlutterSecureKeyValueStore();
       final store = DirectConnectionProfileStore(
         SecureCredentialStorage(instance: platformStorage),
       );
@@ -384,7 +387,7 @@ void main() {
   });
 }
 
-final class _GatedSecureStorage implements FlutterSecureStorage {
+final class _GatedSecureStorage implements SecureKeyValueStore {
   final Map<String, String> values = {};
   final Completer<void> writeStarted = Completer<void>();
   final Completer<void> allowWrite = Completer<void>();
@@ -394,24 +397,12 @@ final class _GatedSecureStorage implements FlutterSecureStorage {
   @override
   Future<String?> read({
     required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
   }) async => values[key];
 
   @override
   Future<void> write({
     required String key,
     required String? value,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
   }) async {
     if (_gateNextWrite) {
       _gateNextWrite = false;
@@ -428,12 +419,6 @@ final class _GatedSecureStorage implements FlutterSecureStorage {
   @override
   Future<void> delete({
     required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
   }) async {
     deleteCalls++;
     values.remove(key);

@@ -1,15 +1,16 @@
 import 'dart:io';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:conduit_core/conduit_core.dart';
 
 void main() {
   test('legacy ServerConfig apiKey is never used as an auth token', () async {
-    final workerManager = WorkerManager(debugIsWebOverride: true);
+    final workerManager = WorkerManager(worker: const InlineWorkerPort());
     final api = ApiService(
       serverConfig: const ServerConfig(
         id: 'server',
@@ -69,7 +70,7 @@ void main() {
         await request.response.close();
       });
 
-      final workerManager = WorkerManager(debugIsWebOverride: true);
+      final workerManager = WorkerManager(worker: const InlineWorkerPort());
       final api = ApiService(
         serverConfig: ServerConfig(
           id: 'redirect-source',
@@ -100,7 +101,7 @@ void main() {
   );
 
   test('logout uses POST and remains bound to its auth snapshot', () async {
-    final workerManager = WorkerManager(debugIsWebOverride: true);
+    final workerManager = WorkerManager(worker: const InlineWorkerPort());
     final api = ApiService(
       serverConfig: const ServerConfig(
         id: 'server',

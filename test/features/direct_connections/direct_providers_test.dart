@@ -25,6 +25,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit_core/conduit_core.dart';
+import 'package:conduit/platform/flutter_secure_key_value_store.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -32,7 +35,7 @@ void main() {
   setUp(() async {
     FlutterSecureStorage.setMockInitialValues({});
     SharedPreferences.setMockInitialValues({});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
   });
 
   tearDown(PreferencesStore.debugReset);
@@ -1687,7 +1690,7 @@ void main() {
     'a failed incomplete-clear marker write propagates instead of hiding',
     () async {
       PreferencesStore.debugOverride(
-        await SharedPreferences.getInstance(),
+      await FlutterKeyValueStore.load(),
         writeInterceptor: (prefs, key, value) async =>
             key == PreferenceKeys.incompleteAppDataClear ? false : null,
       );
@@ -1842,7 +1845,7 @@ ProviderContainer _container(
   DirectModelCacheStore? cacheStore,
 }) => ProviderContainer(
   overrides: [
-    secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+    secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
     if (cacheStore != null)
       directModelCacheStoreProvider.overrideWithValue(cacheStore),
     directProviderAdapterRegistryProvider.overrideWithValue(
@@ -1896,7 +1899,7 @@ DirectConnectionProfile _profile({
 
 Future<List<DirectConnectionProfile>> _loadDurableProfiles() =>
     DirectConnectionProfileStore(
-      SecureCredentialStorage(instance: const FlutterSecureStorage()),
+      SecureCredentialStorage(instance: FlutterSecureKeyValueStore()),
     ).load();
 
 final class _QueuedAdapter implements DirectProviderAdapter {
@@ -2297,7 +2300,7 @@ Dio _dio(HttpClientAdapter adapter) {
   return dio;
 }
 
-final class _ReloadGateSecureStorage implements FlutterSecureStorage {
+final class _ReloadGateSecureStorage implements SecureKeyValueStore {
   _ReloadGateSecureStorage(String initialDocument)
     : _profileDocument = initialDocument;
 
@@ -2311,12 +2314,6 @@ final class _ReloadGateSecureStorage implements FlutterSecureStorage {
   @override
   Future<String?> read({
     required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
   }) async {
     if (key != _profilesKey) return null;
     profileReadCalls++;
@@ -2332,12 +2329,6 @@ final class _ReloadGateSecureStorage implements FlutterSecureStorage {
   Future<void> write({
     required String key,
     required String? value,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
   }) async {
     if (key == _profilesKey) _profileDocument = value;
   }
@@ -2345,12 +2336,6 @@ final class _ReloadGateSecureStorage implements FlutterSecureStorage {
   @override
   Future<void> delete({
     required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
   }) async {
     if (key == _profilesKey) _profileDocument = null;
   }
@@ -2359,7 +2344,7 @@ final class _ReloadGateSecureStorage implements FlutterSecureStorage {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-final class _WriteGateSecureStorage implements FlutterSecureStorage {
+final class _WriteGateSecureStorage implements SecureKeyValueStore {
   _WriteGateSecureStorage(this._profileDocument);
 
   static const _profilesKey = 'direct_connection_profiles_v1';
@@ -2371,12 +2356,6 @@ final class _WriteGateSecureStorage implements FlutterSecureStorage {
   @override
   Future<String?> read({
     required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
   }) async {
     if (key == _profilesKey) return _profileDocument;
     return null;
@@ -2386,12 +2365,6 @@ final class _WriteGateSecureStorage implements FlutterSecureStorage {
   Future<void> write({
     required String key,
     required String? value,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
   }) async {
     if (key != _profilesKey) return;
     writeStarted.complete();
@@ -2403,7 +2376,7 @@ final class _WriteGateSecureStorage implements FlutterSecureStorage {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-final class _InitialReadGateSecureStorage implements FlutterSecureStorage {
+final class _InitialReadGateSecureStorage implements SecureKeyValueStore {
   _InitialReadGateSecureStorage(this._profileDocument);
 
   static const _profilesKey = 'direct_connection_profiles_v1';
@@ -2415,12 +2388,6 @@ final class _InitialReadGateSecureStorage implements FlutterSecureStorage {
   @override
   Future<String?> read({
     required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
   }) async {
     if (key != _profilesKey) return null;
     if (!readStarted.isCompleted) readStarted.complete();
@@ -2432,7 +2399,7 @@ final class _InitialReadGateSecureStorage implements FlutterSecureStorage {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-final class _DisposeConflictSecureStorage implements FlutterSecureStorage {
+final class _DisposeConflictSecureStorage implements SecureKeyValueStore {
   _DisposeConflictSecureStorage({
     required this.initialDocument,
     required this.conflictDocument,
@@ -2449,12 +2416,6 @@ final class _DisposeConflictSecureStorage implements FlutterSecureStorage {
   @override
   Future<String?> read({
     required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
   }) async {
     if (key != _profilesKey) return null;
     _profileReadCalls++;
@@ -2468,7 +2429,7 @@ final class _DisposeConflictSecureStorage implements FlutterSecureStorage {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-final class _FailingReloadSecureStorage implements FlutterSecureStorage {
+final class _FailingReloadSecureStorage implements SecureKeyValueStore {
   _FailingReloadSecureStorage(this._profileDocument);
 
   static const _profilesKey = 'direct_connection_profiles_v1';
@@ -2479,12 +2440,6 @@ final class _FailingReloadSecureStorage implements FlutterSecureStorage {
   @override
   Future<String?> read({
     required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
   }) async {
     if (key != _profilesKey) return null;
     _profileReadCalls++;

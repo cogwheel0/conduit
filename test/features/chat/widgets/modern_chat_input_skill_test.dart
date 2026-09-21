@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:conduit/core/models/model.dart';
-import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/settings_service.dart';

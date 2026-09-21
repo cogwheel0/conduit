@@ -7,12 +7,11 @@ import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-import '../../../core/models/backend_config.dart';
+import 'package:conduit_core/models/backend_config.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/background_streaming_handler.dart';
 import '../../../core/utils/debug_logger.dart';
-import '../../../core/utils/semantic_details.dart';
-import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
+import 'package:conduit_markdown/conduit_markdown.dart';
 import 'native_tts_service.dart';
 
 // =============================================================================

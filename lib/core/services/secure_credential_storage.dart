@@ -1,25 +1,23 @@
 import 'dart:convert';
+import 'package:conduit_core/conduit_core.dart';
 import 'dart:math';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../utils/debug_logger.dart';
 
 /// Secure credential storage with platform-specific options.
 ///
 /// Values are protected by the platform keychain/keystore via
-/// FlutterSecureStorage; no additional app-level encryption is applied.
+/// SecureKeyValueStore; no additional app-level encryption is applied.
 class SecureCredentialStorage {
-  late final FlutterSecureStorage _secureStorage;
+  /// [instance] is required since WP-1.3. It used to default to a
+  /// `FlutterSecureStorage` configured here, which quietly made this class a
+  /// second place platform options had to be kept in step; they now live
+  /// once, in `FlutterSecureKeyValueStore`.
+  SecureCredentialStorage({required SecureKeyValueStore instance})
+    : _secureStorage = instance;
 
-  SecureCredentialStorage({FlutterSecureStorage? instance}) {
-    _secureStorage =
-        instance ??
-        FlutterSecureStorage(
-          aOptions: _getAndroidOptions(),
-          iOptions: _getIOSOptions(),
-        );
-  }
+  final SecureKeyValueStore _secureStorage;
 
   static const String _credentialsKey = 'user_credentials_v2';
   static const String _serverConfigsKey = 'server_configs_v2';
@@ -36,25 +34,7 @@ class SecureCredentialStorage {
   static Future<void> _openWebUiDirectIdentityKeyQueue = Future<void>.value();
   static bool _openWebUiDirectIdentityWritesBlocked = false;
 
-  /// Get Android-specific secure storage options
-  AndroidOptions _getAndroidOptions() {
-    return const AndroidOptions(
-      // Same name as the pre-v11 sharedPreferencesName so the plugin's
-      // LegacyNamespaceKeyRecovery keeps existing Android data readable.
-      storageNamespace: 'conduit_secure_prefs',
-      preferencesKeyPrefix: 'conduit_',
-      // Avoid auto-wipe on transient errors; handle gracefully in code
-      resetOnError: false,
-    );
-  }
 
-  /// Get iOS-specific secure storage options
-  IOSOptions _getIOSOptions() {
-    return const IOSOptions(
-      accountName: 'conduit_secure_storage',
-      synchronizable: false,
-    );
-  }
 
   /// Save user credentials securely.
   ///

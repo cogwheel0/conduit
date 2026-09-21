@@ -2,9 +2,9 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:conduit/core/models/model.dart';
-import 'package:conduit/core/models/socket_transport_availability.dart';
-import 'package:conduit/core/models/tool.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/socket_transport_availability.dart';
+import 'package:conduit_core/models/tool.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/optimized_storage_service.dart';
 import 'package:conduit/core/services/settings_service.dart';

@@ -7,8 +7,8 @@ import 'package:flutter_callkit_incoming/entities/call_event.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import '../../../core/models/chat_message.dart';
-import '../../../core/models/model.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/model.dart';
 import '../../../core/providers/app_providers.dart'
     show selectedModelProvider, socketServiceProvider;
 import '../../../core/services/background_streaming_handler.dart';

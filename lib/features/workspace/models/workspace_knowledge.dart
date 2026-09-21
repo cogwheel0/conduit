@@ -1,5 +1,5 @@
-import 'package:flutter/foundation.dart';
 
+import 'package:meta/meta.dart';
 import 'workspace_common.dart';
 
 @immutable

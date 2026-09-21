@@ -10,7 +10,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/auth/native_cookie_manager.dart';
 import '../../../core/auth/webview_cookie_helper.dart';
 import '../../../core/auth/webview_origin.dart';
-import '../../../core/models/server_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';

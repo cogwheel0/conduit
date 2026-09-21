@@ -11,7 +11,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../providers/app_providers.dart';
 import '../utils/debug_logger.dart';
 import 'app_intents_service.dart';
-import 'navigation_service.dart';
+import '../../shared/services/navigation_service.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../../features/chat/voice_call/voice_call_eligibility.dart';
 

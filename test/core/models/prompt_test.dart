@@ -1,7 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:conduit/core/models/prompt.dart';
+import 'package:conduit_core/models/prompt.dart';
 
 void main() {
   group('Prompt.fromJson', () {

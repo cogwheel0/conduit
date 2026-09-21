@@ -1,4 +1,4 @@
-import 'package:conduit/core/models/model.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/profile/views/personalization_page.dart';

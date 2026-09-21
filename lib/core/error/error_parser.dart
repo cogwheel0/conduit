@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'api_error.dart';
-import '../utils/current_localizations.dart';
 
 /// Comprehensive error response parser
 /// Handles various API error response formats and extracts structured information
@@ -26,8 +25,9 @@ class ErrorParser {
       } else if (responseData is List) {
         return _parseErrorList(responseData);
       } else {
+        // No prose: the payload had none, and the parser has no locale to
+        // invent one in. The caller's ApiError carries a CoreErrorCode.
         return ParsedErrorResponse(
-          message: currentAppLocalizations().errorMessage,
           metadata: {'rawData': responseData.toString()},
         );
       }
@@ -35,7 +35,6 @@ class ErrorParser {
       // Parsing provider-controlled payloads is deliberately side-effect free.
       // The caller decides whether value-free request metadata may be logged.
       return ParsedErrorResponse(
-        message: currentAppLocalizations().errorMessage,
         metadata: {
           'parseError': e.toString(),
           'rawData': responseData.toString(),
@@ -139,9 +138,8 @@ class ErrorParser {
     }
 
     return ParsedErrorResponse(
-      message: errors.isNotEmpty
-          ? errors.first
-          : currentAppLocalizations().errorMessage,
+      // An empty list carries no prose; the caller's CoreErrorCode does.
+      message: errors.isNotEmpty ? errors.first : null,
       errors: errors,
       metadata: {'format': 'list', 'count': data.length},
     );

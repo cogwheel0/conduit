@@ -1,6 +1,6 @@
-import 'package:flutter/foundation.dart';
 
 import 'compiled_markdown_document.dart';
+import 'package:meta/meta.dart';
 
 enum MarkdownDisplayPartKind { markdownBlock, detailsBlock, detailsGroup }
 

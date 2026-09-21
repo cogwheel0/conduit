@@ -9,14 +9,16 @@ library;
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/database_provider.dart';
-import 'package:conduit/core/models/conversation.dart';
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/providers/host_ports.dart';
 import 'package:conduit/core/services/connectivity_service.dart';
 import 'package:conduit/core/sync/pull_sync.dart';
 import 'package:conduit/core/sync/sync_api_client.dart';
 import 'package:conduit/core/sync/sync_engine.dart';
 import 'package:conduit/core/sync/sync_triggers.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit/platform/flutter_app_lifecycle.dart';
 import 'package:drift/native.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/widgets.dart';
@@ -86,15 +88,21 @@ void main() {
   late FakeSyncApiClient client;
   late List<String> pulls;
   late List<String> drains;
+  // The real adapter, not a fake: these tests drive lifecycle through
+  // `binding.handleAppLifecycleStateChanged`, so using the production port
+  // keeps them end-to-end and covers the adapter's mapping too (WP-1.4).
+  late FlutterAppLifecycle lifecycle;
 
   setUp(() {
     db = AppDatabase(NativeDatabase.memory());
     client = FakeSyncApiClient(FakeOpenWebUiServer());
     pulls = <String>[];
     drains = <String>[];
+    lifecycle = FlutterAppLifecycle();
   });
 
   tearDown(() async {
+    lifecycle.dispose();
     await db.close();
   });
 
@@ -114,6 +122,7 @@ void main() {
   ProviderContainer makeContainer({bool autoDispose = true}) {
     final container = ProviderContainer(
       overrides: [
+        appLifecycleProvider.overrideWithValue(lifecycle),
         isAuthenticatedProvider2.overrideWith(
           (ref) => ref.watch(_authProvider),
         ),
@@ -332,6 +341,7 @@ void main() {
       fakeAsync((async) {
         final container = ProviderContainer(
           overrides: [
+            appLifecycleProvider.overrideWithValue(lifecycle),
             isAuthenticatedProvider2.overrideWith(
               (ref) => ref.watch(_authProvider),
             ),
@@ -409,6 +419,7 @@ void main() {
       fakeAsync((async) {
         final container = ProviderContainer(
           overrides: [
+            appLifecycleProvider.overrideWithValue(lifecycle),
             isAuthenticatedProvider2.overrideWith(
               (ref) => ref.watch(_authProvider),
             ),

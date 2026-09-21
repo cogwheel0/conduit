@@ -1,4 +1,4 @@
-import '../../../core/models/chat_message.dart';
+import 'package:conduit_core/models/chat_message.dart';
 
 /// Shared helpers for deriving display labels and URLs from source references.
 ///

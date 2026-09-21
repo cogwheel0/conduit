@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/models/model.dart';
-import 'package:conduit/core/models/toggle_filter.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/toggle_filter.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';

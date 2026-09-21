@@ -1,12 +1,12 @@
 import 'dart:developer' as developer;
 
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../persistence/persistence_keys.dart';
 import '../persistence/preferences_store.dart';
-import 'animation_service.dart';
+import '../../shared/services/animation_service.dart';
 
 part 'settings_service.g.dart';
 

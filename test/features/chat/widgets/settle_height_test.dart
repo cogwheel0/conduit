@@ -1,4 +1,4 @@
-import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';

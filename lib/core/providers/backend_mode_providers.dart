@@ -1,4 +1,4 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 
 import '../persistence/persistence_keys.dart';
 import '../persistence/preferences_store.dart';

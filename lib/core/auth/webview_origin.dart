@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:meta/meta.dart';
 
 /// A normalized HTTP(S) origin used to bind WebView credential reads.
 typedef NormalizedWebOrigin = ({String scheme, String host, int port});

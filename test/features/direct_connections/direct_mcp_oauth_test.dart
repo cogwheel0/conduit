@@ -10,6 +10,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+import 'package:conduit/platform/flutter_secure_key_value_store.dart';
 
 void main() {
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
@@ -681,7 +682,7 @@ void main() {
 }
 
 DirectMcpServerStore _store() => DirectMcpServerStore(
-  SecureCredentialStorage(instance: const FlutterSecureStorage()),
+  SecureCredentialStorage(instance: FlutterSecureKeyValueStore()),
 );
 
 Future<DirectMcpServer> _saveOAuthServer(

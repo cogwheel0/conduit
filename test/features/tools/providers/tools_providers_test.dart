@@ -1,4 +1,4 @@
-import 'package:conduit/core/models/tool.dart';
+import 'package:conduit_core/models/tool.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/tools_service.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';

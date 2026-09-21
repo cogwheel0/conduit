@@ -5,7 +5,7 @@ import 'package:checks/checks.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/workspace/models/workspace_common.dart';

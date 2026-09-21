@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit/core/services/direct_replay_output.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:flutter_test/flutter_test.dart';

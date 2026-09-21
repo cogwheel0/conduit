@@ -3,7 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/core/network/conduit_user_agent.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/connectivity_service.dart';

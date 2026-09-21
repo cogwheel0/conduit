@@ -1,4 +1,4 @@
-import '../models/model.dart';
+import 'package:conduit_core/models/model.dart';
 import '../services/api_service.dart';
 import '../../features/hermes/models/hermes_model.dart';
 

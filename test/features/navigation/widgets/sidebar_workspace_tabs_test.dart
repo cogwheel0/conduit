@@ -1,10 +1,10 @@
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/providers/backend_mode_providers.dart';
-import 'package:conduit/core/models/channel.dart';
-import 'package:conduit/core/models/conversation.dart';
-import 'package:conduit/core/models/note.dart';
-import 'package:conduit/core/models/user.dart';
-import 'package:conduit/core/services/navigation_service.dart';
+import 'package:conduit_core/models/channel.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/note.dart';
+import 'package:conduit_core/models/user.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/channels/widgets/channel_list_tab.dart';
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';

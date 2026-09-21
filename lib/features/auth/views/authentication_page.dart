@@ -4,12 +4,12 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/models/backend_config.dart';
-import '../../../core/models/server_config.dart';
+import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
-import '../../../core/services/input_validation_service.dart';
-import '../../../core/services/navigation_service.dart';
+import '../../../shared/services/input_validation_service.dart';
+import '../../../shared/services/navigation_service.dart';
 import '../../../core/services/haptic_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';

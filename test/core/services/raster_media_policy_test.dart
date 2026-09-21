@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/services/raster_media_policy.dart';
+import 'package:conduit/shared/services/raster_media_policy.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 

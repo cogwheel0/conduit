@@ -2,10 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:conduit_core/conduit_core.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
-import '../models/server_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 import '../utils/debug_logger.dart';
 import 'app_database.dart';
 
@@ -17,16 +17,39 @@ import 'app_database.dart';
 /// lets the next server become active without invalidating in-flight durable
 /// work for the previous server.
 class DatabaseManager {
-  /// [databaseDirectory] and [openDatabase] are test seams; production code
-  /// uses the defaults (`getApplicationSupportDirectory`, matching
-  /// `AppDatabase.forServer`'s `driftDatabase(name:)` location).
+  /// Production code passes [opener]; the host decides where database files
+  /// live (WP-1.1). [databaseDirectory] and [openDatabase] remain individual
+  /// test seams and win over [opener] when both are supplied.
+  ///
+  /// [opener] is a callback rather than an instance so that constructing a
+  /// manager never resolves the port. Opening a database used to be the first
+  /// thing that touched `path_provider`, and several tests read the manager
+  /// provider without ever opening anything.
+  ///
+  /// Omitting all three is legal at construction time and fails only if the
+  /// manager is actually used, which keeps a test that overrides just one of
+  /// them from having to supply the others.
   DatabaseManager({
+    DatabaseOpenerPort Function()? opener,
     Future<Directory> Function()? databaseDirectory,
     AppDatabase Function(String fileName)? openDatabase,
     String Function(String serverId)? databaseFileName,
-  }) : _databaseDirectory = databaseDirectory ?? getApplicationSupportDirectory,
-       _openDatabase = openDatabase ?? AppDatabase.forServer,
+  }) : _databaseDirectory =
+           databaseDirectory ??
+           (opener != null
+               ? (() => opener().databaseDirectory())
+               : () => _missingOpener('databaseDirectory')),
+       _openDatabase =
+           openDatabase ??
+           (opener != null
+               ? ((fileName) => AppDatabase(opener().open(fileName)))
+               : (_) => _missingOpener('openDatabase')),
        _databaseFileName = databaseFileName ?? fileNameFor;
+
+  static Never _missingOpener(String seam) => throw StateError(
+    'DatabaseManager needs a DatabaseOpenerPort (or an explicit $seam). '
+    'The Flutter app wires one in main.dart; the daemon wires its own.',
+  );
 
   final Future<Directory> Function() _databaseDirectory;
   final AppDatabase Function(String fileName) _openDatabase;

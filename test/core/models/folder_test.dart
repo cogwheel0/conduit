@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/folder.dart';
+import 'package:conduit_core/models/folder.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Shared folders (issue #710) are stored through the same folders table as

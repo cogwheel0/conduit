@@ -1,15 +1,16 @@
 import 'dart:async';
 import 'dart:math';
 
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter/widgets.dart';
+import 'package:conduit_core/conduit_core.dart';
+import 'package:meta/meta.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../models/server_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 import '../network/conduit_user_agent.dart';
 import '../providers/app_providers.dart';
+import '../providers/host_ports.dart';
 import 'server_tls_http_client_factory.dart';
 
 part 'connectivity_service.g.dart';
@@ -26,24 +27,30 @@ enum ConnectivityStatus { online, offline }
 /// - Assumes online by default (optimistic)
 /// - Only shows offline when explicitly confirmed
 /// - Minimal state changes during startup
-class ConnectivityService with WidgetsBindingObserver {
+class ConnectivityService {
+  /// [lifecycle] defaults to [StaticAppLifecycle], meaning a host that never
+  /// reports foreground/background; the service then polls as though always
+  /// visible (WP-1.4).
   ConnectivityService(
     this._dio,
     this._ref, [
-    Connectivity? connectivity,
+    ConnectivityPort? network,
     this._ownsDio = false,
-  ]) : _connectivity = connectivity ?? Connectivity() {
-    _initialize();
+    AppLifecyclePort lifecycle = const StaticAppLifecycle(),
+  ]) : _network = network ?? const AlwaysOnlineConnectivityPort() {
+    _initialize(lifecycle);
   }
+
+  StreamSubscription<AppLifecyclePhase>? _lifecycleSubscription;
 
   final Dio _dio;
   final Ref _ref;
-  final Connectivity _connectivity;
+  final ConnectivityPort _network;
   final bool _ownsDio;
   final Random _random = Random();
 
   final _statusController = StreamController<ConnectivityStatus>.broadcast();
-  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  StreamSubscription<bool>? _connectivitySubscription;
   StreamSubscription<Uri>? _transportFailureSubscription;
   StreamSubscription<Uri>? _successfulTrafficSubscription;
   Timer? _pollTimer;
@@ -85,15 +92,15 @@ class ConnectivityService with WidgetsBindingObserver {
   @visibleForTesting
   Future<void> debugCheckServerHealth() => _checkServerHealth();
 
-  void _initialize() {
+  void _initialize(AppLifecyclePort lifecycle) {
     // Listen to network interface changes
-    _connectivitySubscription = _connectivity.onConnectivityChanged.listen(
+    _connectivitySubscription = _network.onChanged.listen(
       _handleNetworkChange,
       onError: (_) {}, // Ignore connectivity errors
     );
 
     // Check initial network state immediately
-    _connectivity.checkConnectivity().then(_handleNetworkChange);
+    _network.hasNetworkInterface().then(_handleNetworkChange);
 
     _transportFailureSubscription = _transportFailures.stream.listen((uri) {
       if (_originKey(uri) != _originKey(_getServerUri())) return;
@@ -125,14 +132,13 @@ class ConnectivityService with WidgetsBindingObserver {
     // lifecycle resumes, and failed requests are the primary triggers.
     _scheduleNextCheck();
 
-    WidgetsBinding.instance.addObserver(this);
+    _lifecycleSubscription = lifecycle.changes.listen(_onLifecyclePhase);
     _extendOfflineSuppression(const Duration(seconds: 3));
   }
 
-  void _handleNetworkChange(List<ConnectivityResult> results) {
+  void _handleNetworkChange(bool hasNetwork) {
     if (_statusController.isClosed) return;
     final hadNetwork = _hasNetworkInterface;
-    final hasNetwork = results.any((r) => r != ConnectivityResult.none);
     _hasNetworkInterface = hasNetwork;
 
     if (!hasNetwork) {
@@ -528,7 +534,8 @@ class ConnectivityService with WidgetsBindingObserver {
     _successfulTrafficSubscription?.cancel();
     _successfulTrafficSubscription = null;
     _cancelNoNetworkGrace();
-    WidgetsBinding.instance.removeObserver(this);
+    _lifecycleSubscription?.cancel();
+    _lifecycleSubscription = null;
 
     if (_ownsDio) {
       _dio.close(force: true);
@@ -539,26 +546,22 @@ class ConnectivityService with WidgetsBindingObserver {
     }
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    switch (state) {
-      case AppLifecycleState.resumed:
+  void _onLifecyclePhase(AppLifecyclePhase phase) {
+    switch (phase) {
+      case AppLifecyclePhase.resumed:
         _isAppForeground = true;
         _extendOfflineSuppression(const Duration(seconds: 4));
         // Give networking stack a short window to settle
         _scheduleNextCheck(delay: const Duration(milliseconds: 500));
-        break;
-      case AppLifecycleState.inactive:
-      case AppLifecycleState.paused:
-      case AppLifecycleState.hidden:
+      case AppLifecyclePhase.inactive:
+      case AppLifecyclePhase.paused:
+      case AppLifecyclePhase.hidden:
         _isAppForeground = false;
         _extendOfflineSuppression(const Duration(seconds: 6));
         _stopPolling();
-        break;
-      case AppLifecycleState.detached:
+      case AppLifecyclePhase.detached:
         _isAppForeground = false;
         _stopPolling();
-        break;
     }
   }
 }
@@ -571,7 +574,13 @@ final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
     data: (server) {
       if (server == null) {
         final dio = Dio();
-        final service = ConnectivityService(dio, ref, null, true);
+        final service = ConnectivityService(
+        dio,
+        ref,
+        ref.read(connectivityPortProvider),
+        true,
+        ref.read(appLifecycleProvider),
+      );
         ref.onDispose(service.dispose);
         return service;
       }
@@ -592,13 +601,25 @@ final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
         },
       );
 
-      final service = ConnectivityService(dio, ref, null, true);
+      final service = ConnectivityService(
+        dio,
+        ref,
+        ref.read(connectivityPortProvider),
+        true,
+        ref.read(appLifecycleProvider),
+      );
       ref.onDispose(service.dispose);
       return service;
     },
     orElse: () {
       final dio = Dio();
-      final service = ConnectivityService(dio, ref, null, true);
+      final service = ConnectivityService(
+        dio,
+        ref,
+        ref.read(connectivityPortProvider),
+        true,
+        ref.read(appLifecycleProvider),
+      );
       ref.onDispose(service.dispose);
       return service;
     },

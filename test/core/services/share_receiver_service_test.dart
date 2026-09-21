@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/models/model.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/attachment_upload_queue.dart';
 import 'package:conduit/core/services/media_upload_controller.dart';

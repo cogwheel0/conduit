@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/model.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit/features/chat/models/model_selector_layout.dart';
 import 'package:flutter_test/flutter_test.dart';
 

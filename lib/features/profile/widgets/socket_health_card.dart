@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
 
-import '../../../core/models/socket_health.dart';
+import 'package:conduit_core/models/socket_health.dart';
 import '../../../core/services/socket_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';

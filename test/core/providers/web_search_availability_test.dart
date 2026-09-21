@@ -1,8 +1,8 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/models/backend_config.dart';
-import 'package:conduit/core/models/model.dart';
-import 'package:conduit/core/models/user.dart';
+import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';

@@ -1,15 +1,15 @@
 import 'dart:async';
 import 'dart:math';
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
 
-import '../models/conversation.dart';
+import 'package:conduit_core/models/conversation.dart';
 import 'app_database.dart';
 import 'daos/chats_dao.dart';
 import 'daos/search_dao.dart';
 import 'mappers/chat_blob_mapper.dart';
 import 'mappers/conversation_assembler.dart';
 import 'models/chat_transcript_window.dart';
+import 'package:meta/meta.dart';
 
 /// The database that owns a chat.
 ///

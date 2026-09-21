@@ -5,7 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 
-import '../../../core/models/server_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 import '../../../core/services/server_tls_http_client_factory.dart';
 import '../models/direct_connection_profile.dart';
 

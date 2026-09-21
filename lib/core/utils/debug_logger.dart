@@ -1,12 +1,27 @@
-import 'package:flutter/foundation.dart';
+import 'package:conduit_core/conduit_core.dart';
 
 /// Centralized debug logging utility for the entire app.
 ///
 /// Messages are rendered in a compact `PREFIX[scope] message key=value` format
 /// to keep Flutter's debug console readable while still providing
 /// machine-friendly key/value pairs for quick scanning.
+///
+/// Formatting lives here; *destination* does not (WP-1.5). The Flutter app
+/// sends records to `debugPrint`, the `conduitd` sidecar to rotating files
+/// under `userData/logs` — it has no attached console, and "Export
+/// diagnostics" needs something to zip.
 class DebugLogger {
-  static const bool _enabled = kDebugMode;
+  /// Discards records until a host installs a real sink, so a core object
+  /// constructed outside an app still runs. Logging is never load-bearing.
+  static LogSink _sink = const NullLogSink();
+
+  /// Installed once at startup: `main.dart` for the app,
+  /// `test/flutter_test_config.dart` for tests, bootstrap for the daemon.
+  static set sink(LogSink value) => _sink = value;
+
+  /// Whether records would go anywhere. Callers can skip building expensive
+  /// messages; this is what the old `kDebugMode` constant gated.
+  static bool get isEnabled => _sink.isVerbose;
 
   /// Log debug information.
   static void log(String message, {String? scope, Map<String, Object?>? data}) {
@@ -167,7 +182,7 @@ class DebugLogger {
     Object? error,
     StackTrace? stackTrace,
   }) {
-    if (!_enabled) {
+    if (!_sink.isVerbose) {
       return;
     }
 
@@ -207,7 +222,9 @@ class DebugLogger {
         ..write(_stringify(stackTrace));
     }
 
-    debugPrint(buffer.toString());
+    // The line is already fully composed, scope and error included, so the
+    // sink receives it as-is and only decides where it goes.
+    _sink.write(_levels[category] ?? LogLevel.debug, buffer.toString());
   }
 
   static String _formatData(Map<String, Object?>? data) {
@@ -254,6 +271,22 @@ enum _LogCategory {
   validation,
   storage,
 }
+
+/// Maps the app's fine-grained categories onto the sink's four severities.
+///
+/// The categories exist to make the console scannable (`NAV`, `AUT`, `STR`);
+/// a file or a remote sink only needs to know how serious a record is.
+const Map<_LogCategory, LogLevel> _levels = <_LogCategory, LogLevel>{
+  _LogCategory.debug: LogLevel.debug,
+  _LogCategory.info: LogLevel.info,
+  _LogCategory.warning: LogLevel.warning,
+  _LogCategory.error: LogLevel.error,
+  _LogCategory.navigation: LogLevel.debug,
+  _LogCategory.auth: LogLevel.debug,
+  _LogCategory.stream: LogLevel.debug,
+  _LogCategory.validation: LogLevel.debug,
+  _LogCategory.storage: LogLevel.debug,
+};
 
 const Map<_LogCategory, String> _prefixes = <_LogCategory, String>{
   _LogCategory.debug: 'DBG',

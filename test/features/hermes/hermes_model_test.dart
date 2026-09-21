@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/model.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit/core/utils/model_icon_utils.dart';
 import 'package:conduit/features/hermes/models/hermes_model.dart';
 import 'package:flutter_test/flutter_test.dart';

@@ -1,7 +1,8 @@
 import 'dart:convert';
 
+import 'dart:typed_data';
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 import '../../../core/services/api_service.dart';

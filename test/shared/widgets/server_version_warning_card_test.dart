@@ -1,5 +1,5 @@
-import 'package:conduit/core/models/backend_config.dart';
-import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
@@ -14,6 +14,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 class _FixedBackendConfigNotifier extends BackendConfigNotifier {
   _FixedBackendConfigNotifier(this._config);
@@ -54,7 +55,7 @@ Widget _buildCard({
 
 Future<void> _seedPreferences([Map<String, Object> values = const {}]) async {
   SharedPreferences.setMockInitialValues(values);
-  PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+  PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 }
 
 void main() {

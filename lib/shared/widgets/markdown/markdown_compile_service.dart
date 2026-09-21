@@ -10,13 +10,10 @@ import 'package:markdown/markdown.dart' as md;
 
 import '../../../core/services/performance_profiler.dart';
 import '../../../core/services/worker_manager.dart';
-import '../../../core/utils/citation_parser.dart';
-import '../../../core/utils/embed_utils.dart';
+import 'package:conduit_markdown/conduit_markdown.dart';
 import 'compiled_markdown_document.dart';
 import 'streaming_markdown_preparation.dart';
-import 'renderer/details_block_syntax.dart';
 import 'renderer/latex_preprocessor.dart';
-import 'renderer/mention_inline_syntax.dart';
 
 const int markdownSynchronousCompileThreshold = 384;
 const int markdownSynchronousPrepareThreshold = 768;

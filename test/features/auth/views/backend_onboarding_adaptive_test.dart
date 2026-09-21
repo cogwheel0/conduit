@@ -2,9 +2,9 @@ import 'dart:ui' as ui;
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
-import 'package:conduit/core/services/navigation_service.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/features/auth/views/backend_chooser_page.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/shared/widgets/utility_components.dart';

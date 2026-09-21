@@ -10,9 +10,9 @@ import 'package:conduit/core/database/database_manager.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/database/local_conversation_loader.dart';
 import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
-import 'package:conduit/core/models/chat_message.dart';
-import 'package:conduit/core/models/conversation.dart';
-import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
@@ -44,6 +44,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 class _TestActiveConversationNotifier extends ActiveConversationNotifier {
   @override
@@ -1132,7 +1133,7 @@ void main() {
     setUp(() async {
       PreferencesStore.debugReset();
       SharedPreferences.setMockInitialValues(<String, Object>{});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       HermesLocalDocumentTrustStore.debugResetRuntimeState();
     });
 
@@ -2311,7 +2312,7 @@ void main() {
             '<<<END_HERMES_UNTRUSTED_REFERENCE_TEST>>>';
         const prompt = 'summarize\n\n$envelope';
         SharedPreferences.setMockInitialValues(<String, Object>{});
-        PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+        PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
         HermesLocalDocumentTrustStore.debugResetRuntimeState();
         addTearDown(() {
           HermesLocalDocumentTrustStore.debugResetRuntimeState();
@@ -2386,7 +2387,7 @@ void main() {
           '<<<END_HERMES_UNTRUSTED_REFERENCE_TEST>>>';
       const prompt = 'summarize\n\n$envelope';
       SharedPreferences.setMockInitialValues(<String, Object>{});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       HermesLocalDocumentTrustStore.debugResetRuntimeState();
       addTearDown(() {
         HermesLocalDocumentTrustStore.debugResetRuntimeState();
@@ -2911,7 +2912,7 @@ void main() {
               PreferenceKeys.hermesEnabled: true,
             });
             PreferencesStore.debugOverride(
-              await SharedPreferences.getInstance(),
+      await FlutterKeyValueStore.load(),
             );
             addTearDown(PreferencesStore.debugReset);
 
@@ -3027,7 +3028,7 @@ void main() {
       'successful document sends persist exact server provenance for reopen',
       () async {
         SharedPreferences.setMockInitialValues(<String, Object>{});
-        PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+        PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
         HermesLocalDocumentTrustStore.debugResetRuntimeState();
         addTearDown(() {
           HermesLocalDocumentTrustStore.debugResetRuntimeState();
@@ -5075,7 +5076,7 @@ void main() {
         SharedPreferences.setMockInitialValues(<String, Object>{
           PreferenceKeys.hermesEnabled: true,
         });
-        PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+        PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
         addTearDown(PreferencesStore.debugReset);
         final capabilities = Completer<HermesCapabilities>();
         final capabilitiesRequested = Completer<void>();

@@ -5,7 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart';
 
-import '../models/server_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 
 /// Builds server-scoped `dart:io` TLS clients for self-signed certs and mTLS.
 class ServerTlsHttpClientFactory {

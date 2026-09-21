@@ -3,7 +3,7 @@ import 'dart:io';
 // ignore: implementation_imports
 import 'package:cached_network_image_ce/src/cache/default_cache_manager.dart'
     as cached_network_image_ce;
-import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/core/network/self_signed_image_cache_manager_factory_io.dart';
 import 'package:flutter_test/flutter_test.dart';
 
