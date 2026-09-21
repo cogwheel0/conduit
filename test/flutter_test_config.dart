@@ -5,6 +5,7 @@ import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/platform/flutter_flush_scheduler.dart';
 import 'package:conduit/platform/flutter_post_frame_scheduler.dart';
 import 'package:conduit/platform/just_audio_playback.dart';
+import 'package:conduit/platform/record_audio_capture.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 import 'package:conduit/platform/flutter_log_sink.dart';
 import 'package:conduit_core/conduit_core.dart';
@@ -35,5 +36,10 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   // once from this factory. Installing the real one keeps the suite on
   // the same code path the app uses.
   AudioPlaybackPort.hostFactory = JustAudioPlayback.new;
+  // This one is load-bearing: VoiceInputService used to default to the
+  // record-backed client, and the core's default reports no microphone
+  // at all, which would take every voice test down a 'cannot listen'
+  // path it was never meant to exercise.
+  AudioCapturePort.hostFactory = RecordAudioCapture.new;
   await testMain();
 }

@@ -21,6 +21,7 @@ import 'platform/flutter_cookie_jar.dart';
 import 'platform/flutter_flush_scheduler.dart';
 import 'platform/flutter_post_frame_scheduler.dart';
 import 'platform/just_audio_playback.dart';
+import 'platform/record_audio_capture.dart';
 import 'platform/flutter_secure_key_value_store.dart';
 import 'platform/flutter_key_value_store.dart';
 import 'platform/flutter_log_sink.dart';
@@ -135,6 +136,7 @@ void main() {
   // Installed first, so startup itself is logged.
   DebugLogger.sink = const FlutterLogSink();
   AudioPlaybackPort.hostFactory = JustAudioPlayback.new;
+  AudioCapturePort.hostFactory = RecordAudioCapture.new;
   // The preference store is a host capability too (WP-1.2); installed
   // before bootstrap awaits its first synchronous read.
   PreferencesStore.installLoader(FlutterKeyValueStore.load);

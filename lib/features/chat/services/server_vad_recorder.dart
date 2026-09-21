@@ -1,53 +1,20 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:record/record.dart';
+import 'package:conduit_core/conduit_core.dart';
 
-/// Record boundary used by server-side VAD.
+/// Owns the PCM bridge between the microphone and VAD for one session.
 ///
-/// VAD 0.0.8 still declares Record 6.x support, so Conduit owns the Record 7
-/// stream and passes only PCM bytes into VAD. Keep this boundary until VAD can
-/// preserve Conduit's externally managed iOS audio session itself.
-abstract class ServerVadRecorderClient {
-  Future<bool> hasPermission();
-  Future<void> manageIosAudioSession(bool manage);
-  Future<Stream<Uint8List>> startStream(RecordConfig config);
-  Future<void> stop();
-  Future<void> dispose();
-}
-
-class RecordServerVadRecorderClient implements ServerVadRecorderClient {
-  RecordServerVadRecorderClient([AudioRecorder? recorder])
-    : _recorder = recorder ?? AudioRecorder();
-
-  final AudioRecorder _recorder;
-
-  @override
-  Future<bool> hasPermission() => _recorder.hasPermission();
-
-  @override
-  Future<void> manageIosAudioSession(bool manage) async {
-    await _recorder.ios?.manageAudioSession(manage);
-  }
-
-  @override
-  Future<Stream<Uint8List>> startStream(RecordConfig config) =>
-      _recorder.startStream(config);
-
-  @override
-  Future<void> stop() async {
-    await _recorder.stop();
-  }
-
-  @override
-  Future<void> dispose() => _recorder.dispose();
-}
-
-/// Owns the PCM bridge between Record 7 and VAD for one recognition session.
+/// The bridge exists because VAD 0.0.8 still declares Record 6.x support, so
+/// Conduit owns the Record 7 stream itself and passes only PCM bytes in. The
+/// capture side is now [AudioCapturePort], which is what let this drop its
+/// plugin import — the ordering below is the part that matters and is
+/// unchanged: VAD subscribes before the recorder starts, so the beginning of
+/// the microphone stream cannot be lost during setup.
 class ServerVadRecorderSession {
   ServerVadRecorderSession(this._recorder);
 
-  final ServerVadRecorderClient _recorder;
+  final AudioCapturePort _recorder;
   StreamController<Uint8List>? _audioController;
   StreamSubscription<Uint8List>? _recorderSubscription;
   bool _stopping = false;
@@ -60,7 +27,7 @@ class ServerVadRecorderSession {
       _holdingForResponse && _recorderStarted && !_disposed;
 
   Future<void> start({
-    required RecordConfig config,
+    required AudioCaptureConfig config,
     required bool iosAudioSessionManagedExternally,
     required Future<void> Function(Stream<Uint8List> audioStream) connectVad,
     required void Function(Object error, StackTrace stackTrace) onRecorderError,
