@@ -93,6 +93,9 @@ import 'shared/theme/theme_providers.dart';
 import 'platform/frame_profiler.dart';
 import 'features/direct_connections/providers/apple_pcc_providers.dart';
 import 'features/direct_connections/providers/direct_connection_providers.dart';
+import 'shared/services/app_package_info.dart';
+import 'features/hermes/providers/hermes_providers.dart';
+import 'features/hermes/services/hermes_dashboard_rest_bridge.dart';
 
 const bool _enableFlutterDriverExtension = bool.fromEnvironment(
   'ENABLE_FLUTTER_DRIVER_EXTENSION',
@@ -308,6 +311,13 @@ void main() {
           ),
           hostDirectProviderAdaptersProvider.overrideWith(
             (ref) => [ref.watch(applePccAdapterProvider)],
+          ),
+          hostHermesDashboardBridgeFactoryProvider.overrideWith(
+            (ref) =>
+                ({required root}) => HermesDashboardRestBridge(
+                  config: ref.read(hermesConfigProvider),
+                  root: root,
+                ),
           ),
           clipboardPortProvider.overrideWithValue(const FlutterClipboardPort()),
           secureStorageProvider.overrideWithValue(

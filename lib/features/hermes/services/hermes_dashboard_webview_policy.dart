@@ -6,6 +6,8 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import 'package:conduit_core/auth/webview_origin.dart';
 
+import 'hermes_dashboard_access.dart';
+
 Map<String, String> hermesHeadersWithoutAccessCredentials(
   Map<String, String> headers,
   Map<String, String> accessHeaders,
@@ -16,17 +18,6 @@ Map<String, String> hermesHeadersWithoutAccessCredentials(
       if (!reserved.contains(entry.key.toLowerCase())) entry.key: entry.value,
   };
 }
-
-/// Whether the dashboard may be reached with gateway access headers.
-///
-/// Takes a bool rather than Flutter's `TargetPlatform` so callers outside the
-/// widget layer can ask: the question is only ever "is this iOS", and the
-/// REST client that needs the answer has no business importing Flutter to
-/// phrase it.
-bool hermesDashboardHeadersSupported({
-  required bool isIOS,
-  required Map<String, String> accessHeaders,
-}) => !isIOS || accessHeaders.isEmpty;
 
 ({bool allowed, bool leftDashboard, bool returnedToDashboard})
 hermesDashboardNavigationTransition({

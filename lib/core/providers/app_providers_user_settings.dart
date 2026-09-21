@@ -587,8 +587,3 @@ Future<ServerAboutInfo?> serverAboutInfo(Ref ref) async {
   }
   return api.getServerAboutInfo();
 }
-
-/// Cached [PackageInfo] for About screens and native profile sheets.
-final packageInfoProvider = FutureProvider<PackageInfo>((ref) async {
-  return PackageInfo.fromPlatform();
-});

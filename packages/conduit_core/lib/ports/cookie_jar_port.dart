@@ -24,6 +24,13 @@ abstract interface class CookieJarPort {
 
   Future<bool> clearCookies();
 
+  /// Drops only the cookies held for [origin].
+  ///
+  /// Distinct from [clearCookies] because signing out of one server must not
+  /// disturb a session held for another. Returns true when nothing is left
+  /// for that origin, including when there was nothing to begin with.
+  Future<bool> clearForOrigin(String origin);
+
   Future<bool> clearWebsiteData();
 
   /// Cookies and website data together. True when nothing remains.
@@ -52,6 +59,9 @@ class NullCookieJarPort implements CookieJarPort {
 
   @override
   Future<bool> clearCookies() async => true;
+
+  @override
+  Future<bool> clearForOrigin(String origin) async => true;
 
   @override
   Future<bool> clearWebsiteData() async => true;

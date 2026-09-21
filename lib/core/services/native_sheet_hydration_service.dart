@@ -34,6 +34,7 @@ import '../../shared/services/navigation_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 
 import '../../shared/theme/theme_providers.dart';
+import '../../shared/services/app_package_info.dart';
 
 final nativeSheetHydrationServiceProvider =
     Provider<NativeSheetHydrationService>(NativeSheetHydrationService.new);

@@ -20,7 +20,6 @@ import 'package:crypto/crypto.dart';
 import 'package:collection/collection.dart';
 import 'package:meta/meta.dart';
 import 'package:riverpod/riverpod.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../services/api_service.dart';

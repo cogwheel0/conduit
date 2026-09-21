@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:uuid/uuid.dart';
 
 import 'package:conduit_core/models/chat_message.dart';
+
 import '../models/hermes_chat_input.dart';
 import '../utils/hermes_time_parsing.dart';
 import 'hermes_identifier.dart';

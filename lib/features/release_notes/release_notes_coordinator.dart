@@ -6,8 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 
-import '../../core/providers/app_providers.dart';
-
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -19,6 +17,7 @@ import 'models/release_note.dart';
 import 'release_notes_bootstrap.dart';
 import 'release_notes_banner_controller.dart';
 import 'services/release_notes_service.dart';
+import '../../shared/services/app_package_info.dart';
 
 class ReleaseNotesCoordinator extends ConsumerStatefulWidget {
   const ReleaseNotesCoordinator({

@@ -21,8 +21,8 @@ import '../models/hermes_model.dart';
 import '../models/hermes_run_event.dart';
 import 'hermes_backend_service.dart';
 import 'hermes_http_transport.dart';
-import 'hermes_dashboard_rest_bridge.dart';
-import 'hermes_dashboard_webview_policy.dart';
+import 'hermes_dashboard_bridge.dart';
+import 'hermes_dashboard_access.dart';
 import 'hermes_desktop_transport.dart';
 import 'hermes_identifier.dart';
 import 'hermes_json_guard.dart';
@@ -205,8 +205,10 @@ final class HermesDesktopApiService
     Dio? dio,
     HermesDesktopRpcClient? rpc,
     OpenExternalUrlPort? openExternalUrl,
+    HermesDashboardBridgeFactory? dashboardBridgeFactory,
     this.onCredentialsChanged,
   }) : _openExternalUrl = openExternalUrl ?? const NullOpenExternalUrlPort(),
+       _dashboardBridgeFactory = dashboardBridgeFactory,
        _nativeTokens = config.desktopCredentials?.nativeTokens,
        _origin =
            HermesConfig.connectionOrigin(config.baseUrl) ??
@@ -236,6 +238,9 @@ final class HermesDesktopApiService
   /// not start rather than waiting for a callback nothing will send.
   final OpenExternalUrlPort _openExternalUrl;
 
+  /// Supplies the WebView-backed dashboard bridge, when the host has one.
+  final HermesDashboardBridgeFactory? _dashboardBridgeFactory;
+
   final String _origin;
   final Uri _root;
   @override
@@ -243,7 +248,7 @@ final class HermesDesktopApiService
   final Dio _dio;
   final HermesDesktopRpcClient _rpc;
   late final _HermesDesktopAdministration _administration;
-  HermesDashboardRestBridge? _dashboardBridge;
+  HermesDashboardBridge? _dashboardBridge;
   final HermesDesktopCredentialsWriter? onCredentialsChanged;
   HermesDesktopTokenSet? _nativeTokens;
   bool _closed = false;

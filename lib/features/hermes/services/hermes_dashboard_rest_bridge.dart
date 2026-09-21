@@ -4,8 +4,9 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../models/hermes_config.dart';
 import 'hermes_dashboard_cookie_store.dart';
+import 'hermes_dashboard_bridge.dart';
 
-final class HermesDashboardRestBridge {
+final class HermesDashboardRestBridge implements HermesDashboardBridge {
   HermesDashboardRestBridge({required this.config, required Uri root})
     : _root = root,
       _cookieGeneration = HermesDashboardCookieStore.begin(root.toString()),
@@ -20,6 +21,7 @@ final class HermesDashboardRestBridge {
   Future<InAppWebViewController>? _ready;
   Future<void> _tail = Future<void>.value();
 
+  @override
   Future<({int status, String body})> request(
     String method,
     Uri uri, {
@@ -134,6 +136,7 @@ final class HermesDashboardRestBridge {
       uri.host.toLowerCase() == _root.host.toLowerCase() &&
       uri.port == _root.port;
 
+  @override
   Future<void> reload() async {
     final controller = _controller;
     if (controller == null) return;
@@ -148,6 +151,7 @@ final class HermesDashboardRestBridge {
     }).timeout(const Duration(seconds: 15));
   }
 
+  @override
   Future<void> close() async {
     await _tail;
     await _webView?.dispose();

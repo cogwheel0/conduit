@@ -3,7 +3,6 @@ import 'dart:convert';
 
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
-import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
@@ -22,6 +21,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
+import 'package:conduit/shared/services/app_package_info.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

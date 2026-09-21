@@ -1,6 +1,7 @@
 import 'package:conduit_core/conduit_core.dart';
 
 import 'webview_cookie_helper.dart';
+import '../features/hermes/services/hermes_dashboard_cookie_store.dart';
 
 /// The Flutter app's [CookieJarPort] (WP-1.5, WP-1.16).
 ///
@@ -20,6 +21,10 @@ class FlutterCookieJar implements CookieJarPort {
   @override
   Future<Set<String>> identitiesFor(String origin) =>
       WebViewCookieHelper.cookieIdentitiesForOrigin(origin);
+
+  @override
+  Future<bool> clearForOrigin(String origin) =>
+      HermesDashboardCookieStore.clear(origin);
 
   @override
   Future<bool> clearCookies() => WebViewCookieHelper.clearCookies();

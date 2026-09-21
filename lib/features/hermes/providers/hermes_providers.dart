@@ -42,7 +42,6 @@ import '../models/hermes_toolset.dart';
 import '../services/hermes_api_service.dart';
 import '../services/hermes_backend_service.dart';
 import '../services/hermes_desktop_api_service.dart';
-import '../services/hermes_dashboard_cookie_store.dart';
 import '../services/hermes_identifier.dart';
 import '../services/hermes_local_document_trust_store.dart';
 import '../services/hermes_message_mapper.dart';
@@ -50,6 +49,8 @@ import '../services/hermes_pending_decision_store.dart';
 import '../services/hermes_session_provenance.dart';
 
 import 'package:conduit_core/providers/host_ports.dart';
+
+import '../services/hermes_dashboard_bridge.dart';
 
 final class _HermesCredentialRollbackFailure implements Exception {
   const _HermesCredentialRollbackFailure({
@@ -311,7 +312,9 @@ class HermesConfigController extends Notifier<HermesConfig> {
     _throwIfSecretsUnavailable();
     await _withRunAdmissionBlocked(() async {
       await _cancelActiveRuns();
-      final cleared = await HermesDashboardCookieStore.clear(state.baseUrl);
+      final cleared = await ref
+          .read(cookieJarProvider)
+          .clearForOrigin(state.baseUrl);
       if (!cleared) {
         throw StateError('Hermes dashboard cookies could not be cleared.');
       }
@@ -657,9 +660,9 @@ class HermesConfigController extends Notifier<HermesConfig> {
         }
 
         if (originChanged && previousBaseUrl.trim().isNotEmpty) {
-          final cleared = await HermesDashboardCookieStore.clear(
-            previousBaseUrl,
-          );
+          final cleared = await ref
+              .read(cookieJarProvider)
+              .clearForOrigin(previousBaseUrl);
           if (!cleared) {
             try {
               await _persistSecretsAtomically(
@@ -1258,6 +1261,15 @@ class HermesSecretsError extends Notifier<Object?> {
 final hermesSecretsErrorProvider =
     NotifierProvider<HermesSecretsError, Object?>(HermesSecretsError.new);
 
+/// The host's WebView-backed dashboard bridge, if it has one.
+///
+/// Hermes' dashboard authenticates with cookies a WebView holds, so the
+/// implementation drives `flutter_inappwebview` and cannot live beside this
+/// file. A host that registers nothing simply cannot reach the dashboard,
+/// which the auth path reports rather than failing opaquely.
+final hostHermesDashboardBridgeFactoryProvider =
+    Provider<HermesDashboardBridgeFactory?>((ref) => null);
+
 final hermesConfigProvider =
     NotifierProvider<HermesConfigController, HermesConfig>(
       HermesConfigController.new,
@@ -1348,6 +1360,9 @@ final hermesApiServiceProvider = Provider<HermesBackendService?>((ref) {
     final desktopService = HermesDesktopApiService(
       config: config,
       openExternalUrl: ref.read(openExternalUrlProvider),
+      dashboardBridgeFactory: ref.read(
+        hostHermesDashboardBridgeFactoryProvider,
+      ),
       onCredentialsChanged: (credentials) async {
         try {
           if (!ref.mounted) return;

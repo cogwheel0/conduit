@@ -321,10 +321,13 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
       );
     }
     if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
-    final bridge = _dashboardBridge ??= HermesDashboardRestBridge(
-      config: config,
-      root: _root,
-    );
+    final bridgeFactory = _dashboardBridgeFactory;
+    if (bridgeFactory == null) {
+      throw StateError(
+        'This host has no WebView, so the Hermes dashboard cannot be reached.',
+      );
+    }
+    final bridge = _dashboardBridge ??= bridgeFactory(root: _root);
     final response = await bridge.request(
       method,
       _uri(path, query),
