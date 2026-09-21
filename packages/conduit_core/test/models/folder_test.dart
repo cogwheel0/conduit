@@ -1,6 +1,6 @@
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/folder.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 
 /// Shared folders (issue #710) are stored through the same folders table as
 /// owned ones; `shared`, `owner_name` and `permission` ride in rawExtra and

@@ -1,6 +1,6 @@
 import 'package:checks/checks.dart';
 import 'package:conduit_core/utils/json_parsing.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 
 void main() {
   group('parseDateTime', () {

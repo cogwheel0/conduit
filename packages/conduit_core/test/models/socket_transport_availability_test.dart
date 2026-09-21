@@ -1,6 +1,6 @@
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/socket_transport_availability.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 
 void main() {
   test('value equality: logically equal instances are == and hash-equal', () {

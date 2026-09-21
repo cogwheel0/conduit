@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 
 void main() {
   test('ask-user parser enforces the upstream shape and bounds text', () {

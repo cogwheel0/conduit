@@ -22,6 +22,7 @@ dependencies:
 
 dev_dependencies:
   build_runner: ^2.15.1
+  checks: ^0.3.1
   freezed: ^4.0.1
   json_serializable: ^6.11.1
   lints: ^6.0.0

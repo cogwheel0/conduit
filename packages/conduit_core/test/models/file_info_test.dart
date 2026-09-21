@@ -1,6 +1,6 @@
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/file_info.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 
 void main() {
   group('FileInfo.fromJson', () {

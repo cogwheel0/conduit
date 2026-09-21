@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 
 import 'package:conduit_core/models/account_metadata.dart';
 import 'package:conduit_core/models/backend_config.dart';
