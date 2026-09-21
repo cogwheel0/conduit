@@ -1,5 +1,5 @@
-
 import '../utils/server_version_compat.dart';
+
 import 'package:meta/meta.dart';
 
 /// Represents the available OAuth providers configured on the server.

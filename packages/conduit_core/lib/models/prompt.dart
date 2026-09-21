@@ -1,5 +1,5 @@
-
 import '../utils/json_parsing.dart';
+
 import 'package:meta/meta.dart';
 
 @immutable

@@ -33,7 +33,9 @@ class FakeDaemon {
   json_rpc.Peer get latest => peers.last;
 
   Future<StreamChannel<String>> open(Uri uri, List<String> protocols) async {
-    final controller = StreamChannelController<String>(allowForeignErrors: false);
+    final controller = StreamChannelController<String>(
+      allowForeignErrors: false,
+    );
     final peer = json_rpc.Peer(controller.foreign);
     peers.add(peer);
 
@@ -67,8 +69,11 @@ class FakeDaemon {
       ).toJson();
     });
 
-    peer.registerMethod(ConduitMethods.systemPing, (json_rpc.Parameters _) =>
-        const PongResult(uptimeMs: 1, serverTimeMs: 2).toJson());
+    peer.registerMethod(
+      ConduitMethods.systemPing,
+      (json_rpc.Parameters _) =>
+          const PongResult(uptimeMs: 1, serverTimeMs: 2).toJson(),
+    );
 
     peer.registerMethod(ConduitMethods.eventsSubscribe, (
       json_rpc.Parameters params,
@@ -207,18 +212,14 @@ void main() {
     unawaited(client.start());
     await _settle();
 
-    daemon.push(
-      const EventEnvelope(event: ConduitEvents.syncStatus, seq: 1),
-    );
+    daemon.push(const EventEnvelope(event: ConduitEvents.syncStatus, seq: 1));
     await _settle();
     expect(received, hasLength(1));
     expect(client.missedEvents, isFalse);
 
     // seq 2 never arrives: the client must notice rather than assume it can
     // keep patching its local state.
-    daemon.push(
-      const EventEnvelope(event: ConduitEvents.syncStatus, seq: 3),
-    );
+    daemon.push(const EventEnvelope(event: ConduitEvents.syncStatus, seq: 3));
     await _settle();
     expect(received, hasLength(2));
     expect(client.missedEvents, isTrue);

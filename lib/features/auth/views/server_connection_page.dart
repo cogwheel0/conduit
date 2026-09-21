@@ -16,6 +16,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import '../../../platform/webview_cookie_helper.dart';
 
 import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/auth/proxy_session.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/network/conduit_user_agent.dart';
@@ -62,36 +63,6 @@ BaseOptions buildSchemeLessPlaintextHealthProbeOptions(String baseUrl) {
     validateStatus: (status) => true,
     headers: ConduitUserAgent.mergeHeaders(),
   );
-}
-
-/// Merges proxy cookies into headers without leaving alternate-cased Cookie
-/// fields or duplicate cookie names. Newly captured values are authoritative.
-Map<String, String> mergeCapturedProxyCookiesIntoHeaders({
-  required Map<String, String> headers,
-  required Map<String, String> capturedCookies,
-}) {
-  final mergedHeaders = Map<String, String>.from(headers);
-  final mergedCookies = <String, String>{};
-
-  for (final entry in headers.entries) {
-    if (entry.key.toLowerCase() != 'cookie') continue;
-    for (final component in entry.value.split(';')) {
-      final separator = component.indexOf('=');
-      if (separator <= 0) continue;
-      final name = component.substring(0, separator).trim();
-      if (name.isEmpty) continue;
-      mergedCookies[name] = component.substring(separator + 1).trim();
-    }
-  }
-
-  mergedHeaders.removeWhere((key, _) => key.toLowerCase() == 'cookie');
-  mergedCookies.addAll(capturedCookies);
-  if (mergedCookies.isNotEmpty) {
-    mergedHeaders['Cookie'] = mergedCookies.entries
-        .map((entry) => '${entry.key}=${entry.value}')
-        .join('; ');
-  }
-  return mergedHeaders;
 }
 
 /// Redacts configured header values before normalizing and bounding text that

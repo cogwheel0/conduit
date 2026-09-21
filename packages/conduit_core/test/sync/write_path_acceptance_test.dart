@@ -82,7 +82,6 @@ class StubCompletionRunner implements RequestCompletionRunner {
 }
 
 void main() {
-
   late Directory tempDir;
   late Box<dynamic> caches;
   late AppDatabase db;

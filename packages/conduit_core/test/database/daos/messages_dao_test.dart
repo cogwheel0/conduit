@@ -10,6 +10,7 @@ import 'package:drift/native.dart';
 import 'package:test/test.dart';
 
 import '../support/chat_blob_fixtures.dart';
+
 import 'package:conduit_core/testing.dart';
 
 const _deepEq = DeepCollectionEquality();

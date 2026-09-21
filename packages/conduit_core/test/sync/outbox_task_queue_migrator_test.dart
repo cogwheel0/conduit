@@ -21,7 +21,6 @@ class _FixedClock implements SyncClock {
 }
 
 void main() {
-
   late Directory tempDir;
   late Box<dynamic> preferences;
   late Box<dynamic> caches;

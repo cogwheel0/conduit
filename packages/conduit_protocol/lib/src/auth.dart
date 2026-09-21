@@ -171,4 +171,10 @@ enum SignOutOutcome {
   /// Neither completed. The user is signed out in the UI, but the next
   /// launch must retry cleanup before trusting any surviving cookie.
   incomplete,
+
+  /// Cleanup stood down because a newer session had already committed --
+  /// the user signed in again while the sign-out was still running. Nothing
+  /// was destroyed, and the user is *not* signed out, so the UI must not
+  /// navigate to onboarding on this outcome.
+  ownershipYielded,
 }

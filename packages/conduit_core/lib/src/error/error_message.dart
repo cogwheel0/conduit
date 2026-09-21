@@ -71,12 +71,15 @@ class ErrorMessage {
   @override
   int get hashCode => Object.hash(
     code,
-    Object.hashAllUnordered(args.entries.map((e) => Object.hash(e.key, e.value))),
+    Object.hashAllUnordered(
+      args.entries.map((e) => Object.hash(e.key, e.value)),
+    ),
   );
 
   @override
-  String toString() =>
-      args.isEmpty ? 'ErrorMessage(${code.name})' : 'ErrorMessage(${code.name}, $args)';
+  String toString() => args.isEmpty
+      ? 'ErrorMessage(${code.name})'
+      : 'ErrorMessage(${code.name}, $args)';
 
   static bool _mapEquals(Map<String, String> a, Map<String, String> b) {
     if (a.length != b.length) return false;

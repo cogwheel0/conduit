@@ -9,11 +9,14 @@ import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'package:shelf_web_socket/shelf_web_socket.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import 'auth_service.dart';
 import 'bootstrap.dart';
+import 'core_runtime.dart';
 import 'daemon_paths.dart';
 import 'event_bus.dart';
 import 'log.dart';
 import 'rpc_session.dart';
+import 'servers_service.dart';
 import 'system_service.dart';
 
 /// The loopback server the renderer talks to.
@@ -42,6 +45,14 @@ class DaemonServer {
   final DaemonLog _log;
 
   late final SystemService _system;
+
+  /// Set by [attachCore]. Sessions opened before it arrives answer
+  /// `servers.*` and `auth.*` with `rpc.daemonUnavailable` rather than with a
+  /// plausible-looking empty result.
+  CoreRuntime? _core;
+  ServersService? _servers;
+  AuthService? _auth;
+
   final EventBus events = EventBus();
   final Map<String, RpcSession> _sessions = <String, RpcSession>{};
   final Random _random = Random.secure();
@@ -69,6 +80,21 @@ class DaemonServer {
     );
     _log.info('listening on 127.0.0.1:${_server!.port}');
     return _server!.port;
+  }
+
+  /// Hands the running core to this server.
+  ///
+  /// Separate from [start] because the socket has to be listening before the
+  /// core finishes booting: Electron needs the port on stdout to open its
+  /// window, and the core's startup includes reading a database off disk.
+  /// Sessions that connect in between are real sessions -- they can
+  /// handshake and ping -- they simply cannot reach state that does not
+  /// exist yet.
+  void attachCore(CoreRuntime core) {
+    _core = core;
+    _servers = ServersService(core.container);
+    _auth = AuthService(core.container);
+    _log.info('core attached');
   }
 
   /// Rejects anything that is not the Electron renderer, before routing.
@@ -157,6 +183,8 @@ class DaemonServer {
         system: _system,
         events: events,
         log: _log,
+        servers: _servers,
+        auth: _auth,
       );
       _sessions[sessionId] = session;
       _log.debug('session $sessionId opened (subprotocol: $subprotocol)');
@@ -197,6 +225,13 @@ class DaemonServer {
     _sessions.clear();
     await _server?.close(force: true);
     _server = null;
+    // After the sockets, so nothing can arrive mid-teardown and read a
+    // half-disposed container; before completing, so a caller awaiting
+    // `onStopped` knows the database is closed and the process can exit.
+    await _core?.dispose();
+    _core = null;
+    _servers = null;
+    _auth = null;
     if (!_stopped.isCompleted) _stopped.complete();
   }
 }

@@ -46,8 +46,10 @@ class BootstrapConfig {
     String required(String key) {
       final value = decoded is Map ? decoded[key] : null;
       if (value is! String || value.isEmpty) {
-        throw FormatException('bootstrap field "$key" must be a non-empty '
-            'string');
+        throw FormatException(
+          'bootstrap field "$key" must be a non-empty '
+          'string',
+        );
       }
       return value;
     }

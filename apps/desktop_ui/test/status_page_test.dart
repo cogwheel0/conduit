@@ -102,10 +102,7 @@ void main() {
       ),
     );
     await pumpEventQueue();
-    expect(
-      find.text(t.desktop.desktopCoreVersionMismatch),
-      findsOneComponent,
-    );
+    expect(find.text(t.desktop.desktopCoreVersionMismatch), findsOneComponent);
   });
 
   testComponents('falls back to the generic failure copy', (tester) async {

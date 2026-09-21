@@ -131,6 +131,35 @@ Future<void> main(List<String> args) async {
   stdout.writeln(jsonEncode(<String, Object>{'ready': true, 'port': port}));
   await stdout.flush();
 
+  // After the port is published, deliberately. The core reads a database and
+  // a secure store off disk, and Electron should not be kept waiting on that
+  // before it can open a window -- `servers.*` and `auth.*` answer
+  // `rpc.daemonUnavailable` for the short window in between.
+  try {
+    server.attachCore(
+      await CoreRuntime.start(
+        config: config,
+        directories: directories,
+        log: log,
+      ),
+    );
+  } on SecureStoreCorruptException catch (error) {
+    // The one startup failure that must not degrade quietly: continuing with
+    // an empty store would show onboarding to a signed-in user and look like
+    // their servers had vanished.
+    log.error('secure store unreadable', error);
+    await server.stop();
+    await stdinSubscription.cancel();
+    exitCode = 77; // EX_NOPERM
+    return;
+  } on Object catch (error, stack) {
+    log.error('failed to start the core', error, stack);
+    await server.stop();
+    await stdinSubscription.cancel();
+    exitCode = 70; // EX_SOFTWARE
+    return;
+  }
+
   final signals = <StreamSubscription<ProcessSignal>>[
     ProcessSignal.sigint.watch().listen((_) => _requestStop(server, log)),
     // SIGTERM cannot be watched on Windows; Electron terminates the process

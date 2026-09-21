@@ -9,6 +9,7 @@ import 'package:conduit_core/auth/auth_state_manager.dart';
 
 import '../../../platform/webview_cookie_helper.dart';
 
+import 'package:conduit_core/auth/proxy_session.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -24,7 +25,6 @@ import '../../../l10n/app_localizations.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 
 import 'proxy_auth_page.dart';
-import 'server_connection_page.dart' show mergeCapturedProxyCookiesIntoHeaders;
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/sign_out_options_dialog.dart';

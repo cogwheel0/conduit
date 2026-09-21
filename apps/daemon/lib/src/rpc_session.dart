@@ -4,8 +4,10 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:json_rpc_2/json_rpc_2.dart' as json_rpc;
 import 'package:stream_channel/stream_channel.dart';
 
+import 'auth_service.dart';
 import 'event_bus.dart';
 import 'log.dart';
+import 'servers_service.dart';
 import 'system_service.dart';
 
 /// One connected renderer window.
@@ -20,9 +22,13 @@ class RpcSession {
     required SystemService system,
     required EventBus events,
     required DaemonLog log,
+    ServersService? servers,
+    AuthService? auth,
   }) : _events = events,
        _log = log,
        _system = system,
+       _servers = servers,
+       _auth = auth,
        _peer = json_rpc.Peer(channel) {
     _register();
   }
@@ -31,6 +37,13 @@ class RpcSession {
   final EventBus _events;
   final DaemonLog _log;
   final SystemService _system;
+
+  /// Null until the core is up. A session can exist before then -- the window
+  /// opens while the daemon is still restoring state -- and answering
+  /// `servers.list` with an empty list in that window would look to the UI
+  /// like a fresh install. It gets `rpc.daemonUnavailable` instead.
+  final ServersService? _servers;
+  final AuthService? _auth;
   final json_rpc.Peer _peer;
 
   /// Set by a successful `system.handshake`. Until then every other method is
@@ -179,6 +192,9 @@ class RpcSession {
       },
     );
 
+    _registerServers();
+    _registerAuth();
+
     _peer.registerFallback((json_rpc.Parameters params) {
       final method = params.method;
       throw RpcError(
@@ -191,6 +207,183 @@ class RpcSession {
       ).toException();
     });
   }
+
+  void _registerServers() {
+    registerTypedMethodNoParams<ServerList>(
+      _peer,
+      ConduitMethods.serversList,
+      encodeResult: (result) => result.toJson(),
+      handler: () {
+        _requireHandshake();
+        return _requireServers().list();
+      },
+    );
+
+    registerTypedMethod<ServerDraft, ServerSummary>(
+      _peer,
+      ConduitMethods.serversAdd,
+      decodeParams: ServerDraft.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (draft) {
+        _requireHandshake();
+        return _requireServers().add(draft);
+      },
+    );
+
+    registerTypedMethod<ServerDraft, ServerSummary>(
+      _peer,
+      ConduitMethods.serversUpdate,
+      decodeParams: ServerDraft.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (draft) {
+        _requireHandshake();
+        return _requireServers().update(draft);
+      },
+    );
+
+    registerTypedMethod<ServerRef, ServerList>(
+      _peer,
+      ConduitMethods.serversRemove,
+      decodeParams: ServerRef.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (ref) {
+        _requireHandshake();
+        return _requireServers().remove(ref.id);
+      },
+    );
+
+    registerTypedMethod<ServerRef, ServerList>(
+      _peer,
+      ConduitMethods.serversConnect,
+      decodeParams: ServerRef.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (ref) {
+        _requireHandshake();
+        return _requireServers().connect(ref.id);
+      },
+    );
+  }
+
+  void _registerAuth() {
+    registerTypedMethodNoParams<AuthSnapshot>(
+      _peer,
+      ConduitMethods.authStatus,
+      encodeResult: (result) => result.toJson(),
+      handler: () {
+        _requireHandshake();
+        return _requireAuth().status();
+      },
+    );
+
+    registerTypedMethod<PasswordLogin, AuthSnapshot>(
+      _peer,
+      ConduitMethods.authLoginWithPassword,
+      decodeParams: PasswordLogin.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (params) {
+        _requireHandshake();
+        return _requireAuth().loginWithPassword(params);
+      },
+    );
+
+    registerTypedMethod<PasswordLogin, AuthSnapshot>(
+      _peer,
+      ConduitMethods.authLoginWithLdap,
+      decodeParams: PasswordLogin.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (params) {
+        _requireHandshake();
+        return _requireAuth().loginWithLdap(params);
+      },
+    );
+
+    registerTypedMethod<ApiKeyLogin, AuthSnapshot>(
+      _peer,
+      ConduitMethods.authLoginWithApiKey,
+      decodeParams: ApiKeyLogin.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (params) {
+        _requireHandshake();
+        return _requireAuth().loginWithApiKey(params);
+      },
+    );
+
+    registerTypedMethodNoParams<AuthSnapshot>(
+      _peer,
+      ConduitMethods.authSilentLogin,
+      encodeResult: (result) => result.toJson(),
+      handler: () {
+        _requireHandshake();
+        return _requireAuth().silentLogin();
+      },
+    );
+
+    registerTypedMethod<ExternalAuthCompletion, AuthSnapshot>(
+      _peer,
+      ConduitMethods.authCompleteExternal,
+      decodeParams: ExternalAuthCompletion.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (params) {
+        _requireHandshake();
+        return _requireAuth().completeExternal(params);
+      },
+    );
+
+    registerTypedMethodNoParams<Map<String, dynamic>>(
+      _peer,
+      ConduitMethods.authHasSavedCredentials,
+      encodeResult: (result) => result,
+      handler: () async {
+        _requireHandshake();
+        return <String, dynamic>{
+          'hasSavedCredentials': await _requireAuth().hasSavedCredentials(),
+        };
+      },
+    );
+
+    registerTypedMethod<SignOutRequest, SignOutResult>(
+      _peer,
+      ConduitMethods.authSignOut,
+      decodeParams: SignOutRequest.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireAuth().signOut(request);
+      },
+    );
+
+    registerTypedMethod<Map<String, dynamic>, AuthSnapshot>(
+      _peer,
+      ConduitMethods.authSetReviewerMode,
+      decodeParams: (json) => json,
+      encodeResult: (result) => result.toJson(),
+      handler: (params) {
+        _requireHandshake();
+        final enabled = params['enabled'];
+        if (enabled is! bool) {
+          throw const RpcError(
+            code: ConduitErrorCodes.invalidParams,
+            debugMessage: 'auth.setReviewerMode needs a boolean "enabled"',
+          );
+        }
+        return _requireAuth().setReviewerMode(enabled: enabled);
+      },
+    );
+  }
+
+  ServersService _requireServers() =>
+      _servers ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  AuthService _requireAuth() =>
+      _auth ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
 
   /// Asks this window a question and waits for the user.
   ///

@@ -1,9 +1,11 @@
 import 'dart:convert';
 
-
 import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'hive_boxes.dart';
+
 import 'package:meta/meta.dart';
+
 import 'persistence_keys.dart';
 import 'preferences_store.dart';
 

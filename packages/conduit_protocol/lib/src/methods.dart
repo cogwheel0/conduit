@@ -55,9 +55,15 @@ abstract final class ConduitMethods {
   /// Forgets a server and everything stored against it.
   static const String serversRemove = 'servers.remove';
 
-  /// Makes one server active. Every other namespace addresses the active
-  /// server implicitly, so this is what "switch account" means.
-  static const String serversSelect = 'servers.select';
+  /// Connects to one server, making it the active one.
+  ///
+  /// Destructive, and named for it. The core signs out, deletes the stored
+  /// token and saved credentials, and replaces the configured list with just
+  /// this server -- because it stores exactly one auth token
+  /// (`auth_token_v3`, a single key), so "signed into two servers at once"
+  /// is not a state it can represent. A UI must confirm before calling this
+  /// when another server is configured.
+  static const String serversConnect = 'servers.connect';
 
   /// The current session, without a token.
   static const String authStatus = 'auth.status';

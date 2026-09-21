@@ -34,9 +34,6 @@ abstract class ServerSummary with _$ServerSummary {
     String? mtlsCertificateLabel,
     String? mtlsPrivateKeyLabel,
 
-    /// Whether an API key is stored for this server.
-    @Default(false) bool hasApiKey,
-
     /// Custom header *names* only. A header value is frequently a bearer
     /// token for a reverse proxy, so the values stay daemon-side; the setup
     /// form edits them by sending replacements, not by reading them back.
@@ -51,8 +48,13 @@ abstract class ServerSummary with _$ServerSummary {
 ///
 /// Every secret field is nullable and "null means leave alone", so the setup
 /// form can save a rename without having to round-trip a private key it was
-/// never given. [clearApiKey] and [clearMutualTls] are how a caller actually
-/// removes one, since null cannot mean both "unchanged" and "delete".
+/// never given. [clearMutualTls] is how a caller actually removes one, since
+/// null cannot mean both "unchanged" and "delete".
+///
+/// There is deliberately no API key here. The core strips `apiKey` from every
+/// persisted `ServerConfig` -- an API key is a credential, kept in secure
+/// storage, not server metadata -- so a field for it would be one the daemon
+/// silently discards. `auth.loginWithApiKey` is the way in.
 @freezed
 abstract class ServerDraft with _$ServerDraft {
   const factory ServerDraft({
@@ -61,8 +63,6 @@ abstract class ServerDraft with _$ServerDraft {
     required String name,
     required String url,
     @Default(false) bool allowSelfSignedCertificates,
-    String? apiKey,
-    @Default(false) bool clearApiKey,
     String? mtlsCertificateChainPem,
     String? mtlsCertificateLabel,
     String? mtlsPrivateKeyPem,

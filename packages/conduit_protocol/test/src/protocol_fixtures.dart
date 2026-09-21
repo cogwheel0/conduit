@@ -114,7 +114,6 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     hasMutualTlsCredentials: true,
     mtlsCertificateLabel: 'corp-client.pem',
     mtlsPrivateKeyLabel: 'corp-client-key.pem',
-    hasApiKey: true,
     customHeaderNames: <String>['X-Conduit-Tenant', 'CF-Access-Client-Id'],
   ),
   'serverDraft': const ServerDraft(
@@ -122,7 +121,6 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     name: 'Work',
     url: 'https://openwebui.corp.example.com',
     allowSelfSignedCertificates: true,
-    apiKey: 'sk-not-a-real-key',
     customHeaders: <String, String>{'X-Conduit-Tenant': 'acme'},
   ),
   'serverRef': const ServerRef(id: '7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d'),

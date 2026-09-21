@@ -174,7 +174,6 @@ const Map<String, String> protocolGoldens = <String, String>{
   "isActive": false,
   "allowSelfSignedCertificates": false,
   "hasMutualTlsCredentials": false,
-  "hasApiKey": false,
   "customHeaderNames": []
 }''',
 
@@ -189,7 +188,6 @@ const Map<String, String> protocolGoldens = <String, String>{
   "hasMutualTlsCredentials": true,
   "mtlsCertificateLabel": "corp-client.pem",
   "mtlsPrivateKeyLabel": "corp-client-key.pem",
-  "hasApiKey": true,
   "customHeaderNames": [
     "X-Conduit-Tenant",
     "CF-Access-Client-Id"
@@ -202,8 +200,6 @@ const Map<String, String> protocolGoldens = <String, String>{
   "name": "Work",
   "url": "https://openwebui.corp.example.com",
   "allowSelfSignedCertificates": true,
-  "apiKey": "sk-not-a-real-key",
-  "clearApiKey": false,
   "clearMutualTls": false,
   "customHeaders": {
     "X-Conduit-Tenant": "acme"
@@ -225,7 +221,6 @@ const Map<String, String> protocolGoldens = <String, String>{
       "isActive": true,
       "allowSelfSignedCertificates": false,
       "hasMutualTlsCredentials": false,
-      "hasApiKey": false,
       "customHeaderNames": []
     }
   ],

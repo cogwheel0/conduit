@@ -18,10 +18,7 @@ class EventBus {
   /// The last sequence number handed out.
   int get lastSeq => _seq;
 
-  void attach(
-    String sessionId,
-    void Function(EventEnvelope envelope) deliver,
-  ) {
+  void attach(String sessionId, void Function(EventEnvelope envelope) deliver) {
     _subscribers[sessionId] = _Subscriber(deliver);
   }
 

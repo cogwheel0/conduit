@@ -10,7 +10,6 @@ import 'package:test/test.dart';
 import 'package:hive_ce/hive.dart';
 
 void main() {
-
   late AppDatabase db;
   late Directory tempDir;
   late Box<dynamic> preferences;

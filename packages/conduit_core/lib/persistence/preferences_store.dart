@@ -48,6 +48,7 @@ class PreferencesStore {
   static void installLoader(Future<KeyValueStore> Function() loader) {
     _loader = loader;
   }
+
   static PreferenceWriteInterceptor? _debugWriteInterceptor;
   static bool _appDataClearBlocked = false;
   static int _activeWrites = 0;
