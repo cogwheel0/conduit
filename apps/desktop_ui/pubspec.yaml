@@ -9,10 +9,11 @@ resolution: workspace
 environment:
   sdk: ">=3.13.0 <4.0.0"
 
-# Section 2.2 import rule, enforced by tool/check_desktop_ui_imports.dart in CI:
-# this package may depend only on conduit_protocol, conduit_markdown,
-# conduit_theme, Jaspr packages and package:web. Never on dio, drift, or
-# conduit_core. Anything that is logic belongs in the daemon.
+# Section 2.2 import rule, enforced by tool/check_package_boundaries.dart in
+# CI: this package may import only what it declares below, and may never
+# declare dio, drift, conduit_core, conduitd, conduit or flutter. Anything
+# that is logic belongs in the daemon, behind RPC. Adding a dependency here
+# is therefore the reviewable moment -- which is the point.
 dependencies:
   conduit_protocol:
     path: ../../packages/conduit_protocol

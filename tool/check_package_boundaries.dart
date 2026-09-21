@@ -69,20 +69,29 @@ const List<String> _webSafeForbidden = <String>[
   'package:conduit_core/',
 ];
 
-/// Imports that are never allowed in the desktop UI.
+/// Packages the desktop UI may never depend on, even deliberately.
 ///
-/// Anything here is either business logic (which belongs in the daemon and
-/// travels over RPC) or a native capability the renderer must not have.
-const List<String> _desktopUiForbidden = <String>[
+/// The allow-list below is derived from the renderer's own pubspec, so it
+/// moves when someone adds a dependency. These do not: each is either
+/// business logic (which belongs in the daemon and travels over RPC) or a
+/// native capability the renderer must not have, and adding one to the
+/// pubspec is the mistake this is meant to catch.
+const List<String> _desktopUiNeverDeclarable = <String>[
+  'dio',
+  'drift',
+  'conduit_core',
+  'conduitd',
+  'conduit',
+  'flutter',
+];
+
+/// `dart:` libraries the renderer cannot use, because it compiles to JS.
+const List<String> _desktopUiForbiddenDartLibraries = <String>[
   'dart:io',
   'dart:ffi',
   'dart:mirrors',
-  'package:flutter/',
-  'package:dio/',
-  'package:drift/',
-  'package:conduit_core/',
-  'package:conduitd/',
-  'package:conduit/',
+  'dart:isolate',
+  'dart:cli',
 ];
 
 final RegExp _importRegex = RegExp(
@@ -133,14 +142,7 @@ void main() {
     );
   }
 
-  violations.addAll(
-    _scan(
-      Directory('apps/desktop_ui/lib'),
-      _desktopUiForbidden,
-      'may depend only on conduit_protocol, conduit_markdown, conduit_theme, '
-      'Jaspr and package:web (PLAN.md section 2.2)',
-    ),
-  );
+  violations.addAll(_scanDesktopUi());
 
   if (violations.isEmpty) {
     stdout.writeln('Package boundaries OK.');
@@ -260,3 +262,88 @@ final RegExp _packageImportRegex = RegExp(
   r'''^\s*import\s+['"]package:([a-z_0-9]+)/''',
   multiLine: true,
 );
+
+/// Holds the desktop UI to what its pubspec actually declares.
+///
+/// This was a deny-list of nine entries behind an error message that said
+/// "may depend only on ...", which is a stronger claim than a deny-list can
+/// make: `package:http` or `package:hive_ce` would have passed it silently,
+/// and those are exactly how logic creeps back into a renderer that is
+/// supposed to hold none. Deriving the permitted set from the pubspec makes
+/// adding a dependency a deliberate, reviewable edit -- and
+/// [_desktopUiNeverDeclarable] means even that edit cannot let the big ones
+/// through.
+List<String> _scanDesktopUi() {
+  const root = 'apps/desktop_ui';
+  final pubspec = File('$root/pubspec.yaml');
+  if (!pubspec.existsSync()) return const <String>[];
+
+  final declared = _declaredDependencies(pubspec.readAsStringSync());
+  final violations = <String>[
+    for (final banned in _desktopUiNeverDeclarable)
+      if (declared.contains(banned))
+        '$root/pubspec.yaml declares "$banned" - the renderer holds no '
+            'business logic and has no native capabilities; this belongs in '
+            'the daemon, behind RPC (PLAN.md section 2.2)',
+  ];
+
+  final target = Directory('$root/lib');
+  if (!target.existsSync()) return violations;
+  for (final entity in target.listSync(recursive: true)) {
+    if (entity is! File || !entity.path.endsWith('.dart')) continue;
+    if (entity.path.contains('/l10n/strings')) continue;
+    final content = entity.readAsStringSync();
+    for (final match in _importRegex.allMatches(content)) {
+      final uri = match.group(1)!;
+      final line =
+          '\n'.allMatches(content.substring(0, match.start)).length + 1;
+      if (uri.startsWith('dart:')) {
+        if (_desktopUiForbiddenDartLibraries.contains(uri)) {
+          violations.add(
+            '${entity.path}:$line imports "$uri", which the renderer cannot '
+            'have: it compiles to JS (PLAN.md section 2.2)',
+          );
+        }
+        continue;
+      }
+      if (!uri.startsWith('package:')) continue;
+      final package = uri.substring('package:'.length).split('/').first;
+      if (package == 'conduit_desktop_ui' || declared.contains(package)) {
+        continue;
+      }
+      violations.add(
+        '${entity.path}:$line imports "package:$package", which '
+        '$root/pubspec.yaml does not declare - the renderer may use only '
+        'what it depends on directly (PLAN.md section 2.2)',
+      );
+    }
+  }
+  return violations;
+}
+
+/// Package names under `dependencies:` and `dev_dependencies:`.
+///
+/// Deliberately a line scan rather than a YAML parse: this tool has no
+/// dependencies of its own, and the shape it needs -- a two-space key under
+/// a known top-level section -- is not one pubspec syntax varies on.
+Set<String> _declaredDependencies(String pubspec) {
+  final declared = <String>{};
+  var inDependencies = false;
+  for (final line in pubspec.split('\n')) {
+    if (line.startsWith('dependencies:') ||
+        line.startsWith('dev_dependencies:')) {
+      inDependencies = true;
+      continue;
+    }
+    if (line.isNotEmpty && !line.startsWith(' ') && !line.startsWith('#')) {
+      inDependencies = false;
+      continue;
+    }
+    if (!inDependencies) continue;
+    final match = _dependencyName.firstMatch(line);
+    if (match != null) declared.add(match.group(1)!);
+  }
+  return declared;
+}
+
+final RegExp _dependencyName = RegExp(r'^  ([a-z_0-9]+):');
