@@ -84,10 +84,14 @@ final connectivityPortProvider = Provider<ConnectivityPort>(
 
 /// Schedules coalesced streaming flushes (WP-1.10).
 ///
-/// Defaults to a microtask, which is correct where there are no frames and
-/// deterministic in tests. `main.dart` binds the frame-callback version,
-/// whose timing is what keeps the streaming tail rendering in the same frame
-/// it was flushed in.
+/// Unlike the ports above, this one does not default to a fixed value: it
+/// reads whatever the host installed as [FlushScheduler.hostDefault]. Flush
+/// timing is observable — a frame-scheduled flush lands inside the pump that
+/// requested it, a microtask one lands before any pump at all — so a default
+/// baked in here would quietly change streaming behaviour for every caller
+/// that did not think to override it. `main.dart` and
+/// `test/flutter_test_config.dart` both install the frame-callback version;
+/// the daemon installs its own.
 final flushSchedulerProvider = Provider<FlushScheduler>(
-  (ref) => const MicrotaskFlushScheduler(),
+  (ref) => FlushScheduler.hostDefault,
 );

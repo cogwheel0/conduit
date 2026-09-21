@@ -4318,11 +4318,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     if (_streamingContentFrameScheduled) return;
     _streamingContentFrameScheduled = true;
     // Flush at the beginning of the requested frame so Riverpod can rebuild
-    // the live tail in that same frame. A post-frame flush spends one frame
-    // doing no visible work, then schedules a second frame for the provider
-    // update. That extra submit is particularly expensive on iOS because every
-    // frame must also composite the persistent Liquid Glass platform views.
-    SchedulerBinding.instance.scheduleFrameCallback((_) {
+    // the live tail in that same frame; `FlutterFlushScheduler` documents why
+    // a frame callback rather than a post-frame one. The host decides, because
+    // the conduitd sidecar runs this same pipeline with no frames at all.
+    ref.read(flushSchedulerProvider).scheduleFlush(() {
       _streamingContentFrameScheduled = false;
       if (_disposed) {
         return;

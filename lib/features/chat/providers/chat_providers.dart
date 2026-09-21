@@ -23,7 +23,6 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart'
     show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -52,6 +51,7 @@ import '../../../core/database/local_conversation_loader.dart';
 import '../../../core/database/mappers/chat_blob_mapper.dart';
 import '../../../core/database/mappers/conversation_assembler.dart';
 import '../../../core/database/models/chat_transcript_window.dart';
+import '../../../core/providers/host_ports.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/sync/chat_locks.dart';
 import '../../../core/sync/clock.dart';
