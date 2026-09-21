@@ -3,7 +3,9 @@ import 'package:drift/drift.dart' show Value;
 import '../database/app_database.dart';
 import '../database/daos/outbox_dao.dart';
 import '../database/mappers/note_mapper.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'chat_locks.dart';
 import 'id_remapper.dart';
 import 'sync_api_client.dart';

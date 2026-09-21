@@ -8,7 +8,7 @@ import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/core/services/socket_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit/features/channels/providers/channel_providers.dart';
 import 'package:conduit/features/notifications/models/app_notification.dart';
 import 'package:conduit/features/notifications/providers/notification_socket_listener.dart';

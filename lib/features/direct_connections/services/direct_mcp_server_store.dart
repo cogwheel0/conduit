@@ -1,5 +1,7 @@
 import '../../../core/services/secure_credential_storage.dart';
-import '../../../core/utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../models/direct_mcp_server.dart';
 
 final class DirectMcpServerConflictException implements Exception {

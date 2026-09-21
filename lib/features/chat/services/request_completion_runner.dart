@@ -7,9 +7,13 @@ import '../../../core/database/daos/outbox_dao.dart';
 import '../../../core/database/mappers/conversation_assembler.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/conversation_parsing.dart';
-import '../../../core/services/worker_manager.dart';
+
+import 'package:conduit_core/services/worker_manager.dart';
+
 import '../../../core/sync/outbox_drainer.dart';
-import '../../../core/utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../providers/chat_providers.dart';
 
 part 'request_completion_runner.g.dart';

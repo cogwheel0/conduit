@@ -4,7 +4,7 @@ import 'package:conduit_core/conduit_core.dart';
 
 import 'dart:math';
 
-import '../utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
 /// Secure credential storage with platform-specific options.
 ///

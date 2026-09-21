@@ -4,7 +4,7 @@ import 'package:path/path.dart' as path;
 import 'package:conduit_core/conduit_core.dart';
 import 'package:uuid/uuid.dart';
 
-import '../utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
 const shareStagingDirectoryName = 'conduit-shared-intents';
 const _ownedTemporaryStagingDirectories = {

@@ -1,5 +1,7 @@
 import '../services/cache_manager.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'auth_state_manager.dart';
 
 /// Comprehensive caching manager for auth-related operations.

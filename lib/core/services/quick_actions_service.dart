@@ -9,7 +9,9 @@ import 'package:quick_actions/quick_actions.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../providers/app_providers.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'app_intents_service.dart';
 import '../../shared/services/navigation_service.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';

@@ -15,7 +15,7 @@ import '../../../platform/conduit_platform_apis.g.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/secure_credential_storage.dart';
 import '../../../core/services/socket_service.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/direct_remote_model.dart';

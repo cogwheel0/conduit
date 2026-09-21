@@ -33,7 +33,9 @@ import 'platform/flutter_worker_port.dart';
 import 'platform/flutter_database_opener.dart';
 
 import 'core/providers/app_providers.dart';
-import 'core/providers/host_ports.dart';
+
+import 'package:conduit_core/providers/host_ports.dart';
+
 import 'core/network/conduit_user_agent.dart';
 import 'core/persistence/hive_bootstrap.dart';
 import 'core/persistence/hive_prefs_migrator.dart';
@@ -64,7 +66,9 @@ import 'shared/widgets/legacy_design_compatibility.dart';
 import 'features/tools/providers/tools_providers.dart';
 import 'features/workspace/providers/workspace_capabilities_provider.dart';
 import 'features/workspace/workspace_navigation.dart';
-import 'core/utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'core/utils/system_ui_style.dart';
 
 import 'package:conduit_core/models/tool.dart';

@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 
-import '../utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'hive_boxes.dart';
 import 'package:meta/meta.dart';
 import 'persistence_keys.dart';

@@ -3,7 +3,8 @@ import 'dart:math' as math;
 
 import '../database/app_database.dart';
 import '../database/daos/outbox_dao.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
 
 /// Reports completed full-entity fetches once a pull has discovered its total.
 typedef SyncItemProgressCallback = void Function(int completed, int total);

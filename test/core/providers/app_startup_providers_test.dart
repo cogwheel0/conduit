@@ -13,7 +13,7 @@ import 'package:conduit/core/providers/app_startup_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/connectivity_service.dart';
 import 'package:conduit/core/services/media_upload_controller.dart';
-import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit/features/chat/providers/knowledge_cache_provider.dart';

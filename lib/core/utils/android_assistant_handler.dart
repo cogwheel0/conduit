@@ -14,7 +14,8 @@ import '../../shared/services/navigation_service.dart';
 import '../services/media_upload_controller.dart';
 import '../providers/app_providers.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
-import 'debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
 
 final androidAssistantProvider = Provider(
   (ref) => AndroidAssistantHandler(ref),

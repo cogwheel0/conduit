@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import '../utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
 /// Signature for callbacks that receive streaming text updates.
 typedef StreamingChunkCallback = void Function(String chunk);

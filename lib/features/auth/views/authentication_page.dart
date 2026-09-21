@@ -15,7 +15,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../core/auth/auth_state_manager.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 

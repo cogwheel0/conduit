@@ -9,7 +9,7 @@ import 'package:meta/meta.dart';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/network/external_link.dart';
 

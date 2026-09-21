@@ -3,7 +3,8 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../models/direct_completion.dart';
 import '../models/direct_connection_profile.dart';
 import 'direct_adapter_helpers.dart';

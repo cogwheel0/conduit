@@ -8,7 +8,8 @@ import 'package:riverpod/riverpod.dart';
 import '../../features/chat/voice_call/voice_call_eligibility.dart';
 import '../../features/chat/voice_mode/chat_voice_mode_controller.dart';
 import '../providers/app_providers.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
 
 const _carPlayChannel = MethodChannel('conduit/carplay');
 

@@ -10,7 +10,8 @@ import 'package:meta/meta.dart';
 
 import 'package:conduit_core/models/server_config.dart';
 
-import '../utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'api_service.dart';
 import 'native_sheet_bridge.dart';
 import 'server_tls_http_client_factory.dart';

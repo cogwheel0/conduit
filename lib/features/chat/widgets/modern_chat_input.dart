@@ -50,7 +50,7 @@ import '../../../shared/services/navigation_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/location_service.dart';
 import '../../../core/services/settings_service.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import '../../chat/services/voice_input_service.dart';
 import 'package:conduit_core/models/knowledge_base.dart';
 import 'package:conduit_core/models/knowledge_base_file.dart';
@@ -59,7 +59,7 @@ import '../../../shared/utils/platform_utils.dart';
 import '../../../shared/utils/adaptive_glass.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:conduit/core/providers/host_ports.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/model_avatar.dart';

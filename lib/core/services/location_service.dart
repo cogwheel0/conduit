@@ -4,7 +4,8 @@ import 'package:riverpod/riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:meta/meta.dart';
 
-import '../utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'api_service.dart';
 
 enum UserLocationFailureReason {

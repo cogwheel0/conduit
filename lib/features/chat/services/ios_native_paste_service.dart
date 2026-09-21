@@ -2,7 +2,7 @@ import 'dart:async';
 
 
 import '../../../platform/conduit_platform_apis.g.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:meta/meta.dart';
 
 typedef IosNativePasteHandler = Future<void> Function(

@@ -10,7 +10,9 @@ import 'package:uuid/uuid.dart';
 
 import '../database/app_database.dart';
 import '../database/daos/attachment_queue_dao.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'share_staging_cleanup.dart';
 
 const Object _queuedAttachmentUnset = Object();

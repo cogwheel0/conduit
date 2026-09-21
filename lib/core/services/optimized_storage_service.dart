@@ -16,11 +16,14 @@ import '../database/app_database.dart';
 import '../persistence/hive_boxes.dart';
 import '../persistence/persistence_keys.dart';
 import '../persistence/preferences_store.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../utils/json_normalization.dart';
 import 'cache_manager.dart';
 import 'secure_credential_storage.dart';
-import 'worker_manager.dart';
+
+import 'package:conduit_core/services/worker_manager.dart';
 
 typedef OptimizedStorageDatabaseResolver =
     FutureOr<OptimizedStorageDatabaseHandle?> Function();

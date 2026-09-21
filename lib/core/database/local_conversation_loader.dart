@@ -3,9 +3,9 @@ import 'dart:async';
 import 'package:conduit_core/models/conversation.dart';
 import '../providers/app_providers.dart';
 import '../services/conversation_parsing.dart';
-import '../services/worker_manager.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import '../sync/sync_engine.dart';
-import '../utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'mappers/conversation_assembler.dart';
 
 // kLocalConversationWorkerThreshold is defined in

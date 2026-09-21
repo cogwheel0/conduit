@@ -7,7 +7,9 @@ import '../database/app_database.dart';
 import '../database/daos/outbox_dao.dart';
 import '../database/mappers/chat_blob_mapper.dart';
 import '../persistence/hive_boxes.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'chat_locks.dart';
 import 'clock.dart';
 import 'id_remapper.dart';

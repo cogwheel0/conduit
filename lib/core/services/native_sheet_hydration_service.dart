@@ -19,7 +19,9 @@ import '../network/image_header_utils.dart';
 import '../providers/app_providers.dart';
 import '../../features/hermes/providers/hermes_providers.dart';
 import '../../features/hermes/models/hermes_model.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../utils/model_icon_utils.dart';
 import '../utils/model_sort_utils.dart';
 import '../utils/native_sheet_utils.dart';

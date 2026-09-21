@@ -28,7 +28,7 @@ import '../services/background_streaming_handler.dart';
 import '../services/socket_service.dart';
 import '../services/connectivity_service.dart';
 import '../services/share_receiver_service.dart';
-import '../utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import '../utils/system_ui_style.dart';
 import 'package:conduit_core/models/server_config.dart';
 import '../persistence/persistence_keys.dart';

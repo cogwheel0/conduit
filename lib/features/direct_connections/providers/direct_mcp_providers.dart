@@ -19,7 +19,8 @@ import '../services/direct_mcp_server_store.dart';
 import '../services/direct_run_registry.dart';
 import '../../tools/providers/tools_providers.dart';
 import 'direct_connection_providers.dart';
-import '../../../core/providers/host_ports.dart';
+
+import 'package:conduit_core/providers/host_ports.dart';
 
 const String kDirectMcpToolIdPrefix = 'local_mcp:';
 

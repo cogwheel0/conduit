@@ -27,7 +27,7 @@ import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/ios_native_dropdown_bridge.dart';
 import '../../../core/sync/sync_engine.dart';
 import '../../../core/sync/chat_locks.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';

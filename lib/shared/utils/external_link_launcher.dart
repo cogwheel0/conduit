@@ -1,7 +1,7 @@
 import 'package:conduit_core/network/external_link.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
 /// Re-exported: the allowlist moved into the core so every front-end
 /// applies the same rule, and this file keeps the launching.

@@ -5,7 +5,8 @@ import 'package:dio/dio.dart';
 import 'package:ollama_dart/ollama_dart.dart' as ollama;
 import 'package:uuid/uuid.dart';
 
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../models/direct_completion.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/direct_remote_model.dart';

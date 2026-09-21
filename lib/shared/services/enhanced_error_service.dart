@@ -13,7 +13,7 @@ import '../widgets/themed_dialogs.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
-import '../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
 /// Enhanced error service with comprehensive error handling capabilities
 /// Provides unified error management across the application

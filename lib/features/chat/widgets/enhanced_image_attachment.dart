@@ -21,15 +21,20 @@ import 'package:conduit/l10n/app_localizations.dart';
 
 import '../../../core/providers/app_providers.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
-import '../../../core/utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../core/network/conduit_user_agent.dart';
 import '../../../core/network/self_signed_image_cache_manager.dart';
 import '../../../core/network/image_header_utils.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/image_attachment_cache_service.dart';
-import '../../../core/services/performance_profiler.dart';
+
+import 'package:conduit_core/services/performance_profiler.dart';
+
 import '../../../shared/services/raster_media_policy.dart';
-import '../../../core/services/worker_manager.dart';
+
+import 'package:conduit_core/services/worker_manager.dart';
 
 export '../../../core/services/image_attachment_cache_service.dart'
     show

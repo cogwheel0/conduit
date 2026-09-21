@@ -1,7 +1,7 @@
 import 'package:fleather/fleather.dart';
 import 'package:parchment/codecs.dart';
 
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
 /// Conversion helpers between a note's canonical markdown (`content.md`, the
 /// interchange format shared with the Open WebUI web client) and the

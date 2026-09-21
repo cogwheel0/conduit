@@ -7,7 +7,9 @@ import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../providers/app_providers.dart';
-import '../providers/host_ports.dart';
+
+import 'package:conduit_core/providers/host_ports.dart';
+
 import 'app_database.dart';
 import 'chat_database_repository.dart';
 import 'database_manager.dart';

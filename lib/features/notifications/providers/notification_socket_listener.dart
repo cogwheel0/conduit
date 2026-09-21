@@ -10,7 +10,9 @@ import '../../../shared/services/navigation_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/services/socket_service.dart';
 import '../../../core/utils/current_localizations.dart';
-import '../../../core/utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../channels/providers/channel_providers.dart';
 import '../../chat/providers/chat_providers.dart';
 import '../models/app_notification.dart';

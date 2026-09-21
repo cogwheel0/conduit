@@ -8,7 +8,7 @@ import 'package:meta/meta.dart';
 
 import 'package:conduit_core/models/chat_message.dart';
 import '../../../core/services/openai_responses_codec.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 import '../../../core/utils/unicode_prefix.dart';
 import '../models/hermes_run_event.dart';

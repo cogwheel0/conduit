@@ -9,8 +9,9 @@ import '../persistence/persistence_providers.dart';
 import '../persistence/persistence_keys.dart';
 import '../persistence/preferences_store.dart';
 import '../services/optimized_storage_service.dart';
-import '../services/worker_manager.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
 /// Credential-grade storage for this host (WP-1.3).
 ///

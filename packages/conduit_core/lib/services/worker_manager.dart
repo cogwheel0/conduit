@@ -28,6 +28,10 @@ class WorkerManager {
     int maxConcurrentTasks = _defaultMaxConcurrentTasks,
     WorkerPort worker = const InlineWorkerPort(),
   }) : _maxConcurrentTasks = math.max(1, maxConcurrentTasks),
+       // `this._worker` is not available here: Dart forbids a named
+       // parameter beginning with an underscore, and the field is private
+       // while the parameter is public API.
+       // ignore: prefer_initializing_formals
        _worker = worker;
 
   static const int _defaultMaxConcurrentTasks = 2;

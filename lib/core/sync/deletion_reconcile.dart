@@ -4,7 +4,9 @@ import 'package:dio/dio.dart';
 
 import '../database/app_database.dart';
 import '../database/daos/chats_dao.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'chat_locks.dart';
 import 'clock.dart';
 import 'pull_sync.dart' show kOpenWebUiChatListPageSize;

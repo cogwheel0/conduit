@@ -12,7 +12,9 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/sync/clock.dart';
 import '../../../core/sync/sync_engine.dart';
-import '../../../core/utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../hermes/services/hermes_session_provenance.dart';
 import 'chat_providers.dart'
     show chatMessagesProvider, conversationUsesOpenWebUiStorage;

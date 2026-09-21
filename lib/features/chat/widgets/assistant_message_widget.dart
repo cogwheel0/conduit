@@ -33,13 +33,13 @@ import '../providers/chat_providers.dart'
         sendMessageWithContainer,
         streamingContentProvider;
 import '../../../shared/utils/external_link_launcher.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import '../../../core/services/haptic_service.dart';
 import '../../../core/services/settings_service.dart';
 import 'sources/openwebui_sources.dart';
 import '../providers/assistant_response_builder_provider.dart';
 import '../views/chat_turn_render_state.dart';
-import '../../../core/services/worker_manager.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'streaming_status_widget.dart';
 import '../utils/file_utils.dart';
 import 'code_execution_display.dart';

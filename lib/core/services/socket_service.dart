@@ -12,7 +12,9 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/socket_health.dart';
 
 import '../network/conduit_user_agent.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'socket_tls_override.dart';
 
 typedef SocketChatEventHandler = void Function(

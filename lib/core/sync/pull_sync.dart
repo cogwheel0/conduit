@@ -5,7 +5,7 @@ import '../database/app_database.dart';
 import '../database/mappers/chat_blob_mapper.dart';
 import '../database/mappers/conversation_assembler.dart';
 import 'package:conduit_core/models/conversation.dart';
-import '../utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'chat_locks.dart';
 import 'id_remapper.dart';
 import 'package:meta/meta.dart';

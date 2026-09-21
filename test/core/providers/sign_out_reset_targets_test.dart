@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/providers/host_ports.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit/shared/theme/theme_providers.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:riverpod/riverpod.dart';

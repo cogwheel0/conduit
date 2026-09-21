@@ -3,7 +3,7 @@ import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit/core/database/mappers/conversation_assembler.dart'
     show kLocalConversationWorkerThreshold;
-import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
 import 'package:conduit/core/sync/id_remapper.dart';
 import 'package:conduit/core/sync/pull_sync.dart';

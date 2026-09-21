@@ -25,7 +25,9 @@ import '../../../core/providers/app_providers.dart'
 import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/providers/storage_providers.dart';
 import '../../../core/services/secure_credential_storage.dart';
-import '../../../core/utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../models/hermes_bot.dart';
 import '../models/hermes_capabilities.dart';
 import '../models/hermes_config.dart';
@@ -42,7 +44,8 @@ import '../services/hermes_local_document_trust_store.dart';
 import '../services/hermes_message_mapper.dart';
 import '../services/hermes_pending_decision_store.dart';
 import '../services/hermes_session_provenance.dart';
-import '../../../core/providers/host_ports.dart';
+
+import 'package:conduit_core/providers/host_ports.dart';
 
 final class _HermesCredentialRollbackFailure implements Exception {
   const _HermesCredentialRollbackFailure({

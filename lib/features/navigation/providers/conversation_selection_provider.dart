@@ -8,7 +8,7 @@ import '../../../core/database/database_provider.dart';
 import 'package:conduit_core/models/conversation.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/providers/app_startup_providers.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import '../../chat/providers/chat_providers.dart' as chat;
 import '../../chat/providers/context_attachments_provider.dart';
 

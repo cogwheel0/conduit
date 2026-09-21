@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../shared/models/connection_attempt.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/direct_remote_model.dart';

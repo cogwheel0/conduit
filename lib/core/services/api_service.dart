@@ -41,7 +41,8 @@ import '../error/api_error_interceptor.dart';
 import '../sync/sync_api_client.dart' show SyncTerminalException;
 // Tool-call details are parsed in the UI layer to render collapsible blocks
 import 'connectivity_service.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_markdown/conduit_markdown.dart';
 
@@ -50,7 +51,9 @@ import '../utils/json_normalization.dart';
 import '../utils/message_tree_utils.dart' as message_tree;
 import 'conversation_parsing.dart';
 import 'settings_service.dart';
-import 'worker_manager.dart';
+
+import 'package:conduit_core/services/worker_manager.dart';
+
 import 'server_tls_http_client_factory.dart';
 
 /// Re-exported so the health prober's move into `conduit_core` is invisible

@@ -6,7 +6,8 @@ import 'package:conduit/l10n/app_localizations.dart';
 import '../theme/theme_extensions.dart';
 import '../widgets/themed_dialogs.dart';
 import 'navigation_service.dart';
-import '../../core/utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
 
 /// User-friendly error messages and recovery actions
 class UserFriendlyErrorHandler {

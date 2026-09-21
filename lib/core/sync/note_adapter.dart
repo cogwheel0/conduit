@@ -3,7 +3,9 @@ import '../database/daos/notes_dao.dart' show decodeNotePatch;
 import '../database/daos/outbox_dao.dart';
 import '../database/mappers/note_mapper.dart' show asNs;
 import '../database/daos/sync_meta_dao.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'note_sync.dart';
 import 'sync_api_client.dart';
 import 'sync_entity_adapter.dart';

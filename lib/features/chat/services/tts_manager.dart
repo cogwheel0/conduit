@@ -11,7 +11,8 @@ import 'package:conduit_core/models/backend_config.dart';
 
 import '../../../core/services/api_service.dart';
 import '../../../core/services/background_streaming_handler.dart';
-import '../../../core/utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_markdown/conduit_markdown.dart';
 

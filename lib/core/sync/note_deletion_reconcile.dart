@@ -1,7 +1,9 @@
 import 'dart:math' as math;
 
 import '../database/app_database.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'chat_locks.dart';
 import 'clock.dart';
 import 'deletion_reconcile.dart'

@@ -6,7 +6,8 @@ import 'dart:io';
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'hermes_json_guard.dart';
 
 const int kMaxHermesDesktopFrameBytes = 4 * 1024 * 1024;

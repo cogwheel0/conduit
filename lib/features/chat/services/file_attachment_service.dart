@@ -12,8 +12,8 @@ import 'package:path/path.dart' as path;
 import '../../../core/providers/app_providers.dart';
 import 'package:conduit_core/models/file_info.dart';
 import '../../../shared/utils/file_type_utils.dart';
-import '../../../core/services/worker_manager.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import '../../direct_connections/direct_connections.dart';
 import '../../hermes/models/hermes_model.dart';
 

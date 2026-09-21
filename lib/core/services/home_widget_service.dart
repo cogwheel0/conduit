@@ -15,7 +15,9 @@ import '../../features/chat/providers/chat_providers.dart';
 import '../../features/chat/services/file_attachment_service.dart';
 import '../../features/chat/voice_call/voice_call_eligibility.dart';
 import '../../l10n/app_localizations.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'app_intents_service.dart';
 import 'media_upload_controller.dart';
 import '../../shared/services/navigation_service.dart';

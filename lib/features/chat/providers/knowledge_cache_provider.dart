@@ -5,7 +5,7 @@ import 'package:conduit_core/models/knowledge_base_file.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/cache_manager.dart';
 import '../../../core/providers/app_providers.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
 /// Cache keys for knowledge base data inside one account/server scope.
 const String _basesKey = 'knowledge_bases';

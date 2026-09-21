@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:conduit_core/conduit_core.dart';
 

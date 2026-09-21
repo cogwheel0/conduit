@@ -15,7 +15,7 @@ import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import 'dart:convert';
 
-import '../../../core/services/worker_manager.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 
 class EnhancedAttachment extends ConsumerStatefulWidget {
   final String attachmentId;

@@ -51,7 +51,9 @@ import '../../../core/database/local_conversation_loader.dart';
 import '../../../core/database/mappers/chat_blob_mapper.dart';
 import '../../../core/database/mappers/conversation_assembler.dart';
 import '../../../core/database/models/chat_transcript_window.dart';
-import '../../../core/providers/host_ports.dart';
+
+import 'package:conduit_core/providers/host_ports.dart';
+
 import '../../../core/providers/app_providers.dart';
 import '../../../core/sync/chat_locks.dart';
 import '../../../core/sync/clock.dart';
@@ -67,10 +69,14 @@ import '../../../core/services/settings_service.dart';
 import '../../../core/services/socket_service.dart';
 import '../../../core/services/streaming_response_controller.dart';
 import '../../../core/services/streaming_helper.dart';
-import '../../../core/services/performance_profiler.dart';
+
+import 'package:conduit_core/services/performance_profiler.dart';
+
 import '../../../core/services/conversation_parsing.dart';
-import '../../../core/services/worker_manager.dart';
-import '../../../core/utils/debug_logger.dart';
+
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../core/utils/json_normalization.dart';
 import '../../../core/utils/message_tree_utils.dart' as message_tree;
 import '../../../core/utils/openwebui_message_payload.dart';

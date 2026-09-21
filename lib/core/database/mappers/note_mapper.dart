@@ -20,7 +20,8 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart';
 
-import '../../utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../app_database.dart';
 
 /// Top-level server keys that map to TYPED columns; every OTHER key (including

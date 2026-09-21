@@ -2,7 +2,9 @@ import 'dart:async';
 
 import '../database/app_database.dart';
 import '../database/daos/outbox_dao.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'backoff.dart';
 import 'clock.dart';
 import 'sync_api_client.dart';

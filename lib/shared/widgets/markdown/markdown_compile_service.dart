@@ -8,8 +8,8 @@ import 'package:riverpod/riverpod.dart';
 import 'package:html_unescape/html_unescape.dart';
 import 'package:markdown/markdown.dart' as md;
 
-import '../../../core/services/performance_profiler.dart';
-import '../../../core/services/worker_manager.dart';
+import 'package:conduit_core/services/performance_profiler.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 import 'compiled_markdown_document.dart';
 import 'streaming_markdown_preparation.dart';

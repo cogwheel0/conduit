@@ -3,7 +3,8 @@ import 'package:conduit_core/conduit_core.dart';
 
 import 'api_error.dart';
 import 'error_parser.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
 
 // Was Flutter's kDebugMode. `dart.vm.product` is the same signal and
 // is available without Flutter.

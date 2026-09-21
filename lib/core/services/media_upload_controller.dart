@@ -23,7 +23,9 @@ import '../../features/hermes/services/hermes_local_document_service.dart';
 import 'package:conduit_core/models/file_info.dart';
 
 import '../providers/app_providers.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'api_service.dart';
 import 'attachment_upload_queue.dart';
 import 'image_attachment_cache_service.dart';

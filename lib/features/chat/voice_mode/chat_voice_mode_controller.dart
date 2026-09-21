@@ -18,7 +18,9 @@ import '../../../core/services/callkit_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/services/socket_service.dart'
     show SocketBackgroundActivityLease, SocketService;
-import '../../../core/utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../providers/chat_providers.dart';
 import '../providers/text_to_speech_provider.dart';
 import '../services/text_to_speech_service.dart';

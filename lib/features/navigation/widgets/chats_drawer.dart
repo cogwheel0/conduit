@@ -12,7 +12,7 @@ import '../../auth/providers/unified_auth_providers.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import '../../../shared/services/navigation_service.dart';
 import '../../../shared/services/user_friendly_error_handler.dart';
 import '../../../shared/widgets/conduit_components.dart';

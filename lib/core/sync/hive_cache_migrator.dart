@@ -3,7 +3,8 @@ import 'dart:convert';
 import '../database/app_database.dart';
 import '../persistence/hive_boxes.dart';
 import '../services/attachment_upload_queue.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
 
 /// One-time, per-server migration of the structured caches in the Hive `caches`
 /// box (local user, avatar, backend config, tools, default model, models) into

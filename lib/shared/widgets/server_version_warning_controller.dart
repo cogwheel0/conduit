@@ -4,7 +4,8 @@ import 'package:riverpod/riverpod.dart';
 
 import '../../core/persistence/persistence_keys.dart';
 import '../../core/persistence/preferences_store.dart';
-import '../../core/utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
 
 /// Builds the dismissal token for the unsupported-server warning.
 ///

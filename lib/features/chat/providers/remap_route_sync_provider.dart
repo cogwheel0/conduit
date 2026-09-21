@@ -3,7 +3,9 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../shared/services/navigation_service.dart';
 import '../../../core/sync/sync_engine.dart';
-import '../../../core/utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'chat_providers.dart' show conversationUsesOpenWebUiStorage;
 
 part 'remap_route_sync_provider.g.dart';

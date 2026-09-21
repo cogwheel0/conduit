@@ -4,7 +4,8 @@ import 'package:dio/dio.dart';
 
 import '../network/conduit_user_agent.dart';
 import '../network/same_origin_redirect_interceptor.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
 
 /// Immutable authorization value captured for work that must remain bound to
 /// the account session that created it, even if the shared [ApiService]

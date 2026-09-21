@@ -1,8 +1,8 @@
 import 'dart:developer' as developer;
 import 'dart:ui' show FramePhase, FrameTiming;
 
-import 'package:conduit/core/services/performance_profiler.dart';
-import 'package:conduit/core/utils/debug_logger.dart';
+import 'package:conduit_core/services/performance_profiler.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:flutter/scheduler.dart';
 
 /// Frame instrumentation for the Flutter app (WP-1.12).

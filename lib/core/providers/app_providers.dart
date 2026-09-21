@@ -53,11 +53,13 @@ import '../services/connectivity_service.dart';
 import '../services/conversation_parsing.dart';
 import '../persistence/preferences_store.dart';
 import '../persistence/persistence_keys.dart';
-import '../utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/utils/server_version_compat.dart';
 
-import '../services/worker_manager.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+
 import '../../features/tools/providers/tools_providers.dart';
 import '../../features/hermes/models/hermes_model.dart';
 import '../../features/hermes/models/hermes_config.dart';
@@ -75,7 +77,9 @@ import 'package:drift/drift.dart' show Value;
 
 import '../database/app_database.dart';
 import '../database/database_provider.dart';
-import 'host_ports.dart';
+
+import 'package:conduit_core/providers/host_ports.dart';
+
 import '../database/chat_database_repository.dart';
 import '../database/local_conversation_loader.dart';
 import '../database/mappers/conversation_assembler.dart';

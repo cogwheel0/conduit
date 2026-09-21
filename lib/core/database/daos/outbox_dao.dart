@@ -2,7 +2,8 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart';
 
-import '../../utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../sync/id_remapper.dart' show createChatContentHash;
 import '../app_database.dart';
 import '../mappers/conversation_assembler.dart';

@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit/platform/flutter_flush_scheduler.dart';
 import 'package:conduit/platform/flutter_post_frame_scheduler.dart';
 import 'package:conduit/platform/just_audio_playback.dart';

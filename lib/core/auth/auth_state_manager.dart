@@ -11,15 +11,15 @@ import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/models/server_config.dart';
 import '../services/api_service.dart';
 import '../services/optimized_storage_service.dart';
-import '../services/worker_manager.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'token_validator.dart';
 import 'auth_cache_manager.dart';
-import '../utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import '../utils/user_avatar_utils.dart';
 import '../persistence/persistence_keys.dart';
 import '../persistence/preferences_store.dart';
 import 'openwebui_account_owner_marker.dart';
-import '../providers/host_ports.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 
 part 'auth_state_manager.g.dart';
 

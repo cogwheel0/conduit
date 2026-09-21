@@ -18,7 +18,7 @@ import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/streaming_response_controller.dart';
-import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
 import 'package:conduit/core/utils/message_tree_utils.dart' as message_tree;
 import 'package:conduit/features/chat/providers/chat_providers.dart';

@@ -20,17 +20,21 @@ import 'package:conduit_markdown/conduit_markdown.dart';
 import 'background_streaming_handler.dart';
 import 'chat_completion_transport.dart';
 
-import '../utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../utils/openwebui_source_parser.dart';
 import 'openwebui_response_stream.dart';
 import 'openwebui_stream_parser.dart';
-import 'performance_profiler.dart';
+
+import 'package:conduit_core/services/performance_profiler.dart';
+
 import 'semantic_message_builder.dart';
 import 'streaming_response_controller.dart';
 import 'api_service.dart';
 import 'structured_output.dart';
 import 'structured_output_renderer.dart';
-import 'worker_manager.dart';
+
+import 'package:conduit_core/services/worker_manager.dart';
 
 // Keep local verbosity toggle for socket logs
 const bool kSocketVerboseLogging = false;
