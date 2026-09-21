@@ -1,17 +1,20 @@
 import 'dart:async';
 import 'dart:io' show Directory, File, Platform;
 
+import 'package:conduit_core/conduit_core.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'package:conduit_core/models/backend_config.dart';
+
 import '../../../core/services/api_service.dart';
 import '../../../core/services/background_streaming_handler.dart';
 import '../../../core/utils/debug_logger.dart';
+
 import 'package:conduit_markdown/conduit_markdown.dart';
+
 import 'native_tts_service.dart';
 
 // =============================================================================
@@ -232,7 +235,7 @@ _StreamingCursor _resolveStreamingCursor({
 
 @visibleForTesting
 bool isServerTtsPlaybackCompleteForTesting({
-  required ProcessingState processingState,
+  required AudioProcessingState processingState,
   required int currentIndex,
   required int lastChunkIndex,
   required int lastEnqueuedIndex,
@@ -246,12 +249,12 @@ bool isServerTtsPlaybackCompleteForTesting({
 }
 
 bool _isServerTtsPlaybackComplete({
-  required ProcessingState processingState,
+  required AudioProcessingState processingState,
   required int currentIndex,
   required int lastChunkIndex,
   required int lastEnqueuedIndex,
 }) {
-  return processingState == ProcessingState.completed &&
+  return processingState == AudioProcessingState.completed &&
       currentIndex >= lastChunkIndex &&
       lastEnqueuedIndex >= lastChunkIndex;
 }
@@ -307,7 +310,7 @@ class TtsConfig {
 
 /// Single global manager for all TTS operations.
 ///
-/// This manager owns native device TTS and AudioPlayer instances and ensures
+/// This manager owns native device TTS and the host audio player, and ensures
 /// only one playback session is active at a time. Events are emitted via
 /// a stream that consumers can listen to.
 class TtsManager {
@@ -331,10 +334,10 @@ class TtsManager {
   StreamSubscription<NativeTtsEvent>? _nativeTtsSub;
   bool _nativeTtsAvailable = false;
 
-  // AudioPlayer for server TTS (using just_audio)
-  final AudioPlayer _player = AudioPlayer();
+  // Server TTS playback goes through the host's audio port (WP-1.14).
+  final AudioPlaybackPort _player = AudioPlaybackPort.hostFactory();
   bool _playerConfigured = false;
-  StreamSubscription<PlayerState>? _playerStateSub;
+  StreamSubscription<AudioPlaybackState>? _playerStateSub;
   StreamSubscription<int?>? _playerIndexSub;
 
   /// Flag to suppress spurious TtsPaused events during chunk transitions.
@@ -475,10 +478,10 @@ class TtsManager {
     // Initialize native device TTS.
     await _ensureTtsInitialized();
 
-    // Configure AudioPlayer for all platforms (using just_audio)
+    // Configure the host audio player for all platforms.
     if (!_playerConfigured) {
-      _playerStateSub = _player.playerStateStream.listen((state) {
-        if (state.processingState == ProcessingState.completed) {
+      _playerStateSub = _player.stateChanges.listen((state) {
+        if (state.processingState == AudioProcessingState.completed) {
           _onServerAudioComplete();
         }
         if (state.playing) {
@@ -488,7 +491,7 @@ class TtsManager {
           _isTransitioningChunks = false;
           _emitEvent(const TtsStarted());
         } else if (!state.playing &&
-            state.processingState == ProcessingState.ready &&
+            state.processingState == AudioProcessingState.ready &&
             !_isTransitioningChunks) {
           // Only emit pause when actually paused, ready, and NOT transitioning
           // between chunks. During chunk transitions, the player briefly enters
@@ -496,7 +499,7 @@ class TtsManager {
           _emitEvent(const TtsPaused());
         }
       });
-      _playerIndexSub = _player.currentIndexStream.listen((index) {
+      _playerIndexSub = _player.currentIndexChanges.listen((index) {
         final session = _activeSession;
         if (session == null || !session.useServerTts || index == null) {
           return;
@@ -621,7 +624,7 @@ class TtsManager {
     if (shouldUseServer) {
       await _startServerBackgroundLease(session.id);
       await _player.stop();
-      await _player.clearAudioSources();
+      await _player.clearClips();
     } else {
       if (!_deviceEngineAvailable) {
         throw StateError('Device TTS is not available');
@@ -663,7 +666,8 @@ class TtsManager {
       final producerDone =
           _serverLastEnqueuedIndex >= session.chunks.length - 1 &&
           _serverFetchingIndices.isEmpty;
-      final playerDone = _player.processingState == ProcessingState.completed;
+      final playerDone =
+          _player.processingState == AudioProcessingState.completed;
       if (producerDone && playerDone) {
         _onServerAudioComplete();
       }
@@ -1253,7 +1257,7 @@ class TtsManager {
 
     _setBufferedServerChunk(0, firstChunk);
     _serverLastEnqueuedIndex = 0;
-    final initialSources = <AudioSource>[
+    final initialSources = <AudioClip>[
       await _audioSourceForServerChunk(session.id, 0, firstChunk),
     ];
 
@@ -1287,7 +1291,7 @@ class TtsManager {
     // Flag will be cleared by state listener when playing=true is received.
     // This prevents race condition where flag is cleared before state fires.
     try {
-      await _player.setAudioSources(
+      await _player.setClips(
         initialSources,
         initialIndex: 0,
         initialPosition: Duration.zero,
@@ -1516,7 +1520,7 @@ class TtsManager {
                 _serverLastEnqueuedIndex < 0) {
               _isTransitioningChunks = true;
               try {
-                await _player.setAudioSources(
+                await _player.setClips(
                   [source],
                   initialIndex: 0,
                   initialPosition: Duration.zero,
@@ -1527,7 +1531,7 @@ class TtsManager {
                 rethrow;
               }
             } else {
-              await _player.addAudioSource(source);
+              await _player.addClip(source);
             }
             _serverLastEnqueuedIndex = nextIndex;
           }
@@ -1545,7 +1549,7 @@ class TtsManager {
   }
 
   Future<void> _resumeServerQueueFromCompleted(int currentIndex) async {
-    if (_player.processingState != ProcessingState.completed) {
+    if (_player.processingState != AudioProcessingState.completed) {
       return;
     }
     final nextIndex = currentIndex + 1;
@@ -1556,7 +1560,7 @@ class TtsManager {
     await _player.play();
   }
 
-  Future<AudioSource> _audioSourceForServerChunk(
+  Future<AudioClip> _audioSourceForServerChunk(
     int sessionId,
     int index,
     _AudioChunk chunk,
@@ -1569,7 +1573,7 @@ class TtsManager {
     final file = File(p.join(dir.path, 'chunk_$index.$extension'));
     await file.writeAsBytes(chunk.bytes, flush: true);
     _serverTempFiles.add(file);
-    return AudioSource.uri(file.uri, tag: index);
+    return AudioClip(uri: file.uri, tag: index);
   }
 
   String _audioExtensionForMimeType(String mimeType) {

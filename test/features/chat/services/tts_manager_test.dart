@@ -9,7 +9,7 @@ import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/services/native_tts_service.dart';
 import 'package:conduit/features/chat/services/tts_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:just_audio/just_audio.dart';
+import 'package:conduit_core/conduit_core.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -537,7 +537,7 @@ void main() {
   group('TtsManager server streaming completion', () {
     test('does not complete while final chunk is still playing', () {
       final completed = isServerTtsPlaybackCompleteForTesting(
-        processingState: ProcessingState.ready,
+        processingState: AudioProcessingState.ready,
         currentIndex: 2,
         lastChunkIndex: 2,
         lastEnqueuedIndex: 2,
@@ -548,7 +548,7 @@ void main() {
 
     test('completes only after final chunk playback completes', () {
       final completed = isServerTtsPlaybackCompleteForTesting(
-        processingState: ProcessingState.completed,
+        processingState: AudioProcessingState.completed,
         currentIndex: 2,
         lastChunkIndex: 2,
         lastEnqueuedIndex: 2,

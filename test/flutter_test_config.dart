@@ -4,6 +4,7 @@ import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/platform/flutter_flush_scheduler.dart';
 import 'package:conduit/platform/flutter_post_frame_scheduler.dart';
+import 'package:conduit/platform/just_audio_playback.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 import 'package:conduit/platform/flutter_log_sink.dart';
 import 'package:conduit_core/conduit_core.dart';
@@ -30,5 +31,9 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   // Same reasoning: a socket connect deferred to a microtask instead of a
   // post-frame callback lands before any pump, which tests can observe.
   PostFrameScheduler.hostDefault = const FlutterPostFrameScheduler();
+  // TtsManager is a process-lifetime singleton, so its player is built
+  // once from this factory. Installing the real one keeps the suite on
+  // the same code path the app uses.
+  AudioPlaybackPort.hostFactory = JustAudioPlayback.new;
   await testMain();
 }

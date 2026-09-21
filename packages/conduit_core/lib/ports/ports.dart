@@ -18,6 +18,7 @@ export 'connectivity_port.dart';
 export 'cookie_jar_port.dart';
 export 'database_opener.dart';
 export 'external_url_port.dart';
+export 'audio_playback_port.dart';
 export 'flush_scheduler.dart';
 export 'post_frame_scheduler.dart';
 export 'key_value_store.dart';

@@ -135,4 +135,47 @@ void main() {
       );
     });
   });
+
+  group('NullAudioPlayback', () {
+    test('accepts a queue and reports nothing playing', () async {
+      final player = NullAudioPlayback();
+      addTearDown(player.dispose);
+
+      await player.setClips([
+        AudioClip(uri: Uri.parse('file:///tmp/a.mp3'), tag: 0),
+        AudioClip(uri: Uri.parse('file:///tmp/b.mp3'), tag: 1),
+      ]);
+      await player.addClip(AudioClip(uri: Uri.parse('file:///tmp/c.mp3')));
+      await player.play();
+
+      // A host with no audio output falls silent rather than failing the
+      // turn, so every call has to be accepted and none of them can start
+      // reporting progress that will never happen.
+      expect(player.currentIndex, isNull);
+      expect(player.processingState, AudioProcessingState.idle);
+    });
+
+    test('emits nothing, rather than a state that never advances', () async {
+      final player = NullAudioPlayback();
+      final states = <AudioPlaybackState>[];
+      final indices = <int?>[];
+      player.stateChanges.listen(states.add);
+      player.currentIndexChanges.listen(indices.add);
+
+      await player.setClips([AudioClip(uri: Uri.parse('file:///tmp/a.mp3'))]);
+      await player.play();
+      await Future<void>.delayed(Duration.zero);
+
+      // A caller waiting for `completed` would hang if this synthesised a
+      // start it never finishes; emitting nothing at all is the honest
+      // answer, and callers already handle a session that never speaks.
+      expect(states, isEmpty);
+      expect(indices, isEmpty);
+      await player.dispose();
+    });
+
+    test('the unbound host factory is the silent one', () {
+      expect(AudioPlaybackPort.hostFactory(), isA<NullAudioPlayback>());
+    });
+  });
 }
