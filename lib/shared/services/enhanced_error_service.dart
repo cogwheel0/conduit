@@ -45,9 +45,52 @@ class EnhancedErrorService {
     if (error is ApiError) {
       return userFacingApiError(error, currentAppLocalizations());
     } else if (error is DioException) {
-      return ApiErrorInterceptor.getUserMessage(error);
+      return _dioExceptionMessage(error);
     } else {
       return _getGenericErrorMessage(error);
+    }
+  }
+
+  /// Turns a `DioException` into something a person can read.
+  ///
+  /// Lives here rather than on `ApiErrorInterceptor` because it is the
+  /// localisation step, and WP-1.6 put localisation in the UI: the core
+  /// raises `{code, args}` and each front-end renders it. Leaving it in
+  /// the interceptor is what pulled the whole l10n tree into the core's
+  /// dependency closure.
+  String _dioExceptionMessage(DioException error) {
+    final apiError = ApiErrorInterceptor.extractApiError(error);
+    if (apiError != null) {
+      return userFacingApiError(apiError, currentAppLocalizations());
+    }
+
+    // Fallback to basic DioException handling
+    switch (error.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+      case DioExceptionType.transformTimeout:
+        return 'Connection timeout - please check your internet connection';
+      case DioExceptionType.connectionError:
+        return 'Network connection error - please check your internet connection';
+      case DioExceptionType.badResponse:
+        final statusCode = error.response?.statusCode;
+        if (statusCode == 401) {
+          return 'Authentication failed - please sign in again';
+        } else if (statusCode == 403) {
+          return 'Access denied - you don\'t have permission for this action';
+        } else if (statusCode == 404) {
+          return 'The requested resource was not found';
+        } else if (statusCode != null && statusCode >= 500) {
+          return 'Server error occurred - please try again later';
+        }
+        return 'An error occurred with your request';
+      case DioExceptionType.cancel:
+        return 'Request was cancelled';
+      case DioExceptionType.badCertificate:
+        return 'Security certificate error - unable to verify server identity';
+      case DioExceptionType.unknown:
+        return 'An unexpected error occurred - please try again';
     }
   }
 

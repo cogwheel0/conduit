@@ -14,10 +14,12 @@ void _resetProvidersAfterFullAppDataClear(Ref ref) {
   ref.invalidate(conversationsProvider);
 
   ref.invalidate(appSettingsProvider);
-  ref.invalidate(appThemeModeProvider);
-  ref.invalidate(appThemePaletteProvider);
-  ref.invalidate(appLocaleProvider);
   ref.invalidate(reviewerModeProvider);
+  // Theme and locale live in the app, so the host registers them rather than
+  // the core reaching upward for them.
+  for (final target in ref.read(signOutResetTargetsProvider)) {
+    ref.invalidate(target);
+  }
   ref.invalidate(preferredBackendProvider);
 
   ref.invalidate(directConnectionProfilesProvider);

@@ -11,7 +11,9 @@ import 'package:flutter/widgets.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/utils/debug_logger.dart';
-import '../../../shared/utils/external_link_launcher.dart';
+
+import 'package:conduit_core/network/external_link.dart';
+
 import '../models/hermes_bot.dart';
 import '../models/hermes_chat_input.dart';
 import '../models/hermes_config.dart';

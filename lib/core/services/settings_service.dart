@@ -6,7 +6,8 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../persistence/persistence_keys.dart';
 import '../persistence/preferences_store.dart';
-import '../../shared/services/animation_service.dart';
+
+import 'package:conduit_core/models/animation_settings.dart';
 
 part 'settings_service.g.dart';
 
@@ -643,7 +644,8 @@ class SettingsService {
       disableHapticsWhileStreaming:
           PreferencesStore.get<bool>(_disableHapticsWhileStreamingKey) ?? false,
       citationShowTitles:
-          PreferencesStore.get<bool>(PreferenceKeys.citationShowTitles) ?? false,
+          PreferencesStore.get<bool>(PreferenceKeys.citationShowTitles) ??
+          false,
       highContrast: PreferencesStore.get<bool>(_highContrastKey) ?? false,
       darkMode: PreferencesStore.get<bool>(_darkModeKey) ?? true,
       defaultModel: PreferencesStore.get<String>(_defaultModelKey),

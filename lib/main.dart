@@ -280,6 +280,9 @@ void main() {
           postFrameSchedulerProvider.overrideWithValue(
             const FlutterPostFrameScheduler(),
           ),
+          signOutResetTargetsProvider.overrideWithValue(
+            themePreferenceResetTargets,
+          ),
           clipboardPortProvider.overrideWithValue(const FlutterClipboardPort()),
           secureStorageProvider.overrideWithValue(
             ReadinessGatedSecureStorage(

@@ -1,4 +1,5 @@
 import 'package:conduit_core/conduit_core.dart';
+import 'package:riverpod/misc.dart' show ProviderOrFamily;
 import 'package:riverpod/riverpod.dart';
 
 /// Where `lib/core` declares the seams its host must fill (M1).
@@ -104,4 +105,18 @@ final flushSchedulerProvider = Provider<FlushScheduler>(
 /// baked in here.
 final postFrameSchedulerProvider = Provider<PostFrameScheduler>(
   (ref) => PostFrameScheduler.hostDefault,
+);
+
+/// Extra providers a full sign-out must invalidate (WP-1.12).
+///
+/// The core resets its own state directly, but it cannot name the app's
+/// theme and locale providers: those resolve to `ThemeData` and `Locale`,
+/// which is exactly why they live in the app rather than here. Naming them
+/// anyway is what dragged the whole theme and localisation tree into the
+/// core's dependency closure.
+///
+/// The host registers them instead. A host that registers nothing simply has
+/// nothing extra to reset, which is true of the daemon.
+final signOutResetTargetsProvider = Provider<List<ProviderOrFamily>>(
+  (ref) => const <ProviderOrFamily>[],
 );

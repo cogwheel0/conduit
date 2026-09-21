@@ -148,3 +148,14 @@ class AppLocale extends _$AppLocale {
     );
   }
 }
+
+/// The preference providers a full sign-out must reset.
+///
+/// Registered with `signOutResetTargetsProvider` in `main.dart`. They are
+/// listed here, beside the providers themselves, so adding a new persisted
+/// preference has one obvious place to be remembered.
+final List<ProviderOrFamily> themePreferenceResetTargets = <ProviderOrFamily>[
+  appThemeModeProvider,
+  appThemePaletteProvider,
+  appLocaleProvider,
+];

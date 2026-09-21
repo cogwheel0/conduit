@@ -2,9 +2,7 @@ import 'package:dio/dio.dart';
 
 import 'api_error.dart';
 import 'api_error_handler.dart';
-import '../utils/current_localizations.dart';
 import '../utils/debug_logger.dart';
-import '../../shared/utils/api_error_messages.dart';
 
 // Was Flutter's kDebugMode. `dart.vm.product` is the same signal and
 // is available without Flutter.
@@ -179,42 +177,5 @@ class ApiErrorInterceptor extends Interceptor {
   /// Check if DioException contains an ApiError
   static bool hasApiError(DioException error) {
     return extractApiError(error) != null;
-  }
-
-  /// Get user-friendly message from DioException
-  static String getUserMessage(DioException error) {
-    final apiError = extractApiError(error);
-    if (apiError != null) {
-      return userFacingApiError(apiError, currentAppLocalizations());
-    }
-
-    // Fallback to basic DioException handling
-    switch (error.type) {
-      case DioExceptionType.connectionTimeout:
-      case DioExceptionType.sendTimeout:
-      case DioExceptionType.receiveTimeout:
-      case DioExceptionType.transformTimeout:
-        return 'Connection timeout - please check your internet connection';
-      case DioExceptionType.connectionError:
-        return 'Network connection error - please check your internet connection';
-      case DioExceptionType.badResponse:
-        final statusCode = error.response?.statusCode;
-        if (statusCode == 401) {
-          return 'Authentication failed - please sign in again';
-        } else if (statusCode == 403) {
-          return 'Access denied - you don\'t have permission for this action';
-        } else if (statusCode == 404) {
-          return 'The requested resource was not found';
-        } else if (statusCode != null && statusCode >= 500) {
-          return 'Server error occurred - please try again later';
-        }
-        return 'An error occurred with your request';
-      case DioExceptionType.cancel:
-        return 'Request was cancelled';
-      case DioExceptionType.badCertificate:
-        return 'Security certificate error - unable to verify server identity';
-      case DioExceptionType.unknown:
-        return 'An unexpected error occurred - please try again';
-    }
   }
 }

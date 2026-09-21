@@ -1,8 +1,13 @@
+import 'package:conduit_core/models/animation_settings.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../theme/theme_extensions.dart';
+
+/// Re-exported so moving the value types into the core is invisible to
+/// the widgets that import this file for them.
+export 'package:conduit_core/models/animation_settings.dart';
 
 part 'animation_service.g.dart';
 
@@ -234,42 +239,11 @@ class AnimationPerformanceNotifier extends Notifier<AnimationPerformance> {
 }
 
 /// Animation performance levels
-enum AnimationPerformance {
-  high, // All animations enabled
-  adaptive, // Adaptive based on device
-  reduced, // Simplified animations
-  minimal, // Essential animations only
-}
-
 /// Provider for managing animation settings
 final animationSettingsProvider =
     NotifierProvider<AnimationSettingsNotifier, AnimationSettings>(
       AnimationSettingsNotifier.new,
     );
-
-class AnimationSettings {
-  final bool reduceMotion;
-  final AnimationPerformance performance;
-  final double animationSpeed;
-
-  const AnimationSettings({
-    this.reduceMotion = false,
-    this.performance = AnimationPerformance.adaptive,
-    this.animationSpeed = 1.0,
-  });
-
-  AnimationSettings copyWith({
-    bool? reduceMotion,
-    AnimationPerformance? performance,
-    double? animationSpeed,
-  }) {
-    return AnimationSettings(
-      reduceMotion: reduceMotion ?? this.reduceMotion,
-      performance: performance ?? this.performance,
-      animationSpeed: animationSpeed ?? this.animationSpeed,
-    );
-  }
-}
 
 class AnimationSettingsNotifier extends Notifier<AnimationSettings> {
   @override

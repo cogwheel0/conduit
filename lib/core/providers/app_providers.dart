@@ -82,7 +82,6 @@ import '../database/mappers/conversation_assembler.dart';
 import '../sync/chat_locks.dart';
 import '../sync/pull_sync.dart';
 import '../sync/sync_engine.dart';
-import '../../shared/theme/theme_providers.dart';
 
 export 'storage_providers.dart';
 
