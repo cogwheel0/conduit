@@ -3,7 +3,8 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 
 import 'package:conduit_core/models/server_config.dart';
-import '../../../core/services/server_tls_http_client_factory.dart';
+import 'package:conduit_core/services/server_tls_http_client_factory.dart';
+
 import '../models/hermes_config.dart';
 
 /// Applies the Hermes server's custom headers and TLS trust to a Dio client.

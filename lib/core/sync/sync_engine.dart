@@ -12,28 +12,34 @@ import '../database/database_provider.dart';
 import 'package:conduit_core/database/fts/fts_ddl.dart' show kFtsBuiltKey;
 import 'package:conduit_core/models/conversation.dart';
 
-import '../persistence/persistence_providers.dart';
+import 'package:conduit_core/persistence/persistence_providers.dart';
+
 import '../providers/app_providers.dart';
 import '../services/connectivity_service.dart';
 
 import 'package:conduit_core/services/conversation_parsing.dart';
 
-import '../services/interaction_activity.dart';
+import 'package:conduit_core/services/interaction_activity.dart';
 
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
-import 'backoff.dart';
+import 'package:conduit_core/sync/backoff.dart';
+
 import 'chat_adapter.dart';
 import 'chat_locks.dart';
-import 'clock.dart';
+
+import 'package:conduit_core/sync/clock.dart';
+
 import 'deletion_reconcile.dart';
 
 import 'package:conduit_core/sync/id_remapper.dart';
 
 import 'note_adapter.dart';
 import 'note_deletion_reconcile.dart';
-import 'hive_cache_migrator.dart';
+
+import 'package:conduit_core/sync/hive_cache_migrator.dart';
+
 import 'note_sync.dart';
 import 'outbox_drainer.dart';
 import 'outbox_task_queue_migrator.dart';
@@ -41,7 +47,8 @@ import 'pull_sync.dart';
 import 'push_sync.dart';
 import 'request_completion_runner_provider.dart';
 import 'sync_api_client.dart';
-import 'sync_entity_adapter.dart';
+
+import 'package:conduit_core/sync/sync_entity_adapter.dart';
 
 part 'sync_engine.g.dart';
 

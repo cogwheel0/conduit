@@ -14,7 +14,8 @@ import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'api_service.dart';
 import 'native_sheet_bridge.dart';
-import 'server_tls_http_client_factory.dart';
+
+import 'package:conduit_core/services/server_tls_http_client_factory.dart';
 
 final Expando<Object> _avatarSessionTokens = Expando<Object>(
   'native-sheet-avatar-session',

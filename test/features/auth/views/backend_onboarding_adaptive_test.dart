@@ -1,7 +1,7 @@
 import 'dart:ui' as ui;
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/shared/services/navigation_service.dart';

@@ -5,8 +5,8 @@ import 'package:dio/dio.dart';
 import 'package:openai_dart/openai_dart.dart' as openai;
 import 'package:uuid/uuid.dart';
 
-import '../../../core/services/openai_responses_codec.dart';
-import '../../../core/services/sse_frame_scanner.dart';
+import 'package:conduit_core/services/openai_responses_codec.dart';
+import 'package:conduit_core/services/sse_frame_scanner.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 

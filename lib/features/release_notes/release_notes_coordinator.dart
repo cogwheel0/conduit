@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/persistence/persistence_keys.dart';
-import '../../core/persistence/preferences_store.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+
 import '../../core/providers/app_providers.dart';
-import '../../core/providers/backend_mode_providers.dart';
+
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 

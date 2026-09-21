@@ -16,13 +16,17 @@ import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/utils/external_link_launcher.dart';
 import '../../../shared/widgets/sign_out_options_dialog.dart';
 import '../../../core/providers/app_providers.dart';
-import '../../../core/providers/backend_mode_providers.dart';
+
+import 'package:conduit_core/providers/backend_mode_providers.dart';
+
 import '../../../shared/services/navigation_service.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../../../core/services/api_service.dart';
+
 import 'package:conduit_core/models/user.dart' as models;
-import '../../../core/utils/user_display_name.dart';
+import 'package:conduit_core/utils/user_display_name.dart';
+
 import '../../../core/utils/user_avatar_utils.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../../shared/widgets/utility_components.dart';

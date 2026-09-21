@@ -4,7 +4,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
-import 'package:conduit/core/sync/clock.dart';
+import 'package:conduit_core/sync/clock.dart';
 import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit/core/sync/outbox_drainer.dart';
 import 'package:conduit/core/sync/push_sync.dart';

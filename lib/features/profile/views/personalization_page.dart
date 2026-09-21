@@ -9,10 +9,13 @@ import 'package:intl/intl.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_user_settings.dart';
 import 'package:conduit_core/models/server_memory.dart';
+
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
-import '../../../core/services/settings_service.dart';
+
+import 'package:conduit_core/services/settings_service.dart';
+
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';

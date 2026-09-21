@@ -22,7 +22,9 @@ import '../../../shared/widgets/sidebar_layout_contract.dart';
 import 'dart:async';
 
 import '../../../core/providers/app_providers.dart';
-import '../../../core/services/interaction_activity.dart';
+
+import 'package:conduit_core/services/interaction_activity.dart';
+
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
 
@@ -30,7 +32,9 @@ import 'package:conduit_core/services/performance_profiler.dart';
 
 import '../../../core/services/api_service.dart';
 import '../../../core/services/connectivity_service.dart';
-import '../../../core/services/settings_service.dart';
+
+import 'package:conduit_core/services/settings_service.dart';
+
 import '../../../core/database/database_provider.dart';
 
 import 'package:conduit_core/database/app_database.dart';
@@ -61,7 +65,8 @@ import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/utils/message_tree_utils.dart' as message_tree;
 
-import '../../../core/utils/user_display_name.dart';
+import 'package:conduit_core/utils/user_display_name.dart';
+
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../shared/widgets/markdown/markdown_compile_service.dart';
 

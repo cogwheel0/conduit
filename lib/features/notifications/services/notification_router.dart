@@ -1,6 +1,7 @@
 import 'dart:collection';
 
-import '../../../core/services/settings_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
+
 import '../models/app_notification.dart';
 import 'active_view_tracker.dart';
 import 'local_notification_service.dart';

@@ -4,7 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
-import '../../../core/auth/webview_origin.dart';
+import 'package:conduit_core/auth/webview_origin.dart';
 
 Map<String, String> hermesHeadersWithoutAccessCredentials(
   Map<String, String> headers,

@@ -6,7 +6,7 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 
-import '../../../core/services/openai_responses_codec.dart';
+import 'package:conduit_core/services/openai_responses_codec.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 

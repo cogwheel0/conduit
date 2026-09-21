@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:conduit_core/models/server_config.dart';
-import 'package:conduit/core/network/conduit_user_agent.dart';
-import 'package:conduit/core/services/socket_service.dart';
+import 'package:conduit_core/network/conduit_user_agent.dart';
+import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';

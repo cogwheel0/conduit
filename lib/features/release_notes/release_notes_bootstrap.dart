@@ -1,5 +1,5 @@
-import '../../core/persistence/persistence_keys.dart';
-import '../../core/persistence/preferences_store.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 
 /// Last public version before automatic release notes first ship in 4.0.1.
 ///

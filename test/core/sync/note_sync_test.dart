@@ -16,7 +16,7 @@ import 'package:conduit/core/sync/note_adapter.dart';
 import 'package:conduit_core/sync/note_conflict.dart';
 import 'package:conduit/core/sync/note_sync.dart';
 import 'package:conduit/core/sync/sync_api_client.dart';
-import 'package:conduit/core/sync/sync_entity_adapter.dart';
+import 'package:conduit_core/sync/sync_entity_adapter.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';

@@ -11,6 +11,7 @@
 //   2. apps/desktop_ui may depend only on the shared packages, Jaspr and
 //      package:web. If it can reach dio, drift or conduit_core, then "logic
 //      lives in the core" stops being enforceable by review alone.
+import 'dart:convert';
 import 'dart:io';
 
 /// Directories of `lib/` that no longer import Flutter and must stay that
@@ -91,6 +92,8 @@ final RegExp _importRegex = RegExp(
 
 void main() {
   final violations = <String>[];
+
+  violations.addAll(_scanForTransitiveFlutter('packages/conduit_core/lib'));
 
   for (final path in _webSafePackages) {
     violations.addAll(
@@ -194,3 +197,66 @@ List<String> _scanFiles(
   }
   return violations;
 }
+
+/// Reports any file under [dir] that imports a package which itself depends
+/// on the Flutter SDK.
+///
+/// The named lists above only catch packages someone thought to write down,
+/// which is not good enough for this package's central promise. During the
+/// WP-1.12 extraction two files reached Flutter through
+/// `cached_network_image_ce` and `pdfrx`, passed every other check, and would
+/// have voided the guarantee silently. This asks each imported package's own
+/// pubspec instead, so a dependency added later cannot smuggle Flutter in
+/// under a name nobody listed.
+List<String> _scanForTransitiveFlutter(String dir) {
+  final configFile = File('.dart_tool/package_config.json');
+  if (!configFile.existsSync()) return const <String>[];
+  final config =
+      jsonDecode(configFile.readAsStringSync()) as Map<String, dynamic>;
+
+  final flutterBacked = <String>{};
+  for (final entry in config['packages'] as List<dynamic>) {
+    final package = entry as Map<String, dynamic>;
+    final name = package['name'] as String;
+    final root = package['rootUri'] as String;
+    final resolved = root.startsWith('file://')
+        ? Uri.parse(root).toFilePath()
+        : File('.dart_tool/$root').absolute.path;
+    final pubspec = File('$resolved/pubspec.yaml');
+    if (!pubspec.existsSync()) continue;
+    if (name == 'flutter' ||
+        _flutterSdkDependency.hasMatch(pubspec.readAsStringSync())) {
+      flutterBacked.add(name);
+    }
+  }
+
+  final target = Directory(dir);
+  if (!target.existsSync()) return const <String>[];
+  final violations = <String>[];
+  for (final entity in target.listSync(recursive: true)) {
+    if (entity is! File || !entity.path.endsWith('.dart')) continue;
+    final content = entity.readAsStringSync();
+    for (final match in _packageImportRegex.allMatches(content)) {
+      final package = match.group(1)!;
+      if (!flutterBacked.contains(package)) continue;
+      final line =
+          '\n'.allMatches(content.substring(0, match.start)).length + 1;
+      violations.add(
+        '${entity.path}:$line imports "package:$package", which depends on '
+        'the Flutter SDK - conduit_core must run inside the conduitd '
+        'sidecar, so the platform-specific part belongs behind a port',
+      );
+    }
+  }
+  return violations;
+}
+
+final RegExp _flutterSdkDependency = RegExp(
+  r'^\s+flutter:\s*\n\s+sdk:\s*flutter',
+  multiLine: true,
+);
+
+final RegExp _packageImportRegex = RegExp(
+  r'''^\s*import\s+['"]package:([a-z_0-9]+)/''',
+  multiLine: true,
+);

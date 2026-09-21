@@ -1,8 +1,9 @@
 import 'dart:convert';
 
-import '../../../core/persistence/persistence_keys.dart';
-import '../../../core/persistence/preferences_store.dart';
-import '../../../core/utils/unicode_prefix.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/utils/unicode_prefix.dart';
+
 import '../models/hermes_run_event.dart';
 import '../models/hermes_config.dart';
 import 'hermes_identifier.dart';

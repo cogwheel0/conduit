@@ -24,7 +24,8 @@ import '../../../shared/widgets/adaptive_route_shell.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
-import '../../../core/network/conduit_user_agent.dart';
+import 'package:conduit_core/network/conduit_user_agent.dart';
+
 import '../../../core/network/self_signed_image_cache_manager.dart';
 import '../../../core/network/image_header_utils.dart';
 import '../../../core/services/api_service.dart';

@@ -1,4 +1,4 @@
-import '../services/cache_manager.dart';
+import 'package:conduit_core/services/cache_manager.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 

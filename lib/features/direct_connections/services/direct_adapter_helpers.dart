@@ -4,8 +4,9 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
-import '../../../core/utils/sensitive_value_utils.dart';
-import '../../../core/utils/unicode_prefix.dart';
+import 'package:conduit_core/utils/sensitive_value_utils.dart';
+import 'package:conduit_core/utils/unicode_prefix.dart';
+
 import '../models/direct_completion.dart';
 import '../models/direct_connection_profile.dart';
 

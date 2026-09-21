@@ -1,4 +1,4 @@
-import 'package:conduit/core/auth/webview_origin.dart';
+import 'package:conduit_core/auth/webview_origin.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

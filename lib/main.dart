@@ -21,8 +21,10 @@ import 'platform/flutter_cookie_jar.dart';
 import 'platform/flutter_flush_scheduler.dart';
 import 'platform/flutter_post_frame_scheduler.dart';
 import 'platform/ios_display_boost.dart';
-import 'core/services/share_staging_cleanup.dart'
+
+import 'package:conduit_core/services/share_staging_cleanup.dart'
     show shareStagingDirectoryName;
+
 import 'platform/ios_share_staging.dart';
 import 'platform/just_audio_playback.dart';
 import 'platform/record_audio_capture.dart';
@@ -36,20 +38,27 @@ import 'core/providers/app_providers.dart';
 
 import 'package:conduit_core/providers/host_ports.dart';
 
-import 'core/network/conduit_user_agent.dart';
+import 'package:conduit_core/network/conduit_user_agent.dart';
+
 import 'core/persistence/hive_bootstrap.dart';
-import 'core/persistence/hive_prefs_migrator.dart';
+
+import 'package:conduit_core/persistence/hive_prefs_migrator.dart';
+
 import 'core/persistence/persistence_migrator.dart';
-import 'core/persistence/persistence_providers.dart';
-import 'core/persistence/preferences_store.dart';
+
+import 'package:conduit_core/persistence/persistence_providers.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+
 import 'core/router/app_router.dart';
 import 'core/services/native_sheet_bridge.dart';
 import 'core/services/native_sheet_hydration_service.dart';
 import 'shared/services/navigation_service.dart';
 import 'shared/services/raster_media_policy.dart';
 import 'core/services/carplay_service.dart';
-import 'core/services/readiness_gated_secure_storage.dart';
-import 'core/services/settings_service.dart';
+
+import 'package:conduit_core/services/readiness_gated_secure_storage.dart';
+import 'package:conduit_core/services/settings_service.dart';
+
 import 'core/sync/request_completion_runner_provider.dart';
 import 'core/utils/tts_voice_utils.dart';
 import 'core/utils/current_localizations.dart';

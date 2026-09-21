@@ -32,8 +32,9 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:yaml/yaml.dart' as yaml;
 
 import '../../../core/auth/auth_state_manager.dart';
-import '../../../core/auth/api_auth_interceptor.dart';
-import '../../../core/auth/openwebui_account_owner_marker.dart';
+
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
 
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/model.dart';
@@ -60,7 +61,8 @@ import 'package:conduit_core/providers/host_ports.dart';
 
 import '../../../core/providers/app_providers.dart';
 import '../../../core/sync/chat_locks.dart';
-import '../../../core/sync/clock.dart';
+
+import 'package:conduit_core/sync/clock.dart';
 
 import 'package:conduit_core/sync/id_remapper.dart';
 
@@ -68,12 +70,15 @@ import '../../../core/sync/outbox_drainer.dart' show OutboxDeferralException;
 import '../../../core/sync/sync_engine.dart';
 import '../../../core/sync/sync_api_client.dart' show SyncTerminalException;
 
-import '../../../core/services/chat_completion_transport.dart';
+import 'package:conduit_core/services/chat_completion_transport.dart';
+
 import '../../../core/services/api_service.dart';
 import '../../../core/services/location_service.dart';
-import '../../../core/services/settings_service.dart';
-import '../../../core/services/socket_service.dart';
-import '../../../core/services/streaming_response_controller.dart';
+
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/services/socket_service.dart';
+import 'package:conduit_core/services/streaming_response_controller.dart';
+
 import '../../../core/services/streaming_helper.dart';
 
 import 'package:conduit_core/services/performance_profiler.dart';
@@ -83,12 +88,12 @@ import 'package:conduit_core/services/conversation_parsing.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
-import '../../../core/utils/json_normalization.dart';
+import 'package:conduit_core/utils/json_normalization.dart';
 
 import 'package:conduit_core/utils/message_tree_utils.dart' as message_tree;
 
-import '../../../core/utils/openwebui_message_payload.dart';
-import '../../../core/utils/persisted_message_content.dart';
+import 'package:conduit_core/utils/openwebui_message_payload.dart';
+import 'package:conduit_core/utils/persisted_message_content.dart';
 
 import 'package:conduit_markdown/conduit_markdown.dart';
 

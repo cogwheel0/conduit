@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/network/conduit_user_agent.dart';
+import 'package:conduit_core/network/conduit_user_agent.dart';
 import 'package:conduit/features/auth/views/server_connection_page.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';

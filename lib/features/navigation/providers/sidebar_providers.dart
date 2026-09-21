@@ -3,8 +3,9 @@ import 'dart:async';
 import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../../core/persistence/persistence_keys.dart';
-import '../../../core/persistence/preferences_store.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+
 import '../../../core/providers/app_providers.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';

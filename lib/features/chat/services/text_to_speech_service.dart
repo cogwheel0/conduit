@@ -3,8 +3,11 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'package:conduit_core/models/backend_config.dart';
+
 import '../../../core/services/api_service.dart';
-import '../../../core/services/settings_service.dart';
+
+import 'package:conduit_core/services/settings_service.dart';
+
 import 'tts_manager.dart';
 
 export 'tts_manager.dart'

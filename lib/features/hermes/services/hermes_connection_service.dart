@@ -1,6 +1,7 @@
 import 'package:riverpod/riverpod.dart';
 
-import '../../../core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
+
 import '../models/hermes_connection_contract.dart';
 import '../models/hermes_config.dart';
 import '../providers/hermes_providers.dart';

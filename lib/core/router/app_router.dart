@@ -8,12 +8,16 @@ import 'package:go_router/go_router.dart';
 
 import '../auth/auth_state_manager.dart';
 import '../providers/app_providers.dart';
-import '../providers/backend_mode_providers.dart';
+
+import 'package:conduit_core/providers/backend_mode_providers.dart';
+
 import '../../features/hermes/models/hermes_config.dart';
 import '../../features/hermes/providers/hermes_providers.dart';
 import '../../shared/services/navigation_service.dart';
+
 import 'package:conduit_core/services/performance_profiler.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../../features/auth/views/authentication_page.dart';
 import '../../features/auth/views/backend_chooser_page.dart';
@@ -51,6 +55,7 @@ import '../../features/direct_connections/views/direct_connection_editor_page.da
 import '../../features/direct_connections/views/direct_connections_page.dart';
 import '../../features/direct_connections/views/direct_mcp_server_editor_page.dart';
 import '../../l10n/app_localizations.dart';
+
 import 'package:conduit_core/models/server_config.dart';
 
 /// App-local destinations that remain meaningful without an OpenWebUI account.

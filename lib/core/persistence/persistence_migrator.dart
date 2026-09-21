@@ -5,8 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
-import 'hive_boxes.dart';
-import 'persistence_keys.dart';
+import 'package:conduit_core/persistence/hive_boxes.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
 
 /// Handles one-time migration from SharedPreferences to Hive-backed storage.
 class PersistenceMigrator {

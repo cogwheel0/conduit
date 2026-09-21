@@ -14,18 +14,24 @@ import 'package:uuid/uuid.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
 import '../../../platform/webview_cookie_helper.dart';
+
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
-import '../../../core/network/conduit_user_agent.dart';
+import 'package:conduit_core/network/conduit_user_agent.dart';
+
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
+
 import 'package:conduit_core/services/worker_manager.dart';
+
 import '../../../shared/services/input_validation_service.dart';
 import '../../../shared/services/navigation_service.dart';
+
 import 'package:conduit_core/utils/debug_logger.dart';
-import '../../../core/utils/sensitive_value_utils.dart';
-import '../../../core/utils/unicode_prefix.dart';
+import 'package:conduit_core/utils/sensitive_value_utils.dart';
+import 'package:conduit_core/utils/unicode_prefix.dart';
+
 import '../providers/unified_auth_providers.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';

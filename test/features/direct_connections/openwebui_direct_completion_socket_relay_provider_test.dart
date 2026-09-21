@@ -6,7 +6,7 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/socket_health.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/socket_service.dart';
+import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/models/openwebui_direct_connection.dart';

@@ -1,4 +1,4 @@
-import '../../../core/services/secure_credential_storage.dart';
+import 'package:conduit_core/services/secure_credential_storage.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 

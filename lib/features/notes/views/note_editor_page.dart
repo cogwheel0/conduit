@@ -17,7 +17,7 @@ import 'package:share_plus/share_plus.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
-import '../../../core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
 
 import 'package:conduit_core/database/app_database.dart';
 

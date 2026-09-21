@@ -4,8 +4,9 @@ import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/models/model.dart';
-import '../../../core/persistence/persistence_keys.dart';
-import '../../../core/persistence/preferences_store.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+
 import '../../../core/providers/app_providers.dart';
 import '../../direct_connections/models/direct_connection_profile.dart';
 import '../../direct_connections/models/ollama_thinking.dart';

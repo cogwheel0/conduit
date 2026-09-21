@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:conduit/core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_draft.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
@@ -266,15 +266,10 @@ final class DirectTestRejectingProfileWriteSecureStorage
   final String raw;
 
   @override
-  Future<String?> read({
-    required String key,
-  }) async => raw;
+  Future<String?> read({required String key}) async => raw;
 
   @override
-  Future<void> write({
-    required String key,
-    required String? value,
-  }) async {
+  Future<void> write({required String key, required String? value}) async {
     throw StateError('profile write failed');
   }
 

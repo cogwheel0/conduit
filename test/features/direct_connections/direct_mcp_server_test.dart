@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:conduit/core/services/secure_credential_storage.dart';
+import 'package:conduit_core/services/secure_credential_storage.dart';
 import 'package:conduit/features/direct_connections/models/direct_mcp_server.dart';
 import 'package:conduit/features/direct_connections/services/direct_mcp_server_store.dart';
 import 'package:flutter/foundation.dart';

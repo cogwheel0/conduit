@@ -23,12 +23,16 @@ import '../../features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../utils/model_icon_utils.dart';
-import '../utils/model_sort_utils.dart';
+
+import 'package:conduit_core/utils/model_sort_utils.dart';
+
 import '../utils/native_sheet_utils.dart';
 import 'native_sheet_avatar_bytes_hydrator.dart';
 import 'native_sheet_bridge.dart';
 import '../../shared/services/navigation_service.dart';
-import 'settings_service.dart';
+
+import 'package:conduit_core/services/settings_service.dart';
+
 import '../../shared/theme/theme_providers.dart';
 
 final nativeSheetHydrationServiceProvider =

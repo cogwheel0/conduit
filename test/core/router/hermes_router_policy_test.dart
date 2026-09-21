@@ -4,7 +4,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit/core/auth/auth_state_manager.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit/core/router/app_router.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';

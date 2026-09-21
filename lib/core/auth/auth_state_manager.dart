@@ -7,18 +7,25 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 // Types are used through app_providers.dart
 import '../providers/app_providers.dart';
+
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/models/server_config.dart';
+
 import '../services/api_service.dart';
-import '../services/optimized_storage_service.dart';
+
+import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
-import 'token_validator.dart';
+import 'package:conduit_core/auth/token_validator.dart';
+
 import 'auth_cache_manager.dart';
+
 import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../utils/user_avatar_utils.dart';
-import '../persistence/persistence_keys.dart';
-import '../persistence/preferences_store.dart';
-import 'openwebui_account_owner_marker.dart';
+
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
 import 'package:conduit_core/providers/host_ports.dart';
 
 part 'auth_state_manager.g.dart';
@@ -673,8 +680,9 @@ class AuthStateManager extends _$AuthStateManager {
           return;
         }
         if (_authAttemptSuperseded(attemptRevision)) return;
-        final webViewDataCleared =
-            await ref.read(cookieJarProvider).completePendingClear();
+        final webViewDataCleared = await ref
+            .read(cookieJarProvider)
+            .completePendingClear();
         if (_authAttemptSuperseded(attemptRevision)) return;
         if (!webViewDataCleared) {
           _set(

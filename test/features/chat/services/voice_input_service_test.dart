@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/features/chat/services/native_stt_service.dart';
 import 'package:conduit/features/chat/services/server_vad_recorder.dart';
 import 'package:conduit/features/chat/services/voice_input_service.dart';

@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/services/share_staging_cleanup.dart';
+import 'package:conduit_core/services/share_staging_cleanup.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;

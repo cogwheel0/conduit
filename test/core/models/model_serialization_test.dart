@@ -14,7 +14,7 @@ import 'package:conduit_core/models/toggle_filter.dart';
 import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/models/user_settings.dart';
-import 'package:conduit/core/utils/json_normalization.dart';
+import 'package:conduit_core/utils/json_normalization.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

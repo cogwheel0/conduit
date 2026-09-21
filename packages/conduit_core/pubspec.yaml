@@ -14,6 +14,12 @@ dependencies:
   # `QueryExecutor` is part of the DatabaseOpener port's signature. The core
   # owns the schema, so drift belongs here rather than in the front-ends.
   collection: ^1.19.1
+  hive_ce: ^2.14.0
+  intl: ^0.20.2
+  openai_dart: ^8.1.0
+  socket_io_client: ^3.1.2
+  synchronized: ^3.4.1
+  web_socket: ^1.0.1
   conduit_markdown:
     path: ../conduit_markdown
   crypto: ^3.0.3

@@ -13,8 +13,9 @@ import '../../../core/auth/auth_state_manager.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/prompt.dart';
 
-import '../../../core/persistence/persistence_keys.dart';
-import '../../../core/persistence/preferences_store.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+
 import '../../../core/providers/app_providers.dart'
     show
         activeConversationProvider,
@@ -22,9 +23,12 @@ import '../../../core/providers/app_providers.dart'
         incompleteLogoutFenceProvider,
         reviewerModeProvider,
         selectedModelProvider;
-import '../../../core/providers/backend_mode_providers.dart';
+
+import 'package:conduit_core/providers/backend_mode_providers.dart';
+
 import '../../../core/providers/storage_providers.dart';
-import '../../../core/services/secure_credential_storage.dart';
+
+import 'package:conduit_core/services/secure_credential_storage.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 

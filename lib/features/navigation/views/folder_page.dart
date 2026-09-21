@@ -12,13 +12,16 @@ import 'package:go_router/go_router.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/models/model.dart';
+
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/haptic_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
 import '../../../shared/services/navigation_service.dart';
 import '../../../shared/services/user_friendly_error_handler.dart';
-import '../../../core/services/settings_service.dart';
+
+import 'package:conduit_core/services/settings_service.dart';
+
 import '../../../l10n/app_localizations.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
@@ -28,7 +31,9 @@ import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../core/services/media_upload_controller.dart';
+
 import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';

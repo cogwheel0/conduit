@@ -1,10 +1,10 @@
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
-import 'package:conduit/core/services/optimized_storage_service.dart';
+import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit/features/auth/views/authentication_page.dart';
 import 'package:conduit/features/auth/views/backend_chooser_page.dart';
 import 'package:conduit/features/auth/views/server_connection_page.dart';

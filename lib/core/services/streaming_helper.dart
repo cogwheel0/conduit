@@ -7,31 +7,34 @@ import 'package:conduit_core/conduit_core.dart';
 import 'package:meta/meta.dart';
 import 'package:html_unescape/html_unescape.dart';
 
-import '../auth/api_auth_interceptor.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
 
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 
 import '../../core/providers/app_providers.dart' show isTemporaryChat;
-import '../../core/services/socket_service.dart';
+
+import 'package:conduit_core/services/socket_service.dart';
 
 import 'package:conduit_markdown/conduit_markdown.dart';
 
 import 'background_streaming_handler.dart';
-import 'chat_completion_transport.dart';
+
+import 'package:conduit_core/services/chat_completion_transport.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/utils/openwebui_source_parser.dart';
 
-import 'openwebui_response_stream.dart';
-import 'openwebui_stream_parser.dart';
+import 'package:conduit_core/services/openwebui_response_stream.dart';
+import 'package:conduit_core/services/openwebui_stream_parser.dart';
 
 import 'package:conduit_core/services/performance_profiler.dart';
 
 import 'package:conduit_core/services/semantic_message_builder.dart';
 
-import 'streaming_response_controller.dart';
+import 'package:conduit_core/services/streaming_response_controller.dart';
+
 import 'api_service.dart';
 
 import 'package:conduit_core/services/structured_output.dart';

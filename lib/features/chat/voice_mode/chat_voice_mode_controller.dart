@@ -15,8 +15,9 @@ import '../../../core/providers/app_providers.dart'
     show selectedModelProvider, socketServiceProvider;
 import '../../../core/services/background_streaming_handler.dart';
 import '../../../core/services/callkit_service.dart';
-import '../../../core/services/settings_service.dart';
-import '../../../core/services/socket_service.dart'
+
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/services/socket_service.dart'
     show SocketBackgroundActivityLease, SocketService;
 
 import 'package:conduit_core/utils/debug_logger.dart';

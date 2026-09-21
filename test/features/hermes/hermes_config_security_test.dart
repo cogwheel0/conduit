@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/persistence/persistence_keys.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/hermes/controllers/hermes_connection_controller.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
@@ -1485,9 +1485,7 @@ class _GatedSecureStorage implements SecureKeyValueStore {
   }
 
   @override
-  Future<String?> read({
-    required String key,
-  }) async {
+  Future<String?> read({required String key}) async {
     if (key == gatedReadKey) {
       if (!readStarted.isCompleted) readStarted.complete();
       await _readRelease.future;
@@ -1496,10 +1494,7 @@ class _GatedSecureStorage implements SecureKeyValueStore {
   }
 
   @override
-  Future<void> write({
-    required String key,
-    required String? value,
-  }) async {
+  Future<void> write({required String key, required String? value}) async {
     if (key == gatedWriteKey) {
       if (!writeStarted.isCompleted) writeStarted.complete();
       await _writeRelease.future;
@@ -1513,9 +1508,7 @@ class _GatedSecureStorage implements SecureKeyValueStore {
   }
 
   @override
-  Future<void> delete({
-    required String key,
-  }) async {
+  Future<void> delete({required String key}) async {
     values.remove(key);
   }
 
@@ -1533,18 +1526,13 @@ class _FailOnceSecureStorage implements SecureKeyValueStore {
   bool failReads = false;
 
   @override
-  Future<String?> read({
-    required String key,
-  }) async {
+  Future<String?> read({required String key}) async {
     if (failReads) throw StateError('secure storage unavailable');
     return values[key];
   }
 
   @override
-  Future<void> write({
-    required String key,
-    required String? value,
-  }) async {
+  Future<void> write({required String key, required String? value}) async {
     if (failNextWriteFor == key) {
       failNextWriteFor = null;
       throw StateError('write failed for $key');
@@ -1561,9 +1549,7 @@ class _FailOnceSecureStorage implements SecureKeyValueStore {
   }
 
   @override
-  Future<void> delete({
-    required String key,
-  }) async {
+  Future<void> delete({required String key}) async {
     values.remove(key);
   }
 

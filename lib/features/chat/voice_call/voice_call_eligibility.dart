@@ -4,9 +4,12 @@ import 'package:riverpod/riverpod.dart';
 import 'package:meta/meta.dart';
 
 import 'package:conduit_core/models/model.dart';
+
 import '../../../core/providers/app_providers.dart';
-import '../../../core/providers/backend_mode_providers.dart';
-import '../../../core/services/settings_service.dart';
+
+import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/services/settings_service.dart';
+
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../direct_connections/providers/direct_connection_providers.dart';
 import '../../direct_connections/services/direct_model_registry.dart';

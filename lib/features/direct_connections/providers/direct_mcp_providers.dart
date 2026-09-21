@@ -9,7 +9,9 @@ import 'package:mcp_dart/mcp_dart.dart' as mcp;
 import 'package:conduit_core/models/tool.dart';
 
 import '../../../core/providers/app_providers.dart';
-import '../../../core/services/secure_credential_storage.dart';
+
+import 'package:conduit_core/services/secure_credential_storage.dart';
+
 import '../models/direct_completion.dart';
 import '../models/direct_mcp_server.dart';
 import '../models/direct_mcp_content.dart';

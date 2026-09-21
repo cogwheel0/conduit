@@ -1,5 +1,5 @@
 import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_draft.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
@@ -323,8 +323,7 @@ void main() {
     );
     final delete = tester.widget<ConduitButton>(
       find.byWidgetPredicate(
-        (widget) =>
-            widget is ConduitButton && widget.text == 'Delete',
+        (widget) => widget is ConduitButton && widget.text == 'Delete',
       ),
     );
     expect(save.onPressed, isNull);
@@ -336,8 +335,7 @@ void main() {
 
     final restoredDelete = tester.widget<ConduitButton>(
       find.byWidgetPredicate(
-        (widget) =>
-            widget is ConduitButton && widget.text == 'Delete',
+        (widget) => widget is ConduitButton && widget.text == 'Delete',
       ),
     );
     expect(restoredDelete.isLoading, isFalse);

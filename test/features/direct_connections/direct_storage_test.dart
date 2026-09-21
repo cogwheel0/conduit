@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:conduit/core/persistence/persistence_keys.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/services/secure_credential_storage.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/services/secure_credential_storage.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/models/ollama_thinking.dart';
@@ -395,15 +395,10 @@ final class _GatedSecureStorage implements SecureKeyValueStore {
   bool _gateNextWrite = true;
 
   @override
-  Future<String?> read({
-    required String key,
-  }) async => values[key];
+  Future<String?> read({required String key}) async => values[key];
 
   @override
-  Future<void> write({
-    required String key,
-    required String? value,
-  }) async {
+  Future<void> write({required String key, required String? value}) async {
     if (_gateNextWrite) {
       _gateNextWrite = false;
       writeStarted.complete();
@@ -417,9 +412,7 @@ final class _GatedSecureStorage implements SecureKeyValueStore {
   }
 
   @override
-  Future<void> delete({
-    required String key,
-  }) async {
+  Future<void> delete({required String key}) async {
     deleteCalls++;
     values.remove(key);
   }

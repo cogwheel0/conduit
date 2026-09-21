@@ -1,9 +1,10 @@
 import 'package:riverpod/riverpod.dart';
 
 import '../../../core/auth/auth_state_manager.dart';
+
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/models/server_config.dart';
-import '../../../core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 /// Unified auth providers using the new auth state manager

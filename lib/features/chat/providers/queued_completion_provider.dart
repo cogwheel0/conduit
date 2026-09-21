@@ -11,7 +11,9 @@ import 'package:conduit_core/database/daos/outbox_dao.dart';
 import '../../../core/database/database_provider.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/connectivity_service.dart';
-import '../../../core/sync/clock.dart';
+
+import 'package:conduit_core/sync/clock.dart';
+
 import '../../../core/sync/sync_engine.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';

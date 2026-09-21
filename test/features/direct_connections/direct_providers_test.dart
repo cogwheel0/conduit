@@ -3,10 +3,10 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/persistence/persistence_keys.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/secure_credential_storage.dart';
+import 'package:conduit_core/services/secure_credential_storage.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/features/direct_connections/services/apple_pcc_adapter.dart';
@@ -1690,7 +1690,7 @@ void main() {
     'a failed incomplete-clear marker write propagates instead of hiding',
     () async {
       PreferencesStore.debugOverride(
-      await FlutterKeyValueStore.load(),
+        await FlutterKeyValueStore.load(),
         writeInterceptor: (prefs, key, value) async =>
             key == PreferenceKeys.incompleteAppDataClear ? false : null,
       );
@@ -2312,9 +2312,7 @@ final class _ReloadGateSecureStorage implements SecureKeyValueStore {
   int profileReadCalls = 0;
 
   @override
-  Future<String?> read({
-    required String key,
-  }) async {
+  Future<String?> read({required String key}) async {
     if (key != _profilesKey) return null;
     profileReadCalls++;
     final captured = _profileDocument;
@@ -2326,17 +2324,12 @@ final class _ReloadGateSecureStorage implements SecureKeyValueStore {
   }
 
   @override
-  Future<void> write({
-    required String key,
-    required String? value,
-  }) async {
+  Future<void> write({required String key, required String? value}) async {
     if (key == _profilesKey) _profileDocument = value;
   }
 
   @override
-  Future<void> delete({
-    required String key,
-  }) async {
+  Future<void> delete({required String key}) async {
     if (key == _profilesKey) _profileDocument = null;
   }
 
@@ -2354,18 +2347,13 @@ final class _WriteGateSecureStorage implements SecureKeyValueStore {
   String? _profileDocument;
 
   @override
-  Future<String?> read({
-    required String key,
-  }) async {
+  Future<String?> read({required String key}) async {
     if (key == _profilesKey) return _profileDocument;
     return null;
   }
 
   @override
-  Future<void> write({
-    required String key,
-    required String? value,
-  }) async {
+  Future<void> write({required String key, required String? value}) async {
     if (key != _profilesKey) return;
     writeStarted.complete();
     await allowWrite.future;
@@ -2386,9 +2374,7 @@ final class _InitialReadGateSecureStorage implements SecureKeyValueStore {
   final String _profileDocument;
 
   @override
-  Future<String?> read({
-    required String key,
-  }) async {
+  Future<String?> read({required String key}) async {
     if (key != _profilesKey) return null;
     if (!readStarted.isCompleted) readStarted.complete();
     await allowRead.future;
@@ -2414,9 +2400,7 @@ final class _DisposeConflictSecureStorage implements SecureKeyValueStore {
   int _profileReadCalls = 0;
 
   @override
-  Future<String?> read({
-    required String key,
-  }) async {
+  Future<String?> read({required String key}) async {
     if (key != _profilesKey) return null;
     _profileReadCalls++;
     if (_profileReadCalls == 1) return initialDocument;
@@ -2438,9 +2422,7 @@ final class _FailingReloadSecureStorage implements SecureKeyValueStore {
   int _profileReadCalls = 0;
 
   @override
-  Future<String?> read({
-    required String key,
-  }) async {
+  Future<String?> read({required String key}) async {
     if (key != _profilesKey) return null;
     _profileReadCalls++;
     if (_profileReadCalls > 1) {

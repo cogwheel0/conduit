@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import '../../../core/services/local_document_extraction_service.dart';
+import 'package:conduit/core/services/local_document_extraction_service.dart';
 
 const int kHermesMaxLocalDocuments = kLocalDocumentDefaultMaxFiles;
 const int kHermesMaxLocalDocumentBytes = kLocalDocumentDefaultMaxSourceBytes;

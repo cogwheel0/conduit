@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/attachment_upload_queue.dart';
+import 'package:conduit_core/services/attachment_upload_queue.dart';
 import 'package:conduit/core/services/media_upload_controller.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,7 +14,7 @@ import 'package:path/path.dart' as p;
 import 'package:drift/native.dart';
 
 import 'package:conduit/core/services/share_receiver_service.dart';
-import 'package:conduit/core/services/share_staging_cleanup.dart';
+import 'package:conduit_core/services/share_staging_cleanup.dart';
 import 'package:conduit/features/chat/services/file_attachment_service.dart';
 import 'package:conduit/features/hermes/models/hermes_model.dart';
 

@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/services/readiness_gated_secure_storage.dart';
+import 'package:conduit_core/services/readiness_gated_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:conduit_core/conduit_core.dart';
 

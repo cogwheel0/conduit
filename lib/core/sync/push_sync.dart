@@ -7,7 +7,8 @@ import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'chat_locks.dart';
-import 'clock.dart';
+
+import 'package:conduit_core/sync/clock.dart';
 
 import 'package:conduit_core/sync/id_remapper.dart';
 

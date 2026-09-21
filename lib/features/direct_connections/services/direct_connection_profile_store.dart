@@ -1,8 +1,9 @@
 import 'package:collection/collection.dart';
 
-import '../../../core/persistence/persistence_keys.dart';
-import '../../../core/persistence/preferences_store.dart';
-import '../../../core/services/secure_credential_storage.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/services/secure_credential_storage.dart';
+
 import '../models/direct_connection_profile.dart';
 
 final class DirectConnectionProfileConflictException implements Exception {

@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:conduit/core/persistence/preferences_store.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/app_intents_service.dart';
 import 'package:conduit/core/services/home_widget_service.dart';

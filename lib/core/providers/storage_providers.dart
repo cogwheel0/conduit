@@ -6,10 +6,11 @@ import 'package:conduit_core/conduit_core.dart';
 import 'package:conduit_core/database/database_manager.dart';
 
 import '../database/database_provider.dart';
-import '../persistence/persistence_providers.dart';
-import '../persistence/persistence_keys.dart';
-import '../persistence/preferences_store.dart';
-import '../services/optimized_storage_service.dart';
+
+import 'package:conduit_core/persistence/persistence_providers.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/services/optimized_storage_service.dart';
 
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/utils/debug_logger.dart';

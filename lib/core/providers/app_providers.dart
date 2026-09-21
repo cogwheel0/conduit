@@ -24,9 +24,13 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../services/api_service.dart';
-import '../services/attachment_upload_queue.dart';
+
+import 'package:conduit_core/services/attachment_upload_queue.dart';
+
 import '../auth/auth_state_manager.dart';
-import '../auth/openwebui_account_owner_marker.dart';
+
+import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
+
 import '../../features/auth/providers/unified_auth_providers.dart';
 
 import 'package:conduit_core/models/server_config.dart';
@@ -45,16 +49,17 @@ import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/models/user_settings.dart';
 import 'package:conduit_core/models/knowledge_base.dart';
 
-import '../services/settings_service.dart';
-import '../services/optimized_storage_service.dart';
-import '../services/secure_credential_storage.dart';
-import '../services/socket_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/services/optimized_storage_service.dart';
+import 'package:conduit_core/services/secure_credential_storage.dart';
+import 'package:conduit_core/services/socket_service.dart';
+
 import '../services/connectivity_service.dart';
 
 import 'package:conduit_core/services/conversation_parsing.dart';
 
-import '../persistence/preferences_store.dart';
-import '../persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -69,7 +74,8 @@ import '../../features/hermes/providers/hermes_providers.dart';
 import '../../features/hermes/services/hermes_session_provenance.dart';
 import '../../features/direct_connections/direct_connections.dart';
 import '../../features/direct_connections/providers/direct_mcp_providers.dart';
-import 'backend_mode_providers.dart';
+
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 
 import 'package:conduit_core/models/socket_transport_availability.dart';
 

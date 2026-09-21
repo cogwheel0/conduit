@@ -27,9 +27,12 @@ import '../providers/app_providers.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'api_service.dart';
-import 'attachment_upload_queue.dart';
+
+import 'package:conduit_core/services/attachment_upload_queue.dart';
+
 import 'image_attachment_cache_service.dart';
-import 'share_staging_cleanup.dart';
+
+import 'package:conduit_core/services/share_staging_cleanup.dart';
 
 part 'media_upload_controller.g.dart';
 

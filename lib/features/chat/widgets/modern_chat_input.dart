@@ -41,17 +41,22 @@ import '../../direct_connections/providers/direct_mcp_providers.dart';
 import '../../direct_connections/services/direct_mcp_client.dart';
 import '../../direct_connections/views/direct_mcp_content_sheet.dart';
 import '../../workspace/models/workspace_resources.dart';
+
 import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/prompt.dart';
 import 'package:conduit_core/models/toggle_filter.dart';
+
 import '../../../core/providers/app_providers.dart';
 import '../../../shared/services/navigation_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/location_service.dart';
-import '../../../core/services/settings_service.dart';
+
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../chat/services/voice_input_service.dart';
+
 import 'package:conduit_core/models/knowledge_base.dart';
 import 'package:conduit_core/models/knowledge_base_file.dart';
 
@@ -67,7 +72,9 @@ import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import '../../../shared/widgets/horizontal_gesture_ownership.dart';
 import '../../../shared/widgets/horizontal_overflow_fade.dart';
-import '../../../core/utils/prompt_variable_parser.dart';
+
+import 'package:conduit_core/utils/prompt_variable_parser.dart';
+
 import '../../prompts/widgets/prompt_variable_dialog.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import 'chat_input_intents.dart';

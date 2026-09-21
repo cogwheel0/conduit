@@ -9,7 +9,7 @@ import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit/core/sync/sync_engine.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';

@@ -8,7 +8,8 @@ import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'note_sync.dart';
 import 'sync_api_client.dart';
-import 'sync_entity_adapter.dart';
+
+import 'package:conduit_core/sync/sync_entity_adapter.dart';
 
 /// [SyncEntityAdapter] for FLAT-doc notes (CDT-RFC-001 Phase 5, D-11, R-09).
 ///

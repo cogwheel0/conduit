@@ -4,7 +4,8 @@ import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'pull_sync.dart';
 import 'push_sync.dart';
 import 'sync_api_client.dart';
-import 'sync_entity_adapter.dart';
+
+import 'package:conduit_core/sync/sync_entity_adapter.dart';
 
 /// `sync_meta` key for the chat pull watermark (epoch SECONDS). R-09: NEVER
 /// read against the note `notes_pull_watermark` (nanoseconds).

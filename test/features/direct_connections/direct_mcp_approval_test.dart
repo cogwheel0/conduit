@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:conduit_core/models/chat_message.dart';
-import 'package:conduit/core/services/secure_credential_storage.dart';
+import 'package:conduit_core/services/secure_credential_storage.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/models/direct_mcp_server.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';

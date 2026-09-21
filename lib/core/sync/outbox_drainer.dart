@@ -5,10 +5,12 @@ import 'package:conduit_core/database/daos/outbox_dao.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
-import 'backoff.dart';
-import 'clock.dart';
+import 'package:conduit_core/sync/backoff.dart';
+import 'package:conduit_core/sync/clock.dart';
+
 import 'sync_api_client.dart';
-import 'sync_entity_adapter.dart';
+
+import 'package:conduit_core/sync/sync_entity_adapter.dart';
 
 /// Completion seam (Wiring D). The concrete `RequestCompletionRunner` (in
 /// features/chat, touching the streaming providers) implements this. Rebuilds

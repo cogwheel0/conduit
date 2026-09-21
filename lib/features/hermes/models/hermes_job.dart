@@ -1,4 +1,5 @@
-import '../../../core/utils/unicode_prefix.dart';
+import 'package:conduit_core/utils/unicode_prefix.dart';
+
 import '../services/hermes_identifier.dart';
 import '../utils/hermes_time_parsing.dart';
 

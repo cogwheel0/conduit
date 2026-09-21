@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:conduit/core/persistence/preferences_store.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
@@ -18,7 +18,7 @@ void main() {
       final writeStarted = Completer<void>();
       final releaseWrite = Completer<void>();
       PreferencesStore.debugOverride(
-      await FlutterKeyValueStore.load(),
+        await FlutterKeyValueStore.load(),
         writeInterceptor: (preferences, key, value) async {
           if (key != 'delayed') return null;
           writeStarted.complete();

@@ -13,7 +13,7 @@ import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
 import 'package:conduit_core/models/server_config.dart';
-import '../services/server_tls_http_client_factory.dart';
+import 'package:conduit_core/services/server_tls_http_client_factory.dart';
 
 typedef SelfSignedImageCacheBaseDirectoryProvider =
     Future<Directory> Function();

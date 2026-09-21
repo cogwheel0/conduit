@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/server_config.dart';
-import 'package:conduit/core/services/server_tls_http_client_factory.dart';
+import 'package:conduit_core/services/server_tls_http_client_factory.dart';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:flutter_test/flutter_test.dart';

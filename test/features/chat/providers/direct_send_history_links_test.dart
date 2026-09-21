@@ -9,7 +9,7 @@ import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_manager.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
-import 'package:conduit/core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';

@@ -1,12 +1,15 @@
 import 'dart:convert';
 
 import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 import '../../../core/services/api_service.dart';
-import '../../../core/utils/json_normalization.dart';
+
+import 'package:conduit_core/utils/json_normalization.dart';
+
 import '../models/terminal_models.dart';
 
 String _trimTrailingSlashes(String value) {

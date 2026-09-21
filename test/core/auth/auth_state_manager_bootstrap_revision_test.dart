@@ -1,6 +1,6 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/auth/auth_state_manager.dart';
-import 'package:conduit/core/auth/openwebui_account_owner_marker.dart';
+import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Locks in the revision-sharing contract between `_bootstrapSilentLogin` and

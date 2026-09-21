@@ -7,12 +7,13 @@ import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 
-import '../persistence/hive_boxes.dart';
+import 'package:conduit_core/persistence/hive_boxes.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'chat_locks.dart';
-import 'clock.dart';
+
+import 'package:conduit_core/sync/clock.dart';
 
 import 'package:conduit_core/sync/id_remapper.dart';
 

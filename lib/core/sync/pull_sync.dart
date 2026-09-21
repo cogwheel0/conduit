@@ -12,7 +12,8 @@ import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:meta/meta.dart';
 
 import 'sync_api_client.dart';
-import 'sync_entity_adapter.dart';
+
+import 'package:conduit_core/sync/sync_entity_adapter.dart';
 
 /// Overlap window in server epoch seconds: same-second edits + clock skew
 /// between server processes (CDT-RFC-001 §7.1). Re-merges are idempotent,

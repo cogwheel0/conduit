@@ -14,7 +14,8 @@ import 'package:vad/vad.dart' show VadHandler;
 
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
-import '../../../core/services/settings_service.dart';
+
+import 'package:conduit_core/services/settings_service.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 

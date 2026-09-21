@@ -2,8 +2,8 @@ import 'dart:convert';
 
 import 'package:riverpod/riverpod.dart';
 
-import '../../core/persistence/persistence_keys.dart';
-import '../../core/persistence/preferences_store.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 

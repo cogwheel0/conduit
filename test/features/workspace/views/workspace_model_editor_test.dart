@@ -10,7 +10,7 @@ import 'package:go_router/go_router.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/model.dart';
-import 'package:conduit/core/network/conduit_user_agent.dart';
+import 'package:conduit_core/network/conduit_user_agent.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';

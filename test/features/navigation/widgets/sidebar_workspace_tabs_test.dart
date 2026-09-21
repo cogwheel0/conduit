@@ -1,5 +1,5 @@
 import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/models/channel.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/note.dart';

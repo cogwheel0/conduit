@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/utils/unicode_prefix.dart';
+import 'package:conduit_core/utils/unicode_prefix.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

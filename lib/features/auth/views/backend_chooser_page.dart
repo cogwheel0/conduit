@@ -4,10 +4,13 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/persistence/persistence_keys.dart';
-import '../../../core/persistence/preferences_store.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+
 import '../../../platform/conduit_platform_apis.g.dart';
-import '../../../core/providers/backend_mode_providers.dart';
+
+import 'package:conduit_core/providers/backend_mode_providers.dart';
+
 import '../../../shared/services/navigation_service.dart';
 import '../../direct_connections/providers/direct_connection_providers.dart';
 import '../../../l10n/app_localizations.dart';

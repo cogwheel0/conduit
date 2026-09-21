@@ -8,8 +8,10 @@ import 'package:path/path.dart' as p;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../platform/conduit_platform_apis.g.dart';
-import '../persistence/persistence_keys.dart';
-import '../persistence/preferences_store.dart';
+
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+
 import '../providers/app_providers.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -21,7 +23,8 @@ import '../../features/auth/providers/unified_auth_providers.dart';
 import '../../features/chat/voice_call/presentation/voice_call_launcher.dart';
 import '../../features/chat/services/file_attachment_service.dart';
 import 'media_upload_controller.dart';
-import 'share_staging_cleanup.dart';
+
+import 'package:conduit_core/services/share_staging_cleanup.dart';
 
 part 'app_intents_service.g.dart';
 

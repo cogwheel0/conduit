@@ -9,12 +9,13 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/models/server_config.dart';
 
-import '../network/conduit_user_agent.dart';
+import 'package:conduit_core/network/conduit_user_agent.dart';
+
 import '../providers/app_providers.dart';
 
 import 'package:conduit_core/providers/host_ports.dart';
 
-import 'server_tls_http_client_factory.dart';
+import 'package:conduit_core/services/server_tls_http_client_factory.dart';
 
 part 'connectivity_service.g.dart';
 

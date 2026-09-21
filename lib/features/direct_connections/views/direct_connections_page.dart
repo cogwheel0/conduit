@@ -8,7 +8,8 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import 'package:conduit_core/models/model.dart';
-import '../../../core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
+
 import '../../../platform/conduit_platform_apis.g.dart';
 import '../../../shared/services/navigation_service.dart';
 import '../../../l10n/app_localizations.dart';

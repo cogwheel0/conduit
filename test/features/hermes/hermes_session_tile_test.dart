@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
-import 'package:conduit/core/persistence/persistence_keys.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
@@ -47,9 +47,7 @@ void main() {
     final now = DateTime(2026);
     final container = ProviderContainer(
       overrides: [
-        secureStorageProvider.overrideWithValue(
-          FlutterSecureKeyValueStore(),
-        ),
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         hermesApiServiceProvider.overrideWithValue(service),
         activeConversationProvider.overrideWith(
           () => _SeededActiveConversation(
@@ -111,9 +109,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
-        secureStorageProvider.overrideWithValue(
-          FlutterSecureKeyValueStore(),
-        ),
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         hermesApiServiceProvider.overrideWithValue(service),
         activeConversationProvider.overrideWith(
           () => _SeededActiveConversation(forgedOpenWebUiConversation),
@@ -156,9 +152,7 @@ void main() {
       final container = ProviderContainer(
         retry: (retryCount, error) => null,
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           hermesApiServiceProvider.overrideWithValue(service),
           modelsProvider.overrideWith(_FailingModels.new),
         ],
@@ -271,9 +265,7 @@ void main() {
       final builtServices = <_FakeHermesApiService>[];
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           hermesConfigProvider.overrideWith(
             () => _FixedHermesConfigController(config),
           ),
@@ -363,9 +355,7 @@ void main() {
       final container = ProviderContainer(
         retry: (retryCount, error) => null,
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           hermesApiServiceProvider.overrideWithValue(service),
           modelsProvider.overrideWith(_FailingModels.new),
           activeConversationProvider.overrideWith(
@@ -437,9 +427,7 @@ void main() {
     final container = ProviderContainer(
       retry: (retryCount, error) => null,
       overrides: [
-        secureStorageProvider.overrideWithValue(
-          FlutterSecureKeyValueStore(),
-        ),
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         hermesApiServiceProvider.overrideWithValue(service),
         modelsProvider.overrideWith(_FailingModels.new),
       ],
@@ -512,9 +500,7 @@ void main() {
       final container = ProviderContainer(
         retry: (retryCount, error) => null,
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           hermesApiServiceProvider.overrideWithValue(service),
           modelsProvider.overrideWith(scenario.value),
           selectedModelProvider.overrideWith(
@@ -726,9 +712,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
-        secureStorageProvider.overrideWithValue(
-          FlutterSecureKeyValueStore(),
-        ),
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         hermesApiServiceProvider.overrideWithValue(service),
         modelsProvider.overrideWith(_FailingModels.new),
       ],

@@ -10,7 +10,7 @@ import 'package:dio/io.dart';
 import 'package:http_parser/http_parser.dart';
 import 'package:uuid/uuid.dart';
 
-import 'chat_completion_transport.dart';
+import 'package:conduit_core/services/chat_completion_transport.dart';
 
 import 'package:conduit_core/network/io/public_health_probe.dart';
 import 'package:conduit_core/models/account_metadata.dart';
@@ -29,14 +29,16 @@ import 'package:conduit_core/models/server_memory.dart';
 import 'package:conduit_core/models/server_user_settings.dart';
 import 'package:conduit_core/models/user.dart';
 
-import '../network/conduit_user_agent.dart';
-import '../network/same_origin_redirect_interceptor.dart';
-export '../network/same_origin_redirect_interceptor.dart'
+import 'package:conduit_core/network/conduit_user_agent.dart';
+import 'package:conduit_core/network/same_origin_redirect_interceptor.dart';
+export 'package:conduit_core/network/same_origin_redirect_interceptor.dart'
     show isCredentialSafeRedirectTarget, nextSameOriginRedirectRequest;
+
 import '../../features/workspace/models/workspace_common.dart';
 import '../../features/workspace/models/workspace_knowledge.dart';
 import '../../features/workspace/models/workspace_resources.dart';
-import '../auth/api_auth_interceptor.dart';
+
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
 
 import 'package:conduit_core/error/api_error_interceptor.dart';
 
@@ -48,17 +50,17 @@ import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_markdown/conduit_markdown.dart';
 
-import '../utils/openwebui_message_payload.dart';
-import '../utils/json_normalization.dart';
+import 'package:conduit_core/utils/openwebui_message_payload.dart';
+import 'package:conduit_core/utils/json_normalization.dart';
 
 import 'package:conduit_core/utils/message_tree_utils.dart' as message_tree;
 import 'package:conduit_core/services/conversation_parsing.dart';
 
-import 'settings_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
 
 import 'package:conduit_core/services/worker_manager.dart';
 
-import 'server_tls_http_client_factory.dart';
+import 'package:conduit_core/services/server_tls_http_client_factory.dart';
 
 /// Re-exported so the health prober's move into `conduit_core` is invisible
 /// to callers: these six names were public here before the extraction.

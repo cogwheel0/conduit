@@ -3,8 +3,9 @@ import 'dart:convert';
 
 import 'package:openai_dart/openai_dart.dart' as openai;
 
-import '../../../core/services/openai_responses_codec.dart';
-import '../../../core/services/sse_frame_scanner.dart';
+import 'package:conduit_core/services/openai_responses_codec.dart';
+import 'package:conduit_core/services/sse_frame_scanner.dart';
+
 import '../models/hermes_run_event.dart';
 import 'hermes_identifier.dart';
 import 'hermes_json_guard.dart';

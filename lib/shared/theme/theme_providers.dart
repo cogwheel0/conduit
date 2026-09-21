@@ -15,7 +15,9 @@ import 'package:material_ui/material_ui.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../core/providers/storage_providers.dart';
-import '../../core/services/optimized_storage_service.dart';
+
+import 'package:conduit_core/services/optimized_storage_service.dart';
+
 import 'app_theme.dart';
 import 'tweakcn_themes.dart';
 

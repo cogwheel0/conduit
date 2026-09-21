@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
-import '../../../core/services/local_document_extraction_service.dart';
+import 'package:conduit/core/services/local_document_extraction_service.dart';
 
 const String kDirectLocalDocumentAttachmentPrefix = 'direct-local:';
 const String kDirectOpenRouterPdfAttachmentPrefix = 'direct-openrouter-pdf:';

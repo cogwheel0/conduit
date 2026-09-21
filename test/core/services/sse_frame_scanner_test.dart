@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/services/sse_frame_scanner.dart';
+import 'package:conduit_core/services/sse_frame_scanner.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

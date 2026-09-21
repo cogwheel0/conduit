@@ -4,8 +4,8 @@ import 'package:crypto/crypto.dart';
 import 'package:meta/meta.dart';
 
 import 'package:conduit_core/models/conversation.dart';
-import '../../../core/persistence/persistence_keys.dart';
-import '../../../core/persistence/preferences_store.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 
 /// Runtime-only proof that a native Hermes conversation shell was minted by
 /// this process.

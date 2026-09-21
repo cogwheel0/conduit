@@ -9,12 +9,16 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../database/local_conversation_loader.dart';
 import '../database/database_provider.dart';
 import '../auth/auth_state_manager.dart';
-import '../auth/openwebui_account_owner_marker.dart';
+
+import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
+
 import '../../features/hermes/services/hermes_session_provenance.dart';
 import '../providers/app_providers.dart';
 import '../sync/sync_triggers.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
-import '../services/interaction_activity.dart';
+
+import 'package:conduit_core/services/interaction_activity.dart';
+
 import '../../shared/services/navigation_service.dart';
 import '../services/app_intents_service.dart';
 import '../services/carplay_service.dart';
@@ -22,17 +26,25 @@ import '../services/home_widget_service.dart';
 import '../services/image_attachment_cache_service.dart';
 import '../services/media_upload_controller.dart';
 import '../services/api_service.dart';
+
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/user.dart';
+
 import '../services/background_streaming_handler.dart';
-import '../services/socket_service.dart';
+
+import 'package:conduit_core/services/socket_service.dart';
+
 import '../services/connectivity_service.dart';
 import '../services/share_receiver_service.dart';
+
 import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../utils/system_ui_style.dart';
+
 import 'package:conduit_core/models/server_config.dart';
-import '../persistence/persistence_keys.dart';
-import '../persistence/preferences_store.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+
 import '../../features/tools/providers/tools_providers.dart';
 import '../../features/chat/providers/chat_providers.dart';
 import '../../features/chat/providers/context_attachments_provider.dart';
