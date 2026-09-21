@@ -19,6 +19,7 @@ export 'cookie_jar_port.dart';
 export 'database_opener.dart';
 export 'external_url_port.dart';
 export 'flush_scheduler.dart';
+export 'post_frame_scheduler.dart';
 export 'key_value_store.dart';
 export 'log_sink.dart';
 export 'paths_port.dart';

@@ -32,7 +32,10 @@ class Folders extends _$Folders {
         // nothing changed. Folder is freezed (structural ==) — drop
         // value-identical emissions so the drawer's folder sections don't
         // rebuild once per background pull.
-        if (listEquals(state.asData?.value, folders)) {
+        if (const ListEquality<Object?>().equals(
+          state.asData?.value,
+          folders,
+        )) {
           return;
         }
         if (ref.mounted) {

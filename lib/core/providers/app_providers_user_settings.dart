@@ -341,7 +341,7 @@ class PersonalizationSettings extends _$PersonalizationSettings {
 
   void _cachePinnedModelsLocally(List<String> modelIds) {
     final local = ref.read(appSettingsProvider).pinnedModels;
-    if (listEquals(local, modelIds)) {
+    if (const ListEquality<Object?>().equals(local, modelIds)) {
       return;
     }
 

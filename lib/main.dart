@@ -18,12 +18,12 @@ import 'platform/flutter_clipboard_port.dart';
 import 'platform/flutter_connectivity_port.dart';
 import 'platform/flutter_cookie_jar.dart';
 import 'platform/flutter_flush_scheduler.dart';
+import 'platform/flutter_post_frame_scheduler.dart';
 import 'platform/flutter_secure_key_value_store.dart';
 import 'platform/flutter_key_value_store.dart';
 import 'platform/flutter_log_sink.dart';
 import 'platform/flutter_worker_port.dart';
 import 'platform/flutter_database_opener.dart';
-
 
 import 'core/providers/app_providers.dart';
 import 'core/providers/host_ports.dart';
@@ -60,6 +60,7 @@ import 'features/workspace/providers/workspace_capabilities_provider.dart';
 import 'features/workspace/workspace_navigation.dart';
 import 'core/utils/debug_logger.dart';
 import 'core/utils/system_ui_style.dart';
+
 import 'package:conduit_core/models/tool.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -69,6 +70,7 @@ import 'core/providers/app_startup_providers.dart';
 import 'features/notifications/services/local_notification_service.dart';
 import 'shared/widgets/sign_out_options_dialog.dart';
 import 'shared/theme/theme_extensions.dart';
+import 'shared/theme/theme_providers.dart';
 
 const bool _enableFlutterDriverExtension = bool.fromEnvironment(
   'ENABLE_FLUTTER_DRIVER_EXTENSION',
@@ -265,16 +267,15 @@ void main() {
           ),
           appLifecycleProvider.overrideWithValue(appLifecycle),
           workerPortProvider.overrideWithValue(const FlutterWorkerPort()),
-          connectivityPortProvider.overrideWithValue(
-            FlutterConnectivityPort(),
-          ),
+          connectivityPortProvider.overrideWithValue(FlutterConnectivityPort()),
           cookieJarProvider.overrideWithValue(const FlutterCookieJar()),
           flushSchedulerProvider.overrideWithValue(
             const FlutterFlushScheduler(),
           ),
-          clipboardPortProvider.overrideWithValue(
-            const FlutterClipboardPort(),
+          postFrameSchedulerProvider.overrideWithValue(
+            const FlutterPostFrameScheduler(),
           ),
+          clipboardPortProvider.overrideWithValue(const FlutterClipboardPort()),
           secureStorageProvider.overrideWithValue(
             ReadinessGatedSecureStorage(
               delegate: secureStorage,

@@ -25,6 +25,7 @@ import 'native_sheet_avatar_bytes_hydrator.dart';
 import 'native_sheet_bridge.dart';
 import '../../shared/services/navigation_service.dart';
 import 'settings_service.dart';
+import '../../shared/theme/theme_providers.dart';
 
 final nativeSheetHydrationServiceProvider =
     Provider<NativeSheetHydrationService>(NativeSheetHydrationService.new);

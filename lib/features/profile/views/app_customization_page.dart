@@ -30,6 +30,7 @@ import '../widgets/settings_page_scaffold.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../widgets/socket_health_card.dart';
 import '../widgets/stt_language_picker.dart';
+import '../../../shared/theme/theme_providers.dart';
 
 const _sectionGap = SizedBox(height: Spacing.lg);
 

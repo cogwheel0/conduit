@@ -26,6 +26,16 @@ const List<String> _flutterFreeDirectories = <String>[
   'lib/core/sync', // WP-1.1, WP-1.4, WP-1.8
 ];
 
+/// Individual libraries that are Flutter-free ahead of their directory.
+///
+/// `lib/core/providers` still holds `app_startup_providers.dart`, which binds
+/// the Flutter host implementations and is meant to. That is no reason to
+/// leave the rest of the directory unlocked.
+const List<String> _flutterFreeFiles = <String>[
+  'lib/core/providers/app_providers.dart', // WP-1.8, WP-1.12
+  'lib/core/providers/host_ports.dart', // M1
+];
+
 /// Imports that make a directory non-portable to the daemon.
 const List<String> _flutterImports = <String>[
   'package:flutter/',
@@ -107,6 +117,19 @@ void main() {
     );
   }
 
+  for (final path in _flutterFreeFiles) {
+    violations.addAll(
+      _scanFile(
+        File(path),
+        _flutterImports,
+        'was taken off Flutter by an M1 work package and must stay portable '
+        'to the conduitd sidecar; put the platform-specific part behind a '
+        'port in packages/conduit_core/lib/ports and implement it in '
+        'lib/platform',
+      ),
+    );
+  }
+
   violations.addAll(
     _scan(
       Directory('apps/desktop_ui/lib'),
@@ -131,9 +154,27 @@ List<String> _scan(Directory dir, List<String> forbidden, String because) {
   // A package that does not exist yet is not a violation; several are
   // scheduled for later milestones.
   if (!dir.existsSync()) return const <String>[];
+  return _scanFiles(dir.listSync(recursive: true), forbidden, because);
+}
 
+/// Scans one file rather than a tree.
+///
+/// Some libraries are taken off Flutter well before the directory around them
+/// is, and the lock is only worth having if it can name them individually.
+/// A `part` needs no entry of its own: it has no import directives, and the
+/// library root that owns it is what gets scanned.
+List<String> _scanFile(File file, List<String> forbidden, String because) {
+  if (!file.existsSync()) return const <String>[];
+  return _scanFiles(<FileSystemEntity>[file], forbidden, because);
+}
+
+List<String> _scanFiles(
+  List<FileSystemEntity> entities,
+  List<String> forbidden,
+  String because,
+) {
   final violations = <String>[];
-  for (final entity in dir.listSync(recursive: true)) {
+  for (final entity in entities) {
     if (entity is! File || !entity.path.endsWith('.dart')) continue;
     // Generated output is regenerated from checked-in sources, so a problem
     // there is really a problem in the generator's configuration.

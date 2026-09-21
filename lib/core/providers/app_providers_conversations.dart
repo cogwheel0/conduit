@@ -216,7 +216,10 @@ class Conversations extends _$Conversations {
         // exactly; comparing against the published value (not the previous
         // raw projection) keeps emissions that must correct a diverged
         // optimistic in-memory update flowing through.
-        if (listEquals(state.asData?.value, conversations)) {
+        if (const ListEquality<Object?>().equals(
+          state.asData?.value,
+          conversations,
+        )) {
           return;
         }
         if (ref.mounted) {

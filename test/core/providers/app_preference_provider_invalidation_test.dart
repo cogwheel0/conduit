@@ -6,6 +6,7 @@ import 'package:checks/checks.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:conduit/shared/theme/theme_providers.dart';
 
 class _MockOptimizedStorageService extends Mock
     implements OptimizedStorageService {}

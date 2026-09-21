@@ -14,6 +14,7 @@ import 'app_intents_service.dart';
 import '../../shared/services/navigation_service.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../../features/chat/voice_call/voice_call_eligibility.dart';
+import '../../shared/theme/theme_providers.dart';
 
 part 'quick_actions_service.g.dart';
 

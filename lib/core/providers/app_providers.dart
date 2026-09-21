@@ -17,10 +17,9 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:crypto/crypto.dart';
-import 'package:cupertino_ui/cupertino_ui.dart';
-import 'package:flutter/foundation.dart';
-import 'package:material_ui/material_ui.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:collection/collection.dart';
+import 'package:meta/meta.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -59,8 +58,6 @@ import '../utils/debug_logger.dart';
 import 'package:conduit_core/utils/server_version_compat.dart';
 
 import '../services/worker_manager.dart';
-import '../../shared/theme/tweakcn_themes.dart';
-import '../../shared/theme/app_theme.dart';
 import '../../features/tools/providers/tools_providers.dart';
 import '../../features/hermes/models/hermes_model.dart';
 import '../../features/hermes/models/hermes_config.dart';
@@ -85,6 +82,7 @@ import '../database/mappers/conversation_assembler.dart';
 import '../sync/chat_locks.dart';
 import '../sync/pull_sync.dart';
 import '../sync/sync_engine.dart';
+import '../../shared/theme/theme_providers.dart';
 
 export 'storage_providers.dart';
 
@@ -103,7 +101,6 @@ part 'app_providers_search.dart';
 part 'app_providers_server_config.dart';
 part 'app_providers_sign_out.dart';
 part 'app_providers_socket.dart';
-part 'app_providers_theme_locale.dart';
 part 'app_providers_user_settings.dart';
 part 'app_providers_workspace_content.dart';
 part 'app_providers.g.dart';

@@ -105,6 +105,7 @@ import '../services/chat_transport_dispatch.dart';
 import '../services/chat_history_reader.dart';
 import '../services/file_attachment_service.dart';
 import '../services/reviewer_mode_service.dart';
+import '../../../shared/theme/theme_providers.dart';
 
 part 'chat_attachments.dart';
 part 'chat_capability_providers.dart';

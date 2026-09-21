@@ -186,7 +186,7 @@ class SocketServiceManager extends _$SocketServiceManager {
 
   void _scheduleConnect(SocketService service) {
     final token = ++_connectToken;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    ref.read(postFrameSchedulerProvider).runAfterCurrentFrame(() {
       if (!ref.mounted) return;
       if (_connectToken != token) return;
       if (!identical(_service, service)) return;

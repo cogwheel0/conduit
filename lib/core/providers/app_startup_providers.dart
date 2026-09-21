@@ -44,6 +44,7 @@ import '../../features/direct_connections/direct_connections.dart';
 import '../../features/hermes/models/hermes_model.dart';
 import '../../features/notifications/providers/notification_socket_listener.dart';
 import '../../features/notifications/services/local_notification_service.dart';
+import '../../shared/theme/theme_providers.dart';
 
 part 'app_startup_providers.g.dart';
 

@@ -45,7 +45,7 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
     if (authState == null || !authState.isAuthenticated) {
       final current = ref.read(selectedToolIdsProvider);
       final preserved = preserveDirectServerSelections(current);
-      if (!listEquals(current, preserved)) {
+      if (!const ListEquality<Object?>().equals(current, preserved)) {
         ref.read(selectedToolIdsProvider.notifier).set(preserved);
       }
       return;
@@ -54,7 +54,7 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
     if (model == null) {
       final current = ref.read(selectedToolIdsProvider);
       final preserved = preserveDirectServerSelections(current);
-      if (!listEquals(current, preserved)) {
+      if (!const ListEquality<Object?>().equals(current, preserved)) {
         ref.read(selectedToolIdsProvider.notifier).set(preserved);
       }
       return;
@@ -64,7 +64,7 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
     if (modelToolIds.isEmpty) {
       final current = ref.read(selectedToolIdsProvider);
       final preserved = preserveDirectServerSelections(current);
-      if (!listEquals(current, preserved)) {
+      if (!const ListEquality<Object?>().equals(current, preserved)) {
         ref.read(selectedToolIdsProvider.notifier).set(preserved);
       }
       return;
@@ -79,12 +79,20 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
       final preserved = preserveDirectServerSelections(currentSelection);
       final nextSelection = [...validToolIds, ...preserved];
       if (validToolIds.isEmpty) {
-        if (!listEquals(currentSelection, preserved)) {
+        if (!const ListEquality<Object?>().equals(
+          currentSelection,
+          preserved,
+        )) {
           ref.read(selectedToolIdsProvider.notifier).set(preserved);
         }
         return;
       }
-      if (listEquals(currentSelection, nextSelection)) return;
+      if (const ListEquality<Object?>().equals(
+        currentSelection,
+        nextSelection,
+      )) {
+        return;
+      }
 
       ref.read(selectedToolIdsProvider.notifier).set(nextSelection);
       DebugLogger.log(

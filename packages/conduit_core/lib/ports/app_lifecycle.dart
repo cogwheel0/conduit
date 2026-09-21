@@ -84,5 +84,6 @@ class StaticAppLifecycle implements AppLifecyclePort {
   /// nothing to announce, and closing would make listeners think teardown
   /// had begun.
   @override
-  Stream<AppLifecyclePhase> get changes => const Stream<AppLifecyclePhase>.empty();
+  Stream<AppLifecyclePhase> get changes =>
+      const Stream<AppLifecyclePhase>.empty();
 }

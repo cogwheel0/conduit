@@ -113,4 +113,26 @@ void main() {
       expect(FlushScheduler.hostDefault, isA<MicrotaskFlushScheduler>());
     });
   });
+
+  group('PostFrameScheduler', () {
+    test('never runs the callback synchronously', () async {
+      final order = <String>[];
+      const MicrotaskPostFrameScheduler().runAfterCurrentFrame(
+        () => order.add('deferred'),
+      );
+      order.add('caller');
+      await Future<void>.delayed(Duration.zero);
+
+      // The contract callers depend on: the work must land after the current
+      // call stack has unwound, never inside it.
+      expect(order, ['caller', 'deferred']);
+    });
+
+    test('the unbound host default is the microtask one', () {
+      expect(
+        PostFrameScheduler.hostDefault,
+        isA<MicrotaskPostFrameScheduler>(),
+      );
+    });
+  });
 }

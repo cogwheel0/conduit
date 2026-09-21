@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/platform/flutter_flush_scheduler.dart';
+import 'package:conduit/platform/flutter_post_frame_scheduler.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 import 'package:conduit/platform/flutter_log_sink.dart';
 import 'package:conduit_core/conduit_core.dart';
@@ -26,5 +27,8 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   // flush lands inside the pump that requested it, and would pass for the
   // wrong reason under a microtask.
   FlushScheduler.hostDefault = const FlutterFlushScheduler();
+  // Same reasoning: a socket connect deferred to a microtask instead of a
+  // post-frame callback lands before any pump, which tests can observe.
+  PostFrameScheduler.hostDefault = const FlutterPostFrameScheduler();
   await testMain();
 }

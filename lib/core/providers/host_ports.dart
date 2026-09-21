@@ -95,3 +95,13 @@ final connectivityPortProvider = Provider<ConnectivityPort>(
 final flushSchedulerProvider = Provider<FlushScheduler>(
   (ref) => FlushScheduler.hostDefault,
 );
+
+/// Defers work out of the current build or frame (WP-1.12).
+///
+/// Same shape as [flushSchedulerProvider] and for the same reason: whether
+/// the callback lands after a frame or after a microtask is observable, so
+/// the value comes from whatever the host installed rather than a default
+/// baked in here.
+final postFrameSchedulerProvider = Provider<PostFrameScheduler>(
+  (ref) => PostFrameScheduler.hostDefault,
+);

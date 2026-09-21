@@ -1,4 +1,25 @@
-part of 'app_providers.dart';
+/// Theme and locale selection for the mobile app (WP-1.12).
+///
+/// These left `app_providers.dart` because they are the one group of
+/// providers there that is genuinely presentation: they resolve to
+/// `ThemeData`, `CupertinoThemeData` and `Locale`, none of which the
+/// `conduitd` sidecar or the desktop renderer can name. Everything else in
+/// that file is business logic on its way into `conduit_core`.
+///
+/// The persisted values still come from the core's storage service; only the
+/// decision about what to render is here.
+library;
+
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
+
+import '../../core/providers/storage_providers.dart';
+import '../../core/services/optimized_storage_service.dart';
+import 'app_theme.dart';
+import 'tweakcn_themes.dart';
+
+part 'theme_providers.g.dart';
 
 // Theme provider
 @Riverpod(keepAlive: true)
