@@ -440,43 +440,6 @@ abstract class _ApiServiceBase {
     return null;
   }
 
-  Future<List<Conversation>> _fetchConversationSummaries(
-    String path, {
-    required String debugLabel,
-    Map<String, dynamic>? queryParameters,
-    bool pinned = false,
-    bool archived = false,
-  }) async {
-    final scope = 'api/collection/${debugLabel.replaceAll(' ', '-')}';
-    try {
-      final response = await _dio.get(
-        path,
-        queryParameters: queryParameters,
-        options: Options(responseType: ResponseType.bytes),
-      );
-      DebugLogger.log(
-        'status',
-        scope: scope,
-        data: {'code': response.statusCode},
-      );
-      return await _parseConversationSummaryPayload(
-        regular: (!pinned && !archived) ? response.data : const <dynamic>[],
-        pinned: pinned ? response.data : const <dynamic>[],
-        archived: archived ? response.data : const <dynamic>[],
-        debugLabel: debugLabel,
-      );
-    } on DioException catch (e) {
-      DebugLogger.warning(
-        'network-skip',
-        scope: scope,
-        data: {'message': e.message},
-      );
-    } catch (e) {
-      DebugLogger.warning('error-skip', scope: scope, data: {'error': e});
-    }
-    return const <Conversation>[];
-  }
-
   // Parse full OpenWebUI chat with messages
   // Parse OpenWebUI message format to our ChatMessage format
   // Build ordered messages list from Open‑WebUI history using parent chain to currentId
@@ -1014,25 +977,6 @@ abstract class _ApiServiceBase {
         );
   }
 
-  bool _shouldFallbackToLegacyTagApi(DioException error) {
-    final statusCode = error.response?.statusCode;
-    return statusCode == 400 ||
-        statusCode == 404 ||
-        statusCode == 405 ||
-        statusCode == 422;
-  }
-
-  String? _tagNameFromEntry(dynamic value) {
-    if (value is String) {
-      final trimmed = value.trim();
-      return trimmed.isEmpty ? null : trimmed;
-    }
-    final tag = _coerceJsonMap(value);
-    final name = tag?['name'] ?? tag?['id'];
-    final normalized = name?.toString().trim();
-    return normalized == null || normalized.isEmpty ? null : normalized;
-  }
-
   Future<List<FileInfo>> _getUserFilesWith(
     Future<({List<FileInfo> items, int? total, bool isPaginated})> Function(
       int page,
@@ -1167,120 +1111,6 @@ abstract class _ApiServiceBase {
         normalized.contains('extra') ||
         normalized.contains('schema') ||
         normalized.contains('validation');
-  }
-
-  Future<void> _attachUploadedFileToKnowledgeBase(
-    String knowledgeBaseId,
-    String fileId,
-  ) async {
-    await _dio.post(
-      '/api/v1/knowledge/$knowledgeBaseId/file/add',
-      data: {'file_id': fileId},
-    );
-  }
-
-  Future<void> _deleteUploadedFileBestEffort(String fileId) async {
-    try {
-      await _dio.delete('/api/v1/files/$fileId');
-    } catch (e, stackTrace) {
-      DebugLogger.warning(
-        'knowledge-upload-orphan-cleanup-failed',
-        scope: 'api/knowledge',
-        data: {'fileId': fileId, 'error': e, 'stackTrace': stackTrace},
-      );
-    }
-  }
-
-  Future<void> _deleteUploadedFileFromUploadResponseBestEffort(
-    Map<String, dynamic> data,
-  ) async {
-    final ids = _fileIdsFromUploadResponse(data);
-    for (final id in ids) {
-      await _deleteUploadedFileBestEffort(id);
-    }
-  }
-
-  bool _shouldFallbackToLegacyKnowledgeFileAdd(DioException error) {
-    final statusCode = error.response?.statusCode;
-    return statusCode == 404 ||
-        statusCode == 405 ||
-        statusCode == 422 ||
-        (statusCode == 400 && _looksLikeLegacyShapeError(error.response?.data));
-  }
-
-  String? _fileIdFromUploadResponse(Map<String, dynamic> data) {
-    final ids = _fileIdsFromUploadResponse(data);
-    return ids.isEmpty ? null : ids.first;
-  }
-
-  List<String> _fileIdsFromUploadResponse(Map<String, dynamic> data) {
-    final ids = <String>{};
-    const fileContainerKeys = {
-      'file',
-      'files',
-      'upload',
-      'uploadedfile',
-      'uploadedfiles',
-      'document',
-      'documents',
-    };
-    const filePayloadWrapperKeys = {'data', 'item', 'result'};
-    void collect(dynamic value, {String? key, bool inFileContainer = false}) {
-      if (value is Map) {
-        for (final entry in value.entries) {
-          final childKey = entry.key.toString();
-          final normalizedChildKey = childKey
-              .replaceAll(RegExp(r'[_-]'), '')
-              .toLowerCase();
-          final valueIsNestedContainer =
-              entry.value is Map || entry.value is List;
-          final childIsFileContainer =
-              fileContainerKeys.contains(normalizedChildKey) ||
-              (inFileContainer &&
-                  (!valueIsNestedContainer ||
-                      filePayloadWrapperKeys.contains(normalizedChildKey)));
-          collect(
-            entry.value,
-            key: childKey,
-            inFileContainer: childIsFileContainer,
-          );
-        }
-        return;
-      }
-      if (value is List) {
-        for (final item in value) {
-          collect(item, inFileContainer: inFileContainer);
-        }
-        return;
-      }
-      final normalizedKey = key?.replaceAll(RegExp(r'[_-]'), '').toLowerCase();
-      if (normalizedKey == 'fileid' ||
-          (inFileContainer &&
-              (normalizedKey == 'id' ||
-                  normalizedKey == 'uuid' ||
-                  normalizedKey == 'identifier'))) {
-        final id = _normalizeDynamicString(value);
-        if (id != null) {
-          ids.add(id);
-        }
-      }
-    }
-
-    final id = _normalizeDynamicString(
-      data['id'] ?? data['file_id'] ?? data['fileId'] ?? data['uuid'],
-    );
-    if (id != null) {
-      ids.add(id);
-    }
-    final file = _coerceJsonMap(data['file']) ?? _coerceJsonMap(data['data']);
-    final nestedId = _normalizeDynamicString(
-      file?['id'] ?? file?['file_id'] ?? file?['fileId'] ?? file?['uuid'],
-    );
-    if (nestedId != null) {
-      ids.add(nestedId);
-    }
-    collect(data);
-    return ids.toList(growable: false);
   }
 
   void _setChatRequestMetadataFormatFromVersion(dynamic rawVersion) {

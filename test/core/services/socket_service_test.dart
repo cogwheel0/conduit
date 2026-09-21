@@ -121,7 +121,10 @@ void main() {
       addTearDown(lifecycle.dispose);
 
       final connectGate = Completer<void>();
-      final service = _RecordingSocketService(connectGate: connectGate, lifecycle: lifecycle);
+      final service = _RecordingSocketService(
+        connectGate: connectGate,
+        lifecycle: lifecycle,
+      );
       addTearDown(service.dispose);
 
       lifecycle.emit(AppLifecyclePhase.paused);

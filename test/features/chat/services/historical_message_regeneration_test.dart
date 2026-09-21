@@ -201,15 +201,6 @@ class _RecordingCompletionApi extends ApiService {
   }
 
   @override
-  Future<void> syncConversationMessages(
-    String conversationId,
-    List<ChatMessage> messages, {
-    String? title,
-    String? model,
-    String? systemPrompt,
-  }) async {}
-
-  @override
   Future<void> stopTasksByChat(String chatId) async {
     broadStopCalls += 1;
   }

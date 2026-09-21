@@ -1,56 +1,6 @@
 part of 'api_service.dart';
 
 mixin _MediaRetrievalApi on _ApiServiceBase {
-  Future<Uint8List> fetchImageBytes(
-    String imageUrl, {
-    int maxBytes = 2 * 1024 * 1024,
-  }) async {
-    final uri = Uri.parse(imageUrl);
-    final cancelToken = CancelToken();
-    final options = Options(
-      responseType: ResponseType.bytes,
-      receiveTimeout: const Duration(seconds: 10),
-      sendTimeout: const Duration(seconds: 10),
-    );
-    final Response<List<int>> response = uri.hasScheme
-        ? await _dio.getUri<List<int>>(
-            uri,
-            options: options,
-            cancelToken: cancelToken,
-            onReceiveProgress: (received, total) {
-              if (received > maxBytes || total > maxBytes) {
-                cancelToken.cancel('Image response exceeded $maxBytes bytes');
-              }
-            },
-          )
-        : await _dio.get<List<int>>(
-            imageUrl,
-            options: options,
-            cancelToken: cancelToken,
-            onReceiveProgress: (received, total) {
-              if (received > maxBytes || total > maxBytes) {
-                cancelToken.cancel('Image response exceeded $maxBytes bytes');
-              }
-            },
-          );
-    final contentType = response.headers.value(Headers.contentTypeHeader);
-    if (contentType != null &&
-        !contentType.toLowerCase().startsWith('image/')) {
-      throw const FormatException('Image response has a non-image MIME type.');
-    }
-    final data = response.data;
-    if (data == null || data.isEmpty) {
-      return Uint8List(0);
-    }
-    if (data.length > maxBytes) {
-      throw StateError('Image response exceeded $maxBytes bytes.');
-    }
-    if (data is Uint8List) {
-      return data;
-    }
-    return Uint8List.fromList(data);
-  }
-
   Future<Map<String, dynamic>?> processWebpage({
     required String url,
     String? collectionName,

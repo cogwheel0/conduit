@@ -10,65 +10,6 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  group('ApiService.getUserFiles', () {
-    test('stops after page 1 for legacy plain-list responses', () async {
-      final adapter = _QueuedJsonAdapter({
-        1: [_fileJson('file-1')],
-      });
-      final api = _buildApiService(adapter);
-
-      final files = await api.getUserFiles();
-
-      check(files).has((it) => it.length, 'length').equals(1);
-      check(files.single.id).equals('file-1');
-      check(adapter.requestedPages).deepEquals([1]);
-    });
-
-    test(
-      'continues paging for paginated responses until total is reached',
-      () async {
-        final adapter = _QueuedJsonAdapter({
-          1: {
-            'items': [_fileJson('file-1')],
-            'total': 2,
-          },
-          2: {
-            'items': [_fileJson('file-2')],
-            'total': 2,
-          },
-        });
-        final api = _buildApiService(adapter);
-
-        final files = await api.getUserFiles();
-
-        check(files.map((file) => file.id).toList())
-            .deepEquals(['file-1', 'file-2']);
-        check(adapter.requestedPages).deepEquals([1, 2]);
-      },
-    );
-
-    test('caps pagination when the server total never converges', () async {
-      final adapter = _QueuedJsonAdapter({
-        for (var page = 1; page <= 201; page++)
-          page: {
-            'items': [_fileJson('file-$page')],
-            'total': 1000,
-          },
-      });
-      final api = _buildApiService(adapter);
-
-      final files = await api.getUserFiles();
-
-      check(files).has((it) => it.length, 'length').equals(200);
-      check(adapter.requestedPages)
-          .has((it) => it.length, 'length')
-          .equals(200);
-      check(adapter.requestedPages.first).equals(1);
-      check(adapter.requestedPages.last).equals(200);
-      check(adapter.requestedPages.contains(201)).isFalse();
-    });
-  });
-
   group('ApiService.searchFilesForSession', () {
     test('distinguishes no matches from an unavailable endpoint', () async {
       final noMatchesApi = _buildApiService(
@@ -429,35 +370,6 @@ final class _FileContentAdapter implements HttpClientAdapter {
       headers: {
         'content-type': ['image/png'],
         if (advertisedLength != null) 'content-length': ['$advertisedLength'],
-      },
-    );
-  }
-
-  @override
-  void close({bool force = false}) {}
-}
-
-class _QueuedJsonAdapter implements HttpClientAdapter {
-  _QueuedJsonAdapter(this.responses);
-
-  final Map<int, Object?> responses;
-  final requestedPages = <int>[];
-
-  @override
-  Future<ResponseBody> fetch(
-    RequestOptions options,
-    Stream<Uint8List>? requestStream,
-    Future<void>? cancelFuture,
-  ) async {
-    final page = options.queryParameters['page'] as int? ?? 1;
-    requestedPages.add(page);
-
-    final response = responses[page] ?? const <Object?>[];
-    return ResponseBody(
-      Stream.value(Uint8List.fromList(utf8.encode(jsonEncode(response)))),
-      200,
-      headers: {
-        'content-type': ['application/json'],
       },
     );
   }

@@ -32,25 +32,6 @@ void main() {
       },
     );
 
-    test('getConversationPage parses large byte summary payloads', () async {
-      final adapter = _RouteJsonAdapter({
-        '/api/v1/chats/': List.generate(
-          30,
-          (index) => _conversationSummaryJson(
-            'chat-$index',
-            titleSuffix: List.filled(250, 'item$index').join('-'),
-          ),
-        ),
-      });
-      final api = _buildApiService(adapter);
-
-      final conversations = await api.getConversationPage(page: 1);
-
-      check(conversations).has((it) => it.length, 'length').equals(30);
-      check(conversations.first.id).equals('chat-0');
-      check(conversations.first.messages).isEmpty();
-    });
-
     test('getChatListPageRaw parses JSON-string list payloads', () async {
       final adapter = _RouteJsonAdapter({
         '/api/v1/chats/': jsonEncode([

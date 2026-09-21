@@ -61,17 +61,6 @@ class _TrackingApiService extends ApiService {
     chatCompletedCalls += 1;
     return const <String, dynamic>{};
   }
-
-  @override
-  Future<void> syncConversationMessages(
-    String conversationId,
-    List<ChatMessage> messages, {
-    String? title,
-    String? model,
-    String? systemPrompt,
-  }) async {
-    syncCalls += 1;
-  }
 }
 
 /// Adapter that optionally returns a canned poll response.

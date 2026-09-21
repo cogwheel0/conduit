@@ -106,8 +106,6 @@ mixin _FilesApi on _ApiServiceBase {
     return response.data as Map<String, dynamic>;
   }
 
-  Future<List<FileInfo>> getUserFiles() =>
-      _getUserFilesWith((page) => getUserFilesPage(page: page));
   Future<List<FileInfo>> getUserFilesForSession({
     ApiAuthSnapshot? authSnapshot,
     CancelToken? cancelToken,

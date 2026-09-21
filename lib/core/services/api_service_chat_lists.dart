@@ -1,37 +1,6 @@
 part of 'api_service.dart';
 
 mixin _ChatListsApi on _ApiServiceBase {
-  /// Fetches a single page of chat summaries for sidebar pagination.
-  ///
-  /// This mirrors OpenWebUI's sidebar behavior where the main chat list loads
-  /// incrementally, while pinned/archived sections are fetched separately.
-  Future<List<Conversation>> getConversationPage({
-    int page = 1,
-    bool includeFolders = true,
-    bool includePinned = false,
-  }) async {
-    final safePage = page < 1 ? 1 : page;
-    _traceApi('Fetching conversation page: $safePage');
-
-    final queryParams = <String, dynamic>{'page': safePage};
-    if (includeFolders) {
-      queryParams['include_folders'] = true;
-    }
-    if (includePinned) {
-      queryParams['include_pinned'] = true;
-    }
-
-    final response = await _dio.get(
-      '/api/v1/chats/',
-      queryParameters: queryParams,
-      options: Options(responseType: ResponseType.bytes),
-    );
-    return _parseConversationSummaryPayload(
-      regular: response.data,
-      debugLabel: 'parse_conversation_page_$safePage',
-    );
-  }
-
   // Search conversations
   Future<List<Conversation>> searchConversations(String query) async {
     final response = await _dio.get(
@@ -49,31 +18,6 @@ mixin _ChatListsApi on _ApiServiceBase {
   // Helper method to get current weekday name
   // ==================== ADVANCED CHAT FEATURES ====================
   // Chat import/export, bulk operations, and advanced search
-
-  /// Get pinned chats
-  Future<List<Conversation>> getPinnedChats() async {
-    _traceApi('Fetching pinned chats');
-    return _fetchConversationSummaries(
-      '/api/v1/chats/pinned',
-      debugLabel: 'parse_pinned_chats',
-      pinned: true,
-    );
-  }
-
-  /// Get archived chats
-  Future<List<Conversation>> getArchivedChats({int? limit, int? offset}) async {
-    _traceApi('Fetching archived chats');
-    final queryParams = <String, dynamic>{};
-    if (limit != null) queryParams['limit'] = limit;
-    if (offset != null) queryParams['offset'] = offset;
-
-    return _fetchConversationSummaries(
-      '/api/v1/chats/archived',
-      queryParameters: queryParams,
-      debugLabel: 'parse_archived_chats',
-      archived: true,
-    );
-  }
 
   /// Advanced search for chats and messages
   Future<List<Conversation>> searchChats({

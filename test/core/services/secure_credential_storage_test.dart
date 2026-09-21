@@ -368,9 +368,7 @@ class _FakeSecureStorage implements SecureKeyValueStore {
   bool failDeleteAll = false;
 
   @override
-  Future<String?> read({
-    required String key,
-  }) async {
+  Future<String?> read({required String key}) async {
     operations.add('read:$key');
     final remainingFailures = remainingReadFailures[key] ?? 0;
     if (remainingFailures > 0) {
@@ -385,10 +383,7 @@ class _FakeSecureStorage implements SecureKeyValueStore {
   }
 
   @override
-  Future<void> write({
-    required String key,
-    required String? value,
-  }) async {
+  Future<void> write({required String key, required String? value}) async {
     operations.add('write:$key');
     if (failWritesFor.contains(key)) {
       throw StateError('write failed for $key');
@@ -402,9 +397,7 @@ class _FakeSecureStorage implements SecureKeyValueStore {
   }
 
   @override
-  Future<void> delete({
-    required String key,
-  }) async {
+  Future<void> delete({required String key}) async {
     operations.add('delete:$key');
     if (failDeletesFor.contains(key)) {
       throw StateError('delete failed for $key');

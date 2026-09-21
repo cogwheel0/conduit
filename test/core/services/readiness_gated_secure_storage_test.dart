@@ -41,9 +41,7 @@ final class _RecordingSecureStorage extends InMemorySecureKeyValueStore {
   var readCount = 0;
 
   @override
-  Future<String?> read({
-    required String key,
-  }) async {
+  Future<String?> read({required String key}) async {
     readCount++;
     return 'stored-token';
   }

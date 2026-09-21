@@ -46,25 +46,6 @@ class _RecordingShareApiService extends ApiService {
     deleteCalls += 1;
     deletedConversationIds.add(id);
   }
-
-  @override
-  Future<List<Conversation>> getConversationPage({
-    int page = 1,
-    bool includeFolders = true,
-    bool includePinned = false,
-  }) async {
-    return const <Conversation>[];
-  }
-
-  @override
-  Future<List<Conversation>> getPinnedChats() async {
-    return const <Conversation>[];
-  }
-
-  @override
-  Future<List<Conversation>> getArchivedChats({int? limit, int? offset}) async {
-    return const <Conversation>[];
-  }
 }
 
 class _TestConversations extends Conversations {

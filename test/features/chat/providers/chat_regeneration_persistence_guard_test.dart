@@ -96,17 +96,6 @@ class _RecordingCompletionApi extends ApiService {
   }
 
   @override
-  Future<void> syncConversationMessages(
-    String conversationId,
-    List<ChatMessage> messages, {
-    String? title,
-    String? model,
-    String? systemPrompt,
-  }) async {
-    syncCalls += 1;
-  }
-
-  @override
   Future<ChatCompletionSession> sendMessageSession({
     required List<Map<String, dynamic>> messages,
     required String model,
