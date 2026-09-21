@@ -44,6 +44,19 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
+# Desktop workspace build output (the root `/build/` rule is root-anchored and
+# does not cover the new packages).
+packages/*/build/
+apps/*/build/
+apps/desktop_ui/web/main.dart.js*
+apps/desktop_ui/web/theme.css
+apps/desktop_ui/web/app.css
+desktop/electron/dist/
+desktop/electron/node_modules/
+desktop/electron/out/
+desktop/electron/test-results/
+desktop/electron/playwright-report/
+
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile

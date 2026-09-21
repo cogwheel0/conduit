@@ -1,0 +1,249 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Pinned so a Flutter release cannot change what CI means overnight. Keep in
+  # step with the `environment` block in pubspec.yaml.
+  FLUTTER_VERSION: '3.47.1'
+
+jobs:
+  # The gate that matters most during the extraction: the mobile app must stay
+  # exactly as it was while code moves out from under it (PLAN.md section 7).
+  mobile:
+    name: Mobile app (analyze + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+      # One `pub get` at the workspace root resolves every member.
+      - run: flutter pub get
+      - name: Generate code
+        run: dart run build_runner build
+      - run: flutter analyze
+      - run: flutter test
+
+  # Each workspace member analyzes and tests on its own, which is what proves
+  # the pub workspace actually works per package (WP-0.1, WP-0.2).
+  packages:
+    name: Dart packages
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - packages/conduit_protocol
+          - packages/conduit_theme
+          - apps/daemon
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+      - run: flutter pub get
+      # Only packages that actually declare build_runner have codegen; the
+      # step is skipped elsewhere rather than failing on a missing dev dep.
+      - name: Generate code
+        working-directory: ${{ matrix.package }}
+        run: |
+          if grep -q '^  build_runner:' pubspec.yaml; then
+            dart run build_runner build
+          else
+            echo "no build_runner in ${{ matrix.package }}; skipping"
+          fi
+      - name: Analyze
+        working-directory: ${{ matrix.package }}
+        run: dart analyze --fatal-infos
+      - name: Test
+        working-directory: ${{ matrix.package }}
+        run: dart test
+
+  # The renderer has its own codegen path (slang, not build_runner) and its
+  # tests run on the VM against an in-memory channel, so it gets its own job.
+  desktop-ui:
+    name: Desktop UI (analyze + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+      - run: flutter pub get
+      - name: Generate protocol code
+        working-directory: packages/conduit_protocol
+        run: dart run build_runner build
+      - name: Convert ARB for slang
+        run: dart run tool/arb_to_slang.dart
+      - name: Generate translations
+        working-directory: apps/desktop_ui
+        run: dart run slang
+      - name: Analyze
+        working-directory: apps/desktop_ui
+        run: dart analyze --fatal-infos
+      - name: Test
+        working-directory: apps/desktop_ui
+        run: dart test
+      # The renderer must survive dart2js; this is the same compile the
+      # desktop build does, run without needing Electron or a display.
+      - name: Compile to JS
+        working-directory: apps/desktop_ui
+        run: dart compile js -O2 -o build/main.dart.js lib/main.dart
+
+  # Section 2.2: the shared packages must survive dart2js, and the renderer
+  # must not be able to reach dio, drift or conduit_core. Both are cheap to
+  # check and expensive to discover late.
+  web-safety:
+    name: Web-safe packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+      - run: flutter pub get
+      - name: Check package boundaries
+        run: dart run tool/check_package_boundaries.dart
+      - name: Generate protocol code
+        working-directory: packages/conduit_protocol
+        run: dart run build_runner build
+      # Compiling the goldens to JS and running them under Node is the real
+      # proof: it catches the VM/JS differences (number precision, type
+      # coercion) that a native `dart test` cannot.
+      - name: Compile protocol goldens to JS
+        working-directory: packages/conduit_protocol
+        run: dart compile js -o build/js_golden_check.js test/js_golden_check.dart
+      - name: Run protocol goldens under Node
+        working-directory: packages/conduit_protocol
+        run: node build/js_golden_check.js
+
+  localization:
+    name: Localization
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+      - run: flutter pub get
+      - name: Verify ARB descriptions
+        run: dart run tool/verify_arb_descriptions.dart
+      - name: Validate ARB locales and placeholders
+        run: dart run tool/validate_arb_locales.dart
+      # Proves the desktop catalog still generates from the same ARB files.
+      - name: Convert ARB for slang
+        run: dart run tool/arb_to_slang.dart
+      - name: Generate desktop translations
+        working-directory: apps/desktop_ui
+        run: dart run slang
+
+  # The end-to-end check: build the daemon and the renderer, launch Electron,
+  # and drive it. Runs on all three desktop platforms because the daemon spawn,
+  # the app:// scheme and safeStorage all behave differently per OS.
+  desktop:
+    name: Desktop (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/electron/package-lock.json
+      - run: flutter pub get
+
+      - name: Generate protocol code
+        working-directory: packages/conduit_protocol
+        run: dart run build_runner build
+
+      # `dart compile exe` produces a native binary per OS/arch; there is no
+      # cross-compilation, which is why this matrix exists (PLAN.md section 11).
+      - name: Build conduitd
+        working-directory: apps/daemon
+        run: dart compile exe bin/conduitd.dart -o build/conduitd${{ runner.os == 'Windows' && '.exe' || '' }}
+
+      - name: Convert ARB for slang
+        run: dart run tool/arb_to_slang.dart
+      - name: Generate desktop translations
+        working-directory: apps/desktop_ui
+        run: dart run slang
+
+      - name: Install npm dependencies
+        working-directory: desktop/electron
+        run: npm ci
+
+      - name: Build renderer and main process
+        working-directory: desktop/electron
+        run: npm run build
+
+      - name: Typecheck
+        working-directory: desktop/electron
+        run: npm run typecheck
+
+      # Electron needs a display. xvfb only exists on Linux; macOS and Windows
+      # runners have a real window server.
+      - name: Launch test (Linux)
+        if: runner.os == 'Linux'
+        working-directory: desktop/electron
+        run: xvfb-run -a npx playwright test
+
+      - name: Launch test (macOS/Windows)
+        if: runner.os != 'Linux'
+        working-directory: desktop/electron
+        run: npx playwright test
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: desktop-test-results-${{ matrix.os }}
+          path: desktop/electron/test-results
+          retention-days: 7

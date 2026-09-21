@@ -1,0 +1,29 @@
+{
+  "name": "conduit-desktop",
+  "productName": "Conduit",
+  "version": "0.1.0",
+  "description": "Conduit desktop client — Electron shell around the conduitd sidecar and the Jaspr renderer.",
+  "license": "AGPL-3.0-or-later",
+  "private": true,
+  "main": "out/main.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build:ts": "tsc",
+    "build:ui": "node scripts/build-ui.mjs",
+    "build": "npm run build:ui && npm run build:ts",
+    "dev": "node scripts/dev.mjs",
+    "start": "electron .",
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@tailwindcss/cli": "4.3.3",
+    "@types/node": "24.10.1",
+    "electron": "44.4.3",
+    "electron-builder": "26.15.3",
+    "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9"
+  }
+}

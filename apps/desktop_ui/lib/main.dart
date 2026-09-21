@@ -1,0 +1,60 @@
+import 'dart:async';
+
+import 'package:jaspr/client.dart';
+import 'package:jaspr/dom.dart';
+import 'package:jaspr_riverpod/jaspr_riverpod.dart';
+import 'package:web/web.dart' as web;
+
+import 'src/app.dart';
+import 'src/bridge.dart';
+import 'src/l10n/strings.g.dart';
+import 'src/rpc/rpc_providers.dart';
+
+/// Client-mode entrypoint. Compiled to `web/main.dart.js` and loaded by
+/// `web/index.html`, which Electron serves from `app://conduit`.
+Future<void> main() async {
+  final bridge = resolveShellBridge();
+  if (bridge == null) {
+    // Without a port and token there is nothing to connect to, and the app
+    // would render an empty shell that looks broken. Say what is wrong
+    // instead — this only happens outside Electron.
+    _renderBootstrapError();
+    return;
+  }
+
+  // Load the catalog before the first paint. slang splits every non-base
+  // locale into a deferred chunk, so this is asynchronous even though the
+  // bytes are local; rendering first would flash English at everyone else.
+  await LocaleSettings.setLocaleRaw(web.window.navigator.language);
+
+  final container = ProviderContainer(
+    overrides: [shellBridgeProvider.overrideWithValue(bridge)],
+  );
+  // Start connecting before the first paint so the status card usually
+  // renders already-connected rather than flashing "connecting".
+  unawaited(container.read(rpcClientProvider).start());
+
+  runApp(
+    UncontrolledProviderScope(
+      container: container,
+      child: const ConduitDesktopApp(),
+    ),
+  );
+}
+
+void _renderBootstrapError() {
+  runApp(
+    div(
+      attributes: const <String, String>{
+        'style': 'font-family: system-ui; padding: 2rem; line-height: 1.5',
+      },
+      [
+        Component.text(
+          'Conduit could not find the core connection details. Launch the '
+          'desktop app through Electron, or pass ?port=<rpcPort>&token=<token> '
+          'when developing against a daemon started by hand.',
+        ),
+      ],
+    ),
+  );
+}

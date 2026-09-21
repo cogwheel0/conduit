@@ -1,0 +1,25 @@
+name: conduitd
+description: >-
+  The Conduit desktop sidecar. Hosts conduit_core in a native Dart process and
+  exposes it to the Electron renderer over a loopback JSON-RPC WebSocket.
+version: 0.1.0
+publish_to: 'none'
+resolution: workspace
+
+environment:
+  sdk: ">=3.13.0 <4.0.0"
+
+dependencies:
+  args: ^2.5.0
+  conduit_protocol:
+    path: ../../packages/conduit_protocol
+  json_rpc_2: ^4.1.0
+  path: ^1.9.0
+  shelf: ^1.4.0
+  shelf_web_socket: ^3.0.0
+  stream_channel: ^2.1.2
+  web_socket_channel: ^3.0.3
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.0
