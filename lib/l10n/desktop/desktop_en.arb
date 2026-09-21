@@ -1,0 +1,50 @@
+{
+  "@@locale": "en",
+  "desktopCoreConnecting": "Starting the core…",
+  "@desktopCoreConnecting": {
+    "description": "Shown while the desktop app waits for the conduitd sidecar to accept its first connection."
+  },
+  "desktopCoreConnected": "Connected to the core",
+  "@desktopCoreConnected": {
+    "description": "Status line on the desktop diagnostics screen once the RPC handshake has succeeded."
+  },
+  "desktopCoreReconnecting": "Reconnecting to the core (attempt {attempt})",
+  "@desktopCoreReconnecting": {
+    "description": "Banner shown while the desktop app retries a dropped connection to the local sidecar.",
+    "placeholders": {
+      "attempt": { "type": "int", "example": "2" }
+    }
+  },
+  "desktopCoreUnavailable": "The core is unavailable",
+  "@desktopCoreUnavailable": {
+    "description": "Headline shown when the desktop app has exhausted its reconnection attempts to the sidecar."
+  },
+  "desktopCoreVersionMismatch": "This app and its core are different versions. Reinstall Conduit to continue.",
+  "@desktopCoreVersionMismatch": {
+    "description": "Error shown when the desktop UI and the conduitd sidecar report different protocol versions, which retrying cannot fix."
+  },
+  "desktopKeyringUnavailable": "No system keyring found, so saved credentials are less protected. Install gnome-keyring or kwallet.",
+  "@desktopKeyringUnavailable": {
+    "description": "One-time warning on Linux systems where Electron safeStorage has no encryption backend available."
+  },
+  "desktopQuickAskPlaceholder": "Ask Conduit…",
+  "@desktopQuickAskPlaceholder": {
+    "description": "Placeholder text in the composer of the global-hotkey quick-ask window."
+  },
+  "desktopQuickAskContinue": "Continue in main window",
+  "@desktopQuickAskContinue": {
+    "description": "Button in the quick-ask window that moves the current exchange into the full desktop window."
+  },
+  "desktopSettingsKeyboardTab": "Keyboard",
+  "@desktopSettingsKeyboardTab": {
+    "description": "Title of the desktop-only Settings tab where keyboard shortcuts are rebound."
+  },
+  "desktopShortcutConflict": "{shortcut} is already used by {command}.",
+  "@desktopShortcutConflict": {
+    "description": "Warning shown when a user assigns a keyboard shortcut that another desktop command already owns.",
+    "placeholders": {
+      "shortcut": { "type": "String", "example": "Cmd+K" },
+      "command": { "type": "String", "example": "Search" }
+    }
+  }
+}
