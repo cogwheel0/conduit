@@ -13,6 +13,7 @@ environment:
 dependencies:
   # `QueryExecutor` is part of the DatabaseOpener port's signature. The core
   # owns the schema, so drift belongs here rather than in the front-ends.
+  collection: ^1.19.1
   drift: ^2.34.2
   freezed_annotation: ^3.0.0
   json_annotation: ^4.12.0
