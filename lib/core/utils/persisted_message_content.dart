@@ -1,5 +1,5 @@
 import 'package:conduit_core/models/chat_message.dart';
-import '../services/direct_replay_output.dart';
+import 'package:conduit_core/services/direct_replay_output.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 
 /// The `content` string Conduit persists for [message] in Open WebUI chat

@@ -22,17 +22,20 @@ import 'chat_completion_transport.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
-import '../utils/openwebui_source_parser.dart';
+import 'package:conduit_core/utils/openwebui_source_parser.dart';
+
 import 'openwebui_response_stream.dart';
 import 'openwebui_stream_parser.dart';
 
 import 'package:conduit_core/services/performance_profiler.dart';
 
-import 'semantic_message_builder.dart';
+import 'package:conduit_core/services/semantic_message_builder.dart';
+
 import 'streaming_response_controller.dart';
 import 'api_service.dart';
-import 'structured_output.dart';
-import 'structured_output_renderer.dart';
+
+import 'package:conduit_core/services/structured_output.dart';
+import 'package:conduit_core/services/structured_output_renderer.dart';
 
 import 'package:conduit_core/services/worker_manager.dart';
 

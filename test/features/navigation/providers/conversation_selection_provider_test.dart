@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';

@@ -14,13 +14,18 @@ dependencies:
   # `QueryExecutor` is part of the DatabaseOpener port's signature. The core
   # owns the schema, so drift belongs here rather than in the front-ends.
   collection: ^1.19.1
+  conduit_markdown:
+    path: ../conduit_markdown
+  crypto: ^3.0.3
   # The core raises and classifies API errors, and `ApiError` is built from a
   # `DioException`. dio is pure Dart, so this costs the package nothing in
   # portability; the HTTP client itself follows in a later tranche.
   dio: ^5.9.0
   drift: ^2.34.2
   freezed_annotation: ^3.0.0
+  html_unescape: ^2.0.0
   json_annotation: ^4.12.0
+  markdown: ^7.3.0
   meta: ^1.16.0
   path: ^1.9.0
   # WP-1.12: the core owns the provider graph, not just the port interfaces.
@@ -29,10 +34,12 @@ dependencies:
   # stays in the app.
   riverpod: ^3.4.3
   riverpod_annotation: ^4.0.7
+  uuid: ^4.6.0
 
 dev_dependencies:
   build_runner: ^2.15.1
   checks: ^0.3.1
+  drift_dev: ^2.34.0
   freezed: ^4.0.1
   json_serializable: ^6.11.1
   lints: ^6.0.0

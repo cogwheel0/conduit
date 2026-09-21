@@ -42,22 +42,28 @@ import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/models/server_config.dart';
 
-import '../../../core/database/app_database.dart';
-import '../../../core/database/daos/outbox_dao.dart';
-import '../../../core/database/database_manager.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/outbox_dao.dart';
+import 'package:conduit_core/database/database_manager.dart';
+
 import '../../../core/database/database_provider.dart';
-import '../../../core/database/chat_database_repository.dart';
+
+import 'package:conduit_core/database/chat_database_repository.dart';
+
 import '../../../core/database/local_conversation_loader.dart';
-import '../../../core/database/mappers/chat_blob_mapper.dart';
-import '../../../core/database/mappers/conversation_assembler.dart';
-import '../../../core/database/models/chat_transcript_window.dart';
+
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/database/mappers/conversation_assembler.dart';
+import 'package:conduit_core/database/models/chat_transcript_window.dart';
 
 import 'package:conduit_core/providers/host_ports.dart';
 
 import '../../../core/providers/app_providers.dart';
 import '../../../core/sync/chat_locks.dart';
 import '../../../core/sync/clock.dart';
-import '../../../core/sync/id_remapper.dart';
+
+import 'package:conduit_core/sync/id_remapper.dart';
+
 import '../../../core/sync/outbox_drainer.dart' show OutboxDeferralException;
 import '../../../core/sync/sync_engine.dart';
 import '../../../core/sync/sync_api_client.dart' show SyncTerminalException;
@@ -72,13 +78,15 @@ import '../../../core/services/streaming_helper.dart';
 
 import 'package:conduit_core/services/performance_profiler.dart';
 
-import '../../../core/services/conversation_parsing.dart';
+import 'package:conduit_core/services/conversation_parsing.dart';
 
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../core/utils/json_normalization.dart';
-import '../../../core/utils/message_tree_utils.dart' as message_tree;
+
+import 'package:conduit_core/utils/message_tree_utils.dart' as message_tree;
+
 import '../../../core/utils/openwebui_message_payload.dart';
 import '../../../core/utils/persisted_message_content.dart';
 

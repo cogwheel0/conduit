@@ -6,8 +6,8 @@ import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/daos/outbox_dao.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';

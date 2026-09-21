@@ -1,10 +1,10 @@
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/daos/outbox_dao.dart';
-import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
-import 'package:conduit/core/sync/id_remapper.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/outbox_dao.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';

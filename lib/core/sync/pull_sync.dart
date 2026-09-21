@@ -1,14 +1,16 @@
 import 'dart:math' as math;
 
-
-import '../database/app_database.dart';
-import '../database/mappers/chat_blob_mapper.dart';
-import '../database/mappers/conversation_assembler.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'chat_locks.dart';
-import 'id_remapper.dart';
+
+import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:meta/meta.dart';
+
 import 'sync_api_client.dart';
 import 'sync_entity_adapter.dart';
 
@@ -123,7 +125,8 @@ class PullFetchMemo {
   // Insertion-ordered for cheap oldest-first eviction; the overlap window
   // realistically holds a handful of items.
   final Map<String, ({int updatedAt, int firstFetchedAtMs, bool confirmed})>
-  _entries = <String, ({int updatedAt, int firstFetchedAtMs, bool confirmed})>{};
+  _entries =
+      <String, ({int updatedAt, int firstFetchedAtMs, bool confirmed})>{};
 
   /// Marks a cycle boundary; call once at the start of each pull cycle.
   /// (Retained as the API seam; confirmation is time-based, not cycle-based.)
@@ -262,8 +265,7 @@ class PullSync {
       return false;
     }
     final listLastReadAt = item.lastReadAt;
-    return listLastReadAt == null ||
-        (local.lastReadAt ?? 0) >= listLastReadAt;
+    return listLastReadAt == null || (local.lastReadAt ?? 0) >= listLastReadAt;
   }
 
   /// Runs one pull cycle. The watermark advances only when every list page

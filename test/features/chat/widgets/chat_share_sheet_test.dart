@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';

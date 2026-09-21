@@ -8,9 +8,9 @@
 library;
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
+import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit/core/database/database_provider.dart';
-import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';

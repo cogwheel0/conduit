@@ -1,17 +1,21 @@
 import 'dart:async';
 
 import 'package:conduit_core/models/conversation.dart';
+
 import '../providers/app_providers.dart';
-import '../services/conversation_parsing.dart';
+
+import 'package:conduit_core/services/conversation_parsing.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+
 import '../sync/sync_engine.dart';
+
 import 'package:conduit_core/utils/debug_logger.dart';
-import 'mappers/conversation_assembler.dart';
+import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 
 // kLocalConversationWorkerThreshold is defined in
 // mappers/conversation_assembler.dart and re-exported here for callers that
 // already import local_conversation_loader.dart. Do NOT redeclare it.
-export 'mappers/conversation_assembler.dart'
+export 'package:conduit_core/database/mappers/conversation_assembler.dart'
     show kLocalConversationWorkerThreshold;
 
 /// Fire-and-forget background pull for one chat. Best-effort freshening:

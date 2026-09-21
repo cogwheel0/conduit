@@ -4,11 +4,11 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/chat_database_repository.dart';
-import 'package:conduit/core/database/database_manager.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/database_manager.dart';
 import 'package:conduit/core/database/database_provider.dart';
-import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit/core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -16,9 +16,9 @@ import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/direct_replay_output.dart';
+import 'package:conduit_core/services/direct_replay_output.dart';
 import 'package:conduit_core/services/worker_manager.dart';
-import 'package:conduit/core/sync/id_remapper.dart';
+import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit/core/sync/sync_engine.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
@@ -984,9 +984,7 @@ _createGatedDirectHarness(
   final repository = repositoryBuilder?.call(db);
   container = ProviderContainer(
     overrides: [
-      secureStorageProvider.overrideWithValue(
-        FlutterSecureKeyValueStore(),
-      ),
+      secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
       activeConversationProvider.overrideWith(_ActiveConversation.new),
       selectedModelProvider.overrideWithValue(model),
       reviewerModeProvider.overrideWithValue(false),
@@ -1056,9 +1054,7 @@ _createInvalidatedOwnerRefreshHarness(
   );
   final container = ProviderContainer(
     overrides: [
-      secureStorageProvider.overrideWithValue(
-        FlutterSecureKeyValueStore(),
-      ),
+      secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
       activeConversationProvider.overrideWith(_ActiveConversation.new),
       selectedModelProvider.overrideWithValue(model),
       reviewerModeProvider.overrideWithValue(false),
@@ -1135,9 +1131,7 @@ _createRemappableDirectHarness(String suffix) async {
   );
   final container = ProviderContainer(
     overrides: [
-      secureStorageProvider.overrideWithValue(
-        FlutterSecureKeyValueStore(),
-      ),
+      secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
       activeConversationProvider.overrideWith(_ActiveConversation.new),
       selectedModelProvider.overrideWithValue(model),
       reviewerModeProvider.overrideWithValue(false),
@@ -1274,9 +1268,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -1375,9 +1367,7 @@ void main() {
       ];
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -1483,9 +1473,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -1572,9 +1560,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -1663,9 +1649,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           reviewerModeProvider.overrideWithValue(false),
           isAuthenticatedProvider2.overrideWithValue(false),
@@ -1758,9 +1742,7 @@ void main() {
       final previousAssistant = chat.messages.last;
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           reviewerModeProvider.overrideWithValue(false),
           isAuthenticatedProvider2.overrideWithValue(false),
@@ -1842,9 +1824,7 @@ void main() {
       final previousAssistant = chat.messages.last;
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           reviewerModeProvider.overrideWithValue(false),
           isAuthenticatedProvider2.overrideWithValue(false),
@@ -1936,9 +1916,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
-        secureStorageProvider.overrideWithValue(
-          FlutterSecureKeyValueStore(),
-        ),
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
         selectedModelProvider.overrideWithValue(model),
         reviewerModeProvider.overrideWithValue(false),
@@ -2012,9 +1990,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
-        secureStorageProvider.overrideWithValue(
-          FlutterSecureKeyValueStore(),
-        ),
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
         selectedModelProvider.overrideWithValue(model),
         reviewerModeProvider.overrideWithValue(false),
@@ -2088,9 +2064,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
-        secureStorageProvider.overrideWithValue(
-          FlutterSecureKeyValueStore(),
-        ),
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
         reviewerModeProvider.overrideWithValue(false),
         isAuthenticatedProvider2.overrideWithValue(false),
@@ -2168,9 +2142,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
-        secureStorageProvider.overrideWithValue(
-          FlutterSecureKeyValueStore(),
-        ),
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
         reviewerModeProvider.overrideWithValue(false),
         isAuthenticatedProvider2.overrideWithValue(false),
@@ -2234,9 +2206,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
-        secureStorageProvider.overrideWithValue(
-          FlutterSecureKeyValueStore(),
-        ),
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
         selectedModelProvider.overrideWithValue(model),
         reviewerModeProvider.overrideWithValue(false),
@@ -2418,9 +2388,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -2532,9 +2500,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -2657,9 +2623,7 @@ void main() {
       );
       container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -2785,9 +2749,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -2906,9 +2868,7 @@ void main() {
       final rowsBefore = await db.messagesDao.getForChat(chatA.id);
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -2994,9 +2954,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
-        secureStorageProvider.overrideWithValue(
-          FlutterSecureKeyValueStore(),
-        ),
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
         selectedModelProvider.overrideWithValue(model),
         reviewerModeProvider.overrideWithValue(false),
@@ -3091,9 +3049,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
-        secureStorageProvider.overrideWithValue(
-          FlutterSecureKeyValueStore(),
-        ),
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
         selectedModelProvider.overrideWithValue(model),
         reviewerModeProvider.overrideWithValue(false),
@@ -3196,9 +3152,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -3317,9 +3271,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -3401,9 +3353,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -3503,9 +3453,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -3569,9 +3517,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -3975,9 +3921,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -4803,9 +4747,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
-        secureStorageProvider.overrideWithValue(
-          FlutterSecureKeyValueStore(),
-        ),
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
         selectedModelProvider.overrideWithValue(model),
         reviewerModeProvider.overrideWithValue(false),
@@ -4908,9 +4850,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
-        secureStorageProvider.overrideWithValue(
-          FlutterSecureKeyValueStore(),
-        ),
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         activeServerProvider.overrideWith((_) async => serverA),
         databaseManagerProvider.overrideWithValue(manager),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
@@ -5036,9 +4976,7 @@ void main() {
       final runRegistry = DirectRunRegistry();
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeServerProvider.overrideWith((_) async => serverA),
           databaseManagerProvider.overrideWithValue(manager),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
@@ -5172,9 +5110,7 @@ void main() {
       final runRegistry = DirectRunRegistry();
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeServerProvider.overrideWith((_) async => serverA),
           databaseManagerProvider.overrideWithValue(manager),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
@@ -5340,9 +5276,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeServerProvider.overrideWith(
             (_) async => const ServerConfig(
               id: 'closing-retry-server',
@@ -5458,9 +5392,7 @@ void main() {
       final assistantId = chat.messages.last.id;
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -5621,11 +5553,7 @@ void main() {
       serverUpdatedAt: 2,
     );
     harness.syncEngine.emitA(
-      RemapEvent(
-        fromId: harness.chat.id,
-        toId: remappedId,
-        entityKind: 'chat',
-      ),
+      RemapEvent(fromId: harness.chat.id, toId: remappedId, entityKind: 'chat'),
     );
     await Future<void>.delayed(Duration.zero);
 

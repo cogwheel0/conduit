@@ -1,5 +1,5 @@
-
 import '../app_database.dart';
+
 import 'package:meta/meta.dart';
 
 const int kChatTranscriptPageSize = 50;

@@ -11,12 +11,12 @@ library;
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/chat_database_repository.dart';
-import 'package:conduit/core/database/daos/chats_dao.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/daos/chats_dao.dart';
 import 'package:conduit/core/database/database_provider.dart';
-import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
-import 'package:conduit/core/database/mappers/conversation_assembler.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';

@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import '../database/app_database.dart';
+import 'package:conduit_core/database/app_database.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 

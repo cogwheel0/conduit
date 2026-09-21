@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import '../database/app_database.dart';
-import '../database/daos/outbox_dao.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/outbox_dao.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 

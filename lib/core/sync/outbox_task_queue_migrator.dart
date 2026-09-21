@@ -3,16 +3,18 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 
-import '../database/app_database.dart';
-import '../database/daos/outbox_dao.dart';
-import '../database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/outbox_dao.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+
 import '../persistence/hive_boxes.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'chat_locks.dart';
 import 'clock.dart';
-import 'id_remapper.dart';
+
+import 'package:conduit_core/sync/id_remapper.dart';
 
 /// One-time migration of the legacy Hive outbound task queue
 /// (`caches['outbound_task_queue_v1']`) into local chats/messages + outbox ops

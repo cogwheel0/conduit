@@ -6,7 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:collection/collection.dart';
-import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 
 class ChatBlobFixture {
   ChatBlobFixture({

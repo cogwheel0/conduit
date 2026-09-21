@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:conduit/core/database/app_database.dart';
+import 'package:conduit_core/database/app_database.dart';
 import 'package:drift/native.dart';
 
 /// Test database whose close can be observed, delayed, or made to fail.

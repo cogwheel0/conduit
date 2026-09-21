@@ -1,18 +1,18 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/daos/outbox_dao.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit/core/database/database_provider.dart';
-import 'package:conduit/core/database/fts/fts_ddl.dart';
-import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/database/fts/fts_ddl.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit/core/persistence/hive_boxes.dart';
 import 'package:conduit/core/persistence/persistence_providers.dart';
 import 'package:conduit/core/services/optimized_storage_service.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/connectivity_service.dart';
 import 'package:conduit/core/sync/clock.dart';
-import 'package:conduit/core/sync/id_remapper.dart';
+import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit/core/sync/outbox_drainer.dart';
 import 'package:conduit/core/sync/outbox_task_queue_migrator.dart';
 import 'package:conduit/core/sync/request_completion_runner_provider.dart';

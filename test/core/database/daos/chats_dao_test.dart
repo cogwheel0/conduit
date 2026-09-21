@@ -3,10 +3,10 @@ import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:collection/collection.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/daos/chats_dao.dart';
-import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
-import 'package:conduit/core/database/mappers/conversation_assembler.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/chats_dao.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';

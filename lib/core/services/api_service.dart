@@ -50,8 +50,10 @@ import 'package:conduit_markdown/conduit_markdown.dart';
 
 import '../utils/openwebui_message_payload.dart';
 import '../utils/json_normalization.dart';
-import '../utils/message_tree_utils.dart' as message_tree;
-import 'conversation_parsing.dart';
+
+import 'package:conduit_core/utils/message_tree_utils.dart' as message_tree;
+import 'package:conduit_core/services/conversation_parsing.dart';
+
 import 'settings_service.dart';
 
 import 'package:conduit_core/services/worker_manager.dart';

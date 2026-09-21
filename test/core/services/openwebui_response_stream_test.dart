@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/openwebui_response_stream.dart';
-import 'package:conduit/core/services/structured_output.dart';
+import 'package:conduit_core/services/structured_output.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

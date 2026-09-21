@@ -2,11 +2,11 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/chat_database_repository.dart';
-import 'package:conduit/core/database/daos/chats_dao.dart';
-import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
-import 'package:conduit/core/sync/id_remapper.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/daos/chats_dao.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:fake_async/fake_async.dart';

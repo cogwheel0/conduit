@@ -1,6 +1,7 @@
 import 'dart:convert';
 
-import '../database/app_database.dart';
+import 'package:conduit_core/database/app_database.dart';
+
 import '../persistence/hive_boxes.dart';
 import '../services/attachment_upload_queue.dart';
 

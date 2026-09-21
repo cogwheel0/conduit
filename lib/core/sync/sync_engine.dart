@@ -4,23 +4,33 @@ import 'package:meta/meta.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../features/auth/providers/unified_auth_providers.dart';
-import '../database/app_database.dart';
+
+import 'package:conduit_core/database/app_database.dart';
+
 import '../database/database_provider.dart';
-import '../database/fts/fts_ddl.dart' show kFtsBuiltKey;
+
+import 'package:conduit_core/database/fts/fts_ddl.dart' show kFtsBuiltKey;
 import 'package:conduit_core/models/conversation.dart';
+
 import '../persistence/persistence_providers.dart';
 import '../providers/app_providers.dart';
 import '../services/connectivity_service.dart';
-import '../services/conversation_parsing.dart';
+
+import 'package:conduit_core/services/conversation_parsing.dart';
+
 import '../services/interaction_activity.dart';
+
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'backoff.dart';
 import 'chat_adapter.dart';
 import 'chat_locks.dart';
 import 'clock.dart';
 import 'deletion_reconcile.dart';
-import 'id_remapper.dart';
+
+import 'package:conduit_core/sync/id_remapper.dart';
+
 import 'note_adapter.dart';
 import 'note_deletion_reconcile.dart';
 import 'hive_cache_migrator.dart';

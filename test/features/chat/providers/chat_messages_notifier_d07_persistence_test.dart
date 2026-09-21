@@ -9,8 +9,8 @@ library;
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit/core/providers/app_providers.dart';

@@ -1,6 +1,6 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
-import 'package:conduit/core/sync/chat_merger.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/sync/chat_merger.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Builds a `ChatRows` for [chatId] from a `history.messages`-shaped spec.

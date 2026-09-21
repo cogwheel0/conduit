@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:conduit/core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';

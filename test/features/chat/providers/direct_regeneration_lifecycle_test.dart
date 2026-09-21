@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -9,7 +9,7 @@ import 'package:conduit_core/models/model.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
-import 'package:conduit/core/sync/id_remapper.dart';
+import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/services/historical_message_regeneration.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';

@@ -4,7 +4,7 @@
 library;
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/sync/note_conflict.dart';
+import 'package:conduit_core/sync/note_conflict.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 NoteMergeLocal local({

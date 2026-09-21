@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
+import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit/core/persistence/hive_boxes.dart';
 import 'package:conduit/core/sync/hive_cache_migrator.dart';
 import 'package:drift/native.dart';

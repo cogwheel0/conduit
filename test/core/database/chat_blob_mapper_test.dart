@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:collection/collection.dart';
-import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/chat_blob_fixtures.dart';

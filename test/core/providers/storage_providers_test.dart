@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/database_manager.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/database_manager.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/persistence/hive_boxes.dart';
 import 'package:conduit/core/persistence/persistence_keys.dart';

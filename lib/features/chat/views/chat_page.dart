@@ -32,9 +32,11 @@ import '../../../core/services/api_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/database/database_provider.dart';
-import '../../../core/database/app_database.dart';
-import '../../../core/database/chat_database_repository.dart';
-import '../../../core/database/models/chat_transcript_window.dart';
+
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/models/chat_transcript_window.dart';
+
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../direct_connections/providers/direct_connection_providers.dart';
 import '../../direct_connections/services/direct_chat_bridge.dart';
@@ -57,7 +59,8 @@ import '../../hermes/widgets/hermes_message_interactions.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
-import '../../../core/utils/message_tree_utils.dart' as message_tree;
+import 'package:conduit_core/utils/message_tree_utils.dart' as message_tree;
+
 import '../../../core/utils/user_display_name.dart';
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../shared/widgets/markdown/markdown_compile_service.dart';

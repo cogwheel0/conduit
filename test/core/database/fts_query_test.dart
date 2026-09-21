@@ -1,6 +1,6 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/fts/fts_ddl.dart';
-import 'package:conduit/core/database/fts/fts_query.dart';
+import 'package:conduit_core/database/fts/fts_ddl.dart';
+import 'package:conduit_core/database/fts/fts_query.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';

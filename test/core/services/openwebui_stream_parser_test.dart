@@ -3,8 +3,8 @@ import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/openwebui_stream_parser.dart';
-import 'package:conduit/core/services/structured_output.dart';
-import 'package:conduit/core/services/structured_output_renderer.dart';
+import 'package:conduit_core/services/structured_output.dart';
+import 'package:conduit_core/services/structured_output_renderer.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

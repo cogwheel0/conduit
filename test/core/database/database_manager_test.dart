@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/database_manager.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/database_manager.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';

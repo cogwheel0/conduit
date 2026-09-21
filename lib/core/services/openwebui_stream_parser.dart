@@ -2,7 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'sse_frame_scanner.dart';
-import 'structured_output.dart';
+
+import 'package:conduit_core/services/structured_output.dart';
 
 /// Base class for all stream update types emitted by the OpenWebUI SSE parser.
 sealed class OpenWebUIStreamUpdate {

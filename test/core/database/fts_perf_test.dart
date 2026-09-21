@@ -20,9 +20,9 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/daos/chats_dao.dart';
-import 'package:conduit/core/database/mappers/conversation_assembler.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/chats_dao.dart';
+import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';

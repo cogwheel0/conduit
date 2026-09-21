@@ -4,9 +4,10 @@ import 'dart:convert';
 import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../../core/database/chat_database_repository.dart';
-import '../../../core/database/app_database.dart';
-import '../../../core/database/daos/outbox_dao.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/outbox_dao.dart';
+
 import '../../../core/database/database_provider.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/connectivity_service.dart';

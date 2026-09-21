@@ -7,13 +7,13 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/daos/outbox_dao.dart';
-import 'package:conduit/core/database/mappers/note_mapper.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/outbox_dao.dart';
+import 'package:conduit_core/database/mappers/note_mapper.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
-import 'package:conduit/core/sync/id_remapper.dart';
+import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit/core/sync/note_adapter.dart';
-import 'package:conduit/core/sync/note_conflict.dart';
+import 'package:conduit_core/sync/note_conflict.dart';
 import 'package:conduit/core/sync/note_sync.dart';
 import 'package:conduit/core/sync/sync_api_client.dart';
 import 'package:conduit/core/sync/sync_entity_adapter.dart';

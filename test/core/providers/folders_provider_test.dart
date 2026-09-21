@@ -6,7 +6,7 @@
 library;
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
+import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit_core/models/folder.dart';
 import 'package:conduit/core/providers/app_providers.dart';

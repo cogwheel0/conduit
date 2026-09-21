@@ -1,5 +1,6 @@
-import '../database/app_database.dart';
-import '../database/daos/outbox_dao.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/outbox_dao.dart';
+
 import 'pull_sync.dart';
 import 'push_sync.dart';
 import 'sync_api_client.dart';

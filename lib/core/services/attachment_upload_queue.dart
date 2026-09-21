@@ -8,8 +8,8 @@ import 'package:drift/drift.dart' show Value;
 import 'package:path/path.dart' as path;
 import 'package:uuid/uuid.dart';
 
-import '../database/app_database.dart';
-import '../database/daos/attachment_queue_dao.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/attachment_queue_dao.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 

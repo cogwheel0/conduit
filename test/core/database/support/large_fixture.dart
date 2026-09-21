@@ -11,8 +11,8 @@
 /// clock so the budget stopwatches only ever cover the operation under test.
 library;
 
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 
 /// The planted search token. Lives in exactly [sentinelChatIds] chats at
 /// varying frequency so the search test can assert bm25 ranking (most/earliest

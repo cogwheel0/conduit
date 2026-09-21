@@ -16,8 +16,8 @@
 //     conduit-hermes-runtime://<Uri.encodeComponent(rawId)>
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
@@ -164,9 +164,8 @@ void main() {
       check(scope).equals('$_scopedVersionPrefix$nonce/openWebUi/chat-1');
       // The nonce is minted once per runtime, so scopes are stable in-process.
       check(openWebUiChatMutationOwnerScope('chat-1')).equals(scope);
-      check(openWebUiChatMutationOwnerScope('chat-2')).equals(
-        '$_scopedVersionPrefix$nonce/openWebUi/chat-2',
-      );
+      check(openWebUiChatMutationOwnerScope('chat-2'))
+          .equals('$_scopedVersionPrefix$nonce/openWebUi/chat-2');
     });
 
     test('scoped ids percent-encode the raw chat id and round-trip', () {
@@ -174,9 +173,9 @@ void main() {
       final scope = openWebUiChatMutationOwnerScope(rawId);
       final nonce = _runtimeNonceOf(scope);
 
-      check(scope).equals(
-        '$_scopedVersionPrefix$nonce/openWebUi/a%2Fb%20c%3Fd%23e%26f',
-      );
+      check(
+        scope,
+      ).equals('$_scopedVersionPrefix$nonce/openWebUi/a%2Fb%20c%3Fd%23e%26f');
       final parsed = ChatStorageIdentity.parse(scope);
       check(parsed.rawId).equals(rawId);
       check(parsed.storage).equals(ChatStorageKind.openWebUi);
@@ -210,9 +209,8 @@ void main() {
       final scope = openWebUiChatMutationOwnerScope(temporaryId);
       final nonce = _runtimeNonceOf(scope);
 
-      check(scope).equals(
-        '$_scopedVersionPrefix$nonce/openWebUi/local%3A9f2c1d3e',
-      );
+      check(scope)
+          .equals('$_scopedVersionPrefix$nonce/openWebUi/local%3A9f2c1d3e');
       check(chatMutationOwnerScopeForConversation(_plain(temporaryId)))
           .equals(scope);
       check(
@@ -220,9 +218,8 @@ void main() {
           _stored(temporaryId, ChatStorageKind.openWebUi),
         ),
       ).equals(scope);
-      check(
-        chatMutationOwnerScopeForConversation(_directRuntime(temporaryId)),
-      ).equals('conduit-direct-runtime://local%3A9f2c1d3e');
+      check(chatMutationOwnerScopeForConversation(_directRuntime(temporaryId)))
+          .equals('conduit-direct-runtime://local%3A9f2c1d3e');
       check(
         chatMutationOwnerScopeForConversation(
           _hermesRuntime('local:hermes_abc'),
@@ -234,18 +231,16 @@ void main() {
       check(
         chatMutationOwnerScopeForConversation(_directRuntime('direct-chat')),
       ).equals('conduit-direct-runtime://direct-chat');
-      check(
-        chatMutationOwnerScopeForConversation(_directRuntime('a/b c')),
-      ).equals('conduit-direct-runtime://a%2Fb%20c');
+      check(chatMutationOwnerScopeForConversation(_directRuntime('a/b c')))
+          .equals('conduit-direct-runtime://a%2Fb%20c');
     });
 
     test('unstored native Hermes conversations use a literal scope', () {
       check(
         chatMutationOwnerScopeForConversation(_hermesRuntime('hermes-chat')),
       ).equals('conduit-hermes-runtime://hermes-chat');
-      check(
-        chatMutationOwnerScopeForConversation(_hermesRuntime('a/b c')),
-      ).equals('conduit-hermes-runtime://a%2Fb%20c');
+      check(chatMutationOwnerScopeForConversation(_hermesRuntime('a/b c')))
+          .equals('conduit-hermes-runtime://a%2Fb%20c');
     });
 
     test('unannotated conversations fall back to OpenWebUI ownership', () {
@@ -254,21 +249,18 @@ void main() {
           .equals(openWebUiChatMutationOwnerScope('unannotated'));
     });
 
-    test(
-      'a hermes backend marker without the runtime mark falls back to OpenWebUI',
-      () {
-        // LOOKS WRONG (pinned as-is): only `isNativeHermesConversation`, an
-        // Expando set by this process, routes to the Hermes namespace. A
-        // deserialized conversation carrying `backend: hermes` is treated as
-        // OpenWebUI-owned.
-        final conversation = _plain(
-          'hermes-metadata-only',
-          metadata: const <String, dynamic>{'backend': 'hermes'},
-        );
-        check(chatMutationOwnerScopeForConversation(conversation))
-            .equals(openWebUiChatMutationOwnerScope('hermes-metadata-only'));
-      },
-    );
+    test('a hermes backend marker without the runtime mark falls back to OpenWebUI', () {
+      // LOOKS WRONG (pinned as-is): only `isNativeHermesConversation`, an
+      // Expando set by this process, routes to the Hermes namespace. A
+      // deserialized conversation carrying `backend: hermes` is treated as
+      // OpenWebUI-owned.
+      final conversation = _plain(
+        'hermes-metadata-only',
+        metadata: const <String, dynamic>{'backend': 'hermes'},
+      );
+      check(chatMutationOwnerScopeForConversation(conversation))
+          .equals(openWebUiChatMutationOwnerScope('hermes-metadata-only'));
+    });
 
     test('storage provenance outranks the transport backend marker', () {
       final storedOpenWebUi = _stored(
@@ -998,11 +990,7 @@ void main() {
       addTearDown(dbB.close);
       final apiA = _StubApi('owui-a');
       final epoch = Object();
-      final container = _container(
-        database: dbA,
-        api: apiA,
-        authEpoch: epoch,
-      );
+      final container = _container(database: dbA, api: apiA, authEpoch: epoch);
       addTearDown(container.dispose);
       final owner = captureOpenWebUiCompletionOwner(
         container,
@@ -1296,37 +1284,34 @@ void main() {
       ).equals('owui-chat');
     });
 
-    test(
-      'an inline request with no database follows the active remap when it '
-      'still owns the placeholder',
-      () async {
-        final container = _container(
-          database: null,
-          api: null,
-          active: _stored('local-id', ChatStorageKind.openWebUi),
-          messages: <ChatMessage>[_assistant('assistant-1')],
-        );
-        addTearDown(container.dispose);
-        final owner = captureOpenWebUiCompletionOwner(
+    test('an inline request with no database follows the active remap when it '
+        'still owns the placeholder', () async {
+      final container = _container(
+        database: null,
+        api: null,
+        active: _stored('local-id', ChatStorageKind.openWebUi),
+        messages: <ChatMessage>[_assistant('assistant-1')],
+      );
+      addTearDown(container.dispose);
+      final owner = captureOpenWebUiCompletionOwner(
+        container,
+        chatId: 'local-id',
+      );
+      check(owner.database).isNull();
+
+      container
+          .read(activeConversationInPlaceRemapProvider.notifier)
+          .mark(fromId: 'local-id', toId: 'server-id');
+      _setActive(container, _stored('server-id', ChatStorageKind.openWebUi));
+
+      check(
+        await resolveOpenWebUiCompletionChatId(
           container,
-          chatId: 'local-id',
-        );
-        check(owner.database).isNull();
-
-        container
-            .read(activeConversationInPlaceRemapProvider.notifier)
-            .mark(fromId: 'local-id', toId: 'server-id');
-        _setActive(container, _stored('server-id', ChatStorageKind.openWebUi));
-
-        check(
-          await resolveOpenWebUiCompletionChatId(
-            container,
-            owner: owner,
-            assistantMessageId: 'assistant-1',
-          ),
-        ).equals('server-id');
-      },
-    );
+          owner: owner,
+          assistantMessageId: 'assistant-1',
+        ),
+      ).equals('server-id');
+    });
 
     test(
       'the remap is not followed when the UI no longer holds the placeholder',
@@ -1447,9 +1432,9 @@ void main() {
         ),
         chatMessagesProvider.overrideWith(_TestMessagesNotifier.new),
       ]);
-      container
-          .read(chatMessagesProvider.notifier)
-          .setMessages(<ChatMessage>[_assistant('assistant-1')]);
+      container.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
+        _assistant('assistant-1'),
+      ]);
 
       check(
         await resolveOpenWebUiCompletionChatId(

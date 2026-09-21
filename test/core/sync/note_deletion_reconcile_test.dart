@@ -5,7 +5,7 @@
 library;
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
+import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
 import 'package:conduit/core/sync/clock.dart';
 import 'package:conduit/core/sync/deletion_reconcile.dart' show ReconcileReason;

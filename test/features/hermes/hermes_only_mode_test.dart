@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/auth/auth_state_manager.dart';
-import 'package:conduit/core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit/core/database/database_provider.dart';
-import 'package:conduit/core/database/mappers/conversation_assembler.dart';
+import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_config.dart';

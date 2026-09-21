@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/daos/outbox_dao.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit/core/persistence/hive_boxes.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
 import 'package:conduit/core/sync/clock.dart';

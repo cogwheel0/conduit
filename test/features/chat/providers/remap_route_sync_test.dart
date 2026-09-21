@@ -1,11 +1,11 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
+import 'package:conduit_core/database/app_database.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/sync/id_remapper.dart';
+import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit/core/sync/sync_api_client.dart';
 import 'package:conduit/core/sync/sync_engine.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';

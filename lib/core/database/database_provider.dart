@@ -10,9 +10,9 @@ import '../providers/app_providers.dart';
 
 import 'package:conduit_core/providers/host_ports.dart';
 
-import 'app_database.dart';
-import 'chat_database_repository.dart';
-import 'database_manager.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/database_manager.dart';
 
 part 'database_provider.g.dart';
 

@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:riverpod/riverpod.dart';
 import 'package:conduit_core/conduit_core.dart';
 
-import '../database/database_manager.dart';
+import 'package:conduit_core/database/database_manager.dart';
+
 import '../database/database_provider.dart';
 import '../persistence/persistence_providers.dart';
 import '../persistence/persistence_keys.dart';

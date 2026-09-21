@@ -1,8 +1,8 @@
-import '../database/app_database.dart';
-import '../database/daos/notes_dao.dart' show decodeNotePatch;
-import '../database/daos/outbox_dao.dart';
-import '../database/mappers/note_mapper.dart' show asNs;
-import '../database/daos/sync_meta_dao.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/notes_dao.dart' show decodeNotePatch;
+import 'package:conduit_core/database/daos/outbox_dao.dart';
+import 'package:conduit_core/database/mappers/note_mapper.dart' show asNs;
+import 'package:conduit_core/database/daos/sync_meta_dao.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 

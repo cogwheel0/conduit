@@ -4,7 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:conduit/core/auth/api_auth_interceptor.dart';
-import 'package:conduit/core/database/app_database.dart';
+import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_config.dart';

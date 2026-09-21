@@ -2,10 +2,10 @@ import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/auth/auth_state_manager.dart';
-import 'package:conduit/core/database/app_database.dart';
+import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit/core/database/database_provider.dart';
-import 'package:conduit/core/database/database_manager.dart';
-import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/database/database_manager.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';

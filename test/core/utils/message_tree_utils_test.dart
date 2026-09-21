@@ -1,5 +1,5 @@
 import 'package:conduit_core/models/chat_message.dart';
-import 'package:conduit/core/utils/message_tree_utils.dart';
+import 'package:conduit_core/utils/message_tree_utils.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 ChatMessage _message(

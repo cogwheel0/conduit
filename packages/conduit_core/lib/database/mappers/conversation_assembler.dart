@@ -10,6 +10,7 @@ import 'dart:convert';
 
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
+
 import '../../services/conversation_parsing.dart';
 import '../app_database.dart';
 import '../daos/chats_dao.dart';

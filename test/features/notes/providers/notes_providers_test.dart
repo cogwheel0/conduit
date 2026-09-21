@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/daos/outbox_dao.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit/core/database/database_provider.dart';
-import 'package:conduit/core/database/mappers/note_mapper.dart';
+import 'package:conduit_core/database/mappers/note_mapper.dart';
 import 'package:conduit_core/models/note.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';

@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
@@ -291,9 +291,7 @@ ProviderContainer _modelRebindContainer({
   required List<Model> models,
 }) => ProviderContainer(
   overrides: [
-    secureStorageProvider.overrideWithValue(
-      FlutterSecureKeyValueStore(),
-    ),
+    secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
     ...openWebUiStorageOpenOverrides(),
     activeConversationProvider.overrideWith(
       _TestActiveConversationNotifier.new,
@@ -478,9 +476,7 @@ void main() {
             ]);
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             _TestActiveConversationNotifier.new,
@@ -560,9 +556,7 @@ void main() {
       )..deferTaskIdRequests = true;
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             _TestActiveConversationNotifier.new,
@@ -740,9 +734,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -842,9 +834,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -896,9 +886,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -1062,9 +1050,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -1270,9 +1256,7 @@ void main() {
         ..taskIds = const <String>['task-1'];
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -1310,9 +1294,7 @@ void main() {
         ..taskIds = const <String>['task-1'];
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -1478,9 +1460,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -1623,9 +1603,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -1657,9 +1635,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -1826,9 +1802,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -1920,9 +1894,7 @@ void main() {
         ..taskIdFailuresRemaining = 1;
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -2143,9 +2115,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -2180,9 +2150,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
-          secureStorageProvider.overrideWithValue(
-            FlutterSecureKeyValueStore(),
-          ),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),

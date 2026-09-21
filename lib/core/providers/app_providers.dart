@@ -50,7 +50,9 @@ import '../services/optimized_storage_service.dart';
 import '../services/secure_credential_storage.dart';
 import '../services/socket_service.dart';
 import '../services/connectivity_service.dart';
-import '../services/conversation_parsing.dart';
+
+import 'package:conduit_core/services/conversation_parsing.dart';
+
 import '../persistence/preferences_store.dart';
 import '../persistence/persistence_keys.dart';
 
@@ -75,14 +77,18 @@ import 'storage_providers.dart';
 
 import 'package:drift/drift.dart' show Value;
 
-import '../database/app_database.dart';
+import 'package:conduit_core/database/app_database.dart';
+
 import '../database/database_provider.dart';
 
 import 'package:conduit_core/providers/host_ports.dart';
 
-import '../database/chat_database_repository.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
+
 import '../database/local_conversation_loader.dart';
-import '../database/mappers/conversation_assembler.dart';
+
+import 'package:conduit_core/database/mappers/conversation_assembler.dart';
+
 import '../sync/chat_locks.dart';
 import '../sync/pull_sync.dart';
 import '../sync/sync_engine.dart';
