@@ -84,13 +84,7 @@ void main(List<String> args) {
     for (var i = 0; i < original.length; i++)
       if (!removals.contains(i)) original[i],
   ];
-  final anchor = kept.lastIndexWhere(
-    (l) => l.startsWith("part '") && !l.endsWith(".g.dart';"),
-  );
-  if (anchor == -1) {
-    stderr.writeln('no existing `part` directive to anchor the new ones');
-    exit(1);
-  }
+  final anchor = _directiveAnchor(original, kept);
   final directives = bodies.keys.map((f) => "part '$f';").toList()..sort();
   kept.insertAll(anchor + 1, directives);
 
@@ -153,6 +147,33 @@ void _assertNothingLost(
     problems.take(20).forEach(stderr.writeln);
     exit(1);
   }
+}
+
+/// Finds the line to insert the new `part` directives after: the last
+/// hand-written part if the library already has some, otherwise the end of
+/// the directive block. The end of that block comes from the parser rather
+/// than a line scan, because a wrapped `export ... show a, b, c;` spans
+/// several lines and only the last of them ends the directive.
+int _directiveAnchor(List<String> original, List<String> kept) {
+  final existing = kept.lastIndexWhere(
+    (l) => l.startsWith("part '") && !l.endsWith(".g.dart';"),
+  );
+  if (existing != -1) return existing;
+
+  final parsed = parseString(
+    content: original.join('\n'),
+    path: 'anchor',
+    throwIfDiagnostics: false,
+  );
+  if (parsed.unit.directives.isEmpty) {
+    stderr.writeln('library has no directives to anchor the new parts after');
+    exit(1);
+  }
+  final lastLine = parsed.lineInfo
+      .getLocation(parsed.unit.directives.last.end - 1)
+      .lineNumber;
+  // Directives precede every member, so removals never shift this line.
+  return lastLine - 1;
 }
 
 /// Content preservation is not enough on its own: a range that is off by one
