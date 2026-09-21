@@ -40,7 +40,6 @@ import 'core/router/app_router.dart';
 import 'core/services/native_sheet_bridge.dart';
 import 'core/services/native_sheet_hydration_service.dart';
 import 'shared/services/navigation_service.dart';
-import 'core/services/performance_profiler.dart';
 import 'shared/services/raster_media_policy.dart';
 import 'core/services/carplay_service.dart';
 import 'core/services/readiness_gated_secure_storage.dart';
@@ -74,6 +73,7 @@ import 'features/notifications/services/local_notification_service.dart';
 import 'shared/widgets/sign_out_options_dialog.dart';
 import 'shared/theme/theme_extensions.dart';
 import 'shared/theme/theme_providers.dart';
+import 'platform/frame_profiler.dart';
 
 const bool _enableFlutterDriverExtension = bool.fromEnvironment(
   'ENABLE_FLUTTER_DRIVER_EXTENSION',
@@ -160,7 +160,7 @@ void main() {
       unawaited(_configureUserAgent());
 
       _registerBundledLicenses();
-      PerformanceProfiler.instance.attachFrameTimings();
+      FrameProfiler.instance.attachFrameTimings();
 
       // Global error handlers
       FlutterError.onError = (FlutterErrorDetails details) {

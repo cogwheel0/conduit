@@ -57,7 +57,9 @@ import '../../../core/utils/message_tree_utils.dart' as message_tree;
 import '../../../core/utils/user_display_name.dart';
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../shared/widgets/markdown/markdown_compile_service.dart';
+
 import 'package:conduit_markdown/conduit_markdown.dart';
+
 import '../../../core/utils/android_assistant_handler.dart';
 import '../widgets/model_selector_sheet.dart';
 import '../widgets/modern_chat_input.dart';
@@ -76,11 +78,13 @@ import '../voice_call/presentation/voice_call_launcher.dart';
 import '../../../core/services/media_upload_controller.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../../release_notes/widgets/release_notes_banner.dart';
+
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
+
 import '../providers/context_attachments_provider.dart';
 import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
@@ -97,6 +101,7 @@ import 'chat_turn_render_state.dart';
 import '../widgets/streaming_turn_footer.dart';
 import '../widgets/openwebui_prompt_overlay.dart';
 import '../widgets/chat_timeline_viewport.dart';
+import '../../../platform/frame_profiler.dart';
 
 @visibleForTesting
 bool? chatResizeToAvoidBottomInset({
@@ -2307,7 +2312,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (_activeScrollProfileTaskKey != null) {
       return;
     }
-    PerformanceProfiler.instance.startFrameCadence();
+    FrameProfiler.instance.startFrameCadence();
     _activeScrollProfileTaskKey = PerformanceProfiler.instance.startTask(
       'chat_scroll',
       scope: 'chat',
@@ -2325,7 +2330,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return;
     }
     _activeScrollProfileTaskKey = null;
-    PerformanceProfiler.instance.stopFrameCadence(reason: reason);
+    FrameProfiler.instance.stopFrameCadence(reason: reason);
     PerformanceProfiler.instance.finishTask(
       taskKey,
       data: {
