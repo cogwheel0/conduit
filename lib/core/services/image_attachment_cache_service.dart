@@ -3,7 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 
 import 'dart:typed_data';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:meta/meta.dart';
 
 import '../providers/app_providers.dart';

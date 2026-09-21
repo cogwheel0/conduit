@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:collection/collection.dart';
 
 import '../../../core/persistence/persistence_keys.dart';
 import '../../../core/persistence/preferences_store.dart';
@@ -158,13 +158,25 @@ bool sameDirectConnectionProfileValues(
     left.apiKeyAuthMode == right.apiKeyAuthMode &&
     left.apiVersion == right.apiVersion &&
     left.modelIdPrefix == right.modelIdPrefix &&
-    listEquals(left.tags, right.tags) &&
+    const ListEquality<Object?>().equals(left.tags, right.tags) &&
     left.enabled == right.enabled &&
     left.apiKey == right.apiKey &&
-    mapEquals(left.customHeaders, right.customHeaders) &&
-    listEquals(left.manualModelIds, right.manualModelIds) &&
-    mapEquals(left.ollamaKeepAliveByModel, right.ollamaKeepAliveByModel) &&
-    mapEquals(left.ollamaThinkingByModel, right.ollamaThinkingByModel) &&
+    const MapEquality<Object?, Object?>().equals(
+      left.customHeaders,
+      right.customHeaders,
+    ) &&
+    const ListEquality<Object?>().equals(
+      left.manualModelIds,
+      right.manualModelIds,
+    ) &&
+    const MapEquality<Object?, Object?>().equals(
+      left.ollamaKeepAliveByModel,
+      right.ollamaKeepAliveByModel,
+    ) &&
+    const MapEquality<Object?, Object?>().equals(
+      left.ollamaThinkingByModel,
+      right.ollamaThinkingByModel,
+    ) &&
     left.allowSelfSignedCertificates == right.allowSelfSignedCertificates &&
     left.mtlsCertificateChainPem == right.mtlsCertificateChainPem &&
     left.mtlsCertificateLabel == right.mtlsCertificateLabel &&

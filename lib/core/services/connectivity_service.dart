@@ -4,10 +4,11 @@ import 'dart:math';
 import 'package:dio/dio.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:meta/meta.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/models/server_config.dart';
+
 import '../network/conduit_user_agent.dart';
 import '../providers/app_providers.dart';
 import '../providers/host_ports.dart';
@@ -575,12 +576,12 @@ final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
       if (server == null) {
         final dio = Dio();
         final service = ConnectivityService(
-        dio,
-        ref,
-        ref.read(connectivityPortProvider),
-        true,
-        ref.read(appLifecycleProvider),
-      );
+          dio,
+          ref,
+          ref.read(connectivityPortProvider),
+          true,
+          ref.read(appLifecycleProvider),
+        );
         ref.onDispose(service.dispose);
         return service;
       }

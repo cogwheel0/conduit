@@ -1,4 +1,4 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:meta/meta.dart';
 
 import '../../../core/providers/app_providers.dart';

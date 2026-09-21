@@ -1,14 +1,16 @@
+import 'package:meta/meta.dart';
+
 import 'dart:async';
 import 'dart:collection';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:conduit_core/conduit_core.dart';
-import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/socket_health.dart';
+
 import '../network/conduit_user_agent.dart';
 import '../utils/debug_logger.dart';
 import 'socket_tls_override.dart';
@@ -1859,7 +1861,7 @@ class SocketService {
 class SocketEventSubscription {
   SocketEventSubscription(this._dispose, {this.handlerId});
 
-  final VoidCallback _dispose;
+  final void Function() _dispose;
   final String? handlerId;
   bool _isDisposed = false;
 
@@ -1874,7 +1876,7 @@ class SocketBackgroundActivityLease {
   SocketBackgroundActivityLease._(this._release);
   SocketBackgroundActivityLease.forTesting(this._release);
 
-  final VoidCallback _release;
+  final void Function() _release;
   bool _isReleased = false;
 
   void dispose() {

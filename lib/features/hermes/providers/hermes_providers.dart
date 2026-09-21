@@ -1,14 +1,18 @@
+import 'package:collection/collection.dart';
+import 'package:meta/meta.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/auth/auth_state_manager.dart';
+
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/prompt.dart';
+
 import '../../../core/persistence/persistence_keys.dart';
 import '../../../core/persistence/preferences_store.dart';
 import '../../../core/providers/app_providers.dart'
@@ -189,7 +193,10 @@ class HermesConfigController extends Notifier<HermesConfig> {
           previousNative?.accessToken != nextNative?.accessToken ||
           previousNative?.refreshToken != nextNative?.refreshToken ||
           previousNative?.expiresAt != nextNative?.expiresAt ||
-          !mapEquals(state.accessHeaders, desktopCredentials?.accessHeaders);
+          !const MapEquality<Object?, Object?>().equals(
+            state.accessHeaders,
+            desktopCredentials?.accessHeaders,
+          );
       state = HermesConfig(
         enabled: state.enabled,
         baseUrl: state.baseUrl,
@@ -1759,9 +1766,8 @@ final hermesBotsProvider = FutureProvider<List<HermesBot>>((ref) async {
 @visibleForTesting
 List<HermesBot> sortHermesBotsByRecency(List<HermesBot> bots) {
   final epoch = DateTime.fromMillisecondsSinceEpoch(0);
-  return [...bots]..sort(
-    (a, b) => (b.lastActive ?? epoch).compareTo(a.lastActive ?? epoch),
-  );
+  return [...bots]
+    ..sort((a, b) => (b.lastActive ?? epoch).compareTo(a.lastActive ?? epoch));
 }
 
 /// A bot's avatar data URL, or null when it has none.

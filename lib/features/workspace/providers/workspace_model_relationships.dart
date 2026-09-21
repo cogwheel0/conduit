@@ -1,4 +1,4 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit/features/workspace/models/workspace_common.dart';
 import 'package:conduit/features/workspace/providers/workspace_session.dart';

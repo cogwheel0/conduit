@@ -4,7 +4,7 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_callkit_incoming/entities/call_event.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'package:conduit_core/voice/voice_session.dart';

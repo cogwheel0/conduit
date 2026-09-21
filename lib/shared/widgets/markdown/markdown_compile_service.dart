@@ -4,7 +4,7 @@ import 'dart:isolate';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:html_unescape/html_unescape.dart';
 import 'package:markdown/markdown.dart' as md;
 

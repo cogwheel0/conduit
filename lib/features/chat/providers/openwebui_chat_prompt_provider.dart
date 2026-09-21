@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:meta/meta.dart';
 
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';

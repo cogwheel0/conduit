@@ -1,10 +1,13 @@
+import 'package:collection/collection.dart';
+import 'package:meta/meta.dart';
+
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show listEquals, visibleForTesting;
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:mcp_dart/mcp_dart.dart' as mcp;
 
 import 'package:conduit_core/models/tool.dart';
+
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/secure_credential_storage.dart';
 import '../models/direct_completion.dart';
@@ -216,7 +219,7 @@ final class DirectMcpServersController
           (id) => !id.startsWith(kDirectMcpToolIdPrefix) || valid.contains(id),
         )
         .toList(growable: false);
-    if (!listEquals(selected, sanitized)) {
+    if (!const ListEquality<Object?>().equals(selected, sanitized)) {
       ref.read(selectedToolIdsProvider.notifier).set(sanitized);
     }
   }
