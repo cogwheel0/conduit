@@ -12,6 +12,7 @@ import 'pages/sign_in_page.dart';
 import 'pages/status_page.dart';
 import 'l10n/strings.g.dart';
 import 'rpc/session_providers.dart';
+import 'widgets/keyboard_layer.dart';
 import 'widgets/server_issue_banner.dart';
 
 /// The desktop app shell and its routes.
@@ -222,6 +223,7 @@ class _Shell extends StatelessComponent {
       // only on the screen that happened to notice the problem.
       const ServerIssueBanner(),
       const _SessionGate(),
+      const KeyboardLayer(),
       div(classes: 'min-h-0 flex-1', [child]),
       if (showsFloatingSettingsLink(RouteState.of(context).location))
         _settingsLink(),

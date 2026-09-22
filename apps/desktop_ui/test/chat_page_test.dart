@@ -135,6 +135,16 @@ class _RecordingActions extends ChatActions {
 
   @override
   Future<void> delete(String id) async => calls.add('delete($id)');
+
+  @override
+  Future<SendTurnAccepted> send({required String text, String? model}) async {
+    calls.add('send($text)');
+    return const SendTurnAccepted(
+      chatId: 'chat-1',
+      userMessageId: 'u1',
+      assistantMessageId: 'a1',
+    );
+  }
 }
 
 void main() {

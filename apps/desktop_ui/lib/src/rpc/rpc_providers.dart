@@ -4,6 +4,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import '../external_sign_in.dart';
 import '../file_picker.dart';
 import '../shell_bridge.dart';
+import '../window_commands.dart';
 import 'rpc_client.dart';
 
 /// The preload bridge, overridden at the root scope in `main.dart`.
@@ -29,6 +30,16 @@ final externalSignInProvider = Provider<ExternalSignInPort>(
 /// Picks PEM files for mutual TLS, overridden in `main.dart`.
 final filePickerProvider = Provider<FilePickerPort>(
   (ref) => const UnavailableFilePicker(),
+);
+
+/// Focus and clipboard for the keyboard layer, overridden in `main.dart`.
+final windowCommandsProvider = Provider<WindowCommandsPort>(
+  (ref) => RecordingWindowCommands(),
+);
+
+/// The document keydown listener, overridden in `main.dart`.
+final shortcutBindingProvider = Provider<ShortcutBindingPort>(
+  (ref) => NoShortcutBinding(),
 );
 
 /// The live connection to `conduitd`.

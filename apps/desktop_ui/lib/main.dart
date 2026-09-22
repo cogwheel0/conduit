@@ -7,6 +7,7 @@ import 'package:web/web.dart' as web;
 
 import 'src/app.dart';
 import 'src/bridge.dart';
+import 'src/keyboard.dart';
 import 'src/l10n/strings.g.dart';
 import 'src/rpc/rpc_providers.dart';
 import 'src/rpc/settings_providers.dart';
@@ -41,6 +42,13 @@ Future<void> main() async {
       // and looking right there is most of what makes it worth developing in.
       themeApplierProvider.overrideWithValue(const DocumentThemeApplier()),
       filePickerProvider.overrideWithValue(const BrowserFilePicker()),
+      windowCommandsProvider.overrideWithValue(const DocumentWindowCommands()),
+      // `platform` is the shell's own report, not a user-agent guess: the
+      // difference decides whether the accelerator is Cmd or Ctrl, and
+      // binding the wrong one makes every shortcut in the app dead.
+      shortcutBindingProvider.overrideWithValue(
+        ShortcutDispatcher(isMac: bridge.platform == 'darwin'),
+      ),
     ],
   );
   // Start connecting before the first paint so the status card usually

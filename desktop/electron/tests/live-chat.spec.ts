@@ -214,11 +214,27 @@ test.describe('against a real server', () => {
       })
       .toBe(before)
 
-    // 7. Send, and watch the answer stream in.
-    await page
-      .getByPlaceholder('Ask Conduit')
-      .fill('Reply with exactly the word: pong')
-    await page.getByRole('button', { name: /^send$/i }).click()
+    // 7. The keyboard layer (WP-3.7). Ctrl+/ is bound at the document, so
+    // it has to work with focus wherever the last step left it.
+    await page.keyboard.press('Control+Slash')
+    const overlay = page.getByRole('dialog', { name: /keyboard shortcuts/i })
+    await expect(overlay).toBeVisible()
+    await expect(overlay).toContainText('Ctrl+K')
+    await shot(page, '06-shortcuts')
+    // Esc closes what is in front before it reaches anything behind it.
+    await page.keyboard.press('Escape')
+    await expect(overlay).toBeHidden()
+
+    // Ctrl+K from nowhere in particular puts the caret in search.
+    await page.keyboard.press('Control+k')
+    await expect(page.getByLabel(/search conversations/i)).toBeFocused()
+
+    // 8. Send with Enter rather than the button, which is how the app is
+    // actually used, and is a different code path from clicking.
+    await page.keyboard.press('Shift+Escape')
+    await expect(page.getByPlaceholder('Ask Conduit')).toBeFocused()
+    await page.keyboard.type('Reply with exactly the word: pong')
+    await page.keyboard.press('Enter')
 
     const transcript = page.getByRole('log')
     await expect(transcript).toContainText('Reply with exactly', {
@@ -232,7 +248,14 @@ test.describe('against a real server', () => {
       })
       .toBeGreaterThan('Reply with exactly the word: pong'.length + 2)
 
-    await shot(page, '06-reply')
+    // Sending clears the field. A textarea's value stops tracking its
+    // markup once it is typed into, so the Dart state going empty is not
+    // enough -- and the next message would have carried the last one along.
+    // Only a real browser can catch this; the component tester cannot type.
+    await expect(page.getByPlaceholder('Ask Conduit')).toHaveValue('')
+    await expect(page.getByPlaceholder('Ask Conduit')).toBeFocused()
+
+    await shot(page, '07-reply')
 
     // Settings, which nothing else exercises visually.
     await page.evaluate(() => {
@@ -240,13 +263,13 @@ test.describe('against a real server', () => {
       window.dispatchEvent(new PopStateEvent('popstate'))
     })
     await page.waitForTimeout(500)
-    await shot(page, '07-settings-appearance')
+    await shot(page, '08-settings-appearance')
 
     await page.evaluate(() => {
       window.history.pushState(null, '', '/settings/connections')
       window.dispatchEvent(new PopStateEvent('popstate'))
     })
     await page.waitForTimeout(500)
-    await shot(page, '08-settings-connections')
+    await shot(page, '09-settings-connections')
   })
 })

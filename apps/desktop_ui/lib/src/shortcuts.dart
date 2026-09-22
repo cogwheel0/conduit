@@ -1,0 +1,215 @@
+/// The keyboard layer (WP-3.7).
+///
+/// Deliberately free of `package:web`: a chord, the table and the matching
+/// rules are values and pure functions, so the behaviour that is easy to get
+/// wrong -- "does Ctrl+K fire the macOS binding", "does this swallow a
+/// keystroke meant for the composer" -- is testable on the VM. The browser
+/// only contributes the event, through [ShortcutDispatcher].
+library;
+
+/// What a shortcut does. One per binding, resolved by the page that owns the
+/// affected control rather than by the engine.
+enum ShortcutAction {
+  newChat,
+  focusSearch,
+  focusComposer,
+  focusModelPicker,
+  stopGenerating,
+  openSettings,
+  showShortcuts,
+  copyLastResponse,
+  copyLastCodeBlock,
+}
+
+/// A chord, as the user would describe it.
+///
+/// [primary] is Cmd on macOS and Ctrl everywhere else -- the same physical
+/// gesture, which is why the table names one modifier rather than two.
+class KeyStroke {
+  const KeyStroke(
+    this.key, {
+    this.primary = false,
+    this.shift = false,
+    this.alt = false,
+  });
+
+  /// `KeyboardEvent.key`, lower-cased. `'k'`, `'.'`, `'escape'`.
+  final String key;
+  final bool primary;
+  final bool shift;
+  final bool alt;
+
+  @override
+  bool operator ==(Object other) =>
+      other is KeyStroke &&
+      other.key == key &&
+      other.primary == primary &&
+      other.shift == shift &&
+      other.alt == alt;
+
+  @override
+  int get hashCode => Object.hash(key, primary, shift, alt);
+
+  @override
+  String toString() => describeStroke(this, isMac: false);
+}
+
+class Shortcut {
+  const Shortcut(this.action, this.stroke, {this.whileTyping = false});
+
+  final ShortcutAction action;
+  final KeyStroke stroke;
+
+  /// Whether the binding fires with the caret in a field.
+  ///
+  /// Off by default, and that default is the whole safety story: a bare
+  /// letter bound to an action would otherwise eat a character out of the
+  /// message someone is typing. Only chords that cannot be mistaken for
+  /// typing turn it on.
+  final bool whileTyping;
+}
+
+/// Open WebUI's defaults, for the actions this app can carry out today.
+///
+/// Section 5.2 lists more -- temporary chat, dictation, regenerate, tool
+/// approve/deny, edit last message. Each waits on a feature that does not
+/// exist yet (M4, M8, and edit-and-branch in WP-3.2), and a shortcut
+/// overlay that advertises a key doing nothing is worse than one that is
+/// short: the user presses it, nothing happens, and they stop trusting the
+/// list. They join this table with their features.
+const List<Shortcut> defaultShortcuts = <Shortcut>[
+  Shortcut(
+    ShortcutAction.newChat,
+    KeyStroke('o', primary: true, shift: true),
+    whileTyping: true,
+  ),
+  Shortcut(
+    ShortcutAction.focusSearch,
+    KeyStroke('k', primary: true),
+    whileTyping: true,
+  ),
+  // Shift+Esc rather than Esc: plain Esc stops a running turn, and the two
+  // are pressed in the same situation.
+  Shortcut(
+    ShortcutAction.focusComposer,
+    KeyStroke('escape', shift: true),
+    whileTyping: true,
+  ),
+  Shortcut(
+    ShortcutAction.focusModelPicker,
+    KeyStroke('m', primary: true, shift: true),
+    whileTyping: true,
+  ),
+  // The one binding that has to work from inside the composer, because
+  // that is where the hand already is when an answer runs long.
+  Shortcut(
+    ShortcutAction.stopGenerating,
+    KeyStroke('escape'),
+    whileTyping: true,
+  ),
+  Shortcut(
+    ShortcutAction.openSettings,
+    KeyStroke('.', primary: true),
+    whileTyping: true,
+  ),
+  Shortcut(
+    ShortcutAction.showShortcuts,
+    KeyStroke('/', primary: true),
+    whileTyping: true,
+  ),
+  Shortcut(
+    ShortcutAction.copyLastResponse,
+    KeyStroke('c', primary: true, shift: true),
+    whileTyping: true,
+  ),
+  Shortcut(
+    ShortcutAction.copyLastCodeBlock,
+    KeyStroke(';', primary: true, shift: true),
+    whileTyping: true,
+  ),
+];
+
+/// The action [pressed] invokes, or null if it invokes none.
+///
+/// [typing] is whether the event came from a field the user is editing.
+ShortcutAction? resolveShortcut(
+  KeyStroke pressed, {
+  required bool typing,
+  List<Shortcut> table = defaultShortcuts,
+}) {
+  for (final shortcut in table) {
+    if (shortcut.stroke != pressed) continue;
+    if (typing && !shortcut.whileTyping) return null;
+    return shortcut.action;
+  }
+  return null;
+}
+
+/// How the chord is written on this platform.
+///
+/// Mac users read `⌘⇧O`; everyone else reads `Ctrl+Shift+O`. Showing the
+/// wrong one in the overlay makes the whole list look like it belongs to a
+/// different application.
+String describeStroke(KeyStroke stroke, {required bool isMac}) {
+  final parts = <String>[
+    if (stroke.primary) isMac ? '⌘' : 'Ctrl',
+    if (stroke.shift) isMac ? '⇧' : 'Shift',
+    if (stroke.alt) isMac ? '⌥' : 'Alt',
+    _describeKey(stroke.key),
+  ];
+  return isMac ? parts.join() : parts.join('+');
+}
+
+String _describeKey(String key) => switch (key) {
+  'escape' => 'Esc',
+  'arrowup' => '↑',
+  'arrowdown' => '↓',
+  ' ' => 'Space',
+  _ => key.length == 1 ? key.toUpperCase() : key,
+};
+
+/// Whether this keydown in the composer means "send".
+///
+/// Enter sends and Shift+Enter breaks the line, which is what every chat
+/// client does and therefore what the hand expects. [isComposing] is the
+/// one that is easy to miss: while an IME is open, Enter commits the
+/// candidate, and sending there would ship half a Japanese sentence.
+bool sendsMessage({
+  required String key,
+  required bool shift,
+  required bool isComposing,
+}) => key == 'Enter' && !shift && !isComposing;
+
+/// The text of the last fenced code block in [markdown], or null.
+///
+/// Scanned rather than parsed: the transcript renderer has the AST, but the
+/// copy shortcut runs over whatever is on screen including a turn that is
+/// still streaming, and re-parsing every message on a keypress to find a
+/// fence is work for an answer a regex-free scan gets right.
+///
+/// An unterminated fence -- which is what a half-streamed block looks like --
+/// counts, because that is exactly the block someone reaches for.
+String? lastCodeBlock(String markdown) {
+  final lines = markdown.split('\n');
+  String? fence;
+  var start = 0;
+  String? last;
+  for (var i = 0; i < lines.length; i++) {
+    final trimmed = lines[i].trimLeft();
+    final isFence = trimmed.startsWith('```') || trimmed.startsWith('~~~');
+    if (!isFence) continue;
+    final marker = trimmed.substring(0, 3);
+    if (fence == null) {
+      fence = marker;
+      start = i + 1;
+    } else if (marker == fence) {
+      last = lines.sublist(start, i).join('\n');
+      fence = null;
+    }
+  }
+  // Still open at the end of the text: the block is being written right now.
+  if (fence != null && start < lines.length) {
+    last = lines.sublist(start).join('\n');
+  }
+  return last;
+}

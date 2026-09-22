@@ -1,0 +1,152 @@
+import 'package:jaspr/jaspr.dart' show EventCallback;
+// `universal_web` rather than `package:web`, and not interchangeably: it is
+// the mirror Jaspr's own `EventCallback` is typed against, and it compiles
+// on the VM -- which is what lets the composer import this file and keep
+// its tests. The two packages' `Event` types are not assignable.
+import 'package:universal_web/js_interop.dart';
+import 'package:universal_web/web.dart' as web;
+
+import 'shortcuts.dart';
+import 'window_commands.dart';
+
+/// Binds [shortcuts] to the document (WP-3.7).
+///
+/// One listener on `document` rather than one per control. A shortcut is a
+/// property of the window, not of whatever happens to hold focus, and
+/// per-component handlers only fire for the component the user is already
+/// in -- which is the one case a shortcut is least needed.
+///
+/// The translation from a DOM event to a [KeyStroke] lives here and nowhere
+/// else, so the matching rules stay testable without a browser.
+final class ShortcutDispatcher implements ShortcutBindingPort {
+  ShortcutDispatcher({required this.isMac, this.table = defaultShortcuts});
+
+  final bool isMac;
+  final List<Shortcut> table;
+
+  void Function(ShortcutAction action)? _onAction;
+  web.EventListener? _listener;
+
+  @override
+  void install(void Function(ShortcutAction action) onAction) {
+    _onAction = onAction;
+    final listener = (web.Event event) {
+      _handle(event as web.KeyboardEvent);
+    }.toJS;
+    _listener = listener;
+    web.document.addEventListener('keydown', listener);
+  }
+
+  @override
+  void dispose() {
+    final listener = _listener;
+    if (listener == null) return;
+    web.document.removeEventListener('keydown', listener);
+    _listener = null;
+    _onAction = null;
+  }
+
+  void _handle(web.KeyboardEvent event) {
+    // A dead key or an IME composition arrives as a keydown too, and
+    // acting on one would fire a shortcut in the middle of composing a
+    // character in Japanese or Korean.
+    if (event.isComposing || event.keyCode == 229) return;
+
+    final stroke = strokeFrom(event, isMac: isMac);
+    if (stroke == null) return;
+
+    final action = resolveShortcut(
+      stroke,
+      typing: isEditable(event.target),
+      table: table,
+    );
+    if (action == null) return;
+
+    // Only once a binding matched. Cancelling earlier would take Cmd+A and
+    // Cmd+C away from every field in the app.
+    event.preventDefault();
+    _onAction?.call(action);
+  }
+}
+
+/// [WindowCommandsPort] against the real document.
+final class DocumentWindowCommands implements WindowCommandsPort {
+  const DocumentWindowCommands();
+
+  @override
+  void focus(String id) {
+    final element = web.document.getElementById(id);
+    if (element.isA<web.HTMLElement>()) {
+      (element! as web.HTMLElement).focus();
+    }
+  }
+
+  @override
+  void setValue(String id, String text) {
+    final element = web.document.getElementById(id);
+    if (element.isA<web.HTMLTextAreaElement>()) {
+      (element! as web.HTMLTextAreaElement).value = text;
+    } else if (element.isA<web.HTMLInputElement>()) {
+      (element! as web.HTMLInputElement).value = text;
+    }
+  }
+
+  @override
+  Future<bool> copy(String text) async {
+    // `navigator.clipboard` is promise-based and rejects when the document
+    // is not focused, which happens often enough -- a click on the window
+    // chrome is enough -- that an unhandled rejection would be routine.
+    try {
+      await web.window.navigator.clipboard.writeText(text).toDart;
+      return true;
+    } on Object {
+      return false;
+    }
+  }
+}
+
+/// The chord [event] represents, or null if it is not one this app matches.
+///
+/// Returns null when the *other* platform's accelerator is held: Ctrl+K on
+/// macOS is a text-editing binding people actually use, and firing the
+/// Cmd+K action for it would be the app reaching past the OS.
+KeyStroke? strokeFrom(web.KeyboardEvent event, {required bool isMac}) {
+  if (isMac ? event.ctrlKey : event.metaKey) return null;
+  return KeyStroke(
+    event.key.toLowerCase(),
+    primary: isMac ? event.metaKey : event.ctrlKey,
+    shift: event.shiftKey,
+    alt: event.altKey,
+  );
+}
+
+/// Whether [target] is something the user is typing into.
+///
+/// `isContentEditable` as well as the two tags: a rich-text surface is a
+/// field even though it is a `div`, and M3's composer may become one.
+bool isEditable(web.EventTarget? target) {
+  if (!target.isA<web.HTMLElement>()) return false;
+  final element = target as web.HTMLElement;
+  if (element.isContentEditable) return true;
+  final tag = element.tagName.toLowerCase();
+  return tag == 'input' || tag == 'textarea' || tag == 'select';
+}
+
+/// A composer keydown handler: Enter sends, Shift+Enter breaks the line.
+///
+/// Here rather than in the page so the page stays free of `package:web` and
+/// keeps its VM tests; the rule itself is [sendsMessage], which is pure.
+EventCallback sendOnEnter(void Function() send) => (web.Event event) {
+  final key = event as web.KeyboardEvent;
+  if (!sendsMessage(
+    key: key.key,
+    shift: key.shiftKey,
+    isComposing: key.isComposing || key.keyCode == 229,
+  )) {
+    return;
+  }
+  // Without this the newline lands in the field a moment after the message
+  // is sent, so the next message starts with a blank line.
+  event.preventDefault();
+  send();
+};

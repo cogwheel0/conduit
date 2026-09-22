@@ -5,8 +5,10 @@ import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 
+import '../keyboard.dart';
 import '../l10n/strings.g.dart';
 import '../rpc/chat_providers.dart';
+import '../rpc/rpc_providers.dart';
 import '../widgets/form_field.dart';
 import '../widgets/markdown_view.dart';
 
@@ -550,8 +552,14 @@ class _ComposerState extends State<_Composer> {
                 hideLabel: true,
                 value: _text,
                 rows: 2,
-                disabled: _busy,
+                // Not disabled while the turn is being accepted. The send
+                // button is, which is what prevents a double send -- and
+                // greying out the field costs the user the caret twice: a
+                // disabled element cannot be focused, so the refocus below
+                // was a no-op against a DOM that had not rebuilt yet, and
+                // they were left typing into nothing.
                 onInput: (value) => setState(() => _text = value),
+                onKeyDown: sendOnEnter(() => unawaited(_send(context))),
               ),
             ]),
             if (streaming)
@@ -575,7 +583,15 @@ class _ComposerState extends State<_Composer> {
               ),
           ]),
           if (_error case final message?)
-            div(classes: 'mx-auto mt-2 max-w-3xl', [formError(message)]),
+            div(classes: 'mx-auto mt-2 max-w-3xl', [formError(message)])
+          else
+            // Said once, quietly, under the field -- rather than left for
+            // the user to discover by pressing Enter and watching their
+            // message not send.
+            p(
+              classes: 'mx-auto mt-1.5 max-w-3xl text-xs text-muted-foreground',
+              [Component.text(t.desktop.desktopComposerHint)],
+            ),
         ],
         events: <String, EventCallback>{
           'submit': (event) {
@@ -595,6 +611,7 @@ class _ComposerState extends State<_Composer> {
       _error = null;
     });
     try {
+      final commands = context.read(windowCommandsProvider);
       await context.read(chatActionsProvider).send(text: text);
       if (!mounted) return;
       // Cleared only on success: a failed send should leave the text where
@@ -603,6 +620,13 @@ class _ComposerState extends State<_Composer> {
         _busy = false;
         _text = '';
       });
+      // The field as well as the state. A textarea's value stops tracking
+      // its markup the moment the user types into it, so `_text = ''` alone
+      // left the sent message sitting in the box.
+      commands.setValue('composer', '');
+      // Sending with Enter should leave the caret where it was, ready for
+      // the next message.
+      commands.focus('composer');
     } on RpcError catch (error) {
       if (!mounted) return;
       setState(() {

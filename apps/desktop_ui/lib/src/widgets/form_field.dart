@@ -63,6 +63,10 @@ Component textAreaField({
   /// alignment carries meaning and an ambiguous `l`/`1` costs the user a
   /// debugging session. Prose is the other case, and the composer is prose.
   bool monospace = false,
+  /// Raised on every keydown, before the field acts on it. The composer
+  /// uses it to send on Enter; `event.preventDefault()` is what stops the
+  /// newline that would otherwise follow.
+  EventCallback? onKeyDown,
   String? error,
 }) {
   final errorId = '$id-error';
@@ -78,6 +82,7 @@ Component textAreaField({
       rows: rows,
       placeholder: placeholder,
       onInput: onInput,
+      events: <String, EventCallback>{'keydown': ?onKeyDown},
       attributes: <String, String>{
         if (error != null) ...<String, String>{
           'aria-invalid': 'true',

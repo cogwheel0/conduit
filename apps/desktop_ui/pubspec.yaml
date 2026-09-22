@@ -25,6 +25,10 @@ dependencies:
   json_rpc_2: ^4.1.0
   markdown: ^7.3.0
   stream_channel: ^2.1.2
+  # Jaspr types its `EventCallback` against this rather than `package:web`,
+  # and it compiles on the VM -- so any file a component imports uses it.
+  # `package:web` stays for `bridge.dart`, which only ever runs in Electron.
+  universal_web: ^1.1.0
   web: ^1.1.0
   web_socket_channel: ^3.0.3
 

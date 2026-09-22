@@ -180,5 +180,45 @@
   "desktopNewConversation": "New conversation",
   "@desktopNewConversation": {
     "description": "Title shown in the desktop transcript header before a conversation has been created."
+  },
+  "desktopShortcutsTitle": "Keyboard shortcuts",
+  "@desktopShortcutsTitle": {
+    "description": "Title of the desktop keyboard shortcut overlay, opened with Cmd+/."
+  },
+  "desktopShortcutFocusComposer": "Focus the message box",
+  "@desktopShortcutFocusComposer": {
+    "description": "Name of the desktop shortcut that moves focus to the composer."
+  },
+  "desktopShortcutFocusSearch": "Search conversations",
+  "@desktopShortcutFocusSearch": {
+    "description": "Name of the desktop shortcut that moves focus to the sidebar search field."
+  },
+  "desktopShortcutFocusModelPicker": "Choose a model",
+  "@desktopShortcutFocusModelPicker": {
+    "description": "Name of the desktop shortcut that moves focus to the model picker."
+  },
+  "desktopShortcutShowShortcuts": "Show this list",
+  "@desktopShortcutShowShortcuts": {
+    "description": "Name of the desktop shortcut that opens the keyboard shortcut overlay."
+  },
+  "desktopShortcutCopyLastResponse": "Copy the last reply",
+  "@desktopShortcutCopyLastResponse": {
+    "description": "Name of the desktop shortcut that copies the most recent assistant message."
+  },
+  "desktopShortcutCopyLastCodeBlock": "Copy the last code block",
+  "@desktopShortcutCopyLastCodeBlock": {
+    "description": "Name of the desktop shortcut that copies the most recent code block in the transcript."
+  },
+  "desktopComposerHint": "Enter to send, Shift+Enter for a new line",
+  "@desktopComposerHint": {
+    "description": "Hint under the desktop composer explaining how to send a message."
+  },
+  "desktopCopied": "Copied",
+  "@desktopCopied": {
+    "description": "Confirmation shown briefly after a keyboard shortcut copies text to the clipboard."
+  },
+  "desktopNothingToCopy": "Nothing to copy yet",
+  "@desktopNothingToCopy": {
+    "description": "Shown when a copy shortcut runs with no reply or code block in the transcript."
   }
 }
