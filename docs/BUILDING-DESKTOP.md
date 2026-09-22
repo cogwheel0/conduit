@@ -48,7 +48,9 @@ conversation sidebar, a transcript and a composer that streams replies.
 | Password, LDAP and API-key sign-in | |
 | SSO, OAuth and reverse-proxy sign-in | Opens a real browser window; the daemon validates before committing. |
 | Several servers, switching between them | Switching restores the session rather than asking again. |
-| Conversation list, opening a chat, sending, streaming, stopping | |
+| Conversation list, opening a chat, sending, streaming, stopping | Real history, synced from the server. |
+| Rename, pin, archive, delete, share a conversation | Delete asks first. |
+| Full-text search over titles and message bodies | Uses the database index, not the loaded page. |
 | Model picker | The choice is stored with the account, so it survives a restart. |
 | Markdown replies | Headings, lists, tables, code, links. No images or embeds yet. |
 | Settings: appearance, palette, language, connections, sign-out | Thirteen languages, five palettes, light/dark/system. |
@@ -56,7 +58,7 @@ conversation sidebar, a transcript and a composer that streams replies.
 | Not yet | Where it lands |
 | --- | --- |
 | Syntax highlighting, KaTeX, Mermaid, embeds | WP-3.5 -- markdown renders, these do not |
-| Attachments, folders, search UI, rename/pin/delete | WP-3.1 to WP-3.3 |
+| Attachments, folders, virtualized list | WP-3.1 to WP-3.3 |
 | Notes, channels, workspace, Hermes, terminal, voice | M5 to M8 |
 
 Run `npm test` in `desktop/electron` to check the shell still launches and

@@ -44,6 +44,42 @@ final modelListProvider = FutureProvider<ModelList>((ref) async {
       .call(ConduitMethods.modelsList, decode: ModelList.fromJson);
 });
 
+/// The sidebar's search text. Empty means "show the list".
+final searchQueryProvider = NotifierProvider<SearchQuery, String>(
+  SearchQuery.new,
+);
+
+class SearchQuery extends Notifier<String> {
+  @override
+  String build() => '';
+
+  void set(String value) => state = value;
+}
+
+/// Results for the current query, or null when there is no query.
+///
+/// Debounced rather than fired per keystroke: each search is a round trip
+/// and an FTS query, and a user typing "outbox" would otherwise run six.
+final searchResultsProvider = FutureProvider<ChatSearchResults?>((ref) async {
+  final query = ref.watch(searchQueryProvider).trim();
+  if (query.isEmpty) return null;
+
+  // Cancelled by the next keystroke, because watching the query rebuilds
+  // this provider and disposes the previous body.
+  var cancelled = false;
+  ref.onDispose(() => cancelled = true);
+  await Future<void>.delayed(const Duration(milliseconds: 200));
+  if (cancelled) return null;
+
+  return ref
+      .read(rpcClientProvider)
+      .call(
+        ConduitMethods.chatsSearch,
+        params: ChatSearchQuery(query: query).toJson(),
+        decode: ChatSearchResults.fromJson,
+      );
+});
+
 /// Which conversation the transcript is showing. Null is the empty state.
 final selectedChatIdProvider = NotifierProvider<SelectedChatId, String?>(
   SelectedChatId.new,

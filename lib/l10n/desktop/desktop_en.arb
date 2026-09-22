@@ -156,5 +156,17 @@
   "desktopRenamePrompt": "New title",
   "@desktopRenamePrompt": {
     "description": "Label of the inline field for renaming a conversation on desktop."
+  },
+  "desktopSearchChats": "Search conversations",
+  "@desktopSearchChats": {
+    "description": "Accessible label and placeholder for the desktop sidebar search field."
+  },
+  "desktopSearchNoResults": "Nothing matched.",
+  "@desktopSearchNoResults": {
+    "description": "Shown in the desktop sidebar when a search returns no conversations."
+  },
+  "desktopSearchClear": "Clear search",
+  "@desktopSearchClear": {
+    "description": "Button that clears the desktop sidebar search field."
   }
 }

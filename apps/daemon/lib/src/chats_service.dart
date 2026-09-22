@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:conduit_core/models/chat_message.dart' as core;
+import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -79,6 +80,12 @@ final class ChatsService {
     );
   }
 
+  /// Full-text search over titles and message bodies.
+  ///
+  /// Uses the database's FTS index rather than filtering the loaded page in
+  /// memory: the sidebar holds one page, and a search that only looked at
+  /// what is already on screen would silently miss everything older -- which
+  /// is worse than no search, because it looks like it worked.
   Future<ChatSearchResults> search(ChatSearchQuery query) async {
     final trimmed = query.query.trim();
     // An empty query is not a search for everything. Returning the whole
@@ -86,21 +93,33 @@ final class ChatsService {
     // slowest things the app can do.
     if (trimmed.isEmpty) return const ChatSearchResults();
 
-    final conversations = await _container.read(conversationsProvider.future);
-    final lowered = trimmed.toLowerCase();
-    final hits = <ChatSearchHit>[];
-    for (final conversation in conversations) {
-      if (hits.length >= query.limit) break;
-      if (!conversation.title.toLowerCase().contains(lowered)) continue;
-      hits.add(
-        ChatSearchHit(
-          chatId: conversation.id,
-          title: conversation.title,
-          updatedAtMs: conversation.updatedAt.millisecondsSinceEpoch,
-        ),
-      );
+    final database = _container.read(appDatabaseProvider);
+    if (database == null) {
+      // No local database yet -- the account has not been certified. Falling
+      // back to a title scan of the loaded page would be worse than saying
+      // nothing, because a few results look like all of them.
+      return const ChatSearchResults();
     }
-    return ChatSearchResults(hits: hits);
+
+    final hits = await database.searchDao.search(trimmed, limit: query.limit);
+    return ChatSearchResults(
+      hits: hits
+          .map(
+            (hit) => ChatSearchHit(
+              chatId: hit.chatId,
+              title: hit.title,
+              // As the index produced it. Re-deriving a snippet in the UI
+              // would mean reimplementing the tokenizer to agree with it.
+              snippet: hit.snippet,
+              // `SearchHit.updatedAt` is epoch *seconds* -- the chat rows
+              // store Open WebUI's own units -- while the wire carries
+              // milliseconds. Passing it through unscaled dates every result
+              // to 1970.
+              updatedAtMs: hit.updatedAt * 1000,
+            ),
+          )
+          .toList(growable: false),
+    );
   }
 
   // -----------------------------------------------------------------------

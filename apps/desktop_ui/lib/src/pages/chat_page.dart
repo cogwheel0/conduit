@@ -28,6 +28,8 @@ class _Sidebar extends StatelessComponent {
   Component build(BuildContext context) {
     final chats = context.watch(chatListProvider);
     final selected = context.watch(selectedChatIdProvider);
+    final query = context.watch(searchQueryProvider);
+    final search = context.watch(searchResultsProvider);
 
     return nav(
       classes:
@@ -44,17 +46,46 @@ class _Sidebar extends StatelessComponent {
             onClick: () => context.read(chatActionsProvider).select(null),
           ),
         ]),
-        div(classes: 'min-h-0 flex-1 overflow-y-auto px-2 pb-2', [
-          chats.when(
-            loading: () => _hint(t.app.loadingShort),
-            error: (error, _) => _hint('$error'),
-            data: (list) => list.chats.isEmpty
-                ? _hint(t.desktop.desktopNoChatsYet)
-                : ul(classes: 'space-y-0.5', [
-                    for (final chat in list.chats)
-                      _ChatRow(chat: chat, isSelected: selected == chat.id),
-                  ]),
+        div(classes: 'px-3 pb-2', [
+          textField(
+            id: 'chat-search',
+            labelText: t.desktop.desktopSearchChats,
+            placeholder: t.desktop.desktopSearchChats,
+            value: query,
+            type: InputType.search,
+            onInput: (value) =>
+                context.read(searchQueryProvider.notifier).set(value),
           ),
+        ]),
+        div(classes: 'min-h-0 flex-1 overflow-y-auto px-2 pb-2', [
+          // Results replace the list rather than filtering it: the list is
+          // one loaded page, and filtering that would quietly miss every
+          // older conversation -- which looks like a working search.
+          if (query.trim().isNotEmpty)
+            search.when(
+              loading: () => _hint(t.app.loadingShort),
+              error: (error, _) => _hint('$error'),
+              data: (results) => results == null || results.hits.isEmpty
+                  ? _hint(t.desktop.desktopSearchNoResults)
+                  : ul(classes: 'space-y-0.5', [
+                      for (final hit in results.hits)
+                        _SearchRow(
+                          hit: hit,
+                          isSelected: selected == hit.chatId,
+                        ),
+                    ]),
+            )
+          else
+            chats.when(
+              loading: () => _hint(t.app.loadingShort),
+              error: (error, _) => _hint('$error'),
+              data: (list) => list.chats.isEmpty
+                  ? _hint(t.desktop.desktopNoChatsYet)
+                  : ul(classes: 'space-y-0.5', [
+                      for (final chat in list.chats)
+                        _ChatRow(chat: chat, isSelected: selected == chat.id),
+                    ]),
+            ),
         ]),
       ],
     );
@@ -64,6 +95,34 @@ class _Sidebar extends StatelessComponent {
     classes: 'px-2 py-4 text-sm text-muted-foreground',
     [Component.text(text)],
   );
+}
+
+/// One search hit: the title, and the matching text in context.
+class _SearchRow extends StatelessComponent {
+  const _SearchRow({required this.hit, required this.isSelected});
+
+  final ChatSearchHit hit;
+  final bool isSelected;
+
+  @override
+  Component build(BuildContext context) => li([
+    button(
+      [
+        span(classes: 'block truncate text-sm', [Component.text(hit.title)]),
+        if (hit.snippet case final snippet?)
+          span(classes: 'block truncate text-xs opacity-70', [
+            // The index's own snippet. Re-deriving one here would mean
+            // reimplementing the tokenizer to agree with it.
+            Component.text(snippet),
+          ]),
+      ],
+      classes:
+          'block w-full rounded-[--radius] px-2 py-1.5 text-left '
+          '${isSelected ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'}',
+      type: ButtonType.button,
+      onClick: () => context.read(chatActionsProvider).select(hit.chatId),
+    ),
+  ]);
 }
 
 /// One conversation, with its actions.

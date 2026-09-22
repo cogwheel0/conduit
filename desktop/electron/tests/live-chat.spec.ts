@@ -166,7 +166,22 @@ test.describe('against a real server', () => {
       )
       .toBeGreaterThan(0)
 
-    // 6. Send, and watch the answer stream in.
+    // 6. Search runs against the database's index, not the loaded page.
+    const before = await page.locator('nav[aria-label] li').count()
+    await page.getByLabel(/search conversations/i).fill('the')
+    await expect
+      .poll(() => page.locator('nav[aria-label] li').count(), {
+        timeout: 30_000,
+      })
+      .not.toBe(before)
+    await page.getByLabel(/search conversations/i).fill('')
+    await expect
+      .poll(() => page.locator('nav[aria-label] li').count(), {
+        timeout: 30_000,
+      })
+      .toBe(before)
+
+    // 7. Send, and watch the answer stream in.
     await page
       .getByPlaceholder('Ask Conduit')
       .fill('Reply with exactly the word: pong')

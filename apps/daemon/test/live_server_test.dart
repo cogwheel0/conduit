@@ -142,6 +142,26 @@ void main() {
         );
       }, timeout: const Timeout(Duration(minutes: 2)));
 
+      test('search returns hits with sane timestamps', () async {
+        final chats = ChatsService(runtime.container);
+        // Pull first, so the FTS index has something to match.
+        await chats.list();
+
+        final results = await chats.search(
+          const ChatSearchQuery(query: 'the', limit: 5),
+        );
+        for (final hit in results.hits) {
+          expect(hit.chatId, isNotEmpty);
+          // Epoch seconds passed through as milliseconds would land in 1970;
+          // this is the assertion that catches the missing factor of 1000.
+          expect(
+            hit.updatedAtMs,
+            greaterThan(DateTime(2020).millisecondsSinceEpoch),
+            reason: 'timestamps should be milliseconds, not seconds',
+          );
+        }
+      }, timeout: const Timeout(Duration(minutes: 2)));
+
       test('rejects an empty title rather than clearing it', () async {
         final chats = ChatsService(runtime.container);
         expect(

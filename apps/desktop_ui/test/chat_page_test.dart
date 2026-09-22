@@ -54,9 +54,13 @@ Component _scoped({
   String? selected,
   LiveTurn? live,
   void Function(_RecordingActions)? onActions,
+  String query = '',
+  ChatSearchResults? results,
 }) => ProviderScope(
   overrides: [
     chatListProvider.overrideWith((ref) async => chats),
+    searchQueryProvider.overrideWith(() => _FixedQuery(query)),
+    searchResultsProvider.overrideWith((ref) async => results),
     chatDetailProvider.overrideWith((ref) async => detail),
     liveTurnProvider.overrideWith((ref) => Stream<LiveTurn?>.value(live)),
     selectedChatIdProvider.overrideWith(() => _FixedSelection(selected)),
@@ -69,6 +73,14 @@ Component _scoped({
   ],
   child: const ChatPage(),
 );
+
+class _FixedQuery extends SearchQuery {
+  _FixedQuery(this._initial);
+  final String _initial;
+
+  @override
+  String build() => _initial;
+}
 
 class _FixedSelection extends SelectedChatId {
   _FixedSelection(this._initial);
@@ -187,6 +199,60 @@ void main() {
 
     // A background turn elsewhere must not appear in the open transcript.
     expect(find.text('Answer for the other conversation'), findsNothing);
+  });
+
+  group('search', () {
+    const hits = ChatSearchResults(
+      hits: <ChatSearchHit>[
+        ChatSearchHit(
+          chatId: 'chat-9',
+          title: 'An older conversation',
+          snippet: 'the <b>outbox</b> drains oldest-first',
+          updatedAtMs: 1758000000000,
+        ),
+      ],
+    );
+
+    testComponents('results replace the list rather than filtering it', (
+      tester,
+    ) async {
+      tester.pumpComponent(_scoped(query: 'outbox', results: hits));
+      await pumpEventQueue();
+
+      // The loaded page is one page. Filtering it would quietly miss every
+      // older conversation, which looks like a working search.
+      expect(find.text('An older conversation'), findsOneComponent);
+      expect(find.text('Rewriting the sync engine'), findsNothing);
+    });
+
+    testComponents('a hit shows the index\'s own snippet', (tester) async {
+      tester.pumpComponent(_scoped(query: 'outbox', results: hits));
+      await pumpEventQueue();
+
+      expect(
+        find.text('the <b>outbox</b> drains oldest-first'),
+        findsOneComponent,
+      );
+    });
+
+    testComponents('no matches says so rather than showing nothing', (
+      tester,
+    ) async {
+      tester.pumpComponent(
+        _scoped(query: 'zzz', results: const ChatSearchResults()),
+      );
+      await pumpEventQueue();
+
+      // An empty pane with no explanation reads as a failed load.
+      expect(find.text(t.desktop.desktopSearchNoResults), findsOneComponent);
+    });
+
+    testComponents('an empty query shows the list again', (tester) async {
+      tester.pumpComponent(_scoped());
+      await pumpEventQueue();
+
+      expect(find.text('Rewriting the sync engine'), findsOneComponent);
+    });
   });
 
   group('sidebar actions', () {
