@@ -312,6 +312,26 @@ test.describe('against a real server', () => {
 
     await shot(page, '08-reply')
 
+    // 8b. Regenerate from the UI, then walk back to the answer it replaced
+    // (WP-3.8). The first regenerate orphaned the new answer on the server
+    // and dropped the question from the conversation. Only a round trip
+    // through the real server shows the tree is right.
+    await idle(page)
+    await transcript
+      .getByRole('button', { name: /^regenerate$/i })
+      .last()
+      .click()
+    await idle(page)
+    const position = transcript.getByText(/^2\/2$/)
+    await expect(position).toBeVisible({ timeout: 90_000 })
+    await transcript
+      .getByRole('button', { name: /previous answer/i })
+      .last()
+      .click()
+    await expect(transcript.getByText(/^1\/2$/)).toBeVisible()
+    await shot(page, '08b-branches')
+    await page.keyboard.press('Shift+Escape')
+
     // 9. A code block, highlighted and copyable (WP-3.5). The prompt is
     // narrow because a 1B model will happily write an essay around it.
     await idle(page)

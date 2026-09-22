@@ -9,6 +9,7 @@ import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/services/streaming_helper.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/message_tree_utils.dart' as message_tree;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -259,12 +260,31 @@ final class TurnsService {
       model: model,
       conversationId: request.chatId,
       responseMessageId: _uuid.v4(),
-      // The user message, so the server hangs the new answer beside the old
-      // one rather than after it.
-      parentId: userMessage.id,
-      // Deliberately absent. The user's turn is already on the server;
-      // sending it again would record a duplicate of what is being answered.
-      toolIds: null,
+      // Open WebUI 0.9+ reads these two fields differently from what their
+      // names suggest. `parent_id` is the *user message's* parent: the
+      // answer before it, or null for the first turn. `user_message` is what
+      // the server links the new answer to, through its id.
+      //
+      // The first version of this sent `parentId: userMessage.id` and no
+      // user message. The server then recorded the new answer with no
+      // parent, left it out of the user message's children, and made it
+      // `currentId`. The conversation's visible path lost the question, and
+      // the answer being regenerated became unreachable. That is the
+      // opposite of a branch.
+      //
+      // The user message goes back as it already is on the server. Its
+      // existing children are included, so the server appends the new
+      // answer to them instead of replacing them.
+      parentId: message_tree.chatMessageParentId(userMessage),
+      userMessage: <String, dynamic>{
+        'id': userMessage.id,
+        'role': 'user',
+        'content': userMessage.content,
+        'timestamp': userMessage.timestamp.millisecondsSinceEpoch ~/ 1000,
+        'models': <String>[model],
+        'parentId': message_tree.chatMessageParentId(userMessage),
+        'childrenIds': message_tree.chatMessageChildrenIds(userMessage),
+      },
     );
 
     _attach(
@@ -496,6 +516,27 @@ final class TurnsService {
         ).toJson(),
       );
     }
+    // After the pull, not now. The stream has ended, but the database, which
+    // is what `chats.get` reads, only has the answer once the snapshot pull
+    // lands. Publishing straight away made the renderer refetch a
+    // transcript whose answer was still the empty placeholder. It then kept
+    // that version, because nothing told it to look again.
+    unawaited(_announceWhenSynced(chatId));
+  }
+
+  Future<void> _announceWhenSynced(String chatId) async {
+    try {
+      await _container.read(syncEngineProvider.notifier).pullChatNow(chatId);
+    } on Object catch (error) {
+      DebugLogger.error(
+        'post-turn-pull-failed',
+        scope: 'daemon/turns',
+        error: error,
+      );
+    }
+    // `loadConversationProvider` is a family. An entry that already loaded
+    // this chat would otherwise answer from what it read before the pull.
+    _container.invalidate(loadConversationProvider(chatId));
     _events.publish(ConduitEvents.chatsChanged, scope: chatId);
   }
 }

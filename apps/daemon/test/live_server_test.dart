@@ -376,6 +376,26 @@ void main() {
         // a user who prefers the first answer has not lost it.
         final after = await _messagesOf(runtime, accepted.chatId);
         expect(after.length, greaterThanOrEqualTo(before.length));
+
+        // And the first answer is *reachable*: `chats.get` returns it as a
+        // version of the new one, which is what the renderer's arrows use.
+        final chats = ChatsService(runtime.container);
+        ChatMessageDto? answer;
+        await _waitFor(() async {
+          runtime.container.invalidate(
+            loadConversationProvider(accepted.chatId),
+          );
+          final detail = await chats.get(accepted.chatId);
+          answer = detail?.messages
+              .where((m) => m.role == 'assistant')
+              .lastOrNull;
+          return answer != null && answer!.versions.isNotEmpty;
+        }, seconds: 60);
+        expect(
+          answer?.versions.map((v) => v.id),
+          contains(accepted.assistantMessageId),
+          reason: 'the regenerated-away answer should be a version',
+        );
       }, timeout: const Timeout(Duration(minutes: 5)));
 
       test('refuses to regenerate a message that is not an answer', () async {

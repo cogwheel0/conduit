@@ -218,6 +218,12 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     partialText: 'The outbox dra',
   ),
   'stopTurn': const StopTurn(chatId: 'chat-7c1f0b2a'),
+  'chatMessageVersionDto': const ChatMessageVersionDto(
+    id: 'msg-earlier',
+    content: 'The first answer.',
+    timestampMs: 1758412800000,
+    model: 'llama3.2:1b',
+  ),
   'folderSummary': const FolderSummary(
     id: 'folder-1d7c',
     name: 'Research',
@@ -393,6 +399,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'turnCompleted': TurnCompleted.fromJson,
       'turnFailed': TurnFailed.fromJson,
       'stopTurn': StopTurn.fromJson,
+      'chatMessageVersionDto': ChatMessageVersionDto.fromJson,
       'folderSummary': FolderSummary.fromJson,
       'archivedVisibility': ArchivedVisibility.fromJson,
       'uploadedFile': UploadedFile.fromJson,

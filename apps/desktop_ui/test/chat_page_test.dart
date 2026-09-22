@@ -560,6 +560,81 @@ void main() {
     expect(commands.scrolled, contains('transcript'));
   });
 
+  group('answer versions', () {
+    const branched = ChatDetail(
+      summary: ChatSummary(id: 'chat-1', title: 'T', updatedAtMs: 1),
+      messages: <ChatMessageDto>[
+        ChatMessageDto(id: 'u', role: 'user', content: 'Q', timestampMs: 1),
+        ChatMessageDto(
+          id: 'a',
+          role: 'assistant',
+          content: 'Third answer',
+          timestampMs: 4,
+          versions: <ChatMessageVersionDto>[
+            ChatMessageVersionDto(
+              id: 'a1',
+              content: 'First answer',
+              timestampMs: 2,
+            ),
+            ChatMessageVersionDto(
+              id: 'a2',
+              content: 'Second answer',
+              timestampMs: 3,
+            ),
+          ],
+        ),
+      ],
+    );
+
+    testComponents('shows the newest answer, and says there are others', (
+      tester,
+    ) async {
+      tester.pumpComponent(_scoped(detail: branched, selected: 'chat-1'));
+      await pumpEventQueue();
+
+      expect(find.text('Third answer'), findsOneComponent);
+      expect(find.text('3/3'), findsOneComponent);
+    });
+
+    testComponents('the arrows reach every earlier answer', (tester) async {
+      tester.pumpComponent(_scoped(detail: branched, selected: 'chat-1'));
+      await pumpEventQueue();
+
+      await tester.click(_byLabel(t.desktop.desktopPreviousAnswer));
+      await pumpEventQueue();
+      expect(find.text('Second answer'), findsOneComponent);
+
+      await tester.click(_byLabel(t.desktop.desktopPreviousAnswer));
+      await pumpEventQueue();
+      // What regenerate replaced is still reachable, which is the point.
+      expect(find.text('First answer'), findsOneComponent);
+      expect(find.text('1/3'), findsOneComponent);
+    });
+
+    testComponents('copy takes the answer on screen', (tester) async {
+      final commands = RecordingWindowCommands();
+      tester.pumpComponent(
+        _scoped(detail: branched, selected: 'chat-1', commands: commands),
+      );
+      await pumpEventQueue();
+      await tester.click(_byLabel(t.desktop.desktopPreviousAnswer));
+      await pumpEventQueue();
+
+      await tester.click(
+        find
+            .ancestor(of: find.text(t.app.copy), matching: find.tag('button'))
+            .last,
+      );
+      expect(commands.copied, <String>['Second answer']);
+    });
+
+    testComponents('a message with one answer shows no arrows', (tester) async {
+      tester.pumpComponent(_scoped(detail: _detail, selected: 'chat-1'));
+      await pumpEventQueue();
+      expect(_byLabel(t.desktop.desktopPreviousAnswer), findsNothing);
+    });
+  });
+
   group('message actions', () {
     testComponents('copying a message hands over its text', (tester) async {
       final commands = RecordingWindowCommands();

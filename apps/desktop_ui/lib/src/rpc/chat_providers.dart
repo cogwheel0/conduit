@@ -101,6 +101,12 @@ final chatDetailProvider = FutureProvider<ChatDetail?>((ref) async {
   final chatId = ref.watch(selectedChatIdProvider);
   if (chatId == null) return null;
   ref.watch(coreConnectionProvider);
+  // Refetched when the daemon says the chat changed. This comment's
+  // predecessor said so and the code did not. After a turn, the transcript
+  // kept the empty placeholder it had fetched at send time, and the live
+  // overlay stood in for the answer indefinitely. So a regenerate, which
+  // only a persisted answer offers, never appeared.
+  ref.watch(_chatsChangedProvider);
 
   final raw = await ref
       .read(rpcClientProvider)
@@ -483,4 +489,24 @@ class ExpandedFolders extends Notifier<Set<String>?> {
         ? (Set<String>.of(current)..remove(id))
         : <String>{...current, id};
   }
+}
+
+/// Which alternative answer each message is showing (WP-3.8).
+///
+/// Keyed by message id and held per window. It changes what is on screen,
+/// not what the server considers current. That matches the mobile app, and
+/// it means flicking between answers to compare them never rewrites the
+/// conversation's history.
+///
+/// A missing entry means the newest answer, which is what the server
+/// returns as the message's own content.
+final answerVersionProvider =
+    NotifierProvider<AnswerVersions, Map<String, int>>(AnswerVersions.new);
+
+class AnswerVersions extends Notifier<Map<String, int>> {
+  @override
+  Map<String, int> build() => const <String, int>{};
+
+  void show(String messageId, int index) =>
+      state = <String, int>{...state, messageId: index};
 }

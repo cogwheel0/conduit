@@ -98,10 +98,31 @@ abstract class ChatMessageDto with _$ChatMessageDto {
 
     /// Set when the turn failed; localized in the UI like every other code.
     String? errorCode,
+
+    /// Other answers to the same prompt, oldest first (WP-3.8).
+    ///
+    /// A regenerate creates a sibling on the server instead of replacing
+    /// the answer. Without these, the answer that was regenerated away
+    /// could not be reached from this app at all.
+    @Default(<ChatMessageVersionDto>[]) List<ChatMessageVersionDto> versions,
   }) = _ChatMessageDto;
 
   factory ChatMessageDto.fromJson(Map<String, dynamic> json) =>
       _$ChatMessageDtoFromJson(json);
+}
+
+/// One alternative answer to the prompt a message answers.
+@freezed
+abstract class ChatMessageVersionDto with _$ChatMessageVersionDto {
+  const factory ChatMessageVersionDto({
+    required String id,
+    required String content,
+    required int timestampMs,
+    String? model,
+  }) = _ChatMessageVersionDto;
+
+  factory ChatMessageVersionDto.fromJson(Map<String, dynamic> json) =>
+      _$ChatMessageVersionDtoFromJson(json);
 }
 
 /// Reply to `chats.get`: one conversation with its transcript.

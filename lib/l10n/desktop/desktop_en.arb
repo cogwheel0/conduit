@@ -254,5 +254,21 @@
   "desktopAlreadyGenerating": "Wait for the current reply to finish, or stop it.",
   "@desktopAlreadyGenerating": {
     "description": "Shown when a message is sent to a conversation that is already generating a reply."
+  },
+  "desktopPreviousAnswer": "Previous answer",
+  "@desktopPreviousAnswer": {
+    "description": "Button that shows the previous alternative answer to the same prompt, created by regenerating."
+  },
+  "desktopNextAnswer": "Next answer",
+  "@desktopNextAnswer": {
+    "description": "Button that shows the next alternative answer to the same prompt, created by regenerating."
+  },
+  "desktopAnswerPosition": "Answer {index} of {count}",
+  "@desktopAnswerPosition": {
+    "description": "Accessible description of which alternative answer is on screen, e.g. 'Answer 2 of 3'.",
+    "placeholders": {
+      "index": { "type": "int" },
+      "count": { "type": "int" }
+    }
   }
 }

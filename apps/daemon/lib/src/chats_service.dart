@@ -293,5 +293,14 @@ final class ChatsService {
     model: message.model,
     streaming: message.isStreaming,
     errorCode: message.error == null ? null : ConduitErrorCodes.serverError,
+    versions: <ChatMessageVersionDto>[
+      for (final version in message.versions)
+        ChatMessageVersionDto(
+          id: version.id,
+          content: version.content,
+          timestampMs: version.timestamp.millisecondsSinceEpoch,
+          model: version.model,
+        ),
+    ],
   );
 }

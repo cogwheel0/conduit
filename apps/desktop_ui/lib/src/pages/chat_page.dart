@@ -521,6 +521,7 @@ class _Transcript extends StatelessComponent {
     // keeps `MarkdownView` and `CodeBlock` testable without one.
     final commands = context.read(windowCommandsProvider);
     void copyCode(String source) => unawaited(commands.copy(source));
+    final versions = context.watch(answerVersionProvider);
 
     // After the frame this build produces, not during it: the pane has to
     // have grown before there is anything new to scroll to. Every build,
@@ -555,40 +556,59 @@ class _Transcript extends StatelessComponent {
         [
           if (nothingChosen) _emptyState(),
           div(classes: 'mx-auto flex max-w-3xl flex-col gap-4', [
-            ...detail.when(
-              loading: () => <Component>[],
-              error: (error, _) => <Component>[formError('$error')],
-              data: (chat) => <Component>[
-                for (final message in chat?.messages ?? const [])
-                  // Skipped while the overlay is showing it, so the two do
-                  // not appear one above the other.
-                  if (!(message.id == live?.messageId && !persistedLiveHasText))
-                    _bubble(
-                      message.role,
-                      message.content,
-                      onCopyCode: copyCode,
-                      mathIdPrefix: message.id,
-                      onCopy: () => unawaited(commands.copy(message.content)),
-                      // Only once there is an answer to replace, and only
-                      // when nothing is already streaming -- the daemon
-                      // refuses a second turn in a chat, and a button that
-                      // reliably fails is worse than one that is not there.
-                      onRegenerate:
-                          message.role == 'assistant' &&
-                              selected != null &&
-                              (live == null || live.settled)
-                          ? () => unawaited(
-                              context
-                                  .read(chatActionsProvider)
-                                  .regenerate(
-                                    chatId: selected,
-                                    messageId: message.id,
+            // `value`, not `when`. A refetch reports `loading` while still
+            // holding the previous transcript, and `when` would blank the
+            // whole conversation every time a turn finished.
+            ...(detail.hasError && !detail.hasValue)
+                ? <Component>[formError('${detail.error}')]
+                : (() {
+                    final chat = detail.value;
+                    return <Component>[
+                      for (final message in chat?.messages ?? const [])
+                        // Skipped while the overlay is showing it, so the two do
+                        // not appear one above the other.
+                        if (!(message.id == live?.messageId &&
+                            !persistedLiveHasText))
+                          _bubble(
+                            message.role,
+                            _shownContent(message, versions[message.id]),
+                            onCopyCode: copyCode,
+                            // Per version, so flicking between answers does not
+                            // reuse a formula frame drawn for a different one.
+                            mathIdPrefix:
+                                '${message.id}-${versions[message.id] ?? message.versions.length}',
+                            onCopy: () => unawaited(
+                              commands.copy(
+                                _shownContent(message, versions[message.id]),
+                              ),
+                            ),
+                            versionNav: message.versions.isEmpty
+                                ? null
+                                : _versionNav(
+                                    context,
+                                    message,
+                                    versions[message.id],
                                   ),
-                            )
-                          : null,
-                    ),
-              ],
-            ),
+                            // Only once there is an answer to replace, and only
+                            // when nothing is already streaming -- the daemon
+                            // refuses a second turn in a chat, and a button that
+                            // reliably fails is worse than one that is not there.
+                            onRegenerate:
+                                message.role == 'assistant' &&
+                                    selected != null &&
+                                    (live == null || live.settled)
+                                ? () => unawaited(
+                                    context
+                                        .read(chatActionsProvider)
+                                        .regenerate(
+                                          chatId: selected,
+                                          messageId: message.id,
+                                        ),
+                                  )
+                                : null,
+                          ),
+                    ];
+                  })(),
             // The message just sent, until the server's copy arrives.
             if (showPending)
               _bubble(
@@ -608,6 +628,21 @@ class _Transcript extends StatelessComponent {
                 onCopyCode: copyCode,
                 mathIdPrefix: live.messageId,
                 onCopy: () => unawaited(commands.copy(live.text)),
+                // Once it has finished, this is the same answer the synced
+                // transcript will show, so it offers what that one would.
+                // The overlay can outlive the stream by as long as the
+                // sync takes, and a Regenerate that appears only later
+                // reads as the button arriving at random.
+                onRegenerate: live.settled && !live.failed && selected != null
+                    ? () => unawaited(
+                        context
+                            .read(chatActionsProvider)
+                            .regenerate(
+                              chatId: selected,
+                              messageId: live.messageId,
+                            ),
+                      )
+                    : null,
                 streaming: !live.failed && !live.settled,
                 // The server's words when it gave any, ours when it did not.
                 // A red border around an empty bubble was the whole of what
@@ -656,6 +691,7 @@ class _Transcript extends StatelessComponent {
     String? mathIdPrefix,
     void Function()? onCopy,
     void Function()? onRegenerate,
+    Component? versionNav,
     bool streaming = false,
     String? failure,
   }) {
@@ -702,17 +738,81 @@ class _Transcript extends StatelessComponent {
         ),
         // In the DOM always, revealed on hover or focus. A control that
         // only exists on hover cannot be reached by keyboard at all.
-        if (onCopy != null || onRegenerate != null)
-          div(
-            classes:
-                'flex gap-1 opacity-0 transition-opacity '
-                'group-hover:opacity-100 group-focus-within:opacity-100',
-            [
-              if (onCopy case final copy?) _messageAction(t.app.copy, copy),
-              if (onRegenerate case final again?)
-                _messageAction(t.app.regenerate, again),
-            ],
-          ),
+        if (onCopy != null || onRegenerate != null || versionNav != null)
+          div(classes: 'flex items-center gap-1', [
+            // Always visible, unlike the actions beside it. That there
+            // *are* other answers is information in itself, and hiding it
+            // behind a hover means nobody finds out.
+            ?versionNav,
+            div(
+              classes:
+                  'flex gap-1 opacity-0 transition-opacity '
+                  'group-hover:opacity-100 group-focus-within:opacity-100',
+              [
+                if (onCopy case final copy?) _messageAction(t.app.copy, copy),
+                if (onRegenerate case final again?)
+                  _messageAction(t.app.regenerate, again),
+              ],
+            ),
+          ]),
+      ],
+    );
+  }
+
+  /// The text for the answer [index] names, where the list is the
+  /// message's versions (oldest first) followed by the message itself.
+  static String _shownContent(ChatMessageDto message, int? index) {
+    final i = index ?? message.versions.length;
+    return i < message.versions.length
+        ? message.versions[i].content
+        : message.content;
+  }
+
+  Component _versionNav(
+    BuildContext context,
+    ChatMessageDto message,
+    int? selected,
+  ) {
+    final count = message.versions.length + 1;
+    final index = (selected ?? count - 1).clamp(0, count - 1);
+    void show(int next) =>
+        context.read(answerVersionProvider.notifier).show(message.id, next);
+    Component arrow(String glyph, String label, int? target) => button(
+      [
+        span(
+          attributes: const <String, String>{'aria-hidden': 'true'},
+          [Component.text(glyph)],
+        ),
+      ],
+      classes:
+          'rounded px-1.5 py-0.5 text-xs text-muted-foreground '
+          'hover:bg-accent disabled:opacity-40',
+      type: ButtonType.button,
+      disabled: target == null,
+      attributes: <String, String>{'aria-label': label, 'title': label},
+      onClick: target == null ? null : () => show(target),
+    );
+    return div(
+      classes: 'flex items-center text-xs text-muted-foreground',
+      attributes: <String, String>{
+        'role': 'group',
+        'aria-label': t.desktop.desktopAnswerPosition(
+          index: index + 1,
+          count: count,
+        ),
+      },
+      [
+        arrow(
+          '\u2039',
+          t.desktop.desktopPreviousAnswer,
+          index > 0 ? index - 1 : null,
+        ),
+        span(classes: 'tabular-nums', [Component.text('${index + 1}/$count')]),
+        arrow(
+          '\u203a',
+          t.desktop.desktopNextAnswer,
+          index < count - 1 ? index + 1 : null,
+        ),
       ],
     );
   }

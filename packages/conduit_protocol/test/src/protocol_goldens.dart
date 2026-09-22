@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.2.0",
+  "protocolVersion": "1.3.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.2.0",
+  "protocolVersion": "1.3.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -394,6 +394,14 @@ const Map<String, String> protocolGoldens = <String, String>{
   "chatId": "chat-7c1f0b2a"
 }''',
 
+  'chatMessageVersionDto': r'''
+{
+  "id": "msg-earlier",
+  "content": "The first answer.",
+  "timestampMs": 1758412800000,
+  "model": "llama3.2:1b"
+}''',
+
   'folderSummary': r'''
 {
   "id": "folder-1d7c",
@@ -462,7 +470,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "content": "The outbox drains oldest-first.",
   "timestampMs": 1758412800000,
   "model": "gpt-4o",
-  "streaming": true
+  "streaming": true,
+  "versions": []
 }''',
 
   'chatDetail': r'''
@@ -482,7 +491,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "role": "user",
       "content": "How does the outbox order writes?",
       "timestampMs": 1758412700000,
-      "streaming": false
+      "streaming": false,
+      "versions": []
     }
   ]
 }''',
