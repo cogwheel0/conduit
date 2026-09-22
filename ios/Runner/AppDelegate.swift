@@ -2627,6 +2627,7 @@ private func cookieIsPreferred(
     NativeKeyboardAttachmentBridge.shared.configure(messenger: messenger)
     NativeSheetBridge.shared.configure(messenger: messenger)
     NativeDropdownBridge.shared.configure(messenger: messenger)
+    NativeSymbolImageBridge.shared.configure(messenger: messenger)
     NativeSttBridge.shared.configure(messenger: messenger)
     DisplayBoostBridge.shared.configure(messenger: messenger)
     PccBridge.shared.configure(messenger: messenger)

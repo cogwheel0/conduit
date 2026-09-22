@@ -51,6 +51,13 @@ final class NativeSheetTheme {
 
     func apply(to controller: UIViewController) {
         controller.overrideUserInterfaceStyle = isDark ? .dark : .light
+
+        // UIKit documents UIAlertController's view hierarchy as private and
+        // unmodifiable, and reading `view` forces a load outside the
+        // presentation it expects. Alerts take the interface style here and
+        // their accent from `applyAccent(to:)` once they are presented.
+        if controller is UIAlertController { return }
+
         controller.view.tintColor = accent
         apply(to: controller.view)
 
@@ -63,6 +70,13 @@ final class NativeSheetTheme {
         if let presented = controller.presentedViewController {
             apply(to: presented)
         }
+    }
+
+    /// Tints a presented alert without walking its private subviews. Call this
+    /// after `present(_:animated:)`, when UIKit has loaded the alert's view for
+    /// the presentation it is part of.
+    func applyAccent(to controller: UIAlertController) {
+        controller.view.tintColor = accent
     }
 
     private func apply(to view: UIView) {
