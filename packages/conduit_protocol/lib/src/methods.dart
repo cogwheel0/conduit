@@ -67,6 +67,13 @@ abstract final class ConduitMethods {
   /// rather than only the active slot.
   static const String serversConnect = 'servers.connect';
 
+  /// Live state of the active server: capabilities, version, reachability.
+  ///
+  /// Distinct from `servers.list`, which reports stored configuration. This
+  /// one is about what the server is doing right now, and is what the version
+  /// gate and the connection-issue page both read.
+  static const String serversStatus = 'servers.status';
+
   /// The current session, without a token.
   static const String authStatus = 'auth.status';
 
@@ -95,6 +102,17 @@ abstract final class ConduitMethods {
 
   /// Turns the reviewer/demo path on or off.
   static const String authSetReviewerMode = 'auth.setReviewerMode';
+
+  // ---------------------------------------------------------------------
+  // settings.* -- app preferences implemented in WP-2.4. The server-side
+  // user settings in this namespace arrive with M9.
+  // ---------------------------------------------------------------------
+
+  /// Theme, palette and locale, as the daemon has them stored.
+  static const String settingsGetApp = 'settings.getApp';
+
+  /// Patches them. Fields left null keep their value.
+  static const String settingsSetApp = 'settings.setApp';
 
   // ---------------------------------------------------------------------
   // Namespace prefixes for later milestones (section 4).

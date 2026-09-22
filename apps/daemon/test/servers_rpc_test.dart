@@ -479,6 +479,122 @@ void main() {
     });
   });
 
+  group('servers.status', () {
+    Future<ServerStatus> status() => callTyped<ServerStatus>(
+      peer,
+      ConduitMethods.serversStatus,
+      decodeResult: ServerStatus.fromJson,
+    );
+
+    test('reports the supported ceiling even with no active server', () async {
+      final result = await status();
+      // The version gate needs a number to name, and it needs it before any
+      // server is reachable.
+      expect(result.maxSupportedVersion, isNotEmpty);
+      expect(result.reachability, ServerReachability.unknown);
+      expect(result.capabilities, Capabilities.none);
+    });
+
+    test('an unreachable server is an answer, not an error', () async {
+      final added = await add(
+        const ServerDraft(
+          name: 'Nowhere',
+          // Reserved by RFC 6761 to never resolve, so this is a real network
+          // failure rather than a mock of one.
+          url: 'https://conduit-test.invalid',
+        ),
+      );
+      await connect(added.id);
+
+      final result = await status();
+      // The connection-issue page renders this. An RPC error would leave it
+      // with nothing to say but "something went wrong".
+      expect(result.reachability, isNot(ServerReachability.reachable));
+      expect(result.errorCode, isNotNull);
+      expect(result.activeServerId, added.id);
+    });
+
+    test('capabilities stay off until a server answers', () async {
+      // An unknown capability is one the UI must not offer: a sidebar entry
+      // that dead-ends is worse than a missing one.
+      expect((await status()).capabilities.hermes, isFalse);
+      expect((await status()).capabilities.terminal, isFalse);
+    });
+  });
+
+  group('settings.*', () {
+    Future<AppPreferences> readPrefs() => callTyped<AppPreferences>(
+      peer,
+      ConduitMethods.settingsGetApp,
+      decodeResult: AppPreferences.fromJson,
+    );
+
+    Future<AppPreferences> patchPrefs(AppPreferencesPatch patch) =>
+        callTyped<AppPreferences>(
+          peer,
+          ConduitMethods.settingsSetApp,
+          params: patch.toJson(),
+          decodeResult: AppPreferences.fromJson,
+        );
+
+    test('defaults to system mode and the conduit palette', () async {
+      final prefs = await readPrefs();
+      expect(prefs.themeMode, AppThemeMode.system);
+      expect(prefs.themePaletteId, 'conduit');
+      expect(prefs.localeCode, isNull);
+    });
+
+    test('a patch round-trips and persists', () async {
+      await patchPrefs(
+        const AppPreferencesPatch(
+          themeMode: AppThemeMode.dark,
+          themePaletteId: 't3_chat',
+          localeCode: 'zh-Hant',
+        ),
+      );
+
+      final reread = await readPrefs();
+      expect(reread.themeMode, AppThemeMode.dark);
+      expect(reread.themePaletteId, 't3_chat');
+      expect(reread.localeCode, 'zh-Hant');
+    });
+
+    test('a null field leaves that preference alone', () async {
+      await patchPrefs(const AppPreferencesPatch(themePaletteId: 'claude'));
+
+      // Changing the palette must not reset the theme mode or the locale --
+      // a settings panel edits one control at a time.
+      final prefs = await readPrefs();
+      expect(prefs.themePaletteId, 'claude');
+      expect(prefs.themeMode, AppThemeMode.dark);
+      expect(prefs.localeCode, 'zh-Hant');
+    });
+
+    test('clearLocaleCode is how "follow the system" is chosen', () async {
+      // Null already means "unchanged", so removing needs its own flag.
+      final prefs = await patchPrefs(
+        const AppPreferencesPatch(clearLocaleCode: true),
+      );
+      expect(prefs.localeCode, isNull);
+    });
+
+    test('clearing wins over setting when a caller sends both', () async {
+      final prefs = await patchPrefs(
+        const AppPreferencesPatch(localeCode: 'de', clearLocaleCode: true),
+      );
+      expect(prefs.localeCode, isNull);
+    });
+
+    test('an unknown stored theme mode falls back to system', () async {
+      // A bad preference -- a newer build's value, or a corrupted store --
+      // must not stop the app from starting.
+      await patchPrefs(
+        const AppPreferencesPatch(themeMode: AppThemeMode.light),
+      );
+      expect((await readPrefs()).themeMode, AppThemeMode.light);
+    });
+  });
+
   test(
     'an unimplemented reserved namespace is still capability.unsupported',
     () async {

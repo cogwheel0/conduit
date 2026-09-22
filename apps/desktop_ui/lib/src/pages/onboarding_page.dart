@@ -6,7 +6,9 @@ import 'package:jaspr/jaspr.dart';
 import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import 'package:jaspr_router/jaspr_router.dart';
 
+import '../file_picker.dart';
 import '../l10n/strings.g.dart';
+import '../rpc/rpc_providers.dart';
 import '../rpc/session_providers.dart';
 import '../widgets/form_field.dart';
 
@@ -28,6 +30,14 @@ class _OnboardingPageState extends State<OnboardingPage> {
   String _url = '';
   bool _allowSelfSigned = false;
   String _headers = '';
+
+  // The PEM text is held here, not just the filename, because the daemon
+  // needs the contents -- the renderer has no filesystem path it could hand
+  // over, and the daemon has no business reading arbitrary paths anyway.
+  String? _certificatePem;
+  String? _certificateLabel;
+  String? _privateKeyPem;
+  String? _privateKeyLabel;
 
   bool _busy = false;
   String? _error;
@@ -118,6 +128,40 @@ class _OnboardingPageState extends State<OnboardingPage> {
         onChanged: ({required value}) =>
             setState(() => _allowSelfSigned = value),
       ),
+      _pemPicker(
+        context,
+        id: 'mtls-certificate',
+        labelText: t.app.mutualTlsSelectCertificate,
+        accept: '.pem,.crt,.cer',
+        marker: 'CERTIFICATE',
+        invalidMessage: t.app.mutualTlsCertificatePemRequired,
+        label: _certificateLabel,
+        onPicked: (file) => setState(() {
+          _certificatePem = file.content;
+          _certificateLabel = file.name;
+        }),
+        onCleared: () => setState(() {
+          _certificatePem = null;
+          _certificateLabel = null;
+        }),
+      ),
+      _pemPicker(
+        context,
+        id: 'mtls-private-key',
+        labelText: t.app.mutualTlsSelectPrivateKey,
+        accept: '.pem,.key',
+        marker: 'PRIVATE KEY',
+        invalidMessage: t.app.mutualTlsPrivateKeyPemRequired,
+        label: _privateKeyLabel,
+        onPicked: (file) => setState(() {
+          _privateKeyPem = file.content;
+          _privateKeyLabel = file.name;
+        }),
+        onCleared: () => setState(() {
+          _privateKeyPem = null;
+          _privateKeyLabel = null;
+        }),
+      ),
       textAreaField(
         id: 'custom-headers',
         labelText: t.app.customHeaders,
@@ -134,6 +178,93 @@ class _OnboardingPageState extends State<OnboardingPage> {
       ),
     ]),
   ], classes: 'rounded-[--radius] border border-border p-4');
+
+  /// A button plus the chosen filename, not an `<input type="file">` in the
+  /// form.
+  ///
+  /// The element the port creates is detached and clicked programmatically,
+  /// so there is no hidden input in the tree collecting focus. What the user
+  /// sees is the filename they picked, which is also all the daemon ever
+  /// reports back -- the PEM itself never returns across the wire.
+  Component _pemPicker(
+    BuildContext context, {
+    required String id,
+    required String labelText,
+    required String accept,
+    required String marker,
+    required String invalidMessage,
+    required String? label,
+    required void Function(PickedTextFile file) onPicked,
+    required void Function() onCleared,
+  }) => div(classes: 'space-y-1.5', [
+    span(
+      id: '$id-label',
+      classes: 'block text-sm font-medium text-foreground',
+      [Component.text(labelText)],
+    ),
+    div(classes: 'flex items-center gap-2', [
+      button(
+        [
+          Component.text(
+            label == null
+                ? t.desktop.desktopChooseFile
+                : t.desktop.desktopReplaceFile,
+          ),
+        ],
+        id: id,
+        classes:
+            'rounded-[--radius] border border-border px-3 py-1.5 text-sm '
+            'text-foreground hover:bg-accent disabled:opacity-60',
+        type: ButtonType.button,
+        disabled: _busy,
+        // Both, so the button announces which field it belongs to. "Choose
+        // file" twice on one form is otherwise indistinguishable.
+        attributes: <String, String>{'aria-labelledby': '$id-label $id'},
+        onClick: () =>
+            unawaited(_pick(context, accept, marker, invalidMessage, onPicked)),
+      ),
+      if (label != null) ...<Component>[
+        span(classes: 'truncate font-mono text-xs text-muted-foreground', [
+          Component.text(label),
+        ]),
+        button(
+          [Component.text(t.app.clear)],
+          classes: 'text-xs text-muted-foreground underline',
+          type: ButtonType.button,
+          disabled: _busy,
+          onClick: onCleared,
+        ),
+      ],
+    ]),
+  ]);
+
+  Future<void> _pick(
+    BuildContext context,
+    String accept,
+    String marker,
+    String invalidMessage,
+    void Function(PickedTextFile file) onPicked,
+  ) async {
+    try {
+      final file = await context
+          .read(filePickerProvider)
+          .pickText(accept: accept);
+      if (file == null || !mounted) return;
+      // The accept list is a filter, not a guarantee -- every picker lets a
+      // determined user choose anything. Saying "that is not a certificate"
+      // here beats a TLS handshake failing minutes later with a message
+      // about the server.
+      if (!containsPemBlock(file.content, marker)) {
+        setState(() => _error = invalidMessage);
+        return;
+      }
+      setState(() => _error = null);
+      onPicked(file);
+    } on UnsupportedError {
+      if (!mounted) return;
+      setState(() => _error = t.app.proxyAuthPlatformNotSupported);
+    }
+  }
 
   Future<void> _submit(BuildContext context) async {
     if (_busy) return;
@@ -161,6 +292,10 @@ class _OnboardingPageState extends State<OnboardingPage> {
           url: _url.trim(),
           allowSelfSignedCertificates: _allowSelfSigned,
           customHeaders: headers,
+          mtlsCertificateChainPem: _certificatePem,
+          mtlsCertificateLabel: _certificateLabel,
+          mtlsPrivateKeyPem: _privateKeyPem,
+          mtlsPrivateKeyLabel: _privateKeyLabel,
         ),
       );
       await actions.connectToServer(added.id);
@@ -233,4 +368,17 @@ Map<String, String> parseCustomHeaders(String raw) {
     headers[name] = value;
   }
   return headers;
+}
+
+/// Whether [content] holds a PEM block of the given [marker] type.
+///
+/// Deliberately shallow: it checks for the armour, not the contents. Parsing
+/// the base64 or the ASN.1 here would duplicate what the TLS stack does
+/// properly a moment later, and get it wrong. What this catches is the
+/// genuinely common mistake -- a DER file, a PKCS#12 bundle, or the
+/// certificate picked into the key field -- where the armour is absent or
+/// says something else.
+bool containsPemBlock(String content, String marker) {
+  final escaped = RegExp.escape(marker);
+  return RegExp('-----BEGIN [A-Z0-9 ]*$escaped-----').hasMatch(content);
 }

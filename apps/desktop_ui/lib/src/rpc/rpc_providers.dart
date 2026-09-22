@@ -2,6 +2,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 
 import '../external_sign_in.dart';
+import '../file_picker.dart';
 import '../shell_bridge.dart';
 import 'rpc_client.dart';
 
@@ -23,6 +24,11 @@ final shellBridgeProvider = Provider<ShellBridge>(
 /// that explains why beats one that silently does nothing.
 final externalSignInProvider = Provider<ExternalSignInPort>(
   (ref) => const UnavailableExternalSignIn(),
+);
+
+/// Picks PEM files for mutual TLS, overridden in `main.dart`.
+final filePickerProvider = Provider<FilePickerPort>(
+  (ref) => const UnavailableFilePicker(),
 );
 
 /// The live connection to `conduitd`.

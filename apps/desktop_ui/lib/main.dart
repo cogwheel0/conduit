@@ -9,6 +9,7 @@ import 'src/app.dart';
 import 'src/bridge.dart';
 import 'src/l10n/strings.g.dart';
 import 'src/rpc/rpc_providers.dart';
+import 'src/rpc/settings_providers.dart';
 
 /// Client-mode entrypoint. Compiled to `web/main.dart.js` and loaded by
 /// `web/index.html`, which Electron serves from `app://conduit`.
@@ -36,6 +37,10 @@ Future<void> main() async {
         externalSignInProvider.overrideWithValue(
           const ElectronExternalSignIn(),
         ),
+      // Not gated on the shell: the palette applies in the dev browser too,
+      // and looking right there is most of what makes it worth developing in.
+      themeApplierProvider.overrideWithValue(const DocumentThemeApplier()),
+      filePickerProvider.overrideWithValue(const BrowserFilePicker()),
     ],
   );
   // Start connecting before the first paint so the status card usually

@@ -16,4 +16,5 @@ export 'src/log.dart';
 export 'src/ports/secure_store.dart';
 export 'src/rpc_session.dart';
 export 'src/servers_service.dart';
+export 'src/settings_service.dart';
 export 'src/system_service.dart';

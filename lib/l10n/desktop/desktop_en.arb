@@ -12,7 +12,10 @@
   "@desktopCoreReconnecting": {
     "description": "Banner shown while the desktop app retries a dropped connection to the local sidecar.",
     "placeholders": {
-      "attempt": { "type": "int", "example": "2" }
+      "attempt": {
+        "type": "int",
+        "example": "2"
+      }
     }
   },
   "desktopCoreUnavailable": "The core is unavailable",
@@ -43,8 +46,62 @@
   "@desktopShortcutConflict": {
     "description": "Warning shown when a user assigns a keyboard shortcut that another desktop command already owns.",
     "placeholders": {
-      "shortcut": { "type": "String", "example": "Cmd+K" },
-      "command": { "type": "String", "example": "Search" }
+      "shortcut": {
+        "type": "String",
+        "example": "Cmd+K"
+      },
+      "command": {
+        "type": "String",
+        "example": "Search"
+      }
     }
+  },
+  "desktopSettingsTitle": "Settings",
+  "@desktopSettingsTitle": {
+    "description": "Heading of the desktop settings dialog."
+  },
+  "desktopSettingsNoServers": "No servers configured yet.",
+  "@desktopSettingsNoServers": {
+    "description": "Shown in the desktop settings Connections tab when no server has been added."
+  },
+  "desktopSettingsAddServer": "Add a server",
+  "@desktopSettingsAddServer": {
+    "description": "Link in the desktop settings Connections tab that opens server setup."
+  },
+  "desktopSettingsSignedIn": "Signed in",
+  "@desktopSettingsSignedIn": {
+    "description": "Marker next to a configured server the user is still signed into, shown only for servers that are not the active one."
+  },
+  "desktopSettingsSwitchServer": "Switch",
+  "@desktopSettingsSwitchServer": {
+    "description": "Button that makes another configured server the active one."
+  },
+  "desktopSettingsRemoveServer": "Remove",
+  "@desktopSettingsRemoveServer": {
+    "description": "Button that forgets a configured server."
+  },
+  "desktopSigningOut": "Signing out…",
+  "@desktopSigningOut": {
+    "description": "Label on the desktop sign-out button while the request is in flight."
+  },
+  "desktopSignedOut": "Signed out.",
+  "@desktopSignedOut": {
+    "description": "Confirmation shown after a sign-out that removed everything it was asked to."
+  },
+  "desktopSignOutSuperseded": "A newer sign-in replaced this one, so nothing was removed.",
+  "@desktopSignOutSuperseded": {
+    "description": "Shown when sign-out stopped because the user signed in again while it was running."
+  },
+  "desktopSignOutIncomplete": "Signed out here, but this device has not finished forgetting. Conduit will retry on the next launch.",
+  "@desktopSignOutIncomplete": {
+    "description": "Shown when sign-out could not remove everything; the core keeps suppressing cookie reuse until cleanup finishes."
+  },
+  "desktopChooseFile": "Choose file…",
+  "@desktopChooseFile": {
+    "description": "Button that opens the file picker for a PEM certificate or key on desktop."
+  },
+  "desktopReplaceFile": "Replace…",
+  "@desktopReplaceFile": {
+    "description": "Button that opens the file picker to replace an already-chosen PEM file on desktop."
   }
 }

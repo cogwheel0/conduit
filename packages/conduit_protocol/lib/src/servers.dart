@@ -1,5 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'capabilities.dart';
+
 part 'servers.freezed.dart';
 part 'servers.g.dart';
 
@@ -109,4 +111,55 @@ abstract class ServerList with _$ServerList {
 
   factory ServerList.fromJson(Map<String, dynamic> json) =>
       _$ServerListFromJson(json);
+}
+
+/// How the daemon's last attempt to reach the active server went.
+@JsonEnum(fieldRename: FieldRename.none)
+enum ServerReachability {
+  /// Nothing has been attempted yet this launch.
+  unknown,
+  reachable,
+
+  /// The request did not arrive: DNS, TLS, a refused connection, a proxy
+  /// still challenging.
+  unreachable,
+
+  /// Something answered, but it is not an Open WebUI instance. Worth telling
+  /// apart from unreachable, because the fix is a different URL rather than a
+  /// different network.
+  notOpenWebUi,
+}
+
+/// The live state of the active server, as opposed to its stored config.
+///
+/// One call serves two screens that otherwise duplicate each other: the
+/// version gate needs [version] and [isVersionSupported], the connection-issue
+/// page needs [reachability] and [errorCode], and both need to know whether
+/// there is an active server at all.
+@freezed
+abstract class ServerStatus with _$ServerStatus {
+  const factory ServerStatus({
+    String? activeServerId,
+    @Default(Capabilities.none) Capabilities capabilities,
+    @Default(ServerReachability.unknown) ServerReachability reachability,
+
+    /// As the server reports it, or null when it has not been asked yet or
+    /// did not say.
+    String? version,
+
+    /// Fails open. An unparseable or absent version is treated as supported,
+    /// because blocking a user over a version string nobody can read is worse
+    /// than letting them through.
+    @Default(true) bool isVersionSupported,
+
+    /// The newest server version this build is known to work with, so the
+    /// warning can name it rather than saying "too new".
+    required String maxSupportedVersion,
+
+    /// Set when [reachability] is not `reachable`; localized in the UI.
+    String? errorCode,
+  }) = _ServerStatus;
+
+  factory ServerStatus.fromJson(Map<String, dynamic> json) =>
+      _$ServerStatusFromJson(json);
 }

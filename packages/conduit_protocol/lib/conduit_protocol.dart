@@ -17,5 +17,6 @@ export 'src/peer_helpers.dart';
 export 'src/protocol_version.dart';
 export 'src/rpc_error.dart';
 export 'src/servers.dart';
+export 'src/settings.dart';
 export 'src/subprotocol.dart';
 export 'src/system.dart';

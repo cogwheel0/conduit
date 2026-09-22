@@ -301,6 +301,135 @@ const Map<String, String> protocolGoldens = <String, String>{
   "keepServerDetails": false
 }''',
 
+  'serverStatusNoServer': r'''
+{
+  "capabilities": {
+    "workspace": false,
+    "notes": false,
+    "channels": false,
+    "hermes": false,
+    "terminal": false,
+    "directConnections": false,
+    "mcp": false,
+    "serverStt": false,
+    "onDeviceStt": false,
+    "serverTts": false,
+    "deviceTts": false,
+    "appleOnDeviceModels": false,
+    "applePcc": false,
+    "branchNavigation": false,
+    "messageRating": false,
+    "tags": false,
+    "bulkSelection": false
+  },
+  "reachability": "unknown",
+  "isVersionSupported": true,
+  "maxSupportedVersion": "0.11.3"
+}''',
+
+  'serverStatusReachable': r'''
+{
+  "activeServerId": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d",
+  "capabilities": {
+    "workspace": true,
+    "notes": true,
+    "channels": true,
+    "hermes": false,
+    "terminal": false,
+    "directConnections": false,
+    "mcp": false,
+    "serverStt": true,
+    "onDeviceStt": false,
+    "serverTts": true,
+    "deviceTts": true,
+    "appleOnDeviceModels": false,
+    "applePcc": false,
+    "branchNavigation": true,
+    "messageRating": false,
+    "tags": true,
+    "bulkSelection": false
+  },
+  "reachability": "reachable",
+  "version": "0.11.3",
+  "isVersionSupported": true,
+  "maxSupportedVersion": "0.11.3"
+}''',
+
+  'serverStatusUnreachable': r'''
+{
+  "activeServerId": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d",
+  "capabilities": {
+    "workspace": false,
+    "notes": false,
+    "channels": false,
+    "hermes": false,
+    "terminal": false,
+    "directConnections": false,
+    "mcp": false,
+    "serverStt": false,
+    "onDeviceStt": false,
+    "serverTts": false,
+    "deviceTts": false,
+    "appleOnDeviceModels": false,
+    "applePcc": false,
+    "branchNavigation": false,
+    "messageRating": false,
+    "tags": false,
+    "bulkSelection": false
+  },
+  "reachability": "unreachable",
+  "isVersionSupported": true,
+  "maxSupportedVersion": "0.11.3",
+  "errorCode": "net.connectionFailed"
+}''',
+
+  'serverStatusTooNew': r'''
+{
+  "activeServerId": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d",
+  "capabilities": {
+    "workspace": false,
+    "notes": false,
+    "channels": false,
+    "hermes": false,
+    "terminal": false,
+    "directConnections": false,
+    "mcp": false,
+    "serverStt": false,
+    "onDeviceStt": false,
+    "serverTts": false,
+    "deviceTts": false,
+    "appleOnDeviceModels": false,
+    "applePcc": false,
+    "branchNavigation": false,
+    "messageRating": false,
+    "tags": false,
+    "bulkSelection": false
+  },
+  "reachability": "reachable",
+  "version": "0.99.0",
+  "isVersionSupported": false,
+  "maxSupportedVersion": "0.11.3"
+}''',
+
+  'appPreferencesDefault': r'''
+{
+  "themeMode": "system",
+  "themePaletteId": "conduit"
+}''',
+
+  'appPreferencesFull': r'''
+{
+  "themeMode": "dark",
+  "themePaletteId": "t3_chat",
+  "localeCode": "zh-Hant"
+}''',
+
+  'appPreferencesPatch': r'''
+{
+  "themePaletteId": "claude",
+  "clearLocaleCode": true
+}''',
+
   'signOutResult': r'''
 {
   "outcome": "localDataClearedSessionCleanupIncomplete",

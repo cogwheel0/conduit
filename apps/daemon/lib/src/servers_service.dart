@@ -4,7 +4,9 @@ import 'dart:math';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
+import 'package:conduit_core/utils/server_version_compat.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -124,6 +126,84 @@ final class ServersService {
     }
     return list();
   }
+
+  /// The live state of the active server (WP-2.2).
+  ///
+  /// Deliberately never throws for an unreachable server. "I could not reach
+  /// it, and here is the code" is the answer the connection-issue page exists
+  /// to render; turning it into an RPC error would leave that page with
+  /// nothing to say but "something went wrong".
+  Future<ServerStatus> status() async {
+    final activeId = await _storage.getActiveServerId();
+    if (activeId == null) {
+      return const ServerStatus(
+        maxSupportedVersion: ServerVersionCompat.maxSupportedVersion,
+      );
+    }
+
+    final BackendConfig? config;
+    try {
+      config = await _container.read(backendConfigProvider.future);
+    } on Object catch (error) {
+      return ServerStatus(
+        activeServerId: activeId,
+        reachability: ServerReachability.unreachable,
+        errorCode: error is RpcError
+            ? error.code
+            : ConduitErrorCodes.connectionFailed,
+        maxSupportedVersion: ServerVersionCompat.maxSupportedVersion,
+      );
+    }
+
+    if (config == null) {
+      // The request completed and produced no Open WebUI config. That is a
+      // different problem from not reaching anything, and a different fix:
+      // the URL points somewhere real that is not Open WebUI.
+      return ServerStatus(
+        activeServerId: activeId,
+        reachability: ServerReachability.notOpenWebUi,
+        errorCode: ConduitErrorCodes.connectionFailed,
+        maxSupportedVersion: ServerVersionCompat.maxSupportedVersion,
+      );
+    }
+
+    return ServerStatus(
+      activeServerId: activeId,
+      capabilities: capabilitiesFor(config),
+      reachability: ServerReachability.reachable,
+      version: config.version,
+      isVersionSupported: config.isVersionSupported,
+      maxSupportedVersion: ServerVersionCompat.maxSupportedVersion,
+    );
+  }
+
+  /// Projects the server's config onto the protocol's capability flags.
+  ///
+  /// The UI gates navigation on these rather than reading a server config it
+  /// does not have, which is the whole reason the flags exist. Anything the
+  /// server does not mention stays false: an unknown capability is one the
+  /// UI must not offer, because offering it produces a sidebar entry that
+  /// dead-ends.
+  ///
+  /// The flags with no `BackendConfig` counterpart -- Hermes, the terminal,
+  /// the Apple helper, the parity-plus features -- are left off until the
+  /// milestones that implement them can answer honestly.
+  static Capabilities capabilitiesFor(BackendConfig config) => Capabilities(
+    // Open WebUI has no feature flag for these; they exist on every server
+    // this app supports, and the sidebar entries are always meaningful.
+    workspace: true,
+    notes: true,
+    channels: config.enableWebsocket ?? false,
+    directConnections: config.enableDirectConnections ?? false,
+    serverStt: config.enableAudioInput ?? false,
+    serverTts: config.enableAudioOutput ?? false,
+    // Browser speech synthesis, available wherever the renderer runs.
+    deviceTts: true,
+    branchNavigation: true,
+    messageRating: true,
+    tags: true,
+    bulkSelection: true,
+  );
 
   /// Makes [id] the active server, keeping the others.
   ///

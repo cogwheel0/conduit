@@ -17,6 +17,7 @@ import 'event_bus.dart';
 import 'log.dart';
 import 'rpc_session.dart';
 import 'servers_service.dart';
+import 'settings_service.dart';
 import 'system_service.dart';
 
 /// The loopback server the renderer talks to.
@@ -52,6 +53,7 @@ class DaemonServer {
   CoreRuntime? _core;
   ServersService? _servers;
   AuthService? _auth;
+  SettingsService? _settings;
 
   final EventBus events = EventBus();
   final Map<String, RpcSession> _sessions = <String, RpcSession>{};
@@ -94,6 +96,7 @@ class DaemonServer {
     _core = core;
     _servers = ServersService(core.container);
     _auth = AuthService(core.container);
+    _settings = SettingsService(core.container);
     _log.info('core attached');
   }
 
@@ -185,6 +188,7 @@ class DaemonServer {
         log: _log,
         servers: _servers,
         auth: _auth,
+        settings: _settings,
       );
       _sessions[sessionId] = session;
       _log.debug('session $sessionId opened (subprotocol: $subprotocol)');
@@ -232,6 +236,7 @@ class DaemonServer {
     _core = null;
     _servers = null;
     _auth = null;
+    _settings = null;
     if (!_stopped.isCompleted) _stopped.complete();
   }
 }

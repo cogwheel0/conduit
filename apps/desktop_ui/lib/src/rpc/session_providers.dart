@@ -20,6 +20,28 @@ final serverListProvider = FutureProvider<ServerList>((ref) async {
       .call(ConduitMethods.serversList, decode: ServerList.fromJson);
 });
 
+/// The live state of the active server: reachability, version, capabilities.
+///
+/// Separate from [serverListProvider], which is stored configuration. This
+/// one costs a request to the server, so it is not folded into the list that
+/// every settings repaint reads.
+final serverStatusProvider = FutureProvider<ServerStatus>((ref) async {
+  ref.watch(coreConnectionProvider);
+  return ref
+      .watch(rpcClientProvider)
+      .call(ConduitMethods.serversStatus, decode: ServerStatus.fromJson);
+});
+
+/// What the UI is allowed to offer, from the active server.
+///
+/// Falls back to [Capabilities.none] while loading or on error, which is the
+/// safe direction: a sidebar entry that dead-ends is worse than one that
+/// appears a moment late.
+final serverCapabilitiesProvider = Provider<Capabilities>(
+  (ref) =>
+      ref.watch(serverStatusProvider).value?.capabilities ?? Capabilities.none,
+);
+
 /// The current session.
 final authStatusProvider = FutureProvider<AuthSnapshot>((ref) async {
   ref.watch(coreConnectionProvider);
@@ -196,5 +218,9 @@ class SessionActions {
   void _invalidateSession() {
     _ref.invalidate(authStatusProvider);
     _ref.invalidate(serverListProvider);
+    // The status too: a different server has a different version and
+    // different capabilities, and a stale capability set is how the sidebar
+    // ends up offering a section the new server does not have.
+    _ref.invalidate(serverStatusProvider);
   }
 }

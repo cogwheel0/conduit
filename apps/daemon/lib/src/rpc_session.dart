@@ -8,6 +8,7 @@ import 'auth_service.dart';
 import 'event_bus.dart';
 import 'log.dart';
 import 'servers_service.dart';
+import 'settings_service.dart';
 import 'system_service.dart';
 
 /// One connected renderer window.
@@ -24,11 +25,13 @@ class RpcSession {
     required DaemonLog log,
     ServersService? servers,
     AuthService? auth,
+    SettingsService? settings,
   }) : _events = events,
        _log = log,
        _system = system,
        _servers = servers,
        _auth = auth,
+       _settings = settings,
        _peer = json_rpc.Peer(channel) {
     _register();
   }
@@ -44,6 +47,7 @@ class RpcSession {
   /// like a fresh install. It gets `rpc.daemonUnavailable` instead.
   final ServersService? _servers;
   final AuthService? _auth;
+  final SettingsService? _settings;
   final json_rpc.Peer _peer;
 
   /// Set by a successful `system.handshake`. Until then every other method is
@@ -194,6 +198,7 @@ class RpcSession {
 
     _registerServers();
     _registerAuth();
+    _registerSettings();
 
     _peer.registerFallback((json_rpc.Parameters params) {
       final method = params.method;
@@ -249,6 +254,16 @@ class RpcSession {
       handler: (ref) {
         _requireHandshake();
         return _requireServers().remove(ref.id);
+      },
+    );
+
+    registerTypedMethodNoParams<ServerStatus>(
+      _peer,
+      ConduitMethods.serversStatus,
+      encodeResult: (result) => result.toJson(),
+      handler: () {
+        _requireHandshake();
+        return _requireServers().status();
       },
     );
 
@@ -370,6 +385,36 @@ class RpcSession {
       },
     );
   }
+
+  void _registerSettings() {
+    registerTypedMethodNoParams<AppPreferences>(
+      _peer,
+      ConduitMethods.settingsGetApp,
+      encodeResult: (result) => result.toJson(),
+      handler: () {
+        _requireHandshake();
+        return _requireSettings().read();
+      },
+    );
+
+    registerTypedMethod<AppPreferencesPatch, AppPreferences>(
+      _peer,
+      ConduitMethods.settingsSetApp,
+      decodeParams: AppPreferencesPatch.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (patch) {
+        _requireHandshake();
+        return _requireSettings().write(patch);
+      },
+    );
+  }
+
+  SettingsService _requireSettings() =>
+      _settings ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
 
   ServersService _requireServers() =>
       _servers ??

@@ -6,9 +6,12 @@ import 'package:jaspr_router/jaspr_router.dart';
 
 import 'pages/diagnostics_page.dart';
 import 'pages/onboarding_page.dart';
+import 'pages/settings_page.dart';
 import 'pages/sign_in_page.dart';
 import 'pages/status_page.dart';
+import 'l10n/strings.g.dart';
 import 'rpc/session_providers.dart';
+import 'widgets/server_issue_banner.dart';
 
 /// The desktop app shell and its routes.
 ///
@@ -63,6 +66,16 @@ class ConduitDesktopApp extends StatelessComponent {
               title: 'Sign in',
               builder: (context, state) => const SignInPage(),
             ),
+            Route(
+              path: '/settings/:tab',
+              title: 'Settings',
+              builder: (context, state) =>
+                  SettingsPage(tab: state.params['tab'] ?? 'appearance'),
+            ),
+            Route(
+              path: '/settings',
+              redirect: (context, state) => '/settings/appearance',
+            ),
           ],
         ),
       ],
@@ -79,6 +92,14 @@ class ConduitDesktopApp extends StatelessComponent {
     );
   }
 }
+
+Component _settingsLink() => a(
+  href: '/settings/appearance',
+  classes:
+      'fixed bottom-4 right-4 rounded-full border border-border bg-card '
+      'px-3 py-1.5 text-xs text-muted-foreground shadow hover:bg-accent',
+  [Component.text(t.desktop.desktopSettingsTitle)],
+);
 
 /// Sends a window to onboarding or sign-in when it has no session.
 String? _sessionRedirect(BuildContext context, String location) =>
@@ -99,6 +120,10 @@ String? _sessionRedirect(BuildContext context, String location) =>
 ///  * Diagnostics is always reachable. It is where someone goes when the core
 ///    will not start, and gating it behind a working session would hide it
 ///    exactly when it is needed.
+///  * Settings is reachable without a session once a server is configured.
+///    Its Connections tab is how a signed-out user adds, removes or switches
+///    servers, so sending them to a sign-in form for the server they are
+///    trying to leave would be a loop with no exit.
 ///  * An error is not an answer. If the daemon cannot say whether a session
 ///    exists, the banner explains that far better than a login form does.
 @visibleForTesting
@@ -114,6 +139,7 @@ String? sessionRedirectFor({
     return location == '/onboarding' ? null : '/onboarding';
   }
   if (location == '/onboarding') return '/';
+  if (location.startsWith('/settings')) return null;
 
   final snapshot = auth.value;
   if (snapshot == null) return null;
@@ -136,6 +162,16 @@ class _Shell extends StatelessComponent {
 
   @override
   Component build(BuildContext context) {
-    return div(classes: 'min-h-screen bg-background', [child]);
+    return div(classes: 'flex min-h-screen flex-col bg-background', [
+      // Above the route, so it is visible wherever the user is rather than
+      // only on the screen that happened to notice the problem.
+      const ServerIssueBanner(),
+      div(classes: 'min-h-0 flex-1', [child]),
+      // A settings affordance has to exist somewhere or the modal is
+      // unreachable except by typing a URL. M3 builds the real chrome and
+      // this moves into it; until then it is a corner button rather than
+      // nothing.
+      _settingsLink(),
+    ]);
   }
 }
