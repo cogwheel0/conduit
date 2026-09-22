@@ -30,8 +30,7 @@ Duration debugRemoteTaskPollDelayForTesting({
 }
 
 // Chat messages notifier class
-class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
-    with WidgetsBindingObserver {
+class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   static const _passiveRefreshDebounce = Duration(milliseconds: 350);
   static const int _remoteTaskFastPollCount = 10;
 
@@ -138,10 +137,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
   List<ChatMessage> build() {
     if (!_initialized) {
       _initialized = true;
-      WidgetsBinding.instance.addObserver(this);
-      _isAppForeground = _isLifecycleForeground(
-        WidgetsBinding.instance.lifecycleState,
-      );
+      final lifecycle = ref.read(appLifecycleProvider);
+      // Seeded from `current` rather than waited for: a notifier built after
+      // launch never receives the transition that put the app where it
+      // already is. Null means the host has observed nothing yet, which is
+      // indistinguishable from foreground and is treated as such.
+      _isAppForeground = lifecycle.current?.isForeground ?? true;
+      _subscriptions.add(lifecycle.changes.listen(_onLifecycleChanged));
       _captureActiveOpenWebUiContext();
       ref.listen(appDatabaseProvider, (_, _) => _onOpenWebUiContextChanged());
       ref.listen(apiServiceProvider, (_, _) => _onOpenWebUiContextChanged());
@@ -293,7 +295,6 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
 
       ref.onDispose(() {
         _disposed = true;
-        WidgetsBinding.instance.removeObserver(this);
         for (final subscription in _subscriptions) {
           subscription.cancel();
         }
@@ -3550,12 +3551,19 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     }
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.hidden ||
-        state == AppLifecycleState.detached) {
+  /// Reacts to the host's foreground/background transitions (WP-1.4).
+  ///
+  /// The three-branch shape of the previous version collapses into two,
+  /// because `inactive` and `resumed` were already being treated alike --
+  /// which is exactly what `AppLifecyclePhase.isForeground` says. Defining
+  /// that once, in the port, is what stops "foreground" meaning one thing
+  /// here and another in the socket service.
+  void _onLifecycleChanged(AppLifecyclePhase phase) {
+    if (phase.isBackground) {
       _isAppForeground = false;
+      // Flush whatever was buffered for the next frame: there will not be
+      // another frame until the app comes back, and the text is already
+      // parsed.
       if (_streamingContentFrameScheduled || _streamingContentTimer != null) {
         _scheduleStreamingContentFrame(reason: _pendingStreamingFlushReason);
       }
@@ -3563,23 +3571,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
       _taskStatusTimer = null;
       return;
     }
-    if (state == AppLifecycleState.resumed) {
-      final wasForeground = _isAppForeground;
-      _isAppForeground = true;
-      if (!wasForeground) _wakeRemoteTaskMonitor();
-      return;
-    }
-    if (state == AppLifecycleState.inactive) {
-      final wasForeground = _isAppForeground;
-      _isAppForeground = true;
-      if (!wasForeground) _wakeRemoteTaskMonitor();
-    }
-  }
+    if (!phase.isForeground) return;
 
-  bool _isLifecycleForeground(AppLifecycleState? state) =>
-      state == null ||
-      state == AppLifecycleState.resumed ||
-      state == AppLifecycleState.inactive;
+    final wasForeground = _isAppForeground;
+    _isAppForeground = true;
+    if (!wasForeground) _wakeRemoteTaskMonitor();
+  }
 
   // Enhanced streaming recovery method similar to OpenWebUI's approach
   void recoverStreamingIfNeeded() {

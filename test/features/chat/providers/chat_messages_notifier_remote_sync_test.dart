@@ -14,8 +14,10 @@ import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
-import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:conduit_core/ports/app_lifecycle.dart';
+import 'package:conduit_core/providers/host_ports.dart';
+import 'package:conduit_core/testing.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:conduit/platform/flutter_secure_key_value_store.dart';
 
@@ -1292,6 +1294,8 @@ void main() {
       ];
       final api = _FakeApiService(_conversation('chat-1', messages, timestamp))
         ..taskIds = const <String>['task-1'];
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
       final container = ProviderContainer(
         overrides: [
           secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
@@ -1301,6 +1305,7 @@ void main() {
           ),
           socketServiceProvider.overrideWithValue(null),
           apiServiceProvider.overrideWithValue(api),
+          appLifecycleProvider.overrideWithValue(lifecycle),
         ],
       );
       addTearDown(container.dispose);
@@ -1315,10 +1320,10 @@ void main() {
       await _drainRemoteTaskStatusCheck(notifier);
       check(notifier.debugHasRemoteTaskMonitor).isTrue();
 
-      notifier.didChangeAppLifecycleState(AppLifecycleState.paused);
+      lifecycle.emit(AppLifecyclePhase.paused);
       check(notifier.debugHasRemoteTaskPollScheduled).isFalse();
 
-      notifier.didChangeAppLifecycleState(AppLifecycleState.inactive);
+      lifecycle.emit(AppLifecyclePhase.inactive);
       check(notifier.debugHasRemoteTaskPollScheduled).isTrue();
       notifier.debugCancelRemoteTaskMonitorTimer();
     });

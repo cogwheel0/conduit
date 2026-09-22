@@ -5,6 +5,9 @@ import 'package:conduit/core/services/streaming_helper.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:conduit_core/ports/app_lifecycle.dart';
+import 'package:conduit_core/providers/host_ports.dart';
+import 'package:conduit_core/testing.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _TestActiveConversationNotifier extends ActiveConversationNotifier {
@@ -36,6 +39,11 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('ChatMessagesNotifier dedupe', () {
+    late FakeAppLifecycle lifecycle;
+
+    setUp(() => lifecycle = FakeAppLifecycle());
+    tearDown(() => lifecycle.dispose());
+
     ProviderContainer buildContainer() {
       return ProviderContainer(
         overrides: [
@@ -44,6 +52,10 @@ void main() {
           ),
           apiServiceProvider.overrideWithValue(null),
           socketServiceProvider.overrideWithValue(null),
+          // Driven through the port rather than by calling the observer
+          // method: that is the path production takes, so the subscription
+          // itself is under test too.
+          appLifecycleProvider.overrideWithValue(lifecycle),
         ],
       );
     }
@@ -166,7 +178,7 @@ void main() {
       notifier.appendToLastMessage(' world');
       expect(container.read(streamingContentProvider), isNull);
 
-      notifier.didChangeAppLifecycleState(AppLifecycleState.paused);
+      lifecycle.emit(AppLifecyclePhase.paused);
       expect(container.read(streamingContentProvider), 'Hello world');
 
       notifier.appendToLastMessage(' again');
@@ -781,7 +793,7 @@ void main() {
         );
         addTearDown(subscription.close);
 
-        notifier.didChangeAppLifecycleState(AppLifecycleState.paused);
+        lifecycle.emit(AppLifecyclePhase.paused);
         notifier.appendToLastMessage(' a');
         notifier.appendToLastMessage(' b');
         notifier.appendToLastMessage(' c');

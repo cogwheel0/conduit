@@ -29,8 +29,10 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:flutter_callkit_incoming/entities/call_event.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:conduit_core/ports/app_lifecycle.dart';
+import 'package:conduit_core/providers/host_ports.dart';
+import 'package:conduit_core/testing.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter/widgets.dart';
 
 import '../../../support/openwebui_storage_test_overrides.dart';
 
@@ -1692,8 +1694,11 @@ void main() {
       final callKit = _AvailableCallKitService();
       final background = _FakeChatVoiceBackgroundCoordinator();
       final audioSession = _FakeChatVoiceAudioSessionCoordinator();
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
       final container = ProviderContainer(
         overrides: [
+          appLifecycleProvider.overrideWithValue(lifecycle),
           ...openWebUiStorageOpenOverrides(),
           authNavigationStateProvider.overrideWithValue(
             AuthNavigationState.authenticated,
@@ -1732,8 +1737,7 @@ void main() {
       expect(audioSession.registeredCallIds, <String>['call-1']);
       await _until(() => callKit.connectedCallIds.contains('call-1'));
 
-      final messages = container.read(chatMessagesProvider.notifier);
-      messages.didChangeAppLifecycleState(AppLifecycleState.paused);
+      lifecycle.emit(AppLifecyclePhase.paused);
       final responseWaitStopsBeforeTurn = audioSession.responseWaitEndCalls;
       await input.completeCurrent('background voice response');
       await _until(() => tts.finishedTexts.isNotEmpty);
