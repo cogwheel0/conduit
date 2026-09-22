@@ -40,7 +40,16 @@ class NativeSymbolImageService {
   NativeSymbolImageService({NativeSymbolRenderer? renderer})
     : _renderer = renderer;
 
-  static final NativeSymbolImageService instance = NativeSymbolImageService();
+  static NativeSymbolImageService _instance = NativeSymbolImageService();
+
+  static NativeSymbolImageService get instance => _instance;
+
+  /// Swaps the shared service so a widget test can drive glyph timing.
+  /// Passing null restores the platform-backed default.
+  @visibleForTesting
+  static set debugInstance(NativeSymbolImageService? service) {
+    _instance = service ?? NativeSymbolImageService();
+  }
 
   static const MethodChannel _channel = MethodChannel(
     'conduit/native_symbol_image',

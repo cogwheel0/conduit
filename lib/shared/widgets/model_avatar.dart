@@ -103,30 +103,32 @@ class _SymbolAvatarState extends State<_SymbolAvatar> {
     if (_requestedScale == scale) return;
     _requestedScale = scale;
 
+    // A request that is already in flight keeps running when the avatar moves
+    // to another symbol or size, so its completion has to prove it still
+    // describes what the widget wants.
+    final name = widget.symbolName;
+    final pointSize = _pointSize;
+
     final service = NativeSymbolImageService.instance;
-    final cached = service.cached(
-      widget.symbolName,
-      pointSize: _pointSize,
-      scale: scale,
-    );
+    final cached = service.cached(name, pointSize: pointSize, scale: scale);
     if (cached != null) {
       _glyph = cached;
       return;
     }
-    if (service.isResolved(
-      widget.symbolName,
-      pointSize: _pointSize,
-      scale: scale,
-    )) {
+    if (service.isResolved(name, pointSize: pointSize, scale: scale)) {
       return;
     }
 
-    service
-        .load(widget.symbolName, pointSize: _pointSize, scale: scale)
-        .then((bytes) {
-          if (!mounted || bytes == null || _requestedScale != scale) return;
-          setState(() => _glyph = bytes);
-        });
+    service.load(name, pointSize: pointSize, scale: scale).then((bytes) {
+      if (!mounted ||
+          bytes == null ||
+          _requestedScale != scale ||
+          widget.symbolName != name ||
+          _pointSize != pointSize) {
+        return;
+      }
+      setState(() => _glyph = bytes);
+    });
   }
 
   @override

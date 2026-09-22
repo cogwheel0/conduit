@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
@@ -158,6 +159,33 @@ void main() {
 
       check(find.byIcon(Icons.auto_awesome).evaluate()).isEmpty();
       check(find.byType(Image).evaluate()).length.equals(1);
+    });
+
+    testWidgets('a late glyph for the previous symbol is ignored', (
+      tester,
+    ) async {
+      final slowGlyph = Completer<Uint8List?>();
+      final pendingBytes = Uint8List.fromList(_pngBytes);
+      final currentBytes = Uint8List.fromList(_pngBytes);
+      NativeSymbolImageService.debugInstance = NativeSymbolImageService(
+        renderer: (name, pointSize, scale) =>
+            name == 'pending.symbol' ? slowGlyph.future : Future.value(currentBytes),
+      );
+      addTearDown(() => NativeSymbolImageService.debugInstance = null);
+
+      await _pumpAvatar(tester, imageUrl: 'symbol:pending.symbol');
+      await tester.pump();
+      await _pumpAvatar(tester, imageUrl: 'symbol:current.symbol');
+      await tester.pump();
+
+      // The avatar moved on while the first request was still in flight.
+      slowGlyph.complete(pendingBytes);
+      await tester.pump();
+
+      final image = tester.widget<Image>(find.byType(Image));
+      final painted = (image.image as MemoryImage).bytes;
+      check(identical(painted, currentBytes)).isTrue();
+      check(identical(painted, pendingBytes)).isFalse();
     });
   });
 }
