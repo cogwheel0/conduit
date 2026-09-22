@@ -8,6 +8,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import '../l10n/strings.g.dart';
 import '../rpc/chat_providers.dart';
 import '../widgets/form_field.dart';
+import '../widgets/markdown_view.dart';
 
 /// The chat vertical: sidebar, transcript, composer (M3).
 class ChatPage extends StatelessComponent {
@@ -148,11 +149,14 @@ class _Transcript extends StatelessComponent {
     final isUser = role == 'user';
     return article(
       classes:
-          'rounded-[--radius] px-4 py-3 text-sm whitespace-pre-wrap '
-          '${isUser ? 'ml-auto max-w-[80%] bg-primary text-primary-foreground' : 'mr-auto max-w-[90%] bg-card text-card-foreground'} '
+          'rounded-[--radius] px-4 py-3 text-sm '
+          '${isUser ? 'ml-auto max-w-[80%] bg-primary text-primary-foreground whitespace-pre-wrap' : 'mr-auto max-w-[90%] bg-card text-card-foreground'} '
           '${failed ? 'border border-destructive' : ''}',
       [
-        Component.text(content),
+        // The user's own text is rendered verbatim: they typed it, so
+        // markdown they did not mean should not be interpreted, and a stray
+        // asterisk should stay an asterisk.
+        if (isUser) Component.text(content) else MarkdownView(content),
         if (streaming)
           span(
             classes: 'ml-1 animate-pulse',

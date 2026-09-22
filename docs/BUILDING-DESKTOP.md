@@ -36,6 +36,31 @@ cd desktop/electron && npm run dev
 `bootstrap_desktop.sh` runs every generator in dependency order and is what CI
 runs too, so "works on my machine" and "works in CI" stay the same thing.
 
+## What works today
+
+Enough to use, not yet enough to switch to. The window opens on server setup
+the first time; point it at an Open WebUI instance, sign in, and you get a
+conversation sidebar, a transcript and a composer that streams replies.
+
+| Works | Notes |
+| --- | --- |
+| Server setup, custom headers, self-signed TLS, mutual TLS | The PEM pickers validate the armour before accepting a file. |
+| Password, LDAP and API-key sign-in | |
+| SSO, OAuth and reverse-proxy sign-in | Opens a real browser window; the daemon validates before committing. |
+| Several servers, switching between them | Switching restores the session rather than asking again. |
+| Conversation list, opening a chat, sending, streaming, stopping | |
+| Settings: appearance, palette, language, connections, sign-out | Thirteen languages, five palettes, light/dark/system. |
+
+| Not yet | Where it lands |
+| --- | --- |
+| Markdown, code highlighting, KaTeX, Mermaid | WP-3.5 -- replies render as plain text for now |
+| Model picker | WP-3.4; the daemon picks the account's selected model |
+| Attachments, folders, search UI, rename/pin/delete | WP-3.1 to WP-3.3 |
+| Notes, channels, workspace, Hermes, terminal, voice | M5 to M8 |
+
+Run `npm test` in `desktop/electron` to check the shell still launches and
+talks to the daemon; it is the only test that exercises the whole chain.
+
 ## The command matrix
 
 Every generated artifact, what produces it, and where it must run. Nothing
