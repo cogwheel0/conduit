@@ -1,0 +1,178 @@
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import {
+  _electron as electron,
+  expect,
+  test,
+  type ElectronApplication,
+  type Page,
+} from '@playwright/test'
+
+/**
+ * The whole app, against a real Open WebUI server.
+ *
+ * Everything else in this directory proves the shell starts. This proves the
+ * product works: onboarding, sign-in, a model list, a sent message and a
+ * streamed reply, through the daemon and the real server.
+ *
+ * Skipped unless credentials are present, so it never fails a clean clone or
+ * a CI job without a server. Set them in a `.env` at the repository root:
+ *
+ *   OWUI_URL=https://chat.example.com
+ *   OWUI_EMAIL=you@example.com
+ *   OWUI_PASSWORD=...
+ *
+ * The password is typed into a `type=password` field and never logged. The
+ * file is gitignored, as is `test-results/`.
+ */
+interface Credentials {
+  readonly url: string
+  readonly email: string
+  readonly password: string
+}
+
+function readCredentials(): Credentials | null {
+  // The repo root from desktop/electron/tests.
+  const envPath = join(__dirname, '..', '..', '..', '.env')
+  let raw: string
+  try {
+    raw = readFileSync(envPath, 'utf8')
+  } catch {
+    return null
+  }
+  const values = new Map<string, string>()
+  for (const line of raw.split('\n')) {
+    const match = /^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/.exec(line)
+    if (match === null) continue
+    // Strip one layer of quoting, which is how a value with spaces is
+    // written and is not part of the value.
+    values.set(match[1]!, match[2]!.replace(/^["']|["']$/g, ''))
+  }
+  const url = values.get('OWUI_URL')
+  const email = values.get('OWUI_EMAIL')
+  const password = values.get('OWUI_PASSWORD')
+  if (url === undefined || email === undefined || password === undefined) {
+    return null
+  }
+  return { url, email, password }
+}
+
+const credentials = readCredentials()
+
+test.describe('against a real server', () => {
+  test.skip(credentials === null, 'no OWUI_* credentials in .env')
+  // A cold start, a sign-in round trip and a model reply.
+  test.setTimeout(180_000)
+
+  let app: ElectronApplication
+  let userData: string
+
+  test.beforeAll(async () => {
+    userData = mkdtempSync(join(tmpdir(), 'conduit-live-'))
+    app = await electron.launch({
+      args: [
+        '.',
+        `--user-data-dir=${userData}`,
+        // CI containers have no user namespaces for the Chromium sandbox.
+        '--no-sandbox',
+      ],
+      cwd: join(__dirname, '..'),
+    })
+    // The daemon logs to stderr and Electron inherits it; surfacing it here
+    // is the difference between "Login failed" and knowing why.
+    app.process().stderr?.on('data', (chunk: Buffer) => {
+      process.stderr.write(`[daemon] ${chunk.toString()}`)
+    })
+  })
+
+  test.afterAll(async () => {
+    await app?.close()
+    rmSync(userData, { recursive: true, force: true })
+  })
+
+  async function window(): Promise<Page> {
+    const page = await app.firstWindow()
+    page.on('console', (message) => {
+      if (message.text().startsWith('[event]')) {
+        process.stderr.write(`[renderer] ${message.text()}\n`)
+      }
+    })
+    await expect
+      .poll(() => page.url(), { timeout: 30_000 })
+      .toContain('app://conduit')
+    await page.waitForLoadState('domcontentloaded')
+    return page
+  }
+
+  test('onboards, signs in, and streams a reply', async () => {
+    const page = await window()
+    const { url, email, password } = credentials!
+
+    // 1. Onboarding. The session guard should already have put us here.
+    await expect
+      .poll(() => page.evaluate(() => window.location.pathname), {
+        timeout: 30_000,
+      })
+      .toBe('/onboarding')
+
+    await page.getByLabel(/server address/i).fill(url)
+    await page.getByRole('button', { name: /^connect$/i }).click()
+
+    // 2. Sign-in, which the guard routes to once a server is active.
+    await expect
+      .poll(() => page.evaluate(() => window.location.pathname), {
+        timeout: 60_000,
+      })
+      .toBe('/sign-in')
+
+    await page.getByLabel(/email or username/i).fill(email)
+    await page.locator('#password').fill(password)
+    await page.getByRole('button', { name: /^sign in$/i }).click()
+
+    // 3. The chat vertical.
+    await expect
+      .poll(() => page.evaluate(() => window.location.pathname), {
+        timeout: 60_000,
+      })
+      .toBe('/')
+    await expect(page.getByPlaceholder('Ask Conduit')).toBeVisible()
+
+    // 4. A model list the daemon fetched from the server.
+    const picker = page.locator('#model')
+    await expect(picker).toBeVisible({ timeout: 30_000 })
+    const values = await picker
+      .locator('option')
+      .evaluateAll((nodes) => nodes.map((n) => (n as HTMLOptionElement).value))
+    expect(values.length).toBeGreaterThan(0)
+
+    // By value, not label: the picker shows a model's display name while the
+    // daemon addresses it by id, and they differ for most of them.
+    //
+    // Picked explicitly because the daemon's fallback is "the first model
+    // offered", which on a real server is as likely as not to be one the
+    // account cannot use.
+    const wanted = process.env['OWUI_MODEL']
+    if (wanted !== undefined && values.includes(wanted)) {
+      await picker.selectOption(wanted)
+    }
+
+    // 5. Send, and watch the answer stream in.
+    await page
+      .getByPlaceholder('Ask Conduit')
+      .fill('Reply with exactly the word: pong')
+    await page.getByRole('button', { name: /^send$/i }).click()
+
+    const transcript = page.getByRole('log')
+    await expect(transcript).toContainText('Reply with exactly', {
+      timeout: 30_000,
+    })
+    // The assistant bubble appears as soon as the first delta lands, so this
+    // is the check that streaming reaches the renderer at all.
+    await expect
+      .poll(async () => (await transcript.innerText()).length, {
+        timeout: 120_000,
+      })
+      .toBeGreaterThan('Reply with exactly the word: pong'.length + 2)
+  })
+})

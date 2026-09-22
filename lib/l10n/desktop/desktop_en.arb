@@ -115,5 +115,9 @@
   "desktopSending": "Sending…",
   "@desktopSending": {
     "description": "Label on the desktop send button while a turn is being accepted."
+  },
+  "desktopSignInMethod": "Sign-in method",
+  "@desktopSignInMethod": {
+    "description": "Accessible group label for the desktop sign-in method radios (password, LDAP, API key)."
   }
 }

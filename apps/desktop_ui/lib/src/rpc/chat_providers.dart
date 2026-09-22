@@ -5,10 +5,16 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 
 import 'rpc_client.dart';
 import 'rpc_providers.dart';
+import 'session_providers.dart';
 
 /// The sidebar's conversation list.
 final chatListProvider = FutureProvider<ChatList>((ref) async {
   ref.watch(coreConnectionProvider);
+  // Depends on the session, and says so. Fetched before sign-in completes it
+  // would return an empty list and cache it -- and then the sidebar stays
+  // empty after signing in, because nothing remembered to invalidate it.
+  // Declaring the dependency makes the refetch automatic.
+  ref.watch(authStatusProvider);
   // Refetched whenever the daemon says the set changed, rather than polled.
   // The daemon is the only thing that knows when a sync landed.
   ref.watch(_chatsChangedProvider);
@@ -30,6 +36,9 @@ final _chatsChangedProvider = StreamProvider<int>((ref) {
 /// The models the active server offers, and which is selected.
 final modelListProvider = FutureProvider<ModelList>((ref) async {
   ref.watch(coreConnectionProvider);
+  // Same reason as the chat list: an unauthenticated server offers none, and
+  // the composer would show no picker forever.
+  ref.watch(authStatusProvider);
   return ref
       .watch(rpcClientProvider)
       .call(ConduitMethods.modelsList, decode: ModelList.fromJson);
@@ -70,6 +79,26 @@ final chatDetailProvider = FutureProvider<ChatDetail?>((ref) async {
       : ChatDetail.fromJson(chat as Map<String, dynamic>);
 });
 
+/// Keeps the daemon's event filter in step with what this window watches.
+///
+/// `turn.*` events are scoped to a chat id, and the bus only delivers a
+/// scoped event to a client that listed that scope -- so without this the
+/// renderer receives nothing at all while a turn streams. Scoping is right:
+/// two windows on different conversations should not paint each other's
+/// tokens.
+final _eventSubscriptionProvider = Provider<void>((ref) {
+  final chatId = ref.watch(selectedChatIdProvider);
+  final client = ref.watch(rpcClientProvider);
+  unawaited(
+    client.subscribe(
+      EventSubscription(
+        // Empty `events` means every event; the scope is what narrows it.
+        scopes: <String>[?chatId],
+      ),
+    ),
+  );
+});
+
 /// The turn currently streaming, if any.
 class LiveTurn {
   const LiveTurn({
@@ -77,12 +106,17 @@ class LiveTurn {
     required this.messageId,
     required this.text,
     this.failedCode,
+    this.settled = false,
   });
 
   final String chatId;
   final String messageId;
   final String text;
   final String? failedCode;
+
+  /// The turn has finished, but the persisted transcript may not have caught
+  /// up. Kept on screen until it does.
+  final bool settled;
 
   bool get failed => failedCode != null;
 }
@@ -95,6 +129,7 @@ class LiveTurn {
 /// persisted message -- so there is exactly one place that decides what the
 /// transcript is.
 final liveTurnProvider = StreamProvider<LiveTurn?>((ref) {
+  ref.watch(_eventSubscriptionProvider);
   final client = ref.watch(rpcClientProvider);
   final controller = StreamController<LiveTurn?>();
   LiveTurn? current;
@@ -109,6 +144,9 @@ final liveTurnProvider = StreamProvider<LiveTurn?>((ref) {
           text: '',
         );
       case ConduitEvents.turnDelta:
+        // Creates the turn as readily as it updates one: a window that
+        // subscribed after `turn.started` fired still shows the answer,
+        // because a delta carries everything rather than an increment.
         final delta = TurnDelta.fromJson(envelope.payload);
         current = LiveTurn(
           chatId: delta.chatId,
@@ -116,9 +154,19 @@ final liveTurnProvider = StreamProvider<LiveTurn?>((ref) {
           text: delta.text,
         );
       case ConduitEvents.turnCompleted:
-        // Cleared rather than kept: the persisted transcript now has this
-        // message, and leaving the overlay up would render it twice.
-        current = null;
+        // Kept, not cleared. The answer has finished, but it reaches the
+        // transcript through a refetch of the *synced* conversation, and
+        // that lands later -- so clearing here made a completed answer
+        // vanish for as long as the sync took, or forever if the server had
+        // not recorded it yet. The transcript drops this overlay once the
+        // persisted copy shows up, exactly as it does for the sent message.
+        final completed = TurnCompleted.fromJson(envelope.payload);
+        current = LiveTurn(
+          chatId: completed.chatId,
+          messageId: completed.messageId,
+          text: completed.text,
+          settled: true,
+        );
       case ConduitEvents.turnFailed:
         final failed = TurnFailed.fromJson(envelope.payload);
         current = LiveTurn(
@@ -126,6 +174,7 @@ final liveTurnProvider = StreamProvider<LiveTurn?>((ref) {
           messageId: failed.messageId,
           text: failed.partialText,
           failedCode: failed.code,
+          settled: true,
         );
       default:
         return;
@@ -139,6 +188,46 @@ final liveTurnProvider = StreamProvider<LiveTurn?>((ref) {
   });
   return controller.stream;
 });
+
+/// The message this window just sent, until the server's copy arrives.
+///
+/// A sent message is not in the transcript yet: it exists on the server, but
+/// `chats.get` reads the synced conversation, and the sync lands after the
+/// answer. Without this the user's own words vanish the moment they press
+/// send and reappear a turn later, which reads as the app having lost them.
+class PendingUserMessage {
+  const PendingUserMessage({
+    required this.chatId,
+    required this.messageId,
+    required this.text,
+  });
+
+  final String chatId;
+  final String messageId;
+  final String text;
+}
+
+final pendingUserMessageProvider =
+    NotifierProvider<PendingUserMessageNotifier, PendingUserMessage?>(
+      PendingUserMessageNotifier.new,
+    );
+
+class PendingUserMessageNotifier extends Notifier<PendingUserMessage?> {
+  @override
+  PendingUserMessage? build() => null;
+
+  void set(PendingUserMessage message) => state = message;
+
+  /// Drops it once [messages] contains it, so the persisted copy takes over
+  /// rather than the two being rendered side by side.
+  void reconcile(Iterable<ChatMessageDto> messages) {
+    final pending = state;
+    if (pending == null) return;
+    if (messages.any((m) => m.id == pending.messageId)) state = null;
+  }
+
+  void clear() => state = null;
+}
 
 final chatActionsProvider = Provider<ChatActions>((ref) => ChatActions(ref));
 
@@ -156,6 +245,7 @@ class ChatActions {
   /// fetching a model list purely so it can name what the daemon already
   /// knows.
   Future<SendTurnAccepted> send({required String text, String? model}) async {
+    final sentText = text;
     final accepted = await _client.call(
       ConduitMethods.turnsSend,
       params: SendTurn(
@@ -168,7 +258,20 @@ class ChatActions {
     // A new conversation gets its id from the server, so select it here --
     // otherwise the first answer streams into a transcript the user is not
     // looking at.
+    // Selecting the chat also re-subscribes to its scope, which is how this
+    // window starts receiving the turn's events at all. Deltas that landed
+    // in the gap are not lost: each one carries the whole content so far, so
+    // the first one received is complete.
     _ref.read(selectedChatIdProvider.notifier).select(accepted.chatId);
+    _ref
+        .read(pendingUserMessageProvider.notifier)
+        .set(
+          PendingUserMessage(
+            chatId: accepted.chatId,
+            messageId: accepted.userMessageId,
+            text: sentText,
+          ),
+        );
     _ref.invalidate(chatDetailProvider);
     return accepted;
   }
@@ -182,8 +285,11 @@ class ChatActions {
   Future<ChatList> loadMore() =>
       _client.call(ConduitMethods.chatsLoadMore, decode: ChatList.fromJson);
 
-  void select(String? chatId) =>
-      _ref.read(selectedChatIdProvider.notifier).select(chatId);
+  void select(String? chatId) {
+    // A pending message belongs to the chat it was sent in.
+    _ref.read(pendingUserMessageProvider.notifier).clear();
+    _ref.read(selectedChatIdProvider.notifier).select(chatId);
+  }
 
   /// Chooses the model new turns use.
   ///

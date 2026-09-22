@@ -103,6 +103,22 @@ class _Transcript extends StatelessComponent {
     final detail = context.watch(chatDetailProvider);
     final live = context.watch(liveTurnProvider).value;
     final selected = context.watch(selectedChatIdProvider);
+    final pending = context.watch(pendingUserMessageProvider);
+
+    // Once the server's copy of the sent message arrives, stop rendering the
+    // local one -- otherwise the same words appear twice for a moment.
+    final persisted = detail.value?.messages ?? const <ChatMessageDto>[];
+    if (persisted.isNotEmpty) {
+      Future<void>.microtask(
+        () => context
+            .read(pendingUserMessageProvider.notifier)
+            .reconcile(persisted),
+      );
+    }
+    final showPending =
+        pending != null &&
+        pending.chatId == selected &&
+        !persisted.any((message) => message.id == pending.messageId);
 
     return section(classes: 'flex min-w-0 flex-1 flex-col', [
       div(
@@ -124,13 +140,18 @@ class _Transcript extends StatelessComponent {
                   _bubble(message.role, message.content),
               ],
             ),
+            // The message just sent, until the server's copy arrives.
+            if (showPending) _bubble('user', pending.text),
             // Only for the chat on screen: a background turn in another
-            // conversation must not paint into this one.
-            if (live != null && live.chatId == selected)
+            // conversation must not paint into this one. A settled turn also
+            // stands down once the synced transcript contains it.
+            if (live != null &&
+                live.chatId == selected &&
+                !persisted.any((message) => message.id == live.messageId))
               _bubble(
                 'assistant',
                 live.text.isEmpty ? '…' : live.text,
-                streaming: !live.failed,
+                streaming: !live.failed && !live.settled,
                 failed: live.failed,
               ),
           ]),

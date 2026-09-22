@@ -93,6 +93,43 @@ final class TurnsService {
         : await _historyFor(chatId);
 
     final userMessageId = _uuid.v4();
+    final assistantMessageId = _uuid.v4();
+    final userMessage = ChatMessage(
+      id: userMessageId,
+      role: 'user',
+      content: text,
+      timestamp: DateTime.now(),
+    );
+
+    // A new chat is created on the server *before* the completion request.
+    //
+    // Not an optimisation -- a requirement. Open WebUI answers a completion
+    // for an unknown conversation with a JSON null, and the core's recovery
+    // path for that explicitly needs a persisted conversation id: "Cannot
+    // recover a JSON null chat completion without a persisted conversation
+    // ID". Creating first is also what the mobile app does, and it means the
+    // server owns the id from the start, so there is never a local id to
+    // reconcile afterwards.
+    final String resolvedChatId;
+    if (chatId == null) {
+      final created = await api.createConversation(
+        title: _titleFor(text),
+        messages: <ChatMessage>[userMessage],
+        model: model,
+      );
+      resolvedChatId = created.id;
+    } else {
+      resolvedChatId = chatId;
+    }
+
+    // One turn per chat, checked again now that a new chat has an id.
+    if (_active.containsKey(resolvedChatId)) {
+      throw const RpcError(
+        code: ConduitErrorCodes.conflict,
+        debugMessage: 'that chat is already generating',
+      );
+    }
+
     final payload = <Map<String, dynamic>>[
       for (final message in history)
         <String, dynamic>{'role': message.role, 'content': message.content},
@@ -102,23 +139,25 @@ final class TurnsService {
     final completion = await api.sendMessageSession(
       messages: payload,
       model: model,
-      conversationId: chatId,
+      conversationId: resolvedChatId,
+      responseMessageId: assistantMessageId,
+      parentId: history.isEmpty ? null : history.last.id,
+      // What the server records as the user's turn. Without it an existing
+      // chat gains an answer with nothing to answer.
+      userMessage: <String, dynamic>{
+        'id': userMessageId,
+        'role': 'user',
+        'content': text,
+        'timestamp': userMessage.timestamp.millisecondsSinceEpoch ~/ 1000,
+        'models': <String>[model],
+        'childrenIds': <String>[assistantMessageId],
+        if (history.isNotEmpty) 'parentId': history.last.id,
+      },
       toolIds: request.toolIds.isEmpty ? null : request.toolIds,
       enableWebSearch: request.webSearch,
       enableImageGeneration: request.imageGeneration,
       enableCodeInterpreter: request.codeInterpreter,
     );
-
-    // The server owns the conversation id for a new chat. Taking it from the
-    // session rather than minting one here is what makes `route.remap`
-    // unnecessary for the desktop: there is never a local id to reconcile.
-    final resolvedChatId = completion.conversationId ?? chatId;
-    if (resolvedChatId == null) {
-      throw const RpcError(
-        code: ConduitErrorCodes.serverError,
-        debugMessage: 'the server accepted the turn without a chat id',
-      );
-    }
 
     final turn = _ActiveTurn(
       chatId: resolvedChatId,
@@ -155,7 +194,20 @@ final class TurnsService {
       appendStatusUpdate: (_, _) {},
       upsertCodeExecution: (_, _) {},
       appendSourceReference: (_, _) {},
-      updateMessageById: (_, _) {},
+      // How a failed turn arrives. The helper does not throw for a server
+      // refusal -- it sets an error on the message and finishes -- so a
+      // no-op here reported "free tier users do not have access to this
+      // model" to the user as a successful empty answer.
+      updateMessageById: (id, update) {
+        if (id != turn.messageId) return;
+        final applied = update(turn.snapshot());
+        // `content` is nullable, and an error with no message is still an
+        // error -- reporting it as a successful empty answer is the failure
+        // this whole branch exists to avoid.
+        if (applied.error case final error?) {
+          turn.fail(error.content ?? ConduitErrorCodes.serverError);
+        }
+      },
       completeStreamingUi: () {},
       finishStreaming: () => _finish(resolvedChatId),
       getMessages: () => <ChatMessage>[turn.snapshot()],
@@ -219,6 +271,17 @@ final class TurnsService {
     return (available == null || available.isEmpty) ? null : available.first.id;
   }
 
+  /// A first title for a new chat.
+  ///
+  /// The server renames it from the conversation shortly afterwards; this is
+  /// what the sidebar shows until then, and it beats "New Chat" for telling
+  /// two fresh conversations apart.
+  static String _titleFor(String text) {
+    final firstLine = text.split('\n').first.trim();
+    if (firstLine.length <= 48) return firstLine;
+    return '${firstLine.substring(0, 47)}\u2026';
+  }
+
   Future<List<ChatMessage>> _historyFor(String chatId) async {
     final conversations = await _container.read(conversationsProvider.future);
     return conversations
@@ -251,17 +314,36 @@ final class TurnsService {
     final turn = _active.remove(chatId);
     if (turn == null) return;
     turn.ticker?.cancel();
+
     // A final frame regardless of the tick, so the last tokens are never
     // stranded by the coalescing window closing first.
-    _events.publish(
-      ConduitEvents.turnCompleted,
-      scope: chatId,
-      payload: TurnCompleted(
-        chatId: chatId,
-        messageId: turn.messageId,
-        text: turn.text,
-      ).toJson(),
-    );
+    if (turn.failure case final failure?) {
+      _events.publish(
+        ConduitEvents.turnFailed,
+        scope: chatId,
+        payload: TurnFailed(
+          chatId: chatId,
+          messageId: turn.messageId,
+          code: ConduitErrorCodes.serverError,
+          // The server's own words. Section 4 says errors cross as codes, and
+          // they do -- but a refusal like "this model needs a paid plan" is
+          // information only the server has, and dropping it would leave the
+          // user with `server.error` and no way to act.
+          args: <String, String>{'detail': failure},
+          partialText: turn.text,
+        ).toJson(),
+      );
+    } else {
+      _events.publish(
+        ConduitEvents.turnCompleted,
+        scope: chatId,
+        payload: TurnCompleted(
+          chatId: chatId,
+          messageId: turn.messageId,
+          text: turn.text,
+        ).toJson(),
+      );
+    }
     _events.publish(ConduitEvents.chatsChanged, scope: chatId);
   }
 }
@@ -284,6 +366,11 @@ class _ActiveTurn {
 
   Timer? ticker;
   ActiveChatStream? stream;
+
+  /// Set when the server refused or failed the turn.
+  String? failure;
+
+  void fail(String message) => failure = message;
 
   String get text => _pending ?? _content.toString();
 

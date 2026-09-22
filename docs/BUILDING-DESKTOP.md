@@ -60,7 +60,33 @@ conversation sidebar, a transcript and a composer that streams replies.
 | Notes, channels, workspace, Hermes, terminal, voice | M5 to M8 |
 
 Run `npm test` in `desktop/electron` to check the shell still launches and
-talks to the daemon; it is the only test that exercises the whole chain.
+talks to the daemon.
+
+### Testing against a real server
+
+`tests/live-chat.spec.ts` drives the whole product — onboarding, sign-in, the
+model list, a sent message and a streamed reply — against a real Open WebUI
+instance. It skips itself unless a `.env` at the repository root supplies:
+
+```
+OWUI_URL=https://chat.example.com
+OWUI_EMAIL=you@example.com
+OWUI_PASSWORD=...
+OWUI_MODEL=gemma3:1b          # optional; see below
+```
+
+`apps/daemon/test/live_server_test.dart` does the same at the daemon level
+and is much faster to iterate on when something breaks — it was where every
+bug in this path was actually found.
+
+`OWUI_MODEL` is worth setting. Without it the daemon falls back to "the first
+model the server offers", which on a real deployment is as likely as not to
+be one the account cannot use; the refusal is reported properly now, but a
+test that picks a working model is a better test of the happy path.
+
+**`.env` and `test-results/` are both gitignored, and must stay that way.** A
+Playwright failure snapshot captures the DOM, and the DOM of a sign-in form
+contains the password that was typed into it.
 
 ## The command matrix
 

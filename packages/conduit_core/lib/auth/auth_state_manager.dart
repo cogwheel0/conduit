@@ -1102,7 +1102,17 @@ class AuthStateManager extends _$AuthStateManager {
   Future<bool> switchToServerConfig(ServerConfig config) async {
     final storage = ref.read(optimizedStorageServiceProvider);
     final previousActiveId = await storage.getActiveServerId();
-    if (previousActiveId == config.id) return _current.isAuthenticated;
+    if (previousActiveId == config.id) {
+      // Already active -- which a single stored config is, by the storage
+      // layer's own fallback, before anything has explicitly selected it. So
+      // this branch is the *first* connect after the first add, not just a
+      // redundant re-select, and returning without republishing would leave
+      // the providers holding whatever they cached when no server existed.
+      ref.invalidate(serverConfigsProvider);
+      ref.invalidate(activeServerProvider);
+      ref.invalidate(apiServiceProvider);
+      return _current.isAuthenticated;
+    }
 
     final attemptRevision = _beginAuthAttempt();
     _update(

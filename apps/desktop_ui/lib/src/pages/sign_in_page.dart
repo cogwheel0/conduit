@@ -165,7 +165,10 @@ class _SignInPageState extends State<SignInPage> {
   /// what a radio group *is* -- so arrow keys move between them and a screen
   /// reader announces "1 of 3" without any ARIA of our own.
   Component _methodTabs() => fieldset([
-    legend(classes: 'sr-only', [Component.text(t.app.credentials)]),
+    // Not `t.app.credentials`, which is the string "Password" -- the same
+    // word as the first radio below. A group and its first option sharing
+    // a name is exactly what makes a radio group unusable by ear.
+    legend(classes: 'sr-only', [Component.text(t.desktop.desktopSignInMethod)]),
     div(classes: 'flex gap-4', [
       for (final method in SignInMethod.values)
         div(classes: 'flex items-center gap-1.5', [

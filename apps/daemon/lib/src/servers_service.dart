@@ -66,6 +66,7 @@ final class ServersService {
       mtlsPrivateKeyPassword: draft.mtlsPrivateKeyPassword,
     );
     await _storage.saveServerConfigs(<ServerConfig>[...configs, config]);
+    _republishServerConfigs();
     return _summarize(config);
   }
 
@@ -108,6 +109,7 @@ final class ServersService {
 
     final next = <ServerConfig>[...configs]..[index] = updated;
     await _storage.saveServerConfigs(next);
+    _republishServerConfigs();
     return _summarize(updated);
   }
 
@@ -124,6 +126,7 @@ final class ServersService {
     if (await _storage.getActiveServerId() == id) {
       await _storage.setActiveServerId(null);
     }
+    _republishServerConfigs();
     return list();
   }
 
@@ -141,9 +144,33 @@ final class ServersService {
       );
     }
 
+    // Await the active server before reading the client. `apiServiceProvider`
+    // is synchronous and derives from an async one, so immediately after a
+    // connect it is still null -- not because there is no server, but because
+    // the provider it depends on has not resolved yet. Reading it directly
+    // here reported "unknown" for a server that was about to work.
+    await _container.read(activeServerProvider.future);
+    final api = _container.read(apiServiceProvider);
+    if (api == null) {
+      return ServerStatus(
+        activeServerId: activeId,
+        reachability: ServerReachability.unknown,
+        maxSupportedVersion: ServerVersionCompat.maxSupportedVersion,
+      );
+    }
+
+    // `verifyAndGetConfig`, not `backendConfigProvider`. That provider hands
+    // back the *cached* config and refreshes in the background, so on a first
+    // connection it is null simply because nothing has been fetched yet --
+    // which this used to report as "not an Open WebUI server", the one answer
+    // guaranteed to send the user back to re-check a URL that was correct.
+    //
+    // This probe also gives exactly the three outcomes the UI distinguishes:
+    // it throws when the request did not arrive, returns null when something
+    // answered but is not Open WebUI, and returns a config otherwise.
     final BackendConfig? config;
     try {
-      config = await _container.read(backendConfigProvider.future);
+      config = await api.verifyAndGetConfig();
     } on Object catch (error) {
       return ServerStatus(
         activeServerId: activeId,
@@ -156,9 +183,6 @@ final class ServersService {
     }
 
     if (config == null) {
-      // The request completed and produced no Open WebUI config. That is a
-      // different problem from not reaching anything, and a different fix:
-      // the URL points somewhere real that is not Open WebUI.
       return ServerStatus(
         activeServerId: activeId,
         reachability: ServerReachability.notOpenWebUi,
@@ -227,6 +251,28 @@ final class ServersService {
         .read(authStateManagerProvider.notifier)
         .switchToServerConfig(config);
     return list();
+  }
+
+  /// Tells the providers that stored configuration changed.
+  ///
+  /// These writes go straight to `OptimizedStorageService`, which the
+  /// providers cache in front of -- so without this, adding the very first
+  /// server leaves `serverConfigsProvider` holding the empty list it built
+  /// before the server existed, and `apiServiceProvider` therefore stays
+  /// null. Every later call then behaves as though no server were
+  /// configured, which surfaces as a sign-in that fails for no visible
+  /// reason.
+  ///
+  /// Not covered by the invalidation inside `switchToServerConfig`: that
+  /// method returns early when the target is already the active server, and
+  /// a lone stored config *is* already active by the storage layer's own
+  /// fallback -- so the first connect after the first add does nothing at
+  /// all.
+  void _republishServerConfigs() {
+    _container
+      ..invalidate(serverConfigsProvider)
+      ..invalidate(activeServerProvider)
+      ..invalidate(apiServiceProvider);
   }
 
   /// The only `ServerConfig` -> wire conversion.
