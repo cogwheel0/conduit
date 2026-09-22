@@ -49,12 +49,13 @@ conversation sidebar, a transcript and a composer that streams replies.
 | SSO, OAuth and reverse-proxy sign-in | Opens a real browser window; the daemon validates before committing. |
 | Several servers, switching between them | Switching restores the session rather than asking again. |
 | Conversation list, opening a chat, sending, streaming, stopping | |
+| Model picker | The choice is stored with the account, so it survives a restart. |
+| Markdown replies | Headings, lists, tables, code, links. No images or embeds yet. |
 | Settings: appearance, palette, language, connections, sign-out | Thirteen languages, five palettes, light/dark/system. |
 
 | Not yet | Where it lands |
 | --- | --- |
-| Markdown, code highlighting, KaTeX, Mermaid | WP-3.5 -- replies render as plain text for now |
-| Model picker | WP-3.4; the daemon picks the account's selected model |
+| Syntax highlighting, KaTeX, Mermaid, embeds | WP-3.5 -- markdown renders, these do not |
 | Attachments, folders, search UI, rename/pin/delete | WP-3.1 to WP-3.3 |
 | Notes, channels, workspace, Hermes, terminal, voice | M5 to M8 |
 

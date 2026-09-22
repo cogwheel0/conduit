@@ -17,6 +17,7 @@ import 'daemon_paths.dart';
 import 'event_bus.dart';
 import 'log.dart';
 import 'rpc_session.dart';
+import 'models_service.dart';
 import 'servers_service.dart';
 import 'settings_service.dart';
 import 'system_service.dart';
@@ -58,6 +59,7 @@ class DaemonServer {
   SettingsService? _settings;
   ChatsService? _chats;
   TurnsService? _turns;
+  ModelsService? _models;
 
   final EventBus events = EventBus();
   final Map<String, RpcSession> _sessions = <String, RpcSession>{};
@@ -103,6 +105,7 @@ class DaemonServer {
     _settings = SettingsService(core.container);
     _chats = ChatsService(core.container);
     _turns = TurnsService(core.container, events);
+    _models = ModelsService(core.container);
     _log.info('core attached');
   }
 
@@ -197,6 +200,7 @@ class DaemonServer {
         settings: _settings,
         chats: _chats,
         turns: _turns,
+        models: _models,
       );
       _sessions[sessionId] = session;
       _log.debug('session $sessionId opened (subprotocol: $subprotocol)');
@@ -247,6 +251,7 @@ class DaemonServer {
     _settings = null;
     await _turns?.dispose();
     _turns = null;
+    _models = null;
     _chats = null;
     if (!_stopped.isCompleted) _stopped.complete();
   }

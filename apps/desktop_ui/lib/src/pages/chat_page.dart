@@ -185,7 +185,38 @@ class _ComposerState extends State<_Composer> {
     final live = context.watch(liveTurnProvider).value;
     final streaming = live != null && !live.failed;
 
+    final models = context.watch(modelListProvider).value;
+
     return div(classes: 'border-t border-border bg-background p-4', [
+      if (models != null && models.models.isNotEmpty)
+        div(classes: 'mx-auto mb-2 flex max-w-3xl items-center gap-2', [
+          label(
+            [Component.text(t.app.chooseModel)],
+            htmlFor: 'model',
+            classes: 'text-xs text-muted-foreground',
+          ),
+          select(
+            [
+              for (final model in models.models)
+                option(
+                  value: model.id,
+                  selected: models.selectedId == model.id,
+                  [Component.text(model.name)],
+                ),
+            ],
+            id: 'model',
+            classes:
+                'rounded-[--radius] border border-border bg-background '
+                'px-2 py-1 text-xs text-foreground',
+            disabled: _busy,
+            onChange: (values) {
+              if (values.isEmpty) return;
+              unawaited(
+                context.read(chatActionsProvider).selectModel(values.first),
+              );
+            },
+          ),
+        ]),
       form(
         [
           div(classes: 'mx-auto flex max-w-3xl items-end gap-2', [

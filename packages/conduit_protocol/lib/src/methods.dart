@@ -122,6 +122,17 @@ abstract final class ConduitMethods {
   static const String chatsSearch = 'chats.search';
 
   // ---------------------------------------------------------------------
+  // models.* -- what the active server offers (M3).
+  // ---------------------------------------------------------------------
+
+  /// Every model the server offers, and which one is selected.
+  static const String modelsList = 'models.list';
+
+  /// Chooses the model new turns use. Persisted with the account, so the
+  /// choice survives a restart and agrees with the mobile app.
+  static const String modelsSelect = 'models.select';
+
+  // ---------------------------------------------------------------------
   // turns.* -- sending and stopping generation (M3).
   // ---------------------------------------------------------------------
 

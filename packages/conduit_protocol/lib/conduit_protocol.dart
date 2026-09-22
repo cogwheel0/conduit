@@ -14,6 +14,7 @@ export 'src/chats.dart';
 export 'src/events.dart';
 export 'src/handshake.dart';
 export 'src/methods.dart';
+export 'src/models.dart';
 export 'src/peer_helpers.dart';
 export 'src/protocol_version.dart';
 export 'src/rpc_error.dart';

@@ -301,6 +301,36 @@ const Map<String, String> protocolGoldens = <String, String>{
   "keepServerDetails": false
 }''',
 
+  'modelSummary': r'''
+{
+  "id": "gpt-4o",
+  "name": "GPT-4o",
+  "description": "Fast, multimodal.",
+  "pinned": true,
+  "capabilities": [
+    "tools",
+    "vision"
+  ]
+}''',
+
+  'modelList': r'''
+{
+  "models": [
+    {
+      "id": "gpt-4o",
+      "name": "GPT-4o",
+      "pinned": false,
+      "capabilities": []
+    }
+  ],
+  "selectedId": "gpt-4o"
+}''',
+
+  'selectModel': r'''
+{
+  "id": "gpt-4o"
+}''',
+
   'sendTurn': r'''
 {
   "chatId": "chat-7c1f0b2a",

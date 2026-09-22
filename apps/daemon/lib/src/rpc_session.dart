@@ -8,6 +8,7 @@ import 'auth_service.dart';
 import 'chats_service.dart';
 import 'event_bus.dart';
 import 'log.dart';
+import 'models_service.dart';
 import 'servers_service.dart';
 import 'settings_service.dart';
 import 'system_service.dart';
@@ -30,6 +31,7 @@ class RpcSession {
     SettingsService? settings,
     ChatsService? chats,
     TurnsService? turns,
+    ModelsService? models,
   }) : _events = events,
        _log = log,
        _system = system,
@@ -38,6 +40,7 @@ class RpcSession {
        _settings = settings,
        _chats = chats,
        _turns = turns,
+       _models = models,
        _peer = json_rpc.Peer(channel) {
     _register();
   }
@@ -56,6 +59,7 @@ class RpcSession {
   final SettingsService? _settings;
   final ChatsService? _chats;
   final TurnsService? _turns;
+  final ModelsService? _models;
   final json_rpc.Peer _peer;
 
   /// Set by a successful `system.handshake`. Until then every other method is
@@ -209,6 +213,7 @@ class RpcSession {
     _registerSettings();
     _registerChats();
     _registerTurns();
+    _registerModels();
 
     _peer.registerFallback((json_rpc.Parameters params) {
       final method = params.method;
@@ -490,6 +495,36 @@ class RpcSession {
       },
     );
   }
+
+  void _registerModels() {
+    registerTypedMethodNoParams<ModelList>(
+      _peer,
+      ConduitMethods.modelsList,
+      encodeResult: (result) => result.toJson(),
+      handler: () {
+        _requireHandshake();
+        return _requireModels().list();
+      },
+    );
+
+    registerTypedMethod<SelectModel, ModelList>(
+      _peer,
+      ConduitMethods.modelsSelect,
+      decodeParams: SelectModel.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireModels().select(request.id);
+      },
+    );
+  }
+
+  ModelsService _requireModels() =>
+      _models ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
 
   TurnsService _requireTurns() =>
       _turns ??

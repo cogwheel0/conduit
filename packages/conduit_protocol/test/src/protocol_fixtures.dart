@@ -169,6 +169,18 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     token: 'eyJhbGciOiJIUzI1NiJ9.not-a-real-token',
   ),
   'signOutRequest': const SignOutRequest(keepServerDetails: false),
+  'modelSummary': const ModelSummary(
+    id: 'gpt-4o',
+    name: 'GPT-4o',
+    description: 'Fast, multimodal.',
+    pinned: true,
+    capabilities: <String>['tools', 'vision'],
+  ),
+  'modelList': const ModelList(
+    models: <ModelSummary>[ModelSummary(id: 'gpt-4o', name: 'GPT-4o')],
+    selectedId: 'gpt-4o',
+  ),
+  'selectModel': const SelectModel(id: 'gpt-4o'),
   'sendTurn': const SendTurn(
     chatId: 'chat-7c1f0b2a',
     model: 'gpt-4o',
@@ -344,6 +356,9 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'apiKeyLogin': ApiKeyLogin.fromJson,
       'externalAuthCompletion': ExternalAuthCompletion.fromJson,
       'signOutRequest': SignOutRequest.fromJson,
+      'modelSummary': ModelSummary.fromJson,
+      'modelList': ModelList.fromJson,
+      'selectModel': SelectModel.fromJson,
       'sendTurn': SendTurn.fromJson,
       'sendTurnAccepted': SendTurnAccepted.fromJson,
       'turnStarted': TurnStarted.fromJson,

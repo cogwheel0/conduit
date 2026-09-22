@@ -27,6 +27,14 @@ final _chatsChangedProvider = StreamProvider<int>((ref) {
       .map((_) => ++tick);
 });
 
+/// The models the active server offers, and which is selected.
+final modelListProvider = FutureProvider<ModelList>((ref) async {
+  ref.watch(coreConnectionProvider);
+  return ref
+      .watch(rpcClientProvider)
+      .call(ConduitMethods.modelsList, decode: ModelList.fromJson);
+});
+
 /// Which conversation the transcript is showing. Null is the empty state.
 final selectedChatIdProvider = NotifierProvider<SelectedChatId, String?>(
   SelectedChatId.new,
@@ -176,4 +184,17 @@ class ChatActions {
 
   void select(String? chatId) =>
       _ref.read(selectedChatIdProvider.notifier).select(chatId);
+
+  /// Chooses the model new turns use.
+  ///
+  /// Persisted daemon-side with the account rather than held in the window,
+  /// so a second window and the next launch agree with this one.
+  Future<void> selectModel(String id) async {
+    await _client.call(
+      ConduitMethods.modelsSelect,
+      params: SelectModel(id: id).toJson(),
+      decode: ModelList.fromJson,
+    );
+    _ref.invalidate(modelListProvider);
+  }
 }
