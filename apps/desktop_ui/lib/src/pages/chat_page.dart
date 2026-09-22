@@ -400,7 +400,12 @@ class _Transcript extends StatelessComponent {
               error: (error, _) => <Component>[formError('$error')],
               data: (chat) => <Component>[
                 for (final message in chat?.messages ?? const [])
-                  _bubble(message.role, message.content, onCopyCode: copyCode),
+                  _bubble(
+                    message.role,
+                    message.content,
+                    onCopyCode: copyCode,
+                    mathIdPrefix: message.id,
+                  ),
               ],
             ),
             // The message just sent, until the server's copy arrives.
@@ -415,6 +420,7 @@ class _Transcript extends StatelessComponent {
                 'assistant',
                 live.text.isEmpty && !live.failed ? '…' : live.text,
                 onCopyCode: copyCode,
+                mathIdPrefix: live.messageId,
                 streaming: !live.failed && !live.settled,
                 // The server's words when it gave any, ours when it did not.
                 // A red border around an empty bubble was the whole of what
@@ -460,6 +466,7 @@ class _Transcript extends StatelessComponent {
     String role,
     String content, {
     void Function(String source)? onCopyCode,
+    String? mathIdPrefix,
     bool streaming = false,
     String? failure,
   }) {
@@ -477,7 +484,11 @@ class _Transcript extends StatelessComponent {
         if (isUser)
           Component.text(content)
         else if (content.isNotEmpty)
-          MarkdownView(content, onCopyCode: onCopyCode),
+          MarkdownView(
+            content,
+            onCopyCode: onCopyCode,
+            mathIdPrefix: mathIdPrefix,
+          ),
         if (failure case final message?)
           p(
             classes:

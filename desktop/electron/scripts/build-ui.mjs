@@ -4,7 +4,7 @@
 // Ordering matters. theme.css must exist before Tailwind runs (styles.css
 // imports it), and both must exist before Electron loads index.html.
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -35,6 +35,35 @@ const tailwindBin = join(
   '.bin',
   process.platform === 'win32' ? 'tailwindcss.cmd' : 'tailwindcss',
 )
+
+// The render sandbox and the libraries it runs (WP-3.5). Copied rather than
+// bundled: they are loaded by `app://conduit/sandbox.html`, which is framed
+// with an opaque origin and has its own CSP, so they must be real URLs under
+// the web root and not part of the Dart bundle.
+//
+// Vendored through npm, never a CDN (section 5.1). The sandbox has no
+// `connect-src` at all, so a CDN would not even be reachable from it.
+console.log('> sandbox')
+const webDir = join(uiDir, 'web')
+const vendorDir = join(webDir, 'vendor')
+rmSync(vendorDir, { recursive: true, force: true })
+mkdirSync(join(vendorDir, 'katex'), { recursive: true })
+
+const katexDist = join(here, '..', 'node_modules', 'katex', 'dist')
+if (!existsSync(katexDist)) {
+  console.error('KaTeX not found. Run `npm install` in desktop/electron.')
+  process.exit(1)
+}
+for (const file of ['katex.min.js', 'katex.min.css']) {
+  cpSync(join(katexDist, file), join(vendorDir, 'katex', file))
+}
+// The fonts katex.min.css references. Without them every formula falls back
+// to the system serif, which renders but reads as broken.
+cpSync(join(katexDist, 'fonts'), join(vendorDir, 'katex', 'fonts'), {
+  recursive: true,
+})
+cpSync(join(here, '..', 'sandbox', 'sandbox.js'), join(vendorDir, 'sandbox.js'))
+cpSync(join(here, '..', 'sandbox', 'sandbox.html'), join(webDir, 'sandbox.html'))
 
 console.log('> theme.css')
 run('dart', ['run', 'conduit_theme:generate_theme_css'])

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      The render sandbox (WP-3.5).
+
+      Framed by the renderer with `sandbox="allow-scripts"` and nothing else,
+      so this document has an opaque origin: it cannot reach `parent`, read
+      the app's storage, submit a form, open a window or navigate the top
+      frame. `postMessage` is the entire channel in both directions.
+
+      It is served from `app://conduit/` rather than a `srcdoc` or a `blob:`
+      because those inherit the embedder's CSP, which forbids inline script —
+      measured, not assumed, and pinned by the Electron suite. A real URL
+      carries its own policy, which is this one:
+
+        default-src 'none'   nothing loads that is not named below
+        script-src app:      our vendored libraries only; `'self'` would be
+                             the opaque origin and match nothing, and there
+                             is deliberately no `'unsafe-inline'`
+        no connect-src       so a rendered diagram cannot phone home
+
+      The content that arrives over `postMessage` is *data* — a LaTeX
+      string, a graph description — and is handed to a library that turns it
+      into DOM. It is never inserted as markup and never becomes script.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="
+        default-src 'none';
+        script-src app:;
+        style-src app: 'unsafe-inline';
+        font-src app: data:;
+        img-src data: blob:;
+      "
+    />
+    <link rel="stylesheet" href="/vendor/katex/katex.min.css" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: transparent;
+        color: inherit;
+        overflow: hidden;
+      }
+      #out {
+        padding: 2px 0;
+        font-size: 14px;
+      }
+      #out .conduit-error {
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="out"></div>
+    <script src="/vendor/katex/katex.min.js"></script>
+    <script src="/vendor/sandbox.js"></script>
+  </body>
+</html>

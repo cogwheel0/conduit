@@ -2,7 +2,7 @@
   "name": "conduit-desktop",
   "productName": "Conduit",
   "version": "0.1.0",
-  "description": "Conduit desktop client \u2014 Electron shell around the conduitd sidecar and the Jaspr renderer.",
+  "description": "Conduit desktop client — Electron shell around the conduitd sidecar and the Jaspr renderer.",
   "license": "AGPL-3.0-or-later",
   "private": true,
   "main": "out/main.js",
@@ -22,6 +22,7 @@
     "@types/node": "24.10.1",
     "electron": "44.4.3",
     "electron-builder": "26.15.3",
+    "katex": "0.18.7",
     "typescript": "5.9.3"
   },
   "dependencies": {

@@ -51,6 +51,10 @@ apps/*/build/
 apps/desktop_ui/web/main.dart.js*
 apps/desktop_ui/web/theme.css
 apps/desktop_ui/web/app.css
+# Copied out of desktop/electron by build-ui.mjs: the render sandbox and the
+# vendored libraries it runs. Sources are sandbox/ and node_modules.
+apps/desktop_ui/web/sandbox.html
+apps/desktop_ui/web/vendor/
 desktop/electron/dist/
 desktop/electron/node_modules/
 desktop/electron/out/

@@ -303,19 +303,42 @@ test.describe('against a real server', () => {
     ).toBeVisible({ timeout: 15_000 })
     await shot(page, '09-preview')
 
+    // 11. Math, drawn by KaTeX inside the sandbox.
+    //
+    // Focus first: clicking Preview left it on that button, and typing
+    // would have gone there. Shift+Esc is the app's own way back to the
+    // composer, so using it here is also what a user would do.
+    await page.keyboard.press('Shift+Escape')
+    await expect(page.getByPlaceholder('Ask Conduit')).toBeFocused()
+    await page.keyboard.type(
+      'Reply with only this and nothing else: $E = mc^2$',
+    )
+    await page.keyboard.press('Enter')
+    const math = transcript.locator('iframe[src="/sandbox.html"]').last()
+    await expect(math).toBeVisible({ timeout: 120_000 })
+    // KaTeX ran: its output carries the class it always emits, and the
+    // frame grew past the placeholder height it starts at.
+    await expect(
+      math.contentFrame().locator('.katex'),
+    ).toBeVisible({ timeout: 15_000 })
+    await expect
+      .poll(() => math.evaluate((node) => node.getBoundingClientRect().height))
+      .toBeGreaterThan(24)
+    await shot(page, '10-math')
+
     // Settings, which nothing else exercises visually.
     await page.evaluate(() => {
       window.history.pushState(null, '', '/settings/appearance')
       window.dispatchEvent(new PopStateEvent('popstate'))
     })
     await page.waitForTimeout(500)
-    await shot(page, '10-settings-appearance')
+    await shot(page, '11-settings-appearance')
 
     await page.evaluate(() => {
       window.history.pushState(null, '', '/settings/connections')
       window.dispatchEvent(new PopStateEvent('popstate'))
     })
     await page.waitForTimeout(500)
-    await shot(page, '11-settings-connections')
+    await shot(page, '12-settings-connections')
   })
 })

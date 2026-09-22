@@ -3,6 +3,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 
 import '../external_sign_in.dart';
 import '../file_picker.dart';
+import '../sandbox_port.dart';
 import '../shell_bridge.dart';
 import '../window_commands.dart';
 import 'rpc_client.dart';
@@ -41,6 +42,9 @@ final windowCommandsProvider = Provider<WindowCommandsPort>(
 final shortcutBindingProvider = Provider<ShortcutBindingPort>(
   (ref) => NoShortcutBinding(),
 );
+
+/// The render sandbox, overridden in `main.dart`.
+final sandboxProvider = Provider<SandboxPort>((ref) => RecordingSandbox());
 
 /// The live connection to `conduitd`.
 final rpcClientProvider = Provider<RpcClient>((ref) {

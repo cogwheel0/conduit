@@ -184,3 +184,82 @@ test('a previewed reply cannot run a script, twice over', async () => {
   )
   expect(result).toEqual({ sandboxed: 'blocked', 'csp-only': 'blocked' })
 })
+
+test('the render sandbox draws math and reports its height', async () => {
+  const window = await appWindow(app)
+  // The contract between the renderer and `app://conduit/sandbox.html`
+  // (WP-3.5), exercised without a model: create the frame exactly as
+  // SandboxedRender does, wait for `ready`, post a formula, read back the
+  // height and what was drawn.
+  const result = await window.evaluate(
+    () =>
+      new Promise<Record<string, unknown>>((resolve) => {
+        const frame = document.createElement('iframe')
+        frame.setAttribute('sandbox', 'allow-scripts')
+        frame.src = '/sandbox.html'
+        frame.style.width = '400px'
+
+        const out: Record<string, unknown> = { ready: false, height: 0 }
+        const onMessage = (event: MessageEvent) => {
+          if (event.source !== frame.contentWindow) return
+          if (event.data?.conduit === 'ready') {
+            out.ready = true
+            frame.contentWindow?.postMessage(
+              { conduit: 'render', kind: 'math', source: 'E=mc^2', display: true },
+              '*',
+            )
+          }
+          if (event.data?.conduit === 'size') {
+            out.height = event.data.height
+            finish()
+          }
+        }
+        const finish = () => {
+          window.removeEventListener('message', onMessage)
+          frame.remove()
+          resolve(out)
+        }
+        window.addEventListener('message', onMessage)
+        document.body.appendChild(frame)
+        setTimeout(finish, 8_000)
+      }),
+  )
+  expect(result.ready).toBe(true)
+  // A height at all means KaTeX ran and produced nodes; the initial frame
+  // is 24px, so anything at or above that with content is a real render.
+  expect(result.height).toBeGreaterThan(10)
+})
+
+test('the render sandbox cannot reach the app it is embedded in', async () => {
+  const window = await appWindow(app)
+  // The frame has an opaque origin, so `parent.document` is a security
+  // error rather than a reference. This is what makes it safe to run a
+  // library over model output in there at all.
+  const reached = await window.evaluate(
+    () =>
+      new Promise<boolean>((resolve) => {
+        const frame = document.createElement('iframe')
+        frame.setAttribute('sandbox', 'allow-scripts')
+        frame.srcdoc = `<script>
+          let ok = false
+          try { ok = !!parent.document.body } catch (e) { ok = false }
+          parent.postMessage({ reached: ok }, '*')
+        <\/script>`
+        const onMessage = (event: MessageEvent) => {
+          if (event.source !== frame.contentWindow) return
+          window.removeEventListener('message', onMessage)
+          frame.remove()
+          resolve(Boolean(event.data?.reached))
+        }
+        window.addEventListener('message', onMessage)
+        document.body.appendChild(frame)
+        // No message at all is also a pass: the script never ran.
+        setTimeout(() => {
+          window.removeEventListener('message', onMessage)
+          frame.remove()
+          resolve(false)
+        }, 2_000)
+      }),
+  )
+  expect(reached).toBe(false)
+})

@@ -2,7 +2,10 @@ import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:markdown/markdown.dart' as md;
 
+import '../sandbox_port.dart';
 import 'code_block.dart';
+import 'math_syntax.dart';
+import 'sandboxed_render.dart';
 
 /// Renders markdown as DOM, never as HTML (WP-3.5).
 ///
@@ -17,7 +20,12 @@ import 'code_block.dart';
 /// syntax this does not handle yet degrades to plain prose instead of
 /// disappearing -- and a newly-dangerous tag cannot arrive by default.
 class MarkdownView extends StatelessComponent {
-  const MarkdownView(this.markdown, {this.onCopyCode, super.key});
+  const MarkdownView(
+    this.markdown, {
+    this.onCopyCode,
+    this.mathIdPrefix,
+    super.key,
+  });
 
   final String markdown;
 
@@ -26,6 +34,18 @@ class MarkdownView extends StatelessComponent {
   /// Null renders no button, which is the right answer on a surface with no
   /// clipboard -- the VM tests, and any host that has not bound the port.
   final void Function(String source)? onCopyCode;
+
+  /// Namespace for the sandbox frames this view creates (WP-3.5).
+  ///
+  /// Null renders formulas as their LaTeX source instead, which is what
+  /// the VM tests and any host without a sandbox get. It has to be unique
+  /// per message: a frame is addressed by id, and two messages sharing one
+  /// would draw into each other.
+  final String? mathIdPrefix;
+
+  /// Reset at the top of every build, so a formula keeps its frame across
+  /// rebuilds as long as it keeps its position in the message.
+  static int _mathIndex = 0;
 
   /// Inline and block tags the AST walker will render.
   ///
@@ -58,12 +78,24 @@ class MarkdownView extends StatelessComponent {
     'tr',
     'th',
     'td',
+    // Synthetic, produced by `MathSyntax` rather than by the parser. Not a
+    // tag that can arrive from a model's raw HTML -- `encodeHtml: false`
+    // plus the walker means model markup never becomes elements at all.
+    'math',
   };
 
   @override
   Component build(BuildContext context) {
+    _mathIndex = 0;
     final document = md.Document(
       extensionSet: md.ExtensionSet.gitHubWeb,
+      // Before the built-ins, so `$$` is seen as math rather than as two
+      // empty inline spans. Display first for the same reason: `$$x$$`
+      // also matches the single-dollar pattern.
+      inlineSyntaxes: <md.InlineSyntax>[
+        MathSyntax.display(),
+        MathSyntax.inline(),
+      ],
       // No inline HTML: with it, `<script>` in a reply reaches the AST as an
       // element rather than as text, and the walker below would have to be
       // the thing that catches it.
@@ -108,6 +140,8 @@ class MarkdownView extends StatelessComponent {
       }
     }
 
+    if (element.tag == 'math') return _math(element);
+
     return switch (element.tag) {
       'p' => p(children),
       'br' => br(),
@@ -151,6 +185,33 @@ class MarkdownView extends StatelessComponent {
   /// be denied rather than run -- but filtering here means it never becomes a
   /// link in the first place, and the user is not offered something that
   /// silently does nothing.
+  /// A formula, drawn in the sandbox or shown as its own source.
+  ///
+  /// The fallback is deliberate rather than an error state: unrendered
+  /// LaTeX is still readable, and a host with no sandbox -- the VM tests,
+  /// a future embedding -- should degrade to that rather than to nothing.
+  Component _math(md.Element element) {
+    final source = element.textContent;
+    final display = element.attributes['display'] == 'block';
+    final prefix = mathIdPrefix;
+    if (prefix == null) {
+      return code(classes: 'rounded bg-muted px-1 py-0.5 text-xs', [
+        Component.text(source),
+      ]);
+    }
+    // Keyed by content as well as position: a streaming reply re-parses on
+    // every delta, and a frame whose id stayed put while its neighbours
+    // shifted would show the previous formula.
+    final id = '$prefix-math-${_mathIndex++}';
+    return span(classes: display ? 'block my-2' : 'inline-block align-middle', [
+      SandboxedRender(
+        id: id,
+        payload: SandboxPayload(kind: 'math', source: source, display: display),
+        title: source,
+      ),
+    ]);
+  }
+
   /// The fence's info string, which `package:markdown` records as a
   /// `language-xxx` class on the inner `code` element.
   static String? _fenceLanguage(md.Element code) {

@@ -8,6 +8,7 @@ import 'package:web/web.dart' as web;
 import 'src/app.dart';
 import 'src/bridge.dart';
 import 'src/keyboard.dart';
+import 'src/sandbox_bridge.dart';
 import 'src/l10n/strings.g.dart';
 import 'src/rpc/rpc_providers.dart';
 import 'src/rpc/settings_providers.dart';
@@ -49,6 +50,7 @@ Future<void> main() async {
       shortcutBindingProvider.overrideWithValue(
         ShortcutDispatcher(isMac: bridge.platform == 'darwin'),
       ),
+      sandboxProvider.overrideWithValue(DocumentSandbox()),
     ],
   );
   // Start connecting before the first paint so the status card usually
