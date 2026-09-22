@@ -109,6 +109,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.7",
+      "title": "Novità",
+      "intro": "Ciao! Apple Private Cloud Compute compare nell'elenco dei modelli e risponde. Su iPhone, Interrompi ti lascia interrompere l'assistente mentre parla. Open WebUI 0.11.4 funziona, e cancellare il prompt di sistema o il modello predefinito cancella il valore salvato. Le liste di sistema non chiudono più l'app, il blocco nero accanto al microfono è sparito, e una risposta finita non torna come se fosse ancora in corso.",
+      "bullets": [
+        {
+          "text": "Apple Private Cloud Compute: compare nell'elenco dei modelli e risponde. Apple On-Device e Private Cloud Compute usano il simbolo di Apple.",
+          "icon": "direct"
+        },
+        {
+          "text": "Interrompi: le impostazioni vocali dell'iPhone ce l'hanno. L'assistente continua ad ascoltare mentre parla, e puoi interromperlo. Scegliere un'opzione in una lista di sistema non chiude più l'app. Il blocco nero accanto al microfono sparisce quando la riga ci sta. Una risposta finita resta finita dopo l'aggiornamento, e Interrompi generazione resta spento.",
+          "icon": "polish"
+        },
+        {
+          "text": "Open WebUI 0.11.4: nessun avviso di compatibilità. Cancellare il prompt di sistema o il modello predefinito cancella il valore salvato.",
+          "icon": "direct"
+        }
+      ]
     }
   ]
 }

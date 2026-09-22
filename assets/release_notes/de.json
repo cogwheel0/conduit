@@ -109,6 +109,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.7",
+      "title": "Neuigkeiten",
+      "intro": "Hallo! Apple Private Cloud Compute steht in der Modellauswahl und antwortet. Auf dem iPhone kannst du mit Dazwischenreden den Assistenten unterbrechen, während er spricht. Open WebUI 0.11.4 funktioniert, und wenn du den System-Prompt oder das Standardmodell löschst, ist der gespeicherte Wert weg. Systemlisten stürzen nicht mehr ab, der schwarze Block neben dem Mikrofon ist weg, und eine fertige Antwort sieht nach dem Aktualisieren nicht mehr so aus, als würde sie noch streamen.",
+      "bullets": [
+        {
+          "text": "Apple Private Cloud Compute: steht in der Modellauswahl und antwortet. Apple On-Device und Private Cloud Compute nutzen Apples Symbol.",
+          "icon": "direct"
+        },
+        {
+          "text": "Dazwischenreden: das Sprachmenü auf dem iPhone hat den Schalter. Der Assistent hört weiter zu, während er spricht, und du kannst ihn unterbrechen. Eine Option in einer Systemliste wählen stürzt die App nicht mehr ab. Der schwarze Block neben dem Mikrofon ist weg, wenn die Zeile passt. Eine fertige Antwort bleibt nach dem Aktualisieren fertig, und Generierung stoppen bleibt aus.",
+          "icon": "polish"
+        },
+        {
+          "text": "Open WebUI 0.11.4: keine Kompatibilitätswarnung. Wenn du den System-Prompt oder das Standardmodell löschst, ist der gespeicherte Wert weg.",
+          "icon": "direct"
+        }
+      ]
     }
   ]
 }

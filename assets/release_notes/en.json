@@ -109,6 +109,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.7",
+      "title": "What's new",
+      "intro": "Hi! Apple Private Cloud Compute is in the model picker and answers. On iPhone, Barge in lets you interrupt the assistant while it speaks. Open WebUI 0.11.4 works, and clearing the system prompt or the default model clears the saved value. I also fixed system lists that crashed, a black block next to the mic, and finished replies that showed Stop again.",
+      "bullets": [
+        {
+          "text": "Apple Private Cloud Compute: it shows in the model picker and answers. Apple On-Device and Private Cloud Compute use Apple's symbol.",
+          "icon": "direct"
+        },
+        {
+          "text": "Barge in: the iPhone voice sheet includes this toggle. The assistant keeps listening while it speaks, so you can interrupt it. Choosing an option in a system list no longer crashes the app. The black block next to the mic is gone when the row fits on screen. A finished reply stays finished after a refresh, and the Stop button stays off.",
+          "icon": "polish"
+        },
+        {
+          "text": "Open WebUI 0.11.4: the app talks to it without a compatibility warning. Clearing the system prompt or the default model clears the saved value.",
+          "icon": "direct"
+        }
+      ]
     }
   ]
 }

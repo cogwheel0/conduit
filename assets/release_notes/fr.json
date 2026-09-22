@@ -109,6 +109,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.7",
+      "title": "Nouveautés",
+      "intro": "Bonjour ! Apple Private Cloud Compute apparaît dans la liste des modèles et répond. Sur iPhone, Interruption permet de couper l'assistant pendant qu'il parle. Open WebUI 0.11.4 fonctionne, et effacer le prompt système ou le modèle par défaut efface la valeur enregistrée. Les listes système ne plantent plus, le bloc noir à côté du micro a disparu, et une réponse terminée ne revient plus comme si elle était encore en cours.",
+      "bullets": [
+        {
+          "text": "Apple Private Cloud Compute : il apparaît dans la liste des modèles et répond. Apple On-Device et Private Cloud Compute utilisent le symbole d'Apple.",
+          "icon": "direct"
+        },
+        {
+          "text": "Interruption : les réglages vocaux de l'iPhone l'incluent. L'assistant continue d'écouter pendant qu'il parle, et vous pouvez le couper. Choisir une option dans une liste système ne plante plus l'app. Le bloc noir à côté du micro disparaît quand la ligne tient à l'écran. Une réponse terminée reste terminée après une actualisation, et Arrêter la génération ne revient pas.",
+          "icon": "polish"
+        },
+        {
+          "text": "Open WebUI 0.11.4 : pas d'avertissement de compatibilité. Effacer le prompt système ou le modèle par défaut efface la valeur enregistrée.",
+          "icon": "direct"
+        }
+      ]
     }
   ]
 }

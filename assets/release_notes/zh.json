@@ -109,6 +109,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.7",
+      "title": "新变化",
+      "intro": "你好！Apple Private Cloud Compute 会出现在模型列表里并回答。iPhone 上可以用插话，在助手说话时打断它。Open WebUI 0.11.4 可以正常连接。清除系统提示词或默认模型时，已保存的值会一起清掉。系统列表不会再让应用崩溃，麦克风旁边的黑块没了，写完的回答刷新后也不会再像还在流出。",
+      "bullets": [
+        {
+          "text": "Apple Private Cloud Compute: 会出现在模型列表里并回答。Apple On-Device 和 Private Cloud Compute 使用 Apple 的标志。",
+          "icon": "direct"
+        },
+        {
+          "text": "插话: iPhone 的语音设置里有这个开关。助手说话时继续听，你可以打断它。在系统列表里选一项不会再让应用崩溃。一行放得下时，麦克风旁边的黑块不会出现。已经写完的回答在刷新后仍是写完的，停止生成也不会再出现。",
+          "icon": "polish"
+        },
+        {
+          "text": "Open WebUI 0.11.4: 不再弹出兼容性警告。清除系统提示词或默认模型时，已保存的值会一起清掉。",
+          "icon": "direct"
+        }
+      ]
     }
   ]
 }
