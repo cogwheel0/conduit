@@ -16,6 +16,7 @@ import 'package:uuid/uuid.dart';
 
 import 'event_bus.dart';
 import 'files_service.dart';
+import 'settled.dart';
 
 /// Implements `turns.*`: sending a message and streaming the answer (M3).
 ///
@@ -99,7 +100,7 @@ final class TurnsService {
       );
     }
 
-    final model = _resolveModel(request.model);
+    final model = await _resolveModel(request.model);
     if (model == null) {
       throw const RpcError(
         code: ConduitErrorCodes.unsupported,
@@ -244,7 +245,7 @@ final class TurnsService {
     // already falls back to "the first model the server offers". On a
     // server whose first model is paid-tier, every regenerate came back as
     // a refusal for a model the user had not chosen.
-    final model = _resolveModel(request.model ?? history[index].model);
+    final model = await _resolveModel(request.model ?? history[index].model);
     if (model == null) {
       throw const RpcError(
         code: ConduitErrorCodes.unsupported,
@@ -301,6 +302,104 @@ final class TurnsService {
     return SendTurnAccepted(
       chatId: request.chatId,
       userMessageId: userMessage.id,
+      assistantMessageId: completion.messageId,
+    );
+  }
+
+  /// Replaces one of the user's messages and answers the new text.
+  ///
+  /// The new question is a sibling of the old one: same parent, new id.
+  /// Open WebUI links it into the parent's children and makes it current,
+  /// and the old question keeps its answer and everything after it. Nothing
+  /// is deleted.
+  Future<SendTurnAccepted> edit(EditTurn request) async {
+    final api = _requireApi();
+    _requireIdle(request.chatId);
+    final text = request.text.trim();
+    if (text.isEmpty) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'turns.edit needs a non-empty text',
+      );
+    }
+
+    final history = await _historyFor(request.chatId);
+    final index = history.indexWhere((m) => m.id == request.messageId);
+    if (index < 0) {
+      throw const RpcError(
+        code: ConduitErrorCodes.notFound,
+        debugMessage: 'no such message in that conversation',
+      );
+    }
+    final original = history[index];
+    if (original.role != 'user') {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'only a user message can be edited',
+      );
+    }
+
+    // Everything before the edited question, which is what the new one is
+    // asked on top of. Answers after it belong to the old branch.
+    final before = history.sublist(0, index);
+    // The same parent the original had. That makes the two siblings, and
+    // makes this a branch rather than a continuation.
+    final parentId = message_tree.chatMessageParentId(original);
+    // A user message carries no model. The answer that followed it does,
+    // and "ask this again, differently" means the same model as before.
+    final answeredWith = history
+        .skip(index + 1)
+        .where((m) => m.role == 'assistant')
+        .firstOrNull
+        ?.model;
+    final model = await _resolveModel(request.model ?? answeredWith);
+    if (model == null) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: 'this server offers no models',
+      );
+    }
+
+    final userMessageId = _uuid.v4();
+    final assistantMessageId = _uuid.v4();
+    final now = DateTime.now();
+
+    final completion = await api.sendMessageSession(
+      messages: <Map<String, dynamic>>[
+        for (final message in before)
+          <String, dynamic>{'role': message.role, 'content': message.content},
+        <String, dynamic>{'role': 'user', 'content': text},
+      ],
+      model: model,
+      conversationId: request.chatId,
+      responseMessageId: assistantMessageId,
+      // As with regenerate, `parent_id` is the *user message's* parent. The
+      // server uses the user message's own `parentId` to link it into that
+      // parent's children, which is what puts the new question beside the
+      // old one.
+      parentId: parentId,
+      userMessage: <String, dynamic>{
+        'id': userMessageId,
+        'role': 'user',
+        'content': text,
+        'timestamp': now.millisecondsSinceEpoch ~/ 1000,
+        'models': <String>[model],
+        'childrenIds': <String>[assistantMessageId],
+        'parentId': ?parentId,
+      },
+    );
+
+    _attach(
+      api: api,
+      chatId: request.chatId,
+      model: model,
+      completion: completion,
+      request: SendTurn(chatId: request.chatId, text: text),
+    );
+
+    return SendTurnAccepted(
+      chatId: request.chatId,
+      userMessageId: userMessageId,
       assistantMessageId: completion.messageId,
     );
   }
@@ -414,15 +513,28 @@ final class TurnsService {
   /// a value. Otherwise the account's current selection, and failing that the
   /// first model the server offers -- which is what a fresh install has
   /// before anything has been chosen.
-  String? _resolveModel(String? requested) {
+  Future<String?> _resolveModel(String? requested) async {
     final trimmed = requested?.trim();
     if (trimmed != null && trimmed.isNotEmpty) return trimmed;
 
     final selected = _container.read(selectedModelProvider);
     if (selected != null) return selected.id;
 
-    final available = _container.read(modelsProvider).value;
-    return (available == null || available.isEmpty) ? null : available.first.id;
+    // Awaited, not read with `.value`. That was null until something else
+    // had loaded the model list, so a turn sent before the renderer asked
+    // for models failed with "this server offers no models" on a server
+    // that offers a couple of dozen.
+    try {
+      final available = await readSettled(_container, modelsProvider.future);
+      return available.isEmpty ? null : available.first.id;
+    } on Object catch (error) {
+      DebugLogger.error(
+        'models-unavailable',
+        scope: 'daemon/turns',
+        error: error,
+      );
+      return null;
+    }
   }
 
   /// A first title for a new chat.
@@ -537,7 +649,13 @@ final class TurnsService {
     // `loadConversationProvider` is a family. An entry that already loaded
     // this chat would otherwise answer from what it read before the pull.
     _container.invalidate(loadConversationProvider(chatId));
-    _events.publish(ConduitEvents.chatsChanged, scope: chatId);
+    // Unscoped, so every window's sidebar reorders, including a window
+    // showing a different conversation. The payload says which chat it was
+    // about, so only a window showing that chat refetches its transcript.
+    _events.publish(
+      ConduitEvents.chatsChanged,
+      payload: ChatsChanged(chatId: chatId).toJson(),
+    );
   }
 }
 

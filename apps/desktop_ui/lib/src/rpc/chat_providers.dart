@@ -23,14 +23,25 @@ final chatListProvider = FutureProvider<ChatList>((ref) async {
       .call(ConduitMethods.chatsList, decode: ChatList.fromJson);
 });
 
-/// Ticks whenever the daemon publishes `chats.changed`.
-final _chatsChangedProvider = StreamProvider<int>((ref) {
+/// Ticks whenever the daemon publishes `chats.changed`, with the chat it
+/// was about, if it named one.
+///
+/// A tick as well as the id, because the same chat changing twice would
+/// otherwise be an equal value, and an equal value notifies nobody.
+final _chatsChangedProvider = StreamProvider<({int tick, String? chatId})>((
+  ref,
+) {
   var tick = 0;
   return ref
       .watch(rpcClientProvider)
       .events
       .where((envelope) => envelope.event == ConduitEvents.chatsChanged)
-      .map((_) => ++tick);
+      .map(
+        (envelope) => (
+          tick: ++tick,
+          chatId: ChatsChanged.fromJson(envelope.payload).chatId,
+        ),
+      );
 });
 
 /// The models the active server offers, and which is selected.
@@ -63,6 +74,12 @@ class SearchQuery extends Notifier<String> {
 final searchResultsProvider = FutureProvider<ChatSearchResults?>((ref) async {
   final query = ref.watch(searchQueryProvider).trim();
   if (query.isEmpty) return null;
+  // Re-run as the list changes and as the sync moves. The index fills during
+  // the first sync, and a sync that writes message bodies changes the index
+  // without changing the list. A search typed in that window should pick up
+  // results as they land, not keep the empty answer it got first.
+  ref.watch(_chatsChangedProvider);
+  ref.watch(syncStateProvider);
 
   // Cancelled by the next keystroke, because watching the query rebuilds
   // this provider and disposes the previous body.
@@ -101,12 +118,22 @@ final chatDetailProvider = FutureProvider<ChatDetail?>((ref) async {
   final chatId = ref.watch(selectedChatIdProvider);
   if (chatId == null) return null;
   ref.watch(coreConnectionProvider);
-  // Refetched when the daemon says the chat changed. This comment's
-  // predecessor said so and the code did not. After a turn, the transcript
-  // kept the empty placeholder it had fetched at send time, and the live
-  // overlay stood in for the answer indefinitely. So a regenerate, which
-  // only a persisted answer offers, never appeared.
-  ref.watch(_chatsChangedProvider);
+  // Refetched when the daemon says this chat changed, or that something
+  // may have. An earlier comment here promised this and the code did not do
+  // it: after a turn, the transcript kept the empty placeholder fetched at
+  // send time, and a Regenerate, which only a persisted answer offers,
+  // never appeared.
+  //
+  // `listen` and not `watch`, because the event is unscoped. Every window
+  // hears every chat change so that every sidebar can reorder, but a
+  // transcript has no reason to refetch because some other chat changed.
+  ref.listen(_chatsChangedProvider, (_, next) {
+    final changed = next.value;
+    if (changed == null) return;
+    if (changed.chatId == null || changed.chatId == chatId) {
+      ref.invalidateSelf();
+    }
+  });
 
   final raw = await ref
       .read(rpcClientProvider)
@@ -251,11 +278,19 @@ class PendingUserMessage {
     required this.chatId,
     required this.messageId,
     required this.text,
+    this.replaces,
   });
 
   final String chatId;
   final String messageId;
   final String text;
+
+  /// The question this one was edited from, if it was.
+  ///
+  /// Until the sync lands, the transcript still holds the old branch. Hiding
+  /// the replaced question and everything after it is what makes the edit
+  /// look immediate rather than stacked underneath the original.
+  final String? replaces;
 }
 
 final pendingUserMessageProvider =
@@ -381,6 +416,36 @@ class ChatActions {
     ).toJson(),
     decode: SendTurnAccepted.fromJson,
   );
+
+  /// Replaces one of the user's messages and answers it, as a new branch.
+  Future<SendTurnAccepted> edit({
+    required String chatId,
+    required String messageId,
+    required String text,
+  }) async {
+    final accepted = await _client.call(
+      ConduitMethods.turnsEdit,
+      params: EditTurn(
+        chatId: chatId,
+        messageId: messageId,
+        text: text,
+      ).toJson(),
+      decode: SendTurnAccepted.fromJson,
+    );
+    // The edited question shows at once, rather than the old one sitting
+    // there until the sync lands.
+    _ref
+        .read(pendingUserMessageProvider.notifier)
+        .set(
+          PendingUserMessage(
+            chatId: accepted.chatId,
+            messageId: accepted.userMessageId,
+            text: text,
+            replaces: messageId,
+          ),
+        );
+    return accepted;
+  }
 
   Future<void> stop(String chatId) => _client.call(
     ConduitMethods.turnsStop,
@@ -510,3 +575,47 @@ class AnswerVersions extends Notifier<Map<String, int>> {
   void show(String messageId, int index) =>
       state = <String, int>{...state, messageId: index};
 }
+
+/// Which of the user's messages is being edited in place, if any.
+final editingMessageProvider = NotifierProvider<EditingMessage, String?>(
+  EditingMessage.new,
+);
+
+class EditingMessage extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  void start(String messageId) => state = messageId;
+  void stop() => state = null;
+}
+
+/// The sync engine's state (WP-3.1): asked for once, then followed.
+///
+/// Subscribed to events before asking, so a change that lands between the
+/// answer and the subscription is not lost. The later of the two wins,
+/// which is the one that is true.
+final syncStateProvider = StreamProvider<SyncState>((ref) {
+  ref.watch(authStatusProvider);
+  final client = ref.watch(rpcClientProvider);
+  final controller = StreamController<SyncState>();
+  var sawEvent = false;
+  final subscription = client.events
+      .where((envelope) => envelope.event == ConduitEvents.syncStatus)
+      .listen((envelope) {
+        sawEvent = true;
+        controller.add(SyncState.fromJson(envelope.payload));
+      });
+  unawaited(
+    client
+        .call(ConduitMethods.syncGet, decode: SyncState.fromJson)
+        .then((state) {
+          if (!sawEvent && !controller.isClosed) controller.add(state);
+        })
+        .catchError((Object _) {}),
+  );
+  ref.onDispose(() {
+    unawaited(subscription.cancel());
+    unawaited(controller.close());
+  });
+  return controller.stream;
+});

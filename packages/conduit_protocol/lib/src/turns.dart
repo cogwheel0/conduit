@@ -75,6 +75,28 @@ abstract class RegenerateTurn with _$RegenerateTurn {
       _$RegenerateTurnFromJson(json);
 }
 
+/// Params for `turns.edit` (WP-3.2).
+///
+/// Sends a replacement for one of the user's messages and answers it. On
+/// the server this is a branch, not an overwrite: the new question becomes
+/// a sibling of the old one, and the old question and everything after it
+/// stay in the history. Editing a question to ask it better should never
+/// cost the answer to the original.
+@freezed
+abstract class EditTurn with _$EditTurn {
+  const factory EditTurn({
+    required String chatId,
+
+    /// The user message being replaced.
+    required String messageId,
+    required String text,
+    String? model,
+  }) = _EditTurn;
+
+  factory EditTurn.fromJson(Map<String, dynamic> json) =>
+      _$EditTurnFromJson(json);
+}
+
 /// Payload of `turn.started`.
 @freezed
 abstract class TurnStarted with _$TurnStarted {

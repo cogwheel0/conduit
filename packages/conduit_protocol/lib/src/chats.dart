@@ -181,6 +181,15 @@ abstract class ChatSearchHit with _$ChatSearchHit {
 abstract class ChatSearchResults with _$ChatSearchResults {
   const factory ChatSearchResults({
     @Default(<ChatSearchHit>[]) List<ChatSearchHit> hits,
+
+    /// False while the local index may be missing conversations: before
+    /// the first full sync has finished, or while one is running.
+    ///
+    /// Search runs against the database, which is right, but the database
+    /// fills over the first minute after sign-in. Without this, a search
+    /// in that window answered "Nothing matched" as though that were
+    /// settled.
+    @Default(true) bool complete,
   }) = _ChatSearchResults;
 
   factory ChatSearchResults.fromJson(Map<String, dynamic> json) =>
@@ -235,4 +244,45 @@ abstract class ArchivedVisibility with _$ArchivedVisibility {
 
   factory ArchivedVisibility.fromJson(Map<String, dynamic> json) =>
       _$ArchivedVisibilityFromJson(json);
+}
+
+/// Payload of `chats.changed`.
+///
+/// Published unscoped, so every window hears it. Every window's sidebar
+/// may need to reorder, including windows showing a different chat.
+/// [chatId] says whether it is about one conversation. A transcript only
+/// refetches for its own chat, or when the change is general (a sync that
+/// may have touched anything).
+@freezed
+abstract class ChatsChanged with _$ChatsChanged {
+  const factory ChatsChanged({String? chatId}) = _ChatsChanged;
+
+  factory ChatsChanged.fromJson(Map<String, dynamic> json) =>
+      _$ChatsChangedFromJson(json);
+}
+
+/// Payload of `sync.status` (WP-3.1).
+///
+/// Published whenever the sync engine starts or finishes a cycle. The
+/// sidebar shows it, and search re-runs on it, because the index fills
+/// while a sync runs and a search typed during the first one should pick up
+/// what lands.
+@freezed
+abstract class SyncState with _$SyncState {
+  const factory SyncState({
+    @Default(false) bool running,
+
+    /// Between 0 and 1 while running, when the engine knows the total.
+    double? progress,
+
+    /// Whether a full cycle has ever succeeded. Before the first one, the
+    /// local database is known to be missing conversations.
+    @Default(false) bool everCompleted,
+
+    /// The last cycle's failure, as the engine reported it.
+    String? lastError,
+  }) = _SyncState;
+
+  factory SyncState.fromJson(Map<String, dynamic> json) =>
+      _$SyncStateFromJson(json);
 }

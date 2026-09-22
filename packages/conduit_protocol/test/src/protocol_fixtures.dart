@@ -218,6 +218,13 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     partialText: 'The outbox dra',
   ),
   'stopTurn': const StopTurn(chatId: 'chat-7c1f0b2a'),
+  'syncState': const SyncState(running: true, progress: 0.4),
+  'chatsChanged': const ChatsChanged(chatId: 'chat-7c1f0b2a'),
+  'editTurn': const EditTurn(
+    chatId: 'chat-7c1f0b2a',
+    messageId: 'msg-user-01',
+    text: 'What I meant to ask',
+  ),
   'chatMessageVersionDto': const ChatMessageVersionDto(
     id: 'msg-earlier',
     content: 'The first answer.',
@@ -310,6 +317,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
         updatedAtMs: 1758412800000,
       ),
     ],
+    complete: false,
   ),
   'serverStatusNoServer': const ServerStatus(maxSupportedVersion: '0.11.3'),
   'serverStatusReachable': const ServerStatus(
@@ -399,6 +407,9 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'turnCompleted': TurnCompleted.fromJson,
       'turnFailed': TurnFailed.fromJson,
       'stopTurn': StopTurn.fromJson,
+      'syncState': SyncState.fromJson,
+      'chatsChanged': ChatsChanged.fromJson,
+      'editTurn': EditTurn.fromJson,
       'chatMessageVersionDto': ChatMessageVersionDto.fromJson,
       'folderSummary': FolderSummary.fromJson,
       'archivedVisibility': ArchivedVisibility.fromJson,

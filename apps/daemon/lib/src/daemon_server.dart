@@ -106,7 +106,7 @@ class DaemonServer {
     _servers = ServersService(core.container);
     _auth = AuthService(core.container);
     _settings = SettingsService(core.container);
-    _chats = ChatsService(core.container);
+    _chats = ChatsService(core.container, events: events);
     _files = FilesService(core.container);
     _turns = TurnsService(core.container, events, files: _files!);
     _models = ModelsService(core.container);

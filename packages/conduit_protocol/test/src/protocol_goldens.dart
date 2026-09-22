@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.3.0",
+  "protocolVersion": "1.6.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.3.0",
+  "protocolVersion": "1.6.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -394,6 +394,25 @@ const Map<String, String> protocolGoldens = <String, String>{
   "chatId": "chat-7c1f0b2a"
 }''',
 
+  'syncState': r'''
+{
+  "running": true,
+  "progress": 0.4,
+  "everCompleted": false
+}''',
+
+  'chatsChanged': r'''
+{
+  "chatId": "chat-7c1f0b2a"
+}''',
+
+  'editTurn': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "messageId": "msg-user-01",
+  "text": "What I meant to ask"
+}''',
+
   'chatMessageVersionDto': r'''
 {
   "id": "msg-earlier",
@@ -547,7 +566,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "title": "Rewriting the sync engine",
       "updatedAtMs": 1758412800000
     }
-  ]
+  ],
+  "complete": false
 }''',
 
   'serverStatusNoServer': r'''

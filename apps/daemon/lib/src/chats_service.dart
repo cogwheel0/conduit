@@ -10,6 +10,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
+import 'event_bus.dart';
 import 'settled.dart';
 
 /// Implements `chats.*` over the core's conversation providers (M3).
@@ -20,31 +21,138 @@ import 'settled.dart';
 /// any of that here would give the desktop a list that disagrees with the
 /// mobile app's for the same account.
 final class ChatsService {
-  ChatsService(this._container);
+  ChatsService(this._container, {EventBus? events, DateTime Function()? now})
+    : _events = events,
+      _now = now ?? DateTime.now {
+    if (events != null) {
+      _announceListChanges();
+      _announceSync();
+    }
+  }
+
+  /// The sync engine's state, as the protocol carries it.
+  SyncState syncState() => _describe(_container.read(syncEngineProvider));
+
+  static SyncState _describe(SyncStatus status) => SyncState(
+    running: status.phase == SyncPhase.running,
+    progress: status.progress,
+    everCompleted: status.lastSuccessUpdatedAtWatermark != null,
+    lastError: status.lastError,
+  );
+
+  /// Publishes `sync.status` when a cycle starts or ends, and on progress
+  /// in steps a person would notice.
+  ///
+  /// Declared in the protocol since M0 and never sent. It matters now
+  /// because a list answered from the database can be ahead of the search
+  /// index: a sync that writes message bodies changes the index without
+  /// changing the list, so nothing told a search typed during the first sync
+  /// to look again. It sat on "Still syncing" with no results indefinitely.
+  void _announceSync() {
+    var last = syncState();
+    _container.listen<SyncStatus>(syncEngineProvider, (_, next) {
+      final now = _describe(next);
+      final progressed =
+          ((now.progress ?? 0) - (last.progress ?? 0)).abs() >= 0.05;
+      if (now.running == last.running &&
+          now.everCompleted == last.everCompleted &&
+          now.lastError == last.lastError &&
+          !progressed) {
+        return;
+      }
+      last = now;
+      _events?.publish(ConduitEvents.syncStatus, payload: now.toJson());
+    });
+  }
+
+  /// Publishes `chats.changed` whenever the list itself changes.
+  ///
+  /// Keyed on the projection rather than on whatever caused the change.
+  /// Rows arrive from the post-sign-in sync, a list-prompted pull, a turn's
+  /// snapshot pull, or another device, and announcing only the pulls this
+  /// class started is what left a fresh install on "No conversations yet":
+  /// the sync that followed sign-in filled the database and nothing said
+  /// so. `conversationsProvider` already drops emissions identical to the
+  /// last one, so a change here is a real change.
+  ///
+  /// Debounced. An initial sync writes rows in batches, and one refetch per
+  /// batch would have every window list two hundred conversations a dozen
+  /// times in a row.
+  void _announceListChanges() {
+    Timer? pending;
+    _container.listen<AsyncValue<List<Conversation>>>(conversationsProvider, (
+      previous,
+      next,
+    ) {
+      if (!next.hasValue || identical(previous?.value, next.value)) return;
+      pending?.cancel();
+      pending = Timer(const Duration(milliseconds: 250), () {
+        _events?.publish(
+          ConduitEvents.chatsChanged,
+          payload: const ChatsChanged().toJson(),
+        );
+      });
+    });
+  }
 
   final ProviderContainer _container;
+
+  /// Where a background refresh announces that it landed. Optional so a test
+  /// that only reads the list does not have to build one.
+  final EventBus? _events;
+  final DateTime Function() _now;
 
   Conversations get _conversations =>
       _container.read(conversationsProvider.notifier);
 
-  /// The conversation list, after making sure it reflects the server.
+  /// The conversation list, as the local database has it right now.
   ///
   /// `conversationsProvider` projects the *local database*, which only holds
   /// what the sync engine has pulled. On mobile the pull is driven by
-  /// `syncTriggers`, which watches app lifecycle and connectivity; the
-  /// sidecar has neither, so it asks directly.
+  /// `syncTriggers`. The sidecar has no equivalent, so a list call is what
+  /// prompts one.
   ///
-  /// Once per call rather than on a timer: the renderer reads this when a
-  /// window opens, when the session changes and when the daemon says
-  /// `chats.changed`, which is exactly when a refresh is worth its round
-  /// trip.
+  /// Prompts, but does not wait for it. This used to await a full pull on
+  /// every call, which takes seconds with a couple of hundred conversations.
+  /// The renderer refetches on every `chats.changed`, and each refetch
+  /// discarded the one still in flight. During an active conversation the
+  /// events arrived faster than a pull finished, so the sidebar could go a
+  /// whole session without updating: the chat you were in was never at the
+  /// top and never highlighted. Now the database answers at once. If the pull
+  /// changes the list, the projection listener publishes another
+  /// `chats.changed`.
   Future<ChatList> list() async {
-    await _pull('chats.list');
+    _refreshInBackground();
     final conversations = await readSettled(
       _container,
       conversationsProvider.future,
     );
     return _project(conversations, await _folders());
+  }
+
+  /// How long a list-prompted pull suppresses the next.
+  ///
+  /// This is what stops a loop. The pull ends by announcing `chats.changed`,
+  /// the renderer answers that by listing again, and without a floor that
+  /// list would pull again, forever.
+  static const Duration _refreshFloor = Duration(seconds: 30);
+
+  DateTime? _lastRefresh;
+  bool _refreshing = false;
+
+  void _refreshInBackground() {
+    final now = _now();
+    if (_refreshing) return;
+    if (_lastRefresh case final last?
+        when now.difference(last) < _refreshFloor) {
+      return;
+    }
+    _refreshing = true;
+    _lastRefresh = now;
+    // No announcement of its own. If the pull changes the list, the
+    // projection listener above says so, and if it changes nothing there is
+    // nothing to say.
+    unawaited(_pull('chats.list').whenComplete(() => _refreshing = false));
   }
 
   /// The account's folders, or none.
@@ -160,11 +268,18 @@ final class ChatsService {
       // No local database yet -- the account has not been certified. Falling
       // back to a title scan of the loaded page would be worse than saying
       // nothing, because a few results look like all of them.
-      return const ChatSearchResults();
+      return const ChatSearchResults(complete: false);
     }
 
     final hits = await database.searchDao.search(trimmed, limit: query.limit);
+    final sync = _container.read(syncEngineProvider);
     return ChatSearchResults(
+      // Incomplete until a full sync has succeeded at least once, and while
+      // one is running. The watermark is only set by a successful cycle, so
+      // its absence means the index has never been known complete.
+      complete:
+          sync.phase == SyncPhase.idle &&
+          sync.lastSuccessUpdatedAtWatermark != null,
       hits: hits
           .map(
             (hit) => ChatSearchHit(

@@ -133,6 +133,10 @@ abstract final class ConduitMethods {
   /// Deletes it, on the server and locally.
   static const String chatsDelete = 'chats.delete';
 
+  /// The sync engine's current state, for a window that has just opened.
+  /// Changes after that arrive as `sync.status` events.
+  static const String syncGet = 'sync.get';
+
   /// Includes archived chats in `chats.list`, or stops including them.
   static const String chatsSetArchivedVisible = 'chats.setArchivedVisible';
 
@@ -171,6 +175,10 @@ abstract final class ConduitMethods {
   /// one stays reachable. The renderer gets the same `turn.*` events a send
   /// produces, because from its side nothing else is different.
   static const String turnsRegenerate = 'turns.regenerate';
+
+  /// Replaces one of the user's messages with new text and answers it, as
+  /// a new branch.
+  static const String turnsEdit = 'turns.edit';
 
   // ---------------------------------------------------------------------
   // settings.* -- app preferences implemented in WP-2.4. The server-side

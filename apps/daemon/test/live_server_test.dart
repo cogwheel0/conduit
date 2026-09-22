@@ -417,6 +417,114 @@ void main() {
         );
       }, timeout: const Timeout(Duration(minutes: 5)));
 
+      test('a sent chat is listed under the id the send returned', () async {
+        // The renderer selects a new chat by the id `turns.send` returns and
+        // highlights the sidebar row whose id matches. If the two id spaces
+        // differ, the open conversation is never highlighted, and it can
+        // look as though it is missing from the list.
+        final events = EventBus();
+        final turns = TurnsService(runtime.container, events);
+        addTearDown(turns.dispose);
+        final seen = <String>[];
+        events.attach('probe', (envelope) => seen.add(envelope.event));
+        final accepted = await turns.send(
+          const SendTurn(model: 'gemma3:1b', text: 'Say the word: epsilon'),
+        );
+        created.add(accepted.chatId);
+        events.subscribe(
+          'probe',
+          EventSubscription(scopes: <String>[accepted.chatId]),
+        );
+        await _waitFor(
+          () => seen.contains(ConduitEvents.chatsChanged),
+          seconds: 90,
+        );
+
+        final chats = ChatsService(runtime.container);
+        // Regenerating keeps it first: it is still the conversation most
+        // recently touched.
+        seen.clear();
+        await turns.regenerate(
+          RegenerateTurn(
+            chatId: accepted.chatId,
+            messageId: accepted.assistantMessageId,
+          ),
+        );
+        await _waitFor(
+          () => seen.contains(ConduitEvents.chatsChanged),
+          seconds: 90,
+        );
+        final list = await chats.list();
+        final ids = list.chats.map((c) => c.id).toList();
+        printOnFailure('first ids: ${ids.take(5).toList()}');
+        printOnFailure('accepted: ${accepted.chatId}');
+        expect(ids, contains(accepted.chatId));
+        // And first: it is the most recently touched conversation.
+        expect(
+          list.chats.where((c) => !c.pinned).first.id,
+          accepted.chatId,
+          reason:
+              'order: ${list.chats.take(5).map((c) => '${c.id}@${c.updatedAtMs}').toList()}',
+        );
+      }, timeout: const Timeout(Duration(minutes: 3)));
+
+      test('edits a question as a new branch, keeping the old one', () async {
+        final events = EventBus();
+        final turns = TurnsService(runtime.container, events);
+        addTearDown(turns.dispose);
+        final seen = <String>[];
+        events.attach('probe', (envelope) => seen.add(envelope.event));
+
+        final accepted = await turns.send(
+          const SendTurn(model: 'gemma3:1b', text: 'Say the word: gamma'),
+        );
+        created.add(accepted.chatId);
+        events.subscribe(
+          'probe',
+          EventSubscription(scopes: <String>[accepted.chatId]),
+        );
+        await _waitFor(
+          () => seen.contains(ConduitEvents.chatsChanged),
+          seconds: 90,
+        );
+
+        seen.clear();
+        final edited = await turns.edit(
+          EditTurn(
+            chatId: accepted.chatId,
+            messageId: accepted.userMessageId,
+            text: 'Say the word: delta',
+          ),
+        );
+        expect(edited.userMessageId, isNot(accepted.userMessageId));
+        await _waitFor(
+          () => seen.contains(ConduitEvents.chatsChanged),
+          seconds: 90,
+        );
+
+        // The conversation now reads as the edited question and its
+        // answer...
+        final after = await _messagesOf(runtime, accepted.chatId);
+        expect(
+          after.where((m) => m.role == 'user').map((m) => m.content),
+          <String>['Say the word: delta'],
+        );
+
+        // ...and the original question and its answer are still on the
+        // server, which is what makes this a branch and not an overwrite.
+        final api = runtime.container.read(apiServiceProvider)!;
+        final raw = await api.getChatRaw(accepted.chatId);
+        final chat = (raw?['chat'] as Map?) ?? raw;
+        final messages =
+            ((chat?['history'] as Map?)?['messages'] as Map?) ?? const {};
+        expect(messages.keys, contains(accepted.userMessageId));
+        expect(messages.keys, contains(accepted.assistantMessageId));
+        expect(
+          (chat?['history'] as Map?)?['currentId'],
+          edited.assistantMessageId,
+        );
+      }, timeout: const Timeout(Duration(minutes: 5)));
+
       test('refuses to regenerate a message that is not an answer', () async {
         final events = EventBus();
         final turns = TurnsService(runtime.container, events);

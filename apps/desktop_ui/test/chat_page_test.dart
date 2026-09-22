@@ -147,6 +147,20 @@ class _RecordingActions extends ChatActions {
   Future<void> loadMore() async => calls.add('loadMore');
 
   @override
+  Future<SendTurnAccepted> edit({
+    required String chatId,
+    required String messageId,
+    required String text,
+  }) async {
+    calls.add('edit($messageId,$text)');
+    return SendTurnAccepted(
+      chatId: chatId,
+      userMessageId: 'u2',
+      assistantMessageId: 'a2',
+    );
+  }
+
+  @override
   Future<void> setArchivedVisible({required bool visible}) async =>
       calls.add('archivedVisible($visible)');
 
@@ -334,6 +348,23 @@ void main() {
     await pumpEventQueue();
 
     expect(find.text('Rewriting the sync engine'), findsNComponents(2));
+  });
+
+  testComponents('an incomplete index does not claim nothing matched', (
+    tester,
+  ) async {
+    // During the first sync the index is still filling. "Nothing matched"
+    // there is a claim the app cannot make yet.
+    tester.pumpComponent(
+      _scoped(
+        query: 'outbox',
+        results: const ChatSearchResults(complete: false),
+      ),
+    );
+    await pumpEventQueue();
+
+    expect(find.text(t.desktop.desktopSearchNoResults), findsNothing);
+    expect(find.text(t.desktop.desktopSearchIncomplete), findsOneComponent);
   });
 
   group('sections', () {
@@ -656,6 +687,99 @@ void main() {
     });
   });
 
+  group('editing a question', () {
+    testComponents('only questions offer Edit', (tester) async {
+      tester.pumpComponent(
+        _scoped(detail: _detail, selected: 'chat-1', onActions: (_) {}),
+      );
+      await pumpEventQueue();
+      expect(find.text(t.app.edit), findsOneComponent);
+    });
+
+    testComponents('opens in place, seeded with the question', (tester) async {
+      tester.pumpComponent(
+        _scoped(detail: _detail, selected: 'chat-1', onActions: (_) {}),
+      );
+      await pumpEventQueue();
+      await tester.click(
+        find.ancestor(of: find.text(t.app.edit), matching: find.tag('button')),
+      );
+      await pumpEventQueue();
+
+      expect(find.tag('textarea'), findsNComponents(2));
+      expect(find.text('How does the outbox order writes?'), findsOneComponent);
+    });
+
+    testComponents('an unchanged question cannot be sent', (tester) async {
+      // Asking the same thing again is what Regenerate is for; this would
+      // branch the conversation for nothing.
+      tester.pumpComponent(
+        _scoped(detail: _detail, selected: 'chat-1', onActions: (_) {}),
+      );
+      await pumpEventQueue();
+      await tester.click(
+        find.ancestor(of: find.text(t.app.edit), matching: find.tag('button')),
+      );
+      await pumpEventQueue();
+
+      final send = find
+          .byComponentPredicate(
+            (c) => c is button && c.disabled && c.type == ButtonType.button,
+          )
+          .evaluate();
+      expect(send, isNotEmpty);
+    });
+
+    testComponents('an edit in flight replaces the old branch on screen', (
+      tester,
+    ) async {
+      tester.pumpComponent(
+        ProviderScope(
+          overrides: [
+            pendingUserMessageProvider.overrideWith(
+              () => _FixedPending(
+                const PendingUserMessage(
+                  chatId: 'chat-1',
+                  messageId: 'u-new',
+                  text: 'What order does the outbox use?',
+                  replaces: 'm1',
+                ),
+              ),
+            ),
+          ],
+          child: _scoped(detail: _detail, selected: 'chat-1'),
+        ),
+      );
+      await pumpEventQueue();
+
+      // The edited question, and neither the original nor its answer --
+      // they belong to the branch being left.
+      expect(find.text('What order does the outbox use?'), findsOneComponent);
+      expect(find.text('How does the outbox order writes?'), findsNothing);
+      expect(find.text('Oldest first.'), findsNothing);
+    });
+
+    testComponents('cancel puts the question back', (tester) async {
+      tester.pumpComponent(
+        _scoped(detail: _detail, selected: 'chat-1', onActions: (_) {}),
+      );
+      await pumpEventQueue();
+      await tester.click(
+        find.ancestor(of: find.text(t.app.edit), matching: find.tag('button')),
+      );
+      await pumpEventQueue();
+      await tester.click(
+        find
+            .ancestor(of: find.text(t.app.cancel), matching: find.tag('button'))
+            .first,
+      );
+      await pumpEventQueue();
+
+      expect(find.tag('textarea'), findsOneComponent);
+      expect(find.text(t.app.edit), findsOneComponent);
+    });
+  });
+
   group('message actions', () {
     testComponents('copying a message hands over its text', (tester) async {
       final commands = RecordingWindowCommands();
@@ -967,4 +1091,11 @@ void main() {
     expect(find.text(t.app.stopGenerating), findsOneComponent);
     expect(find.text(t.app.send), findsNothing);
   });
+}
+
+class _FixedPending extends PendingUserMessageNotifier {
+  _FixedPending(this._value);
+  final PendingUserMessage _value;
+  @override
+  PendingUserMessage? build() => _value;
 }

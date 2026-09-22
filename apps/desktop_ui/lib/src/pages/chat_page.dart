@@ -73,16 +73,27 @@ class _Sidebar extends StatelessComponent {
           // past the debounce and after every rename, pin and delete. The
           // data is only genuinely absent on the first fetch.
           if (query.trim().isNotEmpty)
-            if (search.value?.hits case final hits?)
-              hits.isEmpty
-                  ? _hint(t.desktop.desktopSearchNoResults)
-                  : ul(classes: 'space-y-0.5', [
-                      for (final hit in hits)
-                        _SearchRow(
-                          hit: hit,
-                          isSelected: selected == hit.chatId,
-                        ),
-                    ])
+            if (search.value case final results?)
+              div([
+                if (results.hits.isEmpty)
+                  // Only a settled index can say "nothing". An incomplete
+                  // one says what it knows and why that may not be all.
+                  if (results.complete)
+                    _hint(t.desktop.desktopSearchNoResults)
+                  else
+                    const Component.fragment([])
+                else
+                  ul(classes: 'space-y-0.5', [
+                    for (final hit in results.hits)
+                      _SearchRow(hit: hit, isSelected: selected == hit.chatId),
+                  ]),
+                if (!results.complete)
+                  p(
+                    classes: 'px-2 py-3 text-xs text-muted-foreground',
+                    attributes: const <String, String>{'role': 'status'},
+                    [Component.text(t.desktop.desktopSearchIncomplete)],
+                  ),
+              ])
             else if (search.hasError)
               _hint('${search.error}')
             else
@@ -99,6 +110,7 @@ class _Sidebar extends StatelessComponent {
         // Pinned under the list rather than floating over the transcript,
         // which is where it used to sit -- on top of the send button.
         div(classes: 'shrink-0 border-t border-border p-2', [
+          const _SyncIndicator(),
           a(
             href: '/settings/appearance',
             classes:
@@ -252,6 +264,44 @@ class _Sections extends StatelessComponent {
     DateBucket.previous30Days => t.app.previous30Days,
     DateBucket.older => t.app.older,
   };
+}
+
+/// Whether the conversation list is still catching up (WP-3.1).
+///
+/// Quiet on purpose. When the sync is idle and healthy it renders nothing,
+/// because a permanent "Synced" line is noise. It appears only while there
+/// is something to know: the list may be incomplete, or the last sync
+/// failed.
+class _SyncIndicator extends StatelessComponent {
+  const _SyncIndicator();
+
+  @override
+  Component build(BuildContext context) {
+    final sync = context.watch(syncStateProvider).value;
+    if (sync == null) return const Component.fragment([]);
+    final String? text;
+    String? detail;
+    if (sync.running) {
+      final progress = sync.progress;
+      text = progress == null
+          ? t.desktop.desktopSyncing
+          : t.desktop.desktopSyncingPercent(percent: (progress * 100).round());
+    } else if (sync.lastError case final error?) {
+      text = t.desktop.desktopSyncFailed;
+      detail = error;
+    } else {
+      text = null;
+    }
+    if (text == null) return const Component.fragment([]);
+    return p(
+      classes:
+          'px-2 pb-1 text-xs '
+          '${detail == null ? 'text-muted-foreground' : 'text-destructive'}',
+      // `status`, so the change is announced without interrupting.
+      attributes: <String, String>{'role': 'status', 'title': ?detail},
+      [Component.text(text)],
+    );
+  }
 }
 
 /// One search hit: the title, and the matching text in context.
@@ -529,6 +579,7 @@ class _Transcript extends StatelessComponent {
     final commands = context.read(windowCommandsProvider);
     void copyCode(String source) => unawaited(commands.copy(source));
     final versions = context.watch(answerVersionProvider);
+    final editing = context.watch(editingMessageProvider);
 
     // After the frame this build produces, not during it: the pane has to
     // have grown before there is anything new to scroll to. Every build,
@@ -570,8 +621,41 @@ class _Transcript extends StatelessComponent {
                 ? <Component>[formError('${detail.error}')]
                 : (() {
                     final chat = detail.value;
+                    // An edit in flight hides the question it replaces and
+                    // everything after it. Those belong to the old branch,
+                    // and until the sync lands the transcript still holds
+                    // them.
+                    final all = chat?.messages ?? const <ChatMessageDto>[];
+                    final cut = showPending && pending.replaces != null
+                        ? all.indexWhere((m) => m.id == pending.replaces)
+                        : -1;
+                    final shown = cut < 0 ? all : all.sublist(0, cut);
                     return <Component>[
-                      for (final message in chat?.messages ?? const [])
+                      for (final message in shown)
+                        if (message.role == 'user' && editing == message.id)
+                          _QuestionEditor(
+                            key: ValueKey('edit-${message.id}'),
+                            original: message.content,
+                            onCancel: () => context
+                                .read(editingMessageProvider.notifier)
+                                .stop(),
+                            onSave: (text) {
+                              context
+                                  .read(editingMessageProvider.notifier)
+                                  .stop();
+                              if (selected == null) return;
+                              unawaited(
+                                context
+                                    .read(chatActionsProvider)
+                                    .edit(
+                                      chatId: selected,
+                                      messageId: message.id,
+                                      text: text,
+                                    ),
+                              );
+                            },
+                          )
+                        else
                         // Skipped while the overlay is showing it, so the two do
                         // not appear one above the other.
                         if (!(message.id == live?.messageId &&
@@ -589,7 +673,21 @@ class _Transcript extends StatelessComponent {
                                 _shownContent(message, versions[message.id]),
                               ),
                             ),
-                            versionNav: message.versions.isEmpty
+                            onEdit:
+                                message.role == 'user' &&
+                                    selected != null &&
+                                    (live == null || live.settled)
+                                ? () => context
+                                      .read(editingMessageProvider.notifier)
+                                      .start(message.id)
+                                : null,
+                            // Arrows only on answers. A sibling *question* is a
+                            // different branch of the whole conversation, and
+                            // swapping just its text would show an old question
+                            // above the new answer.
+                            versionNav:
+                                message.versions.isEmpty ||
+                                    message.role != 'assistant'
                                 ? null
                                 : _versionNav(
                                     context,
@@ -698,6 +796,7 @@ class _Transcript extends StatelessComponent {
     String? mathIdPrefix,
     void Function()? onCopy,
     void Function()? onRegenerate,
+    void Function()? onEdit,
     Component? versionNav,
     bool streaming = false,
     String? failure,
@@ -745,7 +844,10 @@ class _Transcript extends StatelessComponent {
         ),
         // In the DOM always, revealed on hover or focus. A control that
         // only exists on hover cannot be reached by keyboard at all.
-        if (onCopy != null || onRegenerate != null || versionNav != null)
+        if (onCopy != null ||
+            onRegenerate != null ||
+            onEdit != null ||
+            versionNav != null)
           div(classes: 'flex items-center gap-1', [
             // Always visible, unlike the actions beside it. That there
             // *are* other answers is information in itself, and hiding it
@@ -759,6 +861,7 @@ class _Transcript extends StatelessComponent {
                 if (onCopy case final copy?) _messageAction(t.app.copy, copy),
                 if (onRegenerate case final again?)
                   _messageAction(t.app.regenerate, again),
+                if (onEdit case final edit?) _messageAction(t.app.edit, edit),
               ],
             ),
           ]),
@@ -832,6 +935,73 @@ class _Transcript extends StatelessComponent {
     type: ButtonType.button,
     attributes: <String, String>{'title': label},
     onClick: onClick,
+  );
+}
+
+/// A sent question, reopened for editing in place (WP-3.2).
+///
+/// In place rather than in the composer. Editing a question from three
+/// turns ago is a change to *that* turn, and moving it into the composer
+/// would make it read as a new message at the bottom.
+class _QuestionEditor extends StatefulComponent {
+  const _QuestionEditor({
+    required this.original,
+    required this.onSave,
+    required this.onCancel,
+    super.key,
+  });
+
+  final String original;
+  final void Function(String text) onSave;
+  final void Function() onCancel;
+
+  @override
+  State<_QuestionEditor> createState() => _QuestionEditorState();
+}
+
+class _QuestionEditorState extends State<_QuestionEditor> {
+  late String _text = component.original;
+
+  bool get _changed =>
+      _text.trim().isNotEmpty && _text.trim() != component.original.trim();
+
+  @override
+  Component build(BuildContext context) => div(
+    classes: 'ml-auto flex w-full max-w-[80%] flex-col gap-2',
+    [
+      textAreaField(
+        id: 'edit-question',
+        labelText: t.app.edit,
+        hideLabel: true,
+        value: _text,
+        rows: 3,
+        onInput: (value) => setState(() => _text = value),
+        onKeyDown: sendOnEnter(() {
+          if (_changed) component.onSave(_text.trim());
+        }),
+      ),
+      div(classes: 'flex justify-end gap-2', [
+        button(
+          [Component.text(t.app.cancel)],
+          classes:
+              'rounded px-3 py-1.5 text-sm text-muted-foreground '
+              'hover:bg-accent',
+          type: ButtonType.button,
+          onClick: component.onCancel,
+        ),
+        button(
+          [Component.text(t.app.send)],
+          classes:
+              'rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground '
+              'disabled:opacity-60',
+          type: ButtonType.button,
+          // Unchanged text would branch the conversation to ask the same
+          // thing again, which is what Regenerate is for.
+          disabled: !_changed,
+          onClick: () => component.onSave(_text.trim()),
+        ),
+      ]),
+    ],
   );
 }
 

@@ -96,6 +96,25 @@ async function idle(page: Page): Promise<void> {
   ).toBeVisible({ timeout: 180_000 })
 }
 
+/**
+ * The open conversation is highlighted and first under Today.
+ *
+ * It had fallen behind for a whole session. Each `chats.list` awaited a
+ * full sync pull, each `chats.changed` restarted it, and the events arrived
+ * faster than a pull finished, so the sidebar never caught up with the
+ * conversation in progress.
+ */
+async function openChatLeadsSidebar(page: Page): Promise<void> {
+  const current = page.locator('nav[aria-label] button[aria-current="true"]')
+  await expect(current).toHaveCount(1, { timeout: 15_000 })
+  const today = page
+    .locator('nav[aria-label] section')
+    .filter({ has: page.getByRole('heading', { name: /^today$/i }) })
+  await expect(
+    today.locator('li button[aria-current]').first(),
+  ).toHaveAttribute('aria-current', 'true', { timeout: 15_000 })
+}
+
 async function shot(page: Page, name: string): Promise<void> {
   mkdirSync(shotDir, { recursive: true })
   await page.screenshot({ path: join(shotDir, `${name}.png`) })
@@ -218,23 +237,27 @@ test.describe('against a real server', () => {
 
     // 6. Search runs against the database's index, not the loaded page.
     await shot(page, '04-sidebar')
-    const before = await page.locator('nav[aria-label] li').count()
     await page.getByLabel(/search conversations/i).fill('the')
     // Hits, not merely "a different number of rows": while the debounced
     // query was in flight the sidebar showed no rows at all, so `not.toBe`
     // passed on the empty pane and the search itself was never checked.
     const hits = page.locator('nav[aria-label] li')
-    await expect.poll(() => hits.count(), { timeout: 30_000 })
+    // Up to two minutes: on a fresh install the index is still filling from
+    // the first sync, and the results update as it lands. That is the
+    // behaviour under test, not something to wait out beforehand.
+    await expect.poll(() => hits.count(), { timeout: 120_000 })
       .toBeGreaterThan(0)
-    await expect.poll(() => hits.count(), { timeout: 30_000 }).not.toBe(before)
     // The index returns the matching text, which is the point of searching
     // the database rather than filtering the loaded page.
     await expect(hits.first()).toContainText(/the/i)
     await shot(page, '05-search')
     await page.getByLabel(/search conversations/i).fill('')
-    await expect
-      .poll(() => hits.count(), { timeout: 30_000 })
-      .toBe(before)
+    // The sections come back. Not "the same number of rows as before": the
+    // list keeps growing while the first sync lands, so that count is not
+    // expected to hold.
+    await expect(
+      page.locator('nav[aria-label]').getByRole('heading', { name: /^today$/i }),
+    ).toBeVisible({ timeout: 30_000 })
 
     const transcript = page.getByRole('log')
     // Opening one of the account's existing conversations shows its
@@ -244,7 +267,13 @@ test.describe('against a real server', () => {
     // none of them.
     // A chat row, not the first button in the list -- which is now a
     // folder's toggle whenever the account has folders.
-    const target = page
+    //
+    // The first few rows are tried, and the first with a real exchange is
+    // used. A conversation on this account can legitimately hold a single
+    // message: a lone question, or a history an earlier client left
+    // broken. Showing it as it is is correct. It just doesn't test that
+    // a transcript loads.
+    const rows = page
       .locator('nav[aria-label] section')
       .filter({
         has: page.getByRole('heading', {
@@ -252,14 +281,20 @@ test.describe('against a real server', () => {
           name: /^(today|yesterday|previous \d+ days|older)$/i,
         }),
       })
-      .locator('li button')
-      .first()
-    await target.click()
-    await expect(transcript.locator('article').first())
-      .toBeVisible({ timeout: 60_000 })
-    await expect
-      .poll(() => transcript.locator('article').count(), { timeout: 60_000 })
-      .toBeGreaterThan(1)
+      .locator('li > div > button')
+    let opened = false
+    for (let i = 0; i < 6 && !opened; i++) {
+      await rows.nth(i).click()
+      await expect(transcript.locator('article').first()).toBeVisible({
+        timeout: 60_000,
+      })
+      opened = await expect
+        .poll(() => transcript.locator('article').count(), { timeout: 10_000 })
+        .toBeGreaterThan(1)
+        .then(() => true, () => false)
+    }
+    expect(opened, 'none of the first six conversations opened with a reply')
+      .toBe(true)
     await shot(page, '06-existing-chat')
     // Back to a blank one for the send below, via the shortcut rather than
     // the button: this account has conversations *titled* "New Chat", so
@@ -310,6 +345,7 @@ test.describe('against a real server', () => {
     await expect(page.getByPlaceholder('Ask Conduit')).toHaveValue('')
     await expect(page.getByPlaceholder('Ask Conduit')).toBeFocused()
 
+    await openChatLeadsSidebar(page)
     await shot(page, '08-reply')
 
     // 8b. Regenerate from the UI, then walk back to the answer it replaced
@@ -330,6 +366,25 @@ test.describe('against a real server', () => {
       .click()
     await expect(transcript.getByText(/^1\/2$/)).toBeVisible()
     await shot(page, '08b-branches')
+
+    // 8c. Edit the question in place (WP-3.2). The conversation should read
+    // as the edited question and a new answer, with the original gone from
+    // view but kept on the server as the branch it was.
+    await idle(page)
+    await transcript.getByRole('button', { name: /^edit$/i }).first().click()
+    const editor = transcript.locator('textarea')
+    await expect(editor).toHaveValue(/pong/)
+    await editor.fill('Reply with exactly the word: ping')
+    await transcript.getByRole('button', { name: /^send$/i }).click()
+    await expect(
+      transcript.getByText('Reply with exactly the word: ping'),
+    ).toBeVisible({ timeout: 30_000 })
+    await idle(page)
+    await expect(
+      transcript.getByText('Reply with exactly the word: pong'),
+    ).toHaveCount(0, { timeout: 60_000 })
+    await openChatLeadsSidebar(page)
+    await shot(page, '08c-edited')
     await page.keyboard.press('Shift+Escape')
 
     // 9. A code block, highlighted and copyable (WP-3.5). The prompt is

@@ -503,6 +503,16 @@ class RpcSession {
       },
     );
 
+    registerTypedMethodNoParams<SyncState>(
+      _peer,
+      ConduitMethods.syncGet,
+      encodeResult: (result) => result.toJson(),
+      handler: () async {
+        _requireHandshake();
+        return _requireChats().syncState();
+      },
+    );
+
     registerTypedMethod<ArchivedVisibility, ChatList>(
       _peer,
       ConduitMethods.chatsSetArchivedVisible,
@@ -568,6 +578,17 @@ class RpcSession {
       handler: (request) {
         _requireHandshake();
         return _requireTurns().regenerate(request);
+      },
+    );
+
+    registerTypedMethod<EditTurn, SendTurnAccepted>(
+      _peer,
+      ConduitMethods.turnsEdit,
+      decodeParams: EditTurn.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireTurns().edit(request);
       },
     );
 

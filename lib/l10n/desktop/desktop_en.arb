@@ -270,5 +270,22 @@
       "index": { "type": "int" },
       "count": { "type": "int" }
     }
+  },
+  "desktopSearchIncomplete": "Still syncing, so some conversations may not show up yet.",
+  "@desktopSearchIncomplete": {
+    "description": "Shown under desktop search results while the first sync is still filling the local index."
+  },
+  "desktopSyncing": "Syncing…",
+  "@desktopSyncing": {
+    "description": "Shown in the desktop sidebar footer while conversations are syncing and the progress is unknown."
+  },
+  "desktopSyncingPercent": "Syncing… {percent}%",
+  "@desktopSyncingPercent": {
+    "description": "Shown in the desktop sidebar footer while conversations are syncing. {percent} is 0 to 100.",
+    "placeholders": { "percent": { "type": "int" } }
+  },
+  "desktopSyncFailed": "Sync failed",
+  "@desktopSyncFailed": {
+    "description": "Shown in the desktop sidebar footer when the last sync failed. The error is in its tooltip."
   }
 }
