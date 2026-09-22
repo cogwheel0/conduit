@@ -66,7 +66,23 @@ void main() {
         models = ModelsService(runtime.container);
       });
 
+      // Every conversation a test creates on the real account, deleted
+      // at the end. These tests run against someone's actual server. Before
+      // this, each run left five or so "Say the word: alpha" chats in that
+      // person's sidebar, and every future run added more.
+      final created = <String>{};
+
       tearDownAll(() async {
+        final api = runtime.container.read(apiServiceProvider);
+        for (final id in created) {
+          try {
+            await api?.deleteConversation(id);
+          } on Object catch (error) {
+            // Reported, not thrown: a failed cleanup should not hide the
+            // result of the tests that ran.
+            stderr.writeln('could not delete test chat $id: $error');
+          }
+        }
         await runtime.dispose();
         temporary.deleteSync(recursive: true);
       });
@@ -200,6 +216,7 @@ void main() {
           final accepted = await turns.send(
             const SendTurn(model: 'google/gemma-4-31b-it', text: 'say pong'),
           );
+          created.add(accepted.chatId);
           events.subscribe(
             'probe',
             EventSubscription(scopes: <String>[accepted.chatId]),
@@ -244,6 +261,7 @@ void main() {
             text: 'Reply with exactly the word: pong',
           ),
         );
+        created.add(accepted.chatId);
         expect(accepted.chatId, isNotEmpty);
         expect(accepted.assistantMessageId, isNotEmpty);
 
@@ -318,6 +336,7 @@ void main() {
         final accepted = await turns.send(
           const SendTurn(model: 'gemma3:1b', text: 'Say the word: alpha'),
         );
+        created.add(accepted.chatId);
 
         final seen = <String>[];
         final payloads = <String, Map<String, dynamic>>{};
@@ -408,6 +427,7 @@ void main() {
         final accepted = await turns.send(
           const SendTurn(model: 'gemma3:1b', text: 'Say the word: beta'),
         );
+        created.add(accepted.chatId);
         events.subscribe(
           'probe',
           EventSubscription(scopes: <String>[accepted.chatId]),

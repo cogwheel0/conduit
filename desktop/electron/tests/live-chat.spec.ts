@@ -480,6 +480,34 @@ test.describe('against a real server', () => {
     await shot(page, '12-attachment')
     rmSync(attachPath, { force: true })
 
+    // 13. Delete the conversation this run created, through the UI.
+    //
+    // Two reasons. It exercises delete and its confirmation against a real
+    // server. And it cleans up: this test runs against someone's actual
+    // account, and before this each run left another conversation in their
+    // sidebar.
+    await idle(page)
+    const current = page.locator('nav[aria-label] li').filter({
+      has: page.locator('button[aria-current="true"]'),
+    })
+    await expect(current).toHaveCount(1)
+    const currentTitle = (await current
+      .locator('button[aria-current="true"]')
+      .textContent())!.trim()
+    await current.getByRole('button', { name: 'Delete', exact: true }).click()
+    const confirm = page.getByRole('alertdialog')
+    await expect(confirm).toContainText(/cannot be undone/i)
+    await confirm.getByRole('button', { name: 'Delete', exact: true }).click()
+    // The open conversation is gone, so the pane goes back to its empty
+    // state rather than showing a transcript that no longer exists.
+    await expect(page.getByText(/pick a conversation/i)).toBeVisible({
+      timeout: 30_000,
+    })
+    await expect(
+      page.locator('nav[aria-label] button[aria-current="true"]'),
+    ).toHaveCount(0)
+    process.stderr.write(`[cleanup] deleted "${currentTitle}"\n`)
+
     // Settings, which nothing else exercises visually.
     await page.evaluate(() => {
       window.history.pushState(null, '', '/settings/appearance')

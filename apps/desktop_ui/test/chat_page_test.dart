@@ -547,6 +547,27 @@ void main() {
     expect(find.text(t.app.stopGenerating), findsNothing);
   });
 
+  testComponents('deleting the open chat leaves the empty state, not a blank', (
+    tester,
+  ) async {
+    // What deleting leaves behind: nothing selected, and a settled turn
+    // for a conversation that no longer exists.
+    tester.pumpComponent(
+      _scoped(
+        live: const LiveTurn(
+          chatId: 'deleted',
+          messageId: 'm',
+          text: 'Old answer',
+          settled: true,
+        ),
+      ),
+    );
+    await pumpEventQueue();
+
+    expect(find.text(t.desktop.desktopPickAConversation), findsOneComponent);
+    expect(find.text('Old answer'), findsNothing);
+  });
+
   testComponents('the transcript follows the conversation', (tester) async {
     final commands = RecordingWindowCommands();
     tester.pumpComponent(

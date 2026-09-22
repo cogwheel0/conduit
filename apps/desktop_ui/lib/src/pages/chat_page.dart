@@ -501,7 +501,14 @@ class _Transcript extends StatelessComponent {
     // Keyed on the selection, not on the message count: a conversation whose
     // transcript is still being fetched has no messages either, and telling
     // someone to pick a conversation they just picked is worse than a pause.
-    final nothingChosen = selected == null && !showPending && live == null;
+    // A live turn only counts if it belongs to what is selected. The provider
+    // keeps the last turn after it settles, and after deleting the open
+    // conversation that turn belongs to a chat that no longer exists. The
+    // pane then stayed blank instead of offering the empty state.
+    final nothingChosen =
+        selected == null &&
+        !showPending &&
+        (live == null || live.chatId != selected);
     // The answer the live turn is filling in, if the synced transcript
     // already has a row for it.
     //
