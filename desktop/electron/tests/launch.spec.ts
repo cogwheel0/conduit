@@ -129,3 +129,58 @@ test('refuses to navigate the app origin away to the web', async () => {
   // this security check fail for an unrelated reason.
   expect(new URL(window.url()).origin).toBe(new URL(APP_URL).origin)
 })
+
+test('a previewed reply cannot run a script, twice over', async () => {
+  const window = await appWindow(app)
+  // The HTML preview (WP-3.5) puts model-written markup in an
+  // `<iframe sandbox srcdoc>`. Two independent things must stop a script in
+  // it, and this measures both rather than trusting either.
+  const result = await window.evaluate(
+    () =>
+      new Promise<Record<string, string>>((resolve) => {
+        const out: Record<string, string> = {}
+        const doc = (label: string) =>
+          `<!doctype html><html><body><script>parent.postMessage({probe:'${label}'},'*')<\/script></body></html>`
+
+        const probe = (label: string, apply: (f: HTMLIFrameElement) => void) =>
+          new Promise<void>((done) => {
+            const frame = document.createElement('iframe')
+            apply(frame)
+            const onMessage = (event: MessageEvent) => {
+              if (event.data?.probe === label) {
+                out[label] = 'RAN'
+                finish()
+              }
+            }
+            const finish = () => {
+              out[label] ??= 'blocked'
+              window.removeEventListener('message', onMessage)
+              frame.remove()
+              done()
+            }
+            window.addEventListener('message', onMessage)
+            document.body.appendChild(frame)
+            setTimeout(finish, 1_500)
+          })
+
+        void (async () => {
+          // What the preview actually renders: every restriction on.
+          await probe('sandboxed', (f) => {
+            f.setAttribute('sandbox', '')
+            f.srcdoc = doc('sandboxed')
+          })
+          // And the second line of defence on its own -- a `srcdoc`
+          // document inherits this origin's `script-src 'self' app:`, so an
+          // inline script is refused even with the sandbox relaxed. If this
+          // ever starts reporting RAN, the preview is resting on one
+          // mechanism instead of two.
+          await probe('csp-only', (f) => {
+            f.setAttribute('sandbox', 'allow-scripts')
+            f.srcdoc = doc('csp-only')
+          })
+          resolve(out)
+        })()
+      }),
+  )
+  expect(result).toEqual({ sandboxed: 'blocked', 'csp-only': 'blocked' })
+})

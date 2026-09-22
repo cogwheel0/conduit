@@ -220,5 +220,13 @@
   "desktopNothingToCopy": "Nothing to copy yet",
   "@desktopNothingToCopy": {
     "description": "Shown when a copy shortcut runs with no reply or code block in the transcript."
+  },
+  "desktopPreview": "Preview",
+  "@desktopPreview": {
+    "description": "Button that renders a model-written HTML block in a sandboxed frame."
+  },
+  "desktopHidePreview": "Hide preview",
+  "@desktopHidePreview": {
+    "description": "Button that closes the sandboxed preview of a model-written HTML block."
   }
 }

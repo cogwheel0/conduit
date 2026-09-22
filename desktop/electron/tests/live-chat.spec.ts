@@ -283,19 +283,39 @@ test.describe('against a real server', () => {
     expect(tokenColour).not.toBe(bodyColour)
     await shot(page, '08-code')
 
+    // 10. A markup block offers an inert preview, and nothing else does.
+    await page.keyboard.type(
+      'Reply with only a fenced html code block containing ' +
+        '<h1 style="color:teal">Conduit</h1>. No prose.',
+    )
+    await page.keyboard.press('Enter')
+    const preview = transcript
+      .getByRole('button', { name: /^preview$/i })
+      .last()
+    await expect(preview).toBeVisible({ timeout: 120_000 })
+    await preview.click()
+    const frame = transcript.locator('iframe').last()
+    await expect(frame).toBeVisible()
+    await expect(frame).toHaveAttribute('sandbox', '')
+    // Rendered, not executed: the heading exists inside the frame.
+    await expect(
+      frame.contentFrame().locator('h1'),
+    ).toBeVisible({ timeout: 15_000 })
+    await shot(page, '09-preview')
+
     // Settings, which nothing else exercises visually.
     await page.evaluate(() => {
       window.history.pushState(null, '', '/settings/appearance')
       window.dispatchEvent(new PopStateEvent('popstate'))
     })
     await page.waitForTimeout(500)
-    await shot(page, '09-settings-appearance')
+    await shot(page, '10-settings-appearance')
 
     await page.evaluate(() => {
       window.history.pushState(null, '', '/settings/connections')
       window.dispatchEvent(new PopStateEvent('popstate'))
     })
     await page.waitForTimeout(500)
-    await shot(page, '10-settings-connections')
+    await shot(page, '11-settings-connections')
   })
 })

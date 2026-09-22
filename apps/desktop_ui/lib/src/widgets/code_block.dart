@@ -4,6 +4,7 @@ import 'package:jaspr/jaspr.dart';
 
 import '../l10n/strings.g.dart';
 import 'code_languages.dart';
+import 'html_preview.dart';
 
 /// A fenced code block: language label, copy button, highlighted source
 /// (WP-3.5).
@@ -46,7 +47,10 @@ class CodeBlock extends StatelessComponent {
               'bg-muted px-3 py-1',
           [
             span(classes: 'font-mono text-xs text-muted-foreground', [
-              Component.text(resolved ?? language ?? ''),
+              // What the author wrote, not the grammar it resolved to. An
+              // `html` fence labelled "xml" -- the grammar highlight.js uses
+              // for both -- reads as the app having misunderstood it.
+              Component.text(fenceLabel(language) ?? ''),
             ]),
             if (onCopy case final copy?)
               button(
@@ -63,9 +67,27 @@ class CodeBlock extends StatelessComponent {
         pre(classes: 'overflow-x-auto p-3', [
           code(classes: 'font-mono text-xs leading-relaxed', _spans(resolved)),
         ]),
+        // Only for markup, and only behind a button. A block tagged `html`
+        // is the one case where the source is also a thing that can be
+        // looked at; python, sql and a diff have nothing to render.
+        if (isPreviewable(language))
+          div(classes: 'px-3 pb-3', [HtmlPreview(html: source)]),
       ],
     );
   }
+
+  /// The first word of the fence's info string, lower-cased.
+  static String? fenceLabel(String? info) {
+    final word = info?.trim().split(RegExp(r'[\s,:{]')).first.toLowerCase();
+    return word == null || word.isEmpty ? null : word;
+  }
+
+  /// Whether a fence tagged [info] contains markup worth rendering.
+  ///
+  /// Kept narrow deliberately: this is the list of fences that get an
+  /// `<iframe>` built for them, so it should grow only when something is
+  /// genuinely better seen than read.
+  static bool isPreviewable(String? info) => resolveLanguage(info) == 'xml';
 
   List<Component> _spans(String? resolved) {
     if (resolved == null) return <Component>[Component.text(source)];

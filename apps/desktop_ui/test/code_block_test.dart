@@ -5,6 +5,7 @@ import 'package:conduit_desktop_ui/src/l10n/strings.g.dart';
 import 'package:conduit_desktop_ui/src/widgets/code_block.dart';
 import 'package:conduit_desktop_ui/src/widgets/code_languages.dart';
 import 'package:conduit_desktop_ui/src/widgets/markdown_view.dart';
+import 'package:jaspr/jaspr.dart';
 import 'package:jaspr_test/jaspr_test.dart';
 
 void main() {
@@ -96,6 +97,74 @@ void main() {
       );
 
       expect(copied, <String>['final x = 1;']);
+    });
+  });
+
+  group('preview', () {
+    test('the label is what the author wrote', () {
+      // `html` and `svg` both highlight as xml; labelling them "xml" reads
+      // as the app having misunderstood the fence.
+      expect(CodeBlock.fenceLabel('html'), 'html');
+      expect(CodeBlock.fenceLabel('JS title="a.js"'), 'js');
+      expect(CodeBlock.fenceLabel('  '), isNull);
+      expect(CodeBlock.fenceLabel(null), isNull);
+    });
+
+    test('only markup is previewable', () {
+      // The list of fences that get an `<iframe>` built for them.
+      expect(CodeBlock.isPreviewable('html'), isTrue);
+      expect(CodeBlock.isPreviewable('svg'), isTrue);
+      expect(CodeBlock.isPreviewable('python'), isFalse);
+      expect(CodeBlock.isPreviewable('bash'), isFalse);
+      expect(CodeBlock.isPreviewable(null), isFalse);
+    });
+
+    testComponents('the frame exists only once it is asked for', (
+      tester,
+    ) async {
+      tester.pumpComponent(
+        const CodeBlock(source: '<b>hi</b>', language: 'html'),
+      );
+      // Receiving a reply must never render anything but text.
+      expect(find.tag('iframe'), findsNothing);
+
+      await tester.click(
+        find.ancestor(
+          of: find.text(t.desktop.desktopPreview),
+          matching: find.tag('button'),
+        ),
+      );
+      expect(find.tag('iframe'), findsOneComponent);
+    });
+
+    testComponents('the frame is sandboxed with nothing allowed', (
+      tester,
+    ) async {
+      tester.pumpComponent(
+        const CodeBlock(source: '<script>alert(1)</script>', language: 'html'),
+      );
+      await tester.click(
+        find.ancestor(
+          of: find.text(t.desktop.desktopPreview),
+          matching: find.tag('button'),
+        ),
+      );
+
+      final frame = find
+          .byComponentPredicate(
+            (component) =>
+                component is DomComponent && component.tag == 'iframe',
+          )
+          .evaluate()
+          .whereType<DomElement>()
+          .first;
+      final attributes = frame.component.attributes ?? const <String, String>{};
+
+      // Empty, not absent: an absent `sandbox` is no sandbox at all. And
+      // never `allow-scripts allow-same-origin` together, which lets a
+      // frame reach out and remove its own sandbox attribute.
+      expect(attributes['sandbox'], '');
+      expect(attributes['srcdoc'], '<script>alert(1)</script>');
     });
   });
 
