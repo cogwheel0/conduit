@@ -53,3 +53,75 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Syntax highlighting (WP-3.5).
+ *
+ * Derived from the palette rather than shipping one of highlight.js's own
+ * stylesheets. There are five palettes and a dark variant of each, and a
+ * fixed theme would be legible in at most one of them -- a comment in
+ * atom-one-dark's grey is invisible on Conduit's white.
+ *
+ * Only the token classes worth distinguishing are styled; the rest inherit,
+ * which is deliberate. A code block where every token is a different colour
+ * is harder to read than one where three things stand out.
+ */
+.hljs-comment,
+.hljs-quote {
+  color: var(--conduit-muted-foreground);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag,
+.hljs-meta-keyword {
+  color: var(--conduit-primary);
+  font-weight: 600;
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-attribute,
+.hljs-meta-string {
+  color: var(--conduit-success);
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link,
+.hljs-variable,
+.hljs-template-variable {
+  color: var(--conduit-info);
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-class .hljs-title,
+.hljs-type {
+  color: var(--conduit-warning);
+}
+
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-attr,
+.hljs-params {
+  color: var(--conduit-ring);
+}
+
+.hljs-deletion {
+  color: var(--conduit-destructive);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 700;
+}

@@ -75,4 +75,28 @@ void main() {
       );
     }
   });
+
+  test('the highlighter has colours to use', () {
+    // `hljs-*` classes are emitted by the code block at runtime from the
+    // highlighter's node tree, so Tailwind's source scan cannot see them --
+    // they are hand-written rules in styles/app.css. Nothing else would
+    // notice them going missing: an unstyled token renders as plain text,
+    // which is exactly what an unhighlighted block looks like.
+    final bundle = File('web/app.css');
+    if (!bundle.existsSync()) {
+      markTestSkipped('run scripts/build-ui.mjs first');
+      return;
+    }
+    final css = bundle.readAsStringSync();
+    for (final token in <String>[
+      'hljs-comment',
+      'hljs-keyword',
+      'hljs-string',
+      'hljs-number',
+      'hljs-title',
+      'hljs-built_in',
+    ]) {
+      expect(css, contains('.$token'), reason: '$token has no colour');
+    }
+  });
 }

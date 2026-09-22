@@ -257,19 +257,45 @@ test.describe('against a real server', () => {
 
     await shot(page, '07-reply')
 
+    // 9. A code block, highlighted and copyable (WP-3.5). The prompt is
+    // narrow because a 1B model will happily write an essay around it.
+    await page.keyboard.type(
+      'Reply with only a fenced Python code block that prints hello. ' +
+        'No prose.',
+    )
+    await page.keyboard.press('Enter')
+    const block = transcript.locator('pre code').last()
+    await expect(block).toBeVisible({ timeout: 120_000 })
+    // Tokens, not one text node -- which is what tells us the highlighter
+    // ran rather than the block falling back to plain monospace.
+    await expect(block.locator('.hljs-string, .hljs-keyword').first())
+      .toBeVisible({ timeout: 120_000 })
+    // And the colour resolves. A palette variable that does not exist
+    // leaves the declaration invalid and the token inheriting, which looks
+    // exactly like no highlighting at all.
+    const tokenColour = await block
+      .locator('.hljs-string, .hljs-keyword')
+      .first()
+      .evaluate((node) => getComputedStyle(node).color)
+    const bodyColour = await page
+      .locator('body')
+      .evaluate((node) => getComputedStyle(node).color)
+    expect(tokenColour).not.toBe(bodyColour)
+    await shot(page, '08-code')
+
     // Settings, which nothing else exercises visually.
     await page.evaluate(() => {
       window.history.pushState(null, '', '/settings/appearance')
       window.dispatchEvent(new PopStateEvent('popstate'))
     })
     await page.waitForTimeout(500)
-    await shot(page, '08-settings-appearance')
+    await shot(page, '09-settings-appearance')
 
     await page.evaluate(() => {
       window.history.pushState(null, '', '/settings/connections')
       window.dispatchEvent(new PopStateEvent('popstate'))
     })
     await page.waitForTimeout(500)
-    await shot(page, '09-settings-connections')
+    await shot(page, '10-settings-connections')
   })
 })

@@ -19,6 +19,11 @@ dependencies:
     path: ../../packages/conduit_protocol
   conduit_theme:
     path: ../../packages/conduit_theme
+  # The same highlighter the mobile app uses, so a code block looks the same
+  # in both. Pure Dart, and it returns a node tree rather than HTML -- which
+  # is what lets the renderer build components instead of assigning
+  # `innerHTML` with a model's output in it.
+  highlight: ^0.7.0
   jaspr: 0.23.4
   jaspr_riverpod: 0.4.6
   jaspr_router: 0.9.0

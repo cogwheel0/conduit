@@ -364,6 +364,11 @@ class _Transcript extends StatelessComponent {
     // transcript is still being fetched has no messages either, and telling
     // someone to pick a conversation they just picked is worse than a pause.
     final nothingChosen = selected == null && !showPending && live == null;
+    // Read once here rather than in every block: the port is the page's
+    // dependency, not the markdown renderer's, and threading the callback
+    // keeps `MarkdownView` and `CodeBlock` testable without one.
+    final commands = context.read(windowCommandsProvider);
+    void copyCode(String source) => unawaited(commands.copy(source));
 
     return section(classes: 'flex min-w-0 flex-1 flex-col', [
       // A window with no header cannot say which conversation it is showing,
@@ -395,7 +400,7 @@ class _Transcript extends StatelessComponent {
               error: (error, _) => <Component>[formError('$error')],
               data: (chat) => <Component>[
                 for (final message in chat?.messages ?? const [])
-                  _bubble(message.role, message.content),
+                  _bubble(message.role, message.content, onCopyCode: copyCode),
               ],
             ),
             // The message just sent, until the server's copy arrives.
@@ -409,6 +414,7 @@ class _Transcript extends StatelessComponent {
               _bubble(
                 'assistant',
                 live.text.isEmpty && !live.failed ? '…' : live.text,
+                onCopyCode: copyCode,
                 streaming: !live.failed && !live.settled,
                 // The server's words when it gave any, ours when it did not.
                 // A red border around an empty bubble was the whole of what
@@ -453,6 +459,7 @@ class _Transcript extends StatelessComponent {
   Component _bubble(
     String role,
     String content, {
+    void Function(String source)? onCopyCode,
     bool streaming = false,
     String? failure,
   }) {
@@ -470,7 +477,7 @@ class _Transcript extends StatelessComponent {
         if (isUser)
           Component.text(content)
         else if (content.isNotEmpty)
-          MarkdownView(content),
+          MarkdownView(content, onCopyCode: onCopyCode),
         if (failure case final message?)
           p(
             classes:

@@ -2,6 +2,8 @@ import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:markdown/markdown.dart' as md;
 
+import 'code_block.dart';
+
 /// Renders markdown as DOM, never as HTML (WP-3.5).
 ///
 /// The obvious implementation is `md.markdownToHtml` into an `innerHTML`, and
@@ -15,9 +17,15 @@ import 'package:markdown/markdown.dart' as md;
 /// syntax this does not handle yet degrades to plain prose instead of
 /// disappearing -- and a newly-dangerous tag cannot arrive by default.
 class MarkdownView extends StatelessComponent {
-  const MarkdownView(this.markdown, {super.key});
+  const MarkdownView(this.markdown, {this.onCopyCode, super.key});
 
   final String markdown;
+
+  /// Passed through to every fenced block's copy button (WP-3.5).
+  ///
+  /// Null renders no button, which is the right answer on a surface with no
+  /// clipboard -- the VM tests, and any host that has not bound the port.
+  final void Function(String source)? onCopyCode;
 
   /// Inline and block tags the AST walker will render.
   ///
@@ -85,6 +93,21 @@ class MarkdownView extends StatelessComponent {
       return span(children);
     }
 
+    // A fence reaches the AST as `pre > code`, and the code element is
+    // where the language lives. Intercepted here rather than inside the
+    // `pre` case so the block keeps its own chrome -- a language label and
+    // a copy button -- instead of being a styled `pre`.
+    if (element.tag == 'pre') {
+      if (element.children?.firstOrNull case final md.Element inner?
+          when inner.tag == 'code') {
+        return CodeBlock(
+          source: inner.textContent,
+          language: _fenceLanguage(inner),
+          onCopy: onCopyCode,
+        );
+      }
+    }
+
     return switch (element.tag) {
       'p' => p(children),
       'br' => br(),
@@ -128,6 +151,19 @@ class MarkdownView extends StatelessComponent {
   /// be denied rather than run -- but filtering here means it never becomes a
   /// link in the first place, and the user is not offered something that
   /// silently does nothing.
+  /// The fence's info string, which `package:markdown` records as a
+  /// `language-xxx` class on the inner `code` element.
+  static String? _fenceLanguage(md.Element code) {
+    final classes = code.attributes['class'];
+    if (classes == null) return null;
+    for (final name in classes.split(' ')) {
+      if (name.startsWith('language-')) {
+        return name.substring('language-'.length);
+      }
+    }
+    return null;
+  }
+
   Component _link(md.Element element, List<Component> children) {
     final href = element.attributes['href'] ?? '';
     final uri = Uri.tryParse(href);

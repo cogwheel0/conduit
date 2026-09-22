@@ -18,10 +18,21 @@ void main() {
       expect(find.tag('strong'), findsOneComponent);
     });
 
-    testComponents('renders fenced code as pre', (tester) async {
+    testComponents('renders fenced code as a code block', (tester) async {
       tester.pumpComponent(const MarkdownView('```dart\nvoid main() {}\n```'));
       expect(find.tag('pre'), findsOneComponent);
-      expect(find.text('void main() {}\n'), findsOneComponent);
+      // The source is split across highlighted spans now, so the assertion
+      // is on the tokens rather than on one text node.
+      expect(find.text('void'), findsOneComponent);
+      expect(find.text('dart'), findsOneComponent);
+    });
+
+    testComponents('an unfenced language renders as plain text', (
+      tester,
+    ) async {
+      tester.pumpComponent(const MarkdownView('```\nsome output\n```'));
+      expect(find.tag('pre'), findsOneComponent);
+      expect(find.text('some output\n'), findsOneComponent);
     });
 
     testComponents('renders lists and headings', (tester) async {
