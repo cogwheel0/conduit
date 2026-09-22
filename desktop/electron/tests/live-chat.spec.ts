@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -22,6 +22,12 @@ import {
  *   OWUI_URL=https://chat.example.com
  *   OWUI_EMAIL=you@example.com
  *   OWUI_PASSWORD=...
+ *   OWUI_MODEL=llama3.2:1b          # optional
+ *
+ * `OWUI_MODEL` is worth setting on a server that offers models the account
+ * cannot actually use. Without it the daemon falls back to the first model
+ * the server lists, and a refusal ("your plan does not include this model")
+ * is a real failure the test would report as one.
  *
  * The password is typed into a `type=password` field and never logged. The
  * file is gitignored, as is `test-results/`.
@@ -30,6 +36,7 @@ interface Credentials {
   readonly url: string
   readonly email: string
   readonly password: string
+  readonly model: string | undefined
 }
 
 function readCredentials(): Credentials | null {
@@ -55,10 +62,24 @@ function readCredentials(): Credentials | null {
   if (url === undefined || email === undefined || password === undefined) {
     return null
   }
-  return { url, email, password }
+  // Read from the same file, not from `process.env`: nothing exports these
+  // into the shell, so reaching for the environment quietly meant the model
+  // was never chosen and the run used whatever the server listed first.
+  return { url, email, password, model: values.get('OWUI_MODEL') }
 }
 
 const credentials = readCredentials()
+
+/// Where screenshots land for review.
+///
+/// Outside `test-results/`, which is wiped between runs, and gitignored for
+/// the same reason that directory is: these are pictures of a signed-in app.
+const shotDir = join(__dirname, '..', 'screenshots')
+
+async function shot(page: Page, name: string): Promise<void> {
+  mkdirSync(shotDir, { recursive: true })
+  await page.screenshot({ path: join(shotDir, `${name}.png`) })
+}
 
 test.describe('against a real server', () => {
   test.skip(credentials === null, 'no OWUI_* credentials in .env')
@@ -107,7 +128,7 @@ test.describe('against a real server', () => {
 
   test('onboards, signs in, and streams a reply', async () => {
     const page = await window()
-    const { url, email, password } = credentials!
+    const { url, email, password, model } = credentials!
 
     // 1. Onboarding. The session guard should already have put us here.
     await expect
@@ -116,6 +137,7 @@ test.describe('against a real server', () => {
       })
       .toBe('/onboarding')
 
+    await shot(page, '01-onboarding')
     await page.getByLabel(/server address/i).fill(url)
     await page.getByRole('button', { name: /^connect$/i }).click()
 
@@ -126,6 +148,7 @@ test.describe('against a real server', () => {
       })
       .toBe('/sign-in')
 
+    await shot(page, '02-sign-in')
     await page.getByLabel(/email or username/i).fill(email)
     await page.locator('#password').fill(password)
     await page.getByRole('button', { name: /^sign in$/i }).click()
@@ -137,6 +160,8 @@ test.describe('against a real server', () => {
       })
       .toBe('/')
     await expect(page.getByPlaceholder('Ask Conduit')).toBeVisible()
+
+    await shot(page, '03-chat-empty')
 
     // 4. A model list the daemon fetched from the server.
     const picker = page.locator('#model')
@@ -152,9 +177,10 @@ test.describe('against a real server', () => {
     // Picked explicitly because the daemon's fallback is "the first model
     // offered", which on a real server is as likely as not to be one the
     // account cannot use.
-    const wanted = process.env['OWUI_MODEL']
-    if (wanted !== undefined && values.includes(wanted)) {
-      await picker.selectOption(wanted)
+    if (model !== undefined) {
+      expect(values, `OWUI_MODEL=${model} is not offered by the server`)
+        .toContain(model)
+      await picker.selectOption(model)
     }
 
     // 5. The sidebar shows the account's real conversations, which only
@@ -167,13 +193,20 @@ test.describe('against a real server', () => {
       .toBeGreaterThan(0)
 
     // 6. Search runs against the database's index, not the loaded page.
+    await shot(page, '04-sidebar')
     const before = await page.locator('nav[aria-label] li').count()
     await page.getByLabel(/search conversations/i).fill('the')
-    await expect
-      .poll(() => page.locator('nav[aria-label] li').count(), {
-        timeout: 30_000,
-      })
-      .not.toBe(before)
+    // Hits, not merely "a different number of rows": while the debounced
+    // query was in flight the sidebar showed no rows at all, so `not.toBe`
+    // passed on the empty pane and the search itself was never checked.
+    const hits = page.locator('nav[aria-label] li')
+    await expect.poll(() => hits.count(), { timeout: 30_000 })
+      .toBeGreaterThan(0)
+    await expect.poll(() => hits.count(), { timeout: 30_000 }).not.toBe(before)
+    // The index returns the matching text, which is the point of searching
+    // the database rather than filtering the loaded page.
+    await expect(hits.first()).toContainText(/the/i)
+    await shot(page, '05-search')
     await page.getByLabel(/search conversations/i).fill('')
     await expect
       .poll(() => page.locator('nav[aria-label] li').count(), {
@@ -198,5 +231,22 @@ test.describe('against a real server', () => {
         timeout: 120_000,
       })
       .toBeGreaterThan('Reply with exactly the word: pong'.length + 2)
+
+    await shot(page, '06-reply')
+
+    // Settings, which nothing else exercises visually.
+    await page.evaluate(() => {
+      window.history.pushState(null, '', '/settings/appearance')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    await page.waitForTimeout(500)
+    await shot(page, '07-settings-appearance')
+
+    await page.evaluate(() => {
+      window.history.pushState(null, '', '/settings/connections')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    await page.waitForTimeout(500)
+    await shot(page, '08-settings-connections')
   })
 })

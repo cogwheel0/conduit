@@ -321,4 +321,21 @@ void main() {
       );
     });
   });
+
+  group('floating settings link', () {
+    // The pill is the fallback for screens with no chrome. It used to render
+    // on every route, which put it on top of the composer's send button and
+    // on top of the settings dialog it opens.
+    test('is suppressed where the screen has its own entry', () {
+      expect(showsFloatingSettingsLink('/'), isFalse);
+      expect(showsFloatingSettingsLink('/index.html'), isFalse);
+      expect(showsFloatingSettingsLink('/settings/appearance'), isFalse);
+    });
+
+    test('is the only way in on the chromeless screens', () {
+      expect(showsFloatingSettingsLink('/onboarding'), isTrue);
+      expect(showsFloatingSettingsLink('/sign-in'), isTrue);
+      expect(showsFloatingSettingsLink('/diagnostics/core'), isTrue);
+    });
+  });
 }

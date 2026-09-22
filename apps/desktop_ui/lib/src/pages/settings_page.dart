@@ -55,7 +55,7 @@ class SettingsPage extends StatelessComponent {
         div(
           classes:
               'flex h-[min(40rem,90vh)] w-[min(56rem,95vw)] overflow-hidden '
-              'rounded-[--radius] border border-border bg-card shadow-xl',
+              'rounded border border-border bg-card shadow-xl',
           [_sidebar(context, current), _panel(context, current)],
         ),
       ],
@@ -77,7 +77,7 @@ class SettingsPage extends StatelessComponent {
           a(
             href: '/settings/${tab.name}',
             classes:
-                'block rounded-[--radius] px-2 py-1.5 text-sm '
+                'block rounded px-2 py-1.5 text-sm '
                 '${tab == current ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'}',
             // `page`, not `selected`: these are navigation links, and
             // `aria-current="page"` is what a screen reader reports for
@@ -111,7 +111,7 @@ class SettingsPage extends StatelessComponent {
             button(
               [Component.text('×')],
               classes:
-                  'size-7 rounded-[--radius] text-lg leading-none '
+                  'size-7 rounded text-lg leading-none '
                   'text-muted-foreground hover:bg-accent',
               type: ButtonType.button,
               attributes: <String, String>{'aria-label': t.app.close},
@@ -233,7 +233,7 @@ class _AppearanceTab extends StatelessComponent {
           ],
           htmlFor: 'palette-${palette.id}',
           classes:
-              'flex cursor-pointer items-center gap-2 rounded-[--radius] '
+              'flex cursor-pointer items-center gap-2 rounded '
               'border p-2 '
               '${prefs.themePaletteId == palette.id ? 'border-primary bg-accent/40' : 'border-border hover:bg-accent/20'}',
         ),
@@ -269,7 +269,7 @@ class _AppearanceTab extends StatelessComponent {
         ],
         id: 'locale',
         classes:
-            'w-full rounded-[--radius] border border-border bg-background '
+            'w-full rounded border border-border bg-background '
             'px-3 py-2 text-sm text-foreground',
         onChange: (values) =>
             unawaited(_setLocale(context, values.isEmpty ? '' : values.first)),
@@ -315,7 +315,7 @@ class _ConnectionsTab extends StatelessComponent {
         a(
           href: '/onboarding',
           classes:
-              'inline-block rounded-[--radius] border border-border px-3 '
+              'inline-block rounded border border-border px-3 '
               'py-1.5 text-sm text-foreground hover:bg-accent',
           [Component.text(t.desktop.desktopSettingsAddServer)],
         ),
@@ -325,7 +325,7 @@ class _ConnectionsTab extends StatelessComponent {
 
   Component _row(BuildContext context, ServerSummary server) => li(
     classes:
-        'flex items-center gap-3 rounded-[--radius] border border-border '
+        'flex items-center gap-3 rounded border border-border '
         'p-3',
     [
       div(classes: 'min-w-0 flex-1', [
@@ -356,7 +356,7 @@ class _ConnectionsTab extends StatelessComponent {
         button(
           [Component.text(t.desktop.desktopSettingsSwitchServer)],
           classes:
-              'rounded-[--radius] border border-border px-2.5 py-1 text-xs '
+              'rounded border border-border px-2.5 py-1 text-xs '
               'text-foreground hover:bg-accent',
           type: ButtonType.button,
           onClick: () => unawaited(
@@ -366,7 +366,7 @@ class _ConnectionsTab extends StatelessComponent {
       button(
         [Component.text(t.desktop.desktopSettingsRemoveServer)],
         classes:
-            'rounded-[--radius] px-2.5 py-1 text-xs text-destructive '
+            'rounded px-2.5 py-1 text-xs text-destructive '
             'hover:bg-destructive/10',
         type: ButtonType.button,
         onClick: () => unawaited(
@@ -414,7 +414,7 @@ class _DataTabState extends State<_DataTab> {
     button(
       [Component.text(_busy ? t.desktop.desktopSigningOut : t.app.signOut)],
       classes:
-          'rounded-[--radius] bg-destructive px-4 py-2 text-sm '
+          'rounded bg-destructive px-4 py-2 text-sm '
           'text-destructive-foreground disabled:opacity-60',
       type: ButtonType.button,
       disabled: _busy,

@@ -201,6 +201,97 @@ void main() {
     expect(find.text('Answer for the other conversation'), findsNothing);
   });
 
+  testComponents('a refused turn says why, in the server\'s words', (
+    tester,
+  ) async {
+    tester.pumpComponent(
+      _scoped(
+        detail: _detail,
+        selected: 'chat-1',
+        live: const LiveTurn(
+          chatId: 'chat-1',
+          messageId: 'm3',
+          text: '',
+          failedCode: ConduitErrorCodes.serverError,
+          failedDetail: 'Free tier users do not have access to this model',
+          settled: true,
+        ),
+      ),
+    );
+    await pumpEventQueue();
+
+    // This used to render as an ellipsis inside a red border: the user was
+    // told a turn had failed and nothing about what to do next, while the
+    // daemon had the server's sentence in hand the whole time.
+    expect(
+      find.text('Free tier users do not have access to this model'),
+      findsOneComponent,
+    );
+    expect(find.text('…'), findsNothing);
+  });
+
+  testComponents('a failure after partial output keeps the partial output', (
+    tester,
+  ) async {
+    tester.pumpComponent(
+      _scoped(
+        detail: _detail,
+        selected: 'chat-1',
+        live: const LiveTurn(
+          chatId: 'chat-1',
+          messageId: 'm3',
+          text: 'The outbox drains',
+          failedCode: ConduitErrorCodes.serverError,
+          failedDetail: 'Upstream timed out',
+          settled: true,
+        ),
+      ),
+    );
+    await pumpEventQueue();
+
+    expect(find.text('The outbox drains'), findsOneComponent);
+    expect(find.text('Upstream timed out'), findsOneComponent);
+  });
+
+  testComponents('an unexplained failure still says something', (tester) async {
+    tester.pumpComponent(
+      _scoped(
+        detail: _detail,
+        selected: 'chat-1',
+        live: const LiveTurn(
+          chatId: 'chat-1',
+          messageId: 'm3',
+          text: '',
+          failedCode: ConduitErrorCodes.serverError,
+          settled: true,
+        ),
+      ),
+    );
+    await pumpEventQueue();
+
+    expect(find.text(t.app.errorMessage), findsOneComponent);
+  });
+
+  testComponents('names the conversation before its transcript arrives', (
+    tester,
+  ) async {
+    // The sidebar already has the title on screen; showing "Loading" in the
+    // header while the fetch runs renames the pane twice per selection.
+    tester.pumpComponent(_scoped(selected: 'chat-1'));
+    await pumpEventQueue();
+
+    expect(find.text('Rewriting the sync engine'), findsNComponents(2));
+  });
+
+  testComponents('an unselected pane invites a choice rather than blanking', (
+    tester,
+  ) async {
+    tester.pumpComponent(_scoped());
+    await pumpEventQueue();
+
+    expect(find.text(t.desktop.desktopPickAConversation), findsOneComponent);
+  });
+
   group('search', () {
     const hits = ChatSearchResults(
       hits: <ChatSearchHit>[

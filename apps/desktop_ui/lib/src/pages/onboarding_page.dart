@@ -75,7 +75,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
             ),
             textField(
               id: 'server-name',
-              labelText: t.app.openWebUIServer,
+              labelText: t.app.serverNameLabel,
               placeholder: 'Home',
               value: _name,
               disabled: _busy,
@@ -117,7 +117,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
   /// else turns a two-field form into a configuration chore.
   Component _advanced() => details([
     summary(classes: 'cursor-pointer text-sm font-medium', [
-      Component.text(t.app.settingsCategoryServer),
+      Component.text(t.app.advancedSettings),
     ]),
     div(classes: 'mt-4 space-y-4', [
       checkboxField(
@@ -163,6 +163,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
         }),
       ),
       textAreaField(
+        monospace: true,
         id: 'custom-headers',
         labelText: t.app.customHeaders,
         // One `Name: value` per line. A JSON box would be stricter, but
@@ -177,7 +178,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
         }),
       ),
     ]),
-  ], classes: 'rounded-[--radius] border border-border p-4');
+  ], classes: 'rounded border border-border p-4');
 
   /// A button plus the chosen filename, not an `<input type="file">` in the
   /// form.
@@ -213,7 +214,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
         ],
         id: id,
         classes:
-            'rounded-[--radius] border border-border px-3 py-1.5 text-sm '
+            'rounded border border-border px-3 py-1.5 text-sm '
             'text-foreground hover:bg-accent disabled:opacity-60',
         type: ButtonType.button,
         disabled: _busy,

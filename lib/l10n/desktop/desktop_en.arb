@@ -168,5 +168,17 @@
   "desktopSearchClear": "Clear search",
   "@desktopSearchClear": {
     "description": "Button that clears the desktop sidebar search field."
+  },
+  "desktopPickAConversation": "Pick a conversation",
+  "@desktopPickAConversation": {
+    "description": "Heading of the desktop empty transcript, shown when no conversation is selected."
+  },
+  "desktopPickAConversationHint": "Choose one from the sidebar, or type below to start a new one.",
+  "@desktopPickAConversationHint": {
+    "description": "Body of the desktop empty transcript, shown when no conversation is selected."
+  },
+  "desktopNewConversation": "New conversation",
+  "@desktopNewConversation": {
+    "description": "Title shown in the desktop transcript header before a conversation has been created."
   }
 }

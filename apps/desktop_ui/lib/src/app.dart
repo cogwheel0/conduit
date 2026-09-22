@@ -134,6 +134,13 @@ class _SessionGate extends StatelessComponent {
   }
 }
 
+/// The corner escape hatch to settings, for the screens with no chrome.
+///
+/// Onboarding, sign-in and the error page have no sidebar, so without this
+/// the settings modal is reachable only by typing a URL. The chat page has
+/// its own entry in the sidebar footer and suppresses this one, and so does
+/// settings itself -- a floating pill that sits on top of the dialog it
+/// opens reads as a second, broken button.
 Component _settingsLink() => a(
   href: '/settings/appearance',
   classes:
@@ -141,6 +148,13 @@ Component _settingsLink() => a(
       'px-3 py-1.5 text-xs text-muted-foreground shadow hover:bg-accent',
   [Component.text(t.desktop.desktopSettingsTitle)],
 );
+
+/// Whether [location] renders its own way into settings.
+@visibleForTesting
+bool showsFloatingSettingsLink(String location) =>
+    location != '/' &&
+    location != '/index.html' &&
+    !location.startsWith('/settings');
 
 /// Sends a window to onboarding or sign-in when it has no session.
 String? _sessionRedirect(BuildContext context, String location) =>
@@ -209,11 +223,8 @@ class _Shell extends StatelessComponent {
       const ServerIssueBanner(),
       const _SessionGate(),
       div(classes: 'min-h-0 flex-1', [child]),
-      // A settings affordance has to exist somewhere or the modal is
-      // unreachable except by typing a URL. M3 builds the real chrome and
-      // this moves into it; until then it is a corner button rather than
-      // nothing.
-      _settingsLink(),
+      if (showsFloatingSettingsLink(RouteState.of(context).location))
+        _settingsLink(),
     ]);
   }
 }

@@ -40,7 +40,7 @@ class _Sidebar extends StatelessComponent {
           button(
             [Component.text(t.app.newChat)],
             classes:
-                'w-full rounded-[--radius] bg-primary px-3 py-2 text-sm '
+                'w-full rounded bg-primary px-3 py-2 text-sm '
                 'text-primary-foreground',
             type: ButtonType.button,
             onClick: () => context.read(chatActionsProvider).select(null),
@@ -51,6 +51,7 @@ class _Sidebar extends StatelessComponent {
             id: 'chat-search',
             labelText: t.desktop.desktopSearchChats,
             placeholder: t.desktop.desktopSearchChats,
+            hideLabel: true,
             value: query,
             type: InputType.search,
             onInput: (value) =>
@@ -61,31 +62,49 @@ class _Sidebar extends StatelessComponent {
           // Results replace the list rather than filtering it: the list is
           // one loaded page, and filtering that would quietly miss every
           // older conversation -- which looks like a working search.
+          //
+          // Both branches read `value` rather than `when`. An `AsyncValue`
+          // that is refetching reports `loading` while still holding the
+          // previous data, so `when` emptied this pane on every keystroke
+          // past the debounce and after every rename, pin and delete. The
+          // data is only genuinely absent on the first fetch.
           if (query.trim().isNotEmpty)
-            search.when(
-              loading: () => _hint(t.app.loadingShort),
-              error: (error, _) => _hint('$error'),
-              data: (results) => results == null || results.hits.isEmpty
+            if (search.value?.hits case final hits?)
+              hits.isEmpty
                   ? _hint(t.desktop.desktopSearchNoResults)
                   : ul(classes: 'space-y-0.5', [
-                      for (final hit in results.hits)
+                      for (final hit in hits)
                         _SearchRow(
                           hit: hit,
                           isSelected: selected == hit.chatId,
                         ),
-                    ]),
-            )
+                    ])
+            else if (search.hasError)
+              _hint('${search.error}')
+            else
+              _hint(t.app.loadingShort)
+          else if (chats.value case final list?)
+            list.chats.isEmpty
+                ? _hint(t.desktop.desktopNoChatsYet)
+                : ul(classes: 'space-y-0.5', [
+                    for (final chat in list.chats)
+                      _ChatRow(chat: chat, isSelected: selected == chat.id),
+                  ])
+          else if (chats.hasError)
+            _hint('${chats.error}')
           else
-            chats.when(
-              loading: () => _hint(t.app.loadingShort),
-              error: (error, _) => _hint('$error'),
-              data: (list) => list.chats.isEmpty
-                  ? _hint(t.desktop.desktopNoChatsYet)
-                  : ul(classes: 'space-y-0.5', [
-                      for (final chat in list.chats)
-                        _ChatRow(chat: chat, isSelected: selected == chat.id),
-                    ]),
-            ),
+            _hint(t.app.loadingShort),
+        ]),
+        // Pinned under the list rather than floating over the transcript,
+        // which is where it used to sit -- on top of the send button.
+        div(classes: 'shrink-0 border-t border-border p-2', [
+          a(
+            href: '/settings/appearance',
+            classes:
+                'block rounded px-2 py-1.5 text-sm text-muted-foreground '
+                'hover:bg-accent hover:text-accent-foreground',
+            [Component.text(t.desktop.desktopSettingsTitle)],
+          ),
         ]),
       ],
     );
@@ -117,7 +136,7 @@ class _SearchRow extends StatelessComponent {
           ]),
       ],
       classes:
-          'block w-full rounded-[--radius] px-2 py-1.5 text-left '
+          'block w-full rounded px-2 py-1.5 text-left '
           '${isSelected ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'}',
       type: ButtonType.button,
       onClick: () => context.read(chatActionsProvider).select(hit.chatId),
@@ -188,7 +207,7 @@ class _ChatRowState extends State<_ChatRow> {
               ),
           ],
           classes:
-              'flex min-w-0 flex-1 items-center rounded-[--radius] px-2 py-1.5 '
+              'flex min-w-0 flex-1 items-center rounded px-2 py-1.5 '
               'text-left text-sm '
               '${component.isSelected ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'}',
           type: ButtonType.button,
@@ -204,7 +223,7 @@ class _ChatRowState extends State<_ChatRow> {
       if (_confirmingDelete)
         div(
           classes:
-              'mt-1 rounded-[--radius] border border-destructive/40 '
+              'mt-1 rounded border border-destructive/40 '
               'bg-destructive/10 p-2 text-xs',
           // `alertdialog`: destructive and irreversible, so it should
           // interrupt rather than wait to be found.
@@ -217,7 +236,7 @@ class _ChatRowState extends State<_ChatRow> {
               button(
                 [Component.text(t.desktop.desktopDeleteChat)],
                 classes:
-                    'rounded-[--radius] bg-destructive px-2 py-1 '
+                    'rounded bg-destructive px-2 py-1 '
                     'text-destructive-foreground',
                 type: ButtonType.button,
                 onClick: () {
@@ -227,7 +246,7 @@ class _ChatRowState extends State<_ChatRow> {
               ),
               button(
                 [Component.text(t.app.cancel)],
-                classes: 'rounded-[--radius] px-2 py-1 text-foreground',
+                classes: 'rounded px-2 py-1 text-foreground',
                 type: ButtonType.button,
                 onClick: () => setState(() => _confirmingDelete = false),
               ),
@@ -333,7 +352,30 @@ class _Transcript extends StatelessComponent {
         pending.chatId == selected &&
         !persisted.any((message) => message.id == pending.messageId);
 
+    // The list already has the title, and it is on screen -- so falling
+    // back to it means switching conversations renames the header at once
+    // instead of showing "Loading" for as long as the fetch takes.
+    final title =
+        detail.value?.summary.title ??
+        _titleIn(context.watch(chatListProvider).value, selected);
+    // Keyed on the selection, not on the message count: a conversation whose
+    // transcript is still being fetched has no messages either, and telling
+    // someone to pick a conversation they just picked is worse than a pause.
+    final nothingChosen = selected == null && !showPending && live == null;
+
     return section(classes: 'flex min-w-0 flex-1 flex-col', [
+      // A window with no header cannot say which conversation it is showing,
+      // and the sidebar selection is off-screen the moment the list scrolls.
+      header(
+        classes:
+            'flex h-12 shrink-0 items-center border-b border-border px-6 '
+            'text-sm font-medium text-foreground',
+        [
+          // A conversation the list has not caught up with yet is a
+          // conversation this window just created.
+          Component.text(title ?? t.desktop.desktopNewConversation),
+        ],
+      ),
       div(
         classes: 'min-h-0 flex-1 overflow-y-auto px-6 py-6',
         // `log` so a screen reader announces arriving messages without the
@@ -344,6 +386,7 @@ class _Transcript extends StatelessComponent {
           'aria-live': 'polite',
         },
         [
+          if (nothingChosen) _emptyState(),
           div(classes: 'mx-auto flex max-w-3xl flex-col gap-4', [
             ...detail.when(
               loading: () => <Component>[],
@@ -363,9 +406,14 @@ class _Transcript extends StatelessComponent {
                 !persisted.any((message) => message.id == live.messageId))
               _bubble(
                 'assistant',
-                live.text.isEmpty ? '…' : live.text,
+                live.text.isEmpty && !live.failed ? '…' : live.text,
                 streaming: !live.failed && !live.settled,
-                failed: live.failed,
+                // The server's words when it gave any, ours when it did not.
+                // A red border around an empty bubble was the whole of what
+                // a refused model used to say.
+                failure: live.failed
+                    ? (live.failedDetail ?? t.app.errorMessage)
+                    : null,
               ),
           ]),
         ],
@@ -374,23 +422,60 @@ class _Transcript extends StatelessComponent {
     ]);
   }
 
+  /// The sidebar's name for [chatId], if the list has been loaded.
+  String? _titleIn(ChatList? list, String? chatId) {
+    for (final chat in list?.chats ?? const <ChatSummary>[]) {
+      if (chat.id == chatId) return chat.title;
+    }
+    return null;
+  }
+
+  /// What the pane says before there is anything to say.
+  ///
+  /// An empty transcript and a transcript still loading look identical when
+  /// both render nothing, and the first is the state a new install is in --
+  /// so the app's opening screen was a blank rectangle.
+  Component _emptyState() => div(
+    classes:
+        'mx-auto flex max-w-3xl flex-col items-center gap-2 py-24 text-center',
+    [
+      p(classes: 'text-lg font-medium text-foreground', [
+        Component.text(t.desktop.desktopPickAConversation),
+      ]),
+      p(classes: 'text-sm text-muted-foreground', [
+        Component.text(t.desktop.desktopPickAConversationHint),
+      ]),
+    ],
+  );
+
   Component _bubble(
     String role,
     String content, {
     bool streaming = false,
-    bool failed = false,
+    String? failure,
   }) {
     final isUser = role == 'user';
+    final failed = failure != null;
     return article(
       classes:
-          'rounded-[--radius] px-4 py-3 text-sm '
+          'rounded px-4 py-3 text-sm '
           '${isUser ? 'ml-auto max-w-[80%] bg-primary text-primary-foreground whitespace-pre-wrap' : 'mr-auto max-w-[90%] bg-card text-card-foreground'} '
           '${failed ? 'border border-destructive' : ''}',
       [
         // The user's own text is rendered verbatim: they typed it, so
         // markdown they did not mean should not be interpreted, and a stray
         // asterisk should stay an asterisk.
-        if (isUser) Component.text(content) else MarkdownView(content),
+        if (isUser)
+          Component.text(content)
+        else if (content.isNotEmpty)
+          MarkdownView(content),
+        if (failure case final message?)
+          p(
+            classes:
+                '${content.isEmpty ? '' : 'mt-2 '}text-sm text-destructive',
+            attributes: const <String, String>{'role': 'alert'},
+            [Component.text(message)],
+          ),
         if (streaming)
           span(
             classes: 'ml-1 animate-pulse',
@@ -440,7 +525,7 @@ class _ComposerState extends State<_Composer> {
             ],
             id: 'model',
             classes:
-                'rounded-[--radius] border border-border bg-background '
+                'rounded border border-border bg-background '
                 'px-2 py-1 text-xs text-foreground',
             disabled: _busy,
             onChange: (values) {
@@ -453,12 +538,16 @@ class _ComposerState extends State<_Composer> {
         ]),
       form(
         [
+          // `min-w-0` on the field: a flex item's automatic minimum is its
+          // content's, and a textarea's is its `cols` -- without this the
+          // field refuses to give ground and the row overflows instead.
           div(classes: 'mx-auto flex max-w-3xl items-end gap-2', [
-            div(classes: 'flex-1', [
+            div(classes: 'min-w-0 flex-1', [
               textAreaField(
                 id: 'composer',
                 labelText: t.app.sendMessage,
                 placeholder: t.app.messageHintText,
+                hideLabel: true,
                 value: _text,
                 rows: 2,
                 disabled: _busy,
@@ -469,7 +558,7 @@ class _ComposerState extends State<_Composer> {
               button(
                 [Component.text(t.app.stopGenerating)],
                 classes:
-                    'rounded-[--radius] border border-border px-4 py-2 '
+                    'shrink-0 rounded border border-border px-4 py-2 '
                     'text-sm text-foreground',
                 type: ButtonType.button,
                 onClick: () => unawaited(
@@ -482,6 +571,7 @@ class _ComposerState extends State<_Composer> {
                 busyLabel: t.desktop.desktopSending,
                 busy: _busy,
                 enabled: _text.trim().isNotEmpty,
+                fullWidth: false,
               ),
           ]),
           if (_error case final message?)

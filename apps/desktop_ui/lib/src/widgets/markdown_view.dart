@@ -95,7 +95,7 @@ class MarkdownView extends StatelessComponent {
       'code' => code(classes: 'rounded bg-muted px-1 py-0.5 text-xs', children),
       'pre' => pre(
         classes:
-            'overflow-x-auto rounded-[--radius] bg-muted p-3 text-xs '
+            'overflow-x-auto rounded bg-muted p-3 text-xs '
             'whitespace-pre',
         children,
       ),

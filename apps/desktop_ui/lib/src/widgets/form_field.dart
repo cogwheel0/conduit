@@ -19,11 +19,12 @@ Component textField({
   InputType type = InputType.text,
   bool disabled = false,
   bool autofocus = false,
+  bool hideLabel = false,
   String? error,
 }) {
   final errorId = '$id-error';
   return div(classes: 'space-y-1.5', [
-    _label(id, labelText),
+    _label(id, labelText, hidden: hideLabel),
     input<String>(
       id: id,
       classes: _controlClasses(invalid: error != null),
@@ -55,16 +56,24 @@ Component textAreaField({
   required void Function(String value) onInput,
   String? placeholder,
   bool disabled = false,
+  bool hideLabel = false,
   int rows = 3,
+
+  /// Character-accurate input -- a PEM block, a header list -- where
+  /// alignment carries meaning and an ambiguous `l`/`1` costs the user a
+  /// debugging session. Prose is the other case, and the composer is prose.
+  bool monospace = false,
   String? error,
 }) {
   final errorId = '$id-error';
   return div(classes: 'space-y-1.5', [
-    _label(id, labelText),
+    _label(id, labelText, hidden: hideLabel),
     textarea(
       [Component.text(value)],
       id: id,
-      classes: '${_controlClasses(invalid: error != null)} font-mono text-xs',
+      classes:
+          '${_controlClasses(invalid: error != null)}'
+          '${monospace ? ' font-mono text-xs' : ''}',
       disabled: disabled,
       rows: rows,
       placeholder: placeholder,
@@ -107,16 +116,22 @@ Component checkboxField({
 ///
 /// `type: submit` rather than a click handler, so the form also submits on
 /// Enter from any field -- which is how a two-field login is actually used.
+/// [fullWidth] is the stacked-form shape -- sign-in, onboarding, the add
+/// server sheet -- where the button is the last row and owns the width. The
+/// composer is the other shape: the button sits *beside* the field, and
+/// `w-full` there resolves against the flex line, so the button claims the
+/// whole row and squeezes the textarea down to its scrollbar.
 Component submitButton({
   required String labelText,
   required String busyLabel,
   required bool busy,
   bool enabled = true,
+  bool fullWidth = true,
 }) => button(
   [Component.text(busy ? busyLabel : labelText)],
   classes:
-      'w-full rounded-[--radius] bg-primary px-4 py-2 text-primary-foreground '
-      'disabled:opacity-60',
+      '${fullWidth ? 'w-full' : 'shrink-0'} rounded bg-primary px-4 py-2 '
+      'text-primary-foreground disabled:opacity-60',
   type: ButtonType.submit,
   disabled: busy || !enabled,
   attributes: <String, String>{if (busy) 'aria-busy': 'true'},
@@ -132,15 +147,21 @@ Component formError(String message) => p(
 );
 
 String _controlClasses({bool invalid = false}) =>
-    'w-full rounded-[--radius] border bg-background px-3 py-2 text-sm '
+    'w-full rounded border bg-background px-3 py-2 text-sm '
     'text-foreground outline-none focus-visible:ring-2 '
     'focus-visible:ring-ring disabled:opacity-60 '
     '${invalid ? 'border-destructive' : 'border-border'}';
 
-Component _label(String id, String text) => label(
+/// [hidden] keeps the label in the DOM and takes it off the screen.
+///
+/// For a field whose placeholder already says the same words, the visible
+/// label is noise -- but deleting it strips the control's accessible name,
+/// because a placeholder is a hint, not a name, and is dropped the moment
+/// the field has a value. `sr-only` is the one that keeps both.
+Component _label(String id, String text, {bool hidden = false}) => label(
   [Component.text(text)],
   htmlFor: id,
-  classes: 'block text-sm font-medium text-foreground',
+  classes: hidden ? 'sr-only' : 'block text-sm font-medium text-foreground',
 );
 
 Component _fieldError(String id, String message) =>

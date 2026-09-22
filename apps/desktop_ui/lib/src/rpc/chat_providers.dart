@@ -142,6 +142,7 @@ class LiveTurn {
     required this.messageId,
     required this.text,
     this.failedCode,
+    this.failedDetail,
     this.settled = false,
   });
 
@@ -149,6 +150,13 @@ class LiveTurn {
   final String messageId;
   final String text;
   final String? failedCode;
+
+  /// The server's own explanation, when it gave one.
+  ///
+  /// A refusal like "your plan does not include this model" is information
+  /// only the server has, and a red border around an empty bubble tells the
+  /// user nothing they can act on.
+  final String? failedDetail;
 
   /// The turn has finished, but the persisted transcript may not have caught
   /// up. Kept on screen until it does.
@@ -210,6 +218,7 @@ final liveTurnProvider = StreamProvider<LiveTurn?>((ref) {
           messageId: failed.messageId,
           text: failed.partialText,
           failedCode: failed.code,
+          failedDetail: failed.args['detail'],
           settled: true,
         );
       default:

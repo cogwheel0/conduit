@@ -107,7 +107,7 @@ class _SignInPageState extends State<SignInPage> {
   Component _ssoButton(BuildContext context, String? serverUrl) => button(
     [Component.text(t.app.signInWithSso)],
     classes:
-        'w-full rounded-[--radius] border border-border px-4 py-2 '
+        'w-full rounded border border-border px-4 py-2 '
         'text-foreground disabled:opacity-60',
     type: ButtonType.button,
     disabled: _busy || serverUrl == null,

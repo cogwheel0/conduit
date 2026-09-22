@@ -77,7 +77,7 @@ class StatusPage extends StatelessComponent {
 
   Component _connectedCard(CoreConnection state) {
     final handshake = state.handshake!;
-    return div(classes: 'rounded-[--radius] border border-border bg-card p-6', [
+    return div(classes: 'rounded border border-border bg-card p-6', [
       div(classes: 'flex items-center gap-2', [
         span(classes: 'inline-block size-2 rounded-full bg-success', const []),
         span(classes: 'font-medium text-card-foreground', [
@@ -122,7 +122,7 @@ class StatusPage extends StatelessComponent {
     required String tone,
     required String title,
     required String detail,
-  }) => div(classes: 'rounded-[--radius] border border-border bg-card p-6', [
+  }) => div(classes: 'rounded border border-border bg-card p-6', [
     div(classes: 'font-medium text-$tone', [Component.text(title)]),
     p(classes: 'mt-2 text-sm text-muted-foreground', [Component.text(detail)]),
   ]);
