@@ -28,6 +28,29 @@ abstract class ChatSummary with _$ChatSummary {
       _$ChatSummaryFromJson(json);
 }
 
+/// A folder as the sidebar shows it (WP-3.1).
+///
+/// No member list: a chat names its folder through
+/// [ChatSummary.folderId], and carrying the relation both ways would give
+/// the renderer two answers to disagree about.
+@freezed
+abstract class FolderSummary with _$FolderSummary {
+  const factory FolderSummary({
+    required String id,
+    required String name,
+
+    /// Folders nest. Null is the top level.
+    String? parentId,
+
+    /// Whether the account last left it open, which is where a new window
+    /// should start.
+    @Default(false) bool expanded,
+  }) = _FolderSummary;
+
+  factory FolderSummary.fromJson(Map<String, dynamic> json) =>
+      _$FolderSummaryFromJson(json);
+}
+
 /// Reply to `chats.list`.
 @freezed
 abstract class ChatList with _$ChatList {
@@ -40,6 +63,15 @@ abstract class ChatList with _$ChatList {
     /// Archived chats are counted even when they are not loaded, so the
     /// sidebar can offer the section without paging them in first.
     @Default(0) int archivedCount,
+
+    /// Whether archived chats are currently included in [chats].
+    ///
+    /// They are paged separately and off by default: most people never
+    /// open the section, and loading it for everyone would make the list
+    /// proportional to everything ever archived.
+    @Default(false) bool archivedVisible,
+
+    @Default(<FolderSummary>[]) List<FolderSummary> folders,
   }) = _ChatList;
 
   factory ChatList.fromJson(Map<String, dynamic> json) =>
@@ -172,4 +204,14 @@ abstract class ChatShare with _$ChatShare {
 
   factory ChatShare.fromJson(Map<String, dynamic> json) =>
       _$ChatShareFromJson(json);
+}
+
+/// Params for `chats.setArchivedVisible`.
+@freezed
+abstract class ArchivedVisibility with _$ArchivedVisibility {
+  const factory ArchivedVisibility({required bool visible}) =
+      _ArchivedVisibility;
+
+  factory ArchivedVisibility.fromJson(Map<String, dynamic> json) =>
+      _$ArchivedVisibilityFromJson(json);
 }

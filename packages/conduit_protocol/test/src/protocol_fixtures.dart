@@ -218,6 +218,12 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     partialText: 'The outbox dra',
   ),
   'stopTurn': const StopTurn(chatId: 'chat-7c1f0b2a'),
+  'folderSummary': const FolderSummary(
+    id: 'folder-1d7c',
+    name: 'Research',
+    expanded: true,
+  ),
+  'archivedVisibility': const ArchivedVisibility(visible: true),
   'uploadedFile': const UploadedFile(
     id: 'file-3b91d0c4',
     name: 'notes.pdf',
@@ -387,6 +393,8 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'turnCompleted': TurnCompleted.fromJson,
       'turnFailed': TurnFailed.fromJson,
       'stopTurn': StopTurn.fromJson,
+      'folderSummary': FolderSummary.fromJson,
+      'archivedVisibility': ArchivedVisibility.fromJson,
       'uploadedFile': UploadedFile.fromJson,
       'regenerateTurn': RegenerateTurn.fromJson,
       'chatSummary': ChatSummary.fromJson,

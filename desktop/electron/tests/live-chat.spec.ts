@@ -242,7 +242,19 @@ test.describe('against a real server', () => {
     // so reading messages off one gave an empty pane for every chat not
     // created in this session -- the app could list two hundred and open
     // none of them.
-    await page.locator('nav[aria-label] li button').first().click()
+    // A chat row, not the first button in the list -- which is now a
+    // folder's toggle whenever the account has folders.
+    const target = page
+      .locator('nav[aria-label] section')
+      .filter({
+        has: page.getByRole('heading', {
+          // Anchored: an unanchored /older/ matches "Folders".
+          name: /^(today|yesterday|previous \d+ days|older)$/i,
+        }),
+      })
+      .locator('li button')
+      .first()
+    await target.click()
     await expect(transcript.locator('article').first())
       .toBeVisible({ timeout: 60_000 })
     await expect

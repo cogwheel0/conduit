@@ -144,6 +144,13 @@ class _RecordingActions extends ChatActions {
   Future<void> delete(String id) async => calls.add('delete($id)');
 
   @override
+  Future<void> loadMore() async => calls.add('loadMore');
+
+  @override
+  Future<void> setArchivedVisible({required bool visible}) async =>
+      calls.add('archivedVisible($visible)');
+
+  @override
   Future<SendTurnAccepted> send({
     required String text,
     String? model,
@@ -327,6 +334,124 @@ void main() {
     await pumpEventQueue();
 
     expect(find.text('Rewriting the sync engine'), findsNComponents(2));
+  });
+
+  group('sections', () {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final foldered = ChatList(
+      chats: <ChatSummary>[
+        ChatSummary(
+          id: 'p',
+          title: 'Pinned one',
+          updatedAtMs: now,
+          pinned: true,
+        ),
+        ChatSummary(
+          id: 'f',
+          title: 'Filed away',
+          updatedAtMs: now,
+          folderId: 'work',
+        ),
+        ChatSummary(id: 'r', title: 'Just now', updatedAtMs: now),
+      ],
+      folders: const <FolderSummary>[FolderSummary(id: 'work', name: 'Work')],
+      hasMore: true,
+      archivedCount: 3,
+    );
+
+    testComponents('draws the headings Open WebUI does', (tester) async {
+      tester.pumpComponent(_scoped(chats: foldered));
+      await pumpEventQueue();
+
+      expect(find.text(t.app.pinned), findsOneComponent);
+      expect(find.text(t.app.folders), findsOneComponent);
+      expect(find.text(t.app.today), findsOneComponent);
+      // As headings, so a screen reader can jump between them.
+      expect(find.tag('h2'), findsNComponents(3));
+    });
+
+    testComponents('a folder hides its chats until it is opened', (
+      tester,
+    ) async {
+      tester.pumpComponent(_scoped(chats: foldered));
+      await pumpEventQueue();
+
+      expect(find.text('Filed away'), findsNothing);
+      await tester.click(
+        find.ancestor(of: find.text('Work'), matching: find.tag('button')),
+      );
+      await pumpEventQueue();
+      expect(find.text('Filed away'), findsOneComponent);
+    });
+
+    testComponents('a folder the account left open starts open', (
+      tester,
+    ) async {
+      tester.pumpComponent(
+        _scoped(
+          chats: foldered.copyWith(
+            folders: const <FolderSummary>[
+              FolderSummary(id: 'work', name: 'Work', expanded: true),
+            ],
+          ),
+        ),
+      );
+      await pumpEventQueue();
+      await pumpEventQueue();
+
+      expect(find.text('Filed away'), findsOneComponent);
+    });
+
+    testComponents('more and archived are offered, and ask the daemon', (
+      tester,
+    ) async {
+      late _RecordingActions actions;
+      tester.pumpComponent(
+        _scoped(chats: foldered, onActions: (recording) => actions = recording),
+      );
+      await pumpEventQueue();
+
+      await tester.click(
+        find.ancestor(
+          of: find.text(t.app.workspaceLoadMore),
+          matching: find.tag('button'),
+        ),
+      );
+      await tester.click(
+        find.ancestor(
+          of: find.text('${t.app.archived} (3)'),
+          matching: find.tag('button'),
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(actions.calls, <String>['loadMore', 'archivedVisible(true)']);
+    });
+
+    testComponents('an archived chat offers to unarchive, not archive', (
+      tester,
+    ) async {
+      tester.pumpComponent(
+        _scoped(
+          chats: ChatList(
+            chats: <ChatSummary>[
+              ChatSummary(
+                id: 'a',
+                title: 'Old',
+                updatedAtMs: now,
+                archived: true,
+              ),
+            ],
+            archivedCount: 1,
+            archivedVisible: true,
+          ),
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(_byLabel(t.app.unarchive), findsOneComponent);
+      expect(_byLabel(t.desktop.desktopArchiveChat), findsNothing);
+    });
   });
 
   group('attachments', () {

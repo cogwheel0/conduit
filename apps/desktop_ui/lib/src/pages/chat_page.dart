@@ -10,6 +10,7 @@ import '../keyboard.dart';
 import '../l10n/strings.g.dart';
 import '../rpc/chat_providers.dart';
 import '../rpc/rpc_providers.dart';
+import '../sidebar_model.dart';
 import '../widgets/form_field.dart';
 import '../widgets/markdown_view.dart';
 
@@ -87,12 +88,9 @@ class _Sidebar extends StatelessComponent {
             else
               _hint(t.app.loadingShort)
           else if (chats.value case final list?)
-            list.chats.isEmpty
+            list.chats.isEmpty && list.archivedCount == 0
                 ? _hint(t.desktop.desktopNoChatsYet)
-                : ul(classes: 'space-y-0.5', [
-                    for (final chat in list.chats)
-                      _ChatRow(chat: chat, isSelected: selected == chat.id),
-                  ])
+                : _Sections(list: list, selected: selected)
           else if (chats.hasError)
             _hint('${chats.error}')
           else
@@ -117,6 +115,143 @@ class _Sidebar extends StatelessComponent {
     classes: 'px-2 py-4 text-sm text-muted-foreground',
     [Component.text(text)],
   );
+}
+
+/// The sidebar's list, in the sections Open WebUI draws (WP-3.1).
+///
+/// The sorting lives in `buildSidebar`, which is pure and tested on its own;
+/// this only draws what it decided.
+class _Sections extends StatelessComponent {
+  const _Sections({required this.list, required this.selected});
+
+  final ChatList list;
+  final String? selected;
+
+  @override
+  Component build(BuildContext context) {
+    final model = buildSidebar(list, now: DateTime.now());
+    final expanded = context.watch(expandedFoldersProvider);
+    if (expanded == null && list.folders.isNotEmpty) {
+      // After this frame: seeding is a state change, and making one while
+      // building would modify the tree that is being built.
+      Future<void>.microtask(
+        () => context.read(expandedFoldersProvider.notifier).seed(list.folders),
+      );
+    }
+    final open = expanded ?? const <String>{};
+    final actions = context.read(chatActionsProvider);
+
+    return div(classes: 'space-y-4', [
+      if (model.pinned.isNotEmpty)
+        _section(t.app.pinned, [for (final chat in model.pinned) _row(chat)]),
+      if (model.folders.isNotEmpty)
+        _section(t.app.folders, [
+          for (final node in model.folders) _folder(context, node, open),
+        ]),
+      for (final group in model.recent)
+        _section(_bucketLabel(group.bucket), [
+          for (final chat in group.chats) _row(chat),
+        ]),
+      if (list.hasMore)
+        _footerButton(
+          t.app.workspaceLoadMore,
+          () => unawaited(actions.loadMore()),
+        ),
+      if (list.archivedCount > 0) ...<Component>[
+        _footerButton(
+          '${t.app.archived} (${list.archivedCount})',
+          () => unawaited(
+            actions.setArchivedVisible(visible: !list.archivedVisible),
+          ),
+          expanded: list.archivedVisible,
+        ),
+        if (list.archivedVisible && model.archived.isNotEmpty)
+          ul(classes: 'space-y-0.5', [
+            for (final chat in model.archived) _row(chat),
+          ]),
+      ],
+    ]);
+  }
+
+  Component _row(ChatSummary chat) =>
+      _ChatRow(chat: chat, isSelected: selected == chat.id);
+
+  /// A heading and its rows, as a real heading so a screen reader can jump
+  /// between sections instead of reading two hundred titles in a row.
+  Component _section(String title, List<Component> rows) => section([
+    h2(
+      classes:
+          'px-2 pb-1 text-xs font-medium tracking-wide text-muted-foreground',
+      [Component.text(title)],
+    ),
+    ul(classes: 'space-y-0.5', rows),
+  ]);
+
+  /// A folder and, when open, what is in it.
+  ///
+  /// Its contents are a nested `ul` inside the folder's own `li`, so the
+  /// list structure a screen reader announces matches the tree on screen
+  /// -- "list, 3 items, level 2" -- rather than one flat list with some
+  /// rows pushed right.
+  Component _folder(BuildContext context, FolderNode node, Set<String> open) {
+    final isOpen = open.contains(node.folder.id);
+    return li([
+      button(
+        [
+          span(
+            classes: 'w-3 shrink-0 text-xs',
+            attributes: const <String, String>{'aria-hidden': 'true'},
+            [Component.text(isOpen ? '\u25be' : '\u25b8')],
+          ),
+          span(classes: 'min-w-0 flex-1 truncate', [
+            Component.text(node.folder.name),
+          ]),
+          span(classes: 'text-xs tabular-nums opacity-60', [
+            Component.text('${node.totalChats}'),
+          ]),
+        ],
+        classes:
+            'flex w-full items-center gap-1.5 rounded px-2 py-1.5 '
+            'text-left text-sm text-foreground hover:bg-accent/50',
+        type: ButtonType.button,
+        attributes: <String, String>{
+          'aria-expanded': isOpen ? 'true' : 'false',
+        },
+        onClick: () => context
+            .read(expandedFoldersProvider.notifier)
+            .toggle(node.folder.id),
+      ),
+      if (isOpen)
+        ul(classes: 'ml-3 space-y-0.5 border-l border-border pl-1', [
+          for (final child in node.children) _folder(context, child, open),
+          for (final chat in node.chats) _row(chat),
+        ]),
+    ]);
+  }
+
+  Component _footerButton(
+    String label,
+    void Function() onClick, {
+    bool? expanded,
+  }) => button(
+    [Component.text(label)],
+    classes:
+        'w-full rounded px-2 py-1.5 text-left text-xs text-muted-foreground '
+        'hover:bg-accent/50',
+    type: ButtonType.button,
+    attributes: <String, String>{
+      if (expanded != null) 'aria-expanded': expanded ? 'true' : 'false',
+    },
+    onClick: onClick,
+  );
+
+  static String _bucketLabel(DateBucket bucket) => switch (bucket) {
+    DateBucket.today => t.app.today,
+    DateBucket.yesterday => t.app.yesterday,
+    DateBucket.previous7Days => t.app.previous7Days,
+    DateBucket.previous30Days => t.app.previous30Days,
+    DateBucket.older => t.app.older,
+  };
 }
 
 /// One search hit: the title, and the matching text in context.
@@ -294,7 +429,9 @@ class _ChatRowState extends State<_ChatRow> {
         }),
       ),
       _action(
-        label: t.desktop.desktopArchiveChat,
+        // The same action both ways, so it has to say which way. An
+        // archived chat offering "Archive" reads as already failed.
+        label: chat.archived ? t.app.unarchive : t.desktop.desktopArchiveChat,
         glyph: '\u25a4',
         onClick: () =>
             unawaited(actions.setArchived(chat.id, value: !chat.archived)),

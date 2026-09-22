@@ -39,7 +39,36 @@ final class ChatsService {
   Future<ChatList> list() async {
     await _pull('chats.list');
     final conversations = await _container.read(conversationsProvider.future);
-    return _project(conversations);
+    return _project(conversations, await _folders());
+  }
+
+  /// The account's folders, or none.
+  ///
+  /// Empty rather than an error when they will not load: a server without
+  /// the folders feature, or a sync that has not landed yet, should leave
+  /// the sidebar a flat list, not a broken one.
+  Future<List<FolderSummary>> _folders() async {
+    try {
+      final folders = await _container.read(foldersProvider.future);
+      return <FolderSummary>[
+        for (final folder in folders)
+          FolderSummary(
+            id: folder.id,
+            name: folder.name,
+            parentId: folder.parentId,
+            expanded: folder.isExpanded,
+          ),
+      ];
+    } on Object catch (error) {
+      DebugLogger.error('folders-failed', scope: 'daemon/chats', error: error);
+      return const <FolderSummary>[];
+    }
+  }
+
+  /// Pages archived chats into the list, or out of it (WP-3.1).
+  Future<ChatList> setArchivedVisible({required bool visible}) async {
+    await _conversations.setArchivedChatsVisible(visible);
+    return list();
   }
 
   /// Asks the sync engine to catch up, and tolerates it declining.
@@ -223,10 +252,15 @@ final class ChatsService {
     return list();
   }
 
-  ChatList _project(List<Conversation> conversations) => ChatList(
+  ChatList _project(
+    List<Conversation> conversations,
+    List<FolderSummary> folders,
+  ) => ChatList(
     chats: conversations.map(_summarize).toList(growable: false),
     hasMore: _conversations.hasMoreRegularChats(),
     archivedCount: _conversations.archivedChatCount(),
+    archivedVisible: _conversations.archivedChatsVisible(),
+    folders: folders,
   );
 
   static ChatSummary _summarize(Conversation conversation) => ChatSummary(

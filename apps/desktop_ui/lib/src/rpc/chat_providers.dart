@@ -382,8 +382,25 @@ class ChatActions {
     decode: (json) => json,
   );
 
-  Future<ChatList> loadMore() =>
-      _client.call(ConduitMethods.chatsLoadMore, decode: ChatList.fromJson);
+  /// Widens the page of chats the daemon lists.
+  ///
+  /// Invalidates rather than returning the list, for the same reason every
+  /// mutation does: the sidebar has one source, and a second path into it
+  /// is how two windows start disagreeing about what is there.
+  Future<void> loadMore() async {
+    await _client.call(ConduitMethods.chatsLoadMore, decode: (json) => json);
+    _ref.invalidate(chatListProvider);
+  }
+
+  /// Pages archived chats into the list, or back out of it.
+  Future<void> setArchivedVisible({required bool visible}) async {
+    await _client.call(
+      ConduitMethods.chatsSetArchivedVisible,
+      params: ArchivedVisibility(visible: visible).toJson(),
+      decode: (json) => json,
+    );
+    _ref.invalidate(chatListProvider);
+  }
 
   Future<void> rename(String id, String title) =>
       _mutate(ConduitMethods.chatsRename, RenameChat(id: id, title: title));
@@ -434,5 +451,36 @@ class ChatActions {
       decode: ModelList.fromJson,
     );
     _ref.invalidate(modelListProvider);
+  }
+}
+
+/// Which folders the sidebar has open (WP-3.1).
+///
+/// Null until the first list arrives, and then seeded from each folder's
+/// own `expanded` flag -- the state the account last left it in, so a new
+/// window opens the way the old one closed. From then on it is this
+/// window's: toggling a folder here does not fold it in another window.
+final expandedFoldersProvider = NotifierProvider<ExpandedFolders, Set<String>?>(
+  ExpandedFolders.new,
+);
+
+class ExpandedFolders extends Notifier<Set<String>?> {
+  @override
+  Set<String>? build() => null;
+
+  /// Seeds from [folders] the first time, and never again.
+  void seed(Iterable<FolderSummary> folders) {
+    if (state != null) return;
+    state = <String>{
+      for (final folder in folders)
+        if (folder.expanded) folder.id,
+    };
+  }
+
+  void toggle(String id) {
+    final current = state ?? const <String>{};
+    state = current.contains(id)
+        ? (Set<String>.of(current)..remove(id))
+        : <String>{...current, id};
   }
 }

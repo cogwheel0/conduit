@@ -503,6 +503,17 @@ class RpcSession {
       },
     );
 
+    registerTypedMethod<ArchivedVisibility, ChatList>(
+      _peer,
+      ConduitMethods.chatsSetArchivedVisible,
+      decodeParams: ArchivedVisibility.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireChats().setArchivedVisible(visible: request.visible);
+      },
+    );
+
     registerTypedMethod<ChatRef, ChatShare>(
       _peer,
       ConduitMethods.chatsShare,

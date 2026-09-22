@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.1.0",
+  "protocolVersion": "1.2.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.1.0",
+  "protocolVersion": "1.2.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -394,6 +394,18 @@ const Map<String, String> protocolGoldens = <String, String>{
   "chatId": "chat-7c1f0b2a"
 }''',
 
+  'folderSummary': r'''
+{
+  "id": "folder-1d7c",
+  "name": "Research",
+  "expanded": true
+}''',
+
+  'archivedVisibility': r'''
+{
+  "visible": true
+}''',
+
   'uploadedFile': r'''
 {
   "id": "file-3b91d0c4",
@@ -438,7 +450,9 @@ const Map<String, String> protocolGoldens = <String, String>{
     }
   ],
   "hasMore": true,
-  "archivedCount": 12
+  "archivedCount": 12,
+  "archivedVisible": false,
+  "folders": []
 }''',
 
   'chatMessage': r'''

@@ -133,6 +133,9 @@ abstract final class ConduitMethods {
   /// Deletes it, on the server and locally.
   static const String chatsDelete = 'chats.delete';
 
+  /// Includes archived chats in `chats.list`, or stops including them.
+  static const String chatsSetArchivedVisible = 'chats.setArchivedVisible';
+
   /// Creates or removes a public share link.
   static const String chatsShare = 'chats.share';
   static const String chatsUnshare = 'chats.unshare';
