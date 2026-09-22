@@ -672,7 +672,7 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
     'content': contentString,
     'timestamp': _parseTimestamp(msgData['timestamp']).toIso8601String(),
     'model': (msgData['model'] ?? historyMsg?['model'])?.toString(),
-    'isStreaming': _safeBool(msgData['isStreaming']) ?? false,
+    'isStreaming': _resolveIsStreaming(msgData, historyMsg),
     'attachmentIds': ?attachmentIds,
     'files': ?files,
     if (embeds.isNotEmpty) 'embeds': embeds,
@@ -686,6 +686,22 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
     if (outputItems.isNotEmpty) 'output': outputItems,
     'error': ?errorData,
   };
+}
+
+/// Resolves the live-stream flag against the completion marker.
+///
+/// `done` is Open WebUI's completion marker and `isStreaming` is Conduit's
+/// local run checkpoint. Open WebUI merges server-side finalizations into the
+/// stored message (`{**existing, **update}`), so a backend that writes
+/// `done: true` leaves an earlier client `isStreaming: true` in place. Treating
+/// that pair as live restores a finished reply as streaming and puts the Stop
+/// button back on an idle chat, so the completion marker wins.
+bool _resolveIsStreaming(
+  Map<String, dynamic> msgData,
+  Map<String, dynamic>? historyMsg,
+) {
+  if (_safeBool(msgData['isStreaming']) != true) return false;
+  return _safeBool(msgData['done'] ?? historyMsg?['done']) != true;
 }
 
 String _resolveRole(Map<String, dynamic> msgData) {

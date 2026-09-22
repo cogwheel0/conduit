@@ -1352,6 +1352,83 @@ void main() {
       });
     });
 
+    group('resolves the streaming flag against the completion marker', () {
+      Map<String, dynamic> parseAssistant(Map<String, dynamic> message) =>
+          (parseFullConversation({
+                'id': 'conv-1',
+                'chat': {
+                  'messages': [
+                    {
+                      'id': 'answer',
+                      'role': 'assistant',
+                      'content': 'The sample result is ready.',
+                      'timestamp': 1700000000,
+                      ...message,
+                    },
+                  ],
+                },
+              })['messages']
+              as List<Map<String, dynamic>>)
+              .single;
+
+      test('a completed reply stays idle (issue #744)', () {
+        final message = parseAssistant({
+          'done': true,
+          'isStreaming': true,
+        });
+
+        check(message['isStreaming']).equals(false);
+      });
+
+      test('the completion marker is honored from history', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'history': {
+              'currentId': 'answer',
+              'messages': {
+                'answer': {
+                  'id': 'answer',
+                  'role': 'assistant',
+                  'content': 'The sample result is ready.',
+                  'timestamp': 1700000000,
+                  'done': true,
+                  'isStreaming': true,
+                },
+              },
+            },
+            'messages': [
+              {
+                'id': 'answer',
+                'role': 'assistant',
+                'content': 'The sample result is ready.',
+                'timestamp': 1700000000,
+                'isStreaming': true,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.single['isStreaming']).equals(false);
+      });
+
+      test('an unfinished reply keeps streaming', () {
+        final message = parseAssistant({
+          'done': false,
+          'isStreaming': true,
+        });
+
+        check(message['isStreaming']).equals(true);
+      });
+
+      test('a reply without a completion marker keeps streaming', () {
+        final message = parseAssistant({'isStreaming': true});
+
+        check(message['isStreaming']).equals(true);
+      });
+    });
+
     group('extracts model from chat object', () {
       test('from chat.models list', () {
         final result = parseFullConversation({
