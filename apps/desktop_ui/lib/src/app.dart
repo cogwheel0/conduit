@@ -4,6 +4,7 @@ import 'package:jaspr/jaspr.dart';
 import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import 'package:jaspr_router/jaspr_router.dart';
 
+import 'pages/chat_page.dart';
 import 'pages/diagnostics_page.dart';
 import 'pages/onboarding_page.dart';
 import 'pages/settings_page.dart';
@@ -41,6 +42,14 @@ class ConduitDesktopApp extends StatelessComponent {
             Route(
               path: '/',
               title: 'Conduit',
+              builder: (context, state) => const ChatPage(),
+            ),
+            // The M0 screen that proved the daemon chain works, kept because
+            // it is the fastest way to see a handshake, a port and a session
+            // id when something is wrong.
+            Route(
+              path: '/core',
+              title: 'Core status',
               builder: (context, state) => const StatusPage(),
             ),
             Route(
@@ -93,6 +102,38 @@ class ConduitDesktopApp extends StatelessComponent {
   }
 }
 
+/// Navigates when the session state settles.
+///
+/// [sessionRedirectFor] is also wired into the router's `redirect`, which
+/// catches direct navigations -- but that callback is evaluated once per
+/// navigation and is not re-run when a provider it read later resolves. On a
+/// cold start both queries are still in flight, the guard correctly declines
+/// to redirect on an unknown state, and nothing ever asks again: a fresh
+/// install would sit on an empty chat page instead of going to onboarding.
+///
+/// This component closes that gap by being a *component* -- it rebuilds when
+/// the providers it watches change, which is exactly the event the router
+/// callback cannot see.
+class _SessionGate extends StatelessComponent {
+  const _SessionGate();
+
+  @override
+  Component build(BuildContext context) {
+    final router = Router.of(context);
+    final target = sessionRedirectFor(
+      location: RouteState.of(context).location,
+      needsOnboarding: context.watch(needsOnboardingProvider),
+      auth: context.watch(authStatusProvider),
+    );
+    if (target != null) {
+      // Not during build: navigating synchronously here would mutate the
+      // tree that is currently being built.
+      Future<void>.microtask(() => router.replace(target));
+    }
+    return const Component.fragment([]);
+  }
+}
+
 Component _settingsLink() => a(
   href: '/settings/appearance',
   classes:
@@ -132,7 +173,7 @@ String? sessionRedirectFor({
   required AsyncValue<bool> needsOnboarding,
   required AsyncValue<AuthSnapshot> auth,
 }) {
-  if (location.startsWith('/diagnostics')) return null;
+  if (location.startsWith('/diagnostics') || location == '/core') return null;
   if (needsOnboarding.isLoading || needsOnboarding.hasError) return null;
 
   if (needsOnboarding.requireValue) {
@@ -166,6 +207,7 @@ class _Shell extends StatelessComponent {
       // Above the route, so it is visible wherever the user is rather than
       // only on the screen that happened to notice the problem.
       const ServerIssueBanner(),
+      const _SessionGate(),
       div(classes: 'min-h-0 flex-1', [child]),
       // A settings affordance has to exist somewhere or the modal is
       // unreachable except by typing a URL. M3 builds the real chrome and

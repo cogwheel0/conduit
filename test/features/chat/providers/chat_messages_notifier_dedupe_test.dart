@@ -1,7 +1,7 @@
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit/core/services/streaming_helper.dart';
+import 'package:conduit_core/services/streaming_helper.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

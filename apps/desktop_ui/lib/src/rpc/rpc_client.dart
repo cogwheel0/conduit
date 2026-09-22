@@ -12,8 +12,10 @@ import '../shell_bridge.dart';
 /// Abstracted away from [WebSocketChannel] so tests can drive a [RpcClient]
 /// over an in-memory channel: the reconnect, seeding and subscription-replay
 /// logic is worth testing without a real socket or a real daemon.
-typedef SocketOpener =
-    Future<StreamChannel<String>> Function(Uri uri, List<String> protocols);
+typedef SocketOpener = Future<StreamChannel<String>> Function(
+  Uri uri,
+  List<String> protocols,
+);
 
 /// The production opener.
 Future<StreamChannel<String>> _openWebSocket(
@@ -64,8 +66,7 @@ class CoreConnection {
 
   bool get isUsable => state == CoreConnectionState.connected;
 
-  Capabilities get capabilities =>
-      handshake?.capabilities ?? Capabilities.none;
+  Capabilities get capabilities => handshake?.capabilities ?? Capabilities.none;
 }
 
 /// Owns the WebSocket to `conduitd` and the JSON-RPC peer on top of it.
@@ -343,7 +344,8 @@ class RpcClient {
     final capped = attempt.clamp(1, 6);
     final ceiling = 250 * (1 << (capped - 1));
     return Duration(
-      milliseconds: ceiling ~/ 2 + (DateTime.now().microsecond % (ceiling ~/ 2 + 1)),
+      milliseconds:
+          ceiling ~/ 2 + (DateTime.now().microsecond % (ceiling ~/ 2 + 1)),
     );
   }
 

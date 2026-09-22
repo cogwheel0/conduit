@@ -23,10 +23,13 @@ class StatusPage extends StatelessComponent {
     final bridge = context.read(shellBridgeProvider);
 
     return div(
-      classes: 'mx-auto flex min-h-screen max-w-2xl flex-col justify-center '
+      classes:
+          'mx-auto flex min-h-screen max-w-2xl flex-col justify-center '
           'gap-6 px-8 text-foreground',
       [
-        h1(classes: 'text-2xl font-semibold', [Component.text('Conduit Desktop')]),
+        h1(classes: 'text-2xl font-semibold', [
+          Component.text('Conduit Desktop'),
+        ]),
         connection.when(
           loading: () => _statusCard(
             tone: 'muted',
@@ -56,15 +59,15 @@ class StatusPage extends StatelessComponent {
     CoreConnectionState.reconnecting => _statusCard(
       tone: 'warning',
       title: t.desktop.desktopCoreReconnecting(attempt: state.attempt),
-      detail: 'Your work is safe; the daemon keeps running with the window '
+      detail:
+          'Your work is safe; the daemon keeps running with the window '
           'closed.',
     ),
     CoreConnectionState.failed => _statusCard(
       tone: 'destructive',
       // The daemon has no locale, so it sends a code and the UI resolves it.
       // This is the pattern every RpcError follows (WP-1.6).
-      title:
-          state.error?.code == ConduitErrorCodes.protocolVersionMismatch
+      title: state.error?.code == ConduitErrorCodes.protocolVersionMismatch
           ? t.desktop.desktopCoreVersionMismatch
           : t.desktop.desktopCoreUnavailable,
       detail: state.error?.code ?? ConduitErrorCodes.daemonUnavailable,
@@ -74,31 +77,25 @@ class StatusPage extends StatelessComponent {
 
   Component _connectedCard(CoreConnection state) {
     final handshake = state.handshake!;
-    return div(
-      classes: 'rounded-[--radius] border border-border bg-card p-6',
-      [
-        div(classes: 'flex items-center gap-2', [
-          span(
-            classes: 'inline-block size-2 rounded-full bg-success',
-            const [],
-          ),
-          span(classes: 'font-medium text-card-foreground', [
-            Component.text(t.desktop.desktopCoreConnected),
-          ]),
+    return div(classes: 'rounded-[--radius] border border-border bg-card p-6', [
+      div(classes: 'flex items-center gap-2', [
+        span(classes: 'inline-block size-2 rounded-full bg-success', const []),
+        span(classes: 'font-medium text-card-foreground', [
+          Component.text(t.desktop.desktopCoreConnected),
         ]),
-        dl(classes: 'mt-4 grid grid-cols-2 gap-y-1 text-sm', [
-          ..._definition('Protocol', handshake.protocolVersion),
-          ..._definition('Daemon', handshake.daemonVersion),
-          ..._definition('Platform', handshake.platform),
-          ..._definition('Session', handshake.sessionId),
-          ..._definition('User data', handshake.paths.userData),
-          ..._definition(
-            'Capabilities',
-            _describeCapabilities(handshake.capabilities),
-          ),
-        ]),
-      ],
-    );
+      ]),
+      dl(classes: 'mt-4 grid grid-cols-2 gap-y-1 text-sm', [
+        ..._definition('Protocol', handshake.protocolVersion),
+        ..._definition('Daemon', handshake.daemonVersion),
+        ..._definition('Platform', handshake.platform),
+        ..._definition('Session', handshake.sessionId),
+        ..._definition('User data', handshake.paths.userData),
+        ..._definition(
+          'Capabilities',
+          _describeCapabilities(handshake.capabilities),
+        ),
+      ]),
+    ]);
   }
 
   /// M0 reports no capabilities at all; saying so plainly is more useful than
@@ -110,23 +107,23 @@ class StatusPage extends StatelessComponent {
 
   List<Component> _definition(String term, String value) => <Component>[
     dt(classes: 'text-muted-foreground', [Component.text(term)]),
-    dd(classes: 'truncate font-mono text-card-foreground', [Component.text(value)]),
+    dd(classes: 'truncate font-mono text-card-foreground', [
+      Component.text(value),
+    ]),
   ];
 
-  Component _detailRow(String label, String value) => div(
-    classes: 'flex justify-between text-sm text-muted-foreground',
-    [span([Component.text(label)]), span(classes: 'font-mono', [Component.text(value)])],
-  );
+  Component _detailRow(String label, String value) =>
+      div(classes: 'flex justify-between text-sm text-muted-foreground', [
+        span([Component.text(label)]),
+        span(classes: 'font-mono', [Component.text(value)]),
+      ]);
 
   Component _statusCard({
     required String tone,
     required String title,
     required String detail,
-  }) => div(
-    classes: 'rounded-[--radius] border border-border bg-card p-6',
-    [
-      div(classes: 'font-medium text-$tone', [Component.text(title)]),
-      p(classes: 'mt-2 text-sm text-muted-foreground', [Component.text(detail)]),
-    ],
-  );
+  }) => div(classes: 'rounded-[--radius] border border-border bg-card p-6', [
+    div(classes: 'font-medium text-$tone', [Component.text(title)]),
+    p(classes: 'mt-2 text-sm text-muted-foreground', [Component.text(detail)]),
+  ]);
 }

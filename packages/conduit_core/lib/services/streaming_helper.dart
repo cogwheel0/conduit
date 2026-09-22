@@ -18,8 +18,6 @@ import 'package:conduit_core/services/socket_service.dart';
 
 import 'package:conduit_markdown/conduit_markdown.dart';
 
-import 'background_streaming_handler.dart';
-
 import 'package:conduit_core/services/chat_completion_transport.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -690,10 +688,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   // Uses the assistantMessageId as a unique stream identifier
   final streamId = 'chat-stream-$assistantMessageId';
   Future<void>? backgroundExecutionStartFuture;
-  if (Platform.isIOS || Platform.isAndroid) {
-    // Fire-and-forget: background execution is best-effort and shouldn't block streaming
-    backgroundExecutionStartFuture = BackgroundStreamingHandler.instance
-        .startBackgroundExecution([streamId])
+  {
+    // Fire-and-forget: background execution is best-effort and must not block
+    // streaming. The platform test that used to guard this moved into the
+    // port -- hosts that cannot be suspended bind a no-op, which is both the
+    // same behaviour and what let this file leave the Flutter app.
+    backgroundExecutionStartFuture = BackgroundExecutionPort.hostDefault
+        .begin([streamId])
         .catchError((Object e) {
           DebugLogger.error(
             'background-start-failed',
@@ -912,11 +913,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       // fast navigation can stop first and let the late start re-add a stale
       // background lease afterward.
       (backgroundExecutionStartFuture ?? Future<void>.value())
-          .then(
-            (_) => BackgroundStreamingHandler.instance.stopBackgroundExecution([
-              streamId,
-            ]),
-          )
+          .then((_) => BackgroundExecutionPort.hostDefault.end([streamId]))
           .catchError((Object e) {
             DebugLogger.error(
               'background-stop-failed',

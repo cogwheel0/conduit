@@ -8,6 +8,7 @@ library;
 
 export 'src/auth_service.dart';
 export 'src/bootstrap.dart';
+export 'src/chats_service.dart';
 export 'src/core_runtime.dart';
 export 'src/daemon_paths.dart';
 export 'src/daemon_server.dart';
@@ -18,3 +19,4 @@ export 'src/rpc_session.dart';
 export 'src/servers_service.dart';
 export 'src/settings_service.dart';
 export 'src/system_service.dart';
+export 'src/turns_service.dart';

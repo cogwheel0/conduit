@@ -77,9 +77,28 @@ test('hands the renderer a port and token through the preload bridge', async () 
 
 test('connects to the core and reports the handshake', async () => {
   const window = await appWindow(app)
-  // The status page only renders this once system.handshake has returned.
+  // `/` is the chat vertical now (M3). The status page moved to `/core`,
+  // where it remains the quickest way to see a handshake, a port and a
+  // session id when something is wrong -- which is exactly what this
+  // asserts, so the test follows it rather than finding a new proxy for it.
+  await window.evaluate(() => {
+    window.history.pushState(null, '', '/core')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  })
   await expect(window.getByText('Connected to the core')).toBeVisible()
   await expect(window.getByText('1.0.0')).toBeVisible()
+})
+
+test('a first run is sent to onboarding once the session resolves', async () => {
+  const window = await appWindow(app)
+  // The guard cannot answer until `servers.list` and `auth.status` both
+  // return, and it deliberately does not redirect on an unknown state --
+  // so this is the check that it acts once it *can* answer.
+  await expect
+    .poll(() => window.evaluate(() => window.location.pathname), {
+      timeout: 20_000,
+    })
+    .toBe('/onboarding')
 })
 
 test('keeps Node out of the renderer', async () => {
@@ -105,5 +124,8 @@ test('refuses to navigate the app origin away to the web', async () => {
     })
     .catch(() => undefined)
   await window.waitForTimeout(1_000)
-  expect(window.url()).toBe(APP_URL)
+  // The origin, not the exact URL: the session guard legitimately moves the
+  // window to /onboarding on a first run, and pinning the path would make
+  // this security check fail for an unrelated reason.
+  expect(new URL(window.url()).origin).toBe(new URL(APP_URL).origin)
 })

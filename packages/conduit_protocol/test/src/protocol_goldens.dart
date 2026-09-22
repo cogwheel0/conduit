@@ -301,6 +301,163 @@ const Map<String, String> protocolGoldens = <String, String>{
   "keepServerDetails": false
 }''',
 
+  'sendTurn': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "model": "gpt-4o",
+  "text": "How does the outbox order writes?",
+  "toolIds": [
+    "web_search"
+  ],
+  "webSearch": true,
+  "imageGeneration": false,
+  "codeInterpreter": false,
+  "fileIds": []
+}''',
+
+  'sendTurnAccepted': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "userMessageId": "msg-user-1",
+  "assistantMessageId": "msg-assistant-1"
+}''',
+
+  'turnStarted': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "messageId": "msg-assistant-1",
+  "model": "gpt-4o"
+}''',
+
+  'turnDelta': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "messageId": "msg-assistant-1",
+  "text": "The outbox drains",
+  "reasoning": "Checking the DAO."
+}''',
+
+  'turnCompleted': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "messageId": "msg-assistant-1",
+  "text": "The outbox drains oldest-first.",
+  "usage": {
+    "prompt_tokens": 812,
+    "completion_tokens": 46
+  }
+}''',
+
+  'turnFailed': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "messageId": "msg-assistant-1",
+  "code": "net.serverError",
+  "args": {
+    "status": "502"
+  },
+  "partialText": "The outbox dra"
+}''',
+
+  'stopTurn': r'''
+{
+  "chatId": "chat-7c1f0b2a"
+}''',
+
+  'chatSummary': r'''
+{
+  "id": "chat-7c1f0b2a",
+  "title": "Rewriting the sync engine",
+  "updatedAtMs": 1758412800000,
+  "pinned": true,
+  "archived": false,
+  "model": "gpt-4o",
+  "tags": [
+    "work",
+    "architecture"
+  ],
+  "shared": true
+}''',
+
+  'chatList': r'''
+{
+  "chats": [
+    {
+      "id": "chat-7c1f0b2a",
+      "title": "Rewriting the sync engine",
+      "updatedAtMs": 1758412800000,
+      "pinned": false,
+      "archived": false,
+      "tags": [],
+      "shared": false
+    }
+  ],
+  "hasMore": true,
+  "archivedCount": 12
+}''',
+
+  'chatMessage': r'''
+{
+  "id": "msg-1",
+  "role": "assistant",
+  "content": "The outbox drains oldest-first.",
+  "timestampMs": 1758412800000,
+  "model": "gpt-4o",
+  "streaming": true
+}''',
+
+  'chatDetail': r'''
+{
+  "summary": {
+    "id": "chat-7c1f0b2a",
+    "title": "Rewriting the sync engine",
+    "updatedAtMs": 1758412800000,
+    "pinned": false,
+    "archived": false,
+    "tags": [],
+    "shared": false
+  },
+  "messages": [
+    {
+      "id": "msg-1",
+      "role": "user",
+      "content": "How does the outbox order writes?",
+      "timestampMs": 1758412700000,
+      "streaming": false
+    }
+  ]
+}''',
+
+  'chatRef': r'''
+{
+  "id": "chat-7c1f0b2a"
+}''',
+
+  'chatSearchQuery': r'''
+{
+  "query": "outbox",
+  "limit": 20
+}''',
+
+  'chatSearchHit': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "title": "Rewriting the sync engine",
+  "snippet": "the <b>outbox</b> drains oldest-first",
+  "updatedAtMs": 1758412800000
+}''',
+
+  'chatSearchResults': r'''
+{
+  "hits": [
+    {
+      "chatId": "chat-7c1f0b2a",
+      "title": "Rewriting the sync engine",
+      "updatedAtMs": 1758412800000
+    }
+  ]
+}''',
+
   'serverStatusNoServer': r'''
 {
   "capabilities": {

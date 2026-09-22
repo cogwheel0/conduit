@@ -81,7 +81,7 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_core/services/streaming_response_controller.dart';
 
-import '../../../core/services/streaming_helper.dart';
+import 'package:conduit_core/services/streaming_helper.dart';
 
 import 'package:conduit_core/services/performance_profiler.dart';
 

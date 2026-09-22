@@ -17,7 +17,7 @@ import 'package:conduit_core/services/chat_completion_transport.dart';
 
 import 'package:conduit_core/services/socket_service.dart';
 
-import '../../../core/services/streaming_helper.dart';
+import 'package:conduit_core/services/streaming_helper.dart';
 
 import 'package:conduit_core/sync/sync_engine.dart';
 

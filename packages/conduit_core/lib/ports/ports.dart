@@ -12,6 +12,7 @@
 /// where database files live — there is no default and the provider throws.
 library;
 
+export 'background_execution_port.dart';
 export 'app_lifecycle.dart';
 export 'clipboard_port.dart';
 export 'connectivity_port.dart';

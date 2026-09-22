@@ -21,6 +21,7 @@ import 'platform/flutter_cookie_jar.dart';
 import 'platform/flutter_flush_scheduler.dart';
 import 'platform/flutter_post_frame_scheduler.dart';
 import 'platform/ios_display_boost.dart';
+import 'platform/mobile_background_execution.dart';
 
 import 'package:conduit_core/services/share_staging_cleanup.dart'
     show shareStagingDirectoryName;
@@ -165,6 +166,7 @@ void main() {
   // Installed first, so startup itself is logged.
   DebugLogger.sink = const FlutterLogSink();
   AudioPlaybackPort.hostFactory = JustAudioPlayback.new;
+  BackgroundExecutionPort.hostDefault = const MobileBackgroundExecution();
   DisplayBoostPort.hostDefault = const IosDisplayBoost();
   ShareStagingPort.hostDefault = IosShareStaging(
     stagingDirectoryName: shareStagingDirectoryName,

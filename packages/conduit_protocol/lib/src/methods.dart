@@ -104,6 +104,37 @@ abstract final class ConduitMethods {
   static const String authSetReviewerMode = 'auth.setReviewerMode';
 
   // ---------------------------------------------------------------------
+  // chats.* -- the conversation list and transcripts (M3).
+  // ---------------------------------------------------------------------
+
+  /// The first page of conversations, plus the archived count.
+  static const String chatsList = 'chats.list';
+
+  /// Extends the loaded page. Returns the whole list again rather than a
+  /// delta: the sidebar renders from one array, and reconciling a delta in
+  /// the renderer is how two clients end up disagreeing about the order.
+  static const String chatsLoadMore = 'chats.loadMore';
+
+  /// One conversation with its transcript.
+  static const String chatsGet = 'chats.get';
+
+  /// Full-text search over titles and message bodies.
+  static const String chatsSearch = 'chats.search';
+
+  // ---------------------------------------------------------------------
+  // turns.* -- sending and stopping generation (M3).
+  // ---------------------------------------------------------------------
+
+  /// Sends a message and starts generation.
+  ///
+  /// Returns once the server has accepted the request. The answer arrives as
+  /// `turn.delta` events, so a long reply is not a long RPC.
+  static const String turnsSend = 'turns.send';
+
+  /// Stops generation for a chat, keeping whatever has arrived.
+  static const String turnsStop = 'turns.stop';
+
+  // ---------------------------------------------------------------------
   // settings.* -- app preferences implemented in WP-2.4. The server-side
   // user settings in this namespace arrive with M9.
   // ---------------------------------------------------------------------

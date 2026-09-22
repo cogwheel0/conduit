@@ -11,6 +11,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'auth_service.dart';
 import 'bootstrap.dart';
+import 'chats_service.dart';
 import 'core_runtime.dart';
 import 'daemon_paths.dart';
 import 'event_bus.dart';
@@ -19,6 +20,7 @@ import 'rpc_session.dart';
 import 'servers_service.dart';
 import 'settings_service.dart';
 import 'system_service.dart';
+import 'turns_service.dart';
 
 /// The loopback server the renderer talks to.
 ///
@@ -54,6 +56,8 @@ class DaemonServer {
   ServersService? _servers;
   AuthService? _auth;
   SettingsService? _settings;
+  ChatsService? _chats;
+  TurnsService? _turns;
 
   final EventBus events = EventBus();
   final Map<String, RpcSession> _sessions = <String, RpcSession>{};
@@ -97,6 +101,8 @@ class DaemonServer {
     _servers = ServersService(core.container);
     _auth = AuthService(core.container);
     _settings = SettingsService(core.container);
+    _chats = ChatsService(core.container);
+    _turns = TurnsService(core.container, events);
     _log.info('core attached');
   }
 
@@ -189,6 +195,8 @@ class DaemonServer {
         servers: _servers,
         auth: _auth,
         settings: _settings,
+        chats: _chats,
+        turns: _turns,
       );
       _sessions[sessionId] = session;
       _log.debug('session $sessionId opened (subprotocol: $subprotocol)');
@@ -237,6 +245,9 @@ class DaemonServer {
     _servers = null;
     _auth = null;
     _settings = null;
+    await _turns?.dispose();
+    _turns = null;
+    _chats = null;
     if (!_stopped.isCompleted) _stopped.complete();
   }
 }

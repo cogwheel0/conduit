@@ -5,11 +5,13 @@ import 'package:json_rpc_2/json_rpc_2.dart' as json_rpc;
 import 'package:stream_channel/stream_channel.dart';
 
 import 'auth_service.dart';
+import 'chats_service.dart';
 import 'event_bus.dart';
 import 'log.dart';
 import 'servers_service.dart';
 import 'settings_service.dart';
 import 'system_service.dart';
+import 'turns_service.dart';
 
 /// One connected renderer window.
 ///
@@ -26,12 +28,16 @@ class RpcSession {
     ServersService? servers,
     AuthService? auth,
     SettingsService? settings,
+    ChatsService? chats,
+    TurnsService? turns,
   }) : _events = events,
        _log = log,
        _system = system,
        _servers = servers,
        _auth = auth,
        _settings = settings,
+       _chats = chats,
+       _turns = turns,
        _peer = json_rpc.Peer(channel) {
     _register();
   }
@@ -48,6 +54,8 @@ class RpcSession {
   final ServersService? _servers;
   final AuthService? _auth;
   final SettingsService? _settings;
+  final ChatsService? _chats;
+  final TurnsService? _turns;
   final json_rpc.Peer _peer;
 
   /// Set by a successful `system.handshake`. Until then every other method is
@@ -199,6 +207,8 @@ class RpcSession {
     _registerServers();
     _registerAuth();
     _registerSettings();
+    _registerChats();
+    _registerTurns();
 
     _peer.registerFallback((json_rpc.Parameters params) {
       final method = params.method;
@@ -408,6 +418,92 @@ class RpcSession {
       },
     );
   }
+
+  void _registerChats() {
+    registerTypedMethodNoParams<ChatList>(
+      _peer,
+      ConduitMethods.chatsList,
+      encodeResult: (result) => result.toJson(),
+      handler: () {
+        _requireHandshake();
+        return _requireChats().list();
+      },
+    );
+
+    registerTypedMethodNoParams<ChatList>(
+      _peer,
+      ConduitMethods.chatsLoadMore,
+      encodeResult: (result) => result.toJson(),
+      handler: () {
+        _requireHandshake();
+        return _requireChats().loadMore();
+      },
+    );
+
+    registerTypedMethod<ChatRef, Map<String, dynamic>>(
+      _peer,
+      ConduitMethods.chatsGet,
+      decodeParams: ChatRef.fromJson,
+      // Nullable result, so the envelope carries the absence rather than an
+      // error: opening a chat that was deleted on another device is ordinary.
+      encodeResult: (result) => result,
+      handler: (ref) async {
+        _requireHandshake();
+        final detail = await _requireChats().get(ref.id);
+        return <String, dynamic>{'chat': detail?.toJson()};
+      },
+    );
+
+    registerTypedMethod<ChatSearchQuery, ChatSearchResults>(
+      _peer,
+      ConduitMethods.chatsSearch,
+      decodeParams: ChatSearchQuery.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (query) {
+        _requireHandshake();
+        return _requireChats().search(query);
+      },
+    );
+  }
+
+  void _registerTurns() {
+    registerTypedMethod<SendTurn, SendTurnAccepted>(
+      _peer,
+      ConduitMethods.turnsSend,
+      decodeParams: SendTurn.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireTurns().send(request);
+      },
+    );
+
+    registerTypedMethod<StopTurn, Map<String, dynamic>>(
+      _peer,
+      ConduitMethods.turnsStop,
+      decodeParams: StopTurn.fromJson,
+      encodeResult: (result) => result,
+      handler: (request) async {
+        _requireHandshake();
+        await _requireTurns().stop(request.chatId);
+        return <String, dynamic>{'stopped': true};
+      },
+    );
+  }
+
+  TurnsService _requireTurns() =>
+      _turns ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  ChatsService _requireChats() =>
+      _chats ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
 
   SettingsService _requireSettings() =>
       _settings ??

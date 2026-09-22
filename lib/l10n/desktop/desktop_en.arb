@@ -103,5 +103,17 @@
   "desktopReplaceFile": "Replace…",
   "@desktopReplaceFile": {
     "description": "Button that opens the file picker to replace an already-chosen PEM file on desktop."
+  },
+  "desktopChatsLabel": "Conversations",
+  "@desktopChatsLabel": {
+    "description": "Accessible name for the desktop conversation sidebar."
+  },
+  "desktopNoChatsYet": "No conversations yet. Send a message to start one.",
+  "@desktopNoChatsYet": {
+    "description": "Empty state in the desktop conversation sidebar."
+  },
+  "desktopSending": "Sending…",
+  "@desktopSending": {
+    "description": "Label on the desktop send button while a turn is being accepted."
   }
 }

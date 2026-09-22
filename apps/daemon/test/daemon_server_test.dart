@@ -264,7 +264,7 @@ void main() {
           ),
         );
         await expectLater(
-          callVoid(peer, 'chats.list'),
+          callVoid(peer, 'notes.list'),
           throwsA(
             isA<RpcError>().having(
               (e) => e.code,

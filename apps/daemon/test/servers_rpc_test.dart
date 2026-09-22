@@ -522,6 +522,83 @@ void main() {
     });
   });
 
+  group('chats.*', () {
+    test('a fresh daemon has no chats', () async {
+      final result = await callTyped<ChatList>(
+        peer,
+        ConduitMethods.chatsList,
+        decodeResult: ChatList.fromJson,
+      );
+      expect(result.chats, isEmpty);
+      expect(result.hasMore, isFalse);
+    });
+
+    test('an unknown chat is absent, not an error', () async {
+      // A window restored onto a chat deleted on another device is ordinary.
+      final raw = await peer.sendRequest(
+        ConduitMethods.chatsGet,
+        const ChatRef(id: 'no-such-chat').toJson(),
+      ) as Map<String, dynamic>;
+      expect(raw['chat'], isNull);
+    });
+
+    test('an empty search is not a search for everything', () async {
+      // Returning the whole history here would look like it worked and be
+      // among the slowest things the app can do.
+      final results = await callTyped<ChatSearchResults>(
+        peer,
+        ConduitMethods.chatsSearch,
+        params: const ChatSearchQuery(query: '   ').toJson(),
+        decodeResult: ChatSearchResults.fromJson,
+      );
+      expect(results.hits, isEmpty);
+    });
+  });
+
+  group('turns.*', () {
+    test(
+      'sending without a signed-in server is auth.unauthenticated',
+      () async {
+        expect(
+          () => callTyped<SendTurnAccepted>(
+            peer,
+            ConduitMethods.turnsSend,
+            params: const SendTurn(model: 'gpt-4o', text: 'hello').toJson(),
+            decodeResult: SendTurnAccepted.fromJson,
+          ),
+          throwsA(
+            isA<RpcError>().having(
+              (e) => e.code,
+              'code',
+              ConduitErrorCodes.unauthenticated,
+            ),
+          ),
+        );
+      },
+    );
+
+    test('an empty message is rejected before any request is made', () async {
+      expect(
+        () => callTyped<SendTurnAccepted>(
+          peer,
+          ConduitMethods.turnsSend,
+          params: const SendTurn(model: 'gpt-4o', text: '   ').toJson(),
+          decodeResult: SendTurnAccepted.fromJson,
+        ),
+        throwsA(isA<RpcError>()),
+      );
+    });
+
+    test('stopping a chat that is not generating is not an error', () async {
+      // A stop button pressed as the last token lands is the common case.
+      final raw = await peer.sendRequest(
+        ConduitMethods.turnsStop,
+        const StopTurn(chatId: 'no-such-chat').toJson(),
+      ) as Map<String, dynamic>;
+      expect(raw['stopped'], isTrue);
+    });
+  });
+
   group('settings.*', () {
     Future<AppPreferences> readPrefs() => callTyped<AppPreferences>(
       peer,
@@ -599,7 +676,7 @@ void main() {
     'an unimplemented reserved namespace is still capability.unsupported',
     () async {
       expect(
-        () => peer.sendRequest('chats.list'),
+        () => peer.sendRequest('notes.list'),
         throwsA(
           isA<json_rpc.RpcException>().having(
             (e) => (e.data! as Map)['code'],

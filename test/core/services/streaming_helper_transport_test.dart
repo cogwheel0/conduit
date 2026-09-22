@@ -8,7 +8,7 @@ import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/chat_completion_transport.dart';
 import 'package:conduit_core/services/socket_service.dart';
-import 'package:conduit/core/services/streaming_helper.dart';
+import 'package:conduit_core/services/streaming_helper.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:dio/dio.dart';
