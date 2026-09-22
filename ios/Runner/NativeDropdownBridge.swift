@@ -5,6 +5,28 @@ private func dropdownLocalized(_ key: String, _ fallback: String) -> String {
     NSLocalizedString(key, tableName: nil, bundle: .main, value: fallback, comment: "")
 }
 
+/// Symbol the Dart layer sends for the currently selected option.
+private let nativeDropdownSelectionSymbol = "checkmark"
+
+/// Glyph used when an option's symbol cannot be rendered inline. It mirrors the
+/// selected-row marker the other native action sheets already use.
+private let nativeDropdownCheckmarkGlyph = "✓"
+
+private extension UIAlertAction {
+    /// `UIAlertAction` exposes no public image API, so the icon has to go
+    /// through the undocumented `image` property. Key-value coding raises
+    /// `NSUnknownKeyException` — an Objective-C exception Swift cannot catch —
+    /// when a runtime does not implement that key, so probe before setting it.
+    static let supportsActionImage = UIAlertAction.instancesRespond(
+        to: NSSelectorFromString("setImage:")
+    )
+
+    func setActionImage(_ image: UIImage) {
+        guard UIAlertAction.supportsActionImage else { return }
+        setValue(image, forKey: "image")
+    }
+}
+
 final class NativeDropdownCompletion: NSObject, UIAdaptivePresentationControllerDelegate {
     private var completion: ((Result<String?, Error>) -> Void)?
 
@@ -59,6 +81,15 @@ private struct NativeDropdownOption {
         enabled = payload["enabled"] as? Bool ?? true
         destructive = payload["destructive"] as? Bool ?? false
     }
+}
+
+/// Title used when the option's symbol cannot be drawn inside the action. The
+/// selection marker still has to survive, so it moves into the title.
+private func decoratedDropdownLabel(_ option: NativeDropdownOption) -> String {
+    guard option.sfSymbol == nativeDropdownSelectionSymbol else {
+        return option.label
+    }
+    return "\(nativeDropdownCheckmarkGlyph) \(option.label)"
 }
 
 private struct NativeDropdownConfiguration {
@@ -179,13 +210,22 @@ final class NativeDropdownBridge: NativeDropdownHostApi {
             let style: UIAlertAction.Style = option.destructive
                 ? .destructive
                 : .default
-            let action = UIAlertAction(title: option.label, style: style) { _ in
+            let symbol = option.sfSymbol.flatMap { name in
+                name.isEmpty ? nil : UIImage(systemName: name)
+            }
+            let showsSymbolInline = symbol != nil
+                && UIAlertAction.supportsActionImage
+            let action = UIAlertAction(
+                title: showsSymbolInline
+                    ? option.label
+                    : decoratedDropdownLabel(option),
+                style: style
+            ) { _ in
                 result.finish(.success(option.id))
             }
             action.isEnabled = option.enabled
-            if let sfSymbol = option.sfSymbol,
-               !sfSymbol.isEmpty {
-                action.setValue(UIImage(systemName: sfSymbol), forKey: "image")
+            if showsSymbolInline, let symbol {
+                action.setActionImage(symbol)
             }
             controller.addAction(action)
         }
@@ -213,8 +253,6 @@ final class NativeDropdownBridge: NativeDropdownHostApi {
             popover.permittedArrowDirections = [.up, .down]
         }
 
-        controller.presentationController?.delegate = result
-
         presenter.present(controller, animated: true)
         if controller.presentingViewController == nil {
             result.finish(.failure(PigeonError(
@@ -222,7 +260,14 @@ final class NativeDropdownBridge: NativeDropdownHostApi {
                 message: dropdownLocalized("native.unablePresentDropdown", "Unable to present native dropdown"),
                 details: nil
             )))
+            return
         }
+
+        // Both of these need the presentation to exist. Reading them earlier
+        // builds a presentation controller outside the presenting trait
+        // environment and loads the alert's private view ahead of UIKit.
+        controller.presentationController?.delegate = result
+        NativeSheetTheme.shared.applyAccent(to: controller)
     }
 
     private func topViewController() -> UIViewController? {
