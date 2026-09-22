@@ -10,6 +10,8 @@ import 'package:conduit_core/utils/server_version_compat.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
+import 'settled.dart';
+
 /// Implements the `servers.*` family over the core's storage service.
 ///
 /// The one rule this file exists to enforce is that nothing secret leaves.
@@ -149,7 +151,7 @@ final class ServersService {
     // connect it is still null -- not because there is no server, but because
     // the provider it depends on has not resolved yet. Reading it directly
     // here reported "unknown" for a server that was about to work.
-    await _container.read(activeServerProvider.future);
+    await readSettled(_container, activeServerProvider.future);
     final api = _container.read(apiServiceProvider);
     if (api == null) {
       return ServerStatus(

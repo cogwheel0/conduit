@@ -8,6 +8,8 @@ import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
+import 'settled.dart';
+
 /// Implements the `auth.*` family over the core's `AuthStateManager`.
 ///
 /// The manager is where every login path already converges on mobile --
@@ -29,7 +31,7 @@ final class AuthService {
   /// `initial` for a user who is in fact signed in, which the UI would render
   /// as onboarding.
   Future<AuthSnapshot> status() async {
-    await _container.read(authStateManagerProvider.future);
+    await readSettled(_container, authStateManagerProvider.future);
     return _snapshot();
   }
 
@@ -71,7 +73,7 @@ final class AuthService {
   /// authenticated call before anything is persisted. A window closed halfway
   /// through therefore cannot leave a half-authenticated state.
   Future<AuthSnapshot> completeExternal(ExternalAuthCompletion params) async {
-    final active = await _container.read(activeServerProvider.future);
+    final active = await readSettled(_container, activeServerProvider.future);
     if (active == null) {
       throw const RpcError(
         code: ConduitErrorCodes.invalidParams,

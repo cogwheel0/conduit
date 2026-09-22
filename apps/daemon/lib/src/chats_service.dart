@@ -10,6 +10,8 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
+import 'settled.dart';
+
 /// Implements `chats.*` over the core's conversation providers (M3).
 ///
 /// Reads `conversationsProvider` rather than the DAO directly. That provider
@@ -38,7 +40,10 @@ final class ChatsService {
   /// trip.
   Future<ChatList> list() async {
     await _pull('chats.list');
-    final conversations = await _container.read(conversationsProvider.future);
+    final conversations = await readSettled(
+      _container,
+      conversationsProvider.future,
+    );
     return _project(conversations, await _folders());
   }
 
@@ -49,7 +54,7 @@ final class ChatsService {
   /// the sidebar a flat list, not a broken one.
   Future<List<FolderSummary>> _folders() async {
     try {
-      final folders = await _container.read(foldersProvider.future);
+      final folders = await readSettled(_container, foldersProvider.future);
       return <FolderSummary>[
         for (final folder in folders)
           FolderSummary(
@@ -97,7 +102,10 @@ final class ChatsService {
   /// onto a chat that has since been deleted elsewhere is an ordinary thing,
   /// not an error worth a banner.
   Future<ChatDetail?> get(String id) async {
-    final conversations = await _container.read(conversationsProvider.future);
+    final conversations = await readSettled(
+      _container,
+      conversationsProvider.future,
+    );
     final summary = conversations
         .where((candidate) => candidate.id == id)
         .firstOrNull;
@@ -114,7 +122,7 @@ final class ChatsService {
     // conversation from the database, with the network as a fallback.
     Conversation? full;
     try {
-      full = await _container.read(loadConversationProvider(id).future);
+      full = await readSettled(_container, loadConversationProvider(id).future);
     } on Object catch (error, stackTrace) {
       // A transcript that will not load is worth showing the envelope for
       // rather than pretending the conversation does not exist.

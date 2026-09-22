@@ -60,6 +60,9 @@ final class CoreRuntime {
     required BootstrapConfig config,
     required DaemonDirectories directories,
     required DaemonLog log,
+    // For diagnosing provider behaviour from outside -- a rebuild loop, a
+    // future that never settles -- without editing the core to add logging.
+    List<ProviderObserver> observers = const <ProviderObserver>[],
   }) async {
     final secureStore = await DaemonSecureStore.open(
       file: File(p.join(directories.paths.userData, 'secure_store.bin')),
@@ -79,6 +82,7 @@ final class CoreRuntime {
     connectivity.start();
 
     final container = ProviderContainer(
+      observers: observers,
       overrides: <Override>[
         databaseOpenerProvider.overrideWithValue(
           DaemonDatabaseOpener(directories),

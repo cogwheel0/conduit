@@ -5,6 +5,8 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
+import 'settled.dart';
+
 /// Implements `models.*` over the core's model providers (M3).
 final class ModelsService {
   ModelsService(this._container);
@@ -12,7 +14,7 @@ final class ModelsService {
   final ProviderContainer _container;
 
   Future<ModelList> list() async {
-    final models = await _container.read(modelsProvider.future);
+    final models = await readSettled(_container, modelsProvider.future);
     return ModelList(
       models: models.map(_summarize).toList(growable: false),
       // The account's current selection, not the first in the list: the
@@ -23,7 +25,7 @@ final class ModelsService {
   }
 
   Future<ModelList> select(String id) async {
-    final models = await _container.read(modelsProvider.future);
+    final models = await readSettled(_container, modelsProvider.future);
     final model = models.where((candidate) => candidate.id == id).firstOrNull;
     if (model == null) {
       throw RpcError(

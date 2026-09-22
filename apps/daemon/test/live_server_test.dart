@@ -110,10 +110,12 @@ void main() {
       test('lists models', () async {
         final list = await models.list();
         expect(list.models, isNotEmpty);
-        // Longer than the 30s default: this account's server offers a
-        // couple of dozen models and takes its time about saying so, and
-        // the default timed out often enough to look like a real failure.
-      }, timeout: const Timeout(Duration(minutes: 2)));
+        // This test hung often enough to look like a slow server, but the
+        // server answers in about a second. The daemon read `modelsProvider`
+        // without listening to it. Signing in certifies the account's
+        // storage about 30 ms into that read, which invalidates the build,
+        // and with no listener nothing ever rebuilt it. See `readSettled`.
+      });
 
       test('renames, pins and deletes a conversation', () async {
         final chats = ChatsService(runtime.container);
