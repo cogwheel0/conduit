@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   group('ServerVersionCompat.isSupported', () {
     test('the max supported version itself is supported', () {
-      check(ServerVersionCompat.isSupported('0.11.3')).isTrue();
+      check(ServerVersionCompat.isSupported('0.11.4')).isTrue();
     });
 
     test('older versions are supported', () {
@@ -23,22 +23,22 @@ void main() {
     });
 
     test('newer patch / minor / major versions are unsupported', () {
-      for (final v in ['0.11.4', '0.12.0', '0.20.0', '1.0.0', '2.5.3']) {
+      for (final v in ['0.11.5', '0.12.0', '0.20.0', '1.0.0', '2.5.3']) {
         check(because: v, ServerVersionCompat.isSupported(v)).isFalse();
       }
     });
 
     test('tolerates a leading v prefix', () {
-      check(ServerVersionCompat.isSupported('v0.11.3')).isTrue();
-      check(ServerVersionCompat.isSupported('v0.11.4')).isFalse();
+      check(ServerVersionCompat.isSupported('v0.11.4')).isTrue();
+      check(ServerVersionCompat.isSupported('v0.11.5')).isFalse();
     });
 
     test('strips pre-release / build metadata before comparing', () {
       // A pre-release of the max version is treated as the max version.
-      check(ServerVersionCompat.isSupported('0.11.3-dev')).isTrue();
-      check(ServerVersionCompat.isSupported('0.11.3+build.7')).isTrue();
+      check(ServerVersionCompat.isSupported('0.11.4-dev')).isTrue();
+      check(ServerVersionCompat.isSupported('0.11.4+build.7')).isTrue();
       // Metadata on a newer core still gates.
-      check(ServerVersionCompat.isSupported('0.11.4-rc1')).isFalse();
+      check(ServerVersionCompat.isSupported('0.11.5-rc1')).isFalse();
     });
 
     test('partial versions are padded with zeros', () {
@@ -47,8 +47,8 @@ void main() {
       check(ServerVersionCompat.isSupported('1')).isFalse();
     });
 
-    test('the previous max (0.11.1) remains supported after the bump', () {
-      check(ServerVersionCompat.isSupported('0.11.1')).isTrue();
+    test('the previous max (0.11.3) remains supported after the bump', () {
+      check(ServerVersionCompat.isSupported('0.11.3')).isTrue();
     });
 
     test('fails open on null / empty / unparseable versions', () {
@@ -58,8 +58,8 @@ void main() {
     });
 
     test('isUnsupported is the inverse of isSupported', () {
-      check(ServerVersionCompat.isUnsupported('0.11.4')).isTrue();
-      check(ServerVersionCompat.isUnsupported('0.11.3')).isFalse();
+      check(ServerVersionCompat.isUnsupported('0.11.5')).isTrue();
+      check(ServerVersionCompat.isUnsupported('0.11.4')).isFalse();
       check(ServerVersionCompat.isUnsupported(null)).isFalse();
     });
 
