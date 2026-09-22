@@ -297,9 +297,14 @@ test.describe('against a real server', () => {
     const frame = transcript.locator('iframe').last()
     await expect(frame).toBeVisible()
     await expect(frame).toHaveAttribute('sandbox', '')
-    // Rendered, not executed: the heading exists inside the frame.
+    // Rendered, not executed: a heading exists inside the frame.
+    //
+    // `.first` throughout this section. The model is asked for exact
+    // output and usually obliges, but a stray extra element is its
+    // prerogative and not something the app got wrong -- a strict-mode
+    // violation here would be the test asserting on the model.
     await expect(
-      frame.contentFrame().locator('h1'),
+      frame.contentFrame().locator('h1').first(),
     ).toBeVisible({ timeout: 15_000 })
     await shot(page, '09-preview')
 
@@ -319,12 +324,19 @@ test.describe('against a real server', () => {
     // KaTeX ran: its output carries the class it always emits, and the
     // frame grew past the placeholder height it starts at.
     await expect(
-      math.contentFrame().locator('.katex'),
+      math.contentFrame().locator('.katex').first(),
     ).toBeVisible({ timeout: 15_000 })
     await expect
       .poll(() => math.evaluate((node) => node.getBoundingClientRect().height))
       .toBeGreaterThan(24)
     await shot(page, '10-math')
+
+    // Mermaid and Chart.js are deliberately not exercised here. Both need
+    // the model to tag its fence -- ```mermaid, not ``` -- and a 1B model
+    // obliges perhaps half the time, which would make this suite flaky
+    // without adding coverage: the routing is unit-tested, the rendering
+    // is checked inside a real frame in launch.spec.ts, and the math step
+    // above already proves the whole path from a reply to a drawn frame.
 
     // Settings, which nothing else exercises visually.
     await page.evaluate(() => {

@@ -230,6 +230,129 @@ test('the render sandbox draws math and reports its height', async () => {
   expect(result.height).toBeGreaterThan(10)
 })
 
+test('the render sandbox draws diagrams and charts on demand', async () => {
+  const window = await appWindow(app)
+  // Mermaid and Chart.js are fetched by the sandbox on first use rather
+  // than loaded by sandbox.html -- mermaid alone is five megabytes, and an
+  // inline formula needs neither. This checks the lazy path works at all,
+  // which a unit test cannot: the library has to actually arrive.
+  // The frame is left in the document under a known id so the assertions
+  // can look *inside* it. Height alone would not distinguish a diagram
+  // from the sandbox's own error text, which is exactly the confusion
+  // worth avoiding here.
+  const draw = (id: string, kind: string, source: string) =>
+    window.evaluate(
+      ([frameId, k, src]) =>
+        new Promise<number>((resolve) => {
+          const frame = document.createElement('iframe')
+          frame.id = frameId
+          frame.setAttribute('sandbox', 'allow-scripts')
+          frame.src = '/sandbox.html'
+          frame.style.width = '400px'
+          frame.style.height = '300px'
+          const onMessage = (event: MessageEvent) => {
+            if (event.source !== frame.contentWindow) return
+            if (event.data?.conduit === 'ready') {
+              frame.contentWindow?.postMessage(
+                { conduit: 'render', kind: k, source: src },
+                '*',
+              )
+            }
+            if (event.data?.conduit === 'size') {
+              window.removeEventListener('message', onMessage)
+              resolve(event.data.height as number)
+            }
+          }
+          window.addEventListener('message', onMessage)
+          document.body.appendChild(frame)
+          setTimeout(() => {
+            window.removeEventListener('message', onMessage)
+            resolve(0)
+          }, 30_000)
+        }),
+      [id, kind, source] as const,
+    )
+
+  const diagramHeight = await draw(
+    'probe-mermaid',
+    'mermaid',
+    'graph TD;\n  A-->B;\n  B-->C;',
+  )
+  expect(diagramHeight).toBeGreaterThan(30)
+  // Mermaid's actual output, not the error path's monospace paragraph.
+  await expect(
+    window.frameLocator('#probe-mermaid').locator('svg'),
+  ).toBeVisible()
+
+  const chartHeight = await draw(
+    'probe-chart',
+    'chart',
+    JSON.stringify({
+      type: 'bar',
+      data: { labels: ['a', 'b'], datasets: [{ data: [1, 2] }] },
+    }),
+  )
+  expect(chartHeight).toBeGreaterThan(200)
+  await expect(
+    window.frameLocator('#probe-chart').locator('canvas'),
+  ).toBeVisible()
+
+  await window.evaluate(() => {
+    document.getElementById('probe-mermaid')?.remove()
+    document.getElementById('probe-chart')?.remove()
+  })
+})
+
+test('a malformed chart spec is reported, not executed', async () => {
+  const window = await appWindow(app)
+  // The spec is model output. It is parsed with `JSON.parse` inside the
+  // frame -- never `eval`, never `new Function` -- so bad input is an
+  // error message rather than a payload.
+  const text = await window.evaluate(
+    () =>
+      new Promise<string>((resolve) => {
+        const frame = document.createElement('iframe')
+        frame.setAttribute('sandbox', 'allow-scripts')
+        frame.src = '/sandbox.html'
+        const onMessage = (event: MessageEvent) => {
+          if (event.source !== frame.contentWindow) return
+          if (event.data?.conduit === 'ready') {
+            frame.contentWindow?.postMessage(
+              {
+                conduit: 'render',
+                kind: 'chart',
+                source: 'globalThis.pwned = 1',
+              },
+              '*',
+            )
+          }
+          if (event.data?.conduit === 'size') {
+            // The frame cannot tell us its text directly, so the height
+            // report is the signal that it finished; what it drew is
+            // asserted through the absence of the side effect below.
+            window.removeEventListener('message', onMessage)
+            frame.remove()
+            resolve('reported')
+          }
+        }
+        window.addEventListener('message', onMessage)
+        document.body.appendChild(frame)
+        setTimeout(() => {
+          window.removeEventListener('message', onMessage)
+          frame.remove()
+          resolve('silent')
+        }, 10_000)
+      }),
+  )
+  expect(text).toBe('reported')
+  // And nothing reached this side, which it could not have anyway.
+  expect(
+    await window.evaluate(
+      () => (globalThis as { pwned?: unknown }).pwned ?? null,
+    ),
+  ).toBeNull()
+})
+
 test('the render sandbox cannot reach the app it is embedded in', async () => {
   const window = await appWindow(app)
   // The frame has an opaque origin, so `parent.document` is a security

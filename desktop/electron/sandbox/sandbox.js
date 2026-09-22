@@ -27,6 +27,38 @@
     reportHeight()
   }
 
+  /// Loads a vendored library on first use, once.
+  ///
+  /// Mermaid alone is five megabytes. Loading it eagerly would mean every
+  /// inline formula -- the common case by a wide margin -- parsing it for
+  /// nothing. A `<script>` added here is still governed by this document's
+  /// `script-src app:`, so it can only ever fetch our own files.
+  const loaded = {}
+  function load(src) {
+    if (loaded[src]) return loaded[src]
+    loaded[src] = new Promise((resolve, reject) => {
+      const tag = document.createElement('script')
+      tag.src = src
+      tag.onload = () => resolve()
+      tag.onerror = () => reject(new Error('could not load ' + src))
+      document.head.appendChild(tag)
+    })
+    return loaded[src]
+  }
+
+  /// Guards a payload that must be JSON.
+  ///
+  /// `JSON.parse`, never `eval` or `new Function`: a chart spec is model
+  /// output, and the whole point of this frame is that model output is
+  /// data here.
+  function parseJson(source, what) {
+    try {
+      return JSON.parse(String(source))
+    } catch (error) {
+      throw new Error(what + ' is not valid JSON: ' + error.message)
+    }
+  }
+
   const renderers = {
     math(payload) {
       if (typeof katex === 'undefined') throw new Error('katex is missing')
@@ -46,6 +78,47 @@
         maxExpand: 1000,
       })
     },
+
+    async mermaid(payload) {
+      await load('/vendor/mermaid/mermaid.min.js')
+      out.textContent = ''
+      window.mermaid.initialize({
+        startOnLoad: false,
+        // Mermaid's own sanitiser, on top of this frame's isolation. It is
+        // what stops a diagram label from carrying markup into the SVG.
+        securityLevel: 'strict',
+        htmlLabels: false,
+        theme: payload.dark === true ? 'dark' : 'default',
+        fontFamily: 'inherit',
+      })
+      const id = 'mermaid-' + Math.random().toString(36).slice(2)
+      const { svg } = await window.mermaid.render(id, String(payload.source))
+      // The one `innerHTML` in the app, and the reason it is acceptable is
+      // local: this document has an opaque origin, no network, and nothing
+      // worth reaching. The string is Mermaid's own output from a diagram
+      // it parsed and sanitised, not the model's text.
+      out.innerHTML = svg
+    },
+
+    async chart(payload) {
+      await load('/vendor/chart.js/chart.umd.js')
+      const config = parseJson(payload.source, 'chart')
+      out.textContent = ''
+      const canvas = document.createElement('canvas')
+      // A chart has no intrinsic height, so it needs one before Chart.js
+      // measures; the embedder is told the result either way.
+      canvas.style.width = '100%'
+      canvas.style.height = '260px'
+      out.appendChild(canvas)
+      config.options = Object.assign({}, config.options, {
+        responsive: true,
+        maintainAspectRatio: false,
+        // Every frame would otherwise animate on arrival, and a streaming
+        // reply re-renders the chart on each delta.
+        animation: false,
+      })
+      new window.Chart(canvas, config)
+    },
   }
 
   window.addEventListener('message', (event) => {
@@ -60,12 +133,14 @@
       fail('unsupported content: ' + String(data.kind))
       return
     }
-    try {
-      render(data)
-      reportHeight()
-    } catch (error) {
-      fail(String(error && error.message ? error.message : error))
-    }
+    // Renderers may be async -- mermaid and chart fetch their library on
+    // first use -- so both paths go through a promise.
+    Promise.resolve()
+      .then(() => render(data))
+      .then(reportHeight)
+      .catch((error) => {
+        fail(String(error && error.message ? error.message : error))
+      })
   })
 
   // Tells the embedder the frame is listening. Messages sent before this

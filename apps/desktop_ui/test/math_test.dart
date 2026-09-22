@@ -105,6 +105,55 @@ void main() {
     });
   });
 
+  group('drawable fences', () {
+    test('only the fences that name a drawing', () {
+      expect(MarkdownView.sandboxKindFor('mermaid'), 'mermaid');
+      expect(MarkdownView.sandboxKindFor('chart'), 'chart');
+      expect(MarkdownView.sandboxKindFor('chartjs'), 'chart');
+      // Everything else stays a code block. Nothing gets a frame by
+      // accident.
+      expect(MarkdownView.sandboxKindFor('python'), isNull);
+      expect(MarkdownView.sandboxKindFor('html'), isNull);
+      expect(MarkdownView.sandboxKindFor(null), isNull);
+    });
+
+    testComponents('a mermaid fence becomes a frame, not a code block', (
+      tester,
+    ) async {
+      final sandbox = pump(tester, '```mermaid\ngraph TD; A-->B;\n```');
+      await pumpEventQueue();
+      expect(sandbox.rendered.single.payload.kind, 'mermaid');
+      expect(sandbox.rendered.single.payload.source, 'graph TD; A-->B;\n');
+      expect(find.tag('pre'), findsNothing);
+    });
+
+    testComponents('a chart fence hands over its spec verbatim', (
+      tester,
+    ) async {
+      const spec = '{"type":"bar","data":{"labels":["a"]}}';
+      final sandbox = pump(tester, '```chart\n$spec\n```');
+      await pumpEventQueue();
+      expect(sandbox.rendered.single.payload.kind, 'chart');
+      // Parsed inside the frame with `JSON.parse`, never here and never
+      // with `eval`.
+      expect(sandbox.rendered.single.payload.source.trim(), spec);
+    });
+
+    testComponents('without a sandbox a diagram stays readable source', (
+      tester,
+    ) async {
+      tester.pumpComponent(
+        ProviderScope(
+          overrides: [sandboxProvider.overrideWithValue(RecordingSandbox())],
+          child: const MarkdownView('```mermaid\ngraph TD; A-->B;\n```'),
+        ),
+      );
+      await pumpEventQueue();
+      expect(find.tag('pre'), findsOneComponent);
+      expect(find.tag('iframe'), findsNothing);
+    });
+  });
+
   group('the frame', () {
     testComponents('is sandboxed to scripts alone', (tester) async {
       pump(tester, r'$x$');

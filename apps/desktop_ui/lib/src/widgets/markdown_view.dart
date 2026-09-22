@@ -132,6 +132,21 @@ class MarkdownView extends StatelessComponent {
     if (element.tag == 'pre') {
       if (element.children?.firstOrNull case final md.Element inner?
           when inner.tag == 'code') {
+        // A fence whose language names a drawing, not a grammar. It goes
+        // to the sandbox as data -- a diagram description, a chart spec --
+        // exactly as a formula does.
+        final drawable = sandboxKindFor(_fenceLanguage(inner));
+        if (drawable != null && mathIdPrefix != null) {
+          return SandboxedRender(
+            id: '$mathIdPrefix-draw-${_mathIndex++}',
+            payload: SandboxPayload(
+              kind: drawable,
+              source: inner.textContent,
+              display: true,
+            ),
+            title: drawable,
+          );
+        }
         return CodeBlock(
           source: inner.textContent,
           language: _fenceLanguage(inner),
@@ -185,6 +200,18 @@ class MarkdownView extends StatelessComponent {
   /// be denied rather than run -- but filtering here means it never becomes a
   /// link in the first place, and the user is not offered something that
   /// silently does nothing.
+  /// The sandbox renderer a fence tagged [info] belongs to, if any.
+  ///
+  /// Unrecognised fences stay code blocks, which is the safe default in
+  /// both directions: nothing new gets a frame by accident, and a
+  /// `mermaid` block on a host with no sandbox is still readable source.
+  static String? sandboxKindFor(String? info) =>
+      switch (info?.trim().toLowerCase()) {
+        'mermaid' => 'mermaid',
+        'chart' || 'chartjs' || 'chart.js' => 'chart',
+        _ => null,
+      };
+
   /// A formula, drawn in the sandbox or shown as its own source.
   ///
   /// The fallback is deliberate rather than an error state: unrendered

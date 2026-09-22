@@ -62,6 +62,22 @@ for (const file of ['katex.min.js', 'katex.min.css']) {
 cpSync(join(katexDist, 'fonts'), join(vendorDir, 'katex', 'fonts'), {
   recursive: true,
 })
+// Loaded on demand from inside the sandbox rather than by sandbox.html:
+// mermaid alone is five megabytes, and the common case -- an inline
+// formula -- needs neither.
+for (const [pkg, dir, file] of [
+  ['mermaid', 'mermaid', 'dist/mermaid.min.js'],
+  ['chart.js', 'chart.js', 'dist/chart.umd.js'],
+]) {
+  const from = join(here, '..', 'node_modules', pkg, file)
+  if (!existsSync(from)) {
+    console.error(`${pkg} not found. Run \`npm install\` in desktop/electron.`)
+    process.exit(1)
+  }
+  mkdirSync(join(vendorDir, dir), { recursive: true })
+  cpSync(from, join(vendorDir, dir, file.split('/').pop()))
+}
+
 cpSync(join(here, '..', 'sandbox', 'sandbox.js'), join(vendorDir, 'sandbox.js'))
 cpSync(join(here, '..', 'sandbox', 'sandbox.html'), join(webDir, 'sandbox.html'))
 
