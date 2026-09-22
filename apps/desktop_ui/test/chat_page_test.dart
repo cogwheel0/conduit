@@ -399,6 +399,42 @@ void main() {
     // the one thing a component test cannot do here is submit a form.
   });
 
+  testComponents('a finished turn gives the send button back', (tester) async {
+    // The provider keeps the last turn until a new one replaces it, which
+    // is what holds a completed answer on screen while the sync catches
+    // up. Reading that as "still streaming" left Stop on the composer with
+    // no way back to Send.
+    tester.pumpComponent(
+      _scoped(
+        detail: _detail,
+        selected: 'chat-1',
+        live: const LiveTurn(
+          chatId: 'chat-1',
+          messageId: 'm3',
+          text: 'Done.',
+          settled: true,
+        ),
+      ),
+    );
+    await pumpEventQueue();
+
+    expect(find.text(t.app.send), findsOneComponent);
+    expect(find.text(t.app.stopGenerating), findsNothing);
+  });
+
+  testComponents('the transcript follows the conversation', (tester) async {
+    final commands = RecordingWindowCommands();
+    tester.pumpComponent(
+      _scoped(detail: _detail, selected: 'chat-1', commands: commands),
+    );
+    await pumpEventQueue();
+
+    // Asked for on every build, because a streaming answer grows on each
+    // delta. Whether it *moves* is the port's call: it declines when the
+    // user has scrolled away, which is why this asks rather than scrolls.
+    expect(commands.scrolled, contains('transcript'));
+  });
+
   group('message actions', () {
     testComponents('copying a message hands over its text', (tester) async {
       final commands = RecordingWindowCommands();

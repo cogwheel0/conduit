@@ -44,7 +44,7 @@ Future<void> main() async {
       // and looking right there is most of what makes it worth developing in.
       themeApplierProvider.overrideWithValue(const DocumentThemeApplier()),
       filePickerProvider.overrideWithValue(const BrowserFilePicker()),
-      windowCommandsProvider.overrideWithValue(const DocumentWindowCommands()),
+      windowCommandsProvider.overrideWithValue(DocumentWindowCommands()),
       // `platform` is the shell's own report, not a user-agent guess: the
       // difference decides whether the accelerator is Cmd or Ctrl, and
       // binding the wrong one makes every shortcut in the app dead.

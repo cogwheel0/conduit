@@ -82,6 +82,20 @@ const credentials = readCredentials()
 /// the same reason that directory is: these are pictures of a signed-in app.
 const shotDir = join(__dirname, '..', 'screenshots')
 
+/**
+ * Waits until the conversation is not generating.
+ *
+ * The composer shows Stop while a turn streams and Send when it does not,
+ * so the button is the state. Sending into a chat that is still generating
+ * is refused -- correctly, one turn per chat -- and the test would be
+ * asserting on that refusal instead of on what it came to check.
+ */
+async function idle(page: Page): Promise<void> {
+  await expect(
+    page.getByRole('button', { name: /^send$/i }),
+  ).toBeVisible({ timeout: 180_000 })
+}
+
 async function shot(page: Page, name: string): Promise<void> {
   mkdirSync(shotDir, { recursive: true })
   await page.screenshot({ path: join(shotDir, `${name}.png`) })
@@ -288,6 +302,7 @@ test.describe('against a real server', () => {
 
     // 9. A code block, highlighted and copyable (WP-3.5). The prompt is
     // narrow because a 1B model will happily write an essay around it.
+    await idle(page)
     await page.keyboard.type(
       'Reply with only a fenced Python code block that prints hello. ' +
         'No prose.',
@@ -313,6 +328,7 @@ test.describe('against a real server', () => {
     await shot(page, '09-code')
 
     // 10. A markup block offers an inert preview, and nothing else does.
+    await idle(page)
     await page.keyboard.type(
       'Reply with only a fenced html code block containing ' +
         '<h1 style="color:teal">Conduit</h1>. No prose.',
@@ -347,6 +363,7 @@ test.describe('against a real server', () => {
     // frame that failed to draw.
     await page.keyboard.press('Shift+Escape')
     await expect(page.getByPlaceholder('Ask Conduit')).toBeFocused()
+    await idle(page)
     await page.keyboard.type(
       'Reply with only this and nothing else, with no code fence: ' +
         '$E = mc^2$',
@@ -408,6 +425,7 @@ test.describe('against a real server', () => {
     await expect(page.getByText(/could not attach/i)).toBeHidden()
 
     await page.keyboard.press('Shift+Escape')
+    await idle(page)
     await page.keyboard.type('What is the passphrase in the attached file?')
     const beforeAttachment = await transcript.locator('article').count()
     await page.keyboard.press('Enter')
@@ -418,6 +436,15 @@ test.describe('against a real server', () => {
       .toBeGreaterThan(beforeAttachment + 1)
     // And the composer emptied of chips along with the text.
     await expect(chip).toBeHidden()
+    // The pane follows the conversation: the newest message is on screen
+    // without the user scrolling for it.
+    await expect
+      .poll(() =>
+        page.locator('#transcript').evaluate((node) =>
+          node.scrollHeight - node.scrollTop - node.clientHeight,
+        ),
+      )
+      .toBeLessThan(48)
     await shot(page, '12-attachment')
     rmSync(attachPath, { force: true })
 

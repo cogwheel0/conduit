@@ -71,7 +71,18 @@ final class ShortcutDispatcher implements ShortcutBindingPort {
 
 /// [WindowCommandsPort] against the real document.
 final class DocumentWindowCommands implements WindowCommandsPort {
-  const DocumentWindowCommands();
+  DocumentWindowCommands();
+
+  /// Whether each scrollable pane is still following its own end.
+  ///
+  /// Starts true and is recomputed from the pane's own scroll events, which
+  /// is the only way to tell "the user went back to read something" from
+  /// "the content grew past the viewport and nobody has scrolled yet".
+  /// Comparing positions at scroll time cannot: both look like a pane whose
+  /// bottom is off screen, and treating them the same either yanks the
+  /// reader back down or never follows at all.
+  final Map<String, bool> _pinned = <String, bool>{};
+  final Map<String, web.Element> _watched = <String, web.Element>{};
 
   @override
   void focus(String id) {
@@ -90,6 +101,36 @@ final class DocumentWindowCommands implements WindowCommandsPort {
       (element! as web.HTMLInputElement).value = text;
     }
   }
+
+  @override
+  void scrollToEnd(String id) {
+    final element = web.document.getElementById(id);
+    if (!element.isA<web.HTMLElement>()) return;
+    final pane = element! as web.HTMLElement;
+
+    // Re-attached when the element itself is replaced, which a route
+    // change does: the listener goes with the old node, and without this
+    // the pane would be stuck at whatever it was pinned to before.
+    if (!identical(_watched[id], pane)) {
+      _watched[id] = pane;
+      _pinned[id] = true;
+      pane.addEventListener(
+        'scroll',
+        ((web.Event _) => _pinned[id] = _atEnd(pane)).toJS,
+      );
+    }
+
+    if (_pinned[id] != true) return;
+    pane.scrollTop = pane.scrollHeight.toDouble();
+  }
+
+  /// Within a line or so of the bottom.
+  ///
+  /// Slack rather than equality: a fractional scroll position and subpixel
+  /// layout mean an element that is visually at its end is rarely exactly
+  /// at it, and a strict comparison would unpin on the app's own scroll.
+  static bool _atEnd(web.HTMLElement pane) =>
+      pane.scrollHeight - pane.scrollTop - pane.clientHeight <= 48;
 
   @override
   Future<bool> copy(String text) async {

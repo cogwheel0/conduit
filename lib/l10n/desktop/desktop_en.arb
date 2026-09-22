@@ -250,5 +250,9 @@
   "desktopAttachmentsUploading": "Waiting for attachments to finish",
   "@desktopAttachmentsUploading": {
     "description": "Shown when the desktop send button is pressed while an attachment is still uploading."
+  },
+  "desktopAlreadyGenerating": "Wait for the current reply to finish, or stop it.",
+  "@desktopAlreadyGenerating": {
+    "description": "Shown when a message is sent to a conversation that is already generating a reply."
   }
 }

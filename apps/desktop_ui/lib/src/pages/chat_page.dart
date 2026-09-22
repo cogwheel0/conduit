@@ -385,6 +385,13 @@ class _Transcript extends StatelessComponent {
     final commands = context.read(windowCommandsProvider);
     void copyCode(String source) => unawaited(commands.copy(source));
 
+    // After the frame this build produces, not during it: the pane has to
+    // have grown before there is anything new to scroll to. Every build,
+    // because a streaming answer grows on each delta -- and it costs
+    // nothing when the user has scrolled away, which is the case the
+    // command exists to respect.
+    Future<void>.microtask(() => commands.scrollToEnd('transcript'));
+
     return section(classes: 'flex min-w-0 flex-1 flex-col', [
       // A window with no header cannot say which conversation it is showing,
       // and the sidebar selection is off-screen the moment the list scrolls.
@@ -399,6 +406,7 @@ class _Transcript extends StatelessComponent {
         ],
       ),
       div(
+        id: 'transcript',
         classes: 'min-h-0 flex-1 overflow-y-auto px-6 py-6',
         // `log` so a screen reader announces arriving messages without the
         // user having to go looking for them, and politely enough not to
@@ -617,7 +625,12 @@ class _ComposerState extends State<_Composer> {
   @override
   Component build(BuildContext context) {
     final live = context.watch(liveTurnProvider).value;
-    final streaming = live != null && !live.failed;
+    // `settled` as well as `failed`. The provider holds the last turn until
+    // a new one replaces it -- that is what keeps a finished answer on
+    // screen while the sync catches up -- so a completed turn left this
+    // reading "still streaming" and the composer offered Stop forever,
+    // with no way back to Send short of starting another conversation.
+    final streaming = live != null && !live.settled && !live.failed;
 
     final models = context.watch(modelListProvider).value;
 
@@ -873,7 +886,9 @@ class _ComposerState extends State<_Composer> {
         _error = switch (error.code) {
           ConduitErrorCodes.unauthenticated => t.app.authSessionExpired,
           ConduitErrorCodes.unsupported => t.app.noModelsAvailable,
-          ConduitErrorCodes.conflict => t.app.stopGenerating,
+          // Not `stopGenerating`, which is a button's label and reads as
+          // an instruction with no verb when it appears as an error.
+          ConduitErrorCodes.conflict => t.desktop.desktopAlreadyGenerating,
           _ => t.app.couldNotConnectGeneric,
         };
       });

@@ -26,6 +26,14 @@ abstract interface class WindowCommandsPort {
   /// clearing `_text` in the composer left the sent message sitting in the
   /// box, and the next one would have been sent with it still attached.
   void setValue(String id, String text);
+
+  /// Scrolls [id] to its end, unless the user has scrolled away from it.
+  ///
+  /// The exception is the whole feature. A transcript that always jumps to
+  /// the bottom yanks someone out of the message they went back to read,
+  /// every time a token arrives -- so "follow the conversation" has to mean
+  /// "keep following it if that is where they already were".
+  void scrollToEnd(String id);
 }
 
 /// Records what it was asked to do. The default outside a browser.
@@ -44,6 +52,11 @@ final class RecordingWindowCommands implements WindowCommandsPort {
 
   @override
   void setValue(String id, String text) => values.add((id: id, text: text));
+
+  @override
+  void scrollToEnd(String id) => scrolled.add(id);
+
+  final List<String> scrolled = <String>[];
 
   final List<({String id, String text})> values =
       <({String id, String text})>[];
