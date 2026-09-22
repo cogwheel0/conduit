@@ -598,7 +598,23 @@ class _Transcript extends StatelessComponent {
         [
           // A conversation the list has not caught up with yet is a
           // conversation this window just created.
-          Component.text(title ?? t.desktop.desktopNewConversation),
+          span(classes: 'truncate', [
+            Component.text(title ?? t.desktop.desktopNewConversation),
+          ]),
+          // Said where the conversation is named, not only at the toggle.
+          // Someone who scrolls back through a temporary chat an hour later
+          // should not have to remember that it will not be kept.
+          if (isTemporaryChatId(selected) ||
+              (selected == null && context.watch(temporaryChatProvider)))
+            span(
+              classes:
+                  'ml-3 shrink-0 rounded-full border border-border px-2 py-0.5 '
+                  'text-xs font-normal text-muted-foreground',
+              attributes: <String, String>{
+                'title': t.desktop.desktopTemporaryHint,
+              },
+              [Component.text(t.app.temporaryChat)],
+            ),
         ],
       ),
       div(
@@ -676,6 +692,7 @@ class _Transcript extends StatelessComponent {
                             onEdit:
                                 message.role == 'user' &&
                                     selected != null &&
+                                    !isTemporaryChatId(selected) &&
                                     (live == null || live.settled)
                                 ? () => context
                                       .read(editingMessageProvider.notifier)
@@ -701,6 +718,7 @@ class _Transcript extends StatelessComponent {
                             onRegenerate:
                                 message.role == 'assistant' &&
                                     selected != null &&
+                                    !isTemporaryChatId(selected) &&
                                     (live == null || live.settled)
                                 ? () => unawaited(
                                     context
@@ -738,7 +756,11 @@ class _Transcript extends StatelessComponent {
                 // The overlay can outlive the stream by as long as the
                 // sync takes, and a Regenerate that appears only later
                 // reads as the button arriving at random.
-                onRegenerate: live.settled && !live.failed && selected != null
+                onRegenerate:
+                    live.settled &&
+                        !live.failed &&
+                        selected != null &&
+                        !isTemporaryChatId(selected)
                     ? () => unawaited(
                         context
                             .read(chatActionsProvider)
@@ -1085,6 +1107,20 @@ class _ComposerState extends State<_Composer> {
               );
             },
           ),
+          // Only before the first message. A conversation is temporary or
+          // not from the start: switching an existing chat would mean
+          // deleting it from the server, which is what Delete is for.
+          if (context.watch(selectedChatIdProvider) == null)
+            div(classes: 'ml-auto', [
+              checkboxField(
+                id: 'temporary-chat',
+                text: t.app.temporaryChat,
+                checked: context.watch(temporaryChatProvider),
+                onChanged: ({required value}) => context
+                    .read(temporaryChatProvider.notifier)
+                    .set(value: value),
+              ),
+            ]),
         ]),
       form(
         [

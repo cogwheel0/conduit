@@ -287,5 +287,9 @@
   "desktopSyncFailed": "Sync failed",
   "@desktopSyncFailed": {
     "description": "Shown in the desktop sidebar footer when the last sync failed. The error is in its tooltip."
+  },
+  "desktopTemporaryHint": "Not saved. It disappears when you close the app.",
+  "@desktopTemporaryHint": {
+    "description": "Explains a temporary chat in the desktop composer and transcript header."
   }
 }

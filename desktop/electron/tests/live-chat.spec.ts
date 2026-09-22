@@ -563,6 +563,28 @@ test.describe('against a real server', () => {
     ).toHaveCount(0)
     process.stderr.write(`[cleanup] deleted "${currentTitle}"\n`)
 
+    // 14. A temporary chat (WP-3.4): answered, marked as temporary, and
+    // never in the sidebar, because the server was never told about it.
+    const rowsBefore = await page.locator('nav[aria-label] li').count()
+    await page.getByLabel(/temporary chat/i).check()
+    await page.getByPlaceholder('Ask Conduit').click()
+    await page.keyboard.type('Reply with exactly the word: temporary')
+    await page.keyboard.press('Enter')
+    await expect(
+      page.locator('header').getByText(/temporary chat/i),
+    ).toBeVisible({ timeout: 30_000 })
+    await idle(page)
+    await expect
+      .poll(() => transcript.locator('article').count(), { timeout: 60_000 })
+      .toBeGreaterThan(1)
+    await expect(
+      page.locator('nav[aria-label] button[aria-current="true"]'),
+    ).toHaveCount(0)
+    expect(await page.locator('nav[aria-label] li').count()).toBe(rowsBefore)
+    await shot(page, '12b-temporary')
+    await page.keyboard.press('Control+Shift+O')
+    await page.getByLabel(/temporary chat/i).uncheck()
+
     // Settings, which nothing else exercises visually.
     await page.evaluate(() => {
       window.history.pushState(null, '', '/settings/appearance')

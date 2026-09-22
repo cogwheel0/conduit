@@ -19,6 +19,7 @@ import 'event_bus.dart';
 import 'files_service.dart';
 import 'log.dart';
 import 'rpc_session.dart';
+import 'temporary_chats.dart';
 import 'models_service.dart';
 import 'servers_service.dart';
 import 'settings_service.dart';
@@ -106,9 +107,15 @@ class DaemonServer {
     _servers = ServersService(core.container);
     _auth = AuthService(core.container);
     _settings = SettingsService(core.container);
-    _chats = ChatsService(core.container, events: events);
+    final temporary = TemporaryChats();
+    _chats = ChatsService(core.container, events: events, temporary: temporary);
     _files = FilesService(core.container);
-    _turns = TurnsService(core.container, events, files: _files!);
+    _turns = TurnsService(
+      core.container,
+      events,
+      files: _files!,
+      temporary: temporary,
+    );
     _models = ModelsService(core.container);
     _log.info('core attached');
   }

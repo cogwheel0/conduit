@@ -26,6 +26,14 @@ abstract class SendTurn with _$SendTurn {
 
     /// Ids of files already uploaded through `/upload`.
     @Default(<String>[]) List<String> fileIds,
+
+    /// Start a conversation the server never stores (WP-3.4).
+    ///
+    /// Only meaningful with no [chatId]. The daemon assigns a `local:` id,
+    /// which Open WebUI declines to persist, and keeps the transcript in
+    /// memory for as long as it runs. It never reaches the sidebar, the
+    /// database or another device.
+    @Default(false) bool temporary,
   }) = _SendTurn;
 
   factory SendTurn.fromJson(Map<String, dynamic> json) =>

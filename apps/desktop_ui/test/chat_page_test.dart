@@ -51,6 +51,11 @@ const _detail = ChatDetail(
   ],
 );
 
+const _models = ModelList(
+  models: <ModelSummary>[ModelSummary(id: 'm1', name: 'Model one')],
+  selectedId: 'm1',
+);
+
 Component _scoped({
   ChatList chats = _chats,
   ChatDetail? detail,
@@ -61,8 +66,10 @@ Component _scoped({
   ChatSearchResults? results,
   RecordingWindowCommands? commands,
   RecordingAttachments? attachments,
+  ModelList? models,
 }) => ProviderScope(
   overrides: [
+    if (models != null) modelListProvider.overrideWith((ref) async => models),
     if (commands != null) windowCommandsProvider.overrideWithValue(commands),
     if (attachments != null) attachmentsProvider.overrideWithValue(attachments),
     chatListProvider.overrideWith((ref) async => chats),
@@ -365,6 +372,49 @@ void main() {
 
     expect(find.text(t.desktop.desktopSearchNoResults), findsNothing);
     expect(find.text(t.desktop.desktopSearchIncomplete), findsOneComponent);
+  });
+
+  group('temporary chat', () {
+    testComponents('offered only before the first message', (tester) async {
+      tester.pumpComponent(_scoped(models: _models));
+      await pumpEventQueue();
+      expect(find.text(t.app.temporaryChat), findsOneComponent);
+
+      tester.pumpComponent(
+        _scoped(models: _models, detail: _detail, selected: 'chat-1'),
+      );
+      await pumpEventQueue();
+      // A conversation is temporary or not from its start.
+      expect(find.text(t.app.temporaryChat), findsNothing);
+    });
+
+    testComponents('a temporary chat says so, and cannot branch', (
+      tester,
+    ) async {
+      const temporary = ChatDetail(
+        summary: ChatSummary(id: 'local:abc', title: 'Q', updatedAtMs: 1),
+        messages: <ChatMessageDto>[
+          ChatMessageDto(id: 'u', role: 'user', content: 'Q', timestampMs: 1),
+          ChatMessageDto(
+            id: 'a',
+            role: 'assistant',
+            content: 'A',
+            timestampMs: 2,
+          ),
+        ],
+      );
+      tester.pumpComponent(
+        _scoped(detail: temporary, selected: 'local:abc', onActions: (_) {}),
+      );
+      await pumpEventQueue();
+
+      expect(find.text(t.app.temporaryChat), findsOneComponent);
+      // Regenerate and edit branch the server's history, which a temporary
+      // chat does not have.
+      expect(find.text(t.app.regenerate), findsNothing);
+      expect(find.text(t.app.edit), findsNothing);
+      expect(find.text(t.app.copy), findsNComponents(2));
+    });
   });
 
   group('sections', () {

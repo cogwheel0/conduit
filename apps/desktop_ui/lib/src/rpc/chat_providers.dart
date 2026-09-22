@@ -374,6 +374,9 @@ class ChatActions {
         model: model,
         text: text,
         fileIds: fileIds,
+        temporary:
+            _ref.read(selectedChatIdProvider) == null &&
+            _ref.read(temporaryChatProvider),
       ).toJson(),
       decode: SendTurnAccepted.fromJson,
     );
@@ -619,3 +622,24 @@ final syncStateProvider = StreamProvider<SyncState>((ref) {
   });
   return controller.stream;
 });
+
+/// Whether the next new conversation is temporary (WP-3.4).
+///
+/// Held until turned off, not reset per chat, which matches Open WebUI. It
+/// is a mode someone chooses for a stretch of work, and silently switching
+/// it back after one message would save the second without their noticing.
+final temporaryChatProvider = NotifierProvider<TemporaryChat, bool>(
+  TemporaryChat.new,
+);
+
+class TemporaryChat extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void set({required bool value}) => state = value;
+}
+
+/// Whether [chatId] is a temporary conversation, by the prefix the daemon,
+/// the core and Open WebUI all read the same way.
+bool isTemporaryChatId(String? chatId) =>
+    chatId != null && chatId.startsWith('local:');

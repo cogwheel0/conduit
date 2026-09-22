@@ -844,6 +844,52 @@ void main() {
       check(params('automatic')).deepEquals({'temperature': 0.2});
     });
 
+    test('no conversation sends no chat-management fields', () {
+      // Open WebUI reads `parent_id` being *absent* as "plain completion".
+      // Null with no `chat_id` means "create a new chat": the server made
+      // an empty "New Chat" on the account and answered with a JSON null
+      // body. That happened on every conversation-less completion.
+      final api = _buildApiServiceForTest(_FakeAdapter.json({}));
+
+      final payload = api.buildChatCompletionPayloadForTest(
+        messages: [
+          {'role': 'user', 'content': 'hello'},
+        ],
+        model: 'gpt-4',
+        messageId: 'msg-1',
+        sessionId: 'sess-1',
+        parentId: null,
+        userMessage: {'id': 'u1', 'role': 'user', 'content': 'hello'},
+      );
+
+      check(payload.containsKey('parent_id')).isFalse();
+      check(payload.containsKey('user_message')).isFalse();
+      check(payload.containsKey('parent_message')).isFalse();
+      check(payload.containsKey('chat_id')).isFalse();
+      check(payload['model'] as String).equals('gpt-4');
+    });
+
+    test('a conversation still gets its parent, even a null one', () {
+      // The first turn of a real chat has no parent. There the null is
+      // meaningful, and dropping it would stop the server managing the
+      // chat.
+      final api = _buildApiServiceForTest(_FakeAdapter.json({}));
+
+      final payload = api.buildChatCompletionPayloadForTest(
+        messages: [
+          {'role': 'user', 'content': 'hello'},
+        ],
+        model: 'gpt-4',
+        conversationId: 'chat-1',
+        messageId: 'msg-1',
+        sessionId: 'sess-1',
+        parentId: null,
+      );
+
+      check(payload.containsKey('parent_id')).isTrue();
+      check(payload['parent_id']).isNull();
+    });
+
     test('preserves OpenWebUI request shape', () {
       final api = _buildApiServiceForTest(_FakeAdapter.json({}));
 

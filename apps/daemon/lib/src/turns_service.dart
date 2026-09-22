@@ -17,6 +17,7 @@ import 'package:uuid/uuid.dart';
 import 'event_bus.dart';
 import 'files_service.dart';
 import 'settled.dart';
+import 'temporary_chats.dart';
 
 /// Implements `turns.*`: sending a message and streaming the answer (M3).
 ///
@@ -34,8 +35,17 @@ import 'settled.dart';
 /// and the coalescing that turns a token firehose into frames a renderer can
 /// keep up with.
 final class TurnsService {
-  TurnsService(this._container, this._events, {FilesService? files})
-    : _files = files;
+  TurnsService(
+    this._container,
+    this._events, {
+    FilesService? files,
+    TemporaryChats? temporary,
+  }) : _files = files,
+       temporary = temporary ?? TemporaryChats();
+
+  /// Conversations the server never stores. Shared with `ChatsService`,
+  /// which answers `chats.get` for them from the same memory.
+  final TemporaryChats temporary;
 
   final ProviderContainer _container;
   final EventBus _events;
@@ -134,7 +144,13 @@ final class TurnsService {
     // server owns the id from the start, so there is never a local id to
     // reconcile afterwards.
     final String resolvedChatId;
-    if (chatId == null) {
+    if (chatId == null && request.temporary) {
+      // No server call at all. The `local:` prefix is what Open WebUI, the
+      // core's persistence paths and the sync engine all read as "never
+      // store this", so a temporary chat needs no flag beyond its id.
+      resolvedChatId = 'local:${_uuid.v4()}';
+      temporary.start(resolvedChatId);
+    } else if (chatId == null) {
       final created = await api.createConversation(
         title: _titleFor(text),
         messages: <ChatMessage>[userMessage],
@@ -147,6 +163,9 @@ final class TurnsService {
 
     // Checked again now that a new chat has an id.
     _requireIdle(resolvedChatId);
+    if (TemporaryChats.isTemporary(resolvedChatId)) {
+      temporary.append(resolvedChatId, userMessage);
+    }
 
     final payload = <Map<String, dynamic>>[
       for (final message in history)
@@ -154,23 +173,32 @@ final class TurnsService {
       <String, dynamic>{'role': 'user', 'content': text},
     ];
 
+    // A temporary chat is sent as a bare completion: no chat id, no parent,
+    // no user-message node. Open WebUI's own temporary chats rely on a live
+    // socket session, and without one a `local:` chat id is answered with a
+    // JSON null the core can only recover for a *persisted* chat. The
+    // server needs none of that here, because the daemon keeps the
+    // transcript itself.
+    final isTemporary = TemporaryChats.isTemporary(resolvedChatId);
     final completion = await api.sendMessageSession(
       messages: payload,
       model: model,
-      conversationId: resolvedChatId,
+      conversationId: isTemporary ? null : resolvedChatId,
       responseMessageId: assistantMessageId,
-      parentId: history.isEmpty ? null : history.last.id,
+      parentId: isTemporary || history.isEmpty ? null : history.last.id,
       // What the server records as the user's turn. Without it an existing
       // chat gains an answer with nothing to answer.
-      userMessage: <String, dynamic>{
-        'id': userMessageId,
-        'role': 'user',
-        'content': text,
-        'timestamp': userMessage.timestamp.millisecondsSinceEpoch ~/ 1000,
-        'models': <String>[model],
-        'childrenIds': <String>[assistantMessageId],
-        if (history.isNotEmpty) 'parentId': history.last.id,
-      },
+      userMessage: isTemporary
+          ? null
+          : <String, dynamic>{
+              'id': userMessageId,
+              'role': 'user',
+              'content': text,
+              'timestamp': userMessage.timestamp.millisecondsSinceEpoch ~/ 1000,
+              'models': <String>[model],
+              'childrenIds': <String>[assistantMessageId],
+              if (history.isNotEmpty) 'parentId': history.last.id,
+            },
       toolIds: request.toolIds.isEmpty ? null : request.toolIds,
       // Uploaded through `POST /upload`, so the daemon already knows each
       // one's name and size -- which Open WebUI wants alongside the id.
@@ -206,6 +234,14 @@ final class TurnsService {
   /// anything: the server decides which child is current.
   Future<SendTurnAccepted> regenerate(RegenerateTurn request) async {
     final api = _requireApi();
+    // Both rely on the server's message tree, which a temporary chat does
+    // not have.
+    if (TemporaryChats.isTemporary(request.chatId)) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: 'a temporary chat has no history to branch',
+      );
+    }
     _requireIdle(request.chatId);
 
     final history = await _historyFor(request.chatId);
@@ -314,6 +350,14 @@ final class TurnsService {
   /// is deleted.
   Future<SendTurnAccepted> edit(EditTurn request) async {
     final api = _requireApi();
+    // Both rely on the server's message tree, which a temporary chat does
+    // not have.
+    if (TemporaryChats.isTemporary(request.chatId)) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: 'a temporary chat has no history to branch',
+      );
+    }
     _requireIdle(request.chatId);
     final text = request.text.trim();
     if (text.isEmpty) {
@@ -557,6 +601,7 @@ final class TurnsService {
   /// was sent to the model with no memory of the conversation it was in,
   /// and the answer read as though the user had started over.
   Future<List<ChatMessage>> _historyFor(String chatId) async {
+    if (TemporaryChats.isTemporary(chatId)) return temporary.transcript(chatId);
     try {
       final conversation = await _container.read(
         loadConversationProvider(chatId).future,
@@ -618,6 +663,18 @@ final class TurnsService {
         ).toJson(),
       );
     } else {
+      if (TemporaryChats.isTemporary(chatId)) {
+        temporary.append(
+          chatId,
+          ChatMessage(
+            id: turn.messageId,
+            role: 'assistant',
+            content: turn.text,
+            timestamp: DateTime.now(),
+            model: turn.model,
+          ),
+        );
+      }
       _events.publish(
         ConduitEvents.turnCompleted,
         scope: chatId,
@@ -637,6 +694,15 @@ final class TurnsService {
   }
 
   Future<void> _announceWhenSynced(String chatId) async {
+    // Nothing to pull for a chat the server never stored, and the core's
+    // pull would refuse a `local:` id anyway.
+    if (TemporaryChats.isTemporary(chatId)) {
+      _events.publish(
+        ConduitEvents.chatsChanged,
+        payload: ChatsChanged(chatId: chatId).toJson(),
+      );
+      return;
+    }
     try {
       await _container.read(syncEngineProvider.notifier).pullChatNow(chatId);
     } on Object catch (error) {

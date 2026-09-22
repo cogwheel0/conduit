@@ -1679,6 +1679,21 @@ abstract class _ApiServiceBase {
     if (terminalId != null && terminalId.isNotEmpty) {
       data['terminal_id'] = terminalId;
     }
+    // No conversation means no chat management, and the server reads that
+    // from `parent_id` being *absent*, not null. Its three cases are: null
+    // with no chat id creates a new chat, a value continues one, and absent
+    // is a plain completion. A null `parent_id` with no `chat_id` therefore
+    // asked it to create a chat it then had no id to save, and it answered
+    // with a JSON null body instead of a stream. That is every
+    // conversation-less completion this client sent: the desktop's
+    // temporary chats, and any headless caller.
+    final hasConversation =
+        conversationId != null && conversationId.trim().isNotEmpty;
+    if (!hasConversation) {
+      data['background_tasks'] = backgroundTasks ?? <String, dynamic>{};
+      _traceApi('Payload keys (no conversation): ${data.keys.toList()}');
+      return data;
+    }
     switch (metadataFormat) {
       case _ChatRequestMetadataFormat.modernV09:
         // Match OpenWebUI 0.9+'s request shape: `parent_id` is the user

@@ -12,6 +12,7 @@ import 'package:riverpod/riverpod.dart';
 
 import 'event_bus.dart';
 import 'settled.dart';
+import 'temporary_chats.dart';
 
 /// Implements `chats.*` over the core's conversation providers (M3).
 ///
@@ -21,9 +22,14 @@ import 'settled.dart';
 /// any of that here would give the desktop a list that disagrees with the
 /// mobile app's for the same account.
 final class ChatsService {
-  ChatsService(this._container, {EventBus? events, DateTime Function()? now})
-    : _events = events,
-      _now = now ?? DateTime.now {
+  ChatsService(
+    this._container, {
+    EventBus? events,
+    DateTime Function()? now,
+    TemporaryChats? temporary,
+  }) : _events = events,
+       _now = now ?? DateTime.now,
+       _temporary = temporary ?? TemporaryChats() {
     if (events != null) {
       _announceListChanges();
       _announceSync();
@@ -101,6 +107,9 @@ final class ChatsService {
   /// that only reads the list does not have to build one.
   final EventBus? _events;
   final DateTime Function() _now;
+
+  /// The same memory `TurnsService` writes temporary conversations to.
+  final TemporaryChats _temporary;
 
   Conversations get _conversations =>
       _container.read(conversationsProvider.notifier);
@@ -210,6 +219,22 @@ final class ChatsService {
   /// onto a chat that has since been deleted elsewhere is an ordinary thing,
   /// not an error worth a banner.
   Future<ChatDetail?> get(String id) async {
+    // Never in the database, so never in the list. The transcript lives
+    // only in the daemon's memory.
+    if (TemporaryChats.isTemporary(id)) {
+      if (!_temporary.contains(id)) return null;
+      final messages = _temporary.transcript(id);
+      return ChatDetail(
+        summary: ChatSummary(
+          id: id,
+          title: messages.isEmpty
+              ? ''
+              : messages.first.content.split('\n').first,
+          updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+        ),
+        messages: messages.map(_message).toList(growable: false),
+      );
+    }
     final conversations = await readSettled(
       _container,
       conversationsProvider.future,

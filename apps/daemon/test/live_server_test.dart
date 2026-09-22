@@ -525,6 +525,64 @@ void main() {
         );
       }, timeout: const Timeout(Duration(minutes: 5)));
 
+      test(
+        'a temporary chat remembers itself and the server never sees it',
+        () async {
+          final events = EventBus();
+          final temporary = TemporaryChats();
+          final turns = TurnsService(
+            runtime.container,
+            events,
+            temporary: temporary,
+          );
+          final chats = ChatsService(runtime.container, temporary: temporary);
+          addTearDown(turns.dispose);
+          final seen = <String>[];
+          events.attach('probe', (envelope) => seen.add(envelope.event));
+
+          final first = await turns.send(
+            const SendTurn(
+              model: 'gemma3:1b',
+              text: 'My favourite colour is teal. Reply with just: noted.',
+              temporary: true,
+            ),
+          );
+          expect(first.chatId, startsWith('local:'));
+          events.subscribe(
+            'probe',
+            EventSubscription(scopes: <String>[first.chatId]),
+          );
+          await _waitFor(
+            () => seen.contains(ConduitEvents.turnCompleted),
+            seconds: 90,
+          );
+
+          // The second turn has to carry the first, or the model cannot know
+          // the colour. Nothing but the daemon's memory holds it.
+          seen.clear();
+          await turns.send(
+            SendTurn(
+              chatId: first.chatId,
+              model: 'gemma3:1b',
+              text: 'What is my favourite colour? Reply with one word.',
+            ),
+          );
+          await _waitFor(
+            () => seen.contains(ConduitEvents.turnCompleted),
+            seconds: 90,
+          );
+
+          final detail = await chats.get(first.chatId);
+          expect(detail!.messages, hasLength(4));
+          expect(detail.messages.last.content.toLowerCase(), contains('teal'));
+
+          // And the server has no such chat. Temporary has to mean it.
+          final list = await chats.list();
+          expect(list.chats.map((c) => c.id), isNot(contains(first.chatId)));
+        },
+        timeout: const Timeout(Duration(minutes: 5)),
+      );
+
       test('refuses to regenerate a message that is not an answer', () async {
         final events = EventBus();
         final turns = TurnsService(runtime.container, events);
