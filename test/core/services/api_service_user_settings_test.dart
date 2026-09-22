@@ -120,6 +120,36 @@ void main() {
           .isA<Map<String, dynamic>>()
           .deepEquals(<String, dynamic>{'temperature': 0.3});
     });
+
+    test(
+      'clearing the system prompt and default model sends explicit nulls',
+      () async {
+        // Open WebUI >= 0.11.4 patches `ui` per key, so an omitted key keeps
+        // its old value. Only an explicit null resets it.
+        final adapter = _UserSettingsAdapter(<String, dynamic>{
+          'ui': <String, dynamic>{
+            'system': 'Be concise',
+            'models': <String>['gpt-4o'],
+            'theme': 'dark',
+          },
+        });
+        final api = _buildApi(adapter, authToken: 'account-a');
+        adapter.releaseFirstGet.complete();
+
+        final afterPrompt = await api.updateUserSystemPrompt('   ');
+        final promptUi = adapter.lastSubmitted!['ui'] as Map<String, dynamic>;
+        check(promptUi.containsKey('system')).isTrue();
+        check(promptUi['system']).isNull();
+        check(promptUi['theme']).equals('dark');
+        check(afterPrompt.systemPrompt).isNull();
+
+        final afterModel = await api.updateUserDefaultModel(null);
+        final modelUi = adapter.lastSubmitted!['ui'] as Map<String, dynamic>;
+        check(modelUi.containsKey('models')).isTrue();
+        check(modelUi['models']).isNull();
+        check(afterModel.defaultModelId).isNull();
+      },
+    );
   });
 }
 
@@ -142,6 +172,7 @@ final class _UserSettingsAdapter implements HttpClientAdapter {
     : settings = _clone(initialSettings);
 
   Map<String, dynamic> settings;
+  Map<String, dynamic>? lastSubmitted;
   final List<String> requestMethods = <String>[];
   final Completer<void> firstGetEntered = Completer<void>();
   final Completer<void> releaseFirstGet = Completer<void>();
@@ -170,6 +201,7 @@ final class _UserSettingsAdapter implements HttpClientAdapter {
 
       if (options.method == 'POST') {
         final submitted = _clone(options.data as Map<String, dynamic>);
+        lastSubmitted = submitted;
         settings = <String, dynamic>{...settings, ...submitted};
       }
       return _jsonResponse(settings);
