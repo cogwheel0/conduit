@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -10,6 +10,34 @@ import {
 } from '@playwright/test'
 
 const APP_URL = 'app://conduit/'
+
+/**
+ * The protocol version the Dart side declares.
+ *
+ * Read rather than written down here. The handshake requires strict
+ * equality, so this test is about the renderer reporting *the* version --
+ * not about it reporting a particular string, which is how the assertion
+ * went stale the first time the protocol changed shape.
+ */
+function protocolVersion(): string {
+  const source = readFileSync(
+    join(
+      __dirname,
+      '..',
+      '..',
+      '..',
+      'packages',
+      'conduit_protocol',
+      'lib',
+      'src',
+      'protocol_version.dart',
+    ),
+    'utf8',
+  )
+  const match = /kConduitProtocolVersion\s*=\s*'([^']+)'/.exec(source)
+  if (match === null) throw new Error('could not read kConduitProtocolVersion')
+  return match[1]!
+}
 
 /**
  * Waits for the renderer to actually be on the app origin.
@@ -86,7 +114,7 @@ test('connects to the core and reports the handshake', async () => {
     window.dispatchEvent(new PopStateEvent('popstate'))
   })
   await expect(window.getByText('Connected to the core')).toBeVisible()
-  await expect(window.getByText('1.0.0')).toBeVisible()
+  await expect(window.getByText(protocolVersion())).toBeVisible()
 })
 
 test('a first run is sent to onboarding once the session resolves', async () => {

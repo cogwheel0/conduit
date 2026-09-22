@@ -115,8 +115,12 @@ test.describe('against a real server', () => {
   async function window(): Promise<Page> {
     const page = await app.firstWindow()
     page.on('console', (message) => {
-      if (message.text().startsWith('[event]')) {
-        process.stderr.write(`[renderer] ${message.text()}\n`)
+      if (
+        message.text().startsWith('[event]') ||
+        message.type() === 'error' ||
+        message.type() === 'warning'
+      ) {
+        process.stderr.write(`[renderer:${message.type()}] ${message.text()}\n`)
       }
     })
     await expect
@@ -209,10 +213,30 @@ test.describe('against a real server', () => {
     await shot(page, '05-search')
     await page.getByLabel(/search conversations/i).fill('')
     await expect
-      .poll(() => page.locator('nav[aria-label] li').count(), {
-        timeout: 30_000,
-      })
+      .poll(() => hits.count(), { timeout: 30_000 })
       .toBe(before)
+
+    const transcript = page.getByRole('log')
+    // Opening one of the account's existing conversations shows its
+    // transcript. The sidebar's rows are envelopes with no message bodies,
+    // so reading messages off one gave an empty pane for every chat not
+    // created in this session -- the app could list two hundred and open
+    // none of them.
+    await page.locator('nav[aria-label] li button').first().click()
+    await expect(transcript.locator('article').first())
+      .toBeVisible({ timeout: 60_000 })
+    await expect
+      .poll(() => transcript.locator('article').count(), { timeout: 60_000 })
+      .toBeGreaterThan(1)
+    await shot(page, '06-existing-chat')
+    // Back to a blank one for the send below, via the shortcut rather than
+    // the button: this account has conversations *titled* "New Chat", so
+    // the accessible name is ambiguous -- and pressing the key exercises
+    // the binding while it is at it.
+    await page.keyboard.press('Control+Shift+O')
+    await expect
+      .poll(() => transcript.locator('article').count(), { timeout: 15_000 })
+      .toBe(0)
 
     // 7. The keyboard layer (WP-3.7). Ctrl+/ is bound at the document, so
     // it has to work with focus wherever the last step left it.
@@ -220,7 +244,7 @@ test.describe('against a real server', () => {
     const overlay = page.getByRole('dialog', { name: /keyboard shortcuts/i })
     await expect(overlay).toBeVisible()
     await expect(overlay).toContainText('Ctrl+K')
-    await shot(page, '06-shortcuts')
+    await shot(page, '07-shortcuts')
     // Esc closes what is in front before it reaches anything behind it.
     await page.keyboard.press('Escape')
     await expect(overlay).toBeHidden()
@@ -236,7 +260,6 @@ test.describe('against a real server', () => {
     await page.keyboard.type('Reply with exactly the word: pong')
     await page.keyboard.press('Enter')
 
-    const transcript = page.getByRole('log')
     await expect(transcript).toContainText('Reply with exactly', {
       timeout: 30_000,
     })
@@ -255,7 +278,7 @@ test.describe('against a real server', () => {
     await expect(page.getByPlaceholder('Ask Conduit')).toHaveValue('')
     await expect(page.getByPlaceholder('Ask Conduit')).toBeFocused()
 
-    await shot(page, '07-reply')
+    await shot(page, '08-reply')
 
     // 9. A code block, highlighted and copyable (WP-3.5). The prompt is
     // narrow because a 1B model will happily write an essay around it.
@@ -281,7 +304,7 @@ test.describe('against a real server', () => {
       .locator('body')
       .evaluate((node) => getComputedStyle(node).color)
     expect(tokenColour).not.toBe(bodyColour)
-    await shot(page, '08-code')
+    await shot(page, '09-code')
 
     // 10. A markup block offers an inert preview, and nothing else does.
     await page.keyboard.type(
@@ -304,32 +327,43 @@ test.describe('against a real server', () => {
     // prerogative and not something the app got wrong -- a strict-mode
     // violation here would be the test asserting on the model.
     await expect(
-      frame.contentFrame().locator('h1').first(),
+      frame.contentFrame().getByRole('heading', { name: 'Conduit' }),
     ).toBeVisible({ timeout: 15_000 })
-    await shot(page, '09-preview')
+    await shot(page, '10-preview')
 
     // 11. Math, drawn by KaTeX inside the sandbox.
     //
-    // Focus first: clicking Preview left it on that button, and typing
-    // would have gone there. Shift+Esc is the app's own way back to the
-    // composer, so using it here is also what a user would do.
+    // Whether a formula arrives at all is the model's choice: asked for
+    // `$E = mc^2$` it sometimes answers with the text and sometimes wraps
+    // it in a code fence, and a fenced formula is correctly *not* math.
+    // So the frame is asserted only when the model produced one -- the
+    // check never fails for the model's phrasing, and never passes a
+    // frame that failed to draw.
     await page.keyboard.press('Shift+Escape')
     await expect(page.getByPlaceholder('Ask Conduit')).toBeFocused()
     await page.keyboard.type(
-      'Reply with only this and nothing else: $E = mc^2$',
+      'Reply with only this and nothing else, with no code fence: ' +
+        '$E = mc^2$',
     )
+    const repliesBefore = await transcript.locator('article').count()
     await page.keyboard.press('Enter')
-    const math = transcript.locator('iframe[src="/sandbox.html"]').last()
-    await expect(math).toBeVisible({ timeout: 120_000 })
-    // KaTeX ran: its output carries the class it always emits, and the
-    // frame grew past the placeholder height it starts at.
-    await expect(
-      math.contentFrame().locator('.katex').first(),
-    ).toBeVisible({ timeout: 15_000 })
     await expect
-      .poll(() => math.evaluate((node) => node.getBoundingClientRect().height))
-      .toBeGreaterThan(24)
-    await shot(page, '10-math')
+      .poll(() => transcript.locator('article').count(), { timeout: 120_000 })
+      .toBeGreaterThan(repliesBefore + 1)
+
+    const math = transcript.locator('iframe[src="/sandbox.html"]')
+    if ((await math.count()) > 0) {
+      const frame = math.last()
+      // KaTeX ran: its output carries the class it always emits, and the
+      // frame grew past the placeholder height it starts at.
+      await expect(
+        frame.contentFrame().locator('.katex').first(),
+      ).toBeVisible({ timeout: 30_000 })
+      await expect
+        .poll(() => frame.evaluate((n) => n.getBoundingClientRect().height))
+        .toBeGreaterThan(24)
+      await shot(page, '11-math')
+    }
 
     // Mermaid and Chart.js are deliberately not exercised here. Both need
     // the model to tag its fence -- ```mermaid, not ``` -- and a 1B model
@@ -344,13 +378,13 @@ test.describe('against a real server', () => {
       window.dispatchEvent(new PopStateEvent('popstate'))
     })
     await page.waitForTimeout(500)
-    await shot(page, '11-settings-appearance')
+    await shot(page, '12-settings-appearance')
 
     await page.evaluate(() => {
       window.history.pushState(null, '', '/settings/connections')
       window.dispatchEvent(new PopStateEvent('popstate'))
     })
     await page.waitForTimeout(500)
-    await shot(page, '12-settings-connections')
+    await shot(page, '13-settings-connections')
   })
 })

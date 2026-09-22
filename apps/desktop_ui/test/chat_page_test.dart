@@ -4,6 +4,8 @@ library;
 import 'package:conduit_desktop_ui/src/l10n/strings.g.dart';
 import 'package:conduit_desktop_ui/src/pages/chat_page.dart';
 import 'package:conduit_desktop_ui/src/rpc/chat_providers.dart';
+import 'package:conduit_desktop_ui/src/rpc/rpc_providers.dart';
+import 'package:conduit_desktop_ui/src/window_commands.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
@@ -56,8 +58,10 @@ Component _scoped({
   void Function(_RecordingActions)? onActions,
   String query = '',
   ChatSearchResults? results,
+  RecordingWindowCommands? commands,
 }) => ProviderScope(
   overrides: [
+    if (commands != null) windowCommandsProvider.overrideWithValue(commands),
     chatListProvider.overrideWith((ref) async => chats),
     searchQueryProvider.overrideWith(() => _FixedQuery(query)),
     searchResultsProvider.overrideWith((ref) async => results),
@@ -141,6 +145,20 @@ class _RecordingActions extends ChatActions {
     calls.add('send($text)');
     return const SendTurnAccepted(
       chatId: 'chat-1',
+      userMessageId: 'u1',
+      assistantMessageId: 'a1',
+    );
+  }
+
+  @override
+  Future<SendTurnAccepted> regenerate({
+    required String chatId,
+    required String messageId,
+    String? model,
+  }) async {
+    calls.add('regenerate($chatId,$messageId)');
+    return SendTurnAccepted(
+      chatId: chatId,
       userMessageId: 'u1',
       assistantMessageId: 'a1',
     );
@@ -291,6 +309,87 @@ void main() {
     await pumpEventQueue();
 
     expect(find.text('Rewriting the sync engine'), findsNComponents(2));
+  });
+
+  group('message actions', () {
+    testComponents('copying a message hands over its text', (tester) async {
+      final commands = RecordingWindowCommands();
+      tester.pumpComponent(
+        _scoped(detail: _detail, selected: 'chat-1', commands: commands),
+      );
+      await pumpEventQueue();
+
+      await tester.click(
+        find
+            .ancestor(of: find.text(t.app.copy), matching: find.tag('button'))
+            .first,
+      );
+      await pumpEventQueue();
+
+      expect(commands.copied, <String>['How does the outbox order writes?']);
+    });
+
+    testComponents('only an assistant answer offers regenerate', (
+      tester,
+    ) async {
+      tester.pumpComponent(
+        _scoped(detail: _detail, selected: 'chat-1', onActions: (_) {}),
+      );
+      await pumpEventQueue();
+
+      // Two messages, one of each role. Both can be copied; only the
+      // answer can be redone.
+      expect(find.text(t.app.copy), findsNComponents(2));
+      expect(find.text(t.app.regenerate), findsOneComponent);
+    });
+
+    testComponents('regenerating names the answer, not the prompt', (
+      tester,
+    ) async {
+      late _RecordingActions actions;
+      tester.pumpComponent(
+        _scoped(
+          detail: _detail,
+          selected: 'chat-1',
+          onActions: (recording) => actions = recording,
+        ),
+      );
+      await pumpEventQueue();
+
+      await tester.click(
+        find.ancestor(
+          of: find.text(t.app.regenerate),
+          matching: find.tag('button'),
+        ),
+      );
+      await pumpEventQueue();
+
+      // The assistant message id: it is what the button sits under, and a
+      // prompt may already have several answers.
+      expect(actions.calls, <String>['regenerate(chat-1,m2)']);
+    });
+
+    testComponents('nothing can be regenerated while a turn streams', (
+      tester,
+    ) async {
+      // The daemon refuses a second turn in a chat, so a button that would
+      // reliably fail is worse than one that is not offered.
+      tester.pumpComponent(
+        _scoped(
+          detail: _detail,
+          selected: 'chat-1',
+          live: const LiveTurn(
+            chatId: 'chat-1',
+            messageId: 'm3',
+            text: 'Still going',
+          ),
+          onActions: (_) {},
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(find.text(t.app.regenerate), findsNothing);
+    });
   });
 
   testComponents('an unselected pane invites a choice rather than blanking', (

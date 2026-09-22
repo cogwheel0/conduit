@@ -69,10 +69,35 @@ final class ChatsService {
   /// not an error worth a banner.
   Future<ChatDetail?> get(String id) async {
     final conversations = await _container.read(conversationsProvider.future);
-    final conversation = conversations
+    final summary = conversations
         .where((candidate) => candidate.id == id)
         .firstOrNull;
-    if (conversation == null) return null;
+    if (summary == null) return null;
+
+    // The list carries envelopes only -- `conversationFromListEntry` builds
+    // a summary with no message bodies, deliberately, because the sidebar
+    // does not need them and loading 200 transcripts to draw a list would
+    // be absurd. Reading `summary.messages` here therefore returned an
+    // empty transcript for every conversation that was not created in this
+    // session: the app could list two hundred chats and open none of them.
+    //
+    // `loadConversationProvider` is the loader that assembles a full
+    // conversation from the database, with the network as a fallback.
+    Conversation? full;
+    try {
+      full = await _container.read(loadConversationProvider(id).future);
+    } on Object catch (error, stackTrace) {
+      // A transcript that will not load is worth showing the envelope for
+      // rather than pretending the conversation does not exist.
+      DebugLogger.error(
+        'chat-load-failed',
+        scope: 'daemon/chats',
+        error: error,
+        stackTrace: stackTrace,
+        data: <String, Object?>{'id': id},
+      );
+    }
+    final conversation = full ?? summary;
 
     return ChatDetail(
       summary: _summarize(conversation),

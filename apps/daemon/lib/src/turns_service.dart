@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/chat_completion_transport.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/services/streaming_helper.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
@@ -48,12 +50,14 @@ final class TurnsService {
   /// Chats currently generating, for the sidebar's spinner.
   Iterable<String> get activeChatIds => _active.keys;
 
-  Future<SendTurnAccepted> send(SendTurn request) async {
+  /// The signed-in server, or the error that says why there is none.
+  ///
+  /// Both checks, and in this order. A configured-but-signed-out server
+  /// still produces an `ApiService`, so a null check alone lets the request
+  /// go out and come back as a transport error -- which tells the user their
+  /// network is broken when in fact they are signed out.
+  ApiService _requireApi() {
     final api = _container.read(apiServiceProvider);
-    // Both checks, and in this order. A configured-but-signed-out server
-    // still produces an `ApiService`, so a null check alone lets the request
-    // go out and come back as a transport error -- which tells the user
-    // their network is broken when in fact they are signed out.
     final session = _container.read(authStateManagerProvider).value;
     if (api == null || session == null || !session.isAuthenticated) {
       throw const RpcError(
@@ -61,6 +65,25 @@ final class TurnsService {
         debugMessage: 'sign in before sending a turn',
       );
     }
+    return api;
+  }
+
+  /// Refuses a second turn in a chat that is already generating.
+  ///
+  /// Two answers would interleave into one placeholder, and the server would
+  /// be answering a history that does not include the message it is
+  /// answering.
+  void _requireIdle(String chatId) {
+    if (_active.containsKey(chatId)) {
+      throw const RpcError(
+        code: ConduitErrorCodes.conflict,
+        debugMessage: 'that chat is already generating',
+      );
+    }
+  }
+
+  Future<SendTurnAccepted> send(SendTurn request) async {
+    final api = _requireApi();
     final text = request.text.trim();
     if (text.isEmpty) {
       throw const RpcError(
@@ -78,15 +101,7 @@ final class TurnsService {
     }
 
     final chatId = request.chatId;
-    // One turn per chat. A second send while the first is streaming would
-    // interleave two answers into one placeholder, and the server would be
-    // answering a history that does not include the message it is answering.
-    if (chatId != null && _active.containsKey(chatId)) {
-      throw const RpcError(
-        code: ConduitErrorCodes.conflict,
-        debugMessage: 'that chat is already generating',
-      );
-    }
+    if (chatId != null) _requireIdle(chatId);
 
     final history = chatId == null
         ? const <ChatMessage>[]
@@ -122,13 +137,8 @@ final class TurnsService {
       resolvedChatId = chatId;
     }
 
-    // One turn per chat, checked again now that a new chat has an id.
-    if (_active.containsKey(resolvedChatId)) {
-      throw const RpcError(
-        code: ConduitErrorCodes.conflict,
-        debugMessage: 'that chat is already generating',
-      );
-    }
+    // Checked again now that a new chat has an id.
+    _requireIdle(resolvedChatId);
 
     final payload = <Map<String, dynamic>>[
       for (final message in history)
@@ -159,18 +169,156 @@ final class TurnsService {
       enableCodeInterpreter: request.codeInterpreter,
     );
 
-    final turn = _ActiveTurn(
+    _attach(
+      api: api,
       chatId: resolvedChatId,
+      model: model,
+      completion: completion,
+      request: request,
+    );
+
+    return SendTurnAccepted(
+      chatId: resolvedChatId,
+      userMessageId: userMessageId,
+      assistantMessageId: completion.messageId,
+    );
+  }
+
+  /// Runs a turn again, replacing one assistant answer.
+  ///
+  /// A branch, not an overwrite. Open WebUI records the new answer as
+  /// another child of the same user message, so the previous one stays
+  /// reachable -- which matters, because a user who regenerates and prefers
+  /// the first answer has not lost it. That also means this does not delete
+  /// anything: the server decides which child is current.
+  Future<SendTurnAccepted> regenerate(RegenerateTurn request) async {
+    final api = _requireApi();
+    _requireIdle(request.chatId);
+
+    final history = await _historyFor(request.chatId);
+    final index = history.indexWhere((m) => m.id == request.messageId);
+    if (index < 0) {
+      throw const RpcError(
+        code: ConduitErrorCodes.notFound,
+        debugMessage: 'no such message in that conversation',
+      );
+    }
+    if (history[index].role != 'assistant') {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'only an assistant message can be regenerated',
+      );
+    }
+
+    // Everything before the answer, which necessarily ends at the user
+    // message that prompted it. Searching backwards for the nearest user
+    // message rather than assuming `index - 1`: a turn can leave tool or
+    // system messages in between, and sending those as the parent would
+    // branch from the wrong place.
+    final prompt = history.sublist(0, index);
+    final userIndex = prompt.lastIndexWhere((m) => m.role == 'user');
+    if (userIndex < 0) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'that answer has no message to answer',
+      );
+    }
+    final userMessage = prompt[userIndex];
+
+    // Precedence matters here in a way it does not for a send. "Run this
+    // again" means the same model unless the caller says otherwise, so the
+    // answer's own model outranks the account's current selection -- and
+    // `??` after `_resolveModel` never reached it, because that method
+    // already falls back to "the first model the server offers". On a
+    // server whose first model is paid-tier, every regenerate came back as
+    // a refusal for a model the user had not chosen.
+    final model = _resolveModel(request.model ?? history[index].model);
+    if (model == null) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: 'this server offers no models',
+      );
+    }
+
+    final completion = await api.sendMessageSession(
+      messages: <Map<String, dynamic>>[
+        for (final message in prompt)
+          <String, dynamic>{'role': message.role, 'content': message.content},
+      ],
+      model: model,
+      conversationId: request.chatId,
+      responseMessageId: _uuid.v4(),
+      // The user message, so the server hangs the new answer beside the old
+      // one rather than after it.
+      parentId: userMessage.id,
+      // Deliberately absent. The user's turn is already on the server;
+      // sending it again would record a duplicate of what is being answered.
+      toolIds: null,
+    );
+
+    _attach(
+      api: api,
+      chatId: request.chatId,
+      model: model,
+      completion: completion,
+      // The flags a regenerate cannot carry: the original request's tool
+      // and web-search choices are not recorded per message, so repeating
+      // the turn repeats the prompt, not the tooling.
+      request: SendTurn(chatId: request.chatId, text: userMessage.content),
+    );
+
+    return SendTurnAccepted(
+      chatId: request.chatId,
+      userMessageId: userMessage.id,
+      assistantMessageId: completion.messageId,
+    );
+  }
+
+  /// Stops generation, keeping what has arrived.
+  ///
+  /// Not an error when nothing is running: a stop button pressed as the last
+  /// token lands is the common case, not a mistake.
+  Future<void> stop(String chatId) async {
+    final turn = _active[chatId];
+    if (turn == null) return;
+    try {
+      await turn.stream?.controller?.cancel();
+    } on Object catch (error) {
+      DebugLogger.error(
+        'turn-stop-failed',
+        scope: 'daemon/turns',
+        error: error,
+      );
+    }
+    _finish(chatId);
+  }
+
+  /// Wires a started completion to the event bus.
+  ///
+  /// Shared by `send` and `regenerate` because from here on the two are the
+  /// same thing: a stream of tokens for one assistant message in one chat.
+  /// The renderer cannot tell them apart either, which is the point -- a
+  /// regenerated answer arrives through exactly the `turn.*` events a sent
+  /// one does.
+  void _attach({
+    required ApiService api,
+    required String chatId,
+    required String model,
+    required ChatCompletionSession completion,
+    required SendTurn request,
+  }) {
+    final turn = _ActiveTurn(
+      chatId: chatId,
       messageId: completion.messageId,
       model: model,
     );
-    _active[resolvedChatId] = turn;
+    _active[chatId] = turn;
 
     _events.publish(
       ConduitEvents.turnStarted,
-      scope: resolvedChatId,
+      scope: chatId,
       payload: TurnStarted(
-        chatId: resolvedChatId,
+        chatId: chatId,
         messageId: completion.messageId,
         model: model,
       ).toJson(),
@@ -183,7 +331,7 @@ final class TurnsService {
       modelId: model,
       modelItem: const <String, dynamic>{},
       sessionId: completion.sessionId,
-      activeConversationId: resolvedChatId,
+      activeConversationId: chatId,
       api: api,
       socketService: _container.read(socketServiceProvider),
       workerManager: _container.read(workerManagerProvider),
@@ -209,7 +357,7 @@ final class TurnsService {
         }
       },
       completeStreamingUi: () {},
-      finishStreaming: () => _finish(resolvedChatId),
+      finishStreaming: () => _finish(chatId),
       getMessages: () => <ChatMessage>[turn.snapshot()],
       getVisibleStreamingContent: () => turn.text,
       flushStreamingBuffer: turn.flush,
@@ -221,31 +369,6 @@ final class TurnsService {
     );
 
     turn.ticker = Timer.periodic(_deltaInterval, (_) => _emitDelta(turn));
-
-    return SendTurnAccepted(
-      chatId: resolvedChatId,
-      userMessageId: userMessageId,
-      assistantMessageId: completion.messageId,
-    );
-  }
-
-  /// Stops generation, keeping what has arrived.
-  ///
-  /// Not an error when nothing is running: a stop button pressed as the last
-  /// token lands is the common case, not a mistake.
-  Future<void> stop(String chatId) async {
-    final turn = _active[chatId];
-    if (turn == null) return;
-    try {
-      await turn.stream?.controller?.cancel();
-    } on Object catch (error) {
-      DebugLogger.error(
-        'turn-stop-failed',
-        scope: 'daemon/turns',
-        error: error,
-      );
-    }
-    _finish(chatId);
   }
 
   Future<void> dispose() async {
@@ -282,13 +405,31 @@ final class TurnsService {
     return '${firstLine.substring(0, 47)}\u2026';
   }
 
+  /// The conversation so far, as the server has it.
+  ///
+  /// `loadConversationProvider`, not `conversationsProvider`: the latter is
+  /// the sidebar's list, and its rows are envelopes with no message bodies
+  /// by design. Reading `.messages` off one returned an empty history for
+  /// every chat not created in this session -- so every follow-up message
+  /// was sent to the model with no memory of the conversation it was in,
+  /// and the answer read as though the user had started over.
   Future<List<ChatMessage>> _historyFor(String chatId) async {
-    final conversations = await _container.read(conversationsProvider.future);
-    return conversations
-            .where((conversation) => conversation.id == chatId)
-            .firstOrNull
-            ?.messages ??
-        const <ChatMessage>[];
+    try {
+      final conversation = await _container.read(
+        loadConversationProvider(chatId).future,
+      );
+      return conversation.messages;
+    } on Object catch (error) {
+      // An unloadable history is better sent empty than not sent: the user
+      // gets an answer without context rather than an error.
+      DebugLogger.error(
+        'history-load-failed',
+        scope: 'daemon/turns',
+        error: error,
+        data: <String, Object?>{'chatId': chatId},
+      );
+      return const <ChatMessage>[];
+    }
   }
 
   /// Publishes at most one frame per tick, and only when something changed.

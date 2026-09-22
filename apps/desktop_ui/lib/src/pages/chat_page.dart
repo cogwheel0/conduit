@@ -364,6 +364,20 @@ class _Transcript extends StatelessComponent {
     // transcript is still being fetched has no messages either, and telling
     // someone to pick a conversation they just picked is worse than a pause.
     final nothingChosen = selected == null && !showPending && live == null;
+    // The answer the live turn is filling in, if the synced transcript
+    // already has a row for it.
+    //
+    // It usually does now, and it is usually *empty*: the server creates
+    // the assistant placeholder when the turn starts, and a pull can land
+    // before a single token has. Suppressing the overlay whenever a row
+    // with that id existed therefore replaced a streaming answer with a
+    // blank bubble -- which is what `chats.get` returning real transcripts
+    // turned from theoretical into the common case.
+    final persistedLive = live == null
+        ? null
+        : persisted.where((m) => m.id == live.messageId).firstOrNull;
+    final persistedLiveHasText = (persistedLive?.content ?? '').isNotEmpty;
+
     // Read once here rather than in every block: the port is the page's
     // dependency, not the markdown renderer's, and threading the callback
     // keeps `MarkdownView` and `CodeBlock` testable without one.
@@ -400,27 +414,54 @@ class _Transcript extends StatelessComponent {
               error: (error, _) => <Component>[formError('$error')],
               data: (chat) => <Component>[
                 for (final message in chat?.messages ?? const [])
-                  _bubble(
-                    message.role,
-                    message.content,
-                    onCopyCode: copyCode,
-                    mathIdPrefix: message.id,
-                  ),
+                  // Skipped while the overlay is showing it, so the two do
+                  // not appear one above the other.
+                  if (!(message.id == live?.messageId && !persistedLiveHasText))
+                    _bubble(
+                      message.role,
+                      message.content,
+                      onCopyCode: copyCode,
+                      mathIdPrefix: message.id,
+                      onCopy: () => unawaited(commands.copy(message.content)),
+                      // Only once there is an answer to replace, and only
+                      // when nothing is already streaming -- the daemon
+                      // refuses a second turn in a chat, and a button that
+                      // reliably fails is worse than one that is not there.
+                      onRegenerate:
+                          message.role == 'assistant' &&
+                              selected != null &&
+                              (live == null || live.settled)
+                          ? () => unawaited(
+                              context
+                                  .read(chatActionsProvider)
+                                  .regenerate(
+                                    chatId: selected,
+                                    messageId: message.id,
+                                  ),
+                            )
+                          : null,
+                    ),
               ],
             ),
             // The message just sent, until the server's copy arrives.
-            if (showPending) _bubble('user', pending.text),
+            if (showPending)
+              _bubble(
+                'user',
+                pending.text,
+                onCopy: () => unawaited(commands.copy(pending.text)),
+              ),
             // Only for the chat on screen: a background turn in another
             // conversation must not paint into this one. A settled turn also
             // stands down once the synced transcript contains it.
             if (live != null &&
                 live.chatId == selected &&
-                !persisted.any((message) => message.id == live.messageId))
+                !persistedLiveHasText)
               _bubble(
                 'assistant',
                 live.text.isEmpty && !live.failed ? '…' : live.text,
                 onCopyCode: copyCode,
                 mathIdPrefix: live.messageId,
+                onCopy: () => unawaited(commands.copy(live.text)),
                 streaming: !live.failed && !live.settled,
                 // The server's words when it gave any, ours when it did not.
                 // A red border around an empty bubble was the whole of what
@@ -467,44 +508,78 @@ class _Transcript extends StatelessComponent {
     String content, {
     void Function(String source)? onCopyCode,
     String? mathIdPrefix,
+    void Function()? onCopy,
+    void Function()? onRegenerate,
     bool streaming = false,
     String? failure,
   }) {
     final isUser = role == 'user';
     final failed = failure != null;
-    return article(
+    // The row exists so the actions have somewhere to sit *under* the
+    // bubble rather than floating over the text they belong to.
+    return div(
       classes:
-          'rounded px-4 py-3 text-sm '
-          '${isUser ? 'ml-auto max-w-[80%] bg-primary text-primary-foreground whitespace-pre-wrap' : 'mr-auto max-w-[90%] bg-card text-card-foreground'} '
-          '${failed ? 'border border-destructive' : ''}',
+          'group flex flex-col gap-1 '
+          '${isUser ? 'items-end' : 'items-start'}',
       [
-        // The user's own text is rendered verbatim: they typed it, so
-        // markdown they did not mean should not be interpreted, and a stray
-        // asterisk should stay an asterisk.
-        if (isUser)
-          Component.text(content)
-        else if (content.isNotEmpty)
-          MarkdownView(
-            content,
-            onCopyCode: onCopyCode,
-            mathIdPrefix: mathIdPrefix,
-          ),
-        if (failure case final message?)
-          p(
+        article(
+          classes:
+              'rounded px-4 py-3 text-sm '
+              '${isUser ? 'ml-auto max-w-[80%] bg-primary text-primary-foreground whitespace-pre-wrap' : 'mr-auto max-w-[90%] bg-card text-card-foreground'} '
+              '${failed ? 'border border-destructive' : ''}',
+          [
+            // The user's own text is rendered verbatim: they typed it, so
+            // markdown they did not mean should not be interpreted, and a stray
+            // asterisk should stay an asterisk.
+            if (isUser)
+              Component.text(content)
+            else if (content.isNotEmpty)
+              MarkdownView(
+                content,
+                onCopyCode: onCopyCode,
+                mathIdPrefix: mathIdPrefix,
+              ),
+            if (failure case final message?)
+              p(
+                classes:
+                    '${content.isEmpty ? '' : 'mt-2 '}text-sm text-destructive',
+                attributes: const <String, String>{'role': 'alert'},
+                [Component.text(message)],
+              ),
+            if (streaming)
+              span(
+                classes: 'ml-1 animate-pulse',
+                attributes: const <String, String>{'aria-hidden': 'true'},
+                [Component.text('▌')],
+              ),
+          ],
+        ),
+        // In the DOM always, revealed on hover or focus. A control that
+        // only exists on hover cannot be reached by keyboard at all.
+        if (onCopy != null || onRegenerate != null)
+          div(
             classes:
-                '${content.isEmpty ? '' : 'mt-2 '}text-sm text-destructive',
-            attributes: const <String, String>{'role': 'alert'},
-            [Component.text(message)],
-          ),
-        if (streaming)
-          span(
-            classes: 'ml-1 animate-pulse',
-            attributes: const <String, String>{'aria-hidden': 'true'},
-            [Component.text('▌')],
+                'flex gap-1 opacity-0 transition-opacity '
+                'group-hover:opacity-100 group-focus-within:opacity-100',
+            [
+              if (onCopy case final copy?) _messageAction(t.app.copy, copy),
+              if (onRegenerate case final again?)
+                _messageAction(t.app.regenerate, again),
+            ],
           ),
       ],
     );
   }
+
+  Component _messageAction(String label, void Function() onClick) => button(
+    [Component.text(label)],
+    classes:
+        'rounded px-1.5 py-0.5 text-xs text-muted-foreground '
+        'hover:bg-accent hover:text-accent-foreground',
+    type: ButtonType.button,
+    attributes: <String, String>{'title': label},
+    onClick: onClick,
+  );
 }
 
 class _Composer extends StatefulComponent {

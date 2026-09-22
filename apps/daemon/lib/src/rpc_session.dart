@@ -549,6 +549,17 @@ class RpcSession {
       },
     );
 
+    registerTypedMethod<RegenerateTurn, SendTurnAccepted>(
+      _peer,
+      ConduitMethods.turnsRegenerate,
+      decodeParams: RegenerateTurn.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireTurns().regenerate(request);
+      },
+    );
+
     registerTypedMethod<StopTurn, Map<String, dynamic>>(
       _peer,
       ConduitMethods.turnsStop,

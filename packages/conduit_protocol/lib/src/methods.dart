@@ -161,6 +161,14 @@ abstract final class ConduitMethods {
   /// Stops generation for a chat, keeping whatever has arrived.
   static const String turnsStop = 'turns.stop';
 
+  /// Runs the turn again, replacing one assistant answer.
+  ///
+  /// A branch server-side rather than an overwrite: Open WebUI records the
+  /// new answer as another child of the same user message, so the previous
+  /// one stays reachable. The renderer gets the same `turn.*` events a send
+  /// produces, because from its side nothing else is different.
+  static const String turnsRegenerate = 'turns.regenerate';
+
   // ---------------------------------------------------------------------
   // settings.* -- app preferences implemented in WP-2.4. The server-side
   // user settings in this namespace arrive with M9.

@@ -218,6 +218,11 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     partialText: 'The outbox dra',
   ),
   'stopTurn': const StopTurn(chatId: 'chat-7c1f0b2a'),
+  'regenerateTurn': const RegenerateTurn(
+    chatId: 'chat-7c1f0b2a',
+    messageId: 'msg-2f9d4c17',
+    model: 'llama3.2:1b',
+  ),
   'chatSummary': const ChatSummary(
     id: 'chat-7c1f0b2a',
     title: 'Rewriting the sync engine',
@@ -376,6 +381,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'turnCompleted': TurnCompleted.fromJson,
       'turnFailed': TurnFailed.fromJson,
       'stopTurn': StopTurn.fromJson,
+      'regenerateTurn': RegenerateTurn.fromJson,
       'chatSummary': ChatSummary.fromJson,
       'chatList': ChatList.fromJson,
       'chatMessage': ChatMessageDto.fromJson,

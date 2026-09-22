@@ -54,6 +54,27 @@ abstract class SendTurnAccepted with _$SendTurnAccepted {
       _$SendTurnAcceptedFromJson(json);
 }
 
+/// Params for `turns.regenerate`.
+///
+/// Addresses the *assistant* message being replaced, not the user message
+/// that prompted it. That is the one the user is looking at and the one the
+/// button sits under, and it is unambiguous -- a user message may have
+/// several answers already, and naming it would not say which to redo.
+@freezed
+abstract class RegenerateTurn with _$RegenerateTurn {
+  const factory RegenerateTurn({
+    required String chatId,
+    required String messageId,
+
+    /// Null keeps the model the conversation is already using. Passing one
+    /// is how "try this again with a better model" works.
+    String? model,
+  }) = _RegenerateTurn;
+
+  factory RegenerateTurn.fromJson(Map<String, dynamic> json) =>
+      _$RegenerateTurnFromJson(json);
+}
+
 /// Payload of `turn.started`.
 @freezed
 abstract class TurnStarted with _$TurnStarted {

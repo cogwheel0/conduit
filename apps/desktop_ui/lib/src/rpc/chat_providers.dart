@@ -274,6 +274,37 @@ class PendingUserMessageNotifier extends Notifier<PendingUserMessage?> {
   void clear() => state = null;
 }
 
+/// The most recent assistant text, live turn included.
+///
+/// Derived here rather than assembled where it is needed, for two reasons.
+/// A cold `read` of an async provider nothing is watching answers `loading`,
+/// so a copy shortcut pressed from a route with no transcript on screen
+/// copied nothing the first time and worked the second; keeping this one
+/// alive keeps both of its sources resolved. And the alternative -- having
+/// the keyboard *component* watch them -- coupled that component's rebuilds
+/// to `liveTurnProvider` being torn down and rebuilt on every chat switch,
+/// which left its element permanently dirty: `setState` scheduled a build
+/// that never ran, and the shortcut overlay simply never opened.
+///
+/// The streaming answer wins over the persisted one. It is the one on
+/// screen, and waiting for it to sync would silently copy the *previous*
+/// reply instead.
+final lastReplyProvider = Provider<String?>((ref) {
+  final chatId = ref.watch(selectedChatIdProvider);
+  final live = ref.watch(liveTurnProvider).value;
+  if (live != null && live.chatId == chatId && live.text.isNotEmpty) {
+    return live.text;
+  }
+  final messages =
+      ref.watch(chatDetailProvider).value?.messages ?? const <ChatMessageDto>[];
+  for (final message in messages.reversed) {
+    if (message.role == 'assistant' && message.content.isNotEmpty) {
+      return message.content;
+    }
+  }
+  return null;
+});
+
 final chatActionsProvider = Provider<ChatActions>((ref) => ChatActions(ref));
 
 class ChatActions {
@@ -320,6 +351,25 @@ class ChatActions {
     _ref.invalidate(chatDetailProvider);
     return accepted;
   }
+
+  /// Runs an assistant answer again.
+  ///
+  /// Selects nothing and clears nothing: the conversation is already on
+  /// screen, and the new answer arrives through the same `turn.*` events a
+  /// send produces.
+  Future<SendTurnAccepted> regenerate({
+    required String chatId,
+    required String messageId,
+    String? model,
+  }) => _client.call(
+    ConduitMethods.turnsRegenerate,
+    params: RegenerateTurn(
+      chatId: chatId,
+      messageId: messageId,
+      model: model,
+    ).toJson(),
+    decode: SendTurnAccepted.fromJson,
+  );
 
   Future<void> stop(String chatId) => _client.call(
     ConduitMethods.turnsStop,

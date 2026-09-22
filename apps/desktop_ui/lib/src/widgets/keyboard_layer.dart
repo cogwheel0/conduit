@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:jaspr_riverpod/jaspr_riverpod.dart';
@@ -30,32 +29,39 @@ class _KeyboardLayerState extends State<KeyboardLayer> {
   bool _showShortcuts = false;
   String? _notice;
   Timer? _noticeTimer;
+  ProviderSubscription<String?>? _lastReply;
 
   @override
   void initState() {
     super.initState();
+    // A real subscription, not a `read` and not a `watch`.
+    //
+    // `read` is not enough: Riverpod 3 disposes a provider with no
+    // listeners, so every read rebuilt it from `loading` and the copy
+    // shortcuts answered null. `watch` is not right either: it rebuilds
+    // this component whenever `liveTurnProvider` is torn down and remade,
+    // which happens on every chat switch, and that churn left this
+    // element permanently dirty -- `setState` scheduled a build that never
+    // ran, and the shortcut overlay simply never opened. A container-level
+    // listener keeps the value resolved and leaves rebuilding alone.
+    _lastReply = ProviderScope.containerOf(
+      context,
+      listen: false,
+    ).listen(lastReplyProvider, (_, _) {});
     context.read(shortcutBindingProvider).install(_dispatch);
   }
 
   @override
   void dispose() {
     _noticeTimer?.cancel();
+    _lastReply?.close();
     context.read(shortcutBindingProvider).dispose();
     super.dispose();
   }
 
   @override
   Component build(BuildContext context) {
-    // Watched, not read on demand. A `read` of a provider nothing else is
-    // watching starts it cold and answers `loading`, so the first
-    // Cmd+Shift+C pressed on a route that does not show the transcript --
-    // settings, say -- copied nothing and the second one worked. Declaring
-    // the dependency is what keeps the answer available to a shortcut that
-    // can be pressed from anywhere.
-    context.watch(chatDetailProvider);
-    context.watch(liveTurnProvider);
-
-    return Component.fragment(<Component>[
+    return div(classes: 'contents', <Component>[
       if (_showShortcuts)
         ShortcutsOverlay(
           isMac: context.read(shellBridgeProvider).platform == 'darwin',
@@ -105,33 +111,11 @@ class _KeyboardLayerState extends State<KeyboardLayer> {
       case ShortcutAction.showShortcuts:
         setState(() => _showShortcuts = !_showShortcuts);
       case ShortcutAction.copyLastResponse:
-        unawaited(_copy(_lastReply()));
+        unawaited(_copy(_lastReply?.read()));
       case ShortcutAction.copyLastCodeBlock:
-        final reply = _lastReply();
+        final reply = _lastReply?.read();
         unawaited(_copy(reply == null ? null : lastCodeBlock(reply)));
     }
-  }
-
-  /// The most recent assistant text, live turn included.
-  ///
-  /// The streaming answer counts: it is the one on screen, and waiting for
-  /// it to be persisted before it can be copied would make the shortcut
-  /// silently copy the previous reply instead.
-  String? _lastReply() {
-    final selected = context.read(selectedChatIdProvider);
-    final live = context.read(liveTurnProvider).value;
-    if (live != null && live.chatId == selected && live.text.isNotEmpty) {
-      return live.text;
-    }
-    final messages =
-        context.read(chatDetailProvider).value?.messages ??
-        const <ChatMessageDto>[];
-    for (final message in messages.reversed) {
-      if (message.role == 'assistant' && message.content.isNotEmpty) {
-        return message.content;
-      }
-    }
-    return null;
   }
 
   Future<void> _copy(String? text) async {

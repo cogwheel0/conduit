@@ -1,6 +1,7 @@
 @TestOn('vm')
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -274,6 +275,186 @@ void main() {
         );
         // A real model answering a real prompt over a real network.
       }, timeout: const Timeout(Duration(minutes: 3)));
+
+      test('opens an existing conversation with its transcript', () async {
+        // The bug this pins: `conversationsProvider` is the sidebar's list,
+        // and its rows are envelopes with no message bodies. Reading
+        // `.messages` off one gave an empty transcript for every chat not
+        // created in this session -- so the app could list two hundred
+        // conversations and open none of them -- and sent every follow-up
+        // to the model with no memory of the conversation it was in.
+        final chats = ChatsService(runtime.container);
+        final list = await chats.list();
+        final existing = list.chats.firstWhere(
+          (chat) => !chat.archived,
+          orElse: () => throw StateError('this account has no conversations'),
+        );
+
+        final detail = await chats.get(existing.id);
+        expect(detail, isNotNull);
+        expect(
+          detail!.messages,
+          isNotEmpty,
+          reason: 'opened ${existing.id} and it had no messages',
+        );
+        // A transcript, not a single row: any real conversation has both
+        // sides of at least one exchange.
+        expect(
+          detail.messages.map((m) => m.role).toSet(),
+          containsAll(<String>['user', 'assistant']),
+        );
+      }, timeout: const Timeout(Duration(minutes: 2)));
+
+      test('regenerates an answer as a branch, not an overwrite', () async {
+        final events = EventBus();
+        final turns = TurnsService(runtime.container, events);
+        addTearDown(turns.dispose);
+
+        final accepted = await turns.send(
+          const SendTurn(model: 'gemma3:1b', text: 'Say the word: alpha'),
+        );
+
+        final seen = <String>[];
+        final payloads = <String, Map<String, dynamic>>{};
+        events.attach('probe', (envelope) {
+          seen.add(envelope.event);
+          payloads[envelope.event] = envelope.payload;
+        });
+        events.subscribe(
+          'probe',
+          EventSubscription(scopes: <String>[accepted.chatId]),
+        );
+        await _waitFor(
+          () => seen.contains(ConduitEvents.turnCompleted),
+          seconds: 90,
+        );
+        expect(seen, contains(ConduitEvents.turnCompleted));
+
+        // The synced conversation is what `regenerate` reads to find the
+        // answer and its prompt, so the pull has to have landed first.
+        await _waitFor(
+          () async => (await _messagesOf(
+            runtime,
+            accepted.chatId,
+          )).any((m) => m.id == accepted.assistantMessageId),
+          seconds: 60,
+        );
+
+        final before = await _messagesOf(runtime, accepted.chatId);
+        seen.clear();
+        final again = await turns.regenerate(
+          RegenerateTurn(
+            chatId: accepted.chatId,
+            messageId: accepted.assistantMessageId,
+          ),
+        );
+
+        // A new answer, hung beside the old one rather than replacing it.
+        expect(again.assistantMessageId, isNot(accepted.assistantMessageId));
+        // And answering the same prompt, which is what makes it a redo
+        // rather than a new turn.
+        expect(again.userMessageId, accepted.userMessageId);
+
+        await _waitFor(
+          () =>
+              seen.contains(ConduitEvents.turnCompleted) ||
+              seen.contains(ConduitEvents.turnFailed),
+          seconds: 90,
+        );
+        expect(
+          seen,
+          contains(ConduitEvents.turnCompleted),
+          reason: 'events after regenerate: $seen, payloads: $payloads',
+        );
+
+        // Nothing was deleted: the server owns which child is current, and
+        // a user who prefers the first answer has not lost it.
+        final after = await _messagesOf(runtime, accepted.chatId);
+        expect(after.length, greaterThanOrEqualTo(before.length));
+      }, timeout: const Timeout(Duration(minutes: 5)));
+
+      test('refuses to regenerate a message that is not an answer', () async {
+        final events = EventBus();
+        final turns = TurnsService(runtime.container, events);
+        addTearDown(turns.dispose);
+
+        final accepted = await turns.send(
+          const SendTurn(model: 'gemma3:1b', text: 'Say the word: beta'),
+        );
+        await _waitFor(
+          () async => (await _messagesOf(
+            runtime,
+            accepted.chatId,
+          )).any((m) => m.id == accepted.userMessageId),
+          seconds: 90,
+        );
+
+        // Naming the prompt is ambiguous once it has several answers, so
+        // the daemon refuses rather than picking one.
+        await expectLater(
+          turns.regenerate(
+            RegenerateTurn(
+              chatId: accepted.chatId,
+              messageId: accepted.userMessageId,
+            ),
+          ),
+          throwsA(
+            isA<RpcError>().having(
+              (e) => e.code,
+              'code',
+              ConduitErrorCodes.invalidParams,
+            ),
+          ),
+        );
+
+        await expectLater(
+          turns.regenerate(
+            RegenerateTurn(chatId: accepted.chatId, messageId: 'nope'),
+          ),
+          throwsA(
+            isA<RpcError>().having(
+              (e) => e.code,
+              'code',
+              ConduitErrorCodes.notFound,
+            ),
+          ),
+        );
+      }, timeout: const Timeout(Duration(minutes: 3)));
     },
   );
+}
+
+/// Polls [condition] until it holds or [seconds] elapse.
+///
+/// The live server is eventually consistent from this side: a turn finishes
+/// before the sync that records it lands, and `regenerate` reads the synced
+/// conversation.
+Future<void> _waitFor(
+  FutureOr<bool> Function() condition, {
+  required int seconds,
+}) async {
+  final deadline = DateTime.now().add(Duration(seconds: seconds));
+  while (DateTime.now().isBefore(deadline)) {
+    if (await condition()) return;
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+  }
+}
+
+/// The transcript as the daemon would serve it.
+///
+/// Deliberately the same path `chats.get` takes, so a test that says "the
+/// message is there" means the app would show it.
+Future<List<ChatMessage>> _messagesOf(
+  CoreRuntime runtime,
+  String chatId,
+) async {
+  runtime.container.invalidate(loadConversationProvider(chatId));
+  try {
+    final conversation = await runtime.container.read(
+      loadConversationProvider(chatId).future,
+    );
+    return conversation.messages;
+  } on Object {
+    return const <ChatMessage>[];
+  }
 }
