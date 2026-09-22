@@ -44,6 +44,7 @@ import '../utils/embed_utils.dart';
 import '../utils/openwebui_message_payload.dart';
 import '../utils/json_normalization.dart';
 import '../utils/message_tree_utils.dart' as message_tree;
+import '../utils/semantic_details.dart';
 import 'conversation_parsing.dart';
 import 'settings_service.dart';
 import 'worker_manager.dart';
@@ -2542,7 +2543,9 @@ class ApiService {
         'parentId': parentId,
         'childrenIds': [],
         'role': msg.role,
-        'content': msg.content,
+        // Display-only semantic <details> markup must never be persisted to
+        // the server (issue #703): project content to plain text.
+        'content': projectContentForServerPersistence(msg.content),
         'timestamp': msg.timestamp.millisecondsSinceEpoch ~/ 1000,
         // Assistant message fields
         if (msg.role == 'assistant' && msg.model != null) 'model': msg.model,
@@ -2584,7 +2587,7 @@ class ApiService {
         'parentId': parentId,
         'childrenIds': [],
         'role': msg.role,
-        'content': msg.content,
+        'content': projectContentForServerPersistence(msg.content),
         'timestamp': msg.timestamp.millisecondsSinceEpoch ~/ 1000,
         // Assistant message fields
         if (msg.role == 'assistant' && msg.model != null) 'model': msg.model,
@@ -2708,7 +2711,9 @@ class ApiService {
         'parentId': parentId,
         'childrenIds': <String>[],
         'role': msg.role,
-        'content': msg.content,
+        // Display-only semantic <details> markup must never be persisted to
+        // the server (issue #703): project content to plain text.
+        'content': projectContentForServerPersistence(msg.content),
         'timestamp': msg.timestamp.millisecondsSinceEpoch ~/ 1000,
         if (msg.role == 'assistant' && msg.model != null) 'model': msg.model,
         if (msg.role == 'assistant' && msg.model != null)
@@ -2755,7 +2760,7 @@ class ApiService {
         'parentId': parentId,
         'childrenIds': [],
         'role': msg.role,
-        'content': msg.content,
+        'content': projectContentForServerPersistence(msg.content),
         'timestamp': msg.timestamp.millisecondsSinceEpoch ~/ 1000,
         if (msg.role == 'assistant' && msg.model != null) 'model': msg.model,
         if (msg.role == 'assistant' && msg.model != null)
@@ -2802,7 +2807,7 @@ class ApiService {
               'parentId': parentForVersions,
               'childrenIds': <String>[],
               'role': 'assistant',
-              'content': ver.content,
+              'content': projectContentForServerPersistence(ver.content),
               'timestamp': ver.timestamp.millisecondsSinceEpoch ~/ 1000,
               if (ver.model != null) 'model': ver.model,
               if (ver.model != null) 'modelName': ver.model,
