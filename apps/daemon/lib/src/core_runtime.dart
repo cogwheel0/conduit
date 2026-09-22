@@ -2,11 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:conduit_core/database/account_storage_isolation.dart';
 import 'package:conduit_core/persistence/hive_boxes.dart';
 import 'package:conduit_core/persistence/persistence_providers.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/storage_providers.dart';
+import 'package:conduit_core/sync/sync_engine.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:path/path.dart' as p;
 import 'package:riverpod/misc.dart' show Override;
@@ -84,6 +87,12 @@ final class CoreRuntime {
         connectivityPortProvider.overrideWithValue(connectivity),
         secureStorageProvider.overrideWithValue(secureStore),
         hiveBoxesProvider.overrideWithValue(boxes.value),
+        // Mobile routes the post-certification catch-up through its sync
+        // triggers, which also watch lifecycle and connectivity. The sidecar
+        // has neither, so it asks the engine directly.
+        hostPostCertificationSyncProvider.overrideWithValue(
+          () => unawaited(_pullAfterCertification()),
+        ),
         // The remaining ports keep the core's own defaults, and each is a
         // deliberate choice rather than an omission:
         //
@@ -101,6 +110,14 @@ final class CoreRuntime {
       ],
     );
 
+    // Kept alive deliberately. Until this notifier certifies the signed-in
+    // account against the on-disk owner marker, `appDatabaseProvider` yields
+    // null -- and with no database there is no conversation list, no offline
+    // history and no sync, because every one of those reads it. Nothing else
+    // in the sidecar would ever construct it.
+    container.read(openWebUiAccountStorageIsolationProvider);
+
+    _containerForSync = container;
     log.info('core runtime ready');
     return CoreRuntime._(
       container: container,
@@ -115,6 +132,25 @@ final class CoreRuntime {
     await _connectivity.dispose();
     for (final box in _boxes) {
       await box.close();
+    }
+  }
+
+  /// Set once the container exists, so the override above can reach it.
+  static ProviderContainer? _containerForSync;
+
+  static Future<void> _pullAfterCertification() async {
+    final container = _containerForSync;
+    if (container == null) return;
+    try {
+      await container
+          .read(syncEngineProvider.notifier)
+          .requestPull(reason: 'account-certified');
+    } on Object catch (error) {
+      DebugLogger.error(
+        'post-certification-pull-failed',
+        scope: 'daemon/runtime',
+        error: error,
+      );
     }
   }
 

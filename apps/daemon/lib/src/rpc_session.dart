@@ -459,6 +459,72 @@ class RpcSession {
       },
     );
 
+    registerTypedMethod<RenameChat, ChatList>(
+      _peer,
+      ConduitMethods.chatsRename,
+      decodeParams: RenameChat.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireChats().rename(request.id, request.title);
+      },
+    );
+
+    registerTypedMethod<SetChatFlag, ChatList>(
+      _peer,
+      ConduitMethods.chatsSetPinned,
+      decodeParams: SetChatFlag.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireChats().setPinned(request.id, value: request.value);
+      },
+    );
+
+    registerTypedMethod<SetChatFlag, ChatList>(
+      _peer,
+      ConduitMethods.chatsSetArchived,
+      decodeParams: SetChatFlag.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireChats().setArchived(request.id, value: request.value);
+      },
+    );
+
+    registerTypedMethod<ChatRef, ChatList>(
+      _peer,
+      ConduitMethods.chatsDelete,
+      decodeParams: ChatRef.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (ref) {
+        _requireHandshake();
+        return _requireChats().delete(ref.id);
+      },
+    );
+
+    registerTypedMethod<ChatRef, ChatShare>(
+      _peer,
+      ConduitMethods.chatsShare,
+      decodeParams: ChatRef.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (ref) {
+        _requireHandshake();
+        return _requireChats().share(ref.id);
+      },
+    );
+
+    registerTypedMethod<ChatRef, ChatShare>(
+      _peer,
+      ConduitMethods.chatsUnshare,
+      decodeParams: ChatRef.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (ref) {
+        _requireHandshake();
+        return _requireChats().unshare(ref.id);
+      },
+    );
+
     registerTypedMethod<ChatSearchQuery, ChatSearchResults>(
       _peer,
       ConduitMethods.chatsSearch,

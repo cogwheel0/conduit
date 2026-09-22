@@ -262,6 +262,16 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     ],
   ),
   'chatRef': const ChatRef(id: 'chat-7c1f0b2a'),
+  'renameChat': const RenameChat(
+    id: 'chat-7c1f0b2a',
+    title: 'Rewriting the sync engine',
+  ),
+  'setChatFlag': const SetChatFlag(id: 'chat-7c1f0b2a', value: true),
+  'chatShare': const ChatShare(
+    chatId: 'chat-7c1f0b2a',
+    shareId: '3f0b2a7c-1d4e-4a9c-8b7e-2d3f4a5b6c7d',
+  ),
+  'chatShareRemoved': const ChatShare(chatId: 'chat-7c1f0b2a'),
   'chatSearchQuery': const ChatSearchQuery(query: 'outbox', limit: 20),
   'chatSearchHit': const ChatSearchHit(
     chatId: 'chat-7c1f0b2a',
@@ -371,6 +381,10 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'chatMessage': ChatMessageDto.fromJson,
       'chatDetail': ChatDetail.fromJson,
       'chatRef': ChatRef.fromJson,
+      'renameChat': RenameChat.fromJson,
+      'setChatFlag': SetChatFlag.fromJson,
+      'chatShare': ChatShare.fromJson,
+      'chatShareRemoved': ChatShare.fromJson,
       'chatSearchQuery': ChatSearchQuery.fromJson,
       'chatSearchHit': ChatSearchHit.fromJson,
       'chatSearchResults': ChatSearchResults.fromJson,

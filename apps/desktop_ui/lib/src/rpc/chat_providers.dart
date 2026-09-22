@@ -285,6 +285,38 @@ class ChatActions {
   Future<ChatList> loadMore() =>
       _client.call(ConduitMethods.chatsLoadMore, decode: ChatList.fromJson);
 
+  Future<void> rename(String id, String title) =>
+      _mutate(ConduitMethods.chatsRename, RenameChat(id: id, title: title));
+
+  Future<void> setPinned(String id, {required bool value}) =>
+      _mutate(ConduitMethods.chatsSetPinned, SetChatFlag(id: id, value: value));
+
+  Future<void> setArchived(String id, {required bool value}) => _mutate(
+    ConduitMethods.chatsSetArchived,
+    SetChatFlag(id: id, value: value),
+  );
+
+  Future<void> delete(String id) async {
+    await _mutate(ConduitMethods.chatsDelete, ChatRef(id: id));
+    // Deleting the open conversation would otherwise leave the transcript
+    // showing something that no longer exists.
+    if (_ref.read(selectedChatIdProvider) == id) select(null);
+  }
+
+  /// Runs a mutation, then refreshes the list from the daemon.
+  ///
+  /// The daemon returns the new list, but the provider is invalidated rather
+  /// than seeded with it: the sidebar has one source, and a second path into
+  /// it is how two windows start disagreeing about the order.
+  Future<void> _mutate(String method, Object params) async {
+    await _client.call(
+      method,
+      params: (params as dynamic).toJson() as Map<String, dynamic>,
+      decode: (json) => json,
+    );
+    _ref.invalidate(chatListProvider);
+  }
+
   void select(String? chatId) {
     // A pending message belongs to the chat it was sent in.
     _ref.read(pendingUserMessageProvider.notifier).clear();

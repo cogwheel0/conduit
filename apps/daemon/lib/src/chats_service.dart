@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:conduit_core/models/chat_message.dart' as core;
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/sync/sync_engine.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -21,9 +24,36 @@ final class ChatsService {
   Conversations get _conversations =>
       _container.read(conversationsProvider.notifier);
 
+  /// The conversation list, after making sure it reflects the server.
+  ///
+  /// `conversationsProvider` projects the *local database*, which only holds
+  /// what the sync engine has pulled. On mobile the pull is driven by
+  /// `syncTriggers`, which watches app lifecycle and connectivity; the
+  /// sidecar has neither, so it asks directly.
+  ///
+  /// Once per call rather than on a timer: the renderer reads this when a
+  /// window opens, when the session changes and when the daemon says
+  /// `chats.changed`, which is exactly when a refresh is worth its round
+  /// trip.
   Future<ChatList> list() async {
+    await _pull('chats.list');
     final conversations = await _container.read(conversationsProvider.future);
     return _project(conversations);
+  }
+
+  /// Asks the sync engine to catch up, and tolerates it declining.
+  ///
+  /// `requestPull` returns null when the engine is inert -- no database, no
+  /// server, reviewer mode -- and that is a legitimate state, not an error:
+  /// the local list is then simply what there is.
+  Future<void> _pull(String reason) async {
+    try {
+      await _container
+          .read(syncEngineProvider.notifier)
+          .requestPull(reason: reason);
+    } on Object catch (error) {
+      DebugLogger.error('pull-failed', scope: 'daemon/chats', error: error);
+    }
   }
 
   Future<ChatList> loadMore() async {
@@ -71,6 +101,82 @@ final class ChatsService {
       );
     }
     return ChatSearchResults(hits: hits);
+  }
+
+  // -----------------------------------------------------------------------
+  // Mutations
+  // -----------------------------------------------------------------------
+  //
+  // Each writes to the server and then republishes the conversation list,
+  // because `conversationsProvider` is a projection of the local database
+  // and the server write does not touch it. Without the refresh the sidebar
+  // keeps showing the old title until something else happens to invalidate
+  // it, which reads as the rename having failed.
+
+  Future<ChatList> rename(String id, String title) async {
+    final trimmed = title.trim();
+    if (trimmed.isEmpty) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'a chat title must not be empty',
+      );
+    }
+    await _api.updateConversation(id, title: trimmed);
+    return _refresh();
+  }
+
+  Future<ChatList> setPinned(String id, {required bool value}) async {
+    await _api.pinConversation(id, value);
+    return _refresh();
+  }
+
+  Future<ChatList> setArchived(String id, {required bool value}) async {
+    await _api.archiveConversation(id, value);
+    return _refresh();
+  }
+
+  Future<ChatList> delete(String id) async {
+    await _api.deleteConversation(id);
+    // The local row too. A pull reconciles additions and edits, but a row the
+    // server no longer has is not something the next pull will mention -- so
+    // without this the conversation stays in the sidebar until something
+    // else happens to evict it, which reads as the delete having failed.
+    _conversations.removeConversation(id);
+    return _refresh();
+  }
+
+  Future<ChatShare> share(String id) async {
+    final shareId = await _api.shareConversation(id);
+    await _refresh();
+    return ChatShare(chatId: id, shareId: shareId);
+  }
+
+  Future<ChatShare> unshare(String id) async {
+    await _api.deleteSharedConversation(id);
+    await _refresh();
+    return ChatShare(chatId: id);
+  }
+
+  ApiService get _api {
+    final api = _container.read(apiServiceProvider);
+    if (api == null) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unauthenticated,
+        debugMessage: 'sign in before changing a conversation',
+      );
+    }
+    return api;
+  }
+
+  /// Re-reads the list after a server write.
+  ///
+  /// Pulls first: the write went to the server, and the list is a projection
+  /// of the local database, so invalidating alone would re-read the same
+  /// stale rows and report the rename as having done nothing.
+  Future<ChatList> _refresh() async {
+    await _pull('chats.mutation');
+    _container.invalidate(conversationsProvider);
+    return list();
   }
 
   ChatList _project(List<Conversation> conversations) => ChatList(

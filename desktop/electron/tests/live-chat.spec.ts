@@ -157,7 +157,16 @@ test.describe('against a real server', () => {
       await picker.selectOption(wanted)
     }
 
-    // 5. Send, and watch the answer stream in.
+    // 5. The sidebar shows the account's real conversations, which only
+    // happens once the daemon has certified the account and pulled.
+    await expect
+      .poll(
+        () => page.locator('nav[aria-label] li').count(),
+        { timeout: 60_000 },
+      )
+      .toBeGreaterThan(0)
+
+    // 6. Send, and watch the answer stream in.
     await page
       .getByPlaceholder('Ask Conduit')
       .fill('Reply with exactly the word: pong')

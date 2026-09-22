@@ -42,6 +42,12 @@ import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/models/server_config.dart';
 
+import 'package:conduit_core/database/account_storage_isolation.dart';
+// Re-exported because it used to live in this library and a dozen callers
+// still reach it through here. An imported symbol is not re-exported, so
+// moving it to the core without this turns every one of those into an error.
+export 'package:conduit_core/database/account_storage_isolation.dart'
+    show conversationUsesOpenWebUiStorage;
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/database_manager.dart';

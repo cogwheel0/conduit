@@ -463,6 +463,29 @@ const Map<String, String> protocolGoldens = <String, String>{
   "id": "chat-7c1f0b2a"
 }''',
 
+  'renameChat': r'''
+{
+  "id": "chat-7c1f0b2a",
+  "title": "Rewriting the sync engine"
+}''',
+
+  'setChatFlag': r'''
+{
+  "id": "chat-7c1f0b2a",
+  "value": true
+}''',
+
+  'chatShare': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "shareId": "3f0b2a7c-1d4e-4a9c-8b7e-2d3f4a5b6c7d"
+}''',
+
+  'chatShareRemoved': r'''
+{
+  "chatId": "chat-7c1f0b2a"
+}''',
+
   'chatSearchQuery': r'''
 {
   "query": "outbox",

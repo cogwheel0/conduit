@@ -119,5 +119,42 @@
   "desktopSignInMethod": "Sign-in method",
   "@desktopSignInMethod": {
     "description": "Accessible group label for the desktop sign-in method radios (password, LDAP, API key)."
+  },
+  "desktopChatActions": "Actions for {title}",
+  "@desktopChatActions": {
+    "description": "Accessible label for the per-conversation action menu in the desktop sidebar. {title} is the conversation title.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopRenameChat": "Rename",
+  "@desktopRenameChat": {
+    "description": "Menu item that renames a conversation in the desktop sidebar."
+  },
+  "desktopPinChat": "Pin",
+  "@desktopPinChat": {
+    "description": "Menu item that pins a conversation to the top of the desktop sidebar."
+  },
+  "desktopUnpinChat": "Unpin",
+  "@desktopUnpinChat": {
+    "description": "Menu item that removes a conversation from the pinned section of the desktop sidebar."
+  },
+  "desktopArchiveChat": "Archive",
+  "@desktopArchiveChat": {
+    "description": "Menu item that archives a conversation from the desktop sidebar."
+  },
+  "desktopDeleteChat": "Delete",
+  "@desktopDeleteChat": {
+    "description": "Menu item that permanently deletes a conversation from the desktop sidebar."
+  },
+  "desktopConfirmDelete": "Delete this conversation? This cannot be undone.",
+  "@desktopConfirmDelete": {
+    "description": "Confirmation shown before deleting a conversation on desktop."
+  },
+  "desktopRenamePrompt": "New title",
+  "@desktopRenamePrompt": {
+    "description": "Label of the inline field for renaming a conversation on desktop."
   }
 }

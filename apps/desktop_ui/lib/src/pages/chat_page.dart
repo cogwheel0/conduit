@@ -52,7 +52,7 @@ class _Sidebar extends StatelessComponent {
                 ? _hint(t.desktop.desktopNoChatsYet)
                 : ul(classes: 'space-y-0.5', [
                     for (final chat in list.chats)
-                      _row(context, chat, selected == chat.id),
+                      _ChatRow(chat: chat, isSelected: selected == chat.id),
                   ]),
           ),
         ]),
@@ -60,38 +60,192 @@ class _Sidebar extends StatelessComponent {
     );
   }
 
-  Component _row(
-    BuildContext context,
-    ChatSummary chat,
-    bool isSelected,
-  ) => li([
-    button(
-      [
-        span(classes: 'truncate', [Component.text(chat.title)]),
-        if (chat.pinned)
-          span(
-            classes: 'ml-1 text-xs',
-            attributes: const <String, String>{'aria-hidden': 'true'},
-            [Component.text('★')],
-          ),
-      ],
-      classes:
-          'flex w-full items-center rounded-[--radius] px-2 py-1.5 text-left '
-          'text-sm '
-          '${isSelected ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'}',
-      type: ButtonType.button,
-      // `aria-current` rather than `aria-selected`: these are navigation
-      // items, not options in a listbox.
-      attributes: isSelected
-          ? const <String, String>{'aria-current': 'true'}
-          : null,
-      onClick: () => context.read(chatActionsProvider).select(chat.id),
-    ),
-  ]);
-
   Component _hint(String text) => p(
     classes: 'px-2 py-4 text-sm text-muted-foreground',
     [Component.text(text)],
+  );
+}
+
+/// One conversation, with its actions.
+///
+/// Stateful for the rename field: an inline input beats a modal here, because
+/// renaming is a small correction and a dialog makes it feel like a decision.
+class _ChatRow extends StatefulComponent {
+  const _ChatRow({required this.chat, required this.isSelected});
+
+  final ChatSummary chat;
+  final bool isSelected;
+
+  @override
+  State<_ChatRow> createState() => _ChatRowState();
+}
+
+class _ChatRowState extends State<_ChatRow> {
+  bool _renaming = false;
+  bool _confirmingDelete = false;
+  String _draftTitle = '';
+
+  @override
+  Component build(BuildContext context) {
+    final chat = component.chat;
+    final actions = context.read(chatActionsProvider);
+
+    if (_renaming) {
+      return li(classes: 'px-1 py-1', [
+        form(
+          [
+            textField(
+              id: 'rename-${chat.id}',
+              labelText: t.desktop.desktopRenamePrompt,
+              value: _draftTitle,
+              autofocus: true,
+              onInput: (value) => setState(() => _draftTitle = value),
+            ),
+          ],
+          events: <String, EventCallback>{
+            'submit': (event) {
+              event.preventDefault();
+              final title = _draftTitle.trim();
+              setState(() => _renaming = false);
+              if (title.isNotEmpty && title != chat.title) {
+                unawaited(actions.rename(chat.id, title));
+              }
+            },
+          },
+        ),
+      ]);
+    }
+
+    return li(classes: 'group relative', [
+      div(classes: 'flex items-center gap-1', [
+        button(
+          [
+            span(classes: 'truncate', [Component.text(chat.title)]),
+            if (chat.pinned)
+              span(
+                classes: 'ml-1 text-xs',
+                attributes: const <String, String>{'aria-hidden': 'true'},
+                [Component.text('\u2605')],
+              ),
+          ],
+          classes:
+              'flex min-w-0 flex-1 items-center rounded-[--radius] px-2 py-1.5 '
+              'text-left text-sm '
+              '${component.isSelected ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'}',
+          type: ButtonType.button,
+          // `aria-current` rather than `aria-selected`: these are navigation
+          // items, not options in a listbox.
+          attributes: component.isSelected
+              ? const <String, String>{'aria-current': 'true'}
+              : null,
+          onClick: () => actions.select(chat.id),
+        ),
+        _actionsMenu(context, chat, actions),
+      ]),
+      if (_confirmingDelete)
+        div(
+          classes:
+              'mt-1 rounded-[--radius] border border-destructive/40 '
+              'bg-destructive/10 p-2 text-xs',
+          // `alertdialog`: destructive and irreversible, so it should
+          // interrupt rather than wait to be found.
+          attributes: const <String, String>{'role': 'alertdialog'},
+          [
+            p(classes: 'text-destructive', [
+              Component.text(t.desktop.desktopConfirmDelete),
+            ]),
+            div(classes: 'mt-2 flex gap-2', [
+              button(
+                [Component.text(t.desktop.desktopDeleteChat)],
+                classes:
+                    'rounded-[--radius] bg-destructive px-2 py-1 '
+                    'text-destructive-foreground',
+                type: ButtonType.button,
+                onClick: () {
+                  setState(() => _confirmingDelete = false);
+                  unawaited(actions.delete(chat.id));
+                },
+              ),
+              button(
+                [Component.text(t.app.cancel)],
+                classes: 'rounded-[--radius] px-2 py-1 text-foreground',
+                type: ButtonType.button,
+                onClick: () => setState(() => _confirmingDelete = false),
+              ),
+            ]),
+          ],
+        ),
+    ]);
+  }
+
+  /// Always in the DOM, visually revealed on hover or focus.
+  ///
+  /// Not conditionally rendered: a control that only exists on hover cannot
+  /// be reached by keyboard at all, and `group-focus-within` is what keeps it
+  /// available to someone tabbing through the list.
+  Component _actionsMenu(
+    BuildContext context,
+    ChatSummary chat,
+    ChatActions actions,
+  ) => div(
+    classes:
+        'flex shrink-0 gap-0.5 opacity-0 transition-opacity '
+        'group-hover:opacity-100 group-focus-within:opacity-100',
+    attributes: <String, String>{
+      'role': 'group',
+      'aria-label': t.desktop.desktopChatActions(title: chat.title),
+    },
+    [
+      _action(
+        label: chat.pinned
+            ? t.desktop.desktopUnpinChat
+            : t.desktop.desktopPinChat,
+        glyph: '\u2605',
+        onClick: () =>
+            unawaited(actions.setPinned(chat.id, value: !chat.pinned)),
+      ),
+      _action(
+        label: t.desktop.desktopRenameChat,
+        glyph: '\u270e',
+        onClick: () => setState(() {
+          _renaming = true;
+          _draftTitle = chat.title;
+        }),
+      ),
+      _action(
+        label: t.desktop.desktopArchiveChat,
+        glyph: '\u25a4',
+        onClick: () =>
+            unawaited(actions.setArchived(chat.id, value: !chat.archived)),
+      ),
+      _action(
+        label: t.desktop.desktopDeleteChat,
+        glyph: '\u2715',
+        destructive: true,
+        onClick: () => setState(() => _confirmingDelete = true),
+      ),
+    ],
+  );
+
+  Component _action({
+    required String label,
+    required String glyph,
+    required void Function() onClick,
+    bool destructive = false,
+  }) => button(
+    [
+      // The glyph is decoration; the accessible name comes from the label.
+      span(
+        attributes: const <String, String>{'aria-hidden': 'true'},
+        [Component.text(glyph)],
+      ),
+    ],
+    classes:
+        'rounded px-1 text-xs '
+        '${destructive ? 'text-destructive hover:bg-destructive/10' : 'text-muted-foreground hover:bg-accent'}',
+    type: ButtonType.button,
+    attributes: <String, String>{'aria-label': label, 'title': label},
+    onClick: onClick,
   );
 }
 

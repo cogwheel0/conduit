@@ -121,6 +121,22 @@ abstract final class ConduitMethods {
   /// Full-text search over titles and message bodies.
   static const String chatsSearch = 'chats.search';
 
+  /// Renames a conversation.
+  static const String chatsRename = 'chats.rename';
+
+  /// Pins or unpins it.
+  static const String chatsSetPinned = 'chats.setPinned';
+
+  /// Archives or unarchives it.
+  static const String chatsSetArchived = 'chats.setArchived';
+
+  /// Deletes it, on the server and locally.
+  static const String chatsDelete = 'chats.delete';
+
+  /// Creates or removes a public share link.
+  static const String chatsShare = 'chats.share';
+  static const String chatsUnshare = 'chats.unshare';
+
   // ---------------------------------------------------------------------
   // models.* -- what the active server offers (M3).
   // ---------------------------------------------------------------------

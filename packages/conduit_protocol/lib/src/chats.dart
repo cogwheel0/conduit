@@ -133,3 +133,43 @@ abstract class ChatSearchResults with _$ChatSearchResults {
   factory ChatSearchResults.fromJson(Map<String, dynamic> json) =>
       _$ChatSearchResultsFromJson(json);
 }
+
+/// Params for `chats.rename`.
+@freezed
+abstract class RenameChat with _$RenameChat {
+  const factory RenameChat({required String id, required String title}) =
+      _RenameChat;
+
+  factory RenameChat.fromJson(Map<String, dynamic> json) =>
+      _$RenameChatFromJson(json);
+}
+
+/// Params for `chats.setPinned` and `chats.setArchived`.
+///
+/// One type for both because they are the same shape, and a caller that
+/// muddles them gets a compile error at the method name rather than a
+/// silently wrong flag.
+@freezed
+abstract class SetChatFlag with _$SetChatFlag {
+  const factory SetChatFlag({required String id, required bool value}) =
+      _SetChatFlag;
+
+  factory SetChatFlag.fromJson(Map<String, dynamic> json) =>
+      _$SetChatFlagFromJson(json);
+}
+
+/// Reply to `chats.share`.
+@freezed
+abstract class ChatShare with _$ChatShare {
+  const factory ChatShare({
+    required String chatId,
+
+    /// The share id, or null once unshared. The renderer builds the URL from
+    /// the active server rather than receiving one, so a stale link cannot
+    /// outlive a server change.
+    String? shareId,
+  }) = _ChatShare;
+
+  factory ChatShare.fromJson(Map<String, dynamic> json) =>
+      _$ChatShareFromJson(json);
+}

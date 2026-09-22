@@ -4,6 +4,8 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
@@ -107,6 +109,51 @@ void main() {
       test('lists models', () async {
         final list = await models.list();
         expect(list.models, isNotEmpty);
+      });
+
+      test('renames, pins and deletes a conversation', () async {
+        final chats = ChatsService(runtime.container);
+
+        // Created through the API rather than by sending a turn, so this
+        // does not depend on a model answering.
+        final api = runtime.container.read(apiServiceProvider)!;
+        final created = await api.createConversation(
+          title: 'live-mutation-probe',
+          messages: const <ChatMessage>[],
+        );
+
+        final renamed = await chats.rename(created.id, 'renamed by a test');
+        expect(
+          renamed.chats.where((c) => c.id == created.id).single.title,
+          'renamed by a test',
+        );
+
+        final pinned = await chats.setPinned(created.id, value: true);
+        expect(
+          pinned.chats.where((c) => c.id == created.id).single.pinned,
+          isTrue,
+        );
+
+        final afterDelete = await chats.delete(created.id);
+        expect(
+          afterDelete.chats.where((c) => c.id == created.id),
+          isEmpty,
+          reason: 'the deleted conversation should be gone from the list',
+        );
+      }, timeout: const Timeout(Duration(minutes: 2)));
+
+      test('rejects an empty title rather than clearing it', () async {
+        final chats = ChatsService(runtime.container);
+        expect(
+          () => chats.rename('any-id', '   '),
+          throwsA(
+            isA<RpcError>().having(
+              (e) => e.code,
+              'code',
+              ConduitErrorCodes.invalidParams,
+            ),
+          ),
+        );
       });
 
       test(
