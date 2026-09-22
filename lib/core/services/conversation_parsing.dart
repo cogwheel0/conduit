@@ -696,12 +696,19 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
 /// `done: true` leaves an earlier client `isStreaming: true` in place. Treating
 /// that pair as live restores a finished reply as streaming and puts the Stop
 /// button back on an idle chat, so the completion marker wins.
+///
+/// The marker only ever moves from unset or `false` to `true`, and the flat
+/// message list can lag the history entry it projects. Either envelope
+/// reporting completion therefore settles the message.
 bool _resolveIsStreaming(
   Map<String, dynamic> msgData,
   Map<String, dynamic>? historyMsg,
 ) {
   if (_safeBool(msgData['isStreaming']) != true) return false;
-  return _safeBool(msgData['done'] ?? historyMsg?['done']) != true;
+  final done =
+      _safeBool(msgData['done']) == true ||
+      _safeBool(historyMsg?['done']) == true;
+  return !done;
 }
 
 String _resolveRole(Map<String, dynamic> msgData) {

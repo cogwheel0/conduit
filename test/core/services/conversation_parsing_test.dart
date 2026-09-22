@@ -1413,6 +1413,42 @@ void main() {
         check(messages.single['isStreaming']).equals(false);
       });
 
+      test('a history marker outranks a stale flat marker', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            // Without a currentId the history chain is empty, so the flat list
+            // supplies the message while history still supplies its fields.
+            'history': {
+              'messages': {
+                'answer': {
+                  'id': 'answer',
+                  'role': 'assistant',
+                  'content': 'The sample result is ready.',
+                  'timestamp': 1700000000,
+                  'done': true,
+                  'isStreaming': true,
+                },
+              },
+            },
+            'messages': [
+              {
+                'id': 'answer',
+                'role': 'assistant',
+                'content': 'The sample result is ready.',
+                'timestamp': 1700000000,
+                // The projection can lag the history entry it mirrors.
+                'done': false,
+                'isStreaming': true,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.single['isStreaming']).equals(false);
+      });
+
       test('an unfinished reply keeps streaming', () {
         final message = parseAssistant({
           'done': false,

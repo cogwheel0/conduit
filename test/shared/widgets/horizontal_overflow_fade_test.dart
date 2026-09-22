@@ -8,12 +8,13 @@ const double _viewportWidth = 200;
 Future<ScrollController> _pumpRow(
   WidgetTester tester, {
   required double contentWidth,
+  TextDirection textDirection = TextDirection.ltr,
 }) async {
   final controller = ScrollController();
   addTearDown(controller.dispose);
   await tester.pumpWidget(
     Directionality(
-      textDirection: TextDirection.ltr,
+      textDirection: textDirection,
       child: Center(
         child: SizedBox(
           width: _viewportWidth,
@@ -77,5 +78,48 @@ void main() {
     check(_fadePaints(tester)).isEmpty();
     // Dropping the mask must not rebuild the row out from under the scrollable.
     check(controller.offset).equals(end);
+  });
+
+  testWidgets('a right-to-left row still reports its overflow', (
+    tester,
+  ) async {
+    await _pumpRow(
+      tester,
+      contentWidth: _viewportWidth * 2,
+      textDirection: TextDirection.rtl,
+    );
+
+    check(find.byType(ShaderMask).evaluate()).length.equals(1);
+  });
+
+  test('the gradient starts at the edge the row scrolls away from', () {
+    final forward = horizontalOverflowFadeGradient(
+      extent: 200,
+      width: 28,
+      axisDirection: AxisDirection.right,
+    );
+    check(forward.begin).equals(Alignment.centerLeft);
+    check(forward.end).equals(Alignment.centerRight);
+
+    // A right-to-left or reversed row clips its content at the physical left.
+    final reversed = horizontalOverflowFadeGradient(
+      extent: 200,
+      width: 28,
+      axisDirection: AxisDirection.left,
+    );
+    check(reversed.begin).equals(Alignment.centerRight);
+    check(reversed.end).equals(Alignment.centerLeft);
+
+    check(reversed.stops).isNotNull().deepEquals([1 - 28 / 200, 1.0]);
+  });
+
+  test('a row no wider than the cue fades across its whole width', () {
+    final gradient = horizontalOverflowFadeGradient(
+      extent: 20,
+      width: 28,
+      axisDirection: AxisDirection.right,
+    );
+
+    check(gradient.stops).isNotNull().deepEquals([0.0, 1.0]);
   });
 }
