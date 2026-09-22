@@ -21,6 +21,7 @@
 		D2A0B1E42F5E4D6C7B8A9012 /* NativeSheetBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B1E32F5E4D6C7B8A9012 /* NativeSheetBridge.swift */; };
 		D2A0B1E52F5E4D6C7B8A9012 /* NativeSheetUIFoundation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B1E62F5E4D6C7B8A9012 /* NativeSheetUIFoundation.swift */; };
 		D2A0B1F42F5E4D6C7B8A9012 /* NativeDropdownBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B1F32F5E4D6C7B8A9012 /* NativeDropdownBridge.swift */; };
+		D2A0B1F62F5E4D6C7B8A9013 /* NativeSymbolImageBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B1F52F5E4D6C7B8A9013 /* NativeSymbolImageBridge.swift */; };
 		D2A0B2042F5E4D6C7B8A9012 /* NativeSttBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2032F5E4D6C7B8A9012 /* NativeSttBridge.swift */; };
 		D2A0B2062F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2052F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift */; };
 		D2A0B2142F5E4D6C7B8A9012 /* ConduitPlatformApis.g.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2132F5E4D6C7B8A9012 /* ConduitPlatformApis.g.swift */; };
@@ -115,6 +116,7 @@
 		D2A0B1E32F5E4D6C7B8A9012 /* NativeSheetBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSheetBridge.swift; sourceTree = "<group>"; };
 		D2A0B1E62F5E4D6C7B8A9012 /* NativeSheetUIFoundation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSheetUIFoundation.swift; sourceTree = "<group>"; };
 		D2A0B1F32F5E4D6C7B8A9012 /* NativeDropdownBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDropdownBridge.swift; sourceTree = "<group>"; };
+		D2A0B1F52F5E4D6C7B8A9013 /* NativeSymbolImageBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSymbolImageBridge.swift; sourceTree = "<group>"; };
 		D2A0B2032F5E4D6C7B8A9012 /* NativeSttBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSttBridge.swift; sourceTree = "<group>"; };
 		D2A0B2052F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitSceneDelegate.swift; sourceTree = "<group>"; };
 		D2A0B2132F5E4D6C7B8A9012 /* ConduitPlatformApis.g.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitPlatformApis.g.swift; sourceTree = "<group>"; };
@@ -342,6 +344,7 @@
 				D2A0B1E32F5E4D6C7B8A9012 /* NativeSheetBridge.swift */,
 				D2A0B1E62F5E4D6C7B8A9012 /* NativeSheetUIFoundation.swift */,
 				D2A0B1F32F5E4D6C7B8A9012 /* NativeDropdownBridge.swift */,
+				D2A0B1F52F5E4D6C7B8A9013 /* NativeSymbolImageBridge.swift */,
 				D2A0B2032F5E4D6C7B8A9012 /* NativeSttBridge.swift */,
 				D2A0B2402F5E4D6C7B8A9012 /* PccBridge.swift */,
 				D2A0B2502F5E4D6C7B8A9012 /* DisplayBoostBridge.swift */,
@@ -633,6 +636,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D2A0B1F42F5E4D6C7B8A9012 /* NativeDropdownBridge.swift in Sources */,
+				D2A0B1F62F5E4D6C7B8A9013 /* NativeSymbolImageBridge.swift in Sources */,
 				D2A0B2062F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift in Sources */,
 				D2A0B2142F5E4D6C7B8A9012 /* ConduitPlatformApis.g.swift in Sources */,
 				D2A0B2242F5E4D6C7B8A9012 /* ConduitCarPlayBridge.swift in Sources */,

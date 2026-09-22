@@ -104,6 +104,15 @@ bool isLocallyMintedDirectModel(Model model) => _trustedBindings[model] != null;
 bool hasReservedDirectIdentity(Model model) =>
     isLocallyMintedDirectModel(model);
 
+/// Whether this exact object runs on Apple's Foundation Models framework, on
+/// device or through Private Cloud Compute.
+///
+/// Presentation reads this to attribute a model to Apple. An Open WebUI server
+/// controls every field of a model response, so an id or metadata value that
+/// resembles Apple's must not be allowed to borrow Apple's mark.
+bool isAppleFoundationModel(Model model) =>
+    _trustedBindings[model]?.adapterKey == kApplePccAdapterKey;
+
 /// Removes locally minted runtime models before persisting or reconciling a
 /// server-owned model list. An id or metadata field that resembles Conduit's
 /// direct namespace is not provenance and must not hide a valid server model.
