@@ -1,6 +1,12 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import {
   _electron as electron,
   expect,
@@ -372,19 +378,62 @@ test.describe('against a real server', () => {
     // is checked inside a real frame in launch.spec.ts, and the math step
     // above already proves the whole path from a reply to a drawn frame.
 
+    // 12. An attachment: picker -> XHR -> the daemon's /upload -> the
+    // server -> a turn that refers to it by id. The bytes never enter Dart
+    // and never become a JSON string, which is why this is an HTTP route
+    // rather than an RPC method -- and why only a real browser can test it.
+    await page.keyboard.press('Shift+Escape')
+    const attachPath = join(tmpdir(), `conduit-attach-${process.pid}.txt`)
+    writeFileSync(
+      attachPath,
+      'The passphrase is oxbow-lantern-42. Repeat it exactly.\n',
+    )
+    const chooser = page.waitForEvent('filechooser')
+    await page.getByRole('button', { name: /attach files/i }).click()
+    await (await chooser).setFiles(attachPath)
+
+    // The chip appears, and the upload finishes: the composer says it is
+    // waiting while one is in flight, so its absence is the signal.
+    //
+    // Scoped to the chip row. The failure message names the file too, so
+    // an unscoped text match would find either and the assertion would
+    // pass on a *failed* upload.
+    const chip = page
+      .locator('[aria-label="Attachments"]')
+      .getByText(basename(attachPath))
+    await expect(chip).toBeVisible()
+    await expect(
+      page.getByText(/waiting for attachments/i),
+    ).toBeHidden({ timeout: 60_000 })
+    await expect(page.getByText(/could not attach/i)).toBeHidden()
+
+    await page.keyboard.press('Shift+Escape')
+    await page.keyboard.type('What is the passphrase in the attached file?')
+    const beforeAttachment = await transcript.locator('article').count()
+    await page.keyboard.press('Enter')
+    // Accepted by the server with the file attached -- an unknown file id
+    // is rejected, so the turn arriving at all is the assertion.
+    await expect
+      .poll(() => transcript.locator('article').count(), { timeout: 120_000 })
+      .toBeGreaterThan(beforeAttachment + 1)
+    // And the composer emptied of chips along with the text.
+    await expect(chip).toBeHidden()
+    await shot(page, '12-attachment')
+    rmSync(attachPath, { force: true })
+
     // Settings, which nothing else exercises visually.
     await page.evaluate(() => {
       window.history.pushState(null, '', '/settings/appearance')
       window.dispatchEvent(new PopStateEvent('popstate'))
     })
     await page.waitForTimeout(500)
-    await shot(page, '12-settings-appearance')
+    await shot(page, '13-settings-appearance')
 
     await page.evaluate(() => {
       window.history.pushState(null, '', '/settings/connections')
       window.dispatchEvent(new PopStateEvent('popstate'))
     })
     await page.waitForTimeout(500)
-    await shot(page, '13-settings-connections')
+    await shot(page, '14-settings-connections')
   })
 })

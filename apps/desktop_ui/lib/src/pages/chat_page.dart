@@ -5,6 +5,7 @@ import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 
+import '../attachments.dart';
 import '../keyboard.dart';
 import '../l10n/strings.g.dart';
 import '../rpc/chat_providers.dart';
@@ -589,10 +590,29 @@ class _Composer extends StatefulComponent {
   State<_Composer> createState() => _ComposerState();
 }
 
+/// One attachment, from picked to uploaded.
+///
+/// Tracked per file rather than as one composer-wide "uploading" flag: a
+/// user attaching five files wants to know which of them failed, and a
+/// single flag cannot say.
+class _Attachment {
+  _Attachment(this.picked);
+
+  final PickedAttachment picked;
+
+  /// The server's id, once the upload finishes.
+  String? id;
+  double progress = 0;
+  bool failed = false;
+
+  bool get ready => id != null;
+}
+
 class _ComposerState extends State<_Composer> {
   String _text = '';
   bool _busy = false;
   String? _error;
+  final List<_Attachment> _attachments = <_Attachment>[];
 
   @override
   Component build(BuildContext context) {
@@ -601,7 +621,15 @@ class _ComposerState extends State<_Composer> {
 
     final models = context.watch(modelListProvider).value;
 
+    final uploading = _attachments.any((file) => !file.ready && !file.failed);
+
     return div(classes: 'border-t border-border bg-background p-4', [
+      if (_attachments.isNotEmpty)
+        div(
+          classes: 'mx-auto mb-2 flex max-w-3xl flex-wrap gap-2',
+          attributes: <String, String>{'aria-label': t.app.attachments},
+          [for (final attachment in _attachments) _chip(context, attachment)],
+        ),
       if (models != null && models.models.isNotEmpty)
         div(classes: 'mx-auto mb-2 flex max-w-3xl items-center gap-2', [
           label(
@@ -637,6 +665,23 @@ class _ComposerState extends State<_Composer> {
           // content's, and a textarea's is its `cols` -- without this the
           // field refuses to give ground and the row overflows instead.
           div(classes: 'mx-auto flex max-w-3xl items-end gap-2', [
+            button(
+              [
+                span(
+                  attributes: const <String, String>{'aria-hidden': 'true'},
+                  [Component.text('\u002b')],
+                ),
+              ],
+              classes:
+                  'shrink-0 rounded border border-border px-3 py-2 text-sm '
+                  'text-muted-foreground hover:bg-accent',
+              type: ButtonType.button,
+              attributes: <String, String>{
+                'aria-label': t.desktop.desktopAttachFiles,
+                'title': t.desktop.desktopAttachFiles,
+              },
+              onClick: () => unawaited(_attach(context)),
+            ),
             div(classes: 'min-w-0 flex-1', [
               textAreaField(
                 id: 'composer',
@@ -671,12 +716,20 @@ class _ComposerState extends State<_Composer> {
                 labelText: t.app.send,
                 busyLabel: t.desktop.desktopSending,
                 busy: _busy,
-                enabled: _text.trim().isNotEmpty,
+                // An attachment still climbing is not a reason to grey the
+                // button out -- the user would watch it and wonder. The
+                // send waits for the upload instead, and says so.
+                enabled: _text.trim().isNotEmpty || _attachments.isNotEmpty,
                 fullWidth: false,
               ),
           ]),
           if (_error case final message?)
             div(classes: 'mx-auto mt-2 max-w-3xl', [formError(message)])
+          else if (uploading)
+            p(
+              classes: 'mx-auto mt-1.5 max-w-3xl text-xs text-muted-foreground',
+              [Component.text(t.desktop.desktopAttachmentsUploading)],
+            )
           else
             // Said once, quietly, under the field -- rather than left for
             // the user to discover by pressing Enter and watching their
@@ -696,22 +749,115 @@ class _ComposerState extends State<_Composer> {
     ]);
   }
 
+  /// One chip per attachment: name, progress while it climbs, and a way
+  /// to take it back off.
+  Component _chip(BuildContext context, _Attachment attachment) {
+    final name = attachment.picked.name;
+    return div(
+      classes:
+          'flex items-center gap-2 rounded border px-2 py-1 text-xs '
+          '${attachment.failed ? 'border-destructive text-destructive' : 'border-border text-muted-foreground'}',
+      [
+        span(classes: 'max-w-48 truncate', [Component.text(name)]),
+        if (!attachment.ready && !attachment.failed)
+          span(
+            classes: 'tabular-nums',
+            // The number is decoration; the state is announced by the
+            // progress element's own semantics below.
+            attributes: const <String, String>{'aria-hidden': 'true'},
+            [Component.text('${(attachment.progress * 100).round()}%')],
+          ),
+        button(
+          [
+            span(
+              attributes: const <String, String>{'aria-hidden': 'true'},
+              [Component.text('\u2715')],
+            ),
+          ],
+          classes: 'rounded px-1 hover:bg-accent',
+          type: ButtonType.button,
+          attributes: <String, String>{
+            'aria-label': t.desktop.desktopRemoveAttachment(name: name),
+            'title': t.desktop.desktopRemoveAttachment(name: name),
+          },
+          onClick: () {
+            context.read(attachmentsProvider).discard(attachment.picked.handle);
+            setState(() => _attachments.remove(attachment));
+          },
+        ),
+      ],
+    );
+  }
+
+  /// Picks files and starts uploading them.
+  ///
+  /// Each upload runs on its own rather than as a batch: one failing should
+  /// not take the others with it, and the chip that failed is the one the
+  /// user needs to see.
+  Future<void> _attach(BuildContext context) async {
+    final port = context.read(attachmentsProvider);
+    final picked = await port.pick();
+    if (!mounted || picked.isEmpty) return;
+
+    final added = picked.map(_Attachment.new).toList(growable: false);
+    setState(() => _attachments.addAll(added));
+
+    for (final attachment in added) {
+      unawaited(
+        port
+            .upload(
+              attachment.picked.handle,
+              onProgress: (fraction) {
+                if (!mounted) return;
+                setState(() => attachment.progress = fraction);
+              },
+            )
+            .then((id) {
+              if (!mounted) return;
+              setState(() => attachment.id = id);
+            })
+            .catchError((Object _) {
+              if (!mounted) return;
+              setState(() {
+                attachment.failed = true;
+                _error = t.desktop.desktopAttachmentFailed(
+                  name: attachment.picked.name,
+                );
+              });
+            }),
+      );
+    }
+  }
+
   Future<void> _send(BuildContext context) async {
     final text = _text.trim();
-    if (text.isEmpty || _busy) return;
+    // A message may be attachments alone -- "look at this" with a file is a
+    // complete thought -- but it may not be nothing.
+    if ((text.isEmpty && _attachments.isEmpty) || _busy) return;
+    if (_attachments.any((file) => !file.ready && !file.failed)) {
+      setState(() => _error = t.desktop.desktopAttachmentsUploading);
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
       final commands = context.read(windowCommandsProvider);
-      await context.read(chatActionsProvider).send(text: text);
+      await context
+          .read(chatActionsProvider)
+          .send(
+            text: text,
+            fileIds: <String>[for (final file in _attachments) ?file.id],
+          );
       if (!mounted) return;
       // Cleared only on success: a failed send should leave the text where
       // the user can retry it rather than making them type it again.
       setState(() {
         _busy = false;
         _text = '';
+        // Sent, so they belong to the message now rather than the box.
+        _attachments.clear();
       });
       // The field as well as the state. A textarea's value stops tracking
       // its markup the moment the user types into it, so `_text = ''` alone

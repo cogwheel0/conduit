@@ -14,6 +14,7 @@ import 'package:riverpod/riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import 'event_bus.dart';
+import 'files_service.dart';
 
 /// Implements `turns.*`: sending a message and streaming the answer (M3).
 ///
@@ -31,10 +32,15 @@ import 'event_bus.dart';
 /// and the coalescing that turns a token firehose into frames a renderer can
 /// keep up with.
 final class TurnsService {
-  TurnsService(this._container, this._events);
+  TurnsService(this._container, this._events, {FilesService? files})
+    : _files = files;
 
   final ProviderContainer _container;
   final EventBus _events;
+
+  /// Names the attachments a turn refers to. Optional so a test that only
+  /// exercises sending does not have to build one.
+  final FilesService? _files;
 
   static const Uuid _uuid = Uuid();
 
@@ -164,6 +170,11 @@ final class TurnsService {
         if (history.isNotEmpty) 'parentId': history.last.id,
       },
       toolIds: request.toolIds.isEmpty ? null : request.toolIds,
+      // Uploaded through `POST /upload`, so the daemon already knows each
+      // one's name and size -- which Open WebUI wants alongside the id.
+      files: request.fileIds.isEmpty
+          ? null
+          : _files?.attachmentsFor(request.fileIds),
       enableWebSearch: request.webSearch,
       enableImageGeneration: request.imageGeneration,
       enableCodeInterpreter: request.codeInterpreter,

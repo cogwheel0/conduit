@@ -6,6 +6,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import 'package:web/web.dart' as web;
 
 import 'src/app.dart';
+import 'src/attachments_bridge.dart';
 import 'src/bridge.dart';
 import 'src/keyboard.dart';
 import 'src/sandbox_bridge.dart';
@@ -51,6 +52,7 @@ Future<void> main() async {
         ShortcutDispatcher(isMac: bridge.platform == 'darwin'),
       ),
       sandboxProvider.overrideWithValue(DocumentSandbox()),
+      attachmentsProvider.overrideWithValue(BrowserAttachments(bridge)),
     ],
   );
   // Start connecting before the first paint so the status card usually

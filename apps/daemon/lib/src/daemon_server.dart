@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:shelf/shelf.dart' as shelf;
@@ -15,6 +16,7 @@ import 'chats_service.dart';
 import 'core_runtime.dart';
 import 'daemon_paths.dart';
 import 'event_bus.dart';
+import 'files_service.dart';
 import 'log.dart';
 import 'rpc_session.dart';
 import 'models_service.dart';
@@ -60,6 +62,7 @@ class DaemonServer {
   ChatsService? _chats;
   TurnsService? _turns;
   ModelsService? _models;
+  FilesService? _files;
 
   final EventBus events = EventBus();
   final Map<String, RpcSession> _sessions = <String, RpcSession>{};
@@ -104,7 +107,8 @@ class DaemonServer {
     _auth = AuthService(core.container);
     _settings = SettingsService(core.container);
     _chats = ChatsService(core.container);
-    _turns = TurnsService(core.container, events);
+    _files = FilesService(core.container);
+    _turns = TurnsService(core.container, events, files: _files!);
     _models = ModelsService(core.container);
     _log.info('core attached');
   }
@@ -147,6 +151,23 @@ class DaemonServer {
         return inner(request);
       }
 
+      // A preflight, which is what the renderer's upload triggers: it
+      // sends `Authorization` and `x-conduit-filename`, and any header
+      // beyond the safelisted ones makes the browser ask permission first.
+      //
+      // Answered before the token check, and it has to be: a preflight
+      // never carries the request's headers, so demanding the token here
+      // would reject the question that asks whether the token is allowed.
+      // That is not a hole -- a preflight reveals only what this endpoint
+      // accepts, the `Origin` is still pinned to the app, and the real
+      // request that follows is checked below like any other.
+      if (request.method == 'OPTIONS') {
+        if (!isAllowedOrigin(request.headers['origin'])) {
+          return shelf.Response.forbidden('invalid origin');
+        }
+        return shelf.Response.ok(null, headers: _corsHeaders);
+      }
+
       // Plain HTTP endpoints carry the token in a header, which Electron main
       // injects for renderer requests so `<img src>` and `<audio src>` work.
       final authorization = request.headers['authorization'] ?? '';
@@ -163,9 +184,25 @@ class DaemonServer {
     };
   };
 
+  /// What the renderer is allowed to send, and nothing wider.
+  ///
+  /// The origin is named rather than `*`: `app://conduit` is the only page
+  /// that may reach this daemon at all, and a wildcard would additionally
+  /// let any website's script read the responses if one ever found the
+  /// port.
+  static const Map<String, String> _corsHeaders = <String, String>{
+    'access-control-allow-origin': kConduitAppOrigin,
+    'access-control-allow-methods': 'POST, GET, OPTIONS',
+    'access-control-allow-headers':
+        'authorization, content-type, '
+        'x-conduit-filename',
+    'access-control-max-age': '600',
+  };
+
   Future<shelf.Response> _route(shelf.Request request) async {
     final path = '/${request.url.path}';
     if (path == ConduitHttpRoutes.rpc) return _rpcHandler(request);
+    if (path == ConduitHttpRoutes.upload) return _upload(request);
     if (path == '/health') {
       // Authenticated liveness probe for the Electron supervisor; it does not
       // reveal anything a holder of the token cannot already ask for on /rpc.
@@ -180,6 +217,100 @@ class DaemonServer {
       );
     }
     return shelf.Response.notFound('no such endpoint');
+  }
+
+  /// `POST /upload` -- an attachment on its way to the server (WP-3.3).
+  ///
+  /// The body is the file's bytes and nothing else. No multipart parsing
+  /// here: both ends of this request are ours, the daemon re-wraps the
+  /// bytes for Open WebUI anyway, and a parser is a surface that would earn
+  /// its keep only if some other client were posting to us.
+  ///
+  /// The name travels in a header because a body that is *only* bytes is
+  /// what lets the whole thing stream. It is percent-encoded: a header is
+  /// Latin-1 by definition, and an attachment called `résumé.pdf` would
+  /// otherwise be rejected by the HTTP layer before this code ran.
+  Future<shelf.Response> _upload(shelf.Request request) async {
+    final files = _files;
+    if (files == null) {
+      return _problem(
+        503,
+        ConduitErrorCodes.daemonUnavailable,
+        'core starting',
+      );
+    }
+    if (request.method != 'POST') {
+      return shelf.Response(405, body: 'POST only');
+    }
+
+    final rawName = request.headers['x-conduit-filename'];
+    if (rawName == null || rawName.trim().isEmpty) {
+      return _problem(
+        400,
+        ConduitErrorCodes.invalidParams,
+        'missing x-conduit-filename',
+      );
+    }
+    final String name;
+    try {
+      name = Uri.decodeComponent(rawName);
+    } on FormatException {
+      return _problem(
+        400,
+        ConduitErrorCodes.invalidParams,
+        'x-conduit-filename is not percent-encoded',
+      );
+    }
+
+    try {
+      final bytes = await _collect(request.read());
+      final uploaded = await files.upload(
+        name: name,
+        bytes: bytes,
+        contentType: request.headers['content-type'],
+      );
+      return shelf.Response.ok(
+        jsonEncode(uploaded.toJson()),
+        headers: <String, String>{
+          'content-type': 'application/json',
+          ..._corsHeaders,
+        },
+      );
+    } on RpcError catch (error) {
+      final status = switch (error.code) {
+        ConduitErrorCodes.unauthenticated => 401,
+        ConduitErrorCodes.invalidParams => 400,
+        _ => 502,
+      };
+      return _problem(status, error.code, error.debugMessage);
+    } on Object catch (error, stack) {
+      _log.error('upload failed', error, stack);
+      return _problem(502, ConduitErrorCodes.serverError, 'upload failed');
+    }
+  }
+
+  /// The same error shape RPC uses, so the renderer has one thing to read.
+  shelf.Response _problem(int status, String code, String? message) =>
+      shelf.Response(
+        status,
+        body: jsonEncode(<String, Object?>{
+          'code': code,
+          'debugMessage': ?message,
+        }),
+        headers: <String, String>{
+          'content-type': 'application/json',
+          // On the error path too, or the renderer sees an opaque CORS
+          // failure instead of the reason the upload was refused.
+          ..._corsHeaders,
+        },
+      );
+
+  static Future<Uint8List> _collect(Stream<List<int>> body) async {
+    final builder = BytesBuilder(copy: false);
+    await for (final chunk in body) {
+      builder.add(chunk);
+    }
+    return builder.takeBytes();
   }
 
   late final shelf.Handler _rpcHandler = webSocketHandler(

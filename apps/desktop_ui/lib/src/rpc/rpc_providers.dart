@@ -3,6 +3,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 
 import '../external_sign_in.dart';
 import '../file_picker.dart';
+import '../attachments.dart';
 import '../sandbox_port.dart';
 import '../shell_bridge.dart';
 import '../window_commands.dart';
@@ -41,6 +42,11 @@ final windowCommandsProvider = Provider<WindowCommandsPort>(
 /// The document keydown listener, overridden in `main.dart`.
 final shortcutBindingProvider = Provider<ShortcutBindingPort>(
   (ref) => NoShortcutBinding(),
+);
+
+/// Picks and uploads attachments, overridden in `main.dart`.
+final attachmentsProvider = Provider<AttachmentPort>(
+  (ref) => RecordingAttachments(),
 );
 
 /// The render sandbox, overridden in `main.dart`.

@@ -5,6 +5,7 @@ import 'package:conduit_desktop_ui/src/l10n/strings.g.dart';
 import 'package:conduit_desktop_ui/src/pages/chat_page.dart';
 import 'package:conduit_desktop_ui/src/rpc/chat_providers.dart';
 import 'package:conduit_desktop_ui/src/rpc/rpc_providers.dart';
+import 'package:conduit_desktop_ui/src/attachments.dart';
 import 'package:conduit_desktop_ui/src/window_commands.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:jaspr/dom.dart';
@@ -59,9 +60,11 @@ Component _scoped({
   String query = '',
   ChatSearchResults? results,
   RecordingWindowCommands? commands,
+  RecordingAttachments? attachments,
 }) => ProviderScope(
   overrides: [
     if (commands != null) windowCommandsProvider.overrideWithValue(commands),
+    if (attachments != null) attachmentsProvider.overrideWithValue(attachments),
     chatListProvider.overrideWith((ref) async => chats),
     searchQueryProvider.overrideWith(() => _FixedQuery(query)),
     searchResultsProvider.overrideWith((ref) async => results),
@@ -141,8 +144,12 @@ class _RecordingActions extends ChatActions {
   Future<void> delete(String id) async => calls.add('delete($id)');
 
   @override
-  Future<SendTurnAccepted> send({required String text, String? model}) async {
-    calls.add('send($text)');
+  Future<SendTurnAccepted> send({
+    required String text,
+    String? model,
+    List<String> fileIds = const <String>[],
+  }) async {
+    calls.add('send($text${fileIds.isEmpty ? '' : ',files=$fileIds'})');
     return const SendTurnAccepted(
       chatId: 'chat-1',
       userMessageId: 'u1',
@@ -164,6 +171,17 @@ class _RecordingActions extends ChatActions {
     );
   }
 }
+
+/// Finds the single element carrying this `aria-label`.
+///
+/// Glyph-labelled buttons repeat across the page -- `\u2715` is both
+/// "remove attachment" and "delete conversation" -- so the accessible name
+/// is the only thing that tells them apart, which is also the point of
+/// having one.
+Finder _byLabel(String label) => find.byComponentPredicate((component) {
+  if (component is! DomComponent) return false;
+  return component.attributes?['aria-label'] == label;
+});
 
 void main() {
   testComponents('lists conversations in the sidebar', (tester) async {
@@ -309,6 +327,76 @@ void main() {
     await pumpEventQueue();
 
     expect(find.text('Rewriting the sync engine'), findsNComponents(2));
+  });
+
+  group('attachments', () {
+    const file = PickedAttachment(
+      handle: 'h1',
+      name: 'notes.pdf',
+      size: 1234,
+      contentType: 'application/pdf',
+    );
+
+    Future<void> attach(ComponentTester tester) =>
+        tester.click(_byLabel(t.desktop.desktopAttachFiles));
+
+    testComponents('a picked file becomes a chip and is uploaded', (
+      tester,
+    ) async {
+      final port = RecordingAttachments(picks: <PickedAttachment>[file]);
+      tester.pumpComponent(_scoped(selected: 'chat-1', attachments: port));
+      await pumpEventQueue();
+
+      expect(find.text('notes.pdf'), findsNothing);
+      await attach(tester);
+      await pumpEventQueue();
+
+      expect(find.text('notes.pdf'), findsOneComponent);
+      expect(port.uploaded, <String>['h1']);
+    });
+
+    testComponents('removing a chip tells the port to let the file go', (
+      tester,
+    ) async {
+      // Otherwise the browser holds a file handle for a file the user has
+      // taken back, for as long as the window lives.
+      final port = RecordingAttachments(picks: <PickedAttachment>[file]);
+      tester.pumpComponent(_scoped(selected: 'chat-1', attachments: port));
+      await pumpEventQueue();
+      await attach(tester);
+      await pumpEventQueue();
+
+      await tester.click(
+        _byLabel(t.desktop.desktopRemoveAttachment(name: 'notes.pdf')),
+      );
+      await pumpEventQueue();
+
+      expect(port.discarded, <String>['h1']);
+      expect(find.text('notes.pdf'), findsNothing);
+    });
+
+    testComponents('a failed upload names the file rather than the code', (
+      tester,
+    ) async {
+      final port = RecordingAttachments(picks: <PickedAttachment>[file])
+        ..failWith = StateError('nope');
+      tester.pumpComponent(_scoped(selected: 'chat-1', attachments: port));
+      await pumpEventQueue();
+      await attach(tester);
+      await pumpEventQueue();
+
+      expect(
+        find.text(t.desktop.desktopAttachmentFailed(name: 'notes.pdf')),
+        findsOneComponent,
+      );
+      // And the chip stays, so the user can take it off and try again.
+      expect(find.text('notes.pdf'), findsOneComponent);
+    });
+
+    // Sending *with* an attachment is asserted in the Electron suite
+    // instead. The form's submit handler calls `preventDefault`, which
+    // throws on the VM -- `universal_web` stubs every real DOM call -- so
+    // the one thing a component test cannot do here is submit a form.
   });
 
   group('message actions', () {

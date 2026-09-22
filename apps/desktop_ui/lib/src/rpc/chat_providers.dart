@@ -320,7 +320,11 @@ class ChatActions {
   /// it from the account's selection, which is better than the renderer
   /// fetching a model list purely so it can name what the daemon already
   /// knows.
-  Future<SendTurnAccepted> send({required String text, String? model}) async {
+  Future<SendTurnAccepted> send({
+    required String text,
+    String? model,
+    List<String> fileIds = const <String>[],
+  }) async {
     final sentText = text;
     final accepted = await _client.call(
       ConduitMethods.turnsSend,
@@ -328,6 +332,7 @@ class ChatActions {
         chatId: _ref.read(selectedChatIdProvider),
         model: model,
         text: text,
+        fileIds: fileIds,
       ).toJson(),
       decode: SendTurnAccepted.fromJson,
     );

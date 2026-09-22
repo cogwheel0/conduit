@@ -228,5 +228,27 @@
   "desktopHidePreview": "Hide preview",
   "@desktopHidePreview": {
     "description": "Button that closes the sandboxed preview of a model-written HTML block."
+  },
+  "desktopAttachFiles": "Attach files",
+  "@desktopAttachFiles": {
+    "description": "Button in the desktop composer that opens the file picker."
+  },
+  "desktopRemoveAttachment": "Remove {name}",
+  "@desktopRemoveAttachment": {
+    "description": "Accessible label for the button that removes one attachment from the desktop composer. {name} is the file name.",
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "desktopAttachmentFailed": "Could not attach {name}",
+  "@desktopAttachmentFailed": {
+    "description": "Shown under the desktop composer when an attachment upload fails. {name} is the file name.",
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "desktopAttachmentsUploading": "Waiting for attachments to finish",
+  "@desktopAttachmentsUploading": {
+    "description": "Shown when the desktop send button is pressed while an attachment is still uploading."
   }
 }

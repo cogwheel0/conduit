@@ -110,7 +110,10 @@ void main() {
       test('lists models', () async {
         final list = await models.list();
         expect(list.models, isNotEmpty);
-      });
+        // Longer than the 30s default: this account's server offers a
+        // couple of dozen models and takes its time about saying so, and
+        // the default timed out often enough to look like a real failure.
+      }, timeout: const Timeout(Duration(minutes: 2)));
 
       test('renames, pins and deletes a conversation', () async {
         final chats = ChatsService(runtime.container);
@@ -378,8 +381,23 @@ void main() {
         final turns = TurnsService(runtime.container, events);
         addTearDown(turns.dispose);
 
+        final seen = <String>[];
+        events.attach('probe', (envelope) => seen.add(envelope.event));
         final accepted = await turns.send(
           const SendTurn(model: 'gemma3:1b', text: 'Say the word: beta'),
+        );
+        events.subscribe(
+          'probe',
+          EventSubscription(scopes: <String>[accepted.chatId]),
+        );
+        // The turn has to finish first, or `regenerate` refuses with
+        // `conflict` -- correctly, since a chat may only generate once at a
+        // time -- and never reaches the check this test is about.
+        await _waitFor(
+          () =>
+              seen.contains(ConduitEvents.turnCompleted) ||
+              seen.contains(ConduitEvents.turnFailed),
+          seconds: 90,
         );
         await _waitFor(
           () async => (await _messagesOf(

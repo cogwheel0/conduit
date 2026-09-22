@@ -394,6 +394,14 @@ const Map<String, String> protocolGoldens = <String, String>{
   "chatId": "chat-7c1f0b2a"
 }''',
 
+  'uploadedFile': r'''
+{
+  "id": "file-3b91d0c4",
+  "name": "notes.pdf",
+  "size": 182344,
+  "contentType": "application/pdf"
+}''',
+
   'regenerateTurn': r'''
 {
   "chatId": "chat-7c1f0b2a",
