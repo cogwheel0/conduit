@@ -114,8 +114,10 @@ abstract class WorkspacePage with _$WorkspacePage {
 /// Params naming one item.
 @freezed
 abstract class WorkspaceRef with _$WorkspaceRef {
-  const factory WorkspaceRef({required WorkspaceKind kind, required String id}) =
-      _WorkspaceRef;
+  const factory WorkspaceRef({
+    required WorkspaceKind kind,
+    required String id,
+  }) = _WorkspaceRef;
 
   factory WorkspaceRef.fromJson(Map<String, dynamic> json) =>
       _$WorkspaceRefFromJson(json);

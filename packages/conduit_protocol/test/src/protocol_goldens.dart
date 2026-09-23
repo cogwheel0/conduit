@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.41.0",
+  "protocolVersion": "1.42.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.41.0",
+  "protocolVersion": "1.42.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -1462,6 +1462,125 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "kind": "models",
   "id": "helper"
+}''',
+
+  'terminalServerDto': r'''
+{
+  "id": "http://127.0.0.1:8000",
+  "name": "Laptop",
+  "kind": "direct",
+  "requiresSavedChat": true
+}''',
+
+  'terminalScope': r'''
+{
+  "scopeId": "c1"
+}''',
+
+  'terminalServers': r'''
+{
+  "servers": [
+    {
+      "id": "t1",
+      "name": "Box",
+      "kind": "system",
+      "requiresSavedChat": false
+    }
+  ],
+  "selectedId": "t1"
+}''',
+
+  'terminalSelect': r'''
+{
+  "serverId": "t1"
+}''',
+
+  'terminalAttach': r'''
+{
+  "serverId": "t1",
+  "scopeId": "c1"
+}''',
+
+  'terminalAttached': r'''
+{
+  "handle": "h1",
+  "cwd": "/home/ada",
+  "supported": false
+}''',
+
+  'terminalPath': r'''
+{
+  "handle": "h1",
+  "path": "/home/ada/"
+}''',
+
+  'terminalEntry': r'''
+{
+  "name": "notes.txt",
+  "path": "/home/ada/notes.txt",
+  "directory": false,
+  "size": 12,
+  "modifiedAtMs": 1767225600000
+}''',
+
+  'terminalListing': r'''
+{
+  "path": "/home/ada/",
+  "entries": [
+    {
+      "name": "src",
+      "path": "/home/ada/src/",
+      "directory": true
+    }
+  ]
+}''',
+
+  'terminalFileContent': r'''
+{
+  "name": "logo.png",
+  "contentType": "image/png",
+  "text": "hello",
+  "base64": "iVBORw0K"
+}''',
+
+  'terminalFileAction': r'''
+{
+  "handle": "h1",
+  "op": "move",
+  "path": "/home/ada/a.txt",
+  "destination": "/home/ada/b.txt"
+}''',
+
+  'terminalPort': r'''
+{
+  "port": 3000,
+  "pid": 42,
+  "process": "node"
+}''',
+
+  'terminalPorts': r'''
+{
+  "ports": [
+    {
+      "port": 8080
+    }
+  ]
+}''',
+
+  'terminalHandleRef': r'''
+{
+  "handle": "h1"
+}''',
+
+  'terminalPortRef': r'''
+{
+  "handle": "h1",
+  "port": 3000
+}''',
+
+  'terminalPreview': r'''
+{
+  "url": "http://127.0.0.1:41234/k1"
 }''',
 
   'noteFile': r'''

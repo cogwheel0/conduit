@@ -12,6 +12,19 @@ import 'package:conduit_core/utils/json_normalization.dart';
 
 import '../models/terminal_models.dart';
 
+/// The first frame on a terminal's socket: the credential, and for Open
+/// WebUI's own terminals the saved chat the session belongs to.
+Map<String, dynamic> buildTerminalWebSocketAuthPayload(
+  TerminalServerInfo server, {
+  required String token,
+  required String sessionScopeId,
+}) => <String, dynamic>{
+  'type': 'auth',
+  'token': token,
+  if (server.isSystem && isSavedTerminalChatScopeId(sessionScopeId))
+    'chat_id': sessionScopeId,
+};
+
 String _trimTrailingSlashes(String value) {
   return value.replaceFirst(RegExp(r'/+$'), '');
 }
@@ -688,11 +701,36 @@ class TerminalService {
     String filePath,
     String fileName, {
     required String sessionScopeId,
+  }) async => _upload(
+    server,
+    directory,
+    await MultipartFile.fromFile(filePath, filename: fileName),
+    sessionScopeId: sessionScopeId,
+  );
+
+  /// [uploadFile] for bytes already in memory: what the desktop daemon
+  /// receives from its window.
+  Future<void> uploadBytes(
+    TerminalServerInfo server,
+    String directory,
+    List<int> bytes,
+    String fileName, {
+    required String sessionScopeId,
+  }) => _upload(
+    server,
+    directory,
+    MultipartFile.fromBytes(bytes, filename: fileName),
+    sessionScopeId: sessionScopeId,
+  );
+
+  Future<void> _upload(
+    TerminalServerInfo server,
+    String directory,
+    MultipartFile file, {
+    required String sessionScopeId,
   }) async {
     final normalizedDirectory = ensureTerminalDirectoryPath(directory);
-    final formData = FormData.fromMap(<String, dynamic>{
-      'file': await MultipartFile.fromFile(filePath, filename: fileName),
-    });
+    final formData = FormData.fromMap(<String, dynamic>{'file': file});
 
     if (server.isSystem) {
       await _requestSystem(

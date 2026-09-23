@@ -482,6 +482,33 @@ abstract final class ConduitMethods {
   static const String mcpPrefix = 'mcp.';
   static const String hermesPrefix = 'hermes.';
   static const String terminalPrefix = 'terminal.';
+
+  // terminal.* (M7). The shell itself is `WS /terminal/{handle}`.
+
+  /// The terminal servers usable in a scope, and the selected one.
+  static const String terminalServers = 'terminal.servers';
+
+  /// Selects the terminal chats use and the page opens.
+  static const String terminalSelect = 'terminal.select';
+
+  /// A handle for one server in one scope: the shell, files and ports.
+  static const String terminalAttach = 'terminal.attach';
+
+  /// One directory; also where the shell's `cd` starts next.
+  static const String terminalList = 'terminal.list';
+
+  /// A file as text or bytes, for a preview.
+  static const String terminalRead = 'terminal.read';
+
+  /// A file's bytes, to save.
+  static const String terminalDownload = 'terminal.download';
+
+  /// Makes a folder, deletes, or moves (renames).
+  static const String terminalFileAction = 'terminal.fileAction';
+  static const String terminalPorts = 'terminal.ports';
+
+  /// An address the system browser can open to see a port.
+  static const String terminalPreviewPort = 'terminal.previewPort';
   static const String voicePrefix = 'voice.';
   static const String settingsPrefix = 'settings.';
   static const String syncPrefix = 'sync.';
@@ -537,9 +564,14 @@ abstract final class ConduitHttpRoutes {
   /// `GET /tts/{jobId}` — audio for an `<audio>` element.
   static String tts(String jobId) => '/tts/$jobId';
 
-  /// `WS /terminal/{sessionId}` — raw byte tunnel to the Open WebUI terminal
+  /// `WS /terminal/{handle}` — raw byte tunnel to the Open WebUI terminal
   /// socket with auth added (WP-7.2).
-  static String terminal(String sessionId) => '/terminal/$sessionId';
+  static String terminal(String handle) => '/terminal/$handle';
+
+  /// `POST` with the headers `x-conduit-terminal` (a handle) and
+  /// `x-conduit-directory`: an upload into a terminal's files rather than
+  /// to Open WebUI (M7). Same body as [upload].
+  static const String terminalUpload = '/terminal-upload';
 
   /// The JSON-RPC WebSocket itself.
   static const String rpc = '/rpc';

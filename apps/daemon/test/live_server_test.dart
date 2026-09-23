@@ -14,6 +14,11 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
+import 'package:shelf/shelf_io.dart' as shelf_io;
+import 'package:shelf_web_socket/shelf_web_socket.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
+
+import 'support/fake_terminal_server.dart';
 import 'support/null_sink.dart';
 
 /// Drives the daemon against a real Open WebUI server.
@@ -1472,6 +1477,205 @@ void main() {
         deleted = true;
         expect(after.channels.map((c) => c.id), isNot(contains(channel.id)));
       }, timeout: const Timeout(Duration(minutes: 2)));
+
+      // M7: a terminal. A fake terminal server on this computer, added to
+      // the account's settings as a direct server for the length of the
+      // test and taken out again at the end.
+      test(
+        'a terminal: servers, files, ports, a shell and a preview',
+        () async {
+          final api = runtime.container.read(apiServiceProvider)!;
+          final fake = await FakeTerminalServer.start(
+            key: 'live-${DateTime.now().millisecondsSinceEpoch}',
+          );
+          Future<void> editServers(
+            List<dynamic> Function(List<dynamic> servers) edit,
+          ) => api.serializeUserSettingsMutation(() async {
+            final settings = await api.getUserSettings();
+            final ui = Map<String, dynamic>.from(
+              (settings['ui'] as Map?) ?? const <String, dynamic>{},
+            );
+            ui['terminalServers'] = edit(
+              List<dynamic>.from((ui['terminalServers'] as List?) ?? const []),
+            );
+            await api.updateUserSettings(<String, dynamic>{
+              ...settings,
+              'ui': ui,
+            });
+          });
+          addTearDown(() async {
+            try {
+              await editServers(
+                (servers) => [
+                  for (final s in servers)
+                    if (s is! Map || s['url'] != fake.url) s,
+                ],
+              );
+            } on Object catch (error) {
+              stderr.writeln('could not remove the test terminal: $error');
+            }
+            await fake.close();
+          });
+          await editServers(
+            (servers) => [
+              ...servers,
+              <String, dynamic>{
+                'url': fake.url,
+                'key': fake.key,
+                'name': 'Live fake terminal',
+                'enabled': false,
+                'config': <String, dynamic>{'enable': true},
+              },
+            ],
+          );
+
+          final terminals = TerminalsService(runtime.container);
+          addTearDown(terminals.dispose);
+          final listed = await terminals.servers('');
+          final mine = listed.servers.singleWhere((s) => s.id == fake.url);
+          expect(mine.kind, 'direct');
+          expect(mine.name, 'Live fake terminal');
+          final selected = await terminals.select(fake.url);
+          expect(selected.selectedId, fake.url);
+
+          final attached = await terminals.attach(
+            TerminalAttach(serverId: fake.url),
+          );
+          expect(attached.supported, isTrue);
+          expect(attached.cwd, '/work/');
+          final handle = attached.handle;
+
+          var listing = await terminals.list(
+            TerminalPath(handle: handle, path: '/work'),
+          );
+          expect(listing.path, '/work/');
+          expect(listing.entries.map((e) => e.name), <String>['notes.txt']);
+          final read = await terminals.read(
+            TerminalPath(handle: handle, path: '/work/notes.txt'),
+          );
+          expect(read.text, 'hello from the terminal\n');
+          final saved = await terminals.download(
+            TerminalPath(handle: handle, path: '/work/notes.txt'),
+          );
+          expect(utf8.decode(base64Decode(saved.base64!)), read.text);
+
+          await terminals.upload(
+            handle: handle,
+            directory: '/work/',
+            name: 'up.txt',
+            bytes: utf8.encode('uploaded'),
+          );
+          await terminals.fileAction(
+            TerminalFileAction(
+              handle: handle,
+              op: TerminalFileOp.mkdir,
+              path: '/work/src',
+            ),
+          );
+          listing = await terminals.list(
+            TerminalPath(handle: handle, path: '/work/'),
+          );
+          // Folders first.
+          expect(listing.entries.map((e) => e.name), <String>[
+            'src',
+            'notes.txt',
+            'up.txt',
+          ]);
+          expect(listing.entries.first.directory, isTrue);
+          expect(utf8.decode(fake.files['/work/up.txt']!), 'uploaded');
+          await terminals.fileAction(
+            TerminalFileAction(
+              handle: handle,
+              op: TerminalFileOp.move,
+              path: '/work/up.txt',
+              destination: '/work/src/up.txt',
+            ),
+          );
+          await terminals.fileAction(
+            TerminalFileAction(
+              handle: handle,
+              op: TerminalFileOp.delete,
+              path: '/work/src/',
+            ),
+          );
+          expect(fake.files.keys, <String>['/work/', '/work/notes.txt']);
+
+          final ports = await terminals.ports(handle);
+          expect(ports.ports.single.port, 3000);
+          expect(ports.ports.single.process, 'node');
+          // The page's scope, as mobile's sidebar terminal uses.
+          expect(fake.sessionIds, contains('sidebar-terminal'));
+
+          // The shell: the daemon authenticates, then it is a pipe.
+          final tunnelServer = await shelf_io.serve(
+            webSocketHandler(
+              (WebSocketChannel socket, String? _) =>
+                  unawaited(terminals.tunnel(handle, socket)),
+            ),
+            InternetAddress.loopbackIPv4,
+            0,
+          );
+          addTearDown(() => tunnelServer.close(force: true));
+          final window = WebSocketChannel.connect(
+            Uri.parse('ws://127.0.0.1:${tunnelServer.port}'),
+          );
+          final output = StreamIterator(window.stream);
+          Future<String> next() async {
+            expect(
+              await output.moveNext().timeout(const Duration(seconds: 10)),
+              isTrue,
+            );
+            final message = output.current;
+            return message is String
+                ? message
+                : utf8.decode(message as List<int>);
+          }
+
+          expect(await next(), 'ready\r\n');
+          expect(fake.authFrames.single, <String, dynamic>{
+            'type': 'auth',
+            'token': fake.key,
+          });
+          window.sink.add(
+            jsonEncode(<String, dynamic>{
+              'type': 'resize',
+              'cols': 100,
+              'rows': 30,
+            }),
+          );
+          window.sink.add(utf8.encode('ls\r'));
+          expect(await next(), 'echo:ls\r');
+          expect(fake.controlFrames.single['type'], 'resize');
+          await window.sink.close();
+
+          // A port, through a listener of its own that wants its key first.
+          final preview = await terminals.previewPort(
+            TerminalPortRef(handle: handle, port: 3000),
+          );
+          final entry = Uri.parse(preview.url);
+          final client = HttpClient();
+          addTearDown(() => client.close(force: true));
+          final refused = await (await client.getUrl(entry.replace(path: '/')))
+              .close();
+          expect(refused.statusCode, HttpStatus.forbidden);
+          await refused.drain<void>();
+          final first = await client.getUrl(entry);
+          first.followRedirects = false;
+          final keyed = await first.close();
+          expect(keyed.statusCode, HttpStatus.found);
+          final cookie = keyed.cookies.single;
+          await keyed.drain<void>();
+          final page = await client.getUrl(entry.replace(path: '/app'));
+          page.cookies.add(cookie);
+          final shown = await page.close();
+          expect(shown.statusCode, HttpStatus.ok);
+          expect(
+            await utf8.decoder.bind(shown).join(),
+            '<h1>preview of /app</h1>',
+          );
+        },
+        timeout: const Timeout(Duration(minutes: 2)),
+      );
 
       // M6: the workspace. Everything is named for this run and deleted
       // at the end, straight through the API if a step fails first.

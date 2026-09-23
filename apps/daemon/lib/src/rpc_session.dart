@@ -21,6 +21,7 @@ import 'system_service.dart';
 import 'turns_service.dart';
 import 'ui_requests_service.dart';
 import 'workspace_service.dart';
+import 'terminals_service.dart';
 
 /// One connected renderer window.
 ///
@@ -48,10 +49,12 @@ class RpcSession {
     NotesService? notes,
     ChannelsService? channels,
     WorkspaceService? workspace,
+    TerminalsService? terminals,
     void Function(bool online)? reportNetwork,
   }) : _events = events,
        _channels = channels,
        _workspace = workspace,
+       _terminals = terminals,
        _notes = notes,
        _direct = direct,
        _mcp = mcp,
@@ -105,6 +108,7 @@ class RpcSession {
   final NotesService? _notes;
   final ChannelsService? _channels;
   final WorkspaceService? _workspace;
+  final TerminalsService? _terminals;
 
   /// Where a window's `online`/`offline` events go: the connectivity port,
   /// which then tells every window. Null before the core is up.
@@ -1061,6 +1065,77 @@ class RpcSession {
       },
     );
 
+    // terminal.* (M7).
+    void terminal<P, R>(
+      String method,
+      P Function(Map<String, dynamic>) decode,
+      Map<String, dynamic> Function(R) encode,
+      Future<R> Function(TerminalsService service, P params) run,
+    ) => registerTypedMethod<P, R>(
+      _peer,
+      method,
+      decodeParams: decode,
+      encodeResult: encode,
+      handler: (params) {
+        _requireHandshake();
+        return run(_requireTerminals(), params);
+      },
+    );
+    terminal<TerminalScope, TerminalServers>(
+      ConduitMethods.terminalServers,
+      TerminalScope.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.servers(p.scopeId),
+    );
+    terminal<TerminalSelect, TerminalServers>(
+      ConduitMethods.terminalSelect,
+      TerminalSelect.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.select(p.serverId),
+    );
+    terminal<TerminalAttach, TerminalAttached>(
+      ConduitMethods.terminalAttach,
+      TerminalAttach.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.attach(p),
+    );
+    terminal<TerminalPath, TerminalListing>(
+      ConduitMethods.terminalList,
+      TerminalPath.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.list(p),
+    );
+    terminal<TerminalPath, TerminalFileContent>(
+      ConduitMethods.terminalRead,
+      TerminalPath.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.read(p),
+    );
+    terminal<TerminalPath, TerminalFileContent>(
+      ConduitMethods.terminalDownload,
+      TerminalPath.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.download(p),
+    );
+    terminal<TerminalFileAction, void>(
+      ConduitMethods.terminalFileAction,
+      TerminalFileAction.fromJson,
+      (_) => <String, dynamic>{'ok': true},
+      (s, p) => s.fileAction(p),
+    );
+    terminal<TerminalHandleRef, TerminalPorts>(
+      ConduitMethods.terminalPorts,
+      TerminalHandleRef.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.ports(p.handle),
+    );
+    terminal<TerminalPortRef, TerminalPreview>(
+      ConduitMethods.terminalPreviewPort,
+      TerminalPortRef.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.previewPort(p),
+    );
+
     // workspace.* (M6).
     void workspace<P, R>(
       String method,
@@ -1510,6 +1585,13 @@ class RpcSession {
 
   ChannelsService _requireChannels() =>
       _channels ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  TerminalsService _requireTerminals() =>
+      _terminals ??
       (throw const RpcError(
         code: ConduitErrorCodes.daemonUnavailable,
         debugMessage: 'the core is not up yet',

@@ -35,6 +35,7 @@ import 'settings_service.dart';
 import 'system_service.dart';
 import 'turns_service.dart';
 import 'workspace_service.dart';
+import 'terminals_service.dart';
 
 /// The loopback server the renderer talks to.
 ///
@@ -82,6 +83,7 @@ class DaemonServer {
   NotesService? _notes;
   ChannelsService? _channels;
   WorkspaceService? _workspace;
+  TerminalsService? _terminals;
 
   /// The broker the core asks its questions through. Exposed so tests can
   /// ask one and watch it cross the RPC boundary.
@@ -148,6 +150,7 @@ class DaemonServer {
     _notes = NotesService(core.container, events: events);
     _channels = ChannelsService(core.container, events: events);
     _workspace = WorkspaceService(core.container, events: events);
+    _terminals = TerminalsService(core.container, log: _log);
     // An MCP sign-in opens the provider's page through a window.
     core.openUrl.attach(events);
     _log.info('core attached');
@@ -235,7 +238,7 @@ class DaemonServer {
     'access-control-allow-methods': 'POST, GET, OPTIONS',
     'access-control-allow-headers':
         'authorization, content-type, '
-        'x-conduit-filename',
+        'x-conduit-filename, x-conduit-terminal, x-conduit-directory',
     'access-control-max-age': '600',
   };
 
@@ -243,6 +246,10 @@ class DaemonServer {
     final path = '/${request.url.path}';
     if (path == ConduitHttpRoutes.rpc) return _rpcHandler(request);
     if (path == ConduitHttpRoutes.upload) return _upload(request);
+    if (path == ConduitHttpRoutes.terminalUpload) {
+      return _terminalUpload(request);
+    }
+    if (path.startsWith('/terminal/')) return _terminalTunnel(request, path);
     if (path.startsWith('/files/')) return _file(request);
     if (path == '/health') {
       // Authenticated liveness probe for the Electron supervisor; it does not
@@ -258,6 +265,85 @@ class DaemonServer {
       );
     }
     return shelf.Response.notFound('no such endpoint');
+  }
+
+  /// `WS /terminal/{handle}` -- a shell, through the daemon (M7). The auth
+  /// gate has checked the origin and the session token already; an unknown
+  /// handle is refused before the upgrade.
+  Future<shelf.Response> _terminalTunnel(
+    shelf.Request request,
+    String path,
+  ) async {
+    final terminals = _terminals;
+    final handle = path.substring('/terminal/'.length);
+    if (terminals == null || !terminals.knows(handle)) {
+      return shelf.Response.notFound('no such terminal');
+    }
+    return webSocketHandler(
+      (WebSocketChannel socket, String? _) =>
+          unawaited(terminals.tunnel(handle, socket)),
+      protocols: const <String>{negotiatedSubprotocol},
+      pingInterval: const Duration(seconds: 25),
+    )(request);
+  }
+
+  /// `POST /terminal-upload` -- a file into a terminal's machine (M7).
+  /// The same body as `/upload`; the handle and directory come in headers.
+  Future<shelf.Response> _terminalUpload(shelf.Request request) async {
+    final terminals = _terminals;
+    if (terminals == null) {
+      return _problem(
+        503,
+        ConduitErrorCodes.daemonUnavailable,
+        'core starting',
+      );
+    }
+    if (request.method != 'POST') {
+      return shelf.Response(405, body: 'POST only');
+    }
+    final String name;
+    final String directory;
+    try {
+      name = Uri.decodeComponent(request.headers['x-conduit-filename'] ?? '');
+      directory = Uri.decodeComponent(
+        request.headers['x-conduit-directory'] ?? '',
+      );
+    } on FormatException {
+      return _problem(400, ConduitErrorCodes.invalidParams, 'bad headers');
+    }
+    final handle = request.headers['x-conduit-terminal'] ?? '';
+    if (name.trim().isEmpty || directory.isEmpty || handle.isEmpty) {
+      return _problem(
+        400,
+        ConduitErrorCodes.invalidParams,
+        'needs x-conduit-filename, -terminal and -directory',
+      );
+    }
+    try {
+      await terminals.upload(
+        handle: handle,
+        directory: directory,
+        name: name,
+        bytes: await _collect(request.read()),
+      );
+      return shelf.Response.ok(
+        jsonEncode(<String, dynamic>{'id': '$directory$name', 'name': name}),
+        headers: <String, String>{
+          'content-type': 'application/json',
+          ..._corsHeaders,
+        },
+      );
+    } on RpcError catch (error) {
+      final status = switch (error.code) {
+        ConduitErrorCodes.notFound => 404,
+        ConduitErrorCodes.unauthenticated => 401,
+        _ => 502,
+      };
+      return _problem(status, error.code, error.debugMessage);
+    } on Object catch (error, stack) {
+      _log.error('terminal upload failed', error, stack);
+      return _problem(502, ConduitErrorCodes.serverError, 'upload failed');
+    }
   }
 
   /// `POST /upload` -- an attachment on its way to the server (WP-3.3).
@@ -433,6 +519,7 @@ class DaemonServer {
         notes: _notes,
         channels: _channels,
         workspace: _workspace,
+        terminals: _terminals,
         reportNetwork: (online) => _core?.reportNetwork(online: online),
       );
       _sessions[sessionId] = session;
@@ -472,6 +559,8 @@ class DaemonServer {
       await session.close();
     }
     _sessions.clear();
+    await _terminals?.dispose();
+    _terminals = null;
     await _server?.close(force: true);
     _server = null;
     // After the sockets, so nothing can arrive mid-teardown and read a

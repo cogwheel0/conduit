@@ -31,3 +31,4 @@ export 'src/turns.dart';
 export 'src/workspace.dart';
 export 'src/subprotocol.dart';
 export 'src/system.dart';
+export 'src/terminal.dart';
