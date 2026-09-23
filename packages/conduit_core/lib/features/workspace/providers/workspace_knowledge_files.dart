@@ -342,7 +342,7 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
   Future<void> rename(String fileId, String filename) async {
     await _run(() async {
       final session = WorkspaceSessionIdentity.read(ref);
-      await session.api.updateFileMetadata(fileId, filename: filename);
+      await session.api.renameFile(fileId, filename);
       session.ensureCurrent(ref);
     });
   }

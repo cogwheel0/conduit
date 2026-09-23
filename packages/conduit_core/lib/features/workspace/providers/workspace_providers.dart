@@ -7,6 +7,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/unified_diff.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/knowledge_cache_provider.dart';
 import 'package:conduit_core/features/prompts/providers/prompts_providers.dart';
@@ -811,18 +812,28 @@ class WorkspacePrompts extends _$WorkspacePrompts {
     required String toId,
   }) async {
     final session = WorkspaceSessionIdentity.read(ref);
-    final result = await session.api.getWorkspacePromptHistoryDiff(
-      id,
-      fromId: fromId,
-      toId: toId,
-    );
+    Map<String, dynamic> result;
+    try {
+      result = await session.api.getWorkspacePromptHistoryDiff(
+        id,
+        fromId: fromId,
+        toId: toId,
+      );
+    } on DioException catch (error) {
+      // Open WebUI registers `history/{history_id}` before `history/diff`,
+      // so on the servers that do (0.11.x) the diff route answers 404 for
+      // a history entry called "diff". The same diff from the two entries.
+      if (error.response?.statusCode != 404) rethrow;
+      final (from, to) = await (
+        session.api.getWorkspacePromptHistoryEntry(id, fromId),
+        session.api.getWorkspacePromptHistoryEntry(id, toId),
+      ).wait;
+      result = workspacePromptHistoryDiff(from, to);
+    }
     session.ensureCurrent(ref);
     return result;
   }
 
-  /// Deletes a history entry. The server refuses to delete the active
-  /// production version. Refreshes the detail so the production marker stays
-  /// accurate.
   Future<void> deleteHistoryEntry(String id, String historyId) async {
     final session = WorkspaceSessionIdentity.read(ref);
     final confirmed = await session.api.deleteWorkspacePromptHistoryEntry(
@@ -1359,4 +1370,26 @@ Future<WorkspaceSkillDetail?> workspaceSkillDetail(Ref ref, String id) async {
   final result = await session.api.getWorkspaceSkill(id);
   session.ensureCurrent(ref);
   return result;
+}
+
+/// What Open WebUI's `history/diff` answers, from the two entries: the
+/// content as a unified diff, and whether the name changed.
+Map<String, dynamic> workspacePromptHistoryDiff(
+  WorkspacePromptHistoryEntry from,
+  WorkspacePromptHistoryEntry to,
+) {
+  String short(String id) => id.length > 8 ? id.substring(0, 8) : id;
+  return <String, dynamic>{
+    'from_id': from.id,
+    'to_id': to.id,
+    'from_snapshot': from.snapshot,
+    'to_snapshot': to.snapshot,
+    'content_diff': unifiedDiffLines(
+      from.snapshot['content']?.toString() ?? '',
+      to.snapshot['content']?.toString() ?? '',
+      fromFile: 'v${short(from.id)}',
+      toFile: 'v${short(to.id)}',
+    ),
+    'name_changed': from.snapshot['name'] != to.snapshot['name'],
+  };
 }

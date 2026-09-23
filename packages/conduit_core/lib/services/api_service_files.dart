@@ -225,15 +225,16 @@ mixin _FilesApi on _ApiServiceBase {
     await _dio.delete('/api/v1/files/$fileId');
   }
 
-  Future<Map<String, dynamic>> updateFileMetadata(
-    String fileId, {
-    String? filename,
-    Map<String, dynamic>? metadata,
-  }) async {
-    _traceApi('Updating file metadata: $fileId');
-    final response = await _dio.put(
-      '/api/v1/files/$fileId/metadata',
-      data: {'filename': ?filename, 'metadata': ?metadata},
+  /// Renames a file on the server; the only file field Open WebUI lets a
+  /// client change after upload.
+  Future<Map<String, dynamic>> renameFile(
+    String fileId,
+    String filename,
+  ) async {
+    _traceApi('Renaming file: $fileId');
+    final response = await _dio.post(
+      '/api/v1/files/$fileId/rename',
+      data: {'filename': filename},
     );
     return response.data as Map<String, dynamic>;
   }
