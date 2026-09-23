@@ -7,7 +7,7 @@
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-const String kConduitProtocolVersion = '1.44.0';
+const String kConduitProtocolVersion = '1.45.0';
 
 /// The WebSocket subprotocol token that identifies a Conduit RPC client.
 ///

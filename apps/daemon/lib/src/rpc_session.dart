@@ -23,6 +23,7 @@ import 'ui_requests_service.dart';
 import 'workspace_service.dart';
 import 'terminals_service.dart';
 import 'hermes_service.dart';
+import 'voice_service.dart';
 
 /// One connected renderer window.
 ///
@@ -52,12 +53,14 @@ class RpcSession {
     WorkspaceService? workspace,
     TerminalsService? terminals,
     HermesService? hermes,
+    VoiceService? voice,
     void Function(bool online)? reportNetwork,
   }) : _events = events,
        _channels = channels,
        _workspace = workspace,
        _terminals = terminals,
        _hermes = hermes,
+       _voice = voice,
        _notes = notes,
        _direct = direct,
        _mcp = mcp,
@@ -113,6 +116,7 @@ class RpcSession {
   final WorkspaceService? _workspace;
   final TerminalsService? _terminals;
   final HermesService? _hermes;
+  final VoiceService? _voice;
 
   /// Where a window's `online`/`offline` events go: the connectivity port,
   /// which then tells every window. Null before the core is up.
@@ -1183,6 +1187,47 @@ class RpcSession {
       (s, _) => s.catalog(),
     );
 
+    // voice.* (M8).
+    void voice<P, R>(
+      String method,
+      P Function(Map<String, dynamic>) decode,
+      Map<String, dynamic> Function(R) encode,
+      Future<R> Function(VoiceService service, P params) run,
+    ) => registerTypedMethod<P, R>(
+      _peer,
+      method,
+      decodeParams: decode,
+      encodeResult: encode,
+      handler: (params) {
+        _requireHandshake();
+        return run(_requireVoice(), params);
+      },
+    );
+    voice<Map<String, dynamic>, VoiceSettings>(
+      ConduitMethods.voiceSettings,
+      none,
+      (r) => r.toJson(),
+      (s, _) => s.settings(),
+    );
+    voice<VoiceSettingsEdit, VoiceSettings>(
+      ConduitMethods.voiceSaveSettings,
+      VoiceSettingsEdit.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.save(p),
+    );
+    voice<Map<String, dynamic>, VoiceVoices>(
+      ConduitMethods.voiceVoices,
+      none,
+      (r) => r.toJson(),
+      (s, _) => s.voices(),
+    );
+    voice<VoiceSpeak, VoiceSpeech>(
+      ConduitMethods.voiceSpeak,
+      VoiceSpeak.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.speak(p),
+    );
+
     // terminal.* (M7).
     void terminal<P, R>(
       String method,
@@ -1703,6 +1748,13 @@ class RpcSession {
 
   ChannelsService _requireChannels() =>
       _channels ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  VoiceService _requireVoice() =>
+      _voice ??
       (throw const RpcError(
         code: ConduitErrorCodes.daemonUnavailable,
         debugMessage: 'the core is not up yet',

@@ -37,6 +37,7 @@ import 'turns_service.dart';
 import 'workspace_service.dart';
 import 'terminals_service.dart';
 import 'hermes_service.dart';
+import 'voice_service.dart';
 
 /// The loopback server the renderer talks to.
 ///
@@ -86,6 +87,7 @@ class DaemonServer {
   WorkspaceService? _workspace;
   TerminalsService? _terminals;
   HermesService? _hermes;
+  VoiceService? _voice;
 
   /// The broker the core asks its questions through. Exposed so tests can
   /// ask one and watch it cross the RPC boundary.
@@ -160,6 +162,7 @@ class DaemonServer {
     _channels = ChannelsService(core.container, events: events);
     _workspace = WorkspaceService(core.container, events: events);
     _terminals = TerminalsService(core.container, log: _log);
+    _voice = VoiceService(core.container);
     // An MCP sign-in opens the provider's page through a window.
     core.openUrl.attach(events);
     _log.info('core attached');
@@ -260,6 +263,8 @@ class DaemonServer {
     }
     if (path.startsWith('/terminal/')) return _terminalTunnel(request, path);
     if (path.startsWith('/files/')) return _file(request);
+    if (path == ConduitHttpRoutes.transcribe) return _transcribe(request);
+    if (path.startsWith('/tts/')) return _speech(request, path);
     if (path == '/health') {
       // Authenticated liveness probe for the Electron supervisor; it does not
       // reveal anything a holder of the token cannot already ask for on /rpc.
@@ -485,6 +490,82 @@ class DaemonServer {
     }
   }
 
+  /// `POST /transcribe` -- a recording, as text (M8). The body is the
+  /// recording and nothing else; its type is the content type.
+  Future<shelf.Response> _transcribe(shelf.Request request) async {
+    final voice = _voice;
+    if (voice == null) {
+      return _problem(
+        503,
+        ConduitErrorCodes.daemonUnavailable,
+        'core starting',
+      );
+    }
+    if (request.method != 'POST') {
+      return shelf.Response(405, body: 'POST only');
+    }
+    try {
+      final transcript = await voice.transcribe(
+        await _collect(request.read()),
+        contentType: request.headers['content-type'],
+      );
+      return shelf.Response.ok(
+        jsonEncode(transcript.toJson()),
+        headers: <String, String>{
+          'content-type': 'application/json',
+          ..._corsHeaders,
+        },
+      );
+    } on RpcError catch (error) {
+      return _problem(_statusFor(error), error.code, error.debugMessage);
+    } on Object catch (error, stack) {
+      _log.error('transcription failed', error, stack);
+      return _problem(502, ConduitErrorCodes.serverError, 'transcribe failed');
+    }
+  }
+
+  /// `GET /tts/{jobId}` -- a `voice.speak` job's audio, for an `<audio>`
+  /// element (M8). Electron adds the token, as for `/files/`.
+  Future<shelf.Response> _speech(shelf.Request request, String path) async {
+    final voice = _voice;
+    if (voice == null) {
+      return _problem(
+        503,
+        ConduitErrorCodes.daemonUnavailable,
+        'core starting',
+      );
+    }
+    if (request.method != 'GET') {
+      return shelf.Response(405, body: 'GET only');
+    }
+    try {
+      final audio = await voice.audio(path.substring('/tts/'.length));
+      return shelf.Response.ok(
+        audio.bytes,
+        headers: <String, String>{
+          'content-type': audio.contentType,
+          'x-content-type-options': 'nosniff',
+          'cache-control': 'private, max-age=3600',
+          ..._corsHeaders,
+        },
+      );
+    } on RpcError catch (error) {
+      return _problem(_statusFor(error), error.code, error.debugMessage);
+    } on Object catch (error, stack) {
+      _log.error('speech failed', error, stack);
+      return _problem(502, ConduitErrorCodes.serverError, 'speech failed');
+    }
+  }
+
+  static int _statusFor(RpcError error) => switch (error.code) {
+    ConduitErrorCodes.unauthenticated ||
+    ConduitErrorCodes.sessionExpired => 401,
+    ConduitErrorCodes.unauthorized => 403,
+    ConduitErrorCodes.notFound => 404,
+    ConduitErrorCodes.invalidParams => 400,
+    _ => 502,
+  };
+
   /// The same error shape RPC uses, so the renderer has one thing to read.
   shelf.Response _problem(int status, String code, String? message) =>
       shelf.Response(
@@ -538,6 +619,7 @@ class DaemonServer {
         workspace: _workspace,
         terminals: _terminals,
         hermes: _hermes,
+        voice: _voice,
         reportNetwork: (online) => _core?.reportNetwork(online: online),
       );
       _sessions[sessionId] = session;

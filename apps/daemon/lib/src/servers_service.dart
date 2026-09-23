@@ -11,6 +11,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
 import 'settled.dart';
+import 'voice_service.dart';
 
 /// Implements the `servers.*` family over the core's storage service.
 ///
@@ -221,8 +222,8 @@ final class ServersService {
     notes: true,
     channels: config.enableWebsocket ?? false,
     directConnections: config.enableDirectConnections ?? false,
-    serverStt: config.enableAudioInput ?? false,
-    serverTts: config.enableAudioOutput ?? false,
+    serverStt: VoiceService.transcribes(config),
+    serverTts: VoiceService.speaks(config),
     // Browser speech synthesis, available wherever the renderer runs.
     deviceTts: true,
     branchNavigation: true,

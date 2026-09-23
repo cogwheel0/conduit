@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.44.0",
+  "protocolVersion": "1.45.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.44.0",
+  "protocolVersion": "1.45.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -1753,6 +1753,68 @@ const Map<String, String> protocolGoldens = <String, String>{
   ]
 }''',
 
+  'voiceSettings': r'''
+{
+  "serverStt": true,
+  "serverTts": true,
+  "sttLanguage": "en",
+  "silenceMs": 1500,
+  "holdToTalk": true,
+  "autoSend": true,
+  "bargeIn": false,
+  "ttsEngine": "server",
+  "deviceVoice": "Samantha",
+  "serverVoice": "alloy",
+  "rate": 0.75,
+  "pitch": 1.1,
+  "volume": 0.8,
+  "splitOn": "paragraphs"
+}''',
+
+  'voiceSettingsEdit': r'''
+{
+  "clearSttLanguage": true,
+  "silenceMs": 1000,
+  "ttsEngine": "device",
+  "deviceVoice": "Alex",
+  "clearDeviceVoice": false,
+  "clearServerVoice": true,
+  "rate": 0.6
+}''',
+
+  'voiceOption': r'''
+{
+  "id": "alloy",
+  "name": "Alloy"
+}''',
+
+  'voiceVoices': r'''
+{
+  "voices": [
+    {
+      "id": "echo",
+      "name": ""
+    }
+  ],
+  "defaultVoice": "alloy"
+}''',
+
+  'voiceSpeak': r'''
+{
+  "text": "Hello there.",
+  "voice": "alloy"
+}''',
+
+  'voiceSpeech': r'''
+{
+  "jobId": "tts-1"
+}''',
+
+  'voiceTranscript': r'''
+{
+  "text": "The quick brown fox."
+}''',
+
   'noteFile': r'''
 {
   "id": "f1",
@@ -2447,5 +2509,4 @@ const Map<String, String> protocolGoldens = <String, String>{
     "cookies"
   ]
 }''',
-
 };

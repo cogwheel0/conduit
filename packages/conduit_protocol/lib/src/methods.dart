@@ -544,6 +544,18 @@ abstract final class ConduitMethods {
   /// An address the system browser can open to see a port.
   static const String terminalPreviewPort = 'terminal.previewPort';
   static const String voicePrefix = 'voice.';
+
+  // voice.* (M8). Audio stays in the window; recordings reach the server
+  // through `POST /transcribe`, and speech comes back from `GET /tts/{jobId}`.
+
+  static const String voiceSettings = 'voice.settings';
+  static const String voiceSaveSettings = 'voice.saveSettings';
+
+  /// The server's voices.
+  static const String voiceVoices = 'voice.voices';
+
+  /// Starts a server speech job for an `<audio>` element to play.
+  static const String voiceSpeak = 'voice.speak';
   static const String settingsPrefix = 'settings.';
   static const String syncPrefix = 'sync.';
   static const String socketPrefix = 'socket.';
@@ -597,6 +609,11 @@ abstract final class ConduitHttpRoutes {
 
   /// `GET /tts/{jobId}` — audio for an `<audio>` element.
   static String tts(String jobId) => '/tts/$jobId';
+
+  /// `POST` a recording as the body, its type as `content-type`: the active
+  /// server's transcription as a `VoiceTranscript` (M8). The saved language
+  /// applies.
+  static const String transcribe = '/transcribe';
 
   /// `WS /terminal/{handle}` — raw byte tunnel to the Open WebUI terminal
   /// socket with auth added (WP-7.2).

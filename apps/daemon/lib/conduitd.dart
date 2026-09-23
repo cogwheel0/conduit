@@ -14,6 +14,7 @@ export 'src/composer_service.dart';
 export 'src/prompts_service.dart';
 export 'src/hermes_service.dart';
 export 'src/terminals_service.dart';
+export 'src/voice_service.dart';
 export 'src/workspace_service.dart';
 export 'src/core_runtime.dart';
 export 'src/daemon_paths.dart';

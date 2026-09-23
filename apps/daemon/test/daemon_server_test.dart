@@ -174,6 +174,32 @@ void main() {
       expect(response.statusCode, isNot(HttpStatus.ok));
     });
 
+    test('speech and transcription need the token too', () async {
+      // `<audio src=/tts/...>` and the dictation upload (M8).
+      final client = HttpClient();
+      addTearDown(client.close);
+      final speech = Uri.parse(
+        'http://127.0.0.1:$port${ConduitHttpRoutes.tts('tts-1')}',
+      );
+      final transcribe = Uri.parse(
+        'http://127.0.0.1:$port${ConduitHttpRoutes.transcribe}',
+      );
+      expect(
+        (await (await client.getUrl(speech)).close()).statusCode,
+        HttpStatus.unauthorized,
+      );
+      expect(
+        (await (await client.postUrl(transcribe)).close()).statusCode,
+        HttpStatus.unauthorized,
+      );
+
+      final unknown = await client.getUrl(speech);
+      unknown.headers.set(HttpHeaders.authorizationHeader, 'Bearer $_token');
+      final response = await unknown.close();
+      await response.drain<void>();
+      expect(response.statusCode, isNot(HttpStatus.ok));
+    });
+
     test('HTTP endpoints reject a wrong bearer token', () async {
       final client = HttpClient();
       addTearDown(client.close);

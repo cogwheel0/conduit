@@ -4,6 +4,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
@@ -1677,6 +1678,49 @@ void main() {
         timeout: const Timeout(Duration(minutes: 2)),
       );
 
+      // M8: dictation and speech. The server transcribes a recording; a
+      // real sentence is used when CONDUIT_SPEECH_SAMPLE names one (the
+      // quick brown fox), and otherwise a tone, which checks the route only.
+      test('transcribes a recording and makes speech jobs', () async {
+        final voice = VoiceService(runtime.container);
+        final settings = await voice.settings();
+        expect(settings.splitOn, isNotEmpty);
+        if (!settings.serverStt) {
+          markTestSkipped('the server does not transcribe');
+          return;
+        }
+        final sample = Platform.environment['CONDUIT_SPEECH_SAMPLE'];
+        final transcript = sample != null && File(sample).existsSync()
+            ? await voice.transcribe(
+                File(sample).readAsBytesSync(),
+                contentType: sample.endsWith('.wav')
+                    ? 'audio/wav'
+                    : 'audio/mpeg',
+              )
+            : await voice.transcribe(_toneWav(), contentType: 'audio/wav');
+        if (sample != null) {
+          expect(transcript.text.toLowerCase(), contains('quick brown fox'));
+        }
+
+        final job = await voice.speak(const VoiceSpeak(text: 'Hello there.'));
+        expect(job.jobId, startsWith('tts-'));
+        await expectLater(
+          voice.audio('tts-unknown'),
+          throwsA(
+            isA<RpcError>().having(
+              (e) => e.code,
+              'code',
+              ConduitErrorCodes.notFound,
+            ),
+          ),
+        );
+        if (settings.serverTts) {
+          final audio = await voice.audio(job.jobId);
+          expect(audio.bytes, isNotEmpty);
+          expect(audio.contentType, startsWith('audio/'));
+        }
+      }, timeout: const Timeout(Duration(minutes: 2)));
+
       // M6: the workspace. Everything is named for this run and deleted
       // at the end, straight through the API if a step fails first.
       group('workspace', () {
@@ -2204,4 +2248,41 @@ Future<List<ChatMessage>> _messagesOf(
   } on Object {
     return const <ChatMessage>[];
   }
+}
+
+/// A second of 440 Hz, as a 16 kHz mono WAV.
+Uint8List _toneWav() {
+  const rate = 16000;
+  final samples = ByteData(rate * 2);
+  for (var i = 0; i < rate; i++) {
+    samples.setInt16(
+      i * 2,
+      (sin(2 * pi * 440 * i / rate) * 8000).round(),
+      Endian.little,
+    );
+  }
+  final header = ByteData(44);
+  void ascii(int at, String text) {
+    for (var i = 0; i < text.length; i++) {
+      header.setUint8(at + i, text.codeUnitAt(i));
+    }
+  }
+
+  ascii(0, 'RIFF');
+  header.setUint32(4, 36 + rate * 2, Endian.little);
+  ascii(8, 'WAVE');
+  ascii(12, 'fmt ');
+  header.setUint32(16, 16, Endian.little);
+  header.setUint16(20, 1, Endian.little);
+  header.setUint16(22, 1, Endian.little);
+  header.setUint32(24, rate, Endian.little);
+  header.setUint32(28, rate * 2, Endian.little);
+  header.setUint16(32, 2, Endian.little);
+  header.setUint16(34, 16, Endian.little);
+  ascii(36, 'data');
+  header.setUint32(40, rate * 2, Endian.little);
+  return Uint8List.fromList(<int>[
+    ...header.buffer.asUint8List(),
+    ...samples.buffer.asUint8List(),
+  ]);
 }
