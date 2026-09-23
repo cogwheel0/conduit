@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.37.0",
+  "protocolVersion": "1.38.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.37.0",
+  "protocolVersion": "1.38.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -760,6 +760,173 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "id": "n1",
   "pinned": true
+}''',
+
+  'channelSummary': r'''
+{
+  "id": "c1",
+  "name": "general",
+  "description": "Everything",
+  "private": false,
+  "unread": 3,
+  "lastMessageAtMs": 1790000000000,
+  "manager": true,
+  "canPost": true,
+  "userCount": 12
+}''',
+
+  'channelList': r'''
+{
+  "channels": [
+    {
+      "id": "c2",
+      "name": "ops",
+      "private": true,
+      "unread": 0,
+      "manager": false,
+      "canPost": false
+    }
+  ],
+  "enabled": true
+}''',
+
+  'channelUser': r'''
+{
+  "id": "u1",
+  "name": "Ada"
+}''',
+
+  'channelReaction': r'''
+{
+  "name": "👍",
+  "count": 2,
+  "mine": true
+}''',
+
+  'channelMessageDto': r'''
+{
+  "id": "m1",
+  "channelId": "c1",
+  "user": {
+    "id": "u1",
+    "name": "Ada"
+  },
+  "content": "Deploy is done",
+  "pinned": true,
+  "replyCount": 2,
+  "createdAtMs": 1790000000000,
+  "editedAtMs": 1790000001000,
+  "reactions": [
+    {
+      "name": "🎉",
+      "count": 1,
+      "mine": false
+    }
+  ],
+  "mine": true
+}''',
+
+  'channelMessagesQuery': r'''
+{
+  "channelId": "c1",
+  "parentId": "m1",
+  "older": true
+}''',
+
+  'channelMessages': r'''
+{
+  "channelId": "c1",
+  "messages": [
+    {
+      "id": "m2",
+      "channelId": "c1",
+      "content": "",
+      "parentId": "m1",
+      "pinned": false,
+      "replyCount": 0,
+      "createdAtMs": 1,
+      "reactions": [],
+      "mine": false
+    }
+  ],
+  "hasOlder": true
+}''',
+
+  'channelPost': r'''
+{
+  "channelId": "c1",
+  "content": "Hi",
+  "parentId": "m1"
+}''',
+
+  'channelMessageRef': r'''
+{
+  "channelId": "c1",
+  "messageId": "m1"
+}''',
+
+  'channelMessageEdit': r'''
+{
+  "channelId": "c1",
+  "messageId": "m1",
+  "content": "Deploy is done."
+}''',
+
+  'channelReact': r'''
+{
+  "channelId": "c1",
+  "messageId": "m1",
+  "emoji": "👍",
+  "add": false
+}''',
+
+  'channelPin': r'''
+{
+  "channelId": "c1",
+  "messageId": "m1",
+  "pinned": true
+}''',
+
+  'channelEdit': r'''
+{
+  "name": "general",
+  "description": "All",
+  "private": true
+}''',
+
+  'channelRef': r'''
+{
+  "id": "c1"
+}''',
+
+  'channelTyping': r'''
+{
+  "channelId": "c1",
+  "typing": false
+}''',
+
+  'channelTypingUsers': r'''
+{
+  "channelId": "c1",
+  "names": [
+    "Ada",
+    "Grace"
+  ]
+}''',
+
+  'channelMessagesChanged': r'''
+{
+  "channelId": "c1"
+}''',
+
+  'channelMembers': r'''
+{
+  "users": [
+    {
+      "id": "u1",
+      "name": "Ada"
+    }
+  ]
 }''',
 
   'noteFile': r'''

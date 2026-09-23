@@ -1364,6 +1364,106 @@ void main() {
         await _waitFor(() async => (await serverFiles()).isEmpty, seconds: 30);
         expect(await serverFiles(), isEmpty);
       }, timeout: const Timeout(Duration(minutes: 2)));
+
+      // M5: channels. This run's own channel, deleted at the end.
+      test('posts, reacts, pins, threads and edits in a channel', () async {
+        final events = EventBus();
+        final heard = <String>[];
+        events.attach('window', (envelope) => heard.add(envelope.event));
+        final channels = ChannelsService(runtime.container, events: events);
+        final name = 'live-channel-${DateTime.now().millisecondsSinceEpoch}';
+        final created = await channels.save(
+          ChannelEdit(name: name, description: 'made by a test'),
+        );
+        final channel = created.channels.singleWhere((c) => c.name == name);
+        var deleted = false;
+        addTearDown(() async {
+          if (deleted) return;
+          try {
+            await runtime.container
+                .read(apiServiceProvider)!
+                .deleteChannel(channel.id);
+          } on Object catch (error) {
+            stderr.writeln('could not delete test channel: $error');
+          }
+        });
+        expect(created.enabled, isTrue);
+        expect(channel.manager, isTrue);
+        events.subscribe(
+          'window',
+          EventSubscription(
+            scopes: <String>[ChannelsService.scopeFor(channel.id)],
+          ),
+        );
+
+        final opened = await channels.messages(
+          ChannelMessagesQuery(channelId: channel.id),
+        );
+        expect(opened.messages, isEmpty);
+
+        final posted = await channels.post(
+          ChannelPost(channelId: channel.id, content: 'Deploy is done'),
+        );
+        expect(posted.mine, isTrue);
+        expect(heard, contains(ConduitEvents.channelsMessage));
+        var messages = (await channels.messages(
+          ChannelMessagesQuery(channelId: channel.id),
+        )).messages;
+        expect(messages.first.content, 'Deploy is done');
+
+        await channels.react(
+          ChannelReact(
+            channelId: channel.id,
+            messageId: posted.id,
+            emoji: '👍',
+          ),
+        );
+        await channels.pin(
+          ChannelPin(channelId: channel.id, messageId: posted.id, pinned: true),
+        );
+        messages = (await channels.messages(
+          ChannelMessagesQuery(channelId: channel.id),
+        )).messages;
+        final reacted = messages.singleWhere((m) => m.id == posted.id);
+        expect(reacted.pinned, isTrue);
+        expect(reacted.reactions.single.name, '👍');
+        expect(reacted.reactions.single.mine, isTrue);
+
+        final reply = await channels.post(
+          ChannelPost(
+            channelId: channel.id,
+            content: 'Thanks',
+            parentId: posted.id,
+          ),
+        );
+        final thread = await channels.messages(
+          ChannelMessagesQuery(channelId: channel.id, parentId: posted.id),
+        );
+        expect(thread.messages.map((m) => m.id), contains(reply.id));
+
+        final edited = await channels.editMessage(
+          ChannelMessageEdit(
+            channelId: channel.id,
+            messageId: posted.id,
+            content: 'Deploy is done.',
+          ),
+        );
+        expect(edited.content, 'Deploy is done.');
+
+        expect((await channels.members(channel.id)).users, isNotEmpty);
+
+        await channels.deleteMessage(
+          ChannelMessageRef(channelId: channel.id, messageId: posted.id),
+        );
+        messages = (await channels.messages(
+          ChannelMessagesQuery(channelId: channel.id),
+        )).messages;
+        expect(messages.map((m) => m.id), isNot(contains(posted.id)));
+
+        final after = await channels.delete(channel.id);
+        deleted = true;
+        expect(after.channels.map((c) => c.id), isNot(contains(channel.id)));
+      }, timeout: const Timeout(Duration(minutes: 2)));
     },
   );
 }

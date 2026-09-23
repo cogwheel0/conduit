@@ -10,6 +10,7 @@ library;
 
 export 'src/auth.dart';
 export 'src/capabilities.dart';
+export 'src/channels.dart';
 export 'src/chats.dart';
 export 'src/composer.dart';
 export 'src/direct.dart';

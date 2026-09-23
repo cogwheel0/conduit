@@ -377,6 +377,36 @@ abstract final class ConduitMethods {
   /// Takes a file off a note; the file itself stays on the server.
   static const String notesDetach = 'notes.detach';
   static const String channelsPrefix = 'channels.';
+
+  // channels.* (M5).
+
+  /// Every channel the user can see, with unread counts.
+  static const String channelsList = 'channels.list';
+
+  /// Creates or changes a channel; answers with the list.
+  static const String channelsSave = 'channels.save';
+
+  static const String channelsDelete = 'channels.delete';
+
+  /// A channel's messages or one thread's, newest first. Asking for a
+  /// channel's also starts listening to it, so the window hears
+  /// `channels.message` and `channels.typing` for it.
+  static const String channelsMessages = 'channels.messages';
+
+  static const String channelsPost = 'channels.post';
+  static const String channelsEditMessage = 'channels.editMessage';
+  static const String channelsDeleteMessage = 'channels.deleteMessage';
+  static const String channelsReact = 'channels.react';
+  static const String channelsPin = 'channels.pin';
+
+  /// Says the user is typing, or has stopped.
+  static const String channelsTyping = 'channels.typing';
+
+  /// Clears a channel's unread count, here and on the server.
+  static const String channelsMarkRead = 'channels.markRead';
+
+  /// Who is in a channel, for `@` mentions.
+  static const String channelsMembers = 'channels.members';
   static const String workspacePrefix = 'workspace.';
   static const String directPrefix = 'direct.';
   static const String mcpPrefix = 'mcp.';

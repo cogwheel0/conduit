@@ -10,6 +10,7 @@ import 'composer_service.dart';
 import 'direct_service.dart';
 import 'mcp_service.dart';
 import 'notes_service.dart';
+import 'channels_service.dart';
 import 'prompts_service.dart';
 import 'event_bus.dart';
 import 'log.dart';
@@ -44,8 +45,10 @@ class RpcSession {
     DirectService? direct,
     McpService? mcp,
     NotesService? notes,
+    ChannelsService? channels,
     void Function(bool online)? reportNetwork,
   }) : _events = events,
+       _channels = channels,
        _notes = notes,
        _direct = direct,
        _mcp = mcp,
@@ -97,6 +100,7 @@ class RpcSession {
   final DirectService? _direct;
   final McpService? _mcp;
   final NotesService? _notes;
+  final ChannelsService? _channels;
 
   /// Where a window's `online`/`offline` events go: the connectivity port,
   /// which then tells every window. Null before the core is up.
@@ -919,6 +923,129 @@ class RpcSession {
       );
     }
 
+    registerTypedMethodNoParams<ChannelList>(
+      _peer,
+      ConduitMethods.channelsList,
+      encodeResult: (result) => result.toJson(),
+      handler: () {
+        _requireHandshake();
+        return _requireChannels().list();
+      },
+    );
+
+    registerTypedMethod<ChannelEdit, ChannelList>(
+      _peer,
+      ConduitMethods.channelsSave,
+      decodeParams: ChannelEdit.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (edit) {
+        _requireHandshake();
+        return _requireChannels().save(edit);
+      },
+    );
+
+    registerTypedMethod<ChannelRef, ChannelList>(
+      _peer,
+      ConduitMethods.channelsDelete,
+      decodeParams: ChannelRef.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (ref) {
+        _requireHandshake();
+        return _requireChannels().delete(ref.id);
+      },
+    );
+
+    registerTypedMethod<ChannelMessagesQuery, ChannelMessages>(
+      _peer,
+      ConduitMethods.channelsMessages,
+      decodeParams: ChannelMessagesQuery.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (query) {
+        _requireHandshake();
+        return _requireChannels().messages(query);
+      },
+    );
+
+    registerTypedMethod<ChannelPost, ChannelMessageDto>(
+      _peer,
+      ConduitMethods.channelsPost,
+      decodeParams: ChannelPost.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (post) {
+        _requireHandshake();
+        return _requireChannels().post(post);
+      },
+    );
+
+    registerTypedMethod<ChannelMessageEdit, ChannelMessageDto>(
+      _peer,
+      ConduitMethods.channelsEditMessage,
+      decodeParams: ChannelMessageEdit.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (edit) {
+        _requireHandshake();
+        return _requireChannels().editMessage(edit);
+      },
+    );
+
+    for (final (method, decode, run)
+        in <
+          (
+            String,
+            Object Function(Map<String, dynamic>),
+            Future<void> Function(Object),
+          )
+        >[
+          (
+            ConduitMethods.channelsDeleteMessage,
+            ChannelMessageRef.fromJson,
+            (p) => _requireChannels().deleteMessage(p as ChannelMessageRef),
+          ),
+          (
+            ConduitMethods.channelsReact,
+            ChannelReact.fromJson,
+            (p) => _requireChannels().react(p as ChannelReact),
+          ),
+          (
+            ConduitMethods.channelsPin,
+            ChannelPin.fromJson,
+            (p) => _requireChannels().pin(p as ChannelPin),
+          ),
+          (
+            ConduitMethods.channelsTyping,
+            ChannelTyping.fromJson,
+            (p) async => _requireChannels().typing(p as ChannelTyping),
+          ),
+          (
+            ConduitMethods.channelsMarkRead,
+            ChannelRef.fromJson,
+            (p) => _requireChannels().markRead((p as ChannelRef).id),
+          ),
+        ]) {
+      registerTypedMethod<Object, Map<String, dynamic>>(
+        _peer,
+        method,
+        decodeParams: decode,
+        encodeResult: (result) => result,
+        handler: (params) async {
+          _requireHandshake();
+          await run(params);
+          return <String, dynamic>{'ok': true};
+        },
+      );
+    }
+
+    registerTypedMethod<ChannelRef, ChannelMembers>(
+      _peer,
+      ConduitMethods.channelsMembers,
+      decodeParams: ChannelRef.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (ref) {
+        _requireHandshake();
+        return _requireChannels().members(ref.id);
+      },
+    );
+
     registerTypedMethod<NoteQuery, NoteList>(
       _peer,
       ConduitMethods.notesList,
@@ -1196,6 +1323,13 @@ class RpcSession {
       },
     );
   }
+
+  ChannelsService _requireChannels() =>
+      _channels ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
 
   NotesService _requireNotes() =>
       _notes ??

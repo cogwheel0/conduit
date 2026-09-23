@@ -24,6 +24,14 @@ abstract final class ConduitEvents {
   static const String notesChanged = 'notes.changed';
   static const String channelsMessage = 'channels.message';
 
+  /// Who is typing in a channel changed (M5). Payload
+  /// [ChannelTypingUsers], scoped to `channel:<id>`.
+  static const String channelsTyping = 'channels.typing';
+
+  /// The channel list changed: a channel added, removed, renamed, or a new
+  /// unread count (M5). No payload.
+  static const String channelsChanged = 'channels.changed';
+
   static const String syncStatus = 'sync.status';
   static const String socketHealth = 'socket.health';
 
@@ -68,6 +76,8 @@ abstract final class ConduitEvents {
     chatsChanged,
     notesChanged,
     channelsMessage,
+    channelsTyping,
+    channelsChanged,
     syncStatus,
     socketHealth,
     notifyShow,

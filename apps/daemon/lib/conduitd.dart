@@ -8,6 +8,7 @@ library;
 
 export 'src/auth_service.dart';
 export 'src/bootstrap.dart';
+export 'src/channels_service.dart';
 export 'src/chats_service.dart';
 export 'src/composer_service.dart';
 export 'src/prompts_service.dart';
