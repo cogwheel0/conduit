@@ -1,7 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/chat_message.dart';
-import 'package:conduit/shared/widgets/markdown/source_reference_helper.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:conduit_core/utils/source_reference_helper.dart';
+import 'package:test/test.dart';
 
 void main() {
   group('SourceReferenceHelper.getInlineSourceLabel', () {

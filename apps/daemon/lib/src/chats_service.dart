@@ -7,6 +7,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/source_reference_helper.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -440,7 +441,22 @@ final class ChatsService {
           content: version.content,
           timestampMs: version.timestamp.millisecondsSinceEpoch,
           model: version.model,
+          sources: _sources(version.sources),
         ),
     ],
+    sources: _sources(message.sources),
   );
+
+  /// Labels and links as the mobile app shows them, from the helper both
+  /// apps now share: Open WebUI nests a source's name differently for web
+  /// results, files and knowledge bases.
+  static List<ChatSourceDto> _sources(List<core.ChatSourceReference> sources) =>
+      <ChatSourceDto>[
+        for (var i = 0; i < sources.length; i++)
+          ChatSourceDto(
+            label: SourceReferenceHelper.getSourceLabel(sources[i], i),
+            url: SourceReferenceHelper.getSourceUrl(sources[i]),
+            snippet: sources[i].snippet,
+          ),
+      ];
 }

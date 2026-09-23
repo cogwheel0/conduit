@@ -16,6 +16,7 @@ import '../sidebar_model.dart';
 import '../widgets/form_field.dart';
 import '../widgets/markdown_view.dart';
 import '../widgets/prompt_menu.dart';
+import '../widgets/sources_list.dart';
 
 /// The chat vertical: sidebar, transcript, composer (M3).
 class ChatPage extends StatelessComponent {
@@ -691,6 +692,10 @@ class _Transcript extends StatelessComponent {
                           _bubble(
                             message.role,
                             _shownContent(message, versions[message.id]),
+                            sources: _shownSources(
+                              message,
+                              versions[message.id],
+                            ),
                             onCopyCode: copyCode,
                             // Per version, so flicking between answers does not
                             // reuse a formula frame drawn for a different one.
@@ -834,6 +839,7 @@ class _Transcript extends StatelessComponent {
     Component? versionNav,
     bool streaming = false,
     String? failure,
+    List<ChatSourceDto> sources = const <ChatSourceDto>[],
   }) {
     final isUser = role == 'user';
     final failed = failure != null;
@@ -860,6 +866,7 @@ class _Transcript extends StatelessComponent {
                 content,
                 onCopyCode: onCopyCode,
                 mathIdPrefix: mathIdPrefix,
+                sources: sources,
               ),
             if (failure case final message?)
               p(
@@ -876,6 +883,7 @@ class _Transcript extends StatelessComponent {
               ),
           ],
         ),
+        if (!isUser && sources.isNotEmpty) SourcesList(sources),
         // In the DOM always, revealed on hover or focus. A control that
         // only exists on hover cannot be reached by keyboard at all.
         if (onCopy != null ||
@@ -905,6 +913,14 @@ class _Transcript extends StatelessComponent {
 
   /// The text for the answer [index] names, where the list is the
   /// message's versions (oldest first) followed by the message itself.
+  /// The sources of the answer [index] names; each version has its own.
+  static List<ChatSourceDto> _shownSources(ChatMessageDto message, int? index) {
+    final i = index ?? message.versions.length;
+    return i < message.versions.length
+        ? message.versions[i].sources
+        : message.sources;
+  }
+
   static String _shownContent(ChatMessageDto message, int? index) {
     final i = index ?? message.versions.length;
     return i < message.versions.length

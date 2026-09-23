@@ -1,9 +1,11 @@
+import 'package:conduit_markdown/conduit_markdown.dart' show DetailsBlockSyntax;
+import 'package:conduit_protocol/conduit_protocol.dart' show ChatSourceDto;
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
-import 'package:conduit_markdown/conduit_markdown.dart' show DetailsBlockSyntax;
 import 'package:markdown/markdown.dart' as md;
 
 import '../sandbox_port.dart';
+import 'citation_syntax.dart';
 import 'code_block.dart';
 import 'details_block.dart';
 import 'math_syntax.dart';
@@ -26,6 +28,7 @@ class MarkdownView extends StatelessComponent {
     this.markdown, {
     this.onCopyCode,
     this.mathIdPrefix,
+    this.sources = const <ChatSourceDto>[],
     super.key,
   });
 
@@ -44,6 +47,10 @@ class MarkdownView extends StatelessComponent {
   /// per message: a frame is addressed by id, and two messages sharing one
   /// would draw into each other.
   final String? mathIdPrefix;
+
+  /// What the reply cites, in `[1]`, `[2]` order (WP-3.2). Empty leaves
+  /// bracketed numbers as the text they are.
+  final List<ChatSourceDto> sources;
 
   /// Reset at the top of every build, so a formula keeps its frame across
   /// rebuilds as long as it keeps its position in the message.
@@ -89,6 +96,8 @@ class MarkdownView extends StatelessComponent {
     // Both are built by the walker, never taken from markup.
     'details',
     'div',
+    // Produced by `CitationSyntax`, only when the reply has sources.
+    'cite',
   };
 
   @override
@@ -103,7 +112,7 @@ class MarkdownView extends StatelessComponent {
 
   /// One parse, shared by the message and by the body of every details
   /// block inside it, so both render with the same rules.
-  static List<md.Node> _parse(String markdown) => md.Document(
+  List<md.Node> _parse(String markdown) => md.Document(
     extensionSet: md.ExtensionSet.gitHubWeb,
     // Before the built-ins, so a reasoning or tool-call section is lifted
     // whole instead of reaching the walker as a paragraph of markup.
@@ -114,6 +123,7 @@ class MarkdownView extends StatelessComponent {
     inlineSyntaxes: <md.InlineSyntax>[
       MathSyntax.display(),
       MathSyntax.inline(),
+      if (sources.isNotEmpty) CitationSyntax(),
     ],
     // No inline HTML: with it, `<script>` in a reply reaches the AST as an
     // element rather than as text, and the walker below would have to be
@@ -189,6 +199,7 @@ class MarkdownView extends StatelessComponent {
 
     if (element.tag == 'math') return _math(element);
     if (element.tag == 'details') return _details(element);
+    if (element.tag == 'cite') return _citation(element);
 
     return switch (element.tag) {
       'p' => p(children),
@@ -225,6 +236,63 @@ class MarkdownView extends StatelessComponent {
       'div' => div(children),
       _ => span(children),
     };
+  }
+
+  /// A citation as a chip naming its first source, and how many more.
+  ///
+  /// A number that points past the list stays the text it was: the model
+  /// cited something the server did not return, and a chip to nowhere would
+  /// claim otherwise.
+  Component _citation(md.Element element) {
+    final cited = <ChatSourceDto>[
+      for (final id in (element.attributes['ids'] ?? '').split(','))
+        if (int.tryParse(id) case final n? when n >= 1 && n <= sources.length)
+          sources[n - 1],
+    ];
+    if (cited.isEmpty) return Component.text(element.textContent);
+    final first = cited.first;
+    final label = cited.length == 1
+        ? shortSourceLabel(first)
+        : '${shortSourceLabel(first)} +${cited.length - 1}';
+    const classes =
+        'mx-0.5 inline-flex items-center rounded bg-muted px-1.5 '
+        'align-baseline text-xs text-muted-foreground no-underline '
+        'hover:text-foreground';
+    final title = cited.map((cite) => cite.label).join('\n');
+    final url = first.url;
+    if (url != null && _isWebLink(url)) {
+      return a(
+        href: url,
+        classes: classes,
+        target: Target.blank,
+        attributes: <String, String>{
+          'rel': 'noopener noreferrer',
+          'title': title,
+        },
+        [Component.text(label)],
+      );
+    }
+    return span(
+      classes: classes,
+      attributes: <String, String>{'title': title},
+      [Component.text(label)],
+    );
+  }
+
+  /// What a citation chip says: the site for a web page, otherwise the
+  /// name, shortened -- a chip is read mid-sentence.
+  static String shortSourceLabel(ChatSourceDto source) {
+    final host = Uri.tryParse(source.url ?? '')?.host ?? '';
+    if (host.isNotEmpty) {
+      return host.startsWith('www.') ? host.substring(4) : host;
+    }
+    final label = source.label.trim();
+    return label.length <= 24 ? label : '${label.substring(0, 23)}…';
+  }
+
+  static bool _isWebLink(String href) {
+    final uri = Uri.tryParse(href);
+    return uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
   }
 
   /// Links open in the real browser, and only for schemes that can.

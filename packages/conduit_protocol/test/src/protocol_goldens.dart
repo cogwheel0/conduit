@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.10.0",
+  "protocolVersion": "1.11.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.10.0",
+  "protocolVersion": "1.11.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -402,6 +402,13 @@ const Map<String, String> protocolGoldens = <String, String>{
   "description": "Current conditions for a city"
 }''',
 
+  'chatSource': r'''
+{
+  "label": "dart.dev",
+  "url": "https://dart.dev/overview",
+  "snippet": "Dart is a client-optimized language"
+}''',
+
   'promptSummary': r'''
 {
   "command": "/standup",
@@ -494,7 +501,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "id": "msg-earlier",
   "content": "The first answer.",
   "timestampMs": 1758412800000,
-  "model": "llama3.2:1b"
+  "model": "llama3.2:1b",
+  "sources": []
 }''',
 
   'folderSummary': r'''
@@ -566,7 +574,13 @@ const Map<String, String> protocolGoldens = <String, String>{
   "timestampMs": 1758412800000,
   "model": "gpt-4o",
   "streaming": true,
-  "versions": []
+  "versions": [],
+  "sources": [
+    {
+      "label": "Sync design notes",
+      "url": "https://example.com/sync"
+    }
+  ]
 }''',
 
   'chatDetail': r'''
@@ -587,7 +601,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "content": "How does the outbox order writes?",
       "timestampMs": 1758412700000,
       "streaming": false,
-      "versions": []
+      "versions": [],
+      "sources": []
     }
   ]
 }''',

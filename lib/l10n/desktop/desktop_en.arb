@@ -370,5 +370,10 @@
   "@desktopPromptFill": {
     "description": "Heading of the small form that asks for a saved prompt's values before inserting it in the desktop composer.",
     "placeholders": { "title": { "type": "String", "example": "Stand-up notes" } }
+  },
+  "desktopSourcesCount": "Sources ({count})",
+  "@desktopSourcesCount": {
+    "description": "Label of the collapsible list of sources under an answer in the desktop app.",
+    "placeholders": { "count": { "type": "int", "example": "3" } }
   }
 }

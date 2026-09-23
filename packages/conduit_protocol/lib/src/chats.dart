@@ -105,10 +105,33 @@ abstract class ChatMessageDto with _$ChatMessageDto {
     /// the answer. Without these, the answer that was regenerated away
     /// could not be reached from this app at all.
     @Default(<ChatMessageVersionDto>[]) List<ChatMessageVersionDto> versions,
+
+    /// What the answer drew on -- web results, files, a knowledge base --
+    /// in the order its `[1]`, `[2]` markers count (WP-3.2).
+    @Default(<ChatSourceDto>[]) List<ChatSourceDto> sources,
   }) = _ChatMessageDto;
 
   factory ChatMessageDto.fromJson(Map<String, dynamic> json) =>
       _$ChatMessageDtoFromJson(json);
+}
+
+/// One source an answer cites (WP-3.2).
+///
+/// Already reduced to what the renderer shows: Open WebUI's source records
+/// are nested several ways depending on where they came from, and deciding
+/// which field is the name happens once, in the core, for both apps.
+@freezed
+abstract class ChatSourceDto with _$ChatSourceDto {
+  const factory ChatSourceDto({
+    required String label,
+
+    /// Only when there is a real http(s) address to open.
+    String? url,
+    String? snippet,
+  }) = _ChatSourceDto;
+
+  factory ChatSourceDto.fromJson(Map<String, dynamic> json) =>
+      _$ChatSourceDtoFromJson(json);
 }
 
 /// One alternative answer to the prompt a message answers.
@@ -119,6 +142,9 @@ abstract class ChatMessageVersionDto with _$ChatMessageVersionDto {
     required String content,
     required int timestampMs,
     String? model,
+
+    /// This version's own sources; a regenerated answer searches again.
+    @Default(<ChatSourceDto>[]) List<ChatSourceDto> sources,
   }) = _ChatMessageVersionDto;
 
   factory ChatMessageVersionDto.fromJson(Map<String, dynamic> json) =>

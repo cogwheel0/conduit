@@ -9,7 +9,7 @@ import 'package:conduit_core/services/settings_service.dart';
 
 import '../../theme/theme_extensions.dart';
 import '../../utils/external_link_launcher.dart';
-import 'source_reference_helper.dart';
+import 'package:conduit_core/utils/source_reference_helper.dart';
 
 TextStyle _badgeLabelTextStyle(BuildContext context, Color color) {
   final textTheme = Theme.of(context).textTheme;

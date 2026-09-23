@@ -12,7 +12,7 @@ import '../../../../shared/services/raster_media_policy.dart';
 import '../../../../shared/theme/theme_extensions.dart';
 import '../../../../shared/utils/adaptive_glass.dart';
 import '../../../../shared/utils/external_link_launcher.dart';
-import '../../../../shared/widgets/markdown/source_reference_helper.dart';
+import 'package:conduit_core/utils/source_reference_helper.dart';
 import '../../../../shared/widgets/sheet_handle.dart';
 import '../../../../shared/widgets/themed_sheets.dart';
 
