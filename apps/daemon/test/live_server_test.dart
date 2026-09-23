@@ -1439,7 +1439,8 @@ void main() {
         final thread = await channels.messages(
           ChannelMessagesQuery(channelId: channel.id, parentId: posted.id),
         );
-        expect(thread.messages.map((m) => m.id), contains(reply.id));
+        // The replies, without the message they answer.
+        expect(thread.messages.map((m) => m.id), <String>[reply.id]);
 
         final edited = await channels.editMessage(
           ChannelMessageEdit(

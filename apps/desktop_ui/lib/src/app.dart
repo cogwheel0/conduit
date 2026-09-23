@@ -6,6 +6,7 @@ import 'package:jaspr_router/jaspr_router.dart';
 
 import 'pages/chat_page.dart';
 import 'pages/diagnostics_page.dart';
+import 'pages/channels_page.dart';
 import 'pages/notes_page.dart';
 import 'pages/onboarding_page.dart';
 import 'pages/settings_page.dart';
@@ -89,6 +90,17 @@ class ConduitDesktopApp extends StatelessComponent {
               redirect: (context, state) => '/settings/appearance',
             ),
             Route(
+              path: '/channels/:id',
+              title: 'Channels',
+              builder: (context, state) =>
+                  ChannelsPage(channelId: state.params['id']),
+            ),
+            Route(
+              path: '/channels',
+              title: 'Channels',
+              builder: (context, state) => const ChannelsPage(),
+            ),
+            Route(
               path: '/notes/:id',
               title: 'Notes',
               builder: (context, state) =>
@@ -169,7 +181,11 @@ Component _settingsLink() => a(
 bool showsFloatingSettingsLink(String location) =>
     location != '/' &&
     location != '/index.html' &&
-    !location.startsWith('/settings');
+    !location.startsWith('/settings') &&
+    // Notes and channels lead back to the chat, which has its own way in;
+    // the pill would sit on their composers.
+    !location.startsWith('/notes') &&
+    !location.startsWith('/channels');
 
 /// Sends a window to onboarding or sign-in when it has no session.
 String? _sessionRedirect(BuildContext context, String location) =>

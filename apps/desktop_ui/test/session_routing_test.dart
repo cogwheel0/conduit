@@ -354,6 +354,10 @@ void main() {
       expect(showsFloatingSettingsLink('/'), isFalse);
       expect(showsFloatingSettingsLink('/index.html'), isFalse);
       expect(showsFloatingSettingsLink('/settings/appearance'), isFalse);
+      // Pages that lead back to the chat, with composers the pill would
+      // cover.
+      expect(showsFloatingSettingsLink('/notes/n1'), isFalse);
+      expect(showsFloatingSettingsLink('/channels/c1'), isFalse);
     });
 
     test('is the only way in on the chromeless screens', () {

@@ -1745,6 +1745,65 @@ test.describe('against a real server', () => {
         }
         await api.dispose()
       }
+
+      // 19. Channels (M5): a channel of this run's own -- a post, a
+      // reaction, a reply in its thread -- then deleted.
+      await page.getByRole('link', { name: /^back$/i }).click()
+      await page.getByRole('link', { name: /^channels$/i }).click()
+      await expect
+        .poll(() => page.evaluate(() => window.location.pathname), { timeout: 30_000 })
+        .toBe('/channels')
+      const channelsList = page.getByRole('navigation', { name: /^channels$/i })
+      const channelName = `e2e-${Date.now()}`
+      try {
+        await channelsList.getByRole('button', { name: /^create channel$/i }).click()
+        const createForm = channelsList.getByRole('group', { name: /^create channel$/i })
+        await createForm.getByLabel(/^channel name$/i).fill(channelName)
+        await createForm.getByRole('button', { name: /^create channel$/i }).click()
+        await channelsList.getByRole('link', { name: new RegExp(channelName) }).click()
+        await expect
+          .poll(() => page.evaluate(() => window.location.pathname), { timeout: 30_000 })
+          .toMatch(/^\/channels\/.+/)
+        const channelComposer = page.locator('#channel-composer')
+        await channelComposer.fill('Deploy is done')
+        await channelComposer.press('Enter')
+        const channelLog = page.getByRole('log', { name: /^channels$/i })
+        const posted = channelLog.getByRole('article').filter({ hasText: 'Deploy is done' })
+        await expect(posted).toBeVisible({ timeout: 30_000 })
+        await posted.hover()
+        await posted.getByRole('button', { name: /^react$/i }).click()
+        await posted.getByRole('button', { name: '👍' }).click()
+        await expect(posted.getByRole('button', { name: /👍 1/ })).toBeVisible({ timeout: 30_000 })
+        await posted.hover()
+        await posted.getByRole('button', { name: /^reply$/i }).click()
+        const threadPanel = page.getByRole('complementary', { name: /^thread$/i })
+        await expect(threadPanel).toBeVisible()
+        const replyBox = threadPanel.locator('textarea')
+        await replyBox.fill('Thanks!')
+        await replyBox.press('Enter')
+        await expect(threadPanel.getByRole('log').getByText('Thanks!')).toBeVisible({
+          timeout: 30_000,
+        })
+        await expect(posted.getByRole('button', { name: /thread \(1\)/i })).toBeVisible({
+          timeout: 30_000,
+        })
+        await shot(page, '19-channel')
+        await page.getByRole('button', { name: /^delete channel$/i }).click()
+        await page.getByRole('alertdialog').getByRole('button', { name: /^delete$/i }).click()
+        await expect(channelsList.getByRole('link', { name: new RegExp(channelName) })).toBeHidden({
+          timeout: 30_000,
+        })
+      } finally {
+        const { api, auth } = await serverApi(credentials!)
+        const channels = (await (await api.get('/api/v1/channels/', { headers: auth })).json()) as Array<{
+          id: string
+          name: string
+        }>
+        for (const channel of channels.filter((c) => c.name === channelName)) {
+          await api.delete(`/api/v1/channels/${channel.id}/delete`, { headers: auth }).catch(() => undefined)
+        }
+        await api.dispose()
+      }
     } finally {
       provider.close()
       mcpServer.close()

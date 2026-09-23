@@ -11,6 +11,7 @@ import '../keyboard.dart';
 import '../palette.dart';
 import '../prompt_trigger.dart';
 import '../l10n/strings.g.dart';
+import '../rpc/channels_providers.dart' show channelListProvider;
 import '../rpc/chat_providers.dart';
 import '../rpc/rpc_providers.dart';
 import '../rpc/session_providers.dart';
@@ -180,6 +181,17 @@ class _Sidebar extends StatelessComponent {
                   'block rounded px-2 py-1.5 text-sm text-muted-foreground '
                   'hover:bg-accent hover:text-accent-foreground',
               child: Component.text(t.app.notes),
+            ),
+          // Channels too, when the server has them switched on.
+          if ((context.watch(authStatusProvider).value?.isAuthenticated ??
+                  false) &&
+              (context.watch(channelListProvider).value?.enabled ?? false))
+            Link(
+              to: '/channels',
+              classes:
+                  'block rounded px-2 py-1.5 text-sm text-muted-foreground '
+                  'hover:bg-accent hover:text-accent-foreground',
+              child: Component.text(t.app.sidebarChannelsTab),
             ),
           a(
             href: '/settings/appearance',

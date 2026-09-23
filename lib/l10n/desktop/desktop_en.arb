@@ -546,5 +546,13 @@
   "desktopNoteSaveFailed": "Not saved yet; trying again with the next change",
   "@desktopNoteSaveFailed": {
     "description": "Status beside a note's title when saving it failed; the pending edit is kept and sent with the next save."
+  },
+  "desktopLoadOlderMessages": "Load older messages",
+  "@desktopLoadOlderMessages": {
+    "description": "Button at the top of a channel or thread that loads the previous page of messages."
+  },
+  "desktopMessageEdited": "edited",
+  "@desktopMessageEdited": {
+    "description": "Marker beside a channel message that was changed after it was posted."
   }
 }

@@ -465,18 +465,41 @@ final chatDetailProvider = FutureProvider<ChatDetail?>((ref) async {
 /// renderer receives nothing at all while a turn streams. Scoping is right:
 /// two windows on different conversations should not paint each other's
 /// tokens.
-final _eventSubscriptionProvider = Provider<void>((ref) {
+final eventSubscriptionProvider = Provider<void>((ref) {
   final chatId = ref.watch(selectedChatIdProvider);
+  final channelId = ref.watch(openChannelIdProvider);
   final client = ref.watch(rpcClientProvider);
   unawaited(
     client.subscribe(
       EventSubscription(
         // Empty `events` means every event; the scope is what narrows it.
-        scopes: <String>[?chatId],
+        scopes: <String>[
+          ?chatId,
+          // The channel on screen (M5), in the daemon's scope for it.
+          if (channelId != null) 'channel:$channelId',
+        ],
       ),
     ),
   );
 });
+
+/// The channel this window shows, if any (M5): its events join the
+/// window's subscription.
+final openChannelIdProvider = NotifierProvider<OpenChannelId, String?>(
+  OpenChannelId.new,
+);
+
+class OpenChannelId extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  void set(String? channelId) => state = channelId;
+
+  /// Closes [channelId], unless another has been opened since.
+  void close(String channelId) {
+    if (state == channelId) state = null;
+  }
+}
 
 /// The turn currently streaming, if any.
 class LiveTurn {
@@ -516,7 +539,7 @@ class LiveTurn {
 /// persisted message -- so there is exactly one place that decides what the
 /// transcript is.
 final liveTurnProvider = StreamProvider<LiveTurn?>((ref) {
-  ref.watch(_eventSubscriptionProvider);
+  ref.watch(eventSubscriptionProvider);
   final client = ref.watch(rpcClientProvider);
   final controller = StreamController<LiveTurn?>();
   LiveTurn? current;

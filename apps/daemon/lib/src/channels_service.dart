@@ -140,7 +140,12 @@ final class ChannelsService {
     return ChannelMessages(
       channelId: channelId,
       parentId: parentId,
-      messages: messages.map(_message).toList(growable: false),
+      // Open WebUI answers a thread with its parent among the replies; the
+      // parent is shown above them already.
+      messages: <ChannelMessageDto>[
+        for (final message in messages)
+          if (message.id != parentId) _message(message),
+      ],
       hasOlder: _container.read(provider.notifier).hasMore(),
     );
   }
@@ -314,10 +319,17 @@ final class ChannelsService {
     final me = _me;
     final created = _ms(message.createdAt) ?? 0;
     final updated = _ms(message.updatedAt);
+    // A model answering in a channel posts as the user who asked it; its
+    // own name is in the message's meta, and that is who is speaking.
+    final modelName =
+        message.meta?['model_name'] as String? ??
+        message.meta?['model_id'] as String?;
     return ChannelMessageDto(
       id: message.id,
       channelId: message.channelId ?? '',
-      user: message.user == null
+      user: modelName != null
+          ? ChannelUser(id: 'model:$modelName', name: modelName)
+          : message.user == null
           ? null
           : ChannelUser(id: message.user!.id, name: message.user!.name ?? ''),
       content: message.content,
