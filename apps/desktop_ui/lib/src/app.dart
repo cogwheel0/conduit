@@ -317,6 +317,7 @@ class _Shell extends StatelessComponent {
       const _SessionGate(),
       const KeyboardLayer(),
       const DesktopIntegration(),
+      const TerminalDisplayRequests(),
       // Above every route: a tool waiting for approval holds up its reply
       // wherever the person happens to be looking.
       const UiRequestCard(),

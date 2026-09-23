@@ -107,3 +107,22 @@ final terminalServersProvider = FutureProvider<TerminalServers>((ref) async {
     return const TerminalServers();
   }
 });
+
+/// A file a model's terminal tool asked to show, until the terminal page
+/// shows it.
+final terminalDisplayFileProvider =
+    NotifierProvider<PendingTerminalFile, String?>(PendingTerminalFile.new);
+
+class PendingTerminalFile extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  void show(String path) => state = path;
+
+  /// The path, once: whoever shows it clears it.
+  String? take() {
+    final path = state;
+    if (path != null) state = null;
+    return path;
+  }
+}

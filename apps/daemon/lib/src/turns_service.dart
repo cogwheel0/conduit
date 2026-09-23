@@ -796,6 +796,12 @@ final class TurnsService {
       appendStatusUpdate: (_, _) {},
       upsertCodeExecution: (_, _) {},
       appendSourceReference: (_, _) {},
+      // A model's terminal tool asks to show a file: the window shows it.
+      onTerminalDisplayFile: (path) => _events.publish(
+        ConduitEvents.terminalDisplayFile,
+        scope: chatId,
+        payload: TerminalDisplayFile(chatId: chatId, path: path).toJson(),
+      ),
       // How a failed turn arrives. The helper does not throw for a server
       // refusal -- it sets an error on the message and finishes -- so a
       // no-op here reported "free tier users do not have access to this

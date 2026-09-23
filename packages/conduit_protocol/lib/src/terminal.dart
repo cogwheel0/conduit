@@ -207,3 +207,16 @@ abstract class TerminalPreview with _$TerminalPreview {
   factory TerminalPreview.fromJson(Map<String, dynamic> json) =>
       _$TerminalPreviewFromJson(json);
 }
+
+/// Payload of `terminal.displayFile`: a model's tool asks to show a file
+/// from the chat's terminal (M7), scoped to the chat.
+@freezed
+abstract class TerminalDisplayFile with _$TerminalDisplayFile {
+  const factory TerminalDisplayFile({
+    required String chatId,
+    required String path,
+  }) = _TerminalDisplayFile;
+
+  factory TerminalDisplayFile.fromJson(Map<String, dynamic> json) =>
+      _$TerminalDisplayFileFromJson(json);
+}

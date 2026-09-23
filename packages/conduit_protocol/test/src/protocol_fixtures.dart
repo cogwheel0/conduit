@@ -941,6 +941,10 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     failure: 'checksum',
   ),
   'voiceModelRef': const VoiceModelRef(id: 'tiny.en'),
+  'terminalDisplayFile': const TerminalDisplayFile(
+    chatId: 'c1',
+    path: '/home/user/report.md',
+  ),
   'noteFile': const NoteFile(
     id: 'f1',
     name: 'recording.webm',
@@ -1433,6 +1437,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'voiceModel': VoiceModel.fromJson,
       'voiceModels': VoiceModels.fromJson,
       'voiceModelRef': VoiceModelRef.fromJson,
+      'terminalDisplayFile': TerminalDisplayFile.fromJson,
       'noteFile': NoteFile.fromJson,
       'noteAttach': NoteAttach.fromJson,
       'noteDetach': NoteDetach.fromJson,

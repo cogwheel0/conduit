@@ -163,6 +163,31 @@ void main() {
     expect(find.text('📄 notes.txt'), findsNothing);
   });
 
+  testComponents('a file a model asked to show opens with the page', (
+    tester,
+  ) async {
+    late ProviderContainer container;
+    tester.pumpComponent(
+      Builder(
+        builder: (context) {
+          return page(one);
+        },
+      ),
+    );
+    // Asked for before the page could show it: waits for the attach.
+    container = ProviderScope.containerOf(
+      find.byType(TerminalPage).evaluate().first,
+      listen: false,
+    );
+    container
+        .read(terminalDisplayFileProvider.notifier)
+        .show('/work/out/report.md');
+    await settle();
+    expect(actions.listed, containsAll(<String>['/work/', '/work/out/']));
+    expect(find.text('hello there'), findsOneComponent);
+    expect(container.read(terminalDisplayFileProvider), isNull);
+  });
+
   testComponents('browses, previews, downloads, uploads and deletes', (
     tester,
   ) async {

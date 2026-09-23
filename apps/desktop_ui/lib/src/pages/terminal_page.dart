@@ -7,13 +7,18 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import 'package:jaspr_router/jaspr_router.dart';
 
 import '../l10n/strings.g.dart';
+import '../rpc/chat_providers.dart' show selectedChatIdProvider;
 import '../rpc/rpc_providers.dart'
-    show attachmentsProvider, fileSaverProvider, windowCommandsProvider;
+    show
+        attachmentsProvider,
+        fileSaverProvider,
+        rpcClientProvider,
+        windowCommandsProvider;
 import '../rpc/terminal_providers.dart';
 import '../terminal_port.dart';
 import '../widgets/form_field.dart';
 import 'workspace/workspace_common.dart'
-    show actionButton, confirmBox, modal, statusLine;
+    show actionButton, confirmBox, modal, statusLine, workspaceGo;
 
 /// The terminal (M7): a shell on one of the account's terminal servers,
 /// its files and its listening ports.
@@ -123,6 +128,7 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
         Future<void>.delayed(Duration.zero, _connect);
       }
       await Future.wait(<Future<void>>[_open(attached.cwd), _loadPorts()]);
+      await _showRequested();
     } on Object {
       _say(t.app.terminalFailedToConnect, error: true);
     }
@@ -212,20 +218,33 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
     }, failed: t.app.terminalUploadFailed);
   }
 
-  Future<void> _show(TerminalEntry entry) async {
+  Future<void> _show(TerminalEntry entry) => _showPath(entry.path);
+
+  Future<void> _showPath(String path) async {
     final attached = _attached;
     if (attached == null) return;
     try {
-      final content = await _actions.read(attached.handle, entry.path);
+      final content = await _actions.read(attached.handle, path);
       if (mounted) {
         setState(() {
           _preview = content;
-          _previewPath = entry.path;
+          _previewPath = path;
         });
       }
     } on Object {
       _say(t.app.terminalPreviewUnavailable, error: true);
     }
+  }
+
+  /// A file a model's tool asked to show (`terminal.displayFile`): its
+  /// folder, and the file itself open over it.
+  Future<void> _showRequested() async {
+    if (_attached == null || !mounted) return;
+    final path = context.read(terminalDisplayFileProvider.notifier).take();
+    if (path == null) return;
+    final slash = path.lastIndexOf('/');
+    if (slash > 0) await _open(path.substring(0, slash + 1));
+    await _showPath(path);
   }
 
   Future<void> _download(BuildContext context, String path) async {
@@ -262,6 +281,11 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
   Component build(BuildContext context) {
     _actions = context.read(terminalActionsProvider);
     _view = context.read(terminalViewProvider);
+    // Asked for while the page is already open.
+    if (context.watch(terminalDisplayFileProvider) != null &&
+        _attached != null) {
+      Future<void>.microtask(_showRequested);
+    }
     if (!_started) {
       _started = true;
       Future<void>.delayed(Duration.zero, _attach);
@@ -639,3 +663,40 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
 /// Whether the terminal is offered: an account with a terminal server.
 bool terminalOffered(TerminalServers? servers) =>
     servers != null && servers.servers.isNotEmpty;
+
+/// Hears `terminal.displayFile` for the open conversation, and takes the
+/// window to the terminal with the file shown (M7).
+class TerminalDisplayRequests extends StatefulComponent {
+  const TerminalDisplayRequests({super.key});
+
+  @override
+  State<TerminalDisplayRequests> createState() =>
+      _TerminalDisplayRequestsState();
+}
+
+class _TerminalDisplayRequestsState extends State<TerminalDisplayRequests> {
+  StreamSubscription<EventEnvelope>? _events;
+
+  @override
+  void initState() {
+    super.initState();
+    _events = context.read(rpcClientProvider).events.listen((envelope) {
+      if (envelope.event != ConduitEvents.terminalDisplayFile || !mounted) {
+        return;
+      }
+      final request = TerminalDisplayFile.fromJson(envelope.payload);
+      if (request.chatId != context.read(selectedChatIdProvider)) return;
+      context.read(terminalDisplayFileProvider.notifier).show(request.path);
+      workspaceGo(context, '/terminal');
+    });
+  }
+
+  @override
+  void dispose() {
+    unawaited(_events?.cancel());
+    super.dispose();
+  }
+
+  @override
+  Component build(BuildContext context) => const Component.fragment([]);
+}

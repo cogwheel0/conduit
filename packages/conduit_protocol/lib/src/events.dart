@@ -76,6 +76,10 @@ abstract final class ConduitEvents {
   /// one was deleted (M11). Payload [VoiceModels].
   static const String voiceChanged = 'voice.changed';
 
+  /// A model's tool asked to show a file from the chat's terminal. Payload
+  /// [TerminalDisplayFile], scoped to the chat.
+  static const String terminalDisplayFile = 'terminal.displayFile';
+
   /// Every event name, for subscription validation and tests.
   static const Set<String> all = {
     turnStarted,
@@ -100,6 +104,7 @@ abstract final class ConduitEvents {
     workspaceChanged,
     hermesChanged,
     voiceChanged,
+    terminalDisplayFile,
   };
 }
 
