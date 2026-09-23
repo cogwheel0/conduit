@@ -4,6 +4,7 @@ library;
 import 'package:conduit_desktop_ui/src/external_sign_in.dart';
 import 'package:conduit_desktop_ui/src/rpc/rpc_client.dart';
 import 'package:conduit_desktop_ui/src/rpc/direct_providers.dart';
+import 'package:conduit_desktop_ui/src/rpc/hermes_providers.dart';
 import 'package:conduit_desktop_ui/src/rpc/rpc_providers.dart';
 import 'package:conduit_desktop_ui/src/rpc/session_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -31,10 +32,13 @@ class _FakeRpcClient implements RpcClient {
     calls.add((method: method, params: params));
     // Every window asks for the direct connections, which decide whether a
     // setup with no server is a setup at all (M4). None, unless a test says.
+    // Hermes too (M7): not set up, unless a test says.
     final responder =
         responses[method] ??
         (method == ConduitMethods.directList
             ? () => const DirectConnectionList()
+            : method == ConduitMethods.hermesSettings
+            ? () => const HermesSettings()
             : null);
     if (responder == null) {
       throw StateError('no fake response for $method');
@@ -126,6 +130,7 @@ void main() {
       await container.read(serverListProvider.future);
       await container.read(authStatusProvider.future);
       await container.read(directConnectionsProvider.future);
+      await container.read(hermesSettingsProvider.future);
 
       expect(container.read(needsOnboardingProvider).value, isTrue);
     });
@@ -140,6 +145,7 @@ void main() {
       await container.read(serverListProvider.future);
       await container.read(authStatusProvider.future);
       await container.read(directConnectionsProvider.future);
+      await container.read(hermesSettingsProvider.future);
 
       expect(container.read(needsOnboardingProvider).value, isFalse);
     });
@@ -157,6 +163,7 @@ void main() {
       await container.read(serverListProvider.future);
       await container.read(authStatusProvider.future);
       await container.read(directConnectionsProvider.future);
+      await container.read(hermesSettingsProvider.future);
 
       // No server configured, and still not onboarding: the demo path runs
       // against canned data with no server at all.
@@ -175,6 +182,25 @@ void main() {
       await container.read(serverListProvider.future);
       await container.read(authStatusProvider.future);
       await container.read(directConnectionsProvider.future);
+      await container.read(hermesSettingsProvider.future);
+
+      expect(container.read(directOnlyProvider).value, isTrue);
+      expect(container.read(needsOnboardingProvider).value, isFalse);
+    });
+
+    test('Hermes Agent and no server are a setup too (M7)', () async {
+      final container = _container(
+        _FakeRpcClient(<String, Object Function()>{
+          ConduitMethods.serversList: () => _emptyList,
+          ConduitMethods.authStatus: () => _signedOut,
+          ConduitMethods.hermesSettings: () =>
+              const HermesSettings(enabled: true, usable: true),
+        }),
+      );
+      await container.read(serverListProvider.future);
+      await container.read(authStatusProvider.future);
+      await container.read(directConnectionsProvider.future);
+      await container.read(hermesSettingsProvider.future);
 
       expect(container.read(directOnlyProvider).value, isTrue);
       expect(container.read(needsOnboardingProvider).value, isFalse);
@@ -192,6 +218,7 @@ void main() {
       await container.read(serverListProvider.future);
       await container.read(authStatusProvider.future);
       await container.read(directConnectionsProvider.future);
+      await container.read(hermesSettingsProvider.future);
 
       expect(container.read(needsOnboardingProvider).value, isTrue);
     });

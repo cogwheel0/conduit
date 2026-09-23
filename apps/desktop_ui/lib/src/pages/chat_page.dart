@@ -162,8 +162,14 @@ class _Sidebar extends StatelessComponent {
                 // conversations that they had none, for as long as the
                 // first sync took.
                 ? _hint(
-                    context.watch(syncStateProvider).value?.everCompleted ??
-                            true
+                    // With no server there is nothing to sync, and never
+                    // will be: a Hermes- or direct-only setup (M7).
+                    (context.watch(syncStateProvider).value?.everCompleted ??
+                                true) ||
+                            switch (context.watch(serverListProvider).value) {
+                              final servers? => servers.activeServerId == null,
+                              null => false,
+                            }
                         ? t.desktop.desktopNoChatsYet
                         : t.desktop.desktopSyncing,
                   )
@@ -173,6 +179,11 @@ class _Sidebar extends StatelessComponent {
           else
             _hint(t.app.loadingShort),
         ]),
+        // Hermes Agent's latest conversations, once it is connected (M7):
+        // its sessions are not in the chat list, which is Open WebUI's.
+        if (query.trim().isEmpty &&
+            (context.watch(hermesSettingsProvider).value?.usable ?? false))
+          _HermesRecent(selected: selected),
         // Pinned under the list rather than floating over the transcript,
         // which is where it used to sit -- on top of the send button.
         div(classes: 'shrink-0 border-t border-border p-2', [
@@ -499,6 +510,53 @@ class _SyncIndicator extends StatelessComponent {
 }
 
 /// One search hit: the title, and the matching text in context.
+/// The latest Hermes conversations, under the chat list. All of them are
+/// on the Hermes page.
+class _HermesRecent extends StatelessComponent {
+  const _HermesRecent({required this.selected});
+
+  final String? selected;
+
+  @override
+  Component build(BuildContext context) {
+    final sessions =
+        context.watch(hermesSessionsProvider).value?.sessions ??
+        const <HermesSessionDto>[];
+    if (sessions.isEmpty) return const Component.fragment([]);
+    return section(
+      classes: 'shrink-0 border-t border-border px-2 py-2',
+      attributes: <String, String>{
+        'aria-label': t.app.hermesConversationsTitle,
+      },
+      [
+        h2(classes: 'px-2 pb-1 text-xs font-medium text-muted-foreground', [
+          Component.text(t.app.hermesAgentSettingsTitle),
+        ]),
+        ul(classes: 'space-y-0.5', [
+          for (final session in sessions.take(5))
+            li([
+              button(
+                [
+                  Component.text(
+                    session.title.isEmpty
+                        ? t.app.hermesSessionUntitled
+                        : session.title,
+                  ),
+                ],
+                classes:
+                    'block w-full truncate rounded px-2 py-1.5 text-left text-sm '
+                    '${selected == session.chatId ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'}',
+                type: ButtonType.button,
+                onClick: () =>
+                    context.read(chatActionsProvider).select(session.chatId),
+              ),
+            ]),
+        ]),
+      ],
+    );
+  }
+}
+
 class _SearchRow extends StatelessComponent {
   const _SearchRow({required this.hit, required this.isSelected});
 

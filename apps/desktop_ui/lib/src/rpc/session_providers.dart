@@ -3,6 +3,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 
 import '../external_sign_in.dart';
 import 'direct_providers.dart';
+import 'hermes_providers.dart';
 import 'rpc_client.dart';
 import 'rpc_providers.dart';
 
@@ -62,14 +63,17 @@ final authStatusProvider = FutureProvider<AuthSnapshot>((ref) async {
 final directOnlyProvider = Provider<AsyncValue<bool>>((ref) {
   final servers = ref.watch(serverListProvider);
   final direct = ref.watch(directConnectionsProvider);
-  if (servers.isLoading || direct.isLoading) {
+  // Hermes Agent is a backend of its own too (M7): usable, it is enough
+  // to chat with no server. A daemon that cannot say counts as no.
+  final hermes = ref.watch(hermesSettingsProvider);
+  if (servers.isLoading || direct.isLoading || hermes.isLoading) {
     return const AsyncValue<bool>.loading();
   }
   final list = direct.value;
   return AsyncValue<bool>.data(
     servers.value?.activeServerId == null &&
-        (list?.preferred ?? false) &&
-        (list?.usable ?? false),
+        (((list?.preferred ?? false) && (list?.usable ?? false)) ||
+            (hermes.value?.usable ?? false)),
   );
 });
 

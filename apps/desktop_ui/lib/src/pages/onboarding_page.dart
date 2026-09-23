@@ -11,8 +11,10 @@ import '../l10n/strings.g.dart';
 import '../rpc/rpc_providers.dart';
 import '../rpc/session_providers.dart';
 import '../rpc/direct_providers.dart';
+import '../rpc/hermes_providers.dart';
 import '../widgets/form_field.dart';
 import 'direct_connections_tab.dart';
+import 'hermes_settings_tab.dart' show HermesConnectionForm;
 
 /// How the app connects: the first thing a fresh install shows.
 ///
@@ -34,7 +36,7 @@ class OnboardingPage extends StatefulComponent {
 }
 
 /// Where the welcome screen is.
-enum _Step { choose, server, direct }
+enum _Step { choose, server, direct, hermes }
 
 class _OnboardingPageState extends State<OnboardingPage> {
   _Step _step = _Step.choose;
@@ -61,6 +63,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
     _Step.choose => _chooser(context),
     _Step.server => _serverForm(context),
     _Step.direct => _direct(context),
+    _Step.hermes => _hermes(context),
   };
 
   Component _chooser(BuildContext context) => div(
@@ -81,6 +84,12 @@ class _OnboardingPageState extends State<OnboardingPage> {
         title: t.app.backendChooserOpenWebUITitle,
         subtitle: t.app.backendChooserOpenWebUISubtitle,
         onChoose: () => _choose(context, _Step.server),
+      ),
+      _choice(
+        section: t.app.backendChooserSelfHostedSectionTitle,
+        title: t.app.backendChooserHermesTitle,
+        subtitle: t.app.backendChooserHermesSubtitle,
+        onChoose: () => _choose(context, _Step.hermes),
       ),
       _choice(
         section: t.app.backendChooserModelApisSectionTitle,
@@ -163,6 +172,36 @@ class _OnboardingPageState extends State<OnboardingPage> {
       const DirectConnectionsTab(),
     ],
   );
+
+  /// Hermes Agent, set up in place (M7). Once it is usable the session
+  /// gate takes the window to the chat, with the agent to talk to.
+  Component _hermes(BuildContext context) {
+    final saved = context.watch(hermesSettingsProvider).value;
+    return div(
+      classes:
+          'mx-auto flex min-h-screen w-full max-w-lg flex-col justify-center '
+          'gap-6 px-8 py-8 text-foreground',
+      [
+        _back(context),
+        header(classes: 'space-y-2', [
+          h1(classes: 'text-2xl font-semibold', [
+            Component.text(t.app.backendChooserHermesTitle),
+          ]),
+          p(classes: 'text-sm text-muted-foreground', [
+            Component.text(t.app.hermesNativeSettingsSubtitle),
+          ]),
+        ]),
+        if (saved == null)
+          p(classes: 'text-sm text-muted-foreground', [
+            Component.text(t.app.loadingShort),
+          ])
+        else
+          HermesConnectionForm(
+            saved: saved.enabled ? saved : saved.copyWith(enabled: true),
+          ),
+      ],
+    );
+  }
 
   Component _serverForm(BuildContext context) {
     return div(
