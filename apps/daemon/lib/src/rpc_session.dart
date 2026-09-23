@@ -7,6 +7,7 @@ import 'package:stream_channel/stream_channel.dart';
 import 'auth_service.dart';
 import 'chats_service.dart';
 import 'composer_service.dart';
+import 'prompts_service.dart';
 import 'event_bus.dart';
 import 'log.dart';
 import 'models_service.dart';
@@ -36,8 +37,10 @@ class RpcSession {
     ModelsService? models,
     UiRequestsService? uiRequests,
     ComposerService? composer,
+    PromptsService? prompts,
   }) : _events = events,
        _composer = composer,
+       _prompts = prompts,
        _uiRequests = uiRequests,
        _log = log,
        _system = system,
@@ -79,6 +82,7 @@ class RpcSession {
   /// is attached, when there is nothing to ask yet.
   final UiRequestsService? _uiRequests;
   final ComposerService? _composer;
+  final PromptsService? _prompts;
 
   Future<void> listen() => _peer.listen();
 
@@ -637,6 +641,27 @@ class RpcSession {
       },
     );
 
+    registerTypedMethodNoParams<PromptList>(
+      _peer,
+      ConduitMethods.promptsList,
+      encodeResult: (result) => result.toJson(),
+      handler: () {
+        _requireHandshake();
+        return _requirePrompts().list();
+      },
+    );
+
+    registerTypedMethod<RenderPrompt, RenderedPrompt>(
+      _peer,
+      ConduitMethods.promptsRender,
+      decodeParams: RenderPrompt.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requirePrompts().render(request);
+      },
+    );
+
     registerTypedMethodNoParams<ModelList>(
       _peer,
       ConduitMethods.modelsList,
@@ -658,6 +683,13 @@ class RpcSession {
       },
     );
   }
+
+  PromptsService _requirePrompts() =>
+      _prompts ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
 
   ModelsService _requireModels() =>
       _models ??

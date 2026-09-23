@@ -16,6 +16,11 @@ abstract interface class WindowCommandsPort {
   /// Writes [text] to the system clipboard. False if the browser refused.
   Future<bool> copy(String text);
 
+  /// The clipboard's text, or null when it is empty or unreadable. Only
+  /// read for a prompt that asks for `{{CLIPBOARD}}`, when the user has
+  /// just chosen that prompt.
+  Future<String?> readClipboard();
+
   /// Sets the value of the field with [id].
   ///
   /// Needed for `textarea` and nothing else. Jaspr reconciles a `value`
@@ -66,6 +71,12 @@ final class RecordingWindowCommands implements WindowCommandsPort {
 
   @override
   void reveal(String id) => revealed.add(id);
+
+  /// What [readClipboard] answers.
+  String? clipboardText;
+
+  @override
+  Future<String?> readClipboard() async => clipboardText;
 
   final List<String> revealed = <String>[];
 

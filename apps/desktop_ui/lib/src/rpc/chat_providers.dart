@@ -127,6 +127,17 @@ final paletteResultsProvider = FutureProvider<ChatSearchResults?>((ref) async {
       );
 });
 
+/// The account's saved prompts, for the composer's `/` menu (WP-3.3).
+///
+/// Fetched when the menu first opens rather than at startup: most messages
+/// never type a `/`, and the list is one request away when one does.
+final promptListProvider = FutureProvider<PromptList>((ref) async {
+  ref.watch(coreConnectionProvider);
+  return ref
+      .read(rpcClientProvider)
+      .call(ConduitMethods.promptsList, decode: PromptList.fromJson);
+});
+
 /// Which conversation the transcript is showing. Null is the empty state.
 final selectedChatIdProvider = NotifierProvider<SelectedChatId, String?>(
   SelectedChatId.new,
@@ -454,6 +465,13 @@ class ChatActions {
       model: model,
     ).toJson(),
     decode: SendTurnAccepted.fromJson,
+  );
+
+  /// A saved prompt's text, or the fields it needs filled in first.
+  Future<RenderedPrompt> renderPrompt(RenderPrompt request) => _client.call(
+    ConduitMethods.promptsRender,
+    params: request.toJson(),
+    decode: RenderedPrompt.fromJson,
   );
 
   /// Replaces one of the user's messages and answers it, as a new branch.

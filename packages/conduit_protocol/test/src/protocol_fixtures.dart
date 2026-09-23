@@ -223,6 +223,35 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     name: 'Weather',
     description: 'Current conditions for a city',
   ),
+  'promptSummary': const PromptSummary(
+    command: '/standup',
+    title: 'Stand-up notes',
+    description: 'Yesterday, today, blockers',
+    usesClipboard: true,
+  ),
+  'promptList': const PromptList(
+    prompts: <PromptSummary>[
+      PromptSummary(command: '/standup', title: 'Stand-up notes'),
+    ],
+  ),
+  'renderPrompt': const RenderPrompt(
+    command: '/standup',
+    values: <String, String>{'team': 'Platform'},
+    clipboard: 'pasted',
+  ),
+  'promptInput': const PromptInput(
+    name: 'team',
+    label: 'Team',
+    type: 'select',
+    placeholder: 'Which team',
+    defaultValue: 'Platform',
+    required: true,
+    options: <String>['Platform', 'Mobile'],
+  ),
+  'renderedPrompt': const RenderedPrompt(
+    content: 'Notes for {{team}}',
+    inputs: <PromptInput>[PromptInput(name: 'team', label: 'Team')],
+  ),
   'composerOptions': const ComposerOptions(
     webSearch: true,
     tools: <ToolSummary>[ToolSummary(id: 'weather', name: 'Weather')],
@@ -417,6 +446,11 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'turnFailed': TurnFailed.fromJson,
       'stopTurn': StopTurn.fromJson,
       'toolSummary': ToolSummary.fromJson,
+      'promptSummary': PromptSummary.fromJson,
+      'promptList': PromptList.fromJson,
+      'renderPrompt': RenderPrompt.fromJson,
+      'promptInput': PromptInput.fromJson,
+      'renderedPrompt': RenderedPrompt.fromJson,
       'composerOptions': ComposerOptions.fromJson,
       'syncState': SyncState.fromJson,
       'chatsChanged': ChatsChanged.fromJson,

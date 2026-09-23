@@ -7,12 +7,15 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 
 import '../attachments.dart';
 import '../keyboard.dart';
+import '../palette.dart';
+import '../prompt_trigger.dart';
 import '../l10n/strings.g.dart';
 import '../rpc/chat_providers.dart';
 import '../rpc/rpc_providers.dart';
 import '../sidebar_model.dart';
 import '../widgets/form_field.dart';
 import '../widgets/markdown_view.dart';
+import '../widgets/prompt_menu.dart';
 
 /// The chat vertical: sidebar, transcript, composer (M3).
 class ChatPage extends StatelessComponent {
@@ -1078,6 +1081,17 @@ class _ComposerState extends State<_Composer> {
   /// crosses into a child, so a flag flickered off over the text field.
   int _dragDepth = 0;
 
+  // The `/` menu. Dismissed for exactly the text it was dismissed at, so
+  // typing on brings it back without a separate "reopen" gesture.
+  int _promptIndex = 0;
+  String? _promptsDismissedAt;
+
+  // A chosen prompt that needs values before it can be inserted.
+  PromptSummary? _asking;
+  List<PromptInput> _askingFor = const <PromptInput>[];
+  int _askingStart = 0;
+  String? _askingClipboard;
+
   @override
   Component build(BuildContext context) {
     final live = context.watch(liveTurnProvider).value;
@@ -1095,6 +1109,20 @@ class _ComposerState extends State<_Composer> {
     final options = context.watch(composerOptionsProvider).value;
 
     final attachments = context.read(attachmentsProvider);
+
+    final trigger = _promptsDismissedAt == _text || _asking != null
+        ? null
+        : slashTriggerIn(_text);
+    final prompts = trigger == null
+        ? const <PromptSummary>[]
+        : matchPrompts(
+            trigger.query,
+            context.watch(promptListProvider).value?.prompts ??
+                const <PromptSummary>[],
+          );
+    final highlighted = prompts.isEmpty
+        ? -1
+        : _promptIndex.clamp(0, prompts.length - 1);
 
     return div(
       key: const ValueKey('composer'),
@@ -1126,6 +1154,22 @@ class _ComposerState extends State<_Composer> {
                 options.imageGeneration ||
                 options.tools.isNotEmpty))
           _features(options),
+        if (_asking case final prompt?)
+          PromptInputsForm(
+            key: ValueKey('fill-${prompt.command}'),
+            title: prompt.title,
+            inputs: _askingFor,
+            onSubmit: (values) =>
+                unawaited(_renderPrompt(context, prompt, values: values)),
+            onCancel: () => setState(() => _asking = null),
+          )
+        else if (prompts.isNotEmpty)
+          PromptMenu(
+            prompts: prompts,
+            highlighted: highlighted,
+            onChoose: (prompt) => unawaited(_choosePrompt(context, prompt)),
+            onHighlight: (index) => setState(() => _promptIndex = index),
+          ),
         if (_attachments.isNotEmpty)
           div(
             classes: 'mx-auto mb-2 flex max-w-3xl flex-wrap gap-2',
@@ -1212,8 +1256,30 @@ class _ComposerState extends State<_Composer> {
                   // disabled element cannot be focused, so the refocus below
                   // was a no-op against a DOM that had not rebuilt yet, and
                   // they were left typing into nothing.
-                  onInput: (value) => setState(() => _text = value),
-                  onKeyDown: sendOnEnter(() => unawaited(_send(context))),
+                  onInput: (value) => setState(() {
+                    _text = value;
+                    _promptIndex = 0;
+                  }),
+                  onKeyDown: composerKeys(
+                    menuOpen: () => prompts.isNotEmpty,
+                    move: ({required down}) {
+                      final next = movePaletteIndex(
+                        highlighted,
+                        prompts.length,
+                        down: down,
+                      );
+                      setState(() => _promptIndex = next);
+                      Future<void>.microtask(
+                        () => context
+                            .read(windowCommandsProvider)
+                            .reveal('prompt-option-$next'),
+                      );
+                    },
+                    choose: () =>
+                        unawaited(_choosePrompt(context, prompts[highlighted])),
+                    dismiss: () => setState(() => _promptsDismissedAt = _text),
+                    send: () => unawaited(_send(context)),
+                  ),
                 ),
               ]),
               if (streaming)
@@ -1403,6 +1469,68 @@ class _ComposerState extends State<_Composer> {
     final picked = await port.pick();
     if (!mounted) return;
     _upload(port, picked);
+  }
+
+  /// Puts [prompt] where its `/command` was typed, or asks for its values.
+  Future<void> _choosePrompt(BuildContext context, PromptSummary prompt) async {
+    final start = slashTriggerIn(_text)?.start ?? _text.length;
+    // Read now, while the user's gesture is fresh: the browser only hands
+    // over the clipboard to a focused document, and only for a prompt
+    // that asked for it.
+    final clipboard = prompt.usesClipboard
+        ? await context.read(windowCommandsProvider).readClipboard()
+        : null;
+    if (!mounted) return;
+    setState(() {
+      _askingStart = start;
+      _askingClipboard = clipboard;
+    });
+    await _renderPrompt(context, prompt);
+  }
+
+  Future<void> _renderPrompt(
+    BuildContext context,
+    PromptSummary prompt, {
+    Map<String, String> values = const <String, String>{},
+  }) async {
+    final RenderedPrompt rendered;
+    try {
+      rendered = await context
+          .read(chatActionsProvider)
+          .renderPrompt(
+            RenderPrompt(
+              command: prompt.command,
+              values: values,
+              clipboard: _askingClipboard,
+            ),
+          );
+    } on Object {
+      if (!mounted) return;
+      setState(() {
+        _asking = null;
+        _error = t.app.errorMessage;
+      });
+      return;
+    }
+    if (!mounted) return;
+    if (rendered.inputs.isNotEmpty) {
+      setState(() {
+        _asking = prompt;
+        _askingFor = rendered.inputs;
+      });
+      return;
+    }
+    final text =
+        _text.substring(0, _askingStart.clamp(0, _text.length)) +
+        rendered.content;
+    setState(() {
+      _asking = null;
+      _text = text;
+      _error = null;
+    });
+    context.read(windowCommandsProvider)
+      ..setValue('composer', text)
+      ..focus('composer');
   }
 
   /// Shows [picked] as chips and uploads each, however they arrived.

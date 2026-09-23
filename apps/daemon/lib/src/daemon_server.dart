@@ -14,6 +14,7 @@ import 'auth_service.dart';
 import 'bootstrap.dart';
 import 'chats_service.dart';
 import 'composer_service.dart';
+import 'prompts_service.dart';
 import 'core_runtime.dart';
 import 'daemon_paths.dart';
 import 'event_bus.dart';
@@ -68,6 +69,7 @@ class DaemonServer {
   FilesService? _files;
   UiRequestsService? _uiRequests;
   ComposerService? _composer;
+  PromptsService? _prompts;
 
   /// The broker the core asks its questions through. Exposed so tests can
   /// ask one and watch it cross the RPC boundary.
@@ -128,6 +130,7 @@ class DaemonServer {
     );
     _models = ModelsService(core.container);
     _composer = ComposerService(core.container);
+    _prompts = PromptsService(core.container);
     _log.info('core attached');
   }
 
@@ -352,6 +355,7 @@ class DaemonServer {
         models: _models,
         uiRequests: _uiRequests,
         composer: _composer,
+        prompts: _prompts,
       );
       _sessions[sessionId] = session;
       _log.debug('session $sessionId opened (subprotocol: $subprotocol)');

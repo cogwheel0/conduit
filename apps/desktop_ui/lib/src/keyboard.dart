@@ -140,6 +140,18 @@ final class DocumentWindowCommands implements WindowCommandsPort {
       pane.scrollHeight - pane.scrollTop - pane.clientHeight <= 48;
 
   @override
+  Future<String?> readClipboard() async {
+    // Rejects for the same reasons writing does, and a prompt should fill
+    // `{{CLIPBOARD}}` with nothing rather than fail.
+    try {
+      final text = await web.window.navigator.clipboard.readText().toDart;
+      return text.toDart;
+    } on Object {
+      return null;
+    }
+  }
+
+  @override
   Future<bool> copy(String text) async {
     // `navigator.clipboard` is promise-based and rejects when the document
     // is not focused, which happens often enough -- a click on the window
@@ -222,3 +234,46 @@ EventCallback paletteKeys({
       choose();
   }
 };
+
+/// The composer's keys, with the `/` menu open or not (WP-3.3).
+///
+/// While the menu shows, the arrows move its highlight, Enter and Tab
+/// choose, and Esc closes it -- and goes no further, because the document
+/// listener would otherwise take the same Esc as "stop the running turn".
+/// Otherwise this is [sendOnEnter].
+EventCallback composerKeys({
+  required bool Function() menuOpen,
+  required void Function({required bool down}) move,
+  required void Function() choose,
+  required void Function() dismiss,
+  required void Function() send,
+}) {
+  final onEnter = sendOnEnter(send);
+  return (web.Event event) {
+    final key = event as web.KeyboardEvent;
+    final composing = key.isComposing || key.keyCode == 229;
+    if (!composing && menuOpen()) {
+      switch (key.key) {
+        case 'ArrowDown':
+          event.preventDefault();
+          move(down: true);
+          return;
+        case 'ArrowUp':
+          event.preventDefault();
+          move(down: false);
+          return;
+        case 'Enter' || 'Tab' when !key.shiftKey:
+          event.preventDefault();
+          choose();
+          return;
+        case 'Escape':
+          event
+            ..preventDefault()
+            ..stopPropagation();
+          dismiss();
+          return;
+      }
+    }
+    onEnter(event);
+  };
+}

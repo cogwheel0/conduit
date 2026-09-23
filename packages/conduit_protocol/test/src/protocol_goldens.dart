@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.9.0",
+  "protocolVersion": "1.10.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.9.0",
+  "protocolVersion": "1.10.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -400,6 +400,62 @@ const Map<String, String> protocolGoldens = <String, String>{
   "id": "weather",
   "name": "Weather",
   "description": "Current conditions for a city"
+}''',
+
+  'promptSummary': r'''
+{
+  "command": "/standup",
+  "title": "Stand-up notes",
+  "description": "Yesterday, today, blockers",
+  "usesClipboard": true
+}''',
+
+  'promptList': r'''
+{
+  "prompts": [
+    {
+      "command": "/standup",
+      "title": "Stand-up notes",
+      "usesClipboard": false
+    }
+  ]
+}''',
+
+  'renderPrompt': r'''
+{
+  "command": "/standup",
+  "values": {
+    "team": "Platform"
+  },
+  "clipboard": "pasted"
+}''',
+
+  'promptInput': r'''
+{
+  "name": "team",
+  "label": "Team",
+  "type": "select",
+  "placeholder": "Which team",
+  "defaultValue": "Platform",
+  "required": true,
+  "options": [
+    "Platform",
+    "Mobile"
+  ]
+}''',
+
+  'renderedPrompt': r'''
+{
+  "content": "Notes for {{team}}",
+  "inputs": [
+    {
+      "name": "team",
+      "label": "Team",
+      "type": "text",
+      "required": false,
+      "options": []
+    }
+  ]
 }''',
 
   'composerOptions': r'''

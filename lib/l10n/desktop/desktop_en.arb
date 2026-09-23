@@ -357,5 +357,18 @@
   "desktopNewTemporaryChat": "New temporary chat",
   "@desktopNewTemporaryChat": {
     "description": "Command in the desktop command palette that starts a chat which is not saved."
+  },
+  "desktopPromptMenu": "Prompts",
+  "@desktopPromptMenu": {
+    "description": "Accessible name of the list of saved prompts that opens when typing / in the desktop composer."
+  },
+  "desktopPromptInsert": "Insert",
+  "@desktopPromptInsert": {
+    "description": "Button that puts a filled-in saved prompt into the desktop composer."
+  },
+  "desktopPromptFill": "Fill in {title}",
+  "@desktopPromptFill": {
+    "description": "Heading of the small form that asks for a saved prompt's values before inserting it in the desktop composer.",
+    "placeholders": { "title": { "type": "String", "example": "Stand-up notes" } }
   }
 }

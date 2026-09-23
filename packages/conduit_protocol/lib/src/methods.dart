@@ -159,6 +159,13 @@ abstract final class ConduitMethods {
   /// server's tools. Re-asked when the model or the session changes.
   static const String composerOptions = 'composer.options';
 
+  /// The account's saved prompts, for the composer's `/` menu (WP-3.3).
+  static const String promptsList = 'prompts.list';
+
+  /// A prompt's text with its variables filled in. Answers with the fields
+  /// still to ask for when the prompt has any and no values were sent.
+  static const String promptsRender = 'prompts.render';
+
   // ---------------------------------------------------------------------
   // turns.* -- sending and stopping generation (M3).
   // ---------------------------------------------------------------------

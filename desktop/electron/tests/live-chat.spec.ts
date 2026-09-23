@@ -10,6 +10,7 @@ import { basename, join } from 'node:path'
 import {
   _electron as electron,
   expect,
+  request as http,
   test,
   type ElectronApplication,
   type Page,
@@ -677,6 +678,68 @@ test.describe('against a real server', () => {
       await chips.getByRole('button', { name: new RegExp(name) }).click()
     }
     await expect(chips).toBeHidden()
+
+    // 12d. A saved prompt through the `/` menu (WP-3.3). Created for this
+    // run through the server's API and deleted again afterwards, since an
+    // account need not have any -- and the one this runs against has none.
+    // Skipped when the account may not create prompts.
+    const api = await http.newContext({ baseURL: url })
+    const signIn = await api.post('/api/v1/auths/signin', {
+      data: { email, password },
+    })
+    const { token } = (await signIn.json()) as { token: string }
+    const auth = { authorization: `Bearer ${token}` }
+    const command = `conduit-e2e-${process.pid}`
+    const created = await api.post('/api/v1/prompts/create', {
+      headers: auth,
+      data: {
+        command,
+        name: 'Conduit e2e',
+        content:
+          'Plan for {{team | select:options=["Platform","Mobile"]:required=true}} ' +
+          'on {{CURRENT_WEEKDAY}}.',
+      },
+    })
+    const promptId = created.ok()
+      ? ((await created.json()) as { id: string }).id
+      : null
+    try {
+      if (promptId !== null) {
+        const composer = page.getByPlaceholder('Ask Conduit')
+        await composer.fill('')
+        await composer.focus()
+        await page.keyboard.type(`/${command.slice(0, 12)}`)
+        const menu = page.getByRole('listbox', { name: /prompts/i })
+        await expect(menu).toBeVisible({ timeout: 15_000 })
+        await expect(menu.getByRole('option').first()).toContainText(command)
+        // Esc closes the menu and only the menu.
+        await page.keyboard.press('Escape')
+        await expect(menu).toBeHidden()
+        // And stays closed for that text only: one more edit, and it is back.
+        await page.keyboard.press('Backspace')
+        await expect(menu).toBeVisible()
+        await shot(page, '12d-prompt-menu')
+        await page.keyboard.press('Enter')
+        // The prompt asks for its one field before it goes in.
+        const fill = page.getByRole('group', { name: /fill in conduit e2e/i })
+        await expect(fill).toBeVisible()
+        await fill.getByLabel(/team/i).selectOption('Mobile')
+        await shot(page, '12e-prompt-fill')
+        await fill.getByRole('button', { name: /^insert$/i }).click()
+        await expect(fill).toBeHidden()
+        // Filled in: the choice, and a weekday rather than a variable.
+        await expect(composer).toHaveValue(/^Plan for Mobile on [A-Z][a-z]+day\.$/)
+        await expect(composer).toBeFocused()
+        await composer.fill('')
+      }
+    } finally {
+      if (promptId !== null) {
+        await api.delete(`/api/v1/prompts/id/${promptId}/delete`, {
+          headers: auth,
+        })
+      }
+      await api.dispose()
+    }
 
     // 13. Delete the conversation this run created, through the UI.
     //

@@ -146,6 +146,29 @@ void main() {
         );
       }, timeout: const Timeout(Duration(minutes: 2)));
 
+      test('lists prompts and fills one in', () async {
+        // Read-only: the account's own prompts, if it has any. Creating one
+        // to test with would leave it behind on someone's server.
+        final service = PromptsService(runtime.container);
+        final list = await service.list();
+        printOnFailure('prompts: ${list.prompts.map((p) => p.command)}');
+        for (final prompt in list.prompts) {
+          expect(prompt.command, startsWith('/'));
+        }
+        if (list.prompts.isEmpty) return;
+        final first = list.prompts.first;
+        final rendered = await service.render(
+          RenderPrompt(command: first.command),
+        );
+        // Either final text, or the fields to ask for -- never neither.
+        expect(
+          rendered.content.isNotEmpty || rendered.inputs.isNotEmpty,
+          isTrue,
+        );
+        // No system variable survives rendering.
+        expect(rendered.content, isNot(contains('{{CURRENT_DATE}}')));
+      }, timeout: const Timeout(Duration(minutes: 1)));
+
       test('renames, pins and deletes a conversation', () async {
         final chats = ChatsService(runtime.container);
 

@@ -10,6 +10,7 @@ export 'src/auth_service.dart';
 export 'src/bootstrap.dart';
 export 'src/chats_service.dart';
 export 'src/composer_service.dart';
+export 'src/prompts_service.dart';
 export 'src/core_runtime.dart';
 export 'src/daemon_paths.dart';
 export 'src/daemon_server.dart';
