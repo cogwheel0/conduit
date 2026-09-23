@@ -1,0 +1,392 @@
+{
+  "@@locale": "sk",
+  "desktopCoreConnecting": "Spúšťa sa jadro…",
+  "desktopCoreConnected": "Pripojené k jadru",
+  "desktopCoreReconnecting": "Opätovné pripájanie k jadru (pokus {attempt})",
+  "@desktopCoreReconnecting": {
+    "placeholders": {
+      "attempt": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "desktopCoreUnavailable": "Jadro nie je dostupné",
+  "desktopCoreVersionMismatch": "Táto aplikácia a jej jadro majú rôzne verzie. Ak chcete pokračovať, preinštalujte Conduit.",
+  "desktopKeyringUnavailable": "Nenašla sa systémová kľúčenka, takže uložené prihlasovacie údaje sú menej chránené. Nainštalujte gnome-keyring alebo kwallet.",
+  "desktopQuickAskPlaceholder": "Opýtajte sa Conduitu…",
+  "desktopQuickAskContinue": "Pokračovať v hlavnom okne",
+  "desktopSettingsKeyboardTab": "Klávesnica",
+  "desktopShortcutConflict": "{shortcut} už používa príkaz {command}.",
+  "@desktopShortcutConflict": {
+    "placeholders": {
+      "shortcut": {
+        "type": "String",
+        "example": "Cmd+K"
+      },
+      "command": {
+        "type": "String",
+        "example": "Search"
+      }
+    }
+  },
+  "desktopSettingsTitle": "Nastavenia",
+  "desktopSettingsNoServers": "Zatiaľ nie sú nastavené žiadne servery.",
+  "desktopSettingsAddServer": "Pridať server",
+  "desktopSettingsSignedIn": "Prihlásené",
+  "desktopSettingsSwitchServer": "Prepnúť",
+  "desktopSettingsRemoveServer": "Odstrániť",
+  "desktopSigningOut": "Odhlasovanie…",
+  "desktopSignedOut": "Odhlásené.",
+  "desktopSignOutSuperseded": "Medzitým prebehlo nové prihlásenie, takže sa nič neodstránilo.",
+  "desktopSignOutIncomplete": "Tu ste odhlásení, ale toto zariadenie ešte nedokončilo mazanie údajov. Conduit to skúsi znova pri ďalšom spustení.",
+  "desktopChooseFile": "Vybrať súbor…",
+  "desktopReplaceFile": "Nahradiť…",
+  "desktopChatsLabel": "Konverzácie",
+  "desktopNoChatsYet": "Zatiaľ žiadne konverzácie. Novú začnete odoslaním správy.",
+  "desktopSending": "Odosiela sa…",
+  "desktopSignInMethod": "Spôsob prihlásenia",
+  "desktopChatActions": "Akcie pre {title}",
+  "@desktopChatActions": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopRenameChat": "Premenovať",
+  "desktopPinChat": "Pripnúť",
+  "desktopUnpinChat": "Odopnúť",
+  "desktopArchiveChat": "Archivovať",
+  "desktopDeleteChat": "Odstrániť",
+  "desktopConfirmDelete": "Odstrániť túto konverzáciu? Túto akciu nie je možné vrátiť.",
+  "desktopRenamePrompt": "Nový názov",
+  "desktopSearchChats": "Hľadať konverzácie",
+  "desktopSearchNoResults": "Nič sa nenašlo.",
+  "desktopSearchClear": "Vymazať hľadanie",
+  "desktopPickAConversation": "Vyberte konverzáciu",
+  "desktopPickAConversationHint": "Vyberte ju v bočnom paneli alebo novú začnite písaním nižšie.",
+  "desktopNewConversation": "Nová konverzácia",
+  "desktopShortcutsTitle": "Klávesové skratky",
+  "desktopShortcutFocusComposer": "Prejsť do poľa správy",
+  "desktopShortcutOpenPalette": "Hľadať konverzácie a príkazy",
+  "desktopShortcutFocusModelPicker": "Vybrať model",
+  "desktopShortcutShowShortcuts": "Zobraziť tento zoznam",
+  "desktopShortcutCopyLastResponse": "Kopírovať poslednú odpoveď",
+  "desktopShortcutCopyLastCodeBlock": "Kopírovať posledný blok kódu",
+  "desktopComposerHint": "Enter na odoslanie, Shift+Enter pre nový riadok",
+  "desktopCopied": "Skopírované",
+  "desktopNothingToCopy": "Zatiaľ nie je čo kopírovať",
+  "desktopPreview": "Náhľad",
+  "desktopHidePreview": "Skryť náhľad",
+  "desktopAttachFiles": "Priložiť súbory",
+  "desktopRemoveAttachment": "Odstrániť {name}",
+  "@desktopRemoveAttachment": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAttachmentFailed": "{name} sa nepodarilo priložiť",
+  "@desktopAttachmentFailed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAttachmentsUploading": "Čaká sa na dokončenie nahrávania príloh",
+  "desktopAlreadyGenerating": "Počkajte, kým sa aktuálna odpoveď dokončí, alebo ju zastavte.",
+  "desktopPreviousAnswer": "Predchádzajúca odpoveď",
+  "desktopNextAnswer": "Ďalšia odpoveď",
+  "desktopAnswerPosition": "Odpoveď {index} z {count}",
+  "@desktopAnswerPosition": {
+    "placeholders": {
+      "index": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSearchIncomplete": "Synchronizácia ešte prebieha, takže niektoré konverzácie sa zatiaľ nemusia zobraziť.",
+  "desktopSyncing": "Synchronizácia…",
+  "desktopSyncingPercent": "Synchronizácia… {percent} %",
+  "@desktopSyncingPercent": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSyncFailed": "Synchronizácia zlyhala",
+  "desktopTemporaryHint": "Neukladá sa. Po zatvorení aplikácie zmizne.",
+  "desktopAllow": "Povoliť",
+  "desktopDeny": "Zamietnuť",
+  "desktopServerAsks": "Server sa pýta",
+  "desktopShortcutAllowRequest": "Povoliť požiadavku servera",
+  "desktopShortcutDenyRequest": "Zamietnuť požiadavku servera",
+  "desktopToolRunning": "Spúšťa sa {name}…",
+  "@desktopToolRunning": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "web_search"
+      }
+    }
+  },
+  "desktopToolUsed": "Použité {name}",
+  "@desktopToolUsed": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "web_search"
+      }
+    }
+  },
+  "desktopToolInput": "Vstup",
+  "desktopDetails": "Podrobnosti",
+  "desktopDropToAttach": "Pustite súbory sem a priložte ich",
+  "desktopPaletteLabel": "Paleta príkazov",
+  "desktopPalettePlaceholder": "Hľadať konverzácie a príkazy",
+  "desktopPaletteCommands": "Príkazy",
+  "desktopPaletteRecent": "Nedávne konverzácie",
+  "desktopPaletteConversations": "Konverzácie",
+  "desktopNewTemporaryChat": "Nový dočasný chat",
+  "desktopPromptMenu": "Prompty",
+  "desktopPromptInsert": "Vložiť",
+  "desktopPromptFill": "Vyplniť {title}",
+  "@desktopPromptFill": {
+    "placeholders": {
+      "title": {
+        "type": "String",
+        "example": "Stand-up notes"
+      }
+    }
+  },
+  "desktopSourcesCount": "Zdroje ({count})",
+  "@desktopSourcesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopGoodResponse": "Dobrá odpoveď",
+  "desktopBadResponse": "Zlá odpoveď",
+  "desktopAddTag": "Pridať štítok",
+  "desktopTagName": "Názov štítka",
+  "desktopRemoveTag": "Odstrániť štítok {name}",
+  "@desktopRemoveTag": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "work"
+      }
+    }
+  },
+  "desktopShowTagged": "Zobraziť konverzácie so štítkom {name}",
+  "@desktopShowTagged": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "work"
+      }
+    }
+  },
+  "desktopMoveTo": "Presunúť do {folder}",
+  "@desktopMoveTo": {
+    "placeholders": {
+      "folder": {
+        "type": "String",
+        "example": "Work"
+      }
+    }
+  },
+  "desktopRemoveFromFolder": "Odstrániť z priečinka",
+  "desktopSelect": "Vybrať",
+  "desktopSelectedCount": "Vybrané: {count}",
+  "@desktopSelectedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopDone": "Hotovo",
+  "desktopMoveSelected": "Presunúť do…",
+  "desktopNoFolder": "Bez priečinka",
+  "desktopBulkDeleteConfirm": "Odstrániť konverzácie ({count})? Túto akciu nie je možné vrátiť.",
+  "@desktopBulkDeleteConfirm": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopBulkFailed": "Nepodarilo sa zmeniť: {count}.",
+  "@desktopBulkFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "1"
+      }
+    }
+  },
+  "desktopOffline": "Ste offline. Vaše konverzácie zostávajú k dispozícii; odoslanie počká, kým budete znova pripojení.",
+  "desktopControls": "Ovládanie",
+  "desktopSystemPromptHint": "Iba pre túto konverzáciu. Nechajte prázdne, ak chcete použiť predvolenú hodnotu z nastavení Open WebUI.",
+  "desktopSaved": "Uložené",
+  "desktopOpenImage": "Otvoriť obrázok {name}",
+  "@desktopOpenImage": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "diagram.png"
+      }
+    }
+  },
+  "desktopModelMenu": "Modely",
+  "desktopAnswerWith": "Ďalšia odpoveď od {model}",
+  "@desktopAnswerWith": {
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "gpt-4o"
+      }
+    }
+  },
+  "desktopClearMention": "Použiť namiesto toho vybraný model",
+  "desktopSortBy": "Zoradiť podľa",
+  "desktopSortUpdated": "Posledné zmeny",
+  "desktopSortTitle": "Názov",
+  "desktopFolderEmpty": "V tomto priečinku zatiaľ nič nie je.",
+  "desktopToggleFolder": "Zobraziť alebo skryť obsah priečinka {name}",
+  "@desktopToggleFolder": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Work"
+      }
+    }
+  },
+  "desktopOverview": "Prehľad",
+  "desktopOverviewHint": "Všetky vetvy tejto konverzácie. Vyberte správu a zobrazí sa jej vetva.",
+  "desktopKnowledgeMenu": "Znalosti",
+  "desktopOpenAiCompatible": "Kompatibilné s OpenAI",
+  "desktopDirectHistoryLocal": "Uchovávať priame chaty iba v tomto počítači",
+  "desktopDirectEnable": "Používať {name}",
+  "@desktopDirectEnable": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "OpenRouter"
+      }
+    }
+  },
+  "desktopMcpReachabilityHelp": "Pridajte koncový bod Streamable HTTP, ktorý je z tohto počítača dostupný. Jeho nástroje potom možno ponúkať modelom z vašich priamych pripojení.",
+  "desktopMcpSignedIn": "Prihlásené",
+  "desktopMcpNotSignedIn": "Neprihlásené",
+  "desktopMcpHeadersConfigured": "Nastavené: {names}. Zadaním nových hlavičiek ich nahradíte.",
+  "@desktopMcpHeadersConfigured": {
+    "placeholders": {
+      "names": {
+        "type": "String",
+        "example": "X-Team, X-Region"
+      }
+    }
+  },
+  "desktopMcpSaveFirst": "Pred prihlásením server uložte.",
+  "desktopNoteSaveFailed": "Zatiaľ neuložené; ďalší pokus prebehne pri ďalšej zmene",
+  "desktopLoadOlderMessages": "Načítať staršie správy",
+  "desktopMessageEdited": "upravené",
+  "desktopWorkspaceImport": "Importovať",
+  "desktopWorkspaceExportAll": "Exportovať všetko",
+  "desktopWorkspaceExport": "Exportovať",
+  "desktopWorkspaceUpdated": "Aktualizované {date}",
+  "@desktopWorkspaceUpdated": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceImportFailed": "Neimportované: {items}",
+  "@desktopWorkspaceImportFailed": {
+    "placeholders": {
+      "items": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceOnePerLine": "Jedna položka na riadok",
+  "desktopWorkspaceCommaSeparated": "Oddeľte čiarkami",
+  "desktopWorkspaceActive": "Aktívne",
+  "desktopWorkspaceNoSections": "V pracovnom priestore na tomto serveri nemôžete nič spravovať.",
+  "desktopWorkspaceNotFound": "Táto položka už neexistuje.",
+  "desktopWorkspaceCleanupFailed": "Odstrániť neúspešné súbory",
+  "desktopWorkspaceAccessSaved": "Prístup uložený.",
+  "desktopWorkspaceAccessAdd": "Pridať",
+  "desktopWorkspaceValvesUserHint": "Vaše vlastné nastavenia tohto nástroja; valves servera platia pre všetkých.",
+  "desktopWorkspaceDefaultFeaturesHint": "Funkcie zapnuté v novom chate s týmto modelom, napr. web_search, code_interpreter.",
+  "desktopHermesTestOk": "Pripojené k Hermes.",
+  "desktopHermesTestUnauthorized": "Hermes kľúč odmietol.",
+  "desktopHermesTestUnreachable": "Hermes na tejto adrese nie je dostupný.",
+  "desktopHermesOpenSession": "Otvoriť",
+  "desktopHermesMode": "Typ pripojenia",
+  "desktopStopDictation": "Zastaviť diktovanie",
+  "desktopMicrophoneUnavailable": "Conduit nemôže použiť mikrofón. Skontrolujte, či je pripojený a či má Conduit povolenie ho používať.",
+  "desktopNothingHeard": "Nič nebolo počuť.",
+  "desktopTranscriptionFailed": "Prepis sa nepodaril. Skúste to znova.",
+  "desktopShortcutDictate": "Spustiť alebo zastaviť diktovanie",
+  "desktopMilliseconds": "{ms} ms",
+  "@desktopMilliseconds": {
+    "placeholders": {
+      "ms": {}
+    }
+  },
+  "desktopReadAloud": "Prečítať nahlas",
+  "desktopStopReading": "Zastaviť čítanie",
+  "desktopVoiceCallHeard": "Povedali ste: {text}",
+  "@desktopVoiceCallHeard": {
+    "placeholders": {
+      "text": {}
+    }
+  },
+  "desktopSettingsDesktopTab": "Plocha",
+  "desktopCloseToTray": "Po zatvorení okna nechať spustené",
+  "desktopCloseToTrayDescription": "Conduit zostane v oblasti oznámení, takže oznámenia a rýchla otázka naďalej fungujú.",
+  "desktopLaunchAtLogin": "Otvoriť po prihlásení",
+  "desktopLaunchAtLoginDescription": "Po prihlásení sa spustí v oblasti oznámení. Iba v nainštalovaných verziách.",
+  "desktopQuickAskTitle": "Rýchla otázka",
+  "desktopQuickAskEnabled": "Otvárať rýchlu otázku skratkou odkiaľkoľvek",
+  "desktopQuickAskShortcut": "Skratka",
+  "desktopQuickAskShortcutInvalid": "Použite jeden alebo viac modifikačných klávesov a kláves, napr. CommandOrControl+Shift+Space.",
+  "desktopQuickAskShortcutTaken": "Túto skratku používa iná aplikácia. Vyberte inú.",
+  "desktopQuickAskNeedsSetup": "Najprv otvorte Conduit a dokončite nastavenie.",
+  "desktopNotificationsSection": "Oznámenia",
+  "desktopShortcutPressKeys": "Stlačte nové klávesy alebo Esc na zrušenie",
+  "desktopShortcutChange": "Zmeniť",
+  "desktopShortcutReset": "Obnoviť",
+  "desktopShortcutResetAll": "Obnoviť všetky skratky",
+  "desktopShortcutChangeLabel": "Zmeniť skratku pre {command}",
+  "@desktopShortcutChangeLabel": {
+    "placeholders": {
+      "command": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopReleaseSeeChanges": "Zobraziť zmeny",
+  "desktopReleaseDismiss": "Zavrieť",
+  "desktopAboutDaemon": "Jadro",
+  "desktopAboutProtocol": "Protokol",
+  "desktopAboutPlatform": "Platforma",
+  "desktopAboutUserData": "Používateľské údaje",
+  "desktopAboutLogs": "Záznamy"
+}

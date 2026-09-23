@@ -1,0 +1,392 @@
+{
+  "@@locale": "ru",
+  "desktopCoreConnecting": "Запуск ядра…",
+  "desktopCoreConnected": "Подключено к ядру",
+  "desktopCoreReconnecting": "Повторное подключение к ядру (попытка {attempt})",
+  "@desktopCoreReconnecting": {
+    "placeholders": {
+      "attempt": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "desktopCoreUnavailable": "Ядро недоступно",
+  "desktopCoreVersionMismatch": "Версии приложения и его ядра не совпадают. Чтобы продолжить, переустановите Conduit.",
+  "desktopKeyringUnavailable": "Системное хранилище ключей не найдено, поэтому сохранённые учётные данные защищены хуже. Установите gnome-keyring или kwallet.",
+  "desktopQuickAskPlaceholder": "Спросите Conduit…",
+  "desktopQuickAskContinue": "Продолжить в главном окне",
+  "desktopSettingsKeyboardTab": "Клавиатура",
+  "desktopShortcutConflict": "{shortcut} уже используется командой «{command}».",
+  "@desktopShortcutConflict": {
+    "placeholders": {
+      "shortcut": {
+        "type": "String",
+        "example": "Cmd+K"
+      },
+      "command": {
+        "type": "String",
+        "example": "Search"
+      }
+    }
+  },
+  "desktopSettingsTitle": "Настройки",
+  "desktopSettingsNoServers": "Серверы ещё не настроены.",
+  "desktopSettingsAddServer": "Добавить сервер",
+  "desktopSettingsSignedIn": "Вход выполнен",
+  "desktopSettingsSwitchServer": "Переключить",
+  "desktopSettingsRemoveServer": "Удалить",
+  "desktopSigningOut": "Выход…",
+  "desktopSignedOut": "Вы вышли.",
+  "desktopSignOutSuperseded": "Новый вход заменил этот, поэтому ничего не удалено.",
+  "desktopSignOutIncomplete": "Выход выполнен, но это устройство ещё не удалило все данные. Conduit повторит попытку при следующем запуске.",
+  "desktopChooseFile": "Выбрать файл…",
+  "desktopReplaceFile": "Заменить…",
+  "desktopChatsLabel": "Разговоры",
+  "desktopNoChatsYet": "Пока нет разговоров. Отправьте сообщение, чтобы начать.",
+  "desktopSending": "Отправка…",
+  "desktopSignInMethod": "Способ входа",
+  "desktopChatActions": "Действия для «{title}»",
+  "@desktopChatActions": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopRenameChat": "Переименовать",
+  "desktopPinChat": "Закрепить",
+  "desktopUnpinChat": "Открепить",
+  "desktopArchiveChat": "Архивировать",
+  "desktopDeleteChat": "Удалить",
+  "desktopConfirmDelete": "Удалить этот разговор? Это действие нельзя отменить.",
+  "desktopRenamePrompt": "Новое название",
+  "desktopSearchChats": "Поиск разговоров",
+  "desktopSearchNoResults": "Ничего не найдено.",
+  "desktopSearchClear": "Очистить поиск",
+  "desktopPickAConversation": "Выберите разговор",
+  "desktopPickAConversationHint": "Выберите его на боковой панели или начните новый, введя текст ниже.",
+  "desktopNewConversation": "Новый разговор",
+  "desktopShortcutsTitle": "Сочетания клавиш",
+  "desktopShortcutFocusComposer": "Перейти к полю сообщения",
+  "desktopShortcutOpenPalette": "Поиск разговоров и команд",
+  "desktopShortcutFocusModelPicker": "Выбрать модель",
+  "desktopShortcutShowShortcuts": "Показать этот список",
+  "desktopShortcutCopyLastResponse": "Копировать последний ответ",
+  "desktopShortcutCopyLastCodeBlock": "Копировать последний блок кода",
+  "desktopComposerHint": "Enter — отправить, Shift+Enter — новая строка",
+  "desktopCopied": "Скопировано",
+  "desktopNothingToCopy": "Пока нечего копировать",
+  "desktopPreview": "Предпросмотр",
+  "desktopHidePreview": "Скрыть предпросмотр",
+  "desktopAttachFiles": "Прикрепить файлы",
+  "desktopRemoveAttachment": "Удалить {name}",
+  "@desktopRemoveAttachment": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAttachmentFailed": "Не удалось прикрепить {name}",
+  "@desktopAttachmentFailed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAttachmentsUploading": "Дождитесь окончания загрузки вложений",
+  "desktopAlreadyGenerating": "Дождитесь окончания текущего ответа или остановите его.",
+  "desktopPreviousAnswer": "Предыдущий ответ",
+  "desktopNextAnswer": "Следующий ответ",
+  "desktopAnswerPosition": "Ответ {index} из {count}",
+  "@desktopAnswerPosition": {
+    "placeholders": {
+      "index": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSearchIncomplete": "Синхронизация ещё идёт, поэтому некоторые разговоры могут пока не отображаться.",
+  "desktopSyncing": "Синхронизация…",
+  "desktopSyncingPercent": "Синхронизация… {percent}%",
+  "@desktopSyncingPercent": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSyncFailed": "Ошибка синхронизации",
+  "desktopTemporaryHint": "Не сохраняется. Исчезнет после закрытия приложения.",
+  "desktopAllow": "Разрешить",
+  "desktopDeny": "Отклонить",
+  "desktopServerAsks": "Запрос сервера",
+  "desktopShortcutAllowRequest": "Разрешить запрос сервера",
+  "desktopShortcutDenyRequest": "Отклонить запрос сервера",
+  "desktopToolRunning": "Выполняется {name}…",
+  "@desktopToolRunning": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "web_search"
+      }
+    }
+  },
+  "desktopToolUsed": "Использовано: {name}",
+  "@desktopToolUsed": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "web_search"
+      }
+    }
+  },
+  "desktopToolInput": "Входные данные",
+  "desktopDetails": "Подробности",
+  "desktopDropToAttach": "Перетащите файлы, чтобы прикрепить",
+  "desktopPaletteLabel": "Палитра команд",
+  "desktopPalettePlaceholder": "Поиск разговоров и команд",
+  "desktopPaletteCommands": "Команды",
+  "desktopPaletteRecent": "Недавние разговоры",
+  "desktopPaletteConversations": "Разговоры",
+  "desktopNewTemporaryChat": "Новый временный чат",
+  "desktopPromptMenu": "Промпты",
+  "desktopPromptInsert": "Вставить",
+  "desktopPromptFill": "Заполнить «{title}»",
+  "@desktopPromptFill": {
+    "placeholders": {
+      "title": {
+        "type": "String",
+        "example": "Stand-up notes"
+      }
+    }
+  },
+  "desktopSourcesCount": "Источники ({count})",
+  "@desktopSourcesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopGoodResponse": "Хороший ответ",
+  "desktopBadResponse": "Плохой ответ",
+  "desktopAddTag": "Добавить тег",
+  "desktopTagName": "Название тега",
+  "desktopRemoveTag": "Удалить тег {name}",
+  "@desktopRemoveTag": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "work"
+      }
+    }
+  },
+  "desktopShowTagged": "Показать разговоры с тегом {name}",
+  "@desktopShowTagged": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "work"
+      }
+    }
+  },
+  "desktopMoveTo": "Переместить в {folder}",
+  "@desktopMoveTo": {
+    "placeholders": {
+      "folder": {
+        "type": "String",
+        "example": "Work"
+      }
+    }
+  },
+  "desktopRemoveFromFolder": "Убрать из папки",
+  "desktopSelect": "Выбрать",
+  "desktopSelectedCount": "Выбрано: {count}",
+  "@desktopSelectedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopDone": "Готово",
+  "desktopMoveSelected": "Переместить в…",
+  "desktopNoFolder": "Без папки",
+  "desktopBulkDeleteConfirm": "Удалить разговоры ({count})? Это действие нельзя отменить.",
+  "@desktopBulkDeleteConfirm": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopBulkFailed": "Не удалось изменить: {count}.",
+  "@desktopBulkFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "1"
+      }
+    }
+  },
+  "desktopOffline": "Нет подключения к сети. Ваши разговоры на месте; отправка подождёт, пока подключение не восстановится.",
+  "desktopControls": "Параметры",
+  "desktopSystemPromptHint": "Только для этого разговора. Оставьте пустым, чтобы использовать значение по умолчанию из настроек Open WebUI.",
+  "desktopSaved": "Сохранено",
+  "desktopOpenImage": "Открыть изображение {name}",
+  "@desktopOpenImage": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "diagram.png"
+      }
+    }
+  },
+  "desktopModelMenu": "Модели",
+  "desktopAnswerWith": "Следующий ответ от {model}",
+  "@desktopAnswerWith": {
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "gpt-4o"
+      }
+    }
+  },
+  "desktopClearMention": "Использовать выбранную модель",
+  "desktopSortBy": "Сортировка",
+  "desktopSortUpdated": "По дате изменения",
+  "desktopSortTitle": "По названию",
+  "desktopFolderEmpty": "В этой папке пока ничего нет.",
+  "desktopToggleFolder": "Показать или скрыть содержимое папки {name}",
+  "@desktopToggleFolder": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Work"
+      }
+    }
+  },
+  "desktopOverview": "Обзор",
+  "desktopOverviewHint": "Все ветви этого разговора. Выберите сообщение, чтобы показать его ветвь.",
+  "desktopKnowledgeMenu": "Знания",
+  "desktopOpenAiCompatible": "Совместимый с OpenAI",
+  "desktopDirectHistoryLocal": "Хранить прямые чаты только на этом компьютере",
+  "desktopDirectEnable": "Использовать {name}",
+  "@desktopDirectEnable": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "OpenRouter"
+      }
+    }
+  },
+  "desktopMcpReachabilityHelp": "Добавьте конечную точку Streamable HTTP, доступную с этого компьютера. Её инструменты можно будет предлагать моделям из ваших прямых подключений.",
+  "desktopMcpSignedIn": "Вход выполнен",
+  "desktopMcpNotSignedIn": "Вход не выполнен",
+  "desktopMcpHeadersConfigured": "Настроено: {names}. Введите новые заголовки, чтобы заменить их.",
+  "@desktopMcpHeadersConfigured": {
+    "placeholders": {
+      "names": {
+        "type": "String",
+        "example": "X-Team, X-Region"
+      }
+    }
+  },
+  "desktopMcpSaveFirst": "Сохраните сервер перед входом.",
+  "desktopNoteSaveFailed": "Пока не сохранено; повторная попытка при следующем изменении",
+  "desktopLoadOlderMessages": "Загрузить более ранние сообщения",
+  "desktopMessageEdited": "изменено",
+  "desktopWorkspaceImport": "Импорт",
+  "desktopWorkspaceExportAll": "Экспортировать всё",
+  "desktopWorkspaceExport": "Экспорт",
+  "desktopWorkspaceUpdated": "Обновлено {date}",
+  "@desktopWorkspaceUpdated": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceImportFailed": "Не импортировано: {items}",
+  "@desktopWorkspaceImportFailed": {
+    "placeholders": {
+      "items": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceOnePerLine": "По одному на строку",
+  "desktopWorkspaceCommaSeparated": "Через запятую",
+  "desktopWorkspaceActive": "Активно",
+  "desktopWorkspaceNoSections": "В рабочей области этого сервера нет ничего, чем вы можете управлять.",
+  "desktopWorkspaceNotFound": "Этот элемент больше не существует.",
+  "desktopWorkspaceCleanupFailed": "Удалить файлы с ошибками",
+  "desktopWorkspaceAccessSaved": "Доступ сохранён.",
+  "desktopWorkspaceAccessAdd": "Добавить",
+  "desktopWorkspaceValvesUserHint": "Ваши личные настройки этого инструмента; valves сервера действуют для всех.",
+  "desktopWorkspaceDefaultFeaturesHint": "Функции, включённые в новом чате с этой моделью, например web_search, code_interpreter.",
+  "desktopHermesTestOk": "Подключено к Hermes.",
+  "desktopHermesTestUnauthorized": "Hermes отклонил ключ.",
+  "desktopHermesTestUnreachable": "Не удалось подключиться к Hermes по этому адресу.",
+  "desktopHermesOpenSession": "Открыть",
+  "desktopHermesMode": "Тип подключения",
+  "desktopStopDictation": "Остановить диктовку",
+  "desktopMicrophoneUnavailable": "Conduit не может использовать микрофон. Убедитесь, что он подключён и что Conduit разрешено его использовать.",
+  "desktopNothingHeard": "Ничего не слышно.",
+  "desktopTranscriptionFailed": "Не удалось распознать речь. Попробуйте ещё раз.",
+  "desktopShortcutDictate": "Начать или остановить диктовку",
+  "desktopMilliseconds": "{ms} мс",
+  "@desktopMilliseconds": {
+    "placeholders": {
+      "ms": {}
+    }
+  },
+  "desktopReadAloud": "Прочитать вслух",
+  "desktopStopReading": "Остановить чтение",
+  "desktopVoiceCallHeard": "Вы сказали: {text}",
+  "@desktopVoiceCallHeard": {
+    "placeholders": {
+      "text": {}
+    }
+  },
+  "desktopSettingsDesktopTab": "Рабочий стол",
+  "desktopCloseToTray": "Не завершать работу при закрытии окна",
+  "desktopCloseToTrayDescription": "Conduit остаётся в трее, поэтому уведомления и быстрый вопрос продолжают работать.",
+  "desktopLaunchAtLogin": "Запускать при входе в систему",
+  "desktopLaunchAtLoginDescription": "Запускается в трее при входе в систему. Только для установленных версий.",
+  "desktopQuickAskTitle": "Быстрый вопрос",
+  "desktopQuickAskEnabled": "Открывать быстрый вопрос сочетанием клавиш из любого места",
+  "desktopQuickAskShortcut": "Сочетание клавиш",
+  "desktopQuickAskShortcutInvalid": "Используйте одну или несколько клавиш-модификаторов и клавишу, например CommandOrControl+Shift+Space.",
+  "desktopQuickAskShortcutTaken": "Это сочетание использует другое приложение. Выберите другое.",
+  "desktopQuickAskNeedsSetup": "Сначала откройте Conduit и завершите настройку.",
+  "desktopNotificationsSection": "Уведомления",
+  "desktopShortcutPressKeys": "Нажмите новые клавиши или Esc для отмены",
+  "desktopShortcutChange": "Изменить",
+  "desktopShortcutReset": "Сбросить",
+  "desktopShortcutResetAll": "Сбросить все сочетания",
+  "desktopShortcutChangeLabel": "Изменить сочетание для «{command}»",
+  "@desktopShortcutChangeLabel": {
+    "placeholders": {
+      "command": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopReleaseSeeChanges": "Что изменилось",
+  "desktopReleaseDismiss": "Закрыть",
+  "desktopAboutDaemon": "Ядро",
+  "desktopAboutProtocol": "Протокол",
+  "desktopAboutPlatform": "Платформа",
+  "desktopAboutUserData": "Данные пользователя",
+  "desktopAboutLogs": "Журналы"
+}
