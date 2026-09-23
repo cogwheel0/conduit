@@ -650,6 +650,40 @@ test.describe('against a real server', () => {
       await expect(today.locator('button[aria-current="true"]')).toBeVisible()
     }
 
+    // 8g. Several at once (WP-3.8): archive this run's conversation from
+    // the selection mode, then bring it back the same way. Found by its id,
+    // which the checkbox carries, never by a title other chats could share.
+    await openChatLeadsSidebar(page)
+    await page.getByRole('button', { name: /^select$/i }).click()
+    const todayBoxes = page
+      .locator('nav[aria-label] section')
+      .filter({ has: page.getByRole('heading', { name: /^today$/i }) })
+      .getByRole('checkbox')
+    const ownId = (await todayBoxes.first().getAttribute('id'))!
+    await page.locator(`#${ownId}`).check()
+    await expect(page.getByText(/^1 selected$/)).toBeVisible()
+    await shot(page, '08h-selection')
+    await page.getByRole('toolbar').getByRole('button', { name: /^archive$/i }).click()
+    await expect(page.getByRole('button', { name: /^select$/i })).toBeVisible({
+      timeout: 30_000,
+    })
+    await expect(page.locator(`#${ownId}`)).toHaveCount(0)
+    // Out of the archive again.
+    const archivedToggle = page.getByRole('button', { name: /^archived \(\d+\)$/i })
+    if ((await archivedToggle.getAttribute('aria-expanded')) !== 'true') {
+      await archivedToggle.click()
+    }
+    await page.getByRole('button', { name: /^select$/i }).click()
+    await page.locator(`#${ownId}`).check({ timeout: 30_000 })
+    await page.getByRole('toolbar').getByRole('button', { name: /^unarchive$/i }).click()
+    await expect(page.getByRole('button', { name: /^select$/i })).toBeVisible({
+      timeout: 30_000,
+    })
+    // Closed again if it is still there -- with nothing left archived, the
+    // toggle goes away with the section.
+    if ((await archivedToggle.count()) > 0) await archivedToggle.click()
+    await openChatLeadsSidebar(page)
+
     // 8c. Edit the question in place (WP-3.2). The conversation should read
     // as the edited question and a new answer, with the original gone from
     // view but kept on the server as the branch it was.

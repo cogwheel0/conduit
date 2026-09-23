@@ -564,6 +564,17 @@ class RpcSession {
       },
     );
 
+    registerTypedMethod<BulkChats, BulkChatsResult>(
+      _peer,
+      ConduitMethods.chatsBulk,
+      decodeParams: BulkChats.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireChats().bulk(request);
+      },
+    );
+
     registerTypedMethod<MoveChat, ChatList>(
       _peer,
       ConduitMethods.chatsMove,

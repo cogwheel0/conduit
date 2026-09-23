@@ -214,6 +214,40 @@ abstract class TagList with _$TagList {
       _$TagListFromJson(json);
 }
 
+/// What `chats.bulk` does to every conversation it is given (WP-3.8).
+enum BulkChatAction { archive, unarchive, delete, move }
+
+/// Params for `chats.bulk`.
+@freezed
+abstract class BulkChats with _$BulkChats {
+  const factory BulkChats({
+    required List<String> chatIds,
+    required BulkChatAction action,
+
+    /// For [BulkChatAction.move]: the folder, or null for none.
+    String? folderId,
+  }) = _BulkChats;
+
+  factory BulkChats.fromJson(Map<String, dynamic> json) =>
+      _$BulkChatsFromJson(json);
+}
+
+/// Reply to `chats.bulk`: the list afterwards, and which ones failed.
+///
+/// Partial success is the normal case to design for. Twenty deletes where
+/// one conversation was already gone should delete nineteen and say so,
+/// not roll back or stop at the first.
+@freezed
+abstract class BulkChatsResult with _$BulkChatsResult {
+  const factory BulkChatsResult({
+    required ChatList list,
+    @Default(<String>[]) List<String> failed,
+  }) = _BulkChatsResult;
+
+  factory BulkChatsResult.fromJson(Map<String, dynamic> json) =>
+      _$BulkChatsResultFromJson(json);
+}
+
 /// Params for `chats.move` (WP-3.1): into a folder, or out of all of them.
 @freezed
 abstract class MoveChat with _$MoveChat {

@@ -410,5 +410,36 @@
   "desktopRemoveFromFolder": "Remove from folder",
   "@desktopRemoveFromFolder": {
     "description": "Context-menu item that takes a conversation out of its folder in the desktop sidebar."
+  },
+  "desktopSelect": "Select",
+  "@desktopSelect": {
+    "description": "Button above the desktop sidebar list that turns on choosing several conversations at once."
+  },
+  "desktopSelectedCount": "{count} selected",
+  "@desktopSelectedCount": {
+    "description": "How many conversations are chosen in the desktop sidebar's selection mode.",
+    "placeholders": { "count": { "type": "int", "example": "3" } }
+  },
+  "desktopDone": "Done",
+  "@desktopDone": {
+    "description": "Leaves the desktop sidebar's selection mode."
+  },
+  "desktopMoveSelected": "Move to…",
+  "@desktopMoveSelected": {
+    "description": "First entry of the folder picker that moves the chosen conversations in the desktop sidebar."
+  },
+  "desktopNoFolder": "No folder",
+  "@desktopNoFolder": {
+    "description": "Folder-picker entry that takes the chosen conversations out of any folder in the desktop sidebar."
+  },
+  "desktopBulkDeleteConfirm": "Delete {count} conversations? This cannot be undone.",
+  "@desktopBulkDeleteConfirm": {
+    "description": "Confirmation before deleting several chosen conversations at once in the desktop sidebar.",
+    "placeholders": { "count": { "type": "int", "example": "3" } }
+  },
+  "desktopBulkFailed": "{count} could not be changed.",
+  "@desktopBulkFailed": {
+    "description": "Shown after a bulk action in the desktop sidebar when some conversations could not be archived, moved or deleted.",
+    "placeholders": { "count": { "type": "int", "example": "1" } }
   }
 }

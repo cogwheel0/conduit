@@ -125,6 +125,10 @@ abstract final class ConduitMethods {
   /// unpins a conversation it moves; so does this.
   static const String chatsMove = 'chats.move';
 
+  /// Archives, unarchives, deletes or moves many conversations at once,
+  /// refreshing the list once at the end (WP-3.8).
+  static const String chatsBulk = 'chats.bulk';
+
   /// Every tag the account has, with its display name (WP-3.8).
   static const String chatsTagsAll = 'chats.tags.all';
 

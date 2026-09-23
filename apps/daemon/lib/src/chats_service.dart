@@ -452,6 +452,40 @@ final class ChatsService {
     return _refresh();
   }
 
+  /// Many conversations at once (WP-3.8), one server call each -- Open
+  /// WebUI has no bulk endpoints -- and one refresh at the end rather than
+  /// a pull per conversation.
+  ///
+  /// Carries on past a failure and reports it: a conversation already
+  /// deleted elsewhere is no reason to leave the other nineteen alone.
+  Future<BulkChatsResult> bulk(BulkChats request) async {
+    final failed = <String>[];
+    for (final id in request.chatIds.toSet()) {
+      try {
+        switch (request.action) {
+          case BulkChatAction.archive:
+            await _api.archiveConversation(id, true);
+          case BulkChatAction.unarchive:
+            await _api.archiveConversation(id, false);
+          case BulkChatAction.delete:
+            await _api.deleteConversation(id);
+            _conversations.removeConversation(id);
+          case BulkChatAction.move:
+            await _api.moveConversationToFolder(id, request.folderId);
+        }
+      } on Object catch (error) {
+        DebugLogger.error(
+          'bulk-item-failed',
+          scope: 'daemon/chats',
+          error: error,
+          data: <String, Object?>{'id': id, 'action': request.action.name},
+        );
+        failed.add(id);
+      }
+    }
+    return BulkChatsResult(list: await _refresh(), failed: failed);
+  }
+
   Future<ChatList> move(MoveChat request) async {
     await _api.moveConversationToFolder(request.chatId, request.folderId);
     return _refresh();

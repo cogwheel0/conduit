@@ -127,6 +127,31 @@ final paletteResultsProvider = FutureProvider<ChatSearchResults?>((ref) async {
       );
 });
 
+/// The conversations chosen in the sidebar's selection mode (WP-3.8).
+///
+/// Null outside the mode. A mode, not modifier-clicks alone: a click on a
+/// row has to keep meaning "open it", and a checkbox is something a
+/// keyboard and a screen reader can operate.
+final chatSelectionProvider = NotifierProvider<ChatSelection, Set<String>?>(
+  ChatSelection.new,
+);
+
+class ChatSelection extends Notifier<Set<String>?> {
+  @override
+  Set<String>? build() => null;
+
+  void start() => state = const <String>{};
+
+  void toggle(String id) {
+    final current = state ?? const <String>{};
+    state = current.contains(id)
+        ? (<String>{...current}..remove(id))
+        : <String>{...current, id};
+  }
+
+  void end() => state = null;
+}
+
 /// A conversation being dragged in the sidebar, and where it would land
 /// (WP-3.1). Held here rather than in the drag's `DataTransfer`, because
 /// the drop target has to know during `dragover` -- when the browser keeps
@@ -541,6 +566,35 @@ class ChatActions {
     ).toJson(),
     decode: SendTurnAccepted.fromJson,
   );
+
+  /// Archives, unarchives, deletes or moves many conversations; answers
+  /// with the ones that failed.
+  Future<List<String>> bulk(
+    Set<String> chatIds,
+    BulkChatAction action, {
+    String? folderId,
+  }) async {
+    final result = await _client.call(
+      ConduitMethods.chatsBulk,
+      params: BulkChats(
+        chatIds: chatIds.toList(),
+        action: action,
+        folderId: folderId,
+      ).toJson(),
+      decode: BulkChatsResult.fromJson,
+    );
+    // A deleted conversation that was open leaves the pane showing
+    // nothing; say so the way a single delete does.
+    final selected = _ref.read(selectedChatIdProvider);
+    if (action == BulkChatAction.delete &&
+        selected != null &&
+        chatIds.contains(selected) &&
+        !result.failed.contains(selected)) {
+      select(null);
+    }
+    _ref.invalidate(chatListProvider);
+    return result.failed;
+  }
 
   /// Moves a conversation into [folderId], or out of every folder.
   Future<void> move(String chatId, String? folderId) => _client.call(

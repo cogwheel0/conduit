@@ -297,6 +297,15 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     size: 182_344,
     contentType: 'application/pdf',
   ),
+  'bulkChats': const BulkChats(
+    chatIds: <String>['chat-1', 'chat-2'],
+    action: BulkChatAction.move,
+    folderId: 'folder-1',
+  ),
+  'bulkChatsResult': const BulkChatsResult(
+    list: ChatList(),
+    failed: <String>['chat-2'],
+  ),
   'moveChat': const MoveChat(chatId: 'chat-7c1f0b2a', folderId: 'folder-1'),
   'tag': const TagDto(id: 'work_notes', name: 'Work notes'),
   'tagList': const TagList(
@@ -496,6 +505,8 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'folderSummary': FolderSummary.fromJson,
       'archivedVisibility': ArchivedVisibility.fromJson,
       'uploadedFile': UploadedFile.fromJson,
+      'bulkChats': BulkChats.fromJson,
+      'bulkChatsResult': BulkChatsResult.fromJson,
       'moveChat': MoveChat.fromJson,
       'tag': TagDto.fromJson,
       'tagList': TagList.fromJson,

@@ -70,8 +70,11 @@ Component _scoped({
   ModelList? models,
   ComposerOptions? composer,
   Capabilities? capabilities,
+  Set<String>? chosen,
 }) => ProviderScope(
   overrides: [
+    if (chosen != null)
+      chatSelectionProvider.overrideWith(() => _Chosen(chosen)),
     if (capabilities != null)
       serverCapabilitiesProvider.overrideWithValue(capabilities),
     if (composer != null)
@@ -94,6 +97,14 @@ Component _scoped({
   ],
   child: const ChatPage(),
 );
+
+class _Chosen extends ChatSelection {
+  _Chosen(this._initial);
+  final Set<String> _initial;
+
+  @override
+  Set<String>? build() => _initial;
+}
 
 class _FixedQuery extends SearchQuery {
   _FixedQuery(this._initial);
@@ -159,6 +170,16 @@ class _RecordingActions extends ChatActions {
 
   @override
   Future<void> loadMore() async => calls.add('loadMore');
+
+  @override
+  Future<List<String>> bulk(
+    Set<String> chatIds,
+    BulkChatAction action, {
+    String? folderId,
+  }) async {
+    calls.add('bulk(${action.name},${chatIds.join('+')},$folderId)');
+    return const <String>[];
+  }
 
   @override
   Future<void> rate({
@@ -743,6 +764,61 @@ void main() {
     // instead. The form's submit handler calls `preventDefault`, which
     // throws on the VM -- `universal_web` stubs every real DOM call -- so
     // the one thing a component test cannot do here is submit a form.
+  });
+
+  group('selection', () {
+    testComponents('Select turns rows into checkboxes', (tester) async {
+      tester.pumpComponent(
+        _scoped(capabilities: const Capabilities(bulkSelection: true)),
+      );
+      await pumpEventQueue();
+      expect(find.tag('input'), findsOneComponent); // the search field
+
+      await tester.click(
+        find.componentWithText(button, t.desktop.desktopSelect),
+      );
+      await pumpEventQueue();
+      // One per conversation, beside the search field.
+      expect(find.tag('input'), findsNComponents(3));
+      expect(
+        find.text(t.desktop.desktopSelectedCount(count: 0)),
+        findsOneComponent,
+      );
+    });
+
+    testComponents('an action runs over everything chosen', (tester) async {
+      late _RecordingActions actions;
+      tester.pumpComponent(
+        _scoped(
+          capabilities: const Capabilities(bulkSelection: true),
+          chosen: const <String>{'chat-1', 'chat-2'},
+          onActions: (recording) => actions = recording,
+        ),
+      );
+      await pumpEventQueue();
+      await tester.click(find.componentWithText(button, t.app.archive));
+      await pumpEventQueue();
+      expect(actions.calls, contains('bulk(archive,chat-1+chat-2,null)'));
+    });
+
+    testComponents('deleting several asks first', (tester) async {
+      late _RecordingActions actions;
+      tester.pumpComponent(
+        _scoped(
+          capabilities: const Capabilities(bulkSelection: true),
+          chosen: const <String>{'chat-2'},
+          onActions: (recording) => actions = recording,
+        ),
+      );
+      await pumpEventQueue();
+      await tester.click(find.componentWithText(button, t.app.delete));
+      await pumpEventQueue();
+      expect(actions.calls, isEmpty);
+      expect(
+        find.text(t.desktop.desktopBulkDeleteConfirm(count: 1)),
+        findsOneComponent,
+      );
+    });
   });
 
   group('rating', () {

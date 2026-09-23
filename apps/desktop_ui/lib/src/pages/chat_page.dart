@@ -19,6 +19,7 @@ import '../widgets/chat_tags.dart';
 import '../widgets/context_menu.dart';
 import '../widgets/markdown_view.dart';
 import '../widgets/prompt_menu.dart';
+import '../widgets/selection_bar.dart';
 import '../widgets/share_dialog.dart';
 import '../widgets/sources_list.dart';
 import '../widgets/usage_details.dart';
@@ -71,6 +72,15 @@ class _Sidebar extends StatelessComponent {
                 context.read(searchQueryProvider.notifier).set(value),
           ),
         ]),
+        if (context.watch(serverCapabilitiesProvider).bulkSelection &&
+            query.trim().isEmpty)
+          SelectionBar(
+            folders: chats.value?.folders ?? const <FolderSummary>[],
+            archivedIds: <String>{
+              for (final chat in chats.value?.chats ?? const <ChatSummary>[])
+                if (chat.archived) chat.id,
+            },
+          ),
         div(classes: 'min-h-0 flex-1 overflow-y-auto px-2 pb-2', [
           // Results replace the list rather than filtering it: the list is
           // one loaded page, and filtering that would quietly miss every
@@ -429,6 +439,20 @@ class _ChatRowState extends State<_ChatRow> {
   Component build(BuildContext context) {
     final chat = component.chat;
     final actions = context.read(chatActionsProvider);
+
+    // Choosing, not opening: in the selection mode a row is a checkbox,
+    // and its hover actions and drag handle stand down.
+    if (context.watch(chatSelectionProvider) case final chosen?) {
+      return li(classes: 'rounded px-2 py-1 hover:bg-accent/50', [
+        checkboxField(
+          id: 'select-${chat.id}',
+          text: chat.title,
+          checked: chosen.contains(chat.id),
+          onChanged: ({required value}) =>
+              context.read(chatSelectionProvider.notifier).toggle(chat.id),
+        ),
+      ]);
+    }
 
     if (_renaming) {
       return li(classes: 'px-1 py-1', [
