@@ -187,10 +187,28 @@ abstract class ChatDetail with _$ChatDetail {
   const factory ChatDetail({
     required ChatSummary summary,
     @Default(<ChatMessageDto>[]) List<ChatMessageDto> messages,
+
+    /// The conversation's own system prompt, when it has one (WP-3.4).
+    /// Null means turns use the account's default from its settings.
+    String? systemPrompt,
   }) = _ChatDetail;
 
   factory ChatDetail.fromJson(Map<String, dynamic> json) =>
       _$ChatDetailFromJson(json);
+}
+
+/// Params for `chats.setSystemPrompt` (WP-3.4).
+@freezed
+abstract class ChatSystemPrompt with _$ChatSystemPrompt {
+  const factory ChatSystemPrompt({
+    required String chatId,
+
+    /// Empty clears it, and turns fall back to the account's default.
+    required String prompt,
+  }) = _ChatSystemPrompt;
+
+  factory ChatSystemPrompt.fromJson(Map<String, dynamic> json) =>
+      _$ChatSystemPromptFromJson(json);
 }
 
 /// A tag, as Open WebUI keeps it (WP-3.8).

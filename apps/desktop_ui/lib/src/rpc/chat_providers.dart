@@ -226,6 +226,19 @@ class DraggingChat extends Notifier<DragState?> {
   void end() => state = null;
 }
 
+/// Whether the controls pane is open beside the transcript (WP-3.4).
+final controlsOpenProvider = NotifierProvider<ControlsOpen, bool>(
+  ControlsOpen.new,
+);
+
+class ControlsOpen extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void toggle() => state = !state;
+  void close() => state = false;
+}
+
 /// The conversation whose share dialog is open, if any (WP-3.1). One
 /// dialog for the window, opened from the header or a sidebar row's menu.
 final shareDialogProvider = NotifierProvider<ShareDialogTarget, String?>(
@@ -636,6 +649,16 @@ class ChatActions {
     }
     _ref.invalidate(chatListProvider);
     return result.failed;
+  }
+
+  /// Sets a conversation's own system prompt; empty clears it (WP-3.4).
+  Future<void> setSystemPrompt(String chatId, String prompt) async {
+    await _client.call(
+      ConduitMethods.chatsSetSystemPrompt,
+      params: ChatSystemPrompt(chatId: chatId, prompt: prompt).toJson(),
+      decode: (json) => json,
+    );
+    _ref.invalidate(chatDetailProvider);
   }
 
   /// Moves a conversation into [folderId], or out of every folder.

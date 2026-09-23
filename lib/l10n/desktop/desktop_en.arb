@@ -445,5 +445,17 @@
   "desktopOffline": "You're offline. Your conversations are still here; sending waits until you're connected again.",
   "@desktopOffline": {
     "description": "Banner over the desktop conversation when the computer has no network. The Send button is paused until it returns."
+  },
+  "desktopControls": "Controls",
+  "@desktopControls": {
+    "description": "Button in the desktop conversation header that opens the side pane with this conversation's settings, such as its system prompt."
+  },
+  "desktopSystemPromptHint": "Only for this conversation. Leave it empty to use your default from Open WebUI's settings.",
+  "@desktopSystemPromptHint": {
+    "description": "Explains the per-conversation system prompt field in the desktop controls pane."
+  },
+  "desktopSaved": "Saved",
+  "@desktopSaved": {
+    "description": "Status after the desktop controls pane stores a change."
   }
 }

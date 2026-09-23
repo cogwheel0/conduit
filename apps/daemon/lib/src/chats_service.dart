@@ -299,9 +299,11 @@ final class ChatsService {
     }
     final conversation = full ?? summary;
 
+    final prompt = conversation.systemPrompt?.trim();
     return ChatDetail(
       summary: _summarize(conversation),
       messages: conversation.messages.map(_message).toList(growable: false),
+      systemPrompt: prompt == null || prompt.isEmpty ? null : prompt,
     );
   }
 
@@ -510,6 +512,18 @@ final class ChatsService {
       }
     }
     return BulkChatsResult(list: await _refresh(), failed: failed);
+  }
+
+  /// Sets or clears a conversation's own system prompt (WP-3.4). Open
+  /// WebUI merges the chat's top-level keys, so sending `system` alone
+  /// leaves the transcript as it was.
+  Future<ChatDetail?> setSystemPrompt(ChatSystemPrompt request) async {
+    await _api.updateConversation(
+      request.chatId,
+      systemPrompt: request.prompt.trim(),
+    );
+    await _afterEnvelopeChange(request.chatId);
+    return get(request.chatId);
   }
 
   Future<ChatList> move(MoveChat request) async {

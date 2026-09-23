@@ -684,6 +684,23 @@ test.describe('against a real server', () => {
     if ((await archivedToggle.count()) > 0) await archivedToggle.click()
     await openChatLeadsSidebar(page)
 
+    // 8h. The controls pane (WP-3.4): this conversation's own system
+    // prompt, saved to the server and read back, then cleared again.
+    await page.locator('header').getByRole('button', { name: /^controls$/i }).click()
+    const controls = page.getByRole('complementary', { name: /controls/i })
+    await expect(controls).toBeVisible()
+    const promptField = controls.getByLabel(/system prompt/i)
+    await promptField.fill('Answer in one word.')
+    await controls.getByRole('button', { name: /^save$/i }).click()
+    await expect(controls.getByText(/^saved$/i)).toBeVisible({ timeout: 30_000 })
+    await expect(promptField).toHaveValue('Answer in one word.')
+    await shot(page, '08i-controls')
+    await promptField.fill('')
+    await controls.getByRole('button', { name: /^save$/i }).click()
+    await expect(controls.getByText(/^saved$/i)).toBeVisible({ timeout: 30_000 })
+    await controls.getByRole('button', { name: /^close$/i }).click()
+    await expect(controls).toBeHidden()
+
     // 8c. Edit the question in place (WP-3.2). The conversation should read
     // as the edited question and a new answer, with the original gone from
     // view but kept on the server as the branch it was.

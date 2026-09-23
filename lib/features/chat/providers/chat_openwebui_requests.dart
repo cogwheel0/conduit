@@ -154,26 +154,8 @@ Future<String> _preseedAssistantAndPersist(
   return assistantMessageId;
 }
 
-String? _extractSystemPromptFromSettings(Map<String, dynamic>? settings) {
-  if (settings == null) return null;
-
-  final rootValue = settings['system'];
-  if (rootValue is String) {
-    final trimmed = rootValue.trim();
-    if (trimmed.isNotEmpty) return trimmed;
-  }
-
-  final ui = settings['ui'];
-  if (ui is Map<String, dynamic>) {
-    final uiValue = ui['system'];
-    if (uiValue is String) {
-      final trimmed = uiValue.trim();
-      if (trimmed.isNotEmpty) return trimmed;
-    }
-  }
-
-  return null;
-}
+String? _extractSystemPromptFromSettings(Map<String, dynamic>? settings) =>
+    systemPromptFromSettings(settings);
 
 Map<String, dynamic> _buildOpenWebUiBackgroundTasks({
   required Map<String, dynamic>? userSettings,

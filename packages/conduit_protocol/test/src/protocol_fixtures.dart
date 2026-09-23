@@ -298,6 +298,10 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     contentType: 'application/pdf',
   ),
   'networkReport': const NetworkReport(online: false),
+  'chatSystemPrompt': const ChatSystemPrompt(
+    chatId: 'chat-7c1f0b2a',
+    prompt: 'Answer as a sync-engine reviewer.',
+  ),
   'bulkChats': const BulkChats(
     chatIds: <String>['chat-1', 'chat-2'],
     action: BulkChatAction.move,
@@ -507,6 +511,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'archivedVisibility': ArchivedVisibility.fromJson,
       'uploadedFile': UploadedFile.fromJson,
       'networkReport': NetworkReport.fromJson,
+      'chatSystemPrompt': ChatSystemPrompt.fromJson,
       'bulkChats': BulkChats.fromJson,
       'bulkChatsResult': BulkChatsResult.fromJson,
       'moveChat': MoveChat.fromJson,

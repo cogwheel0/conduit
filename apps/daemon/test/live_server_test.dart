@@ -365,6 +365,34 @@ void main() {
         );
       }, timeout: const Timeout(Duration(minutes: 2)));
 
+      test(
+        'keeps a conversation\'s own system prompt, and clears it',
+        () async {
+          final events = EventBus();
+          final turns = TurnsService(runtime.container, events);
+          addTearDown(turns.dispose);
+          final accepted = await turns.send(
+            const SendTurn(model: 'gemma3:1b', text: 'Say the word: epsilon'),
+          );
+          created.add(accepted.chatId);
+          final chats = ChatsService(runtime.container, events: events);
+
+          final set = await chats.setSystemPrompt(
+            ChatSystemPrompt(
+              chatId: accepted.chatId,
+              prompt: 'Answer in capital letters.',
+            ),
+          );
+          expect(set?.systemPrompt, 'Answer in capital letters.');
+
+          final cleared = await chats.setSystemPrompt(
+            ChatSystemPrompt(chatId: accepted.chatId, prompt: ''),
+          );
+          expect(cleared?.systemPrompt, isNull);
+        },
+        timeout: const Timeout(Duration(minutes: 2)),
+      );
+
       test('tags a chat, finds it by tag, and untags it', () async {
         final events = EventBus();
         final turns = TurnsService(runtime.container, events);

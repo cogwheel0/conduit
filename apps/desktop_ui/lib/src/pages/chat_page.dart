@@ -17,6 +17,7 @@ import '../sidebar_model.dart';
 import '../widgets/form_field.dart';
 import '../widgets/chat_tags.dart';
 import '../widgets/context_menu.dart';
+import '../widgets/controls_pane.dart';
 import '../widgets/markdown_view.dart';
 import '../widgets/prompt_menu.dart';
 import '../widgets/selection_bar.dart';
@@ -29,10 +30,28 @@ class ChatPage extends StatelessComponent {
   const ChatPage({super.key});
 
   @override
-  Component build(BuildContext context) => div(
-    classes: 'flex h-screen min-h-0',
-    [const _Sidebar(), const _Transcript()],
-  );
+  Component build(BuildContext context) {
+    final selected = context.watch(selectedChatIdProvider);
+    final showControls =
+        context.watch(controlsOpenProvider) &&
+        selected != null &&
+        !isTemporaryChatId(selected);
+    final detail = showControls
+        ? context.watch(chatDetailProvider).value
+        : null;
+    return div(classes: 'flex h-screen min-h-0', [
+      const _Sidebar(),
+      const _Transcript(),
+      // Keyed on the conversation, so switching chats reseeds the field
+      // instead of carrying one chat's draft into the next.
+      if (showControls && detail != null)
+        ControlsPane(
+          key: ValueKey('controls-$selected'),
+          chatId: selected,
+          systemPrompt: detail.systemPrompt,
+        ),
+    ]);
+  }
 }
 
 class _Sidebar extends StatelessComponent {
@@ -809,7 +828,7 @@ class _Transcript extends StatelessComponent {
               onFilter: (name) =>
                   context.read(searchQueryProvider.notifier).set('tag:$name'),
             ),
-          if (selected != null && !isTemporaryChatId(selected))
+          if (selected != null && !isTemporaryChatId(selected)) ...[
             button(
               [Component.text(t.app.shareChat)],
               classes:
@@ -819,6 +838,19 @@ class _Transcript extends StatelessComponent {
               onClick: () =>
                   context.read(shareDialogProvider.notifier).open(selected),
             ),
+            button(
+              [Component.text(t.desktop.desktopControls)],
+              classes:
+                  'shrink-0 rounded px-2 py-1 text-xs font-normal '
+                  'text-muted-foreground hover:bg-accent aria-pressed:bg-accent',
+              type: ButtonType.button,
+              attributes: <String, String>{
+                'aria-pressed': '${context.watch(controlsOpenProvider)}',
+              },
+              onClick: () =>
+                  context.read(controlsOpenProvider.notifier).toggle(),
+            ),
+          ],
         ],
       ),
       // Under the header rather than over the composer: it describes the

@@ -593,6 +593,18 @@ class RpcSession {
       },
     );
 
+    registerTypedMethod<ChatSystemPrompt, Map<String, dynamic>>(
+      _peer,
+      ConduitMethods.chatsSetSystemPrompt,
+      decodeParams: ChatSystemPrompt.fromJson,
+      encodeResult: (result) => result,
+      handler: (request) async {
+        _requireHandshake();
+        final detail = await _requireChats().setSystemPrompt(request);
+        return <String, dynamic>{'chat': detail?.toJson()};
+      },
+    );
+
     registerTypedMethod<MoveChat, ChatList>(
       _peer,
       ConduitMethods.chatsMove,

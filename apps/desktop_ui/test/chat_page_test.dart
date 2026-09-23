@@ -768,6 +768,30 @@ void main() {
     // the one thing a component test cannot do here is submit a form.
   });
 
+  testComponents('Controls opens the pane with the chat\'s own prompt', (
+    tester,
+  ) async {
+    tester.pumpComponent(
+      _scoped(
+        detail: const ChatDetail(
+          summary: ChatSummary(id: 'chat-1', title: 'T', updatedAtMs: 1),
+          systemPrompt: 'Answer tersely.',
+        ),
+        selected: 'chat-1',
+      ),
+    );
+    await pumpEventQueue();
+    expect(find.tag('aside'), findsNothing);
+
+    await tester.click(
+      find.componentWithText(button, t.desktop.desktopControls),
+    );
+    await pumpEventQueue();
+    expect(find.tag('aside'), findsOneComponent);
+    expect(find.text('Answer tersely.'), findsOneComponent);
+    expect(find.text(t.desktop.desktopSystemPromptHint), findsOneComponent);
+  });
+
   testComponents('offline says so and pauses Send', (tester) async {
     tester.pumpComponent(
       _scoped(detail: _detail, selected: 'chat-1', online: false),

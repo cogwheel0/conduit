@@ -12,6 +12,7 @@ import 'package:conduit_core/services/streaming_helper.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/utils/message_tree_utils.dart' as message_tree;
+import 'package:conduit_core/utils/system_prompt.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -218,11 +219,11 @@ final class TurnsService {
       temporary.append(resolvedChatId, userMessage);
     }
 
-    final payload = <Map<String, dynamic>>[
+    final payload = withSystemMessage(<Map<String, dynamic>>[
       for (final message in history)
         <String, dynamic>{'role': message.role, 'content': message.content},
       <String, dynamic>{'role': 'user', 'content': text},
-    ];
+    ], await _systemPromptFor(api, resolvedChatId));
 
     // A temporary chat is sent as a bare completion: no chat id, no parent,
     // no user-message node. Open WebUI's own temporary chats rely on a live
@@ -346,14 +347,15 @@ final class TurnsService {
       );
     }
 
+    final systemPrompt = await _systemPromptFor(api, request.chatId);
     Future<ChatCompletionSession> dispatch(
       String? sessionId,
     ) => api.sendMessageSession(
       sessionIdOverride: sessionId,
-      messages: <Map<String, dynamic>>[
+      messages: withSystemMessage(<Map<String, dynamic>>[
         for (final message in prompt)
           <String, dynamic>{'role': message.role, 'content': message.content},
-      ],
+      ], systemPrompt),
       model: model,
       conversationId: request.chatId,
       responseMessageId: _uuid.v4(),
@@ -471,17 +473,18 @@ final class TurnsService {
     final assistantMessageId = _uuid.v4();
     final now = DateTime.now();
 
+    final systemPrompt = await _systemPromptFor(api, request.chatId);
     Future<ChatCompletionSession> dispatch(String? sessionId) =>
         api.sendMessageSession(
           sessionIdOverride: sessionId,
-          messages: <Map<String, dynamic>>[
+          messages: withSystemMessage(<Map<String, dynamic>>[
             for (final message in before)
               <String, dynamic>{
                 'role': message.role,
                 'content': message.content,
               },
             <String, dynamic>{'role': 'user', 'content': text},
-          ],
+          ], systemPrompt),
           model: model,
           conversationId: request.chatId,
           responseMessageId: assistantMessageId,
@@ -702,6 +705,48 @@ final class TurnsService {
     if (firstLine.length <= 48) return firstLine;
     return '${firstLine.substring(0, 47)}\u2026';
   }
+
+  /// The system prompt a turn in [chatId] goes out with (WP-3.4).
+  ///
+  /// The conversation's own, else the user's default from their Open WebUI
+  /// settings -- which desktop turns used to ignore, so the same question
+  /// answered differently here than on the phone or the web. Settings are
+  /// kept for a minute: they change rarely, and a turn should not wait on
+  /// a second request to learn nothing new.
+  Future<String?> _systemPromptFor(ApiService api, String? chatId) async {
+    String? own;
+    if (chatId != null && !TemporaryChats.isTemporary(chatId)) {
+      try {
+        own = (await readSettled(
+          _container,
+          loadConversationProvider(chatId).future,
+        )).systemPrompt;
+      } on Object {
+        own = null;
+      }
+    }
+    if (own != null && own.trim().isNotEmpty) return own.trim();
+    final fetchedAt = _settingsFetchedAt;
+    if (fetchedAt == null ||
+        DateTime.now().difference(fetchedAt) > const Duration(minutes: 1)) {
+      try {
+        _settings = await api.getUserSettings().timeout(
+          const Duration(seconds: 5),
+        );
+        _settingsFetchedAt = DateTime.now();
+      } on Object catch (error) {
+        DebugLogger.error(
+          'settings-failed',
+          scope: 'daemon/turns',
+          error: error,
+        );
+      }
+    }
+    return effectiveSystemPrompt(conversationPrompt: own, settings: _settings);
+  }
+
+  Map<String, dynamic>? _settings;
+  DateTime? _settingsFetchedAt;
 
   /// The conversation so far, as the server has it.
   ///

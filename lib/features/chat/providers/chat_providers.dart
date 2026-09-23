@@ -134,6 +134,7 @@ import '../providers/context_attachments_provider.dart';
 import '../providers/reasoning_effort_provider.dart';
 
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/utils/system_prompt.dart';
 
 import '../services/chat_transport_dispatch.dart';
 import '../services/chat_history_reader.dart';
