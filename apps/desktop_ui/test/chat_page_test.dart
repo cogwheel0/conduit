@@ -571,9 +571,8 @@ void main() {
       await pumpEventQueue();
 
       expect(find.text('Filed away'), findsNothing);
-      await tester.click(
-        find.ancestor(of: find.text('Work'), matching: find.tag('button')),
-      );
+      // The arrow expands; the name opens the folder's page instead.
+      await tester.click(_byLabel(t.desktop.desktopToggleFolder(name: 'Work')));
       await pumpEventQueue();
       expect(find.text('Filed away'), findsOneComponent);
     });

@@ -222,6 +222,31 @@ abstract class ChatDetail with _$ChatDetail {
       _$ChatDetailFromJson(json);
 }
 
+/// Params for `chats.folder` (WP-3.1).
+@freezed
+abstract class FolderRef with _$FolderRef {
+  const factory FolderRef({required String folderId}) = _FolderRef;
+
+  factory FolderRef.fromJson(Map<String, dynamic> json) =>
+      _$FolderRefFromJson(json);
+}
+
+/// Reply to `chats.folder`: every conversation in a folder, newest first.
+///
+/// All of them, from the local database, rather than the part of the
+/// sidebar's list that happens to be loaded: a folder page that stops at
+/// the sidebar's page size would look complete and not be.
+@freezed
+abstract class FolderContents with _$FolderContents {
+  const factory FolderContents({
+    required FolderSummary folder,
+    @Default(<ChatSummary>[]) List<ChatSummary> chats,
+  }) = _FolderContents;
+
+  factory FolderContents.fromJson(Map<String, dynamic> json) =>
+      _$FolderContentsFromJson(json);
+}
+
 /// Params for `chats.setSystemPrompt` (WP-3.4).
 @freezed
 abstract class ChatSystemPrompt with _$ChatSystemPrompt {

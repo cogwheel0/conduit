@@ -249,6 +249,33 @@ class Lightbox extends Notifier<({String src, String name})?> {
   void close() => state = null;
 }
 
+/// The folder whose page is open in place of a transcript (WP-3.1).
+final openFolderProvider = NotifierProvider<OpenFolder, String?>(
+  OpenFolder.new,
+);
+
+class OpenFolder extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  void open(String folderId) => state = folderId;
+  void close() => state = null;
+}
+
+/// Everything in the open folder, refetched as conversations change.
+final folderContentsProvider = FutureProvider<FolderContents?>((ref) async {
+  final folderId = ref.watch(openFolderProvider);
+  if (folderId == null) return null;
+  ref.watch(_chatsChangedProvider);
+  return ref
+      .read(rpcClientProvider)
+      .call(
+        ConduitMethods.chatsFolder,
+        params: FolderRef(folderId: folderId).toJson(),
+        decode: FolderContents.fromJson,
+      );
+});
+
 /// Whether the controls pane is open beside the transcript (WP-3.4).
 final controlsOpenProvider = NotifierProvider<ControlsOpen, bool>(
   ControlsOpen.new,
@@ -845,6 +872,8 @@ class ChatActions {
   }
 
   void select(String? chatId) {
+    // Opening a conversation, or starting one, leaves a folder page.
+    _ref.read(openFolderProvider.notifier).close();
     // A pending message belongs to the chat it was sent in.
     _ref.read(pendingUserMessageProvider.notifier).clear();
     _ref.read(selectedChatIdProvider.notifier).select(chatId);

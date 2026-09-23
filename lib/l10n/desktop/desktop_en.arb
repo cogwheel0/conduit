@@ -475,5 +475,26 @@
   "desktopClearMention": "Use the selected model instead",
   "@desktopClearMention": {
     "description": "Accessible name of the button that removes the @-chosen model from the desktop composer."
+  },
+  "desktopSortBy": "Sort by",
+  "@desktopSortBy": {
+    "description": "Label of the sort control on a desktop folder page."
+  },
+  "desktopSortUpdated": "Last updated",
+  "@desktopSortUpdated": {
+    "description": "Sort option on a desktop folder page: newest conversations first."
+  },
+  "desktopSortTitle": "Title",
+  "@desktopSortTitle": {
+    "description": "Sort option on a desktop folder page: conversations alphabetically."
+  },
+  "desktopFolderEmpty": "Nothing in this folder yet.",
+  "@desktopFolderEmpty": {
+    "description": "Shown on a desktop folder page with no conversations."
+  },
+  "desktopToggleFolder": "Show or hide what is in {name}",
+  "@desktopToggleFolder": {
+    "description": "Accessible name of the small arrow beside a folder in the desktop sidebar.",
+    "placeholders": { "name": { "type": "String", "example": "Work" } }
   }
 }

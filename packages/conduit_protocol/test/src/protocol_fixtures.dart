@@ -317,6 +317,13 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     list: ChatList(),
     failed: <String>['chat-2'],
   ),
+  'folderRef': const FolderRef(folderId: 'folder-1'),
+  'folderContents': const FolderContents(
+    folder: FolderSummary(id: 'folder-1', name: 'Work'),
+    chats: <ChatSummary>[
+      ChatSummary(id: 'chat-1', title: 'Q3 plan', updatedAtMs: 1758412800000),
+    ],
+  ),
   'moveChat': const MoveChat(chatId: 'chat-7c1f0b2a', folderId: 'folder-1'),
   'tag': const TagDto(id: 'work_notes', name: 'Work notes'),
   'tagList': const TagList(
@@ -521,6 +528,8 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'chatSystemPrompt': ChatSystemPrompt.fromJson,
       'bulkChats': BulkChats.fromJson,
       'bulkChatsResult': BulkChatsResult.fromJson,
+      'folderRef': FolderRef.fromJson,
+      'folderContents': FolderContents.fromJson,
       'moveChat': MoveChat.fromJson,
       'tag': TagDto.fromJson,
       'tagList': TagList.fromJson,

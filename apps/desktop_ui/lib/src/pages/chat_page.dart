@@ -18,6 +18,7 @@ import '../widgets/form_field.dart';
 import '../widgets/chat_tags.dart';
 import '../widgets/context_menu.dart';
 import '../widgets/controls_pane.dart';
+import '../widgets/folder_page.dart';
 import '../widgets/markdown_view.dart';
 import '../widgets/message_files.dart';
 import '../widgets/prompt_menu.dart';
@@ -41,9 +42,10 @@ class ChatPage extends StatelessComponent {
         ? context.watch(chatDetailProvider).value
         : null;
     final lightbox = context.watch(lightboxProvider);
+    final folderOpen = context.watch(openFolderProvider) != null;
     return div(classes: 'flex h-screen min-h-0', [
       const _Sidebar(),
-      const _Transcript(),
+      if (folderOpen) const FolderPage() else const _Transcript(),
       if (lightbox != null)
         LightboxOverlay(
           key: ValueKey(lightbox.src),
@@ -52,7 +54,7 @@ class ChatPage extends StatelessComponent {
         ),
       // Keyed on the conversation, so switching chats reseeds the field
       // instead of carrying one chat's draft into the next.
-      if (showControls && detail != null)
+      if (showControls && detail != null && !folderOpen)
         ControlsPane(
           key: ValueKey('controls-$selected'),
           chatId: selected,
@@ -314,31 +316,55 @@ class _Sections extends StatelessComponent {
         }),
       },
       [
-        button(
-          [
-            span(
-              classes: 'w-3 shrink-0 text-xs',
-              attributes: const <String, String>{'aria-hidden': 'true'},
-              [Component.text(isOpen ? '\u25be' : '\u25b8')],
-            ),
-            span(classes: 'min-w-0 flex-1 truncate', [
-              Component.text(node.folder.name),
-            ]),
-            span(classes: 'text-xs tabular-nums opacity-60', [
-              Component.text('${node.totalChats}'),
-            ]),
-          ],
+        // Two controls: the arrow shows what is inside here, the name opens
+        // the folder's page with all of it.
+        div(
           classes:
-              'flex w-full items-center gap-1.5 rounded px-2 py-1.5 '
-              'text-left text-sm text-foreground hover:bg-accent/50'
-              '${target ? ' bg-accent ring-1 ring-primary' : ''}',
-          type: ButtonType.button,
-          attributes: <String, String>{
-            'aria-expanded': isOpen ? 'true' : 'false',
-          },
-          onClick: () => context
-              .read(expandedFoldersProvider.notifier)
-              .toggle(node.folder.id),
+              'flex w-full items-center rounded text-sm text-foreground '
+              'hover:bg-accent/50'
+              '${target ? ' bg-accent ring-1 ring-primary' : ''}'
+              '${context.watch(openFolderProvider) == folderId ? ' bg-accent' : ''}',
+          [
+            button(
+              [
+                span(
+                  attributes: const <String, String>{'aria-hidden': 'true'},
+                  [Component.text(isOpen ? '\u25be' : '\u25b8')],
+                ),
+              ],
+              classes: 'w-6 shrink-0 py-1.5 pl-2 text-left text-xs',
+              type: ButtonType.button,
+              attributes: <String, String>{
+                'aria-expanded': isOpen ? 'true' : 'false',
+                'aria-label': t.desktop.desktopToggleFolder(
+                  name: node.folder.name,
+                ),
+              },
+              onClick: () => context
+                  .read(expandedFoldersProvider.notifier)
+                  .toggle(node.folder.id),
+            ),
+            button(
+              [
+                span(classes: 'min-w-0 flex-1 truncate', [
+                  Component.text(node.folder.name),
+                ]),
+                span(classes: 'text-xs tabular-nums opacity-60', [
+                  Component.text('${node.totalChats}'),
+                ]),
+              ],
+              classes:
+                  'flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-2 '
+                  'text-left',
+              type: ButtonType.button,
+              attributes: <String, String>{
+                if (context.watch(openFolderProvider) == folderId)
+                  'aria-current': 'page',
+              },
+              onClick: () =>
+                  context.read(openFolderProvider.notifier).open(folderId),
+            ),
+          ],
         ),
         if (isOpen)
           ul(classes: 'ml-3 space-y-0.5 border-l border-border pl-1', [

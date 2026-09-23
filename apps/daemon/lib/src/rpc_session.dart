@@ -605,6 +605,17 @@ class RpcSession {
       },
     );
 
+    registerTypedMethod<FolderRef, FolderContents>(
+      _peer,
+      ConduitMethods.chatsFolder,
+      decodeParams: FolderRef.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireChats().folder(request.folderId);
+      },
+    );
+
     registerTypedMethod<MoveChat, ChatList>(
       _peer,
       ConduitMethods.chatsMove,

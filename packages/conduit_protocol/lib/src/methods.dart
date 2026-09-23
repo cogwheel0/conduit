@@ -130,6 +130,9 @@ abstract final class ConduitMethods {
   /// unpins a conversation it moves; so does this.
   static const String chatsMove = 'chats.move';
 
+  /// Every conversation in one folder, for its page (WP-3.1).
+  static const String chatsFolder = 'chats.folder';
+
   /// Sets or clears a conversation's own system prompt (WP-3.4).
   static const String chatsSetSystemPrompt = 'chats.setSystemPrompt';
 

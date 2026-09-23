@@ -611,13 +611,24 @@ test.describe('against a real server', () => {
     // 8f. Into a folder and back out (WP-3.1): the context menu one way,
     // a drag the other. Only when the account has a folder to use; the
     // conversation is this run's, and it ends where it started.
-    const folderRows = page
+    const foldersSection = page
       .locator('nav[aria-label] section')
       .filter({ has: page.getByRole('heading', { name: /^folders$/i }) })
-      .locator(':scope > ul > li > button')
+    // A folder row is two buttons: the arrow (labelled) and the name.
+    const folderRows = foldersSection.locator(
+      ':scope > ul > li > div > button:not([aria-label])',
+    )
+    const folderToggles = foldersSection.locator(
+      ':scope > ul > li > div > button[aria-label]',
+    )
+    // Loud rather than skipped: a heading with no rows found is the
+    // locator being wrong, which once skipped this whole step silently.
+    if ((await foldersSection.count()) > 0) {
+      expect(await folderRows.count()).toBeGreaterThan(0)
+    }
     if ((await folderRows.count()) > 0) {
       const folderName = (
-        await folderRows.first().locator('span').nth(1).innerText()
+        await folderRows.first().locator('span').first().innerText()
       ).trim()
       const current = page.locator('nav[aria-label] button[aria-current="true"]')
       await current.click({ button: 'right' })
@@ -630,8 +641,8 @@ test.describe('against a real server', () => {
         .filter({ has: page.getByRole('heading', { name: /^folders$/i }) })
         .locator(':scope > ul > li')
         .first()
-      if ((await folderRows.first().getAttribute('aria-expanded')) !== 'true') {
-        await folderRows.first().click()
+      if ((await folderToggles.first().getAttribute('aria-expanded')) !== 'true') {
+        await folderToggles.first().click()
       }
       await expect(
         folderItem.locator('button[aria-current="true"]'),
@@ -648,6 +659,15 @@ test.describe('against a real server', () => {
         folderItem.locator('button[aria-current="true"]'),
       ).toBeHidden({ timeout: 30_000 })
       await expect(today.locator('button[aria-current="true"]')).toBeVisible()
+
+      // The folder's own page, by its name: everything in it, sortable.
+      await folderRows.first().click()
+      await expect(page.getByLabel(/^sort by$/i)).toBeVisible()
+      await expect(page.locator('header').getByText(folderName)).toBeVisible()
+      await shot(page, '08g-folder-page')
+      // Back to the conversation from the sidebar, which closes the page.
+      await today.locator('li button:not([aria-label])').first().click()
+      await expect(page.getByLabel(/^sort by$/i)).toBeHidden()
     }
 
     // 8g. Several at once (WP-3.8): archive this run's conversation from

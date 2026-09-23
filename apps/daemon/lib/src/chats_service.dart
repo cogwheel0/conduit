@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:conduit_core/models/chat_message.dart' as core;
 import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/database/mappers/conversation_assembler.dart'
+    show conversationFromListEntry;
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/host_ports.dart'
@@ -512,6 +514,31 @@ final class ChatsService {
       }
     }
     return BulkChatsResult(list: await _refresh(), failed: failed);
+  }
+
+  /// Every conversation in a folder, for its page (WP-3.1). From the
+  /// database, so older conversations the sidebar has not paged in are
+  /// there too.
+  Future<FolderContents> folder(String folderId) async {
+    final folder = (await _folders())
+        .where((candidate) => candidate.id == folderId)
+        .firstOrNull;
+    if (folder == null) {
+      throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        debugMessage: 'no folder $folderId',
+      );
+    }
+    final database = _container.read(appDatabaseProvider);
+    if (database == null) return FolderContents(folder: folder);
+    final entries = await database.chatsDao.getChatsInFolder(folderId);
+    return FolderContents(
+      folder: folder,
+      chats: entries
+          .map(conversationFromListEntry)
+          .map(_summarize)
+          .toList(growable: false),
+    );
   }
 
   /// Sets or clears a conversation's own system prompt (WP-3.4). Open
