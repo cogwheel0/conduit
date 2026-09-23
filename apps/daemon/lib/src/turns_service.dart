@@ -678,6 +678,9 @@ final class TurnsService {
   /// and the answer read as though the user had started over.
   Future<List<ChatMessage>> _historyFor(String chatId) async {
     if (TemporaryChats.isTemporary(chatId)) return temporary.transcript(chatId);
+    if (_settling[chatId] case final pending?) {
+      await pending.timeout(_settleTimeout, onTimeout: () {});
+    }
     try {
       final conversation = await _container.read(
         loadConversationProvider(chatId).future,
@@ -766,13 +769,33 @@ final class TurnsService {
     // lands. Publishing straight away made the renderer refetch a
     // transcript whose answer was still the empty placeholder. It then kept
     // that version, because nothing told it to look again.
+    final settling = _announceWhenSynced(
+      chatId,
+      answerId: turn.failure == null ? turn.messageId : null,
+    );
+    _settling[chatId] = settling;
     unawaited(
-      _announceWhenSynced(
-        chatId,
-        answerId: turn.failure == null ? turn.messageId : null,
-      ),
+      settling.whenComplete(() {
+        if (identical(_settling[chatId], settling)) _settling.remove(chatId);
+      }),
     );
   }
+
+  /// The post-turn sync still running for each chat.
+  ///
+  /// A follow-up waits for it. The next question's parent is the last
+  /// message in the stored copy, and until the sync lands that copy ends a
+  /// turn early -- so a question sent straight after an answer was hung off
+  /// the answer *before* it, forking the conversation and dropping the
+  /// latest exchange from view.
+  final Map<String, Future<void>> _settling = <String, Future<void>>{};
+
+  /// Longest a turn waits for the previous one to reach the stored copy.
+  ///
+  /// Past the retry schedule's total, so a sync that is merely slow is
+  /// waited for. One that has failed outright is not worth holding the
+  /// user's message for: it goes out with the history there is.
+  static const Duration _settleTimeout = Duration(seconds: 20);
 
   /// How long to keep looking for a finished answer in the server's copy.
   ///
