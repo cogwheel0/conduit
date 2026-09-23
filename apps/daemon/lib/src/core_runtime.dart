@@ -32,6 +32,7 @@ import 'ports/key_value_store.dart';
 import 'ports/open_url.dart';
 import 'ports/secure_store.dart';
 import 'ports/worker.dart';
+import 'settled.dart';
 
 /// Hosts `conduit_core` inside the daemon.
 ///
@@ -115,6 +116,7 @@ final class CoreRuntime {
 
     final container = ProviderContainer(
       observers: observers,
+      retry: daemonProviderRetry,
       overrides: <Override>[
         databaseOpenerProvider.overrideWithValue(
           DaemonDatabaseOpener(directories),

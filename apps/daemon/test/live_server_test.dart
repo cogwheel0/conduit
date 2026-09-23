@@ -8,6 +8,7 @@ import 'dart:typed_data';
 
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
@@ -1471,9 +1472,469 @@ void main() {
         deleted = true;
         expect(after.channels.map((c) => c.id), isNot(contains(channel.id)));
       }, timeout: const Timeout(Duration(minutes: 2)));
+
+      // M6: the workspace. Everything is named for this run and deleted
+      // at the end, straight through the API if a step fails first.
+      group('workspace', () {
+        late WorkspaceService workspace;
+        late List<String> heard;
+        final stamp = DateTime.now().millisecondsSinceEpoch;
+        // Deletions still owed, by what they delete; a test that deletes its
+        // own item takes its entry out.
+        final cleanups = <String, Future<void> Function()>{};
+
+        setUpAll(() {
+          final events = EventBus();
+          heard = <String>[];
+          events.attach('window', (envelope) => heard.add(envelope.event));
+          workspace = WorkspaceService(runtime.container, events: events);
+        });
+
+        tearDownAll(() async {
+          for (final cleanup in cleanups.values.toList().reversed) {
+            try {
+              await cleanup();
+            } on Object catch (error) {
+              stderr.writeln('could not clean up a workspace test: $error');
+            }
+          }
+        });
+
+        test('says what the user may manage', () async {
+          final access = await workspace.capabilities();
+          expect(access.prompts.manage, isTrue);
+          expect(access.models.manage, isTrue);
+        });
+
+        test(
+          'a prompt: saved, versioned, diffed, exported, imported',
+          () async {
+            final api = runtime.container.read(apiServiceProvider)!;
+            final command = 'live-prompt-$stamp';
+            final created = await workspace.save(
+              WorkspaceSave(
+                create: true,
+                detail: WorkspaceDetail(
+                  kind: WorkspaceKind.prompts,
+                  prompt: WorkspacePromptDto(
+                    command: '/$command',
+                    name: 'Live prompt',
+                    content: 'Say hello to {{USER_NAME}}.',
+                    tags: const <String>['live'],
+                  ),
+                ),
+              ),
+            );
+            final id = created.prompt!.id;
+            cleanups['prompt'] = () => api.deletePrompt(id);
+            expect(created.prompt!.command, command);
+            expect(heard, contains(ConduitEvents.workspaceChanged));
+
+            final page = await workspace.list(
+              WorkspaceQuery(kind: WorkspaceKind.prompts, query: command),
+            );
+            expect(page.items.map((i) => i.id), contains(id));
+            expect(
+              page.items.firstWhere((i) => i.id == id).subtitle,
+              '/$command',
+            );
+
+            final updated = await workspace.save(
+              WorkspaceSave(
+                detail: created.copyWith(
+                  prompt: created.prompt!.copyWith(
+                    content: 'Say hello warmly to {{USER_NAME}}.',
+                    commitMessage: 'Warmer',
+                  ),
+                ),
+              ),
+            );
+            expect(updated.prompt!.content, contains('warmly'));
+
+            final history = await workspace.promptHistory(id);
+            expect(history.versions.length, greaterThanOrEqualTo(2));
+            final newest = history.versions.first;
+            final oldest = history.versions.last;
+            expect(newest.production, isTrue);
+            expect(newest.commitMessage, 'Warmer');
+            final diff = await workspace.promptDiff(
+              WorkspacePromptDiffQuery(
+                promptId: id,
+                fromId: oldest.id,
+                toId: newest.id,
+              ),
+            );
+            expect(diff.lines.join('\n'), contains('warmly'));
+
+            final restored = await workspace.promptSetVersion(
+              WorkspacePromptVersionRef(promptId: id, versionId: oldest.id),
+            );
+            expect(restored.prompt!.content, isNot(contains('warmly')));
+
+            final exported = await workspace.export(
+              WorkspaceExportQuery(kind: WorkspaceKind.prompts, id: id),
+            );
+            expect(exported.filename, '$command.json');
+            final items = jsonDecode(exported.text!) as List;
+            expect((items.single as Map)['command'], command);
+
+            // The same file again clashes on the command; renamed, it goes in.
+            final clash = await workspace.import(
+              WorkspaceImport(
+                kind: WorkspaceKind.prompts,
+                text: exported.text!,
+              ),
+            );
+            expect(clash.imported, 0);
+            expect(clash.failed, hasLength(1));
+            final copy = '$command-copy';
+            final imported = await workspace.import(
+              WorkspaceImport(
+                kind: WorkspaceKind.prompts,
+                text: exported.text!.replaceAll(command, copy),
+              ),
+            );
+            expect(imported.imported, 1);
+            final copies = await workspace.list(
+              WorkspaceQuery(kind: WorkspaceKind.prompts, query: copy),
+            );
+            final copyId = copies.items
+                .singleWhere((i) => i.subtitle == '/$copy')
+                .id;
+            cleanups['prompt copy'] = () => api.deletePrompt(copyId);
+
+            await workspace.delete(
+              WorkspaceRef(kind: WorkspaceKind.prompts, id: copyId),
+            );
+            cleanups.remove('prompt copy');
+            await workspace.delete(
+              WorkspaceRef(kind: WorkspaceKind.prompts, id: id),
+            );
+            cleanups.remove('prompt');
+            final after = await workspace.list(
+              WorkspaceQuery(kind: WorkspaceKind.prompts, query: command),
+            );
+            expect(after.items, isEmpty);
+          },
+          timeout: const Timeout(Duration(minutes: 2)),
+        );
+
+        test('a model: saved over a base, kept whole, toggled', () async {
+          final api = runtime.container.read(apiServiceProvider)!;
+          final options = await workspace.modelOptions();
+          expect(options.baseModels, isNotEmpty);
+          final base = options.baseModels.first.id;
+          final id = 'live-model-$stamp';
+          cleanups['model'] = () async => api.deleteWorkspaceModel(id);
+          final created = await workspace.save(
+            WorkspaceSave(
+              create: true,
+              detail: WorkspaceDetail(
+                kind: WorkspaceKind.models,
+                model: WorkspaceModelDto(
+                  id: id,
+                  name: 'Live model',
+                  baseModelId: base,
+                  description: 'Made by a test',
+                  system: 'Answer in one word.',
+                  suggestionPrompts: const <String>['Hello'],
+                  capabilities: const <String, bool>{'vision': true},
+                  params: const <String, dynamic>{'temperature': 0.2},
+                ),
+              ),
+            ),
+          );
+          final model = created.model!;
+          expect(model.baseModelId, base);
+          expect(model.system, 'Answer in one word.');
+          expect(model.capabilities['vision'], isTrue);
+          expect(model.params['temperature'], 0.2);
+
+          // A key this editor does not show survives a save through it.
+          final raw = (await api.getWorkspaceModel(id))!;
+          await api.updateWorkspaceModel(
+            WorkspaceModelForm(
+              id: id,
+              name: raw.name,
+              baseModelId: raw.baseModelId,
+              meta: <String, dynamic>{...raw.meta, 'live_marker': 'kept'},
+              params: raw.params,
+              isActive: raw.isActive,
+            ),
+          );
+          final renamed = await workspace.save(
+            WorkspaceSave(
+              detail: (await workspace.get(
+                WorkspaceRef(kind: WorkspaceKind.models, id: id),
+              )).copyWith(model: model.copyWith(name: 'Live model renamed')),
+            ),
+          );
+          expect(renamed.model!.name, 'Live model renamed');
+          expect(
+            (await api.getWorkspaceModel(id))!.meta['live_marker'],
+            'kept',
+          );
+          final toggled = await workspace.toggle(
+            WorkspaceRef(kind: WorkspaceKind.models, id: id),
+          );
+          expect(toggled.active, isFalse);
+          final exported = await workspace.export(
+            WorkspaceExportQuery(kind: WorkspaceKind.models, id: id),
+          );
+          expect(
+            ((jsonDecode(exported.text!) as List).single as Map)['id'],
+            id,
+          );
+
+          await workspace.delete(
+            WorkspaceRef(kind: WorkspaceKind.models, id: id),
+          );
+          cleanups.remove('model');
+          await expectLater(
+            workspace.get(WorkspaceRef(kind: WorkspaceKind.models, id: id)),
+            throwsA(
+              isA<RpcError>().having(
+                (e) => e.code,
+                'code',
+                ConduitErrorCodes.notFound,
+              ),
+            ),
+          );
+        }, timeout: const Timeout(Duration(minutes: 2)));
+
+        test('a tool: saved, valves read and written, exported', () async {
+          final api = runtime.container.read(apiServiceProvider)!;
+          final id = 'live_tool_$stamp';
+          cleanups['tool'] = () => api.deleteTool(id);
+          final created = await workspace.save(
+            WorkspaceSave(
+              create: true,
+              detail: WorkspaceDetail(
+                kind: WorkspaceKind.tools,
+                tool: WorkspaceToolDto(
+                  id: id,
+                  name: 'Live tool',
+                  description: 'Echoes',
+                  content: _liveToolSource,
+                ),
+              ),
+            ),
+          );
+          expect(created.tool!.functions, contains('echo'));
+          expect(created.tool!.hasValves, isTrue);
+          expect(created.tool!.description, 'Echoes');
+
+          final valves = await workspace.valves(
+            WorkspaceValvesQuery(toolId: id),
+          );
+          expect((valves.schema['properties'] as Map).keys, contains('limit'));
+          final saved = await workspace.saveValves(
+            valves.copyWith(values: <String, dynamic>{'limit': 7}),
+          );
+          expect(saved.values['limit'], 7);
+
+          final exported = await workspace.export(
+            WorkspaceExportQuery(kind: WorkspaceKind.tools, id: id),
+          );
+          expect(exported.text, contains('class Tools'));
+
+          await expectLater(
+            workspace.toolFromUrl('http://169.254.169.254/latest'),
+            throwsA(isA<RpcError>()),
+          );
+
+          await workspace.delete(
+            WorkspaceRef(kind: WorkspaceKind.tools, id: id),
+          );
+          cleanups.remove('tool');
+        }, timeout: const Timeout(Duration(minutes: 2)));
+
+        test('a skill: saved, toggled, exported and imported', () async {
+          final access = await workspace.capabilities();
+          if (!access.skills.manage) {
+            markTestSkipped('this server has no skills');
+            return;
+          }
+          final api = runtime.container.read(apiServiceProvider)!;
+          final id = 'live-skill-$stamp';
+          cleanups['skill'] = () async => api.deleteWorkspaceSkill(id);
+          final created = await workspace.save(
+            WorkspaceSave(
+              create: true,
+              detail: WorkspaceDetail(
+                kind: WorkspaceKind.skills,
+                skill: WorkspaceSkillDto(
+                  id: id,
+                  name: 'Live skill',
+                  description: 'Tidies',
+                  content: 'Tidy the text.',
+                ),
+              ),
+            ),
+          );
+          expect(created.skill!.content, 'Tidy the text.');
+          final toggled = await workspace.toggle(
+            WorkspaceRef(kind: WorkspaceKind.skills, id: id),
+          );
+          expect(toggled.active, isFalse);
+          final exported = await workspace.export(
+            const WorkspaceExportQuery(kind: WorkspaceKind.skills),
+          );
+          expect(exported.text, contains(id));
+          await workspace.delete(
+            WorkspaceRef(kind: WorkspaceKind.skills, id: id),
+          );
+
+          final copy = jsonEncode(<Map<String, dynamic>>[
+            <String, dynamic>{
+              'id': id,
+              'name': 'Live skill',
+              'content': 'Tidy the text.',
+            },
+          ]);
+          final imported = await workspace.import(
+            WorkspaceImport(kind: WorkspaceKind.skills, text: copy),
+          );
+          expect(imported.imported, 1);
+          await workspace.delete(
+            WorkspaceRef(kind: WorkspaceKind.skills, id: id),
+          );
+          cleanups.remove('skill');
+        }, timeout: const Timeout(Duration(minutes: 2)));
+
+        test('a knowledge base: folders, files, export, reset', () async {
+          final api = runtime.container.read(apiServiceProvider)!;
+          final created = await workspace.save(
+            WorkspaceSave(
+              create: true,
+              detail: WorkspaceDetail(
+                kind: WorkspaceKind.knowledge,
+                knowledge: WorkspaceKnowledgeDto(
+                  name: 'Live knowledge $stamp',
+                  description: 'Made by a test',
+                ),
+              ),
+            ),
+          );
+          final id = created.knowledge!.id;
+          cleanups['knowledge'] = () => api.deleteKnowledgeBase(id);
+
+          final uploaded = await FilesService(runtime.container).upload(
+            name: 'live-notes-$stamp.txt',
+            bytes: Uint8List.fromList(
+              utf8.encode('The deploy password rotates every Tuesday.'),
+            ),
+            contentType: 'text/plain',
+          );
+          cleanups['file'] = () => api.deleteFile(uploaded.id);
+
+          var files = await workspace.attachFiles(
+            WorkspaceFilesAttach(
+              knowledgeId: id,
+              fileIds: <String>[uploaded.id],
+            ),
+          );
+          Future<bool> listed() async {
+            files = await workspace.files(WorkspaceFilesQuery(knowledgeId: id));
+            return files.files.any((f) => f.id == uploaded.id);
+          }
+
+          await _waitFor(listed, seconds: 60);
+          expect(await listed(), isTrue);
+
+          files = await workspace.directoryAction(
+            WorkspaceDirectoryAction(
+              knowledgeId: id,
+              op: WorkspaceDirectoryOp.create,
+              name: 'Guides',
+            ),
+          );
+          final folder = files.directories.singleWhere(
+            (d) => d.name == 'Guides',
+          );
+          files = await workspace.fileAction(
+            WorkspaceFileAction(
+              knowledgeId: id,
+              fileId: uploaded.id,
+              op: WorkspaceFileOp.move,
+              directoryId: folder.id,
+            ),
+          );
+          expect(files.files.map((f) => f.id), isNot(contains(uploaded.id)));
+          files = await workspace.files(
+            WorkspaceFilesQuery(knowledgeId: id, directoryId: folder.id),
+          );
+          expect(files.files.map((f) => f.id), contains(uploaded.id));
+          expect(files.breadcrumbs.last.id, folder.id);
+
+          files = await workspace.fileAction(
+            WorkspaceFileAction(
+              knowledgeId: id,
+              fileId: uploaded.id,
+              op: WorkspaceFileOp.rename,
+              filename: 'renamed-$stamp.txt',
+            ),
+          );
+          expect(
+            files.files.singleWhere((f) => f.id == uploaded.id).filename,
+            'renamed-$stamp.txt',
+          );
+
+          final zip = await workspace.export(
+            WorkspaceExportQuery(kind: WorkspaceKind.knowledge, id: id),
+          );
+          expect(zip.mimeType, 'application/zip');
+          expect(base64Decode(zip.base64!).take(2), <int>[0x50, 0x4b]);
+
+          files = await workspace.fileAction(
+            WorkspaceFileAction(
+              knowledgeId: id,
+              fileId: uploaded.id,
+              op: WorkspaceFileOp.remove,
+            ),
+          );
+          expect(files.files, isEmpty);
+          files = await workspace.directoryAction(
+            WorkspaceDirectoryAction(
+              knowledgeId: id,
+              op: WorkspaceDirectoryOp.delete,
+              directoryId: folder.id,
+            ),
+          );
+          files = await workspace.files(WorkspaceFilesQuery(knowledgeId: id));
+          expect(files.directories, isEmpty);
+
+          final reset = await workspace.knowledgeReset(id);
+          expect(reset.knowledge!.fileCount, 0);
+          await workspace.delete(
+            WorkspaceRef(kind: WorkspaceKind.knowledge, id: id),
+          );
+          cleanups.remove('knowledge');
+        }, timeout: const Timeout(Duration(minutes: 3)));
+      });
     },
   );
 }
+
+/// A tool with one function and one valve, for the workspace test.
+const String _liveToolSource = """
+\"\"\"
+title: Live Tool
+\"\"\"
+from pydantic import BaseModel, Field
+
+
+class Tools:
+    class Valves(BaseModel):
+        limit: int = Field(default=3, description="How many")
+
+    def __init__(self):
+        self.valves = self.Valves()
+
+    def echo(self, text: str) -> str:
+        \"\"\"Echo the text back.\"\"\"
+        return text
+""";
 
 /// Polls [condition] until it holds or [seconds] elapse.
 ///

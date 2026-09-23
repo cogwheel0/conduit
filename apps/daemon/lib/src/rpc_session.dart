@@ -20,6 +20,7 @@ import 'settings_service.dart';
 import 'system_service.dart';
 import 'turns_service.dart';
 import 'ui_requests_service.dart';
+import 'workspace_service.dart';
 
 /// One connected renderer window.
 ///
@@ -46,9 +47,11 @@ class RpcSession {
     McpService? mcp,
     NotesService? notes,
     ChannelsService? channels,
+    WorkspaceService? workspace,
     void Function(bool online)? reportNetwork,
   }) : _events = events,
        _channels = channels,
+       _workspace = workspace,
        _notes = notes,
        _direct = direct,
        _mcp = mcp,
@@ -101,6 +104,7 @@ class RpcSession {
   final McpService? _mcp;
   final NotesService? _notes;
   final ChannelsService? _channels;
+  final WorkspaceService? _workspace;
 
   /// Where a window's `online`/`offline` events go: the connectivity port,
   /// which then tells every window. Null before the core is up.
@@ -1057,6 +1061,175 @@ class RpcSession {
       },
     );
 
+    // workspace.* (M6).
+    void workspace<P, R>(
+      String method,
+      P Function(Map<String, dynamic>) decode,
+      Map<String, dynamic> Function(R) encode,
+      Future<R> Function(WorkspaceService service, P params) run,
+    ) => registerTypedMethod<P, R>(
+      _peer,
+      method,
+      decodeParams: decode,
+      encodeResult: encode,
+      handler: (params) {
+        _requireHandshake();
+        return run(_requireWorkspace(), params);
+      },
+    );
+    Map<String, dynamic> ok(void _) => <String, dynamic>{'ok': true};
+
+    registerTypedMethodNoParams<WorkspaceAccess>(
+      _peer,
+      ConduitMethods.workspaceCapabilities,
+      encodeResult: (result) => result.toJson(),
+      handler: () {
+        _requireHandshake();
+        return _requireWorkspace().capabilities();
+      },
+    );
+    registerTypedMethodNoParams<WorkspaceModelOptions>(
+      _peer,
+      ConduitMethods.workspaceModelOptions,
+      encodeResult: (result) => result.toJson(),
+      handler: () {
+        _requireHandshake();
+        return _requireWorkspace().modelOptions();
+      },
+    );
+    workspace<WorkspaceQuery, WorkspacePage>(
+      ConduitMethods.workspaceList,
+      WorkspaceQuery.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.list(p),
+    );
+    workspace<WorkspaceRef, WorkspaceDetail>(
+      ConduitMethods.workspaceGet,
+      WorkspaceRef.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.get(p),
+    );
+    workspace<WorkspaceSave, WorkspaceDetail>(
+      ConduitMethods.workspaceSave,
+      WorkspaceSave.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.save(p),
+    );
+    workspace<WorkspaceRef, void>(
+      ConduitMethods.workspaceDelete,
+      WorkspaceRef.fromJson,
+      ok,
+      (s, p) => s.delete(p),
+    );
+    workspace<WorkspaceRef, WorkspaceItem>(
+      ConduitMethods.workspaceToggle,
+      WorkspaceRef.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.toggle(p),
+    );
+    workspace<WorkspaceAccessEdit, WorkspaceDetail>(
+      ConduitMethods.workspaceSetAccess,
+      WorkspaceAccessEdit.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.setAccess(p),
+    );
+    workspace<WorkspacePrincipalQuery, WorkspacePrincipals>(
+      ConduitMethods.workspacePrincipals,
+      WorkspacePrincipalQuery.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.principals(p),
+    );
+    workspace<WorkspaceExportQuery, WorkspaceExportFile>(
+      ConduitMethods.workspaceExport,
+      WorkspaceExportQuery.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.export(p),
+    );
+    workspace<WorkspaceImport, WorkspaceImportResult>(
+      ConduitMethods.workspaceImport,
+      WorkspaceImport.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.import(p),
+    );
+    workspace<WorkspaceRef, WorkspacePromptHistory>(
+      ConduitMethods.workspacePromptHistory,
+      WorkspaceRef.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.promptHistory(p.id),
+    );
+    workspace<WorkspacePromptDiffQuery, WorkspacePromptDiff>(
+      ConduitMethods.workspacePromptDiff,
+      WorkspacePromptDiffQuery.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.promptDiff(p),
+    );
+    workspace<WorkspacePromptVersionRef, WorkspaceDetail>(
+      ConduitMethods.workspacePromptSetVersion,
+      WorkspacePromptVersionRef.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.promptSetVersion(p),
+    );
+    workspace<WorkspacePromptVersionRef, void>(
+      ConduitMethods.workspacePromptDeleteVersion,
+      WorkspacePromptVersionRef.fromJson,
+      ok,
+      (s, p) => s.promptDeleteVersion(p),
+    );
+    workspace<WorkspaceValvesQuery, WorkspaceValves>(
+      ConduitMethods.workspaceValves,
+      WorkspaceValvesQuery.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.valves(p),
+    );
+    workspace<WorkspaceValves, WorkspaceValves>(
+      ConduitMethods.workspaceSaveValves,
+      WorkspaceValves.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.saveValves(p),
+    );
+    workspace<WorkspaceUrl, WorkspaceToolDto>(
+      ConduitMethods.workspaceToolFromUrl,
+      WorkspaceUrl.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.toolFromUrl(p.url),
+    );
+    workspace<WorkspaceFilesQuery, WorkspaceFiles>(
+      ConduitMethods.workspaceFiles,
+      WorkspaceFilesQuery.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.files(p),
+    );
+    workspace<WorkspaceFilesAttach, WorkspaceFiles>(
+      ConduitMethods.workspaceAttachFiles,
+      WorkspaceFilesAttach.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.attachFiles(p),
+    );
+    workspace<WorkspaceFileAction, WorkspaceFiles>(
+      ConduitMethods.workspaceFileAction,
+      WorkspaceFileAction.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.fileAction(p),
+    );
+    workspace<WorkspaceDirectoryAction, WorkspaceFiles>(
+      ConduitMethods.workspaceDirectoryAction,
+      WorkspaceDirectoryAction.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.directoryAction(p),
+    );
+    workspace<WorkspaceRef, WorkspaceDetail>(
+      ConduitMethods.workspaceKnowledgeReset,
+      WorkspaceRef.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.knowledgeReset(p.id),
+    );
+    workspace<WorkspaceRef, WorkspaceFiles>(
+      ConduitMethods.workspaceKnowledgeCleanup,
+      WorkspaceRef.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.knowledgeCleanup(p.id),
+    );
+
     registerTypedMethod<NoteQuery, NoteList>(
       _peer,
       ConduitMethods.notesList,
@@ -1337,6 +1510,13 @@ class RpcSession {
 
   ChannelsService _requireChannels() =>
       _channels ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  WorkspaceService _requireWorkspace() =>
+      _workspace ??
       (throw const RpcError(
         code: ConduitErrorCodes.daemonUnavailable,
         debugMessage: 'the core is not up yet',
