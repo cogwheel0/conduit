@@ -125,6 +125,15 @@ class ChannelActions {
     _ref.invalidate(channelListProvider);
   }
 
+  Future<void> leave(String id) async {
+    await _call(
+      ConduitMethods.channelsLeave,
+      ChannelRef(id: id).toJson(),
+      ChannelList.fromJson,
+    );
+    _ref.invalidate(channelListProvider);
+  }
+
   /// Older messages: the next page back, merged by the daemon.
   Future<void> loadOlder(String channelId, {String? parentId}) async {
     await _call(

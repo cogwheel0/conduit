@@ -213,6 +213,10 @@ class _ChannelViewState extends State<_ChannelView> {
   /// The message whose thread is open beside the channel.
   ChannelMessageDto? _thread;
   bool _confirmingDelete = false;
+  bool _confirmingLeave = false;
+
+  /// The channel's details being edited, by a manager; null when not.
+  ({String name, String description, bool private})? _editing;
 
   /// Kept to say "no channel open" when this view goes: `dispose` cannot
   /// read the context.
@@ -270,6 +274,26 @@ class _ChannelViewState extends State<_ChannelView> {
             div(classes: 'flex-1', []),
             if (channel?.manager ?? false)
               button(
+                [Component.text(t.app.channelEdit)],
+                classes: 'rounded px-2.5 py-1 text-xs hover:bg-accent',
+                type: ButtonType.button,
+                onClick: () => setState(
+                  () => _editing = (
+                    name: channel!.name,
+                    description: channel.description ?? '',
+                    private: channel.private,
+                  ),
+                ),
+              ),
+            if (channel != null && !channel.manager)
+              button(
+                [Component.text(t.app.channelLeave)],
+                classes: 'rounded px-2.5 py-1 text-xs hover:bg-accent',
+                type: ButtonType.button,
+                onClick: () => setState(() => _confirmingLeave = true),
+              ),
+            if (channel?.manager ?? false)
+              button(
                 [Component.text(t.app.channelDelete)],
                 classes:
                     'rounded px-2.5 py-1 text-xs text-destructive '
@@ -279,6 +303,113 @@ class _ChannelViewState extends State<_ChannelView> {
               ),
           ],
         ),
+        if (_editing case final editing?)
+          div(
+            classes: 'mx-6 mt-3 space-y-2 rounded border border-border p-3',
+            attributes: <String, String>{
+              'role': 'group',
+              'aria-label': t.app.channelEdit,
+            },
+            [
+              textField(
+                id: 'channel-edit-name',
+                labelText: t.app.channelName,
+                value: editing.name,
+                onInput: (value) => setState(
+                  () => _editing = (
+                    name: value,
+                    description: editing.description,
+                    private: editing.private,
+                  ),
+                ),
+              ),
+              textField(
+                id: 'channel-edit-description',
+                labelText: t.app.channelDescription,
+                value: editing.description,
+                onInput: (value) => setState(
+                  () => _editing = (
+                    name: editing.name,
+                    description: value,
+                    private: editing.private,
+                  ),
+                ),
+              ),
+              checkboxField(
+                id: 'channel-edit-private',
+                text: t.app.channelPrivate,
+                checked: editing.private,
+                onChanged: ({required value}) => setState(
+                  () => _editing = (
+                    name: editing.name,
+                    description: editing.description,
+                    private: value,
+                  ),
+                ),
+              ),
+              div(classes: 'flex gap-2', [
+                button(
+                  [Component.text(t.app.save)],
+                  classes:
+                      'rounded bg-primary px-2.5 py-1 text-xs '
+                      'text-primary-foreground disabled:opacity-50',
+                  type: ButtonType.button,
+                  disabled: editing.name.trim().isEmpty,
+                  onClick: () async {
+                    if (editing.name.trim().isEmpty) return;
+                    await context
+                        .read(channelActionsProvider)
+                        .save(
+                          ChannelEdit(
+                            id: channelId,
+                            name: editing.name,
+                            description: editing.description.trim().isEmpty
+                                ? null
+                                : editing.description,
+                            private: editing.private,
+                          ),
+                        );
+                    if (mounted) setState(() => _editing = null);
+                  },
+                ),
+                button(
+                  [Component.text(t.app.cancel)],
+                  classes: 'rounded px-2.5 py-1 text-xs hover:bg-accent',
+                  type: ButtonType.button,
+                  onClick: () => setState(() => _editing = null),
+                ),
+              ]),
+            ],
+          ),
+        if (_confirmingLeave)
+          div(
+            classes:
+                'mx-6 mt-3 space-y-2 rounded border border-border p-3 text-sm',
+            attributes: const <String, String>{'role': 'alertdialog'},
+            [
+              p([Component.text(t.app.channelLeaveConfirm)]),
+              div(classes: 'flex gap-2', [
+                button(
+                  [Component.text(t.app.channelLeave)],
+                  classes:
+                      'rounded bg-primary px-2.5 py-1 text-xs '
+                      'text-primary-foreground',
+                  type: ButtonType.button,
+                  onClick: () async {
+                    final router = Router.of(context);
+                    await context.read(channelActionsProvider).leave(channelId);
+                    router.replace('/channels');
+                  },
+                ),
+                button(
+                  [Component.text(t.app.cancel)],
+                  classes: 'rounded px-2.5 py-1 text-xs hover:bg-accent',
+                  type: ButtonType.button,
+                  onClick: () => setState(() => _confirmingLeave = false),
+                ),
+              ]),
+            ],
+          ),
         if (_confirmingDelete)
           div(
             classes:

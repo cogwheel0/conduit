@@ -108,6 +108,12 @@ final class ChannelsService {
     return list();
   }
 
+  Future<ChannelList> leave(String id) async {
+    await _api().updateMemberActiveStatus(id, isActive: false);
+    _container.read(channelsListProvider.notifier).removeChannel(id);
+    return list();
+  }
+
   /// A channel's messages or a thread's, starting to listen to them.
   Future<ChannelMessages> messages(ChannelMessagesQuery query) async {
     final channelId = query.channelId;

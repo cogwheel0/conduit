@@ -1461,6 +1461,12 @@ void main() {
         )).messages;
         expect(messages.map((m) => m.id), isNot(contains(posted.id)));
 
+        // Edited by its manager.
+        final renamed = await channels.save(
+          ChannelEdit(id: channel.id, name: '$name-renamed'),
+        );
+        expect(renamed.channels.map((c) => c.name), contains('$name-renamed'));
+
         final after = await channels.delete(channel.id);
         deleted = true;
         expect(after.channels.map((c) => c.id), isNot(contains(channel.id)));

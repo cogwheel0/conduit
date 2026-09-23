@@ -955,6 +955,17 @@ class RpcSession {
       },
     );
 
+    registerTypedMethod<ChannelRef, ChannelList>(
+      _peer,
+      ConduitMethods.channelsLeave,
+      decodeParams: ChannelRef.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (ref) {
+        _requireHandshake();
+        return _requireChannels().leave(ref.id);
+      },
+    );
+
     registerTypedMethod<ChannelMessagesQuery, ChannelMessages>(
       _peer,
       ConduitMethods.channelsMessages,

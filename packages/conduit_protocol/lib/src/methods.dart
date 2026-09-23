@@ -388,6 +388,9 @@ abstract final class ConduitMethods {
 
   static const String channelsDelete = 'channels.delete';
 
+  /// Leaves a channel one is a member of; it stays for the others.
+  static const String channelsLeave = 'channels.leave';
+
   /// A channel's messages or one thread's, newest first. Asking for a
   /// channel's also starts listening to it, so the window hears
   /// `channels.message` and `channels.typing` for it.
