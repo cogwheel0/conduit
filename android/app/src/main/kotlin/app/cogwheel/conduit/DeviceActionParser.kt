@@ -40,6 +40,18 @@ object DeviceActions {
         GET_WEATHER,
         WEB_LOOKUP,
     )
+
+    /**
+     * Actions that silently change device state without opening any
+     * user-visible surface. The bridge requires explicit user approval before
+     * executing these, so parsed model output — including untrusted retrieved
+     * content replayed in chat history — can never act without a human in the
+     * loop. Every other action opens a surface the user can see and back out
+     * of, or only reads data.
+     */
+    val confirmationRequired = setOf(SET_ALARM, SET_TIMER, FLASHLIGHT, SET_VOLUME)
+
+    fun requiresConfirmation(name: String): Boolean = name in confirmationRequired
 }
 
 /**

@@ -1,5 +1,6 @@
 package app.cogwheel.conduit
 
+import android.app.Activity
 import android.content.Context
 import android.os.Build
 import android.util.Log
@@ -36,11 +37,22 @@ import kotlinx.coroutines.withTimeoutOrNull
  * for [FeatureStatus.AVAILABLE] and reports failures as stream error events
  * instead of throwing across the channel.
  */
-class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) : AicoreHostApi {
+class AicoreBridge(
+    private val appContext: Context,
+    messenger: BinaryMessenger,
+    activityProvider: () -> Activity? = { null },
+) : AicoreHostApi {
     private val flutterApi = AicoreFlutterApi(messenger)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val runs = mutableMapOf<String, Job>()
     private val actionExecutor by lazy { DeviceActionExecutor(appContext) }
+
+    /**
+     * Approval gate for state-changing device actions. The default fails
+     * closed (no activity, no dialog, no approval), so only the foreground
+     * activity wires a real gate.
+     */
+    private val approval: DeviceActionApproval = ActivityActionApproval(activityProvider)
     @Volatile
     private var webSearchApiKey: String? = null
     @Volatile
@@ -269,8 +281,33 @@ class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) 
             )
             return
         }
-        val result = actionExecutor.execute(call.name, call.args)
-        Log.i(TAG, "tool-exec: ${call.name} args=$call.args result=$result")
+        var result: String
+        var followUpDeviceTools = deviceTools &&
+            call.name != DeviceActions.WEB_SEARCH &&
+            call.name != DeviceActions.WEB_LOOKUP
+        if (DeviceActions.requiresConfirmation(call.name)) {
+            // State-changing actions never run on parsed model output alone:
+            // the user approves (or declines) each one. A declined action is
+            // narrated, and the follow-up turn loses the tool schema so the
+            // model cannot simply retry the same call.
+            val approved = approval.awaitApproval(
+                DeviceActionConfirmation(
+                    title = DeviceActionPrompts.describe(call.name, call.args),
+                    message = DeviceActionPrompts.CONFIRMATION_MESSAGE,
+                ),
+            )
+            if (approved) {
+                Log.i(TAG, "tool-confirm: ${call.name} approved")
+                result = actionExecutor.execute(call.name, call.args)
+            } else {
+                Log.i(TAG, "tool-confirm: ${call.name} denied")
+                result = DECLINED_RESULT
+                followUpDeviceTools = false
+            }
+        } else {
+            result = actionExecutor.execute(call.name, call.args)
+        }
+        Log.i(TAG, "tool-exec: ${call.name} args=${call.args} result=$result")
         emitToolCall(
             runId,
             JSONObject()
@@ -292,9 +329,6 @@ class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) 
         // Untrusted tool output (web results carry remote page content) must
         // not arm another tool round: the follow-up turn drops the device-tool
         // schema unless the previous action's narration was locally produced.
-        val followUpDeviceTools = deviceTools &&
-            call.name != DeviceActions.WEB_SEARCH &&
-            call.name != DeviceActions.WEB_LOOKUP
         runConversationTurn(
             runId = runId,
             generativeModel = generativeModel,
@@ -629,6 +663,10 @@ class AicoreBridge(private val appContext: Context, messenger: BinaryMessenger) 
 
         /** Bounded device-action chain per user request: tool → result → next. */
         private const val MAX_TOOL_ROUNDS = 2
+
+        /** Narrated to the model when the user declines a device action. */
+        private const val DECLINED_RESULT =
+            "The user declined this action. Nothing was changed; do not attempt it again."
 
         /** Absolute cap on tool narration injected into a follow-up turn. */
         private const val MAX_TOOL_RESULT_CHARS = 4_500
