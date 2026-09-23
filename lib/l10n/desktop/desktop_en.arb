@@ -636,5 +636,47 @@
   "desktopHermesMode": "Connection type",
   "@desktopHermesMode": {
     "description": "Label of the choice between Hermes's API server (with a key) and its desktop gateway."
+  },
+  "desktopStopDictation": "Stop dictation",
+  "@desktopStopDictation": {
+    "description": "Button that ends dictation and transcribes what was said."
+  },
+  "desktopMicrophoneUnavailable": "Conduit can't use a microphone. Check that one is connected and that Conduit is allowed to use it.",
+  "@desktopMicrophoneUnavailable": {
+    "description": "Shown when dictation or a voice call cannot open the microphone."
+  },
+  "desktopNothingHeard": "Nothing was heard.",
+  "@desktopNothingHeard": {
+    "description": "Shown when a dictation ends with no speech in it."
+  },
+  "desktopTranscriptionFailed": "That couldn't be transcribed. Try again.",
+  "@desktopTranscriptionFailed": {
+    "description": "Shown when the server could not transcribe a dictation."
+  },
+  "desktopShortcutDictate": "Start or stop dictation",
+  "@desktopShortcutDictate": {
+    "description": "Shortcuts overlay: the dictation shortcut."
+  },
+  "desktopMilliseconds": "{ms} ms",
+  "@desktopMilliseconds": {
+    "description": "A duration in milliseconds, next to a slider.",
+    "placeholders": {
+      "ms": {}
+    }
+  },
+  "desktopReadAloud": "Read aloud",
+  "@desktopReadAloud": {
+    "description": "Button under an answer that reads it aloud."
+  },
+  "desktopStopReading": "Stop reading",
+  "@desktopStopReading": {
+    "description": "Button under an answer being read aloud, which stops it."
+  },
+  "desktopVoiceCallHeard": "You said: {text}",
+  "@desktopVoiceCallHeard": {
+    "description": "Under the voice call's status: what the user's last question was transcribed as.",
+    "placeholders": {
+      "text": {}
+    }
   }
 }

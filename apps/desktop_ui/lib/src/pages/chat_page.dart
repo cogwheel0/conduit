@@ -18,7 +18,9 @@ import '../rpc/session_providers.dart';
 import '../rpc/workspace_providers.dart';
 import '../rpc/hermes_providers.dart';
 import '../rpc/terminal_providers.dart';
+import '../rpc/voice_providers.dart';
 import '../sidebar_model.dart';
+import '../voice.dart';
 import '../widgets/form_field.dart';
 import '../widgets/chat_tags.dart';
 import '../widgets/context_menu.dart';
@@ -32,6 +34,7 @@ import '../widgets/selection_bar.dart';
 import '../widgets/share_dialog.dart';
 import '../widgets/sources_list.dart';
 import '../widgets/usage_details.dart';
+import '../widgets/voice_controls.dart';
 import 'terminal_page.dart' show terminalOffered;
 
 /// The chat vertical: sidebar, transcript, composer (M3).
@@ -1150,6 +1153,15 @@ class _Transcript extends StatelessComponent {
                                 _shownContent(message, versions[message.id]),
                               ),
                             ),
+                            readAloud: message.role == 'assistant'
+                                ? ReadAloudButton(
+                                    id: message.id,
+                                    text: _shownContent(
+                                      message,
+                                      versions[message.id],
+                                    ),
+                                  )
+                                : null,
                             onEdit:
                                 message.role == 'user' &&
                                     selected != null &&
@@ -1293,6 +1305,7 @@ class _Transcript extends StatelessComponent {
     void Function(String source)? onCopyCode,
     String? mathIdPrefix,
     void Function()? onCopy,
+    Component? readAloud,
     void Function()? onRegenerate,
     void Function()? onEdit,
     Component? versionNav,
@@ -1373,6 +1386,7 @@ class _Transcript extends StatelessComponent {
             // *are* other answers is information in itself, and hiding it
             // behind a hover means nobody finds out.
             ?versionNav,
+            ?readAloud,
             div(
               classes:
                   'flex gap-1 opacity-0 transition-opacity '
@@ -1652,6 +1666,37 @@ class _ComposerState extends State<_Composer> {
   int _askingStart = 0;
   String? _askingClipboard;
 
+  /// What dictation hears, into the field (WP-8.1).
+  StreamSubscription<String>? _dictated;
+
+  @override
+  void initState() {
+    super.initState();
+    _dictated = context
+        .read(dictationProvider.notifier)
+        .results
+        .listen(_insertDictation);
+  }
+
+  @override
+  void dispose() {
+    unawaited(_dictated?.cancel());
+    super.dispose();
+  }
+
+  void _insertDictation(String text) {
+    if (!mounted) return;
+    final joined = _text.trim().isEmpty ? text : '${_text.trimRight()} $text';
+    setState(() => _text = joined);
+    final commands = context.read(windowCommandsProvider)
+      ..setValue('composer', joined);
+    if (context.read(voiceSettingsProvider).value?.autoSend ?? false) {
+      unawaited(_send(context));
+    } else {
+      commands.focus('composer');
+    }
+  }
+
   @override
   Component build(BuildContext context) {
     final live = context.watch(liveTurnProvider).value;
@@ -1709,6 +1754,14 @@ class _ComposerState extends State<_Composer> {
         ? -1
         : _promptIndex.clamp(0, menuLength - 1);
 
+    // Voice needs the server to transcribe (M8); on a system with the
+    // Apple helper that will change (WP-8.4).
+    final voice =
+        context.watch(voiceSettingsProvider).value?.serverStt ?? false;
+    final dictationProblem = dictationProblemText(
+      context.watch(dictationProvider).problem,
+    );
+
     return div(
       key: const ValueKey('composer'),
       classes:
@@ -1734,6 +1787,9 @@ class _ComposerState extends State<_Composer> {
         'paste': (event) => _upload(attachments, attachments.takeFiles(event)),
       },
       [
+        // Always in the tree: it watches the call, which keeps the call
+        // following its answer.
+        const VoiceCallPanel(),
         if (options != null &&
             (options.webSearch ||
                 options.imageGeneration ||
@@ -1964,6 +2020,7 @@ class _ComposerState extends State<_Composer> {
                   ),
                 ),
               ]),
+              if (voice) ...[const DictationButton(), const VoiceCallButton()],
               if (streaming)
                 button(
                   [Component.text(t.app.stopGenerating)],
@@ -2000,6 +2057,12 @@ class _ComposerState extends State<_Composer> {
                 classes:
                     'mx-auto mt-1.5 max-w-3xl text-xs text-muted-foreground',
                 [Component.text(t.desktop.desktopAttachmentsUploading)],
+              )
+            else if (dictationProblem case final message?)
+              p(
+                classes: 'mx-auto mt-1.5 max-w-3xl text-xs text-destructive',
+                attributes: const <String, String>{'role': 'status'},
+                [Component.text(message)],
               )
             else
               // Said once, quietly, under the field -- rather than left for

@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -503,6 +504,11 @@ async function shot(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: join(shotDir, `${name}.png`) })
 }
 
+const speechSample =
+  process.env.CONDUIT_SPEECH_SAMPLE && existsSync(process.env.CONDUIT_SPEECH_SAMPLE)
+    ? process.env.CONDUIT_SPEECH_SAMPLE
+    : null
+
 test.describe('against a real server', () => {
   test.skip(credentials === null, 'no OWUI_* credentials in .env')
   // A cold start, a sign-in round trip and a model reply.
@@ -522,6 +528,9 @@ test.describe('against a real server', () => {
         // A microphone for a note's recording: Chromium's fake device, since
         // a CI box has none. The app's own permission policy still decides.
         '--use-fake-device-for-media-stream',
+        // Spoken words instead of the fake device's beep, when a WAV of
+        // "The quick brown fox jumps over the lazy dog." is given (M8).
+        ...(speechSample ? [`--use-file-for-fake-audio-capture=${speechSample}`] : []),
       ],
       cwd: join(__dirname, '..'),
     })
@@ -2135,11 +2144,12 @@ test.describe('against a real server', () => {
         await expect(page.getByText(knowledgeName)).toBeHidden({ timeout: 30_000 })
       } finally {
         const { api, auth } = await serverApi(credentials!)
-        const prompts = (await (await api.get('/api/v1/prompts/', { headers: auth })).json()) as Array<{
-          id: string
-          command: string
-        }>
-        for (const prompt of prompts.filter((p) => p.command === command)) {
+        const prompts = (await (await api.get('/api/v1/prompts/', { headers: auth }))
+          .json()
+          .catch(() => [])) as Array<{ id: string; command: string }>
+        // Not a list when the server refused; the test's own failure, if
+        // there was one, is the one to report.
+        for (const prompt of (Array.isArray(prompts) ? prompts : []).filter((p) => p.command === command)) {
           await api.delete(`/api/v1/prompts/id/${prompt.id}/delete`, { headers: auth }).catch(() => undefined)
         }
         const knowledge = (await (await api.get('/api/v1/knowledge/', { headers: auth })).json()) as {
@@ -2300,6 +2310,51 @@ test.describe('against a real server', () => {
           () => undefined,
         )
         terminal.close()
+      }
+
+      // M8: voice. Settings → Audio, then dictation and a call through the
+      // server's transcription -- with real words when a sample is given --
+      // and an answer read aloud.
+      {
+        await page.goto('app://conduit/settings/audio')
+        await expect(page.getByRole('region', { name: /^speech to text$/i })).toBeVisible({
+          timeout: 30_000,
+        })
+        await expect(page.locator('#tts-engine-device')).toBeChecked()
+        await shot(page, '22-audio-settings')
+        await page.goto('app://conduit/')
+        await page.locator('#model').selectOption(credentials!.model ?? { index: 0 })
+        const composer = page.getByPlaceholder('Ask Conduit')
+        const dictate = page.locator('#dictate')
+        await expect(dictate).toBeVisible({ timeout: 30_000 })
+        if (speechSample) {
+          await dictate.click()
+          await expect(dictate).toHaveAttribute('aria-pressed', 'true')
+          await shot(page, '22b-dictating')
+          await expect(composer).toHaveValue(/quick brown fox/i, { timeout: 60_000 })
+          await composer.fill('')
+
+          // A call: it hears the question, sends it, and reads the answer.
+          await page.locator('#voice-call').click()
+          const call = page.getByRole('region', { name: /^voice call$/i })
+          await expect(call).toBeVisible()
+          await expect(call.getByText(/you said: .*quick brown fox/i)).toBeVisible({
+            timeout: 60_000,
+          })
+          await shot(page, '22c-call')
+          const transcript = page.getByRole('log')
+          await expect(transcript).toContainText(/quick brown fox/i, { timeout: 30_000 })
+          await page.locator('#call-end').click()
+          await expect(call).toBeHidden()
+        }
+
+        // Read aloud: the system's voice, and stopped again.
+        const listen = page.locator('[data-read-aloud]').last()
+        await expect(listen).toBeAttached({ timeout: 30_000 })
+        await listen.click({ force: true })
+        await expect(listen).toHaveAttribute('aria-pressed', 'true')
+        await listen.click()
+        await expect(listen).toHaveAttribute('aria-pressed', 'false')
       }
     } finally {
       provider.close()

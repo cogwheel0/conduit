@@ -25,13 +25,15 @@ Component textField({
   final errorId = '$id-error';
   return div(classes: 'space-y-1.5', [
     _label(id, labelText, hidden: hideLabel),
-    input<String>(
+    input<Object?>(
       id: id,
       classes: _controlClasses(invalid: error != null),
       type: type,
       value: value,
       disabled: disabled,
-      onInput: onInput,
+      // A number field reports a number in the browser -- NaN when empty --
+      // and text on the VM; callers get text either way.
+      onInput: (value) => onInput(numberFieldText(value)),
       attributes: <String, String>{
         'placeholder': ?placeholder,
         // `input` has no typed `autofocus`; the attribute is the same thing.
@@ -172,3 +174,13 @@ Component _label(String id, String text, {bool hidden = false}) => label(
 
 Component _fieldError(String id, String message) =>
     p(id: id, classes: 'text-xs text-destructive', [Component.text(message)]);
+
+/// What a text callback gets from an input's value: a number field's value
+/// arrives as a `num` in the browser.
+String numberFieldText(Object? value) => switch (value) {
+  final num number when number.isNaN => '',
+  final num number when number == number.truncateToDouble() =>
+    '${number.toInt()}',
+  final num number => '$number',
+  _ => '${value ?? ''}',
+};

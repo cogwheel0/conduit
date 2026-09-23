@@ -12,6 +12,7 @@ import '../rpc/rpc_providers.dart';
 import '../rpc/session_providers.dart';
 import '../rpc/settings_providers.dart';
 import '../widgets/form_field.dart';
+import 'audio_settings_tab.dart';
 import 'direct_connections_tab.dart';
 import 'hermes_settings_tab.dart';
 import 'mcp_servers_tab.dart';
@@ -19,6 +20,7 @@ import 'mcp_servers_tab.dart';
 /// The tabs, and the order they appear in.
 enum SettingsTab {
   appearance,
+  audio,
   connections,
   direct,
   mcp,
@@ -99,6 +101,7 @@ class SettingsPage extends StatelessComponent {
 
   String _label(SettingsTab tab) => switch (tab) {
     SettingsTab.appearance => t.app.settingsAppearance,
+    SettingsTab.audio => t.app.audioSettingsTitle,
     SettingsTab.connections => t.app.settingsCategoryServer,
     SettingsTab.direct => t.app.directConnectionsTitle,
     SettingsTab.mcp => t.app.directMcpServersTitle,
@@ -134,6 +137,7 @@ class SettingsPage extends StatelessComponent {
         div(classes: 'min-h-0 flex-1 overflow-y-auto p-5', [
           switch (current) {
             SettingsTab.appearance => const _AppearanceTab(),
+            SettingsTab.audio => const AudioSettingsTab(),
             SettingsTab.connections => const _ConnectionsTab(),
             SettingsTab.direct => const DirectConnectionsTab(),
             SettingsTab.mcp => const McpServersTab(),

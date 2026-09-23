@@ -12,6 +12,7 @@ import '../rpc/chat_providers.dart';
 import '../rpc/rpc_providers.dart';
 import '../rpc/ui_request_providers.dart';
 import '../shortcuts.dart';
+import '../voice.dart';
 import 'command_palette.dart';
 import 'shortcuts_overlay.dart';
 
@@ -148,6 +149,8 @@ class _KeyboardLayerState extends State<KeyboardLayer> {
                 allow: action == ShortcutAction.allowRequest,
               ),
         );
+      case ShortcutAction.dictate:
+        unawaited(context.read(dictationProvider.notifier).toggle());
       case ShortcutAction.copyLastCodeBlock:
         final reply = _lastReply?.read();
         unawaited(_copy(reply == null ? null : lastCodeBlock(reply)));

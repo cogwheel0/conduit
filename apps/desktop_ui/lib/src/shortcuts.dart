@@ -21,6 +21,7 @@ enum ShortcutAction {
   copyLastCodeBlock,
   allowRequest,
   denyRequest,
+  dictate,
 }
 
 /// A chord, as the user would describe it.
@@ -73,9 +74,9 @@ class Shortcut {
 
 /// Open WebUI's defaults, for the actions this app can carry out today.
 ///
-/// Section 5.2 lists more -- temporary chat, dictation, regenerate, tool
+/// Section 5.2 lists more -- temporary chat, regenerate, tool
 /// approve/deny, edit last message. Each waits on a feature that does not
-/// exist yet (M4, M8, and edit-and-branch in WP-3.2), and a shortcut
+/// exist yet (M4, and edit-and-branch in WP-3.2), and a shortcut
 /// overlay that advertises a key doing nothing is worse than one that is
 /// short: the user presses it, nothing happens, and they stop trusting the
 /// list. They join this table with their features.
@@ -143,6 +144,12 @@ const List<Shortcut> defaultShortcuts = <Shortcut>[
   Shortcut(
     ShortcutAction.copyLastCodeBlock,
     KeyStroke(';', primary: true, shift: true),
+    whileTyping: true,
+  ),
+  // Dictation (M8): start, and stop to transcribe.
+  Shortcut(
+    ShortcutAction.dictate,
+    KeyStroke('l', primary: true, shift: true),
     whileTyping: true,
   ),
 ];

@@ -9,6 +9,8 @@ import 'package:conduit_desktop_ui/src/rpc/chat_providers.dart';
 import 'package:conduit_desktop_ui/src/rpc/rpc_providers.dart';
 import 'package:conduit_desktop_ui/src/rpc/session_providers.dart';
 import 'package:conduit_desktop_ui/src/attachments.dart';
+import 'package:conduit_desktop_ui/src/rpc/voice_providers.dart';
+import 'package:conduit_desktop_ui/src/voice_port.dart';
 import 'package:conduit_desktop_ui/src/window_commands.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:jaspr/dom.dart';
@@ -160,6 +162,11 @@ Finder byAttribute(String name, String value) =>
       final attributes = candidate.attributes as Map<String, String>?;
       return attributes != null && attributes[name] == value;
     }, description: '$name="$value"');
+
+Finder _byId(String id) => find.byComponentPredicate(
+  (component) => component is DomComponent && component.id == id,
+  description: 'id="$id"',
+);
 
 /// Records what the sidebar asked the daemon to do.
 class _RecordingActions extends ChatActions {
@@ -444,6 +451,114 @@ void main() {
     expect(find.text(t.desktop.desktopNoChatsYet), findsNothing);
     // Once here as the list's hint, once in the footer's indicator.
     expect(find.text(t.desktop.desktopSyncing), findsNComponents(2));
+  });
+
+  group('voice', () {
+    late RecordingVoice port;
+
+    Component voiced(Component child, {bool autoSend = false}) {
+      port = RecordingVoice();
+      return ProviderScope(
+        overrides: [
+          voicePortProvider.overrideWithValue(port),
+          voiceSettingsProvider.overrideWith(
+            (ref) async => VoiceSettings(
+              serverStt: true,
+              silenceMs: 400,
+              autoSend: autoSend,
+            ),
+          ),
+        ],
+        child: child,
+      );
+    }
+
+    testComponents('dictation puts what was said into the composer', (
+      tester,
+    ) async {
+      final commands = RecordingWindowCommands();
+      tester.pumpComponent(voiced(_scoped(commands: commands)));
+      await pumpEventQueue();
+      await tester.click(_byId('dictate'));
+      await pumpEventQueue();
+      expect(port.listening, isNotNull);
+      port
+        ..level(0.2, const Duration(milliseconds: 100))
+        ..level(0, const Duration(milliseconds: 600));
+      await pumpEventQueue();
+      expect(commands.values.last, (
+        id: 'composer',
+        text: 'Hello from the microphone',
+      ));
+      expect(commands.focused.last, 'composer');
+    });
+
+    testComponents('with auto-send, what was said is sent', (tester) async {
+      _RecordingActions? actions;
+      tester.pumpComponent(
+        voiced(
+          _scoped(onActions: (recording) => actions = recording),
+          autoSend: true,
+        ),
+      );
+      await pumpEventQueue();
+      await tester.click(_byId('dictate'));
+      await pumpEventQueue();
+      port
+        ..level(0.2, const Duration(milliseconds: 100))
+        ..level(0, const Duration(milliseconds: 600));
+      await pumpEventQueue();
+      expect(actions!.calls, ['send(Hello from the microphone)']);
+    });
+
+    testComponents('an answer can be read aloud, and stopped', (tester) async {
+      tester.pumpComponent(
+        voiced(_scoped(detail: _detail, selected: 'chat-1')),
+      );
+      await pumpEventQueue();
+      port.instantSpeech = false;
+      await tester.click(byAttribute('data-read-aloud', 'm2'));
+      await pumpEventQueue();
+      expect(port.spoken, ['device:Oldest first.']);
+      expect(
+        byAttribute('aria-label', t.desktop.desktopStopReading),
+        findsOneComponent,
+      );
+      await tester.click(byAttribute('data-read-aloud', 'm2'));
+      await pumpEventQueue();
+      expect(port.stops, 1);
+      expect(
+        byAttribute('aria-label', t.desktop.desktopReadAloud),
+        findsOneComponent,
+      );
+    });
+
+    testComponents('a call shows what it is doing, and hangs up', (
+      tester,
+    ) async {
+      tester.pumpComponent(voiced(_scoped()));
+      await pumpEventQueue();
+      await tester.click(_byId('voice-call'));
+      await pumpEventQueue();
+      expect(find.text(t.app.voiceCallListening), findsOneComponent);
+      await tester.click(_byId('call-mute'));
+      await pumpEventQueue();
+      expect(find.text(t.app.voiceCallMuted), findsOneComponent);
+      expect(port.listening, isNull);
+      await tester.click(_byId('call-end'));
+      await pumpEventQueue();
+      expect(find.text(t.app.voiceCallMuted), findsNothing);
+      expect(byAttribute('aria-label', t.app.voiceCallTitle), findsNothing);
+    });
+
+    testComponents('no microphone button without server transcription', (
+      tester,
+    ) async {
+      tester.pumpComponent(_scoped());
+      await pumpEventQueue();
+      expect(_byId('dictate'), findsNothing);
+      expect(_byId('voice-call'), findsNothing);
+    });
   });
 
   group('composer features', () {
@@ -1554,7 +1669,7 @@ void main() {
       expect(
         find.byComponentPredicate(
           (component) =>
-              component is input<String> &&
+              component is input &&
               component.value == 'Rewriting the sync engine',
           description: 'a field seeded with the current title',
         ),
