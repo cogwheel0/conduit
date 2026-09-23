@@ -5,6 +5,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 
 import '../l10n/strings.g.dart';
 import '../rpc/chat_providers.dart';
+import 'ui.dart';
 
 /// A folder, opened: everything in it, sortable (WP-3.1).
 ///
@@ -84,10 +85,16 @@ class _FolderPageState extends State<FolderPage> {
         div(classes: 'mx-auto max-w-3xl space-y-1', [
           for (final folder in subfolders)
             button(
-              [Component.text('▸ ${folder.name}')],
+              [
+                icon(
+                  LucideIcon.folder,
+                  classes: 'size-4 shrink-0 text-foreground-subtle',
+                ),
+                Component.text(folder.name),
+              ],
               classes:
-                  'block w-full rounded-lg px-3 py-2 text-left text-ui-base '
-                  'hover:bg-hover',
+                  'flex w-full items-center gap-2 rounded-lg px-3 py-2 '
+                  'text-left text-ui-base hover:bg-hover',
               type: ButtonType.button,
               onClick: () =>
                   context.read(openFolderProvider.notifier).open(folder.id),

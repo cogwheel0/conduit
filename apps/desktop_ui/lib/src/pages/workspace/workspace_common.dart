@@ -5,6 +5,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import 'package:jaspr_router/jaspr_router.dart';
 
 import '../../l10n/strings.g.dart';
+import '../../widgets/ui.dart';
 
 /// Pieces every workspace screen draws the same way (M6).
 
@@ -66,20 +67,33 @@ Component actionButton(
   bool disabled = false,
   String? id,
   String? ariaLabel,
+
+  /// Drawn before the text, or alone when there is none -- then
+  /// [ariaLabel] is the button's name.
+  LucideIcon? glyph,
 }) => button(
-  [Component.text(text)],
+  [
+    if (glyph != null) icon(glyph, classes: 'size-3.5 shrink-0'),
+    if (text.isNotEmpty) Component.text(text),
+  ],
   id: id,
-  classes: primary
-      ? 'rounded-lg bg-primary px-3 py-1.5 text-ui-sm text-primary-foreground '
-            'disabled:opacity-60'
-      : destructive
-      ? 'rounded-lg px-3 py-1.5 text-ui-sm text-destructive hover:bg-destructive/10 '
-            'disabled:opacity-60'
-      : 'rounded-lg border border-border px-3 py-1.5 text-ui-sm hover:bg-hover '
-            'disabled:opacity-60',
+  classes: buttonClasses(
+    tone: primary
+        ? ButtonTone.primary
+        : destructive
+        ? ButtonTone.danger
+        : text.isEmpty
+        ? ButtonTone.ghost
+        : ButtonTone.outline,
+    size: ControlSize.sm,
+    iconOnly: text.isEmpty && glyph != null,
+  ),
   type: ButtonType.button,
   disabled: disabled,
-  attributes: <String, String>{'aria-label': ?ariaLabel},
+  attributes: <String, String>{
+    'aria-label': ?ariaLabel,
+    if (text.isEmpty && ariaLabel != null) ...tooltipAttributes(ariaLabel),
+  },
   onClick: disabled ? null : onClick,
 );
 

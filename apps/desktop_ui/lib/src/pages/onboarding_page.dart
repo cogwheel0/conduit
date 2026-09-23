@@ -14,6 +14,7 @@ import '../rpc/direct_providers.dart';
 import '../rpc/hermes_providers.dart';
 import '../widgets/form_field.dart';
 import 'direct_connections_tab.dart';
+import '../widgets/ui.dart';
 import 'hermes_settings_tab.dart' show HermesConnectionForm;
 
 /// How the app connects: the first thing a fresh install shows.
@@ -149,9 +150,13 @@ class _OnboardingPageState extends State<OnboardingPage> {
   }
 
   Component _back(BuildContext context) => button(
-    [Component.text('← ${t.app.backendChooserWelcome}')],
+    [
+      icon(LucideIcon.arrowLeft, classes: 'size-4 shrink-0'),
+      Component.text(t.app.backendChooserWelcome),
+    ],
     classes:
-        'self-start text-ui-base text-foreground-subtle hover:text-foreground '
+        'inline-flex items-center gap-1.5 self-start text-ui-base '
+        'text-foreground-subtle hover:text-foreground '
         'disabled:opacity-60',
     type: ButtonType.button,
     disabled: _busy,
@@ -283,11 +288,13 @@ class _OnboardingPageState extends State<OnboardingPage> {
   Component _advanced() => div([
     button(
       [
-        Component.text(
-          '${_advancedOpen ? '▾' : '▸'} ${t.app.advancedSettings}',
+        icon(
+          _advancedOpen ? LucideIcon.chevronDown : LucideIcon.chevronRight,
+          classes: 'size-4 shrink-0 text-foreground-subtle',
         ),
+        Component.text(t.app.advancedSettings),
       ],
-      classes: 'text-ui-base font-medium',
+      classes: 'inline-flex items-center gap-1 text-ui-base font-medium',
       type: ButtonType.button,
       attributes: <String, String>{'aria-expanded': '$_advancedOpen'},
       onClick: () => setState(() => _advancedOpen = !_advancedOpen),

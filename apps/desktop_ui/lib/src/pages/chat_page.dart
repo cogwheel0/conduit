@@ -1184,7 +1184,7 @@ class _ComposerState extends State<_Composer> {
                               attributes: const <String, String>{
                                 'aria-hidden': 'true',
                               },
-                              [Component.text('×')],
+                              [icon(LucideIcon.x, classes: 'size-4')],
                             ),
                           ],
                           classes: 'rounded-full px-1 hover:text-foreground',
@@ -1220,7 +1220,7 @@ class _ComposerState extends State<_Composer> {
                                   attributes: const <String, String>{
                                     'aria-hidden': 'true',
                                   },
-                                  [Component.text('×')],
+                                  [icon(LucideIcon.x, classes: 'size-4')],
                                 ),
                               ],
                               classes: 'rounded-full px-1 hover:bg-hover',
@@ -1676,7 +1676,7 @@ class _ComposerState extends State<_Composer> {
           [
             span(
               attributes: const <String, String>{'aria-hidden': 'true'},
-              [Component.text('\u2715')],
+              [icon(LucideIcon.x, classes: 'size-4')],
             ),
           ],
           classes: 'rounded-lg px-1 hover:bg-hover',

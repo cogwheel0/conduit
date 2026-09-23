@@ -17,6 +17,7 @@ import '../rpc/rpc_providers.dart'
 import '../rpc/terminal_providers.dart';
 import '../terminal_port.dart';
 import '../widgets/form_field.dart';
+import '../widgets/ui.dart';
 import 'workspace/workspace_common.dart'
     show actionButton, confirmBox, modal, statusLine, workspaceGo;
 
@@ -47,8 +48,13 @@ class TerminalPage extends StatelessComponent {
               statusLine(t.app.terminalNoServersConfigured),
               Link(
                 to: '/',
-                classes: 'text-ui-sm text-foreground-subtle hover:underline',
-                child: Component.text('← ${t.app.back}'),
+                classes:
+                    'inline-flex items-center gap-1 text-ui-sm '
+                    'text-foreground-subtle hover:underline',
+                child: Component.fragment([
+                  icon(LucideIcon.arrowLeft, classes: 'size-3.5'),
+                  Component.text(t.app.back),
+                ]),
               ),
             ],
           )
@@ -339,7 +345,7 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
               to: '/',
               classes: 'rounded-lg px-2 py-1 text-ui-base hover:bg-hover',
               attributes: <String, String>{'aria-label': t.app.back},
-              child: Component.text('←'),
+              child: icon(LucideIcon.arrowLeft, classes: 'size-4'),
             ),
             h1(classes: 'flex-1 text-ui-base font-semibold', [
               Component.text(t.app.terminal),
@@ -442,7 +448,8 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
                 Component.text(t.app.terminalPortsSectionLabel),
               ]),
               actionButton(
-                '↻',
+                '',
+                glyph: LucideIcon.refreshCw,
                 ariaLabel: t.app.workspaceKnowledgeRefreshFiles,
                 onClick: () => unawaited(_loadPorts()),
               ),
@@ -474,22 +481,36 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
     [
       div(classes: 'group flex items-center gap-1 text-ui-base', [
         button(
-          [Component.text('${entry.directory ? '📁' : '📄'} ${entry.name}')],
+          [
+            icon(
+              entry.directory ? LucideIcon.folder : LucideIcon.file,
+              classes: 'size-3.5 shrink-0 text-foreground-subtle',
+            ),
+            // The kind in words, where the icon says it to the eye.
+            span(classes: 'sr-only', [
+              Component.text(
+                '${entry.directory ? t.app.folderIconFolder : t.app.file} ',
+              ),
+            ]),
+            span(classes: 'truncate', [Component.text(entry.name)]),
+          ],
           classes:
-              'min-w-0 flex-1 truncate rounded-lg px-1 py-0.5 text-left '
-              'hover:bg-hover',
+              'flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 '
+              'py-1 text-left hover:bg-hover',
           type: ButtonType.button,
           onClick: () =>
               unawaited(entry.directory ? _open(entry.path) : _show(entry)),
         ),
         if (!entry.directory)
           actionButton(
-            '↓',
+            '',
+            glyph: LucideIcon.download,
             ariaLabel: '${t.app.download}: ${entry.name}',
             onClick: () => unawaited(_download(context, entry.path)),
           ),
         actionButton(
-          '✎',
+          '',
+          glyph: LucideIcon.pencil,
           ariaLabel: '${t.app.rename}: ${entry.name}',
           onClick: () => setState(() {
             _renaming = entry.path;
@@ -497,7 +518,9 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
           }),
         ),
         actionButton(
-          '✕',
+          '',
+          glyph: LucideIcon.trash,
+          destructive: true,
           ariaLabel: '${t.app.delete}: ${entry.name}',
           onClick: () => setState(() => _deleting = entry.path),
         ),

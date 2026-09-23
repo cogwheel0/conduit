@@ -144,7 +144,7 @@ void main() {
     // Collapsed until asked for.
     expect(find.text(t.app.directModelIdPrefix), findsNothing);
     await tester.click(
-      find.componentWithText(button, '▸ ${t.app.advancedSettings}'),
+      find.componentWithText(button, t.app.advancedSettings),
     );
     await pumpEventQueue();
     expect(find.text(t.app.directModelIdPrefix), findsOneComponent);

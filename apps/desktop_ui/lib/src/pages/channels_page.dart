@@ -15,6 +15,7 @@ import '../rpc/chat_providers.dart' show OpenChannelId, openChannelIdProvider;
 import '../rpc/rpc_providers.dart' show windowCommandsProvider;
 import '../widgets/form_field.dart';
 import '../widgets/markdown_view.dart';
+import '../widgets/ui.dart';
 
 /// Channels (M5): the list on the left, the conversation on the right, and
 /// a thread beside it when one is open.
@@ -97,7 +98,7 @@ class _ChannelListState extends State<_ChannelList> {
     final list = context.watch(channelListProvider);
     final channels = list.value?.channels ?? const <ChannelSummary>[];
     return nav(
-      classes: 'flex w-64 shrink-0 flex-col gap-3 border-r border-border bg-card p-3',
+      classes: 'flex w-64 shrink-0 flex-col gap-3 border-r border-border bg-surface p-3',
       attributes: <String, String>{'aria-label': t.app.sidebarChannelsTab},
       [
         div(classes: 'flex items-center gap-2', [
@@ -105,7 +106,7 @@ class _ChannelListState extends State<_ChannelList> {
             to: '/',
             classes: 'rounded-lg px-2 py-1 text-ui-base hover:bg-hover',
             attributes: <String, String>{'aria-label': t.app.back},
-            child: Component.text('←'),
+            child: icon(LucideIcon.arrowLeft, classes: 'size-4'),
           ),
           h1(classes: 'flex-1 text-ui-base font-semibold', [
             Component.text(t.app.sidebarChannelsTab),
@@ -453,7 +454,7 @@ class _ChannelViewState extends State<_ChannelView> {
       ]),
       if (thread != null)
         aside(
-          classes: 'flex w-96 shrink-0 flex-col border-l border-border bg-card',
+          classes: 'flex w-96 shrink-0 flex-col border-l border-border bg-surface',
           attributes: <String, String>{'aria-label': t.app.thread},
           [
             div(
@@ -464,7 +465,7 @@ class _ChannelViewState extends State<_ChannelView> {
                   Component.text(t.app.thread),
                 ]),
                 button(
-                  [Component.text('×')],
+                  [icon(LucideIcon.x, classes: 'size-4')],
                   classes: 'rounded-lg px-2 text-ui-base hover:bg-hover',
                   type: ButtonType.button,
                   attributes: <String, String>{'aria-label': t.app.close},
@@ -627,7 +628,7 @@ class _MessageRowState extends State<_MessageRow> {
             span(
               classes: 'text-ui-sm',
               attributes: <String, String>{'aria-label': t.app.pin},
-              [Component.text('📌')],
+              [icon(LucideIcon.pin, classes: 'size-4')],
             ),
         ]),
         if (_editing)

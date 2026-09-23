@@ -52,6 +52,9 @@ enum ButtonTone {
   /// Deleting or leaving; used for the confirming button, not the one that
   /// opens the confirmation.
   destructive,
+
+  /// Text only, in the destructive colour: the button that asks first.
+  danger,
 }
 
 /// Control heights: 28 px in dense places, 32 px elsewhere.
@@ -81,6 +84,7 @@ String buttonClasses({
           'aria-pressed:bg-selected aria-pressed:text-foreground',
     ButtonTone.destructive =>
       'bg-destructive text-destructive-foreground hover:bg-destructive/85',
+    ButtonTone.danger => 'text-destructive hover:bg-destructive/10',
   };
   return 'inline-flex shrink-0 items-center justify-center rounded-lg '
       'text-ui-sm font-medium whitespace-nowrap transition-colors '

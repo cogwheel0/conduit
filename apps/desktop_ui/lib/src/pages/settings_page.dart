@@ -19,6 +19,7 @@ import 'direct_connections_tab.dart';
 import 'hermes_settings_tab.dart';
 import 'keyboard_settings_tab.dart';
 import 'mcp_servers_tab.dart';
+import '../widgets/ui.dart';
 
 /// The tabs, and the order they appear in.
 enum SettingsTab {
@@ -53,9 +54,7 @@ class SettingsPage extends StatelessComponent {
   Component build(BuildContext context) {
     final current = SettingsTab.parse(tab);
     return div(
-      classes:
-          'fixed inset-0 z-50 flex items-center justify-center bg-black/50 '
-          'p-6',
+      classes: '$scrimClasses flex items-center justify-center p-6',
       // `dialog`, and labelled by its own heading: without this a screen
       // reader treats the overlay as ordinary content further down the page
       // and never announces that a dialog opened.
@@ -68,7 +67,7 @@ class SettingsPage extends StatelessComponent {
         div(
           classes:
               'flex h-[min(40rem,90vh)] w-[min(56rem,95vw)] overflow-hidden '
-              'rounded-lg border border-border bg-card shadow-xl',
+              '$dialogClasses',
           [_sidebar(context, current), _panel(context, current)],
         ),
       ],
@@ -78,31 +77,48 @@ class SettingsPage extends StatelessComponent {
   Component _sidebar(
     BuildContext context,
     SettingsTab current,
-  ) => nav(classes: 'w-56 shrink-0 border-r border-border bg-panel p-3', [
+  ) => nav(classes: 'w-56 shrink-0 border-r border-border bg-window p-2', [
     h2(
       id: 'settings-title',
-      classes: 'px-2 pb-3 pt-1 text-ui-base font-semibold text-foreground',
+      classes: 'px-2 pt-2 pb-3 text-ui-base font-semibold text-foreground',
       [Component.text(t.desktop.desktopSettingsTitle)],
     ),
-    ul(classes: 'space-y-0.5', [
+    ul(classes: 'space-y-px', [
       for (final tab in SettingsTab.values)
         li([
           a(
             href: '/settings/${tab.name}',
             classes:
-                'block rounded-lg px-2 py-1.5 text-ui-base '
-                '${tab == current ? 'bg-selected text-foreground' : 'text-foreground-subtle hover:bg-hover'}',
+                'flex h-8 items-center gap-2 rounded-md px-2 text-ui-base '
+                'transition-colors '
+                '${tab == current ? 'bg-selected text-foreground' : 'text-foreground-subtle hover:bg-hover hover:text-foreground'}',
             // `page`, not `selected`: these are navigation links, and
             // `aria-current="page"` is what a screen reader reports for
             // "this is where you are".
             attributes: tab == current
                 ? const <String, String>{'aria-current': 'page'}
                 : null,
-            [Component.text(_label(tab))],
+            [
+              icon(_icon(tab)),
+              span(classes: 'truncate', [Component.text(_label(tab))]),
+            ],
           ),
         ]),
     ]),
   ]);
+
+  static LucideIcon _icon(SettingsTab tab) => switch (tab) {
+    SettingsTab.appearance => LucideIcon.sun,
+    SettingsTab.audio => LucideIcon.audioLines,
+    SettingsTab.keyboard => LucideIcon.keyboard,
+    SettingsTab.desktop => LucideIcon.appWindow,
+    SettingsTab.connections => LucideIcon.server,
+    SettingsTab.direct => LucideIcon.plug,
+    SettingsTab.mcp => LucideIcon.network,
+    SettingsTab.hermes => LucideIcon.bot,
+    SettingsTab.data => LucideIcon.database,
+    SettingsTab.about => LucideIcon.info,
+  };
 
   String _label(SettingsTab tab) => switch (tab) {
     SettingsTab.appearance => t.app.settingsAppearance,
@@ -121,19 +137,16 @@ class SettingsPage extends StatelessComponent {
       div(classes: 'flex min-w-0 flex-1 flex-col', [
         header(
           classes:
-              'flex items-center justify-between border-b border-border px-5 '
-              'py-3',
+              'flex h-12 shrink-0 items-center justify-between border-b '
+              'border-border pr-2 pl-5',
           [
-            span(classes: 'text-ui-base font-medium text-card-foreground', [
+            span(classes: 'text-ui-base font-medium text-foreground', [
               Component.text(_label(current)),
             ]),
-            button(
-              [Component.text('×')],
-              classes:
-                  'size-7 rounded-lg text-ui-xl leading-none '
-                  'text-foreground-subtle hover:bg-hover',
-              type: ButtonType.button,
-              attributes: <String, String>{'aria-label': t.app.close},
+            iconButton(
+              glyph: LucideIcon.x,
+              label: t.app.close,
+              tooltip: TooltipSide.left,
               // `Router` exposes no pop, and a settings dialog opened from a
               // deep link has nothing to pop to anyway -- closing means going
               // back to the app, which is `/`.

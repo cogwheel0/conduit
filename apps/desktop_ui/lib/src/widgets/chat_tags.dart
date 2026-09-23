@@ -7,6 +7,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import '../keyboard.dart';
 import '../l10n/strings.g.dart';
 import '../rpc/rpc_providers.dart';
+import 'ui.dart';
 
 /// A conversation's tags, in its header (WP-3.8).
 ///
@@ -104,7 +105,7 @@ class _ChatTagsState extends State<ChatTags> {
         [
           span(
             attributes: const <String, String>{'aria-hidden': 'true'},
-            [Component.text('×')],
+            [icon(LucideIcon.x, classes: 'size-4')],
           ),
         ],
         classes: 'rounded-r-full py-0.5 pl-0.5 pr-2 hover:text-foreground',

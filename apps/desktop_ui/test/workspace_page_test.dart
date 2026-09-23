@@ -743,7 +743,7 @@ void main() {
       findsOneComponent,
     );
 
-    await tester.click(buttonWith('📁 Guides'));
+    await tester.click(buttonWith('Guides'));
     await settle();
     expect(actions.openedFolders.last, 'd1');
     expect(find.text('setup.md'), findsOneComponent);

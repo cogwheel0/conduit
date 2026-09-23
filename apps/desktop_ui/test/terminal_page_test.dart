@@ -139,8 +139,8 @@ void main() {
     expect(find.text(t.app.terminalConnectedStatus), findsOneComponent);
 
     expect(actions.listed, ['/work/']);
-    expect(find.text('📁 src'), findsOneComponent);
-    expect(find.text('📄 notes.txt'), findsOneComponent);
+    expect(find.text('src'), findsOneComponent);
+    expect(find.text('notes.txt'), findsOneComponent);
     expect(find.text('3000'), findsOneComponent);
     expect(find.text('node'), findsOneComponent);
 
@@ -160,7 +160,7 @@ void main() {
     await tester.click(buttonWith(t.app.terminalExpandAction));
     await settle();
     expect(view.last.fitted, 1);
-    expect(find.text('📄 notes.txt'), findsNothing);
+    expect(find.text('notes.txt'), findsNothing);
   });
 
   testComponents('a file a model asked to show opens with the page', (
@@ -194,7 +194,7 @@ void main() {
     tester.pumpComponent(page(one));
     await settle();
 
-    await tester.click(buttonWith('📄 notes.txt'));
+    await tester.click(buttonWith('notes.txt'));
     await settle();
     expect(find.text('hello there'), findsOneComponent);
     await tester.click(buttonWith(t.app.download));
@@ -223,7 +223,7 @@ void main() {
       null,
     ));
 
-    await tester.click(buttonWith('📁 src'));
+    await tester.click(buttonWith('src'));
     await settle();
     expect(actions.listed.last, '/work/src/');
     expect(find.text(t.app.terminalNoFiles), findsOneComponent);

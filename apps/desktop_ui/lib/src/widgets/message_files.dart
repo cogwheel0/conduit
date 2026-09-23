@@ -9,6 +9,7 @@ import '../keyboard.dart';
 import '../l10n/strings.g.dart';
 import '../rpc/chat_providers.dart';
 import '../rpc/rpc_providers.dart';
+import 'ui.dart';
 
 /// The files on a message: images as thumbnails, anything else by name
 /// (WP-3.2).
@@ -152,7 +153,7 @@ class _LightboxOverlayState extends State<LightboxOverlay> {
           [
             span(
               attributes: const <String, String>{'aria-hidden': 'true'},
-              [Component.text('✕')],
+              [icon(LucideIcon.x, classes: 'size-4')],
             ),
           ],
           id: 'lightbox-close',

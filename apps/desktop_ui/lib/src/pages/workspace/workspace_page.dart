@@ -13,6 +13,7 @@ import '../../rpc/workspace_providers.dart';
 import '../../widgets/form_field.dart';
 import 'workspace_common.dart';
 import 'workspace_editor.dart';
+import '../../widgets/ui.dart';
 
 /// The workspace (M6): models, knowledge, prompts, tools and skills on the
 /// account's server, each a list and an editor.
@@ -112,12 +113,12 @@ class _SectionNavState extends State<_SectionNav> {
   @override
   Component build(BuildContext context) {
     return nav(
-      classes: 'flex w-56 shrink-0 flex-col gap-1 border-r border-border bg-card p-3',
+      classes: 'flex w-56 shrink-0 flex-col gap-1 border-r border-border bg-surface p-3',
       attributes: <String, String>{'aria-label': t.app.workspaceTitle},
       [
         div(classes: 'mb-2 flex items-center gap-2', [
           button(
-            [Component.text('←')],
+            [icon(LucideIcon.arrowLeft, classes: 'size-4')],
             classes: 'rounded-lg px-2 py-1 text-ui-base hover:bg-hover',
             type: ButtonType.button,
             attributes: <String, String>{'aria-label': t.app.back},

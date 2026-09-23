@@ -9,6 +9,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import '../l10n/strings.g.dart';
 import '../rpc/mcp_providers.dart';
 import 'form_field.dart';
+import 'ui.dart';
 
 /// The most a message may hold, as on mobile: an insertion that would take
 /// the draft past it is refused rather than truncated.
@@ -116,7 +117,7 @@ class _McpContentSheetState extends State<McpContentSheet> {
             Component.text(t.app.directMcpContentTitle),
           ]),
           button(
-            [Component.text('↻')],
+            [icon(LucideIcon.refreshCw, classes: 'size-4')],
             classes: 'rounded-lg px-2 py-0.5 text-ui-sm hover:bg-hover',
             type: ButtonType.button,
             attributes: <String, String>{
@@ -125,7 +126,7 @@ class _McpContentSheetState extends State<McpContentSheet> {
             onClick: () => unawaited(_load()),
           ),
           button(
-            [Component.text('×')],
+            [icon(LucideIcon.x, classes: 'size-4')],
             classes: 'rounded-lg px-2 py-0.5 text-ui-sm hover:bg-hover',
             type: ButtonType.button,
             attributes: <String, String>{'aria-label': t.app.close},

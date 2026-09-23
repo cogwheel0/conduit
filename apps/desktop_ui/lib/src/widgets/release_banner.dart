@@ -7,6 +7,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import '../l10n/strings.g.dart';
 import '../rpc/rpc_providers.dart';
 import 'desktop_integration.dart';
+import 'ui.dart';
 
 /// Where Conduit's source, releases and support live (WP-9.7).
 const String conduitRepositoryUrl = 'https://github.com/cogwheel0/conduit';
@@ -118,7 +119,7 @@ class _ReleaseBannerState extends State<ReleaseBanner> {
           [
             span(
               attributes: const <String, String>{'aria-hidden': 'true'},
-              [Component.text('×')],
+              [icon(LucideIcon.x, classes: 'size-4')],
             ),
           ],
           classes: 'ml-auto rounded-lg px-2 hover:bg-hover',

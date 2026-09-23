@@ -9,6 +9,7 @@ import '../../l10n/strings.g.dart';
 import '../../rpc/workspace_providers.dart';
 import '../../widgets/form_field.dart';
 import 'workspace_common.dart';
+import '../../widgets/ui.dart';
 
 /// Who may read and write one item: public or not, and people and groups
 /// each with read or write. Saved together, on Save.
@@ -222,7 +223,8 @@ class _AccessDialogState extends State<AccessDialog> {
                       }),
                     ),
                     actionButton(
-                      '✕',
+                      '',
+                      glyph: LucideIcon.x,
                       ariaLabel: t.app.workspaceAccessRemoveGrant,
                       onClick: () => setState(() {
                         _grants = [

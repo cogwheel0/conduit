@@ -10,6 +10,7 @@ import '../../rpc/rpc_providers.dart' show attachmentsProvider;
 import '../../rpc/workspace_providers.dart';
 import '../../widgets/form_field.dart';
 import 'workspace_common.dart';
+import '../../widgets/ui.dart';
 
 /// A knowledge base's files, folder by folder: upload, new folders, and
 /// per file rename, move, re-read, remove or delete.
@@ -269,8 +270,19 @@ class _KnowledgeFilesState extends State<KnowledgeFiles> {
     [
       div(classes: 'flex items-center gap-2 text-ui-base', [
         button(
-          [Component.text('📁 ${folder.name}')],
-          classes: 'min-w-0 flex-1 truncate text-left hover:underline',
+          [
+            icon(
+              LucideIcon.folder,
+              classes: 'size-3.5 shrink-0 text-foreground-subtle',
+            ),
+            span(classes: 'sr-only', [
+              Component.text('${t.app.folderIconFolder} '),
+            ]),
+            span(classes: 'truncate', [Component.text(folder.name)]),
+          ],
+          classes:
+              'flex min-w-0 flex-1 items-center gap-1.5 text-left '
+              'hover:underline',
           type: ButtonType.button,
           onClick: () => unawaited(
             _run(

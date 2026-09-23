@@ -11,6 +11,7 @@ import '../rpc/direct_providers.dart';
 import '../rpc/rpc_providers.dart';
 import '../widgets/form_field.dart';
 import 'ollama_models.dart';
+import '../widgets/ui.dart';
 
 /// Settings > Direct connections (WP-4.2): model providers the app talks to
 /// itself, without Open WebUI in between.
@@ -555,11 +556,13 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
     return div([
       button(
         [
-          Component.text(
-            '${_advancedOpen ? '▾' : '▸'} ${t.app.advancedSettings}',
+          icon(
+            _advancedOpen ? LucideIcon.chevronDown : LucideIcon.chevronRight,
+            classes: 'size-4 shrink-0 text-foreground-subtle',
           ),
+          Component.text(t.app.advancedSettings),
         ],
-        classes: 'text-ui-base font-medium',
+        classes: 'inline-flex items-center gap-1 text-ui-base font-medium',
         type: ButtonType.button,
         attributes: <String, String>{'aria-expanded': '$_advancedOpen'},
         onClick: () => setState(() => _advancedOpen = !_advancedOpen),

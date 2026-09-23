@@ -47,7 +47,7 @@ void main() {
     expect(find.text('Work'), findsOneComponent);
     expect(find.text('Budget'), findsOneComponent);
     expect(find.text('Agenda'), findsOneComponent);
-    expect(find.componentWithText(button, '▸ Q3'), findsOneComponent);
+    expect(find.componentWithText(button, 'Q3'), findsOneComponent);
     expect(find.text(t.desktop.desktopSortBy), findsOneComponent);
   });
 }

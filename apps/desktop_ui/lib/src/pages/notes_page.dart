@@ -13,6 +13,7 @@ import '../rpc/chat_providers.dart' show fileUrlProvider;
 import '../rpc/notes_providers.dart';
 import '../rpc/rpc_providers.dart' show attachmentsProvider;
 import '../widgets/form_field.dart';
+import '../widgets/ui.dart';
 
 /// Notes (M5): the list on the left, the note on the right.
 ///
@@ -55,7 +56,7 @@ class _NoteList extends StatelessComponent {
     final query = context.watch(noteSearchProvider);
     final notes = list.value?.notes ?? const <NoteSummary>[];
     return nav(
-      classes: 'flex w-72 shrink-0 flex-col gap-3 border-r border-border bg-card p-3',
+      classes: 'flex w-72 shrink-0 flex-col gap-3 border-r border-border bg-surface p-3',
       attributes: <String, String>{'aria-label': t.app.notes},
       [
         div(classes: 'flex items-center gap-2', [
@@ -64,7 +65,7 @@ class _NoteList extends StatelessComponent {
             to: '/',
             classes: 'rounded-lg px-2 py-1 text-ui-base hover:bg-hover',
             attributes: <String, String>{'aria-label': t.app.back},
-            child: Component.text('←'),
+            child: icon(LucideIcon.arrowLeft, classes: 'size-4'),
           ),
           h1(classes: 'flex-1 text-ui-base font-semibold', [
             Component.text(t.app.notes),
@@ -122,7 +123,7 @@ class _NoteList extends StatelessComponent {
                       span(
                         classes: 'text-ui-sm',
                         attributes: <String, String>{'aria-label': t.app.pin},
-                        [Component.text('★')],
+                        [icon(LucideIcon.star, classes: 'size-4')],
                       ),
                     span(classes: 'truncate font-medium', [
                       Component.text(
@@ -498,7 +499,7 @@ class _NoteEditorPaneState extends State<NoteEditorPane> {
                     Component.text(file.name),
                   ]),
                 button(
-                  [Component.text('×')],
+                  [icon(LucideIcon.x, classes: 'size-4')],
                   classes: 'rounded-lg px-1.5 text-ui-sm hover:bg-hover',
                   type: ButtonType.button,
                   attributes: <String, String>{

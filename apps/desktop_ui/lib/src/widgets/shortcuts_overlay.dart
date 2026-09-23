@@ -3,6 +3,7 @@ import 'package:jaspr/jaspr.dart';
 
 import '../l10n/strings.g.dart';
 import '../shortcuts.dart';
+import 'ui.dart';
 
 /// The `Cmd+/` sheet (WP-3.7).
 ///
@@ -50,7 +51,7 @@ class ShortcutsOverlay extends StatelessComponent {
               Component.text(t.desktop.desktopShortcutsTitle),
             ]),
             button(
-              [Component.text('✕')],
+              [icon(LucideIcon.x, classes: 'size-4')],
               classes: 'rounded-lg px-2 py-1 text-ui-base hover:bg-hover',
               type: ButtonType.button,
               attributes: <String, String>{'aria-label': t.app.close},

@@ -113,7 +113,15 @@ void main() {
     await pumpEventQueue();
     expect(find.text('Groceries'), findsOneComponent);
     expect(find.text(t.app.untitled), findsOneComponent);
-    expect(find.text('★'), findsOneComponent);
+    // The pin, marked by name: its star is drawn, not written.
+    expect(
+      find.byComponentPredicate(
+        (component) =>
+            component is DomComponent &&
+            component.attributes?['aria-label'] == t.app.pin,
+      ),
+      findsOneComponent,
+    );
     expect(find.text(t.app.noteConflictCopyBadge), findsOneComponent);
     // The preview without its markdown.
     expect(find.text('Shop · milk'), findsOneComponent);

@@ -19,6 +19,7 @@ import 'workspace_common.dart';
 import 'workspace_files.dart';
 import 'workspace_prompt_history.dart';
 import 'workspace_valves.dart';
+import '../../widgets/ui.dart';
 
 /// The capability switches Open WebUI offers on a model, in its order.
 const List<String> modelCapabilityKeys = <String>[
@@ -162,8 +163,13 @@ class WorkspaceEditor extends StatelessComponent {
 
   static Component _backLink(WorkspaceKind kind) => Link(
     to: sectionPath(kind),
-    classes: 'text-ui-sm text-foreground-subtle hover:underline',
-    child: Component.text('← ${sectionLabel(kind)}'),
+    classes:
+        'inline-flex items-center gap-1 text-ui-sm text-foreground-subtle '
+        'hover:underline',
+    child: Component.fragment([
+      icon(LucideIcon.arrowLeft, classes: 'size-3.5'),
+      Component.text(sectionLabel(kind)),
+    ]),
   );
 }
 
@@ -548,8 +554,13 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
     final existing = !component.create;
     return div(classes: 'mx-auto w-full max-w-3xl space-y-4 p-6', [
       button(
-        [Component.text('← ${sectionLabel(kind)}')],
-        classes: 'text-ui-sm text-foreground-subtle hover:underline',
+        [
+          icon(LucideIcon.arrowLeft, classes: 'size-3.5'),
+          Component.text(sectionLabel(kind)),
+        ],
+        classes:
+            'inline-flex items-center gap-1 text-ui-sm '
+            'text-foreground-subtle hover:underline',
         type: ButtonType.button,
         onClick: () {
           if (_isDirty) {

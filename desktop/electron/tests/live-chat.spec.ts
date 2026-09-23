@@ -2232,7 +2232,7 @@ test.describe('against a real server', () => {
         // The file the shell made, in the files panel.
         const panel = page.getByRole('navigation', { name: /^terminal$/i })
         await panel.getByRole('button', { name: /^home directory$/i }).click()
-        await panel.getByRole('button', { name: '📄 answer.txt', exact: true }).click()
+        await panel.getByRole('button', { name: 'File answer.txt', exact: true }).click()
         const preview = page.getByRole('dialog', { name: 'answer.txt' })
         await expect(preview.getByText('conduit-42')).toBeVisible({ timeout: 30_000 })
         await preview.getByRole('button', { name: /^close$/i }).click()
@@ -2241,7 +2241,7 @@ test.describe('against a real server', () => {
         await page.locator('#terminal-new-folder').click()
         await page.locator('#terminal-folder-name').fill('Guides')
         await page.locator('#terminal-folder-name-save').click()
-        await expect(panel.getByRole('button', { name: '📁 Guides', exact: true })).toBeVisible({
+        await expect(panel.getByRole('button', { name: 'Folder Guides', exact: true })).toBeVisible({
           timeout: 30_000,
         })
         const upload = join(tmpdir(), `conduit-terminal-upload-${process.pid}.txt`)
@@ -2249,7 +2249,7 @@ test.describe('against a real server', () => {
         const uploadChooser = page.waitForEvent('filechooser')
         await page.locator('#terminal-upload').click()
         await (await uploadChooser).setFiles(upload)
-        await expect(panel.getByRole('button', { name: `📄 ${basename(upload)}`, exact: true })).toBeVisible({
+        await expect(panel.getByRole('button', { name: `File ${basename(upload)}`, exact: true })).toBeVisible({
           timeout: 30_000,
         })
         expect(readFileSync(join(terminal.home, basename(upload)), 'utf8')).toBe(
@@ -2330,7 +2330,7 @@ test.describe('against a real server', () => {
         const paneTabs = page.getByRole('tablist', { name: /side pane/i })
         await paneTabs.getByRole('tab', { name: /^terminal$/i }).click()
         const paneFiles = page.getByRole('tabpanel').getByRole('navigation', { name: /^terminal$/i })
-        await expect(paneFiles.getByRole('button', { name: '📄 answer.txt', exact: true })).toBeVisible({
+        await expect(paneFiles.getByRole('button', { name: 'File answer.txt', exact: true })).toBeVisible({
           timeout: 30_000,
         })
         await page.getByRole('button', { name: /^open the shell$/i }).click()

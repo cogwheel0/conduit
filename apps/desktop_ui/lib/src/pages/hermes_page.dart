@@ -10,6 +10,7 @@ import '../l10n/strings.g.dart';
 import '../rpc/chat_providers.dart';
 import '../rpc/hermes_providers.dart';
 import '../widgets/form_field.dart';
+import '../widgets/ui.dart';
 import 'workspace/workspace_common.dart'
     show actionButton, badge, confirmBox, dayOf, statusLine, workspaceGo;
 
@@ -32,7 +33,7 @@ class HermesPage extends StatelessComponent {
                 to: '/',
                 classes: 'rounded-lg px-2 py-1 text-ui-base hover:bg-hover',
                 attributes: <String, String>{'aria-label': t.app.back},
-                child: Component.text('←'),
+                child: icon(LucideIcon.arrowLeft, classes: 'size-4'),
               ),
               h1(classes: 'flex-1 text-ui-xl font-semibold', [
                 Component.text(t.app.hermesAgentSettingsTitle),
