@@ -46,7 +46,12 @@ export function serveAppScheme(webRoot: string): void {
     }
 
     const requested = decodeURIComponent(url.pathname)
-    const relative = requested === '/' || requested === '' ? '/index.html' : requested
+    // A route, not a file: the router's own paths (`/settings/audio`) have
+    // no extension. Without this a reload anywhere but `/` -- which the
+    // preload does whenever the daemon restarts -- showed a broken page.
+    const lastSegment = requested.slice(requested.lastIndexOf('/') + 1)
+    const relative =
+      requested === '/' || requested === '' || !lastSegment.includes('.') ? '/index.html' : requested
     const resolved = normalize(join(root, relative))
 
     // Containment check. `normalize` collapses `..`, so comparing prefixes
