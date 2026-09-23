@@ -15,6 +15,10 @@ environment:
 # that is logic belongs in the daemon, behind RPC. Adding a dependency here
 # is therefore the reviewable moment -- which is the point.
 dependencies:
+  # The `<details>` syntax the mobile renderer uses, so a reasoning or
+  # tool-call section is parsed once, the same way, for both.
+  conduit_markdown:
+    path: ../../packages/conduit_markdown
   conduit_protocol:
     path: ../../packages/conduit_protocol
   conduit_theme:

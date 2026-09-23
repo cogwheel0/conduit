@@ -1,9 +1,11 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
+import 'package:conduit_markdown/conduit_markdown.dart' show DetailsBlockSyntax;
 import 'package:markdown/markdown.dart' as md;
 
 import '../sandbox_port.dart';
 import 'code_block.dart';
+import 'details_block.dart';
 import 'math_syntax.dart';
 import 'sandboxed_render.dart';
 
@@ -82,29 +84,59 @@ class MarkdownView extends StatelessComponent {
     // tag that can arrive from a model's raw HTML -- `encodeHtml: false`
     // plus the walker means model markup never becomes elements at all.
     'math',
+    // Produced by `DetailsBlockSyntax`: Open WebUI's reasoning and tool-call
+    // sections, and `div` for the prose that follows one on the same line.
+    // Both are built by the walker, never taken from markup.
+    'details',
+    'div',
   };
 
   @override
   Component build(BuildContext context) {
     _mathIndex = 0;
-    final document = md.Document(
-      extensionSet: md.ExtensionSet.gitHubWeb,
-      // Before the built-ins, so `$$` is seen as math rather than as two
-      // empty inline spans. Display first for the same reason: `$$x$$`
-      // also matches the single-dollar pattern.
-      inlineSyntaxes: <md.InlineSyntax>[
-        MathSyntax.display(),
-        MathSyntax.inline(),
-      ],
-      // No inline HTML: with it, `<script>` in a reply reaches the AST as an
-      // element rather than as text, and the walker below would have to be
-      // the thing that catches it.
-      encodeHtml: false,
-    );
-    final nodes = document.parse(markdown);
+    final nodes = _parse(markdown);
     return div(
       classes: 'conduit-markdown space-y-3 text-sm leading-relaxed',
       nodes.map(_node).toList(growable: false),
+    );
+  }
+
+  /// One parse, shared by the message and by the body of every details
+  /// block inside it, so both render with the same rules.
+  static List<md.Node> _parse(String markdown) => md.Document(
+    extensionSet: md.ExtensionSet.gitHubWeb,
+    // Before the built-ins, so a reasoning or tool-call section is lifted
+    // whole instead of reaching the walker as a paragraph of markup.
+    blockSyntaxes: const <md.BlockSyntax>[DetailsBlockSyntax()],
+    // Before the built-ins, so `$$` is seen as math rather than as two
+    // empty inline spans. Display first for the same reason: `$$x$$`
+    // also matches the single-dollar pattern.
+    inlineSyntaxes: <md.InlineSyntax>[
+      MathSyntax.display(),
+      MathSyntax.inline(),
+    ],
+    // No inline HTML: with it, `<script>` in a reply reaches the AST as an
+    // element rather than as text, and the walker below would have to be
+    // the thing that catches it.
+    encodeHtml: false,
+  ).parse(markdown);
+
+  /// A details block, whose body is walked by this same view rather than a
+  /// nested [MarkdownView]: `_mathIndex` is reset per build, and a second
+  /// view would restart it and hand out frame ids this one already used.
+  Component _details(md.Element element) {
+    final summary = element.children
+        ?.whereType<md.Element>()
+        .where((child) => child.tag == 'summary')
+        .firstOrNull
+        ?.textContent;
+    final body = element.attributes['body_markdown'] ?? '';
+    return DetailsBlock(
+      attributes: element.attributes,
+      summary: summary,
+      body: body.trim().isEmpty
+          ? const <Component>[]
+          : _parse(body).map(_node).toList(growable: false),
     );
   }
 
@@ -156,6 +188,7 @@ class MarkdownView extends StatelessComponent {
     }
 
     if (element.tag == 'math') return _math(element);
+    if (element.tag == 'details') return _details(element);
 
     return switch (element.tag) {
       'p' => p(children),
@@ -189,6 +222,7 @@ class MarkdownView extends StatelessComponent {
       'th' => th(classes: 'px-2 py-1 text-left font-medium', children),
       'td' => td(classes: 'px-2 py-1', children),
       'a' => _link(element, children),
+      'div' => div(children),
       _ => span(children),
     };
   }

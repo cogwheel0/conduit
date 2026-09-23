@@ -311,5 +311,23 @@
   "desktopShortcutDenyRequest": "Deny the server's request",
   "@desktopShortcutDenyRequest": {
     "description": "Name of the desktop keyboard shortcut that declines a waiting server request."
+  },
+  "desktopToolRunning": "Running {name}…",
+  "@desktopToolRunning": {
+    "description": "Closed label of a tool call in a desktop reply while the tool is still running.",
+    "placeholders": { "name": { "type": "String", "example": "web_search" } }
+  },
+  "desktopToolUsed": "Used {name}",
+  "@desktopToolUsed": {
+    "description": "Closed label of a finished tool call in a desktop reply. Opening it shows the tool's input and output.",
+    "placeholders": { "name": { "type": "String", "example": "web_search" } }
+  },
+  "desktopToolInput": "Input",
+  "@desktopToolInput": {
+    "description": "Heading over the arguments a model passed to a tool, inside an opened tool call in a desktop reply."
+  },
+  "desktopDetails": "Details",
+  "@desktopDetails": {
+    "description": "Label of a collapsible section in a desktop reply that carried no title of its own."
   }
 }
