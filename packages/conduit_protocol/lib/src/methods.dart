@@ -556,6 +556,15 @@ abstract final class ConduitMethods {
 
   /// Starts a server speech job for an `<audio>` element to play.
   static const String voiceSpeak = 'voice.speak';
+
+  /// The whisper models for transcribing on this computer (M11).
+  static const String voiceModels = 'voice.models';
+
+  /// Starts downloading a model; `voice.changed` reports its progress.
+  static const String voiceDownloadModel = 'voice.downloadModel';
+
+  /// Deletes a downloaded model, or stops its download.
+  static const String voiceDeleteModel = 'voice.deleteModel';
   static const String settingsPrefix = 'settings.';
   static const String syncPrefix = 'sync.';
   static const String socketPrefix = 'socket.';
@@ -610,9 +619,10 @@ abstract final class ConduitHttpRoutes {
   /// `GET /tts/{jobId}` — audio for an `<audio>` element.
   static String tts(String jobId) => '/tts/$jobId';
 
-  /// `POST` a recording as the body, its type as `content-type`: the active
-  /// server's transcription as a `VoiceTranscript` (M8). The saved language
-  /// applies.
+  /// `POST` a recording as the body, its type as `content-type`: its
+  /// transcription as a `VoiceTranscript` (M8), by the active server or, with
+  /// the local engine, by whisper on this computer (M11) -- which takes 16 kHz
+  /// mono WAV only. The saved language applies.
   static const String transcribe = '/transcribe';
 
   /// `WS /terminal/{handle}` — raw byte tunnel to the Open WebUI terminal

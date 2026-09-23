@@ -1227,6 +1227,24 @@ class RpcSession {
       (r) => r.toJson(),
       (s, p) => s.speak(p),
     );
+    voice<Map<String, dynamic>, VoiceModels>(
+      ConduitMethods.voiceModels,
+      none,
+      (r) => r.toJson(),
+      (s, _) async => s.models(),
+    );
+    voice<VoiceModelRef, VoiceModels>(
+      ConduitMethods.voiceDownloadModel,
+      VoiceModelRef.fromJson,
+      (r) => r.toJson(),
+      (s, p) async => s.downloadModel(p.id),
+    );
+    voice<VoiceModelRef, VoiceModels>(
+      ConduitMethods.voiceDeleteModel,
+      VoiceModelRef.fromJson,
+      (r) => r.toJson(),
+      (s, p) async => s.deleteModel(p.id),
+    );
 
     // terminal.* (M7).
     void terminal<P, R>(

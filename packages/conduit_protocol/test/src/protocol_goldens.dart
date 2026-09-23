@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.45.0",
+  "protocolVersion": "1.46.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.45.0",
+  "protocolVersion": "1.46.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -1756,6 +1756,10 @@ const Map<String, String> protocolGoldens = <String, String>{
   'voiceSettings': r'''
 {
   "serverStt": true,
+  "localStt": true,
+  "sttEngine": "local",
+  "localModel": "base.en",
+  "localReady": true,
   "serverTts": true,
   "sttLanguage": "en",
   "silenceMs": 1500,
@@ -1773,6 +1777,8 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'voiceSettingsEdit': r'''
 {
+  "sttEngine": "local",
+  "localModel": "tiny",
   "clearSttLanguage": true,
   "silenceMs": 1000,
   "ttsEngine": "device",
@@ -1813,6 +1819,36 @@ const Map<String, String> protocolGoldens = <String, String>{
   'voiceTranscript': r'''
 {
   "text": "The quick brown fox."
+}''',
+
+  'voiceModel': r'''
+{
+  "id": "base.en",
+  "name": "Base (English)",
+  "sizeBytes": 147964211,
+  "englishOnly": true,
+  "downloaded": false,
+  "receivedBytes": 1024
+}''',
+
+  'voiceModels': r'''
+{
+  "models": [
+    {
+      "id": "tiny",
+      "name": "",
+      "sizeBytes": 0,
+      "englishOnly": false,
+      "downloaded": true
+    }
+  ],
+  "failedId": "small",
+  "failure": "checksum"
+}''',
+
+  'voiceModelRef': r'''
+{
+  "id": "tiny.en"
 }''',
 
   'noteFile': r'''

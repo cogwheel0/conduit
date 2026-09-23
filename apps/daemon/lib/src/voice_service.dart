@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
@@ -11,6 +13,8 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
 
+import 'event_bus.dart';
+import 'local_whisper.dart';
 import 'settled.dart';
 
 /// `voice.*`, `POST /transcribe` and `GET /tts/{jobId}` (M8).
@@ -20,10 +24,47 @@ import 'settled.dart';
 /// speech job is text the window names by id, so an `<audio>` element can
 /// fetch it with no credential of its own.
 final class VoiceService {
-  VoiceService(this._container);
+  VoiceService(
+    this._container, {
+    EventBus? events,
+    Directory? whisperDirectory,
+    String? whisperLibrary,
+  }) : _events = events,
+       _library = whisperLibrary ?? findWhisperLibrary(),
+       _models = WhisperModelStore(
+         whisperDirectory ??
+             Directory('${Directory.systemTemp.path}/conduit-whisper'),
+       );
 
   final ProviderContainer _container;
+  final EventBus? _events;
   final Random _random = Random.secure();
+
+  /// `libconduit_whisper`, when this build has it (M11).
+  final String? _library;
+  final WhisperModelStore _models;
+  String? _failedId;
+  String? _failure;
+
+  // The desktop's own keys: the phone's `sttPreference` means the phone's
+  // recognizer, and defaults to it; here "local" needs a download first.
+  static const String _engineKey = 'desktop_stt_engine_v1';
+  static const String _modelKey = 'desktop_whisper_model_v1';
+
+  String get _engine =>
+      PreferencesStore.getString(_engineKey) == 'local' ? 'local' : 'server';
+
+  WhisperModel? get _chosenModel =>
+      whisperModel(PreferencesStore.getString(_modelKey) ?? '');
+
+  /// The model local transcription would use now, if it can.
+  WhisperModel? get _readyModel {
+    final model = _chosenModel;
+    if (_library == null || model == null || !_models.isDownloaded(model)) {
+      return null;
+    }
+    return model;
+  }
 
   /// Speech jobs by id, oldest first. Kept after they are played, so the
   /// element can seek or replay without asking the server again, and
@@ -74,6 +115,10 @@ final class VoiceService {
     final stored = _container.read(appSettingsProvider);
     return VoiceSettings(
       serverStt: config != null && transcribes(config),
+      localStt: _library != null,
+      sttEngine: _engine,
+      localModel: _chosenModel?.id,
+      localReady: _readyModel != null,
       serverTts: config != null && speaks(config),
       sttLanguage: stored.sttLanguageCode,
       silenceMs: stored.voiceSilenceDuration,
@@ -96,6 +141,24 @@ final class VoiceService {
 
   Future<VoiceSettings> save(VoiceSettingsEdit edit) async {
     final notifier = _notifier;
+    if (edit.sttEngine case final engine?) {
+      if (engine != 'server' && engine != 'local') {
+        throw RpcError(
+          code: ConduitErrorCodes.invalidParams,
+          debugMessage: 'no engine "$engine"',
+        );
+      }
+      await PreferencesStore.put(_engineKey, engine);
+    }
+    if (edit.localModel case final id?) {
+      if (whisperModel(id) == null) {
+        throw RpcError(
+          code: ConduitErrorCodes.invalidParams,
+          debugMessage: 'no model "$id"',
+        );
+      }
+      await PreferencesStore.put(_modelKey, id);
+    }
     if (edit.clearSttLanguage) {
       await notifier.setSttLanguageCode(null);
     } else if (edit.sttLanguage case final language?) {
@@ -214,7 +277,63 @@ final class VoiceService {
     }
   }
 
-  /// The server's transcription of [bytes], in the saved language.
+  /// The whisper models, and how far any download has got.
+  VoiceModels models() => VoiceModels(
+    models: <VoiceModel>[
+      for (final model in whisperModels)
+        VoiceModel(
+          id: model.id,
+          name: model.name,
+          sizeBytes: model.sizeBytes,
+          englishOnly: model.englishOnly,
+          downloaded: _models.isDownloaded(model),
+          receivedBytes: _models.downloading[model.id],
+        ),
+    ],
+    failedId: _failedId,
+    failure: _failure,
+  );
+
+  void _announceModels() =>
+      _events?.publish(ConduitEvents.voiceChanged, payload: models().toJson());
+
+  /// Starts downloading model [id]; `voice.changed` says how it goes.
+  VoiceModels downloadModel(String id) {
+    final model = _modelOrThrow(id);
+    _failedId = null;
+    _failure = null;
+    unawaited(
+      _models.download(model, onProgress: _announceModels).catchError((
+        Object error,
+      ) {
+        _failedId = id;
+        _failure = error is StateError ? 'checksum' : 'network';
+        _announceModels();
+      }),
+    );
+    return models();
+  }
+
+  /// Deletes model [id], or stops its download.
+  VoiceModels deleteModel(String id) {
+    final model = _modelOrThrow(id);
+    if (_library case final library? when _chosenModel == model) {
+      whisperUnload(library);
+    }
+    _models.delete(model);
+    _announceModels();
+    return models();
+  }
+
+  static WhisperModel _modelOrThrow(String id) =>
+      whisperModel(id) ??
+      (throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'no model "$id"',
+      ));
+
+  /// The transcription of [bytes], in the saved language: by the active
+  /// server, or with the local engine by whisper on this computer.
   Future<VoiceTranscript> transcribe(
     Uint8List bytes, {
     String? contentType,
@@ -225,8 +344,13 @@ final class VoiceService {
         debugMessage: 'an empty recording',
       );
     }
-    final api = _api();
     final type = (contentType ?? 'audio/webm').split(';').first.trim();
+    // Local when chosen and ready; the server otherwise, as the window
+    // decides too -- a model still downloading is no reason to go deaf.
+    if (_engine == 'local' && _readyModel != null) {
+      return _transcribeLocally(bytes, type);
+    }
+    final api = _api();
     try {
       final result = await api.transcribeSpeech(
         audioBytes: bytes,
@@ -238,6 +362,50 @@ final class VoiceService {
       return VoiceTranscript(text: text is String ? text.trim() : '');
     } on DioException catch (error) {
       throw _fromDio(error);
+    }
+  }
+
+  Future<VoiceTranscript> _transcribeLocally(
+    Uint8List bytes,
+    String type,
+  ) async {
+    final model = _readyModel;
+    final library = _library;
+    if (model == null || library == null) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: 'no model downloaded for transcribing here',
+      );
+    }
+    if (!type.contains('wav')) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'local transcription takes 16 kHz WAV, not $type',
+      );
+    }
+    final Float32List samples;
+    try {
+      samples = decodeWavTo16kMono(bytes);
+    } on FormatException catch (error) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: error.message,
+      );
+    }
+    final language = _container.read(appSettingsProvider).sttLanguageCode;
+    try {
+      final text = await whisperTranscribe(
+        library: library,
+        modelPath: _models.pathFor(model),
+        samples: samples,
+        language: language ?? (model.englishOnly ? 'en' : null),
+      );
+      return VoiceTranscript(text: text);
+    } on Object catch (error) {
+      throw RpcError(
+        code: ConduitErrorCodes.serverError,
+        debugMessage: 'whisper: $error',
+      );
     }
   }
 

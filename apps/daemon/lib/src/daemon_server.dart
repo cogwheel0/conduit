@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:conduit_core/services/api_service.dart'
     show FileContentTooLargeException;
 import 'package:conduit_protocol/conduit_protocol.dart';
+import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' as shelf;
 import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'package:shelf_web_socket/shelf_web_socket.dart';
@@ -162,7 +163,13 @@ class DaemonServer {
     _channels = ChannelsService(core.container, events: events);
     _workspace = WorkspaceService(core.container, events: events);
     _terminals = TerminalsService(core.container, log: _log);
-    _voice = VoiceService(core.container);
+    _voice = VoiceService(
+      core.container,
+      events: events,
+      whisperDirectory: Directory(
+        p.join(core.directories.paths.userData, 'whisper'),
+      ),
+    );
     // An MCP sign-in opens the provider's page through a window.
     core.openUrl.attach(events);
     _log.info('core attached');

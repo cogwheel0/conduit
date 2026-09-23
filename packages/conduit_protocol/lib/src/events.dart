@@ -72,6 +72,10 @@ abstract final class ConduitEvents {
   /// Hermes's settings, sessions or jobs changed (M7). No payload.
   static const String hermesChanged = 'hermes.changed';
 
+  /// The whisper models changed: a download moved, finished or failed, or
+  /// one was deleted (M11). Payload [VoiceModels].
+  static const String voiceChanged = 'voice.changed';
+
   /// Every event name, for subscription validation and tests.
   static const Set<String> all = {
     turnStarted,
@@ -95,6 +99,7 @@ abstract final class ConduitEvents {
     openUrl,
     workspaceChanged,
     hermesChanged,
+    voiceChanged,
   };
 }
 

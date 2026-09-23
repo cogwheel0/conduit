@@ -8,9 +8,22 @@ part 'voice.g.dart';
 @freezed
 abstract class VoiceSettings with _$VoiceSettings {
   const factory VoiceSettings({
-    /// Whether the active server transcribes speech. Dictation on Windows and
-    /// Linux needs it; macOS's helper is the other engine (WP-8.4).
+    /// Whether the active server transcribes speech.
     @Default(false) bool serverStt,
+
+    /// Whether this build can transcribe on this computer (M11): it has the
+    /// whisper library. A model must be downloaded too; see [localReady].
+    @Default(false) bool localStt,
+
+    /// `server`, or `local` for whisper on this computer.
+    @Default('server') String sttEngine,
+
+    /// The whisper model chosen for `local`, by id (`base.en`).
+    String? localModel,
+
+    /// Whether `local` can transcribe now: the library, and the chosen
+    /// model downloaded.
+    @Default(false) bool localReady,
 
     /// Whether the active server speaks text.
     @Default(false) bool serverTts,
@@ -55,6 +68,8 @@ abstract class VoiceSettings with _$VoiceSettings {
 @freezed
 abstract class VoiceSettingsEdit with _$VoiceSettingsEdit {
   const factory VoiceSettingsEdit({
+    String? sttEngine,
+    String? localModel,
     String? sttLanguage,
     @Default(false) bool clearSttLanguage,
     int? silenceMs,
@@ -122,4 +137,49 @@ abstract class VoiceTranscript with _$VoiceTranscript {
 
   factory VoiceTranscript.fromJson(Map<String, dynamic> json) =>
       _$VoiceTranscriptFromJson(json);
+}
+
+/// A whisper model for transcribing on this computer (M11).
+@freezed
+abstract class VoiceModel with _$VoiceModel {
+  const factory VoiceModel({
+    required String id,
+    @Default('') String name,
+    @Default(0) int sizeBytes,
+
+    /// Hears only English, and hears it better for its size.
+    @Default(false) bool englishOnly,
+    @Default(false) bool downloaded,
+
+    /// Bytes received, while downloading.
+    int? receivedBytes,
+  }) = _VoiceModel;
+
+  factory VoiceModel.fromJson(Map<String, dynamic> json) =>
+      _$VoiceModelFromJson(json);
+}
+
+/// Reply to `voice.models`, and the payload of `voice.changed`.
+@freezed
+abstract class VoiceModels with _$VoiceModels {
+  const factory VoiceModels({
+    @Default(<VoiceModel>[]) List<VoiceModel> models,
+
+    /// The last download that failed, by id, and why (`checksum`,
+    /// `network`).
+    String? failedId,
+    String? failure,
+  }) = _VoiceModels;
+
+  factory VoiceModels.fromJson(Map<String, dynamic> json) =>
+      _$VoiceModelsFromJson(json);
+}
+
+/// Params for `voice.downloadModel` and `voice.deleteModel`.
+@freezed
+abstract class VoiceModelRef with _$VoiceModelRef {
+  const factory VoiceModelRef({required String id}) = _VoiceModelRef;
+
+  factory VoiceModelRef.fromJson(Map<String, dynamic> json) =>
+      _$VoiceModelRefFromJson(json);
 }
