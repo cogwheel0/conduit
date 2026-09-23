@@ -292,6 +292,13 @@ final class ChatsService {
     // slowest things the app can do.
     if (trimmed.isEmpty) return const ChatSearchResults();
 
+    // `tag:name` is a filter, not a phrase: Open WebUI's own search box
+    // reads it the same way. The server answers it, because the local list
+    // deliberately does not carry each chat's tags.
+    if (trimmed.toLowerCase().startsWith('tag:')) {
+      return _searchByTag(trimmed.substring(4).trim(), limit: query.limit);
+    }
+
     final database = _container.read(appDatabaseProvider);
     if (database == null) {
       // No local database yet -- the account has not been certified. Falling
@@ -327,6 +334,74 @@ final class ChatsService {
           .toList(growable: false),
     );
   }
+
+  Future<ChatSearchResults> _searchByTag(
+    String name, {
+    required int limit,
+  }) async {
+    if (name.isEmpty) return const ChatSearchResults();
+    final rows = await _api.getChatsByTag(name, limit: limit);
+    return ChatSearchResults(
+      hits: <ChatSearchHit>[
+        for (final row in rows)
+          ChatSearchHit(
+            chatId: '${row['id']}',
+            title: '${row['title'] ?? ''}',
+            // Epoch seconds from the server, like the local rows.
+            updatedAtMs: ((row['updated_at'] as num?) ?? 0).toInt() * 1000,
+          ),
+      ],
+    );
+  }
+
+  // -----------------------------------------------------------------------
+  // Tags (WP-3.8)
+  // -----------------------------------------------------------------------
+
+  Future<TagList> allTags() async =>
+      TagList(tags: _tagsFrom(await _api.getAllChatTags()));
+
+  Future<TagList> addTag(ChatTagEdit edit) async {
+    final name = edit.name.trim();
+    // Open WebUI refuses "none" too: it is what its filter UI means by
+    // "untagged".
+    if (name.isEmpty || name.toLowerCase() == 'none') {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'a tag needs a name, and not "none"',
+      );
+    }
+    final tags = await _api.addChatTag(edit.chatId, name);
+    await _afterTagChange(edit.chatId);
+    return TagList(tags: _tagsFrom(tags));
+  }
+
+  Future<TagList> removeTag(ChatTagEdit edit) async {
+    final tags = await _api.removeChatTag(edit.chatId, edit.name.trim());
+    await _afterTagChange(edit.chatId);
+    return TagList(tags: _tagsFrom(tags));
+  }
+
+  /// The chat's stored copy carries its tags, so it is pulled before the
+  /// windows are told -- otherwise they would refetch and see the old ones.
+  Future<void> _afterTagChange(String chatId) async {
+    try {
+      await _container.read(syncEngineProvider.notifier).pullChatNow(chatId);
+    } on Object catch (error) {
+      DebugLogger.error('tag-pull-failed', scope: 'daemon/chats', error: error);
+    }
+    _container.invalidate(loadConversationProvider(chatId));
+    _events?.publish(
+      ConduitEvents.chatsChanged,
+      payload: ChatsChanged(chatId: chatId).toJson(),
+    );
+  }
+
+  static List<TagDto> _tagsFrom(List<Map<String, dynamic>> rows) => <TagDto>[
+    for (final row in rows)
+      if (row['id'] != null)
+        TagDto(id: '${row['id']}', name: '${row['name'] ?? row['id']}'),
+  ];
 
   // -----------------------------------------------------------------------
   // Mutations

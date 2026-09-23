@@ -517,6 +517,35 @@ test.describe('against a real server', () => {
       }
     }
 
+    // 8d. Tag the conversation (WP-3.8), find it by the tag, untag it. The
+    // name is unique to this run, and the server drops a tag once no
+    // conversation carries it, so nothing is left behind.
+    const tagName = `e2e ${process.pid}`
+    await page.getByRole('button', { name: /add tag/i }).click()
+    await expect(page.getByLabel(/^tag name$/i)).toBeFocused()
+    await page.keyboard.type(tagName)
+    await page.keyboard.press('Enter')
+    const tagChip = page.locator('header').getByRole('button', {
+      name: tagName,
+      exact: true,
+    })
+    await expect(tagChip).toBeVisible({ timeout: 30_000 })
+    await tagChip.click()
+    await expect(page.getByLabel(/search conversations/i)).toHaveValue(
+      `tag:${tagName}`,
+    )
+    // The sidebar now lists what carries the tag: this conversation.
+    const tagged = page
+      .locator('nav[aria-label]')
+      .getByRole('button', { name: /reply with exactly the word: pong/i })
+    await expect(tagged.first()).toBeVisible({ timeout: 30_000 })
+    await shot(page, '08d-tagged')
+    await page
+      .getByRole('button', { name: new RegExp(`remove tag ${tagName}`, 'i') })
+      .click()
+    await expect(tagChip).toBeHidden({ timeout: 30_000 })
+    await page.getByLabel(/search conversations/i).fill('')
+
     // 8c. Edit the question in place (WP-3.2). The conversation should read
     // as the edited question and a new answer, with the original gone from
     // view but kept on the server as the branch it was.

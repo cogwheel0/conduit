@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:collection/collection.dart';
 import 'package:drift/drift.dart';
 import 'package:meta/meta.dart';
 
@@ -408,7 +409,12 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
 
       switch (result.outcome) {
         case MergeOutcome.noRemoteChange:
-          // Rows untouched; only re-assert push below when needed.
+          // Rows untouched; only re-assert push below when needed. Except
+          // `meta`: Open WebUI changes a chat's tags in the meta column
+          // alone, without moving `updated_at`, so a meta-only change looks
+          // like no change at all. Without this a tag added anywhere never
+          // reached a chat that had already been pulled once.
+          await _refreshMetaIfChanged(existing, meta);
           return _mergeResultWithUpdateOpIfMissing(
             serverChat.id,
             ChatMergeWriteResult(
@@ -455,6 +461,30 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           );
       }
     });
+  }
+
+  /// Caller is inside [mergeServerChat]'s transaction. Writes the server's
+  /// `meta` over the stored one when they differ. An empty [meta] is left
+  /// alone: callers that have no meta to give pass the default `{}`, which
+  /// is not the server saying the chat has none.
+  Future<void> _refreshMetaIfChanged(
+    ChatRow existing,
+    Map<String, dynamic> meta,
+  ) async {
+    if (meta.isEmpty) return;
+    Object? stored;
+    try {
+      stored = jsonDecode(existing.meta);
+    } on FormatException {
+      stored = null;
+    }
+    // Structurally, not as text: the same map encoded in a different key
+    // order would otherwise rewrite the row, and wake every list watcher, on
+    // every pull of every chat.
+    if (const DeepCollectionEquality().equals(stored, meta)) return;
+    await (update(chats)..where((t) => t.id.equals(existing.id))).write(
+      ChatsCompanion(meta: Value(jsonEncode(meta))),
+    );
   }
 
   /// Caller is inside [mergeServerChat]'s transaction. Reasserts an active

@@ -564,6 +564,38 @@ class RpcSession {
       },
     );
 
+    registerTypedMethodNoParams<TagList>(
+      _peer,
+      ConduitMethods.chatsTagsAll,
+      encodeResult: (result) => result.toJson(),
+      handler: () {
+        _requireHandshake();
+        return _requireChats().allTags();
+      },
+    );
+
+    registerTypedMethod<ChatTagEdit, TagList>(
+      _peer,
+      ConduitMethods.chatsTagsAdd,
+      decodeParams: ChatTagEdit.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireChats().addTag(request);
+      },
+    );
+
+    registerTypedMethod<ChatTagEdit, TagList>(
+      _peer,
+      ConduitMethods.chatsTagsRemove,
+      decodeParams: ChatTagEdit.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireChats().removeTag(request);
+      },
+    );
+
     registerTypedMethod<ChatSearchQuery, ChatSearchResults>(
       _peer,
       ConduitMethods.chatsSearch,

@@ -747,6 +747,36 @@ void main() {
       ).isEmpty();
     });
   });
+
+  test('a meta-only server change reaches an already-pulled chat', () async {
+    // Open WebUI tags a chat by rewriting its meta column and nothing else:
+    // `updated_at` does not move, so the merge sees no remote change. The
+    // tags must still arrive.
+    final rows = rowsFromFixture(loadChatBlobFixtures().first);
+    await db.chatsDao.mergeServerChat(
+      server: rows,
+      meta: <String, dynamic>{
+        'tags': <String>['work'],
+      },
+    );
+    await db.chatsDao.mergeServerChat(
+      server: rows,
+      meta: <String, dynamic>{
+        'tags': <String>['work', 'q3'],
+      },
+    );
+    final chat = await db.chatsDao.getChat(rows.chat.id);
+    check(
+      _deepEq.equals(jsonDecode(chat!.meta), <String, dynamic>{
+        'tags': <String>['work', 'q3'],
+      }),
+    ).isTrue();
+
+    // And an empty meta -- a caller with none to give -- leaves it alone.
+    await db.chatsDao.mergeServerChat(server: rows);
+    final after = await db.chatsDao.getChat(rows.chat.id);
+    check(after!.meta).equals(chat.meta);
+  });
 }
 
 /// Records every SELECT statement that reaches the executor.

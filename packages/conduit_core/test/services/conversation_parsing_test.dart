@@ -1661,4 +1661,15 @@ void main() {
     check(metadata[kMessageRatingMetadataKey]).equals(-1);
     check(metadata[kMessageFeedbackIdMetadataKey]).equals('fb-7');
   });
+
+  test('tags come from meta, where Open WebUI keeps them', () {
+    final conversation = parseFullConversationModel({
+      'id': 'conv-1',
+      'meta': {
+        'tags': ['work_notes', 'q3'],
+      },
+      'chat': {'messages': <Object>[]},
+    });
+    check(conversation.tags).deepEquals(['work_notes', 'q3']);
+  });
 }

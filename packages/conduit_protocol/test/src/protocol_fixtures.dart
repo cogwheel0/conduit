@@ -297,6 +297,11 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     size: 182_344,
     contentType: 'application/pdf',
   ),
+  'tag': const TagDto(id: 'work_notes', name: 'Work notes'),
+  'tagList': const TagList(
+    tags: <TagDto>[TagDto(id: 'q3', name: 'Q3')],
+  ),
+  'chatTagEdit': const ChatTagEdit(chatId: 'chat-7c1f0b2a', name: 'Work notes'),
   'rateTurn': const RateTurn(
     chatId: 'chat-7c1f0b2a',
     messageId: 'msg-2f9d4c17',
@@ -335,7 +340,10 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     model: 'gpt-4o',
     streaming: true,
     sources: <ChatSourceDto>[
-      ChatSourceDto(label: 'Sync design notes', url: 'https://example.com/sync'),
+      ChatSourceDto(
+        label: 'Sync design notes',
+        url: 'https://example.com/sync',
+      ),
     ],
     usage: ChatUsageDto(generationTokens: 7, totalSeconds: 0.5),
     rating: 1,
@@ -487,6 +495,9 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'folderSummary': FolderSummary.fromJson,
       'archivedVisibility': ArchivedVisibility.fromJson,
       'uploadedFile': UploadedFile.fromJson,
+      'tag': TagDto.fromJson,
+      'tagList': TagList.fromJson,
+      'chatTagEdit': ChatTagEdit.fromJson,
       'rateTurn': RateTurn.fromJson,
       'regenerateTurn': RegenerateTurn.fromJson,
       'chatSummary': ChatSummary.fromJson,

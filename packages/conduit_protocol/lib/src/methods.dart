@@ -121,6 +121,15 @@ abstract final class ConduitMethods {
   /// Full-text search over titles and message bodies.
   static const String chatsSearch = 'chats.search';
 
+  /// Every tag the account has, with its display name (WP-3.8).
+  static const String chatsTagsAll = 'chats.tags.all';
+
+  /// Tags a chat; answers with the chat's tags afterwards.
+  static const String chatsTagsAdd = 'chats.tags.add';
+
+  /// Untags a chat; answers with the chat's tags afterwards.
+  static const String chatsTagsRemove = 'chats.tags.remove';
+
   /// Renames a conversation.
   static const String chatsRename = 'chats.rename';
 

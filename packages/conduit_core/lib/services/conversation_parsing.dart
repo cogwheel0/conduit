@@ -61,7 +61,7 @@ Map<String, dynamic> parseConversationSummary(Map<String, dynamic> chatData) {
     'archived': archived,
     'shareId': shareId,
     'folderId': folderId,
-    'tags': _coerceStringList(chatData['tags']),
+    'tags': _chatTags(chatData),
     'userId': chatData['user_id']?.toString(),
   };
 }
@@ -200,7 +200,7 @@ Map<String, dynamic> parseFullConversation(Map<String, dynamic> chatData) {
     'archived': archived,
     'shareId': shareId,
     'folderId': folderId,
-    'tags': _coerceStringList(chatData['tags']),
+    'tags': _chatTags(chatData),
     'userId': chatData['user_id']?.toString(),
   };
 }
@@ -521,6 +521,24 @@ Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
   }
 
   return metadata.isEmpty ? null : metadata;
+}
+
+/// A chat's tag ids, wherever this payload keeps them.
+///
+/// Open WebUI's authoritative copy is `meta.tags` on the chat row; a
+/// top-level `tags` (older payloads, the list envelope) and the blob's own
+/// `tags` are fallbacks, in that order.
+List<String> _chatTags(Map<String, dynamic> chatData) {
+  final meta = _coerceJsonMap(chatData['meta']);
+  for (final candidate in <Object?>[
+    meta['tags'],
+    chatData['tags'],
+    _coerceJsonMap(chatData['chat'])['tags'],
+  ]) {
+    final tags = _coerceStringList(candidate);
+    if (tags.isNotEmpty) return tags;
+  }
+  return const <String>[];
 }
 
 /// Where a message's rating lives in its metadata: 1, -1, or absent.

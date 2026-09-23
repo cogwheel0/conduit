@@ -365,6 +365,46 @@ void main() {
         );
       }, timeout: const Timeout(Duration(minutes: 2)));
 
+      test('tags a chat, finds it by tag, and untags it', () async {
+        final events = EventBus();
+        final turns = TurnsService(runtime.container, events);
+        addTearDown(turns.dispose);
+        final accepted = await turns.send(
+          const SendTurn(model: 'gemma3:1b', text: 'Say the word: delta'),
+        );
+        created.add(accepted.chatId);
+
+        final chats = ChatsService(runtime.container, events: events);
+        // Unique to this run, and gone again at the end: the server drops a
+        // tag once no chat carries it.
+        final name = 'Conduit e2e $pid';
+        final id = name.replaceAll(' ', '_').toLowerCase();
+
+        final added = await chats.addTag(
+          ChatTagEdit(chatId: accepted.chatId, name: name),
+        );
+        expect(added.tags.map((t) => t.id), contains(id));
+        expect(added.tags.firstWhere((t) => t.id == id).name, name);
+
+        // The stored copy carries it, read from `meta.tags`.
+        await _waitFor(
+          () async =>
+              (await chats.get(accepted.chatId))?.summary.tags.contains(id) ??
+              false,
+          seconds: 30,
+        );
+
+        final found = await chats.search(ChatSearchQuery(query: 'tag:$name'));
+        expect(found.hits.map((h) => h.chatId), contains(accepted.chatId));
+
+        final removed = await chats.removeTag(
+          ChatTagEdit(chatId: accepted.chatId, name: name),
+        );
+        expect(removed.tags.map((t) => t.id), isNot(contains(id)));
+        final all = await chats.allTags();
+        expect(all.tags.map((t) => t.id), isNot(contains(id)));
+      }, timeout: const Timeout(Duration(minutes: 2)));
+
       test('rates an answer, and re-rating updates the same record', () async {
         final events = EventBus();
         final turns = TurnsService(runtime.container, events);

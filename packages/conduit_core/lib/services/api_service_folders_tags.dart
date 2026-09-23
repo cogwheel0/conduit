@@ -180,4 +180,54 @@ mixin _FoldersTagsApi on _ApiServiceBase {
       data: {'folder_id': folderId},
     );
   }
+
+  // ---- Chat tags (WP-3.8) ----------------------------------------------
+  // Open WebUI keeps a chat's tags as ids in `meta.tags` -- the name
+  // lower-cased with spaces as underscores -- and the names in a per-user
+  // tag table. Every call below answers with `{id, name}` records.
+
+  /// GET `/api/v1/chats/all/tags`: every tag this user has.
+  Future<List<Map<String, dynamic>>> getAllChatTags() async {
+    final response = await _dio.get('/api/v1/chats/all/tags');
+    return _coerceRawMapList(response.data);
+  }
+
+  /// POST `/api/v1/chats/{id}/tags`: tags a chat. Answers with the chat's
+  /// tags afterwards.
+  Future<List<Map<String, dynamic>>> addChatTag(
+    String chatId,
+    String name,
+  ) async {
+    final response = await _dio.post(
+      '/api/v1/chats/$chatId/tags',
+      data: {'name': name},
+    );
+    return _coerceRawMapList(response.data);
+  }
+
+  /// DELETE `/api/v1/chats/{id}/tags`: untags a chat. The server drops the
+  /// tag altogether once no chat has it.
+  Future<List<Map<String, dynamic>>> removeChatTag(
+    String chatId,
+    String name,
+  ) async {
+    final response = await _dio.delete(
+      '/api/v1/chats/$chatId/tags',
+      data: {'name': name},
+    );
+    return _coerceRawMapList(response.data);
+  }
+
+  /// POST `/api/v1/chats/tags`: the chats carrying tag [name], newest first,
+  /// as `{id, title, updated_at, created_at}`.
+  Future<List<Map<String, dynamic>>> getChatsByTag(
+    String name, {
+    int limit = 50,
+  }) async {
+    final response = await _dio.post(
+      '/api/v1/chats/tags',
+      data: {'name': name, 'skip': 0, 'limit': limit},
+    );
+    return _coerceRawMapList(response.data);
+  }
 }

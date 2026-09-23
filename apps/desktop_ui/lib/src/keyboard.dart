@@ -277,3 +277,24 @@ EventCallback composerKeys({
     onEnter(event);
   };
 }
+
+/// Enter and Esc in a one-line field that is its own small form -- naming a
+/// tag, say (WP-3.8). Esc stops here: the document listener would take it
+/// as "stop the running turn" otherwise.
+EventCallback submitOrCancel({
+  required void Function() submit,
+  required void Function() cancel,
+}) => (web.Event event) {
+  final key = event as web.KeyboardEvent;
+  if (key.isComposing || key.keyCode == 229) return;
+  switch (key.key) {
+    case 'Enter':
+      event.preventDefault();
+      submit();
+    case 'Escape':
+      event
+        ..preventDefault()
+        ..stopPropagation();
+      cancel();
+  }
+};

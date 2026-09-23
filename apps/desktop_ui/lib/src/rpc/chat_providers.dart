@@ -127,6 +127,17 @@ final paletteResultsProvider = FutureProvider<ChatSearchResults?>((ref) async {
       );
 });
 
+/// Tag names by id (WP-3.8). A chat lists its tags by id -- `work_notes`
+/// -- and this is how the header shows "Work notes" instead.
+final tagNamesProvider = FutureProvider<Map<String, String>>((ref) async {
+  ref.watch(coreConnectionProvider);
+  ref.watch(_chatsChangedProvider);
+  final list = await ref
+      .read(rpcClientProvider)
+      .call(ConduitMethods.chatsTagsAll, decode: TagList.fromJson);
+  return <String, String>{for (final tag in list.tags) tag.id: tag.name};
+});
+
 /// Ratings given in this window that the stored copy may not show yet.
 ///
 /// A thumb that waits for a round trip and a sync before lighting up reads
@@ -483,6 +494,20 @@ class ChatActions {
       model: model,
     ).toJson(),
     decode: SendTurnAccepted.fromJson,
+  );
+
+  /// Tags a conversation (WP-3.8). The header refreshes from the stored
+  /// copy once the daemon's `chats.changed` arrives.
+  Future<void> addTag(String chatId, String name) => _client.call(
+    ConduitMethods.chatsTagsAdd,
+    params: ChatTagEdit(chatId: chatId, name: name).toJson(),
+    decode: TagList.fromJson,
+  );
+
+  Future<void> removeTag(String chatId, String name) => _client.call(
+    ConduitMethods.chatsTagsRemove,
+    params: ChatTagEdit(chatId: chatId, name: name).toJson(),
+    decode: TagList.fromJson,
   );
 
   /// Rates an answer: 1 up, -1 down (WP-3.8).

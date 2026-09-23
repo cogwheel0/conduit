@@ -383,5 +383,23 @@
   "desktopBadResponse": "Bad response",
   "@desktopBadResponse": {
     "description": "Thumbs-down button under an answer in the desktop app. Rates the answer as bad."
+  },
+  "desktopAddTag": "Add tag",
+  "@desktopAddTag": {
+    "description": "Button in the desktop conversation header that opens a field for tagging the conversation."
+  },
+  "desktopTagName": "Tag name",
+  "@desktopTagName": {
+    "description": "Placeholder and label of the field that names a new tag in the desktop conversation header."
+  },
+  "desktopRemoveTag": "Remove tag {name}",
+  "@desktopRemoveTag": {
+    "description": "Accessible name of the small button that takes a tag off the conversation in the desktop app.",
+    "placeholders": { "name": { "type": "String", "example": "work" } }
+  },
+  "desktopShowTagged": "Show conversations tagged {name}",
+  "@desktopShowTagged": {
+    "description": "Tooltip of a tag in the desktop conversation header. Clicking it filters the sidebar to conversations with that tag.",
+    "placeholders": { "name": { "type": "String", "example": "work" } }
   }
 }

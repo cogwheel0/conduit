@@ -193,6 +193,37 @@ abstract class ChatDetail with _$ChatDetail {
       _$ChatDetailFromJson(json);
 }
 
+/// A tag, as Open WebUI keeps it (WP-3.8).
+///
+/// [id] is what a chat's `tags` lists -- the name lower-cased, spaces as
+/// underscores -- and [name] is what the user typed.
+@freezed
+abstract class TagDto with _$TagDto {
+  const factory TagDto({required String id, required String name}) = _TagDto;
+
+  factory TagDto.fromJson(Map<String, dynamic> json) => _$TagDtoFromJson(json);
+}
+
+/// Reply to `chats.tags.all`, and to adding or removing one: the tags in
+/// question, by name.
+@freezed
+abstract class TagList with _$TagList {
+  const factory TagList({@Default(<TagDto>[]) List<TagDto> tags}) = _TagList;
+
+  factory TagList.fromJson(Map<String, dynamic> json) =>
+      _$TagListFromJson(json);
+}
+
+/// Params for `chats.tags.add` and `chats.tags.remove`.
+@freezed
+abstract class ChatTagEdit with _$ChatTagEdit {
+  const factory ChatTagEdit({required String chatId, required String name}) =
+      _ChatTagEdit;
+
+  factory ChatTagEdit.fromJson(Map<String, dynamic> json) =>
+      _$ChatTagEditFromJson(json);
+}
+
 /// Params for methods addressing one chat.
 @freezed
 abstract class ChatRef with _$ChatRef {

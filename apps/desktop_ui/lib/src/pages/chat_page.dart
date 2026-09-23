@@ -15,6 +15,7 @@ import '../rpc/rpc_providers.dart';
 import '../rpc/session_providers.dart';
 import '../sidebar_model.dart';
 import '../widgets/form_field.dart';
+import '../widgets/chat_tags.dart';
 import '../widgets/markdown_view.dart';
 import '../widgets/prompt_menu.dart';
 import '../widgets/sources_list.dart';
@@ -635,6 +636,25 @@ class _Transcript extends StatelessComponent {
                 'title': t.desktop.desktopTemporaryHint,
               },
               [Component.text(t.app.temporaryChat)],
+            ),
+          if (selected != null &&
+              !isTemporaryChatId(selected) &&
+              context.watch(serverCapabilitiesProvider).tags &&
+              detail.value != null)
+            ChatTags(
+              key: ValueKey('tags-$selected'),
+              tagIds: detail.value!.summary.tags,
+              names:
+                  context.watch(tagNamesProvider).value ??
+                  const <String, String>{},
+              onAdd: (name) => unawaited(
+                context.read(chatActionsProvider).addTag(selected, name),
+              ),
+              onRemove: (name) => unawaited(
+                context.read(chatActionsProvider).removeTag(selected, name),
+              ),
+              onFilter: (name) =>
+                  context.read(searchQueryProvider.notifier).set('tag:$name'),
             ),
         ],
       ),
