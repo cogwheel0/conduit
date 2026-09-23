@@ -8,6 +8,7 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/utils/source_reference_helper.dart';
+import 'package:conduit_core/utils/usage_summary.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -442,10 +443,31 @@ final class ChatsService {
           timestampMs: version.timestamp.millisecondsSinceEpoch,
           model: version.model,
           sources: _sources(version.sources),
+          usage: _usage(version.usage),
         ),
     ],
     sources: _sources(message.sources),
+    usage: _usage(message.usage),
   );
+
+  /// The core's reading of whatever shape the provider reported in; null
+  /// when it reported nothing usable.
+  static ChatUsageDto? _usage(Map<String, dynamic>? usage) {
+    if (usage == null) return null;
+    final summary = UsageSummary.fromUsage(usage);
+    if (summary.isEmpty) return null;
+    return ChatUsageDto(
+      generationPerSecond: summary.generationPerSecond,
+      generationTokens: summary.generationTokens,
+      promptPerSecond: summary.promptPerSecond,
+      promptTokens: summary.promptTokens,
+      reasoningTokens: summary.reasoningTokens,
+      totalTokens: summary.totalTokens,
+      totalSeconds: summary.totalSeconds,
+      queueSeconds: summary.queueSeconds,
+      loadSeconds: summary.loadSeconds,
+    );
+  }
 
   /// Labels and links as the mobile app shows them, from the helper both
   /// apps now share: Open WebUI nests a source's name differently for web

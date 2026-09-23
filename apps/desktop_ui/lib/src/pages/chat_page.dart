@@ -17,6 +17,7 @@ import '../widgets/form_field.dart';
 import '../widgets/markdown_view.dart';
 import '../widgets/prompt_menu.dart';
 import '../widgets/sources_list.dart';
+import '../widgets/usage_details.dart';
 
 /// The chat vertical: sidebar, transcript, composer (M3).
 class ChatPage extends StatelessComponent {
@@ -696,6 +697,7 @@ class _Transcript extends StatelessComponent {
                               message,
                               versions[message.id],
                             ),
+                            usage: _shownUsage(message, versions[message.id]),
                             onCopyCode: copyCode,
                             // Per version, so flicking between answers does not
                             // reuse a formula frame drawn for a different one.
@@ -840,6 +842,7 @@ class _Transcript extends StatelessComponent {
     bool streaming = false,
     String? failure,
     List<ChatSourceDto> sources = const <ChatSourceDto>[],
+    ChatUsageDto? usage,
   }) {
     final isUser = role == 'user';
     final failed = failure != null;
@@ -883,7 +886,11 @@ class _Transcript extends StatelessComponent {
               ),
           ],
         ),
-        if (!isUser && sources.isNotEmpty) SourcesList(sources),
+        if (!isUser && (sources.isNotEmpty || usage != null))
+          div(classes: 'mr-auto flex max-w-[90%] items-start gap-4', [
+            if (sources.isNotEmpty) SourcesList(sources),
+            if (usage != null) UsageDetails(usage),
+          ]),
         // In the DOM always, revealed on hover or focus. A control that
         // only exists on hover cannot be reached by keyboard at all.
         if (onCopy != null ||
@@ -919,6 +926,13 @@ class _Transcript extends StatelessComponent {
     return i < message.versions.length
         ? message.versions[i].sources
         : message.sources;
+  }
+
+  static ChatUsageDto? _shownUsage(ChatMessageDto message, int? index) {
+    final i = index ?? message.versions.length;
+    return i < message.versions.length
+        ? message.versions[i].usage
+        : message.usage;
   }
 
   static String _shownContent(ChatMessageDto message, int? index) {

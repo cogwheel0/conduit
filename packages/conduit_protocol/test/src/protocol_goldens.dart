@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.11.0",
+  "protocolVersion": "1.12.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.11.0",
+  "protocolVersion": "1.12.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -402,6 +402,19 @@ const Map<String, String> protocolGoldens = <String, String>{
   "description": "Current conditions for a city"
 }''',
 
+  'chatUsage': r'''
+{
+  "generationPerSecond": 42.5,
+  "generationTokens": 85,
+  "promptPerSecond": 300.0,
+  "promptTokens": 30,
+  "reasoningTokens": 12,
+  "totalTokens": 115,
+  "totalSeconds": 2.25,
+  "queueSeconds": 0.02,
+  "loadSeconds": 1.0
+}''',
+
   'chatSource': r'''
 {
   "label": "dart.dev",
@@ -580,7 +593,11 @@ const Map<String, String> protocolGoldens = <String, String>{
       "label": "Sync design notes",
       "url": "https://example.com/sync"
     }
-  ]
+  ],
+  "usage": {
+    "generationTokens": 7,
+    "totalSeconds": 0.5
+  }
 }''',
 
   'chatDetail': r'''

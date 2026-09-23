@@ -223,6 +223,17 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     name: 'Weather',
     description: 'Current conditions for a city',
   ),
+  'chatUsage': const ChatUsageDto(
+    generationPerSecond: 42.5,
+    generationTokens: 85,
+    promptPerSecond: 300,
+    promptTokens: 30,
+    reasoningTokens: 12,
+    totalTokens: 115,
+    totalSeconds: 2.25,
+    queueSeconds: 0.02,
+    loadSeconds: 1,
+  ),
   'chatSource': const ChatSourceDto(
     label: 'dart.dev',
     url: 'https://dart.dev/overview',
@@ -321,6 +332,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     sources: <ChatSourceDto>[
       ChatSourceDto(label: 'Sync design notes', url: 'https://example.com/sync'),
     ],
+    usage: ChatUsageDto(generationTokens: 7, totalSeconds: 0.5),
   ),
   'chatDetail': const ChatDetail(
     summary: ChatSummary(
@@ -454,6 +466,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'turnFailed': TurnFailed.fromJson,
       'stopTurn': StopTurn.fromJson,
       'toolSummary': ToolSummary.fromJson,
+      'chatUsage': ChatUsageDto.fromJson,
       'chatSource': ChatSourceDto.fromJson,
       'promptSummary': PromptSummary.fromJson,
       'promptList': PromptList.fromJson,

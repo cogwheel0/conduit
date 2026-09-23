@@ -109,6 +109,9 @@ abstract class ChatMessageDto with _$ChatMessageDto {
     /// What the answer drew on -- web results, files, a knowledge base --
     /// in the order its `[1]`, `[2]` markers count (WP-3.2).
     @Default(<ChatSourceDto>[]) List<ChatSourceDto> sources,
+
+    /// Tokens and timing, when the provider reported them (WP-3.2).
+    ChatUsageDto? usage,
   }) = _ChatMessageDto;
 
   factory ChatMessageDto.fromJson(Map<String, dynamic> json) =>
@@ -134,6 +137,29 @@ abstract class ChatSourceDto with _$ChatSourceDto {
       _$ChatSourceDtoFromJson(json);
 }
 
+/// How an answer was produced, in the figures people read (WP-3.2).
+///
+/// Computed by the core's `UsageSummary` from whichever of the four shapes
+/// the provider used, so a field is null when that provider did not say --
+/// never zero.
+@freezed
+abstract class ChatUsageDto with _$ChatUsageDto {
+  const factory ChatUsageDto({
+    double? generationPerSecond,
+    int? generationTokens,
+    double? promptPerSecond,
+    int? promptTokens,
+    int? reasoningTokens,
+    int? totalTokens,
+    double? totalSeconds,
+    double? queueSeconds,
+    double? loadSeconds,
+  }) = _ChatUsageDto;
+
+  factory ChatUsageDto.fromJson(Map<String, dynamic> json) =>
+      _$ChatUsageDtoFromJson(json);
+}
+
 /// One alternative answer to the prompt a message answers.
 @freezed
 abstract class ChatMessageVersionDto with _$ChatMessageVersionDto {
@@ -145,6 +171,7 @@ abstract class ChatMessageVersionDto with _$ChatMessageVersionDto {
 
     /// This version's own sources; a regenerated answer searches again.
     @Default(<ChatSourceDto>[]) List<ChatSourceDto> sources,
+    ChatUsageDto? usage,
   }) = _ChatMessageVersionDto;
 
   factory ChatMessageVersionDto.fromJson(Map<String, dynamic> json) =>

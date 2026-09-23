@@ -308,9 +308,17 @@ test.describe('against a real server', () => {
     let opened = false
     for (let i = 0; i < 6 && !opened; i++) {
       await rows.nth(i).click()
-      await expect(transcript.locator('article').first()).toBeVisible({
-        timeout: 60_000,
-      })
+      // A conversation can be empty -- the daemon's live suite makes one
+      // briefly -- so an empty one moves on to the next rather than failing.
+      const loaded = await transcript
+        .locator('article')
+        .first()
+        .waitFor({ timeout: 30_000 })
+        .then(
+          () => true,
+          () => false,
+        )
+      if (!loaded) continue
       opened = await expect
         .poll(() => transcript.locator('article').count(), { timeout: 10_000 })
         .toBeGreaterThan(1)
