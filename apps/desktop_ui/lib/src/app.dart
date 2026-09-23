@@ -8,6 +8,7 @@ import 'pages/chat_page.dart';
 import 'pages/diagnostics_page.dart';
 import 'pages/channels_page.dart';
 import 'pages/notes_page.dart';
+import 'pages/terminal_page.dart';
 import 'pages/workspace/workspace_page.dart';
 import 'pages/onboarding_page.dart';
 import 'pages/settings_page.dart';
@@ -100,6 +101,11 @@ class ConduitDesktopApp extends StatelessComponent {
               path: '/channels',
               title: 'Channels',
               builder: (context, state) => const ChannelsPage(),
+            ),
+            Route(
+              path: '/terminal',
+              title: 'Terminal',
+              builder: (context, state) => const TerminalPage(),
             ),
             Route(
               path: '/workspace/:section/new',
@@ -210,11 +216,12 @@ bool showsFloatingSettingsLink(String location) =>
     location != '/' &&
     location != '/index.html' &&
     !location.startsWith('/settings') &&
-    // Notes, channels and the workspace lead back to the chat, which has its own way in;
+    // Notes, channels, the workspace and the terminal lead back to the chat, which has its own way in;
     // the pill would sit on their composers.
     !location.startsWith('/notes') &&
     !location.startsWith('/channels') &&
-    !location.startsWith('/workspace');
+    !location.startsWith('/workspace') &&
+    !location.startsWith('/terminal');
 
 /// Sends a window to onboarding or sign-in when it has no session.
 String? _sessionRedirect(BuildContext context, String location) =>

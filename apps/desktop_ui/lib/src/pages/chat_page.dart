@@ -16,6 +16,7 @@ import '../rpc/chat_providers.dart';
 import '../rpc/rpc_providers.dart';
 import '../rpc/session_providers.dart';
 import '../rpc/workspace_providers.dart';
+import '../rpc/terminal_providers.dart';
 import '../sidebar_model.dart';
 import '../widgets/form_field.dart';
 import '../widgets/chat_tags.dart';
@@ -30,6 +31,7 @@ import '../widgets/selection_bar.dart';
 import '../widgets/share_dialog.dart';
 import '../widgets/sources_list.dart';
 import '../widgets/usage_details.dart';
+import 'terminal_page.dart' show terminalOffered;
 
 /// The chat vertical: sidebar, transcript, composer (M3).
 class ChatPage extends StatelessComponent {
@@ -193,6 +195,15 @@ class _Sidebar extends StatelessComponent {
                   'block rounded px-2 py-1.5 text-sm text-muted-foreground '
                   'hover:bg-accent hover:text-accent-foreground',
               child: Component.text(t.app.sidebarChannelsTab),
+            ),
+          // The terminal, when the account has a terminal server (M7).
+          if (terminalOffered(context.watch(terminalServersProvider).value))
+            Link(
+              to: '/terminal',
+              classes:
+                  'block rounded px-2 py-1.5 text-sm text-muted-foreground '
+                  'hover:bg-accent hover:text-accent-foreground',
+              child: Component.text(t.app.terminal),
             ),
           // The workspace, when there is a section this account may manage
           // (M6).

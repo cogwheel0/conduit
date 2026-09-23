@@ -33,10 +33,14 @@
     <!-- Quill 2, the notes editor, vendored by build-ui.mjs. Before app.css
          so the theme's overrides of its colours win. -->
     <link rel="stylesheet" href="vendor/quill/quill.snow.css" />
+    <!-- xterm.js, the terminal (M7), vendored the same way. -->
+    <link rel="stylesheet" href="vendor/xterm/xterm.css" />
     <link rel="stylesheet" href="app.css" />
   </head>
   <body class="bg-background text-foreground antialiased">
     <script defer src="vendor/quill/quill.js"></script>
+    <script defer src="vendor/xterm/xterm.js"></script>
+    <script defer src="vendor/xterm/addon-fit.js"></script>
     <script defer src="main.dart.js"></script>
   </body>
 </html>

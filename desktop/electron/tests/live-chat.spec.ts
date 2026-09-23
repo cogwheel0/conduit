@@ -1,14 +1,20 @@
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import {
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
+  realpathSync,
+  renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, join, resolve as resolvePath } from 'node:path'
 import {
   _electron as electron,
   expect,
@@ -17,6 +23,7 @@ import {
   type ElectronApplication,
   type Page,
 } from '@playwright/test'
+import { WebSocketServer } from 'ws'
 
 /**
  * The whole app, against a real Open WebUI server.
@@ -341,6 +348,154 @@ async function fakeMcpServer(): Promise<{ endpoint: string; calls: number; close
   state.endpoint = `http://127.0.0.1:${port}/mcp`
   state.close = () => server.close()
   return state
+}
+
+/**
+ * A terminal server in the shape of Open WebUI's open-terminal (M7): REST
+ * for files and ports, and a WebSocket shell. The shell is a real `sh`
+ * over pipes -- no pty, so this server echoes keystrokes itself and turns
+ * Enter into a newline -- in a temporary folder that is also the files
+ * panel's home. Loopback only, behind a random key.
+ */
+async function fakeTerminal(): Promise<{
+  url: string
+  key: string
+  home: string
+  close: () => void
+}> {
+  const key = `e2e-${randomBytes(12).toString('hex')}`
+  const home = realpathSync(mkdtempSync(join(tmpdir(), 'conduit-terminal-')))
+  const shells: ChildProcessWithoutNullStreams[] = []
+  // Paths arrive absolute, as open-terminal's are; anything outside the
+  // home folder is refused.
+  const inside = (path: string) => {
+    const resolved = resolvePath(home, path)
+    if (resolved !== home && !resolved.startsWith(`${home}/`)) throw new Error('outside')
+    return resolved
+  }
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url ?? '/', 'http://localhost')
+    const send = (status: number, body: unknown) => {
+      response.writeHead(status, { 'content-type': 'application/json' })
+      response.end(JSON.stringify(body))
+    }
+    if (request.headers.authorization !== `Bearer ${key}`) return send(401, { detail: 'key' })
+    try {
+      const route = `${request.method} ${url.pathname}`
+      if (route === 'GET /api/config') return send(200, { features: { terminal: true } })
+      if (route === 'POST /api/terminals') return send(200, { id: randomBytes(4).toString('hex') })
+      if (route === 'GET /files/cwd') return send(200, { cwd: home })
+      if (route === 'POST /files/cwd') {
+        await jsonBody(request)
+        return send(200, { ok: true })
+      }
+      if (route === 'GET /files/list') {
+        const dir = inside(url.searchParams.get('directory') ?? home)
+        const entries = readdirSync(dir, { withFileTypes: true }).map((entry) => {
+          const stat = statSync(join(dir, entry.name))
+          return {
+            name: entry.name,
+            type: entry.isDirectory() ? 'directory' : 'file',
+            size: stat.size,
+            modified: Math.floor(stat.mtimeMs / 1000),
+          }
+        })
+        return send(200, { dir, entries })
+      }
+      if (route === 'GET /files/read') {
+        return send(200, { content: readFileSync(inside(url.searchParams.get('path') ?? ''), 'utf8') })
+      }
+      if (route === 'GET /files/view') {
+        const path = inside(url.searchParams.get('path') ?? '')
+        response.writeHead(200, {
+          'content-type': 'application/octet-stream',
+          'content-disposition': `attachment; filename="${basename(path)}"`,
+        })
+        return response.end(readFileSync(path))
+      }
+      if (route === 'POST /files/upload') {
+        const chunks: Buffer[] = []
+        for await (const chunk of request) chunks.push(chunk as Buffer)
+        const raw = Buffer.concat(chunks)
+        const text = raw.toString('latin1')
+        const name = /filename="([^"]+)"/.exec(text)?.[1]
+        const start = text.indexOf('\r\n\r\n') + 4
+        const end = text.lastIndexOf('\r\n--')
+        if (!name || start < 4 || end < start) return send(400, { detail: 'form' })
+        writeFileSync(join(inside(url.searchParams.get('directory') ?? home), basename(name)), raw.subarray(start, end))
+        return send(200, { ok: true })
+      }
+      if (route === 'POST /files/mkdir') {
+        mkdirSync(inside(((await jsonBody(request)) as { path: string }).path), { recursive: true })
+        return send(200, { ok: true })
+      }
+      if (route === 'DELETE /files/delete') {
+        rmSync(inside(url.searchParams.get('path') ?? ''), { recursive: true, force: true })
+        return send(200, { ok: true })
+      }
+      if (route === 'POST /files/move') {
+        const move = (await jsonBody(request)) as { source: string; destination: string }
+        renameSync(inside(move.source), inside(move.destination))
+        return send(200, { ok: true })
+      }
+      if (route === 'GET /ports') return send(200, { ports: [{ port: 3000, pid: 1, process: 'devserver' }] })
+      if (url.pathname.startsWith('/proxy/3000')) {
+        response.writeHead(200, { 'content-type': 'text/html' })
+        return response.end(`<h1>preview ${url.pathname.slice('/proxy/3000'.length)}</h1>`)
+      }
+      send(404, { detail: 'not found' })
+    } catch {
+      send(400, { detail: 'bad path' })
+    }
+  })
+  const sockets = new WebSocketServer({ server, path: undefined })
+  sockets.on('connection', (socket) => {
+    let shell: ChildProcessWithoutNullStreams | undefined
+    socket.on('message', (data, isBinary) => {
+      if (!isBinary) {
+        const frame = JSON.parse(data.toString()) as { type: string; token?: string }
+        if (shell === undefined) {
+          if (frame.type !== 'auth' || frame.token !== key) {
+            socket.close(4401, 'bad auth')
+            return
+          }
+          shell = spawn('sh', [], { cwd: home, env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home, PS1: '$ ' } })
+          shells.push(shell)
+          const out = (chunk: Buffer) => socket.send(Buffer.from(chunk.toString().replace(/\n/g, '\r\n')))
+          shell.stdout.on('data', out)
+          shell.stderr.on('data', out)
+          shell.on('exit', (code, signal) => {
+            process.stderr.write(`[fake terminal] shell exited ${code} ${signal}\n`)
+            socket.close()
+          })
+          socket.send(Buffer.from('$ '))
+        }
+        return
+      }
+      if (shell === undefined) return
+      const typed = (data as Buffer).toString()
+      // No pty: echo what is typed, as a terminal's line discipline would.
+      socket.send(Buffer.from(typed.replace(/\r/g, '\r\n')))
+      shell.stdin.write(typed.replace(/\r/g, '\n'))
+      if (typed.includes('\r')) setTimeout(() => socket.send(Buffer.from('$ ')), 150)
+    })
+    socket.on('close', (code, reason) => {
+      process.stderr.write(`[fake terminal] socket closed ${code} ${reason.toString()}\n`)
+      shell?.kill()
+    })
+  })
+  const port = await listen(server)
+  return {
+    url: `http://127.0.0.1:${port}`,
+    key,
+    home,
+    close: () => {
+      for (const shell of shells) shell.kill()
+      sockets.close()
+      server.close()
+      rmSync(home, { recursive: true, force: true })
+    },
+  }
 }
 
 async function shot(page: Page, name: string): Promise<void> {
@@ -2011,6 +2166,112 @@ test.describe('against a real server', () => {
         rmSync(downloads, { recursive: true, force: true })
         rmSync(knowledgeFile, { force: true })
         rmSync(imagePath, { force: true })
+      }
+
+      // 21. The terminal (M7): a terminal server added to the account's
+      // settings for this step -- a real `sh` behind open-terminal's API --
+      // then the shell, its files and a port, and the server removed again.
+      const terminal = await fakeTerminal()
+      const terminalSettings = async (
+        edit: (servers: Array<Record<string, unknown>>) => Array<Record<string, unknown>>,
+      ) => {
+        const { api, auth } = await serverApi(credentials!)
+        try {
+          const settings = ((await (
+            await api.get('/api/v1/users/user/settings', { headers: auth })
+          ).json()) ?? {}) as { ui?: Record<string, unknown> }
+          const ui = { ...(settings.ui ?? {}) }
+          ui.terminalServers = edit((ui.terminalServers as Array<Record<string, unknown>>) ?? [])
+          await api.post('/api/v1/users/user/settings/update', {
+            headers: auth,
+            data: { ...settings, ui },
+          })
+        } finally {
+          await api.dispose()
+        }
+      }
+      try {
+        await terminalSettings((servers) => [
+          ...servers,
+          { url: terminal.url, key: terminal.key, name: 'E2E shell', enabled: false, config: { enable: true } },
+        ])
+        // The window read the account's terminals when it started.
+        await page.evaluate(() => {
+          window.history.pushState(null, '', '/')
+          window.dispatchEvent(new PopStateEvent('popstate'))
+        })
+        await page.reload()
+        await page.getByRole('link', { name: /^terminal$/i }).click({ timeout: 60_000 })
+        await expect.poll(pathname, { timeout: 30_000 }).toBe('/terminal')
+        await expect(page.getByRole('status').filter({ hasText: /^connected$/i })).toBeVisible({
+          timeout: 30_000,
+        })
+        const shell = page.locator('#terminal-host')
+        await shell.click()
+        await page.keyboard.type('echo conduit-$((6*7)) > answer.txt; cat answer.txt\r')
+        await expect(shell.locator('.xterm-rows')).toContainText('conduit-42', { timeout: 30_000 })
+        // Ctrl+K is the shell's here, not the command palette's.
+        await page.keyboard.press('Control+k')
+        await expect(page.getByRole('dialog', { name: /command/i })).toBeHidden()
+
+        // The file the shell made, in the files panel.
+        const panel = page.getByRole('navigation', { name: /^terminal$/i })
+        await panel.getByRole('button', { name: /^home directory$/i }).click()
+        await panel.getByRole('button', { name: '📄 answer.txt', exact: true }).click()
+        const preview = page.getByRole('dialog', { name: 'answer.txt' })
+        await expect(preview.getByText('conduit-42')).toBeVisible({ timeout: 30_000 })
+        await preview.getByRole('button', { name: /^close$/i }).click()
+
+        // A folder, and a file uploaded into this one.
+        await page.locator('#terminal-new-folder').click()
+        await page.locator('#terminal-folder-name').fill('Guides')
+        await page.locator('#terminal-folder-name-save').click()
+        await expect(panel.getByRole('button', { name: '📁 Guides', exact: true })).toBeVisible({
+          timeout: 30_000,
+        })
+        const upload = join(tmpdir(), `conduit-terminal-upload-${process.pid}.txt`)
+        writeFileSync(upload, 'uploaded through the daemon\n')
+        const uploadChooser = page.waitForEvent('filechooser')
+        await page.locator('#terminal-upload').click()
+        await (await uploadChooser).setFiles(upload)
+        await expect(panel.getByRole('button', { name: `📄 ${basename(upload)}`, exact: true })).toBeVisible({
+          timeout: 30_000,
+        })
+        expect(readFileSync(join(terminal.home, basename(upload)), 'utf8')).toBe(
+          'uploaded through the daemon\n',
+        )
+        rmSync(upload, { force: true })
+        await shot(page, '21-terminal')
+
+        // A port, previewed through the daemon: the address goes to the
+        // system browser, which is caught here instead.
+        await app.evaluate(({ shell }) => {
+          ;(globalThis as { __opened?: string[] }).__opened = []
+          shell.openExternal = async (url: string) => {
+            ;(globalThis as unknown as { __opened: string[] }).__opened.push(url)
+          }
+        })
+        await panel.getByRole('button', { name: /^open in browser$/i }).click()
+        await expect
+          .poll(() => app.evaluate(() => (globalThis as { __opened?: string[] }).__opened?.length ?? 0))
+          .toBe(1)
+        const opened = await app.evaluate(() => (globalThis as unknown as { __opened: string[] }).__opened[0])
+        const keyed = await fetch(opened, { redirect: 'manual' })
+        expect(keyed.status).toBe(302)
+        const cookie = (keyed.headers.get('set-cookie') ?? '').split(';')[0]
+        const shown = await fetch(new URL('/docs', opened), { headers: { cookie } })
+        expect(await shown.text()).toBe('<h1>preview /docs</h1>')
+        expect((await fetch(new URL('/docs', opened))).status).toBe(403)
+
+        await page.locator('#terminal-fullscreen').click()
+        await expect(panel).toBeHidden()
+        await shot(page, '21b-terminal-fullscreen')
+        await page.locator('#terminal-fullscreen').click()
+      } finally {
+        await terminalSettings((servers) => servers.filter((s) => s.url !== terminal.url)).catch(
+          () => undefined,
+        )
+        terminal.close()
       }
     } finally {
       provider.close()

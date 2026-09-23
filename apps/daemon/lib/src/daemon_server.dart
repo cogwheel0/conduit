@@ -320,14 +320,22 @@ class DaemonServer {
       );
     }
     try {
+      final bytes = await _collect(request.read());
       await terminals.upload(
         handle: handle,
         directory: directory,
         name: name,
-        bytes: await _collect(request.read()),
+        bytes: bytes,
       );
+      // An UploadedFile, as /upload answers; the id is where it went.
       return shelf.Response.ok(
-        jsonEncode(<String, dynamic>{'id': '$directory$name', 'name': name}),
+        jsonEncode(
+          UploadedFile(
+            id: '$directory$name',
+            name: name,
+            size: bytes.length,
+          ).toJson(),
+        ),
         headers: <String, String>{
           'content-type': 'application/json',
           ..._corsHeaders,

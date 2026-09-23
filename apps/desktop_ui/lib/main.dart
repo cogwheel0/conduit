@@ -11,6 +11,8 @@ import 'src/bridge.dart';
 import 'src/keyboard.dart';
 import 'src/quill_editor.dart';
 import 'src/rpc/notes_providers.dart';
+import 'src/rpc/terminal_providers.dart';
+import 'src/terminal_bridge.dart';
 import 'src/sandbox_bridge.dart';
 import 'src/l10n/strings.g.dart';
 import 'src/rpc/rpc_providers.dart';
@@ -58,6 +60,7 @@ Future<void> main() async {
       sandboxProvider.overrideWithValue(DocumentSandbox()),
       attachmentsProvider.overrideWithValue(BrowserAttachments(bridge)),
       noteEditorProvider.overrideWithValue(const QuillNoteEditor()),
+      terminalViewProvider.overrideWithValue(XtermTerminal(bridge)),
     ],
   );
   // Start connecting before the first paint so the status card usually

@@ -199,3 +199,12 @@ body {
 .ql-editor blockquote {
   border-left-color: var(--conduit-border);
 }
+
+/* xterm.js, the terminal (M7). It sizes itself to its element; the element
+   is the flex child that grows, so xterm fills it. */
+.terminal-host .xterm {
+  height: 100%;
+}
+.terminal-host .xterm-viewport {
+  background-color: transparent !important;
+}

@@ -21,13 +21,17 @@
     "@playwright/test": "1.56.1",
     "@tailwindcss/cli": "4.3.3",
     "@types/node": "24.10.1",
+    "@types/ws": "8.18.1",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
     "chart.js": "4.5.1",
     "electron": "44.4.3",
     "electron-builder": "26.15.3",
     "katex": "0.18.7",
     "mermaid": "12.0.0",
     "quill": "2.0.3",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "ws": "8.21.3"
   },
   "dependencies": {
     "electron-updater": "6.8.9"

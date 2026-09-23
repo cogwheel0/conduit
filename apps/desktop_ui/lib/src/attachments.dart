@@ -20,6 +20,9 @@ class PickedAttachment {
   final String contentType;
 }
 
+/// A terminal handle and a folder on its machine, for an upload (M7).
+typedef TerminalUploadTarget = ({String handle, String directory});
+
 /// Picking and uploading attachments.
 abstract interface class AttachmentPort {
   /// Opens the OS picker. Empty when the user cancels.
@@ -31,9 +34,13 @@ abstract interface class AttachmentPort {
   ///
   /// Returns the id the server assigned, which is what a turn refers to.
   /// [onProgress] reports a fraction between 0 and 1.
+  ///
+  /// With [terminal], the file goes into that folder of a terminal's
+  /// machine instead (M7), and the answer is its path there.
   Future<String> upload(
     String handle, {
     void Function(double fraction)? onProgress,
+    TerminalUploadTarget? terminal,
   });
 
   /// Forgets [handle] without uploading it.
@@ -85,12 +92,20 @@ final class RecordingAttachments implements AttachmentPort {
   Future<String> upload(
     String handle, {
     void Function(double fraction)? onProgress,
+    TerminalUploadTarget? terminal,
   }) async {
     if (failWith case final error?) throw error;
     onProgress?.call(1);
     uploaded.add(handle);
+    if (terminal != null) {
+      uploadedTo.add(terminal);
+      return '${terminal.directory}$handle';
+    }
     return 'server-$handle';
   }
+
+  /// Where terminal uploads went, in order.
+  final List<TerminalUploadTarget> uploadedTo = <TerminalUploadTarget>[];
 
   @override
   void discard(String handle) => discarded.add(handle);

@@ -50,6 +50,7 @@ final class BrowserAttachments implements AttachmentPort {
   Future<String> upload(
     String handle, {
     void Function(double fraction)? onProgress,
+    TerminalUploadTarget? terminal,
   }) {
     final file = _files[handle];
     if (file == null) {
@@ -58,7 +59,19 @@ final class BrowserAttachments implements AttachmentPort {
 
     final request = web.XMLHttpRequest();
     final completer = Completer<String>();
-    request.open('POST', '${_bridge.httpBase}${ConduitHttpRoutes.upload}');
+    request.open(
+      'POST',
+      '${_bridge.httpBase}'
+          '${terminal == null ? ConduitHttpRoutes.upload : ConduitHttpRoutes.terminalUpload}',
+    );
+    if (terminal != null) {
+      request
+        ..setRequestHeader('x-conduit-terminal', terminal.handle)
+        ..setRequestHeader(
+          'x-conduit-directory',
+          Uri.encodeComponent(terminal.directory),
+        );
+    }
     // The daemon's own token, not the server's: the renderer never holds a
     // credential for Open WebUI, which is why the upload goes through here
     // at all.

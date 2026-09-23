@@ -91,6 +91,22 @@ for (const file of ['quill.js', 'quill.snow.css']) {
   cpSync(from, join(vendorDir, 'quill', file))
 }
 
+// xterm.js, the terminal (M7). App origin like Quill: it draws the shell
+// the user types into, and loads from index.html.
+for (const [pkg, file] of [
+  ['@xterm/xterm', 'lib/xterm.js'],
+  ['@xterm/xterm', 'css/xterm.css'],
+  ['@xterm/addon-fit', 'lib/addon-fit.js'],
+]) {
+  const from = join(here, '..', 'node_modules', pkg, file)
+  if (!existsSync(from)) {
+    console.error(`${pkg} not found. Run \`npm install\` in desktop/electron.`)
+    process.exit(1)
+  }
+  mkdirSync(join(vendorDir, 'xterm'), { recursive: true })
+  cpSync(from, join(vendorDir, 'xterm', file.split('/').pop()))
+}
+
 cpSync(join(here, '..', 'sandbox', 'sandbox.js'), join(vendorDir, 'sandbox.js'))
 cpSync(join(here, '..', 'sandbox', 'sandbox.html'), join(webDir, 'sandbox.html'))
 
