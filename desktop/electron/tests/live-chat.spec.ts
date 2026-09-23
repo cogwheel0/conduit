@@ -2206,8 +2206,13 @@ test.describe('against a real server', () => {
         }
       }
       try {
+        // An earlier run cut short leaves its own entry behind, pointing at
+        // a server that is gone; only those -- this spec's name, on this
+        // machine's loopback -- are dropped before adding this run's.
+        const stale = (server: Record<string, unknown>): boolean =>
+          server.name === 'E2E shell' && String(server.url ?? '').startsWith('http://127.0.0.1:')
         await terminalSettings((servers) => [
-          ...servers,
+          ...servers.filter((server) => !stale(server)),
           { url: terminal.url, key: terminal.key, name: 'E2E shell', enabled: false, config: { enable: true } },
         ])
         // The window read the account's terminals when it started.
@@ -2321,8 +2326,10 @@ test.describe('against a real server', () => {
         // The same terminal beside a conversation (the redesign's side
         // pane): its files in the Terminal tab, and the shell in a frame
         // under the conversation.
+        // A conversation from Today's list; a folder's row is a button too.
         await page
-          .getByRole('navigation', { name: /conversations/i })
+          .locator('nav[aria-label] section')
+          .filter({ has: page.getByRole('heading', { name: /^today$/i }) })
           .locator('li button:not([aria-label])')
           .first()
           .click()
@@ -2344,7 +2351,9 @@ test.describe('against a real server', () => {
         await shot(page, '21d-side-pane-terminal')
         await page.getByRole('button', { name: /^close the shell$/i }).first().click()
         await expect(page.getByRole('region', { name: /^shell$/i })).toBeHidden()
-        await paneTabs.getByRole('tab', { name: /^controls$/i }).click()
+        // Back to the first tab (Controls, when the chat has them), so the
+        // window keeps the pane as later runs expect it.
+        await paneTabs.getByRole('tab').first().click()
         await page.getByRole('button', { name: /^close the side pane$/i }).click()
       } finally {
         await terminalSettings((servers) => servers.filter((s) => s.url !== terminal.url)).catch(

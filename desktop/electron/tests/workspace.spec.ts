@@ -139,6 +139,28 @@ test('the side pane: tabs, a preview, and the tab kept', async () => {
   }
 })
 
+test('the text size follows the setting, and is kept', async () => {
+  const page = await app.firstWindow()
+  await expect
+    .poll(() => page.evaluate(() => location.pathname).catch(() => ''), { timeout: 30_000 })
+    .toBe('/onboarding')
+  const size = () =>
+    page.evaluate(() => getComputedStyle(document.body).getPropertyValue('font-size'))
+  await expect.poll(size).toBe('14px')
+
+  await page.getByRole('link', { name: /^settings$/i }).click()
+  const slider = page.getByLabel(/^text size$/i)
+  await slider.focus()
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('ArrowRight')
+  await expect.poll(size).toBe('16px')
+  await expect(page.getByText('16 px')).toBeVisible()
+
+  // Stored by the daemon, so a new window opens at it.
+  await page.reload()
+  await expect.poll(size, { timeout: 30_000 }).toBe('16px')
+})
+
 test('the drawn window controls reach the window', async () => {
   test.skip(process.platform === 'darwin', 'macOS keeps its own traffic lights')
   const page = await app.firstWindow()
