@@ -98,6 +98,32 @@ class NoteActions {
       ..invalidate(noteDetailProvider(id));
   }
 
+  /// A title for [ops] from a model on the server.
+  Future<String> generateTitle(List<Map<String, dynamic>> ops) async {
+    final title = await _ref
+        .read(rpcClientProvider)
+        .call(
+          ConduitMethods.notesGenerateTitle,
+          params: NoteAi(ops: ops).toJson(),
+          decode: NoteTitle.fromJson,
+        );
+    return title.title;
+  }
+
+  /// [ops] rewritten by a model on the server; not saved.
+  Future<List<Map<String, dynamic>>> enhance(
+    List<Map<String, dynamic>> ops,
+  ) async {
+    final body = await _ref
+        .read(rpcClientProvider)
+        .call(
+          ConduitMethods.notesEnhance,
+          params: NoteAi(ops: ops).toJson(),
+          decode: NoteBody.fromJson,
+        );
+    return body.ops;
+  }
+
   Future<void> setPinned(String id, {required bool pinned}) async {
     await _ref
         .read(rpcClientProvider)

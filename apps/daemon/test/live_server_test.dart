@@ -1272,6 +1272,29 @@ void main() {
         expect(await notes.get(id), isNull);
         deleted = true;
       }, timeout: const Timeout(Duration(minutes: 2)));
+
+      // M5: a note's AI title and enhancement, from a model on the server.
+      // Nothing is saved, so nothing is left behind.
+      test('titles and enhances a note with a model', () async {
+        final notes = NotesService(runtime.container);
+        const ops = <Map<String, dynamic>>[
+          <String, dynamic>{
+            'insert': 'buy milk, eggs and bread; call the plumber\n',
+          },
+        ];
+        final title = await notes.generateTitle(
+          const NoteAi(ops: ops, model: 'gemma3:1b'),
+        );
+        expect(title.title, isNotEmpty);
+        final body = await notes.enhance(
+          const NoteAi(ops: ops, model: 'gemma3:1b'),
+        );
+        expect(body.ops, isNotEmpty);
+        expect(
+          body.ops.map((op) => '${op['insert']}').join().toLowerCase(),
+          contains('milk'),
+        );
+      }, timeout: const Timeout(Duration(minutes: 3)));
     },
   );
 }

@@ -98,6 +98,9 @@ final class _QuillSession implements NoteEditorSession {
   final _Quill _quill;
 
   @override
+  List<Map<String, dynamic>> contents() => QuillNoteEditor._ops(_quill);
+
+  @override
   void replace(List<Map<String, dynamic>> ops) =>
       _quill.setContents(<String, Object?>{'ops': ops}.jsify()!, 'silent');
 
@@ -114,6 +117,9 @@ final class _QuillSession implements NoteEditorSession {
 
 final class _NoSession implements NoteEditorSession {
   const _NoSession();
+
+  @override
+  List<Map<String, dynamic>> contents() => const <Map<String, dynamic>>[];
 
   @override
   void replace(List<Map<String, dynamic>> ops) {}

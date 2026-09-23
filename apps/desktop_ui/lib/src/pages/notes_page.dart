@@ -199,6 +199,75 @@ class _NoteEditorPaneState extends State<_NoteEditorPane> {
   _SaveState _state = _SaveState.idle;
   bool _confirmingDelete = false;
 
+  /// A model is writing the title or the body; both buttons wait.
+  bool _asking = false;
+
+  /// What the last AI action said: done, or why not.
+  String? _notice;
+
+  /// The editor's text, for a model to read; null when there is none.
+  List<Map<String, dynamic>>? _textForModel() {
+    final ops = _session?.contents() ?? const <Map<String, dynamic>>[];
+    final text = ops.map((op) => op['insert']).whereType<String>().join();
+    return text.trim().isEmpty ? null : ops;
+  }
+
+  Future<void> _generateTitle() async {
+    final actions = _actions;
+    if (_asking || actions == null) return;
+    final ops = _textForModel();
+    if (ops == null) {
+      setState(() => _notice = t.app.noContentToGenerateTitle);
+      return;
+    }
+    setState(() {
+      _asking = true;
+      _notice = t.app.generatingTitle;
+    });
+    try {
+      final title = await actions.generateTitle(ops);
+      if (!mounted) return;
+      setState(() {
+        _title = title;
+        _notice = null;
+      });
+      _titleChanged = true;
+      _scheduleSave();
+    } on Object {
+      if (mounted) setState(() => _notice = t.app.failedToGenerateTitle);
+    } finally {
+      if (mounted) setState(() => _asking = false);
+    }
+  }
+
+  Future<void> _enhance() async {
+    final actions = _actions;
+    if (_asking || actions == null) return;
+    final ops = _textForModel();
+    if (ops == null) {
+      setState(() => _notice = t.app.noContentToEnhance);
+      return;
+    }
+    setState(() {
+      _asking = true;
+      _notice = null;
+    });
+    try {
+      final enhanced = await actions.enhance(ops);
+      if (!mounted) return;
+      // Shown, then saved like any edit: the user can undo it by editing,
+      // and it is never saved behind their back unseen.
+      _session?.replace(enhanced);
+      _pendingOps = enhanced;
+      _scheduleSave();
+      setState(() => _notice = t.app.noteEnhanced);
+    } on Object {
+      if (mounted) setState(() => _notice = t.app.failedToEnhanceNote);
+    } finally {
+      if (mounted) setState(() => _asking = false);
+    }
+  }
+
   @override
   void dispose() {
     _saveTimer?.cancel();
@@ -309,6 +378,22 @@ class _NoteEditorPaneState extends State<_NoteEditorPane> {
           ],
         ),
         button(
+          [Component.text(t.app.generateTitle)],
+          classes:
+              'rounded px-2.5 py-1 text-xs hover:bg-accent disabled:opacity-50',
+          type: ButtonType.button,
+          disabled: _asking,
+          onClick: () => unawaited(_generateTitle()),
+        ),
+        button(
+          [Component.text(t.app.enhanceNote)],
+          classes:
+              'rounded px-2.5 py-1 text-xs hover:bg-accent disabled:opacity-50',
+          type: ButtonType.button,
+          disabled: _asking,
+          onClick: () => unawaited(_enhance()),
+        ),
+        button(
           [Component.text(_pinned ? t.app.unpin : t.app.pin)],
           classes: 'rounded px-2.5 py-1 text-xs hover:bg-accent',
           type: ButtonType.button,
@@ -330,6 +415,12 @@ class _NoteEditorPaneState extends State<_NoteEditorPane> {
           onClick: () => setState(() => _confirmingDelete = true),
         ),
       ]),
+      if (_notice case final notice?)
+        p(
+          classes: 'text-xs text-muted-foreground',
+          attributes: const <String, String>{'role': 'status'},
+          [Component.text(notice)],
+        ),
       if (_confirmingDelete)
         div(
           classes:

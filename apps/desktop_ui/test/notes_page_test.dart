@@ -32,6 +32,17 @@ class _RecordingActions extends NoteActions {
   @override
   Future<void> setPinned(String id, {required bool pinned}) async =>
       pins.add((id, pinned));
+
+  @override
+  Future<String> generateTitle(List<Map<String, dynamic>> ops) async =>
+      '🛒 Shopping';
+
+  @override
+  Future<List<Map<String, dynamic>>> enhance(
+    List<Map<String, dynamic>> ops,
+  ) async => const <Map<String, dynamic>>[
+    <String, dynamic>{'insert': 'Shopping\n'},
+  ];
 }
 
 const _list = NoteList(
@@ -105,5 +116,29 @@ void main() {
     expect(actions.saves.single.id, 'n1');
     expect(actions.saves.single.ops!.single['insert'], 'milk and eggs\n');
     expect(actions.saves.single.title, 'Groceries');
+  });
+
+  testComponents('a model titles and rewrites the note, which then saves', (
+    tester,
+  ) async {
+    tester.pumpComponent(page(id: 'n1'));
+    await pumpEventQueue();
+
+    Finder buttonWith(String text) =>
+        find.ancestor(of: find.text(text), matching: find.tag('button'));
+
+    await tester.click(buttonWith(t.app.enhanceNote));
+    await pumpEventQueue();
+    // Shown in the editor, and said so.
+    expect(editor.last.ops.single['insert'], 'Shopping\n');
+    expect(find.text(t.app.noteEnhanced), findsOneComponent);
+
+    await tester.click(buttonWith(t.app.generateTitle));
+    await pumpEventQueue();
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    await pumpEventQueue();
+    final saved = actions.saves.last;
+    expect(saved.title, '🛒 Shopping');
+    expect(saved.ops!.single['insert'], 'Shopping\n');
   });
 }

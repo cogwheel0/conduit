@@ -18,6 +18,9 @@ abstract interface class NoteEditorPort {
 }
 
 abstract interface class NoteEditorSession {
+  /// The document as it is now, in Quill's ops.
+  List<Map<String, dynamic>> contents();
+
   /// Shows [ops] instead, without reporting it as an edit: the note as the
   /// daemon saved it, or as another window changed it.
   void replace(List<Map<String, dynamic>> ops);
@@ -61,6 +64,9 @@ final class RecordingNoteSession implements NoteEditorSession {
     ops = next;
     _onChange(next);
   }
+
+  @override
+  List<Map<String, dynamic>> contents() => ops;
 
   @override
   void replace(List<Map<String, dynamic>> ops) => this.ops = ops;

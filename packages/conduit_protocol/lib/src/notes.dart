@@ -88,6 +88,39 @@ abstract class NotePin with _$NotePin {
       _$NotePinFromJson(json);
 }
 
+/// Params for `notes.generateTitle` and `notes.enhance`: the note as it is
+/// in the editor, which may be ahead of what is saved, and the model to
+/// ask -- by default the one selected for chats.
+@freezed
+abstract class NoteAi with _$NoteAi {
+  const factory NoteAi({
+    @Default(<Map<String, dynamic>>[]) List<Map<String, dynamic>> ops,
+    String? model,
+  }) = _NoteAi;
+
+  factory NoteAi.fromJson(Map<String, dynamic> json) => _$NoteAiFromJson(json);
+}
+
+/// Reply to `notes.generateTitle`.
+@freezed
+abstract class NoteTitle with _$NoteTitle {
+  const factory NoteTitle({required String title}) = _NoteTitle;
+
+  factory NoteTitle.fromJson(Map<String, dynamic> json) =>
+      _$NoteTitleFromJson(json);
+}
+
+/// Reply to `notes.enhance`: the rewritten body, as Quill ops.
+@freezed
+abstract class NoteBody with _$NoteBody {
+  const factory NoteBody({
+    @Default(<Map<String, dynamic>>[]) List<Map<String, dynamic>> ops,
+  }) = _NoteBody;
+
+  factory NoteBody.fromJson(Map<String, dynamic> json) =>
+      _$NoteBodyFromJson(json);
+}
+
 /// Payload of `notes.changed`. [noteId] says which, when it was one.
 @freezed
 abstract class NotesChanged with _$NotesChanged {

@@ -401,6 +401,18 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   ),
   'noteRef': const NoteRef(id: 'n1'),
   'notePin': const NotePin(id: 'n1', pinned: true),
+  'noteAi': const NoteAi(
+    ops: <Map<String, dynamic>>[
+      <String, dynamic>{'insert': 'milk, eggs'},
+    ],
+    model: 'gemma3:1b',
+  ),
+  'noteTitle': const NoteTitle(title: '🛒 Shopping list'),
+  'noteBody': const NoteBody(
+    ops: <Map<String, dynamic>>[
+      <String, dynamic>{'insert': 'Shopping'},
+    ],
+  ),
   'notesChanged': const NotesChanged(noteId: 'n1'),
   'mcpPromptArgument': const McpPromptArgument(
     name: 'topic',
@@ -769,6 +781,9 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'noteSave': NoteSave.fromJson,
       'noteRef': NoteRef.fromJson,
       'notePin': NotePin.fromJson,
+      'noteAi': NoteAi.fromJson,
+      'noteTitle': NoteTitle.fromJson,
+      'noteBody': NoteBody.fromJson,
       'notesChanged': NotesChanged.fromJson,
       'mcpPromptArgument': McpPromptArgument.fromJson,
       'mcpPromptSummary': McpPromptSummary.fromJson,

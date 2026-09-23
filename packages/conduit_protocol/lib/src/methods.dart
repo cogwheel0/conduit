@@ -363,6 +363,13 @@ abstract final class ConduitMethods {
   /// Pins or unpins a note; answers with it. A state rather than a toggle,
   /// so a second window acting on a stale list cannot undo the first.
   static const String notesSetPinned = 'notes.setPinned';
+
+  /// Asks a model for a short title for the note's text.
+  static const String notesGenerateTitle = 'notes.generateTitle';
+
+  /// Asks a model to rewrite the note as fuller, better-organised
+  /// markdown; answers with the new body without saving it.
+  static const String notesEnhance = 'notes.enhance';
   static const String channelsPrefix = 'channels.';
   static const String workspacePrefix = 'workspace.';
   static const String directPrefix = 'direct.';

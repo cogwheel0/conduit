@@ -4,6 +4,8 @@ import 'package:conduit_core/error/api_error.dart';
 import 'package:conduit_core/features/notes/providers/notes_providers.dart';
 import 'package:conduit_core/features/notes/utils/note_quill_delta.dart';
 import 'package:conduit_core/models/note.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
@@ -170,6 +172,72 @@ final class NotesService {
       );
     }
     return _summarize(updated);
+  }
+
+  /// A short title for the note's text, from a model on the server.
+  Future<NoteTitle> generateTitle(NoteAi request) async {
+    final (api, model, markdown) = await _aiInputs(request);
+    final title = await api.generateNoteTitle(markdown, modelId: model);
+    if (title == null || title.trim().isEmpty) {
+      throw const RpcError(
+        code: ConduitErrorCodes.serverError,
+        debugMessage: 'the model returned no title',
+      );
+    }
+    return NoteTitle(title: title.trim());
+  }
+
+  /// The note rewritten by a model on the server. Not saved: the editor
+  /// shows it, and saves it like any other edit if the user keeps it.
+  Future<NoteBody> enhance(NoteAi request) async {
+    final (api, model, markdown) = await _aiInputs(request);
+    final enhanced = await api.enhanceNoteContent(markdown, modelId: model);
+    if (enhanced == null || enhanced.trim().isEmpty) {
+      throw const RpcError(
+        code: ConduitErrorCodes.serverError,
+        debugMessage: 'the model returned nothing',
+      );
+    }
+    return NoteBody(ops: quillOpsFromMarkdown(enhanced));
+  }
+
+  /// The server, the model to ask and the note's markdown.
+  ///
+  /// The model is the one asked for, else the one selected for chats, else
+  /// the server's first -- but never a direct connection's: these requests
+  /// go to the server, which cannot reach those.
+  Future<(ApiService, String, String)> _aiInputs(NoteAi request) async {
+    final api = _container.read(apiServiceProvider);
+    if (api == null) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unauthenticated,
+        debugMessage: 'sign in to use a model on the server',
+      );
+    }
+    final markdown = markdownFromQuillOps(request.ops).trim();
+    if (markdown.isEmpty) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: <String, String>{'reason': 'empty'},
+        debugMessage: 'the note has no text',
+      );
+    }
+    bool onServer(String? id) =>
+        id != null && id.isNotEmpty && !id.startsWith('direct:');
+    var model = onServer(request.model) ? request.model : null;
+    final selected = _container.read(selectedModelProvider)?.id;
+    model ??= onServer(selected) ? selected : null;
+    if (model == null) {
+      final models = await readSettled(_container, modelsProvider.future);
+      model = models.map((m) => m.id).where(onServer).firstOrNull;
+    }
+    if (model == null) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: 'the server offers no models',
+      );
+    }
+    return (api, model, markdown);
   }
 
   /// `notes.changed` whenever the list does: an edit here, a sync, another

@@ -967,6 +967,28 @@ class RpcSession {
       },
     );
 
+    registerTypedMethod<NoteAi, NoteTitle>(
+      _peer,
+      ConduitMethods.notesGenerateTitle,
+      decodeParams: NoteAi.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireNotes().generateTitle(request);
+      },
+    );
+
+    registerTypedMethod<NoteAi, NoteBody>(
+      _peer,
+      ConduitMethods.notesEnhance,
+      decodeParams: NoteAi.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireNotes().enhance(request);
+      },
+    );
+
     registerTypedMethod<NotePin, NoteSummary>(
       _peer,
       ConduitMethods.notesSetPinned,
