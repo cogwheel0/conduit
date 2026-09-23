@@ -379,7 +379,12 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   ),
   'noteList': const NoteList(
     notes: <NoteSummary>[
-      NoteSummary(id: 'n2', title: 'Ideas', updatedAtMs: 1790000000001),
+      NoteSummary(
+        id: 'local:n3',
+        title: 'Ideas (conflict copy)',
+        updatedAtMs: 1790000000001,
+        conflictCopy: true,
+      ),
     ],
   ),
   'noteQuery': const NoteQuery(query: 'milk'),

@@ -36,7 +36,24 @@ final class NotesService {
         if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
         return b.updatedAt.compareTo(a.updatedAt);
       });
-    return NoteList(notes: sorted.map(_summarize).toList(growable: false));
+    final conflicts = await _conflictCopyIds();
+    return NoteList(
+      notes: <NoteSummary>[
+        for (final note in sorted)
+          _summarize(note).copyWith(conflictCopy: conflicts.contains(note.id)),
+      ],
+    );
+  }
+
+  /// The notes that are conflict copies. The flag is the row's; the core's
+  /// `Note` does not carry it.
+  Future<Set<String>> _conflictCopyIds() async {
+    final db = _container.read(appDatabaseProvider);
+    if (db == null) return const <String>{};
+    final rows = await (db.select(
+      db.notes,
+    )..where((note) => note.isConflictCopy.equals(true))).get();
+    return <String>{for (final row in rows) row.id};
   }
 
   Future<NoteDetail?> get(String id) async {

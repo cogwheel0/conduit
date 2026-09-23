@@ -123,6 +123,15 @@ class _NoteList extends StatelessComponent {
                         note.title.isEmpty ? t.app.untitled : note.title,
                       ),
                     ]),
+                    // Both versions of a note edited in two places at once:
+                    // this one is this computer's, kept rather than lost.
+                    if (note.conflictCopy)
+                      span(
+                        classes:
+                            'shrink-0 rounded-full border border-destructive/50 '
+                            'px-1.5 text-[10px] text-destructive',
+                        [Component.text(t.app.noteConflictCopyBadge)],
+                      ),
                   ]),
                   if (note.preview.isNotEmpty)
                     span(

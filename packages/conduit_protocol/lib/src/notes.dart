@@ -14,6 +14,10 @@ abstract class NoteSummary with _$NoteSummary {
 
     /// The start of the note's text, for the list; markdown.
     @Default('') String preview,
+
+    /// Kept beside the original because both were edited at once: this
+    /// computer's version, while another device's won the original.
+    @Default(false) bool conflictCopy,
   }) = _NoteSummary;
 
   factory NoteSummary.fromJson(Map<String, dynamic> json) =>

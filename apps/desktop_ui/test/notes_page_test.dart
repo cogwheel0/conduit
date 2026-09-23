@@ -55,6 +55,12 @@ const _list = NoteList(
       preview: '## Shop\n- **milk**',
     ),
     NoteSummary(id: 'n2', title: '', updatedAtMs: 1),
+    NoteSummary(
+      id: 'local:n3',
+      title: 'Ideas (conflict copy)',
+      updatedAtMs: 1,
+      conflictCopy: true,
+    ),
   ],
 );
 
@@ -92,6 +98,7 @@ void main() {
     expect(find.text('Groceries'), findsOneComponent);
     expect(find.text(t.app.untitled), findsOneComponent);
     expect(find.text('★'), findsOneComponent);
+    expect(find.text(t.app.noteConflictCopyBadge), findsOneComponent);
     // The preview without its markdown.
     expect(find.text('Shop · milk'), findsOneComponent);
     expect(find.text(t.app.createFirstNoteHint), findsOneComponent);
