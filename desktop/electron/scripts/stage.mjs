@@ -75,6 +75,24 @@ for (const name of vendored) {
     sections.push('```', readFileSync(licenceFile, 'utf8').trim(), '```', '')
   }
 }
+// whisper.cpp, when the local speech engine is in the bundle (M11).
+const whisperLicence = [
+  join(repoRoot, 'apps', 'daemon', 'build', 'whisper', dartTarget(), '_deps', 'whisper-src', 'LICENSE'),
+  process.env.WHISPER_SOURCE_DIR && join(process.env.WHISPER_SOURCE_DIR, 'LICENSE'),
+].find((file) => file && existsSync(file))
+if (existsSync(join(stage, 'conduitd', 'lib'))) {
+  const hasWhisper = ['libconduit_whisper.so', 'libconduit_whisper.dylib', 'conduit_whisper.dll'].some(
+    (name) => existsSync(join(stage, 'conduitd', 'lib', name)),
+  )
+  if (hasWhisper) {
+    if (whisperLicence === undefined) {
+      console.error('the bundle has whisper.cpp but its LICENSE was not found for the notices')
+      process.exit(1)
+    }
+    sections.push('## whisper.cpp and ggml', '', 'License: MIT', '')
+    sections.push('```', readFileSync(whisperLicence, 'utf8').trim(), '```', '')
+  }
+}
 writeFileSync(join(stage, 'THIRD_PARTY_NOTICES.md'), sections.join('\n'))
 
 console.log(`staged ${dartTarget()} into ${stage}`)

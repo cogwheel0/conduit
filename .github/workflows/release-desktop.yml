@@ -99,6 +99,8 @@ jobs:
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CERTIFICATE_PASSWORD }}
         run: |
           npm run build:daemon
+          # The local speech engine (M11); CMake is on every hosted runner.
+          npm run build:whisper
           npm run build:ui -- --release
           npm run build:ts
           npm run stage

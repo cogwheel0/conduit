@@ -17,7 +17,8 @@
     "test": "playwright test",
     "test:unit": "tsc -p tsconfig.test.json && node --test \"out-test/tests/unit/**/*.test.js\"",
     "stage": "node scripts/stage.mjs",
-    "package": "npm run build:daemon && npm run build:ui -- --release && npm run build:ts && npm run stage && electron-builder"
+    "package": "npm run build:daemon && npm run build:whisper && npm run build:ui -- --release && npm run build:ts && npm run stage && electron-builder",
+    "build:whisper": "node scripts/build-whisper.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",
