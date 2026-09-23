@@ -112,7 +112,31 @@ class MarkdownView extends StatelessComponent {
 
   /// One parse, shared by the message and by the body of every details
   /// block inside it, so both render with the same rules.
-  List<md.Node> _parse(String markdown) => md.Document(
+  /// Parsed documents by their text, most recently used last.
+  ///
+  /// The transcript rebuilds on every streamed token, and every rebuild
+  /// walked every message's markdown from scratch: a long conversation
+  /// re-parsed hundreds of finished answers to draw one growing one. A
+  /// finished answer's text does not change, so its tree does not either.
+  /// The walk that turns a tree into components is cheap; the parse is not.
+  static final Map<String, List<md.Node>> _parsed = <String, List<md.Node>>{};
+  static const int _parsedLimit = 256;
+
+  List<md.Node> _parse(String markdown) {
+    // Citations change the tree, so a message with sources is its own entry.
+    final key = '${sources.isNotEmpty ? 1 : 0}\u0000$markdown';
+    final cached = _parsed.remove(key);
+    if (cached != null) {
+      _parsed[key] = cached;
+      return cached;
+    }
+    final nodes = _parseFresh(markdown);
+    _parsed[key] = nodes;
+    if (_parsed.length > _parsedLimit) _parsed.remove(_parsed.keys.first);
+    return nodes;
+  }
+
+  List<md.Node> _parseFresh(String markdown) => md.Document(
     extensionSet: md.ExtensionSet.gitHubWeb,
     // Before the built-ins, so a reasoning or tool-call section is lifted
     // whole instead of reaching the walker as a paragraph of markup.

@@ -535,6 +535,10 @@ class _ChatRowState extends State<_ChatRow> {
 
     return li(
       classes: 'group relative',
+      // Not `content-visibility` here, as the transcript has: it contains
+      // paint, which makes the row the box a `fixed` child is placed in --
+      // and the right-click menu is one, and would be clipped to the row.
+      // The list is paged anyway.
       events: <String, EventCallback>{
         'contextmenu': contextMenuAt(
           (x, y) => setState(() => _menuAt = (x: x, y: y)),
@@ -1119,6 +1123,13 @@ class _Transcript extends StatelessComponent {
     ]);
   }
 
+  static const Styles _offscreenSkippable = Styles(
+    raw: <String, String>{
+      'content-visibility': 'auto',
+      'contain-intrinsic-size': 'auto 120px',
+    },
+  );
+
   /// The sidebar's row for [chatId], if the list has been loaded.
   ChatSummary? _summaryIn(ChatList? list, String chatId) {
     for (final chat in list?.chats ?? const <ChatSummary>[]) {
@@ -1178,6 +1189,12 @@ class _Transcript extends StatelessComponent {
       classes:
           'group flex flex-col gap-1 '
           '${isUser ? 'items-end' : 'items-start'}',
+      // The browser's own virtualisation: a message scrolled far out of
+      // view is not laid out or painted, and `auto` in the size keeps the
+      // height it last had, so the scrollbar does not jump as it returns.
+      // Safe here because nothing in a message is `position: fixed`; the
+      // paint containment this brings would clip anything that were.
+      styles: _offscreenSkippable,
       [
         // Above a question, as they were attached before it was asked;
         // below an answer, as what it produced.
