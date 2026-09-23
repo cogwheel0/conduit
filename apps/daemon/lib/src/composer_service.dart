@@ -1,3 +1,4 @@
+import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -45,10 +46,32 @@ final class ComposerService {
       tools = const <ToolSummary>[];
     }
 
+    // Listed without connecting to them: opening every server to count
+    // its tools would make the composer wait on the slowest one.
+    var mcpTools = const <ToolSummary>[];
+    try {
+      final servers = await readSettled(
+        _container,
+        directMcpServersProvider.future,
+      );
+      mcpTools = <ToolSummary>[
+        for (final server in servers)
+          if (server.enabled)
+            ToolSummary(
+              id: '$kDirectMcpToolIdPrefix${server.id}',
+              name: server.name,
+              description: Uri.tryParse(server.endpoint)?.host,
+            ),
+      ];
+    } on Object catch (error) {
+      DebugLogger.error('mcp-failed', scope: 'daemon/composer', error: error);
+    }
+
     return ComposerOptions(
       webSearch: _container.read(webSearchAvailableProvider),
       imageGeneration: _container.read(imageGenerationAvailableProvider),
       tools: tools,
+      mcpTools: mcpTools,
     );
   }
 

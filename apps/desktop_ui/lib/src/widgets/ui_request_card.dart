@@ -75,8 +75,88 @@ class _RequestBodyState extends State<_RequestBody> {
         ),
   );
 
+  /// "Always allow" asks once more, as on mobile: it outlives this turn.
+  bool _confirmingAlways = false;
+
+  void _choose(BuildContext context, String choice) => unawaited(
+    context
+        .read(uiRequestsProvider.notifier)
+        .answerWith(component.request, choice: choice),
+  );
+
+  /// An MCP tool asking to run (M4): which server, which tool, with what,
+  /// and how long a yes should last.
+  Component _mcpApproval(BuildContext context) {
+    final args = component.request.messageArgs;
+    final server = args['serverName'] ?? '';
+    final tool = args['toolName'] ?? '';
+    final arguments = '${component.request.detail['arguments'] ?? ''}';
+    Component action(String text, String choice, {bool primary = false}) =>
+        button(
+          [Component.text(text)],
+          classes: primary
+              ? 'rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground'
+              : 'rounded px-3 py-1.5 text-sm hover:bg-accent',
+          type: ButtonType.button,
+          onClick: () => _choose(context, choice),
+        );
+    return div(classes: 'space-y-3', [
+      h2(classes: 'text-sm font-semibold', [
+        Component.text(t.app.directMcpApprovalTitle),
+      ]),
+      p(classes: 'text-sm', [
+        span(classes: 'font-medium', [Component.text(tool)]),
+        Component.text(' · $server'),
+      ]),
+      if (arguments.isNotEmpty && arguments != '{}')
+        pre(
+          classes:
+              'max-h-40 overflow-auto whitespace-pre-wrap break-all rounded '
+              'bg-muted p-2 font-mono text-xs',
+          [Component.text(arguments)],
+        ),
+      if (_confirmingAlways) ...[
+        p(classes: 'text-sm text-muted-foreground', [
+          Component.text(
+            t.app.directMcpApprovalAlwaysMessage(
+              serverName: server,
+              toolName: tool,
+            ),
+          ),
+        ]),
+        div(classes: 'flex justify-end gap-2', [
+          button(
+            [Component.text(t.app.cancel)],
+            classes: 'rounded px-3 py-1.5 text-sm hover:bg-accent',
+            type: ButtonType.button,
+            onClick: () => setState(() => _confirmingAlways = false),
+          ),
+          action(
+            t.app.directMcpApprovalAllowAlways,
+            'allowAlways',
+            primary: true,
+          ),
+        ]),
+      ] else
+        div(classes: 'flex flex-wrap justify-end gap-2', [
+          action(t.app.directMcpApprovalDeny, 'deny'),
+          button(
+            [Component.text(t.app.directMcpApprovalAllowAlways)],
+            classes: 'rounded px-3 py-1.5 text-sm hover:bg-accent',
+            type: ButtonType.button,
+            onClick: () => setState(() => _confirmingAlways = true),
+          ),
+          action(t.app.directMcpApprovalAllowSession, 'allowSession'),
+          action(t.app.directMcpApprovalAllowOnce, 'allow', primary: true),
+        ]),
+    ]);
+  }
+
   @override
   Component build(BuildContext context) {
+    if (component.request.kind == UiRequestKind.mcpApproval) {
+      return _mcpApproval(context);
+    }
     final args = component.request.messageArgs;
     final title = args['title'] ?? '';
     final message = args['message'] ?? '';

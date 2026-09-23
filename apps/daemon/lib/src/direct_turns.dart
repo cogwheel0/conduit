@@ -93,6 +93,7 @@ extension _DirectTurns on TurnsService {
       location: location,
       placeholder: placeholder,
       webSearch: request.webSearch,
+      toolIds: request.toolIds,
       prompt: <ChatMessage>[...history, userMessage],
     );
     return SendTurnAccepted(
@@ -283,6 +284,7 @@ extension _DirectTurns on TurnsService {
     required ChatMessage placeholder,
     required bool webSearch,
     required List<ChatMessage> prompt,
+    List<String> toolIds = const <String>[],
   }) async {
     final resolvedChatId = chatId;
     final now = placeholder.timestamp;
@@ -322,6 +324,7 @@ extension _DirectTurns on TurnsService {
         location: location,
         placeholder: placeholder,
         webSearch: webSearch,
+        toolIds: toolIds,
         messages: <ChatMessage>[
           if (systemPrompt != null && systemPrompt.trim().isNotEmpty)
             ChatMessage(
@@ -436,18 +439,24 @@ extension _DirectTurns on TurnsService {
     required ChatDatabaseLocation? location,
     required ChatMessage placeholder,
     required bool webSearch,
+    required List<String> toolIds,
     required List<ChatMessage> messages,
   }) async {
     final accumulator = DirectStreamingAccumulator();
     final limits = _container.read(directNormalizedStreamLimitsProvider);
     final secrets = directProfileSensitiveValues(profile);
+    DirectMcpToolSession? tools;
+    Timer? watchdog;
     try {
+      final approvals = _DirectApprovals();
+      tools = await _openMcpTools(toolIds);
       final run = adapter.startCompletion(
         profile,
         DirectCompletionRequest(
           remoteModelId: remoteModelId,
           messages: await buildDirectChatMessages(messages: messages),
           enableWebSearch: webSearch,
+          tools: tools == null ? null : _toolRuntime(tools, approvals),
         ),
       );
       // Observed now: a run whose cleanup fails must not surface as an
@@ -455,7 +464,25 @@ extension _DirectTurns on TurnsService {
       unawaited(run.done.then<void>((_) {}, onError: (Object _) {}));
       turn.cancel = () => run.cancel();
 
-      await for (final event in run.events.timeout(limits.idleTimeout)) {
+      // A provider that goes quiet is given up on -- but not while a tool
+      // waits for the user's approval, which may take minutes and is not
+      // the provider's silence.
+      var lastEvent = DateTime.now();
+      var timedOut = false;
+      watchdog = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (approvals.pending > 0) {
+          lastEvent = DateTime.now();
+          return;
+        }
+        if (DateTime.now().difference(lastEvent) > limits.idleTimeout) {
+          timedOut = true;
+          watchdog?.cancel();
+          unawaited(run.cancel('idle').catchError((Object _) {}));
+        }
+      });
+
+      await for (final event in run.events) {
+        lastEvent = DateTime.now();
         if (turn.stopped) break;
         accumulator.apply(switch (event) {
           // The provider's words, minus anything that is a key.
@@ -476,6 +503,11 @@ extension _DirectTurns on TurnsService {
         turn.replace(accumulator.render(done: false));
         if (event is DirectStreamDone || event is DirectStreamError) break;
       }
+      if (timedOut && accumulator.error == null) {
+        accumulator.apply(
+          const DirectStreamError('The provider stopped responding.'),
+        );
+      }
     } on Object catch (error) {
       if (!turn.stopped) {
         final normalized = normalizeDirectProviderError(error);
@@ -491,6 +523,9 @@ extension _DirectTurns on TurnsService {
       }
     }
 
+    watchdog?.cancel();
+    if (tools != null) unawaited(tools.close().catchError((Object _) {}));
+
     final failure = accumulator.error?.message;
     final completed = _completedDirectMessage(
       placeholder,
@@ -504,7 +539,14 @@ extension _DirectTurns on TurnsService {
       temporary.append(turn.chatId, completed);
     } else {
       try {
-        await _storeDirectAnswer(location, turn.chatId, completed);
+        final storedAs = await _storeDirectAnswer(
+          location,
+          turn.chatId,
+          completed,
+        );
+        // Stored under the server's id already, if the remap beat its
+        // event here.
+        if (storedAs != turn.chatId) _followRemap(turn.chatId, storedAs);
       } on Object catch (error, stackTrace) {
         DebugLogger.error(
           'direct-answer-store-failed',
@@ -515,6 +557,138 @@ extension _DirectTurns on TurnsService {
       }
     }
     _finish(turn.chatId);
+  }
+
+  /// Connects to the MCP servers chosen for this turn, if any.
+  ///
+  /// Chosen in the composer as `local_mcp:<server id>`, the id mobile uses.
+  Future<DirectMcpToolSession?> _openMcpTools(List<String> toolIds) async {
+    final chosen = <String>{
+      for (final id in toolIds)
+        if (id.startsWith(kDirectMcpToolIdPrefix))
+          id.substring(kDirectMcpToolIdPrefix.length),
+    };
+    if (chosen.isEmpty) return null;
+    final servers = await readSettled(
+      _container,
+      directMcpServersProvider.future,
+    );
+    final selected = <DirectMcpServer>[
+      for (final server in servers)
+        if (chosen.contains(server.id) && server.enabled) server,
+    ];
+    if (selected.length != chosen.length) {
+      throw const DirectProviderException(
+        'A selected MCP server is unavailable.',
+      );
+    }
+    return _container.read(directMcpSessionBuilderProvider)(selected);
+  }
+
+  /// The tools the model may call, each call approved first.
+  DirectToolRuntime _toolRuntime(
+    DirectMcpToolSession session,
+    _DirectApprovals approvals,
+  ) => DirectToolRuntime(
+    definitions: <DirectToolDefinition>[
+      for (final definition in session.definitions)
+        DirectToolDefinition(
+          name: definition.modelName,
+          serverId: definition.serverId,
+          serverName: definition.serverName,
+          remoteName: definition.remoteName,
+          displayName: definition.displayName,
+          description: definition.description,
+          approvalFingerprint: definition.approvalFingerprint,
+          inputSchema: definition.inputSchema,
+        ),
+    ],
+    requestApproval: (callId, definition, arguments) =>
+        _approve(callId, definition, arguments, approvals),
+    execute: (name, arguments) async {
+      final result = await session.execute(name, arguments);
+      return DirectToolResult(text: result.text, isError: result.isError);
+    },
+  );
+
+  /// Whether a tool call may run: already allowed for this session or
+  /// always, or else asked in every window.
+  DirectToolApprovalHandle _approve(
+    String callId,
+    DirectToolDefinition definition,
+    Map<String, dynamic> arguments,
+    _DirectApprovals approvals,
+  ) {
+    final fingerprint = definition.approvalFingerprint;
+    final argumentsJson = jsonEncode(arguments);
+    // What the user is asked to approve has to be readable in full.
+    if (argumentsJson.length > kMaxDirectMcpApprovalArgumentCharacters) {
+      throw const DirectProviderException(
+        'The MCP tool arguments are too large to review safely.',
+      );
+    }
+    Future<DirectToolApprovalDecision> decide() async {
+      if (_sessionMcpApprovals[fingerprint] == definition.serverId) {
+        return DirectToolApprovalDecision.allowSession;
+      }
+      final servers = await readSettled(
+        _container,
+        directMcpServersProvider.future,
+      );
+      final server = servers
+          .where((candidate) => candidate.id == definition.serverId)
+          .firstOrNull;
+      if (server == null) return DirectToolApprovalDecision.deny;
+      if (server.rememberedApprovals.any((a) => a.digest == fingerprint)) {
+        return DirectToolApprovalDecision.allowAlways;
+      }
+      final ask = _uiRequests;
+      if (ask is! UiRequestsService) return DirectToolApprovalDecision.deny;
+      approvals.pending++;
+      try {
+        final choice = await ask.askMcpApproval(
+          serverName: definition.serverName,
+          toolName: definition.displayName,
+          argumentsJson: argumentsJson,
+          timeout: kDirectToolApprovalTimeout,
+        );
+        switch (choice) {
+          case 'allow':
+            return DirectToolApprovalDecision.allowOnce;
+          case 'allowSession':
+            _sessionMcpApprovals[fingerprint] = definition.serverId;
+            return DirectToolApprovalDecision.allowSession;
+          case 'allowAlways':
+            await _container
+                .read(directMcpServersProvider.notifier)
+                .rememberApproval(
+                  server,
+                  DirectMcpRememberedApproval(
+                    digest: fingerprint,
+                    remoteToolName: definition.remoteName,
+                    displayName: definition.displayName,
+                    createdAt: DateTime.now().toUtc(),
+                  ),
+                );
+            return DirectToolApprovalDecision.allowAlways;
+          default:
+            return DirectToolApprovalDecision.deny;
+        }
+      } finally {
+        approvals.pending--;
+      }
+    }
+
+    return DirectToolApprovalHandle(
+      request: DirectToolApprovalRequest(
+        id: 'mcp-approval-${TurnsService._uuid.v4()}',
+        serverName: definition.serverName,
+        toolName: definition.displayName,
+        callId: callId,
+        argumentsJson: argumentsJson,
+      ),
+      decision: decide(),
+    );
   }
 
   static ChatMessage _completedDirectMessage(
@@ -555,7 +729,7 @@ extension _DirectTurns on TurnsService {
   /// Current, not recorded: a `local:` chat can be given its server id by a
   /// sync that ran while the answer streamed, and the repository follows
   /// that remap for exactly this message.
-  Future<void> _storeDirectAnswer(
+  Future<String> _storeDirectAnswer(
     ChatDatabaseLocation location,
     String recordedChatId,
     ChatMessage answer,
@@ -601,5 +775,11 @@ extension _DirectTurns on TurnsService {
         );
       }
     }
+    return chatId;
   }
+}
+
+/// How many of a turn's tool calls are waiting on the user.
+final class _DirectApprovals {
+  int pending = 0;
 }

@@ -27,6 +27,12 @@ abstract class ComposerOptions with _$ComposerOptions {
     @Default(false) bool webSearch,
     @Default(false) bool imageGeneration,
     @Default(<ToolSummary>[]) List<ToolSummary> tools,
+
+    /// The MCP servers the app talks to itself, as tools with the id
+    /// `local_mcp:<server id>` (M4). Offered instead of [tools] when the
+    /// model is a direct connection's: the server's tools run on the
+    /// server, and a direct model never reaches it.
+    @Default(<ToolSummary>[]) List<ToolSummary> mcpTools,
   }) = _ComposerOptions;
 
   factory ComposerOptions.fromJson(Map<String, dynamic> json) =>

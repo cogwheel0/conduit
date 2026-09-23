@@ -372,6 +372,9 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   'composerOptions': const ComposerOptions(
     webSearch: true,
     tools: <ToolSummary>[ToolSummary(id: 'weather', name: 'Weather')],
+    mcpTools: <ToolSummary>[
+      ToolSummary(id: 'local_mcp:mcp-1', name: 'Docs'),
+    ],
   ),
   'syncState': const SyncState(running: true, progress: 0.4, online: false),
   'chatsChanged': const ChatsChanged(chatId: 'chat-7c1f0b2a'),

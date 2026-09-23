@@ -5,6 +5,8 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
+import { createServer, type IncomingMessage, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import {
@@ -154,6 +156,129 @@ function tinyPdf(text: string): Buffer {
   }
   body += `trailer<</Size ${objects.length + 1}/Root 1 0 R>>\nstartxref\n${xref}\n%%EOF\n`
   return Buffer.from(body, 'latin1')
+}
+
+/** The body of a request, parsed as JSON. */
+async function jsonBody(request: IncomingMessage): Promise<any> {
+  const chunks: Buffer[] = []
+  for await (const chunk of request) chunks.push(chunk as Buffer)
+  return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
+}
+
+async function listen(server: Server): Promise<number> {
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  return (server.address() as AddressInfo).port
+}
+
+/**
+ * An OpenAI-compatible provider that calls the first tool it is offered
+ * with `{"value": "hi"}`, then answers with what the tool returned. A real
+ * model that calls tools reliably is not something a test can count on.
+ */
+async function fakeToolProvider(): Promise<{ baseUrl: string; close: () => void }> {
+  const server = createServer(async (request, response) => {
+    if (request.url?.endsWith('/models')) {
+      response.setHeader('content-type', 'application/json')
+      response.end(JSON.stringify({ data: [{ id: 'fake-model', object: 'model' }] }))
+      return
+    }
+    const body = await jsonBody(request)
+    const toolResult = [...(body.messages ?? [])].reverse().find((m: any) => m.role === 'tool')
+    response.setHeader('content-type', 'text/event-stream; charset=utf-8')
+    const chunk = (delta: object, finish: string | null = null) =>
+      response.write(
+        `data: ${JSON.stringify({
+          id: 'c',
+          object: 'chat.completion.chunk',
+          choices: [{ index: 0, delta, finish_reason: finish }],
+        })}\n\n`,
+      )
+    if (!toolResult && Array.isArray(body.tools) && body.tools.length > 0) {
+      chunk(
+        {
+          role: 'assistant',
+          tool_calls: [
+            {
+              index: 0,
+              id: 'call_1',
+              type: 'function',
+              function: {
+                name: body.tools[0].function.name,
+                arguments: JSON.stringify({ value: 'hi' }),
+              },
+            },
+          ],
+        },
+        'tool_calls',
+      )
+    } else {
+      const text =
+        typeof toolResult?.content === 'string'
+          ? toolResult.content
+          : (toolResult?.content ?? []).map((p: any) => p.text ?? '').join('')
+      chunk({ role: 'assistant', content: toolResult ? `echoed: ${text}` : 'no tool' })
+      chunk({}, 'stop')
+    }
+    response.end('data: [DONE]\n\n')
+  })
+  const port = await listen(server)
+  return { baseUrl: `http://127.0.0.1:${port}/v1`, close: () => server.close() }
+}
+
+/** A minimal MCP server with one `echo` tool, as the daemon's tests use. */
+async function fakeMcpServer(): Promise<{ endpoint: string; calls: number; close: () => void }> {
+  const state = { endpoint: '', calls: 0, close: () => {} }
+  const server = createServer(async (request, response) => {
+    if (request.method !== 'POST' || request.url !== '/mcp') {
+      response.statusCode = 405
+      response.end()
+      return
+    }
+    const body = await jsonBody(request)
+    let result: any
+    switch (body.method) {
+      case 'server/discover':
+        result = {
+          supportedVersions: ['2026-07-28'],
+          capabilities: { tools: { listChanged: false } },
+          ttlMs: 0,
+          cacheScope: 'private',
+          _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'fixture', version: '1.0.0' } },
+        }
+        break
+      case 'tools/list':
+        result = {
+          tools: [
+            {
+              name: 'echo',
+              description: 'Returns its value.',
+              inputSchema: { type: 'object', properties: { value: { type: 'string' } } },
+            },
+          ],
+          ttlMs: 0,
+          cacheScope: 'private',
+        }
+        break
+      case 'tools/call':
+        state.calls++
+        result = {
+          content: [{ type: 'text', text: String(body.params?.arguments?.value ?? '') }],
+          isError: false,
+        }
+        break
+      default:
+        response.statusCode = 400
+        response.end()
+        return
+    }
+    result.resultType ??= 'complete'
+    response.setHeader('content-type', 'application/json')
+    response.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result }))
+  })
+  const port = await listen(server)
+  state.endpoint = `http://127.0.0.1:${port}/mcp`
+  state.close = () => server.close()
+  return state
 }
 
 async function shot(page: Page, name: string): Promise<void> {
@@ -1286,42 +1411,39 @@ test.describe('against a real server', () => {
       .toBeTruthy()
     await page.locator('#model').selectOption(directValue!)
     const directQuestion = `Direct check ${Date.now()}: reply with the word omega`
-    const composer = page.getByPlaceholder('Ask Conduit')
-    await composer.fill(directQuestion)
-    await composer.press('Enter')
-    await expect(transcript).toContainText(directQuestion, { timeout: 30_000 })
-    await expect
-      .poll(async () => (await transcript.innerText()).length, {
-        timeout: 120_000,
-      })
-      .toBeGreaterThan(directQuestion.length + 2)
-    // The stored answer: only a finished one reports its statistics.
-    await expect(
-      transcript.getByRole('group', { name: /response statistics/i }),
-    ).toBeVisible({ timeout: 90_000 })
-    await shot(page, '15c-direct-chat')
-    {
+    try {
+      const composer = page.getByPlaceholder('Ask Conduit')
+      await composer.fill(directQuestion)
+      await composer.press('Enter')
+      await expect(transcript).toContainText(directQuestion, { timeout: 30_000 })
+      // The stored answer: only a finished one reports its statistics.
+      await expect(
+        transcript.getByRole('group', { name: /response statistics/i }),
+      ).toBeVisible({ timeout: 90_000 })
+      await shot(page, '15c-direct-chat')
+    } finally {
+      // Mirrored to the account, so found there by its unique question and
+      // deleted -- even when a step above failed, since the chat exists as
+      // soon as it was sent.
       const { api, auth } = await serverApi(credentials!)
       try {
+        const deadline = Date.now() + 60_000
         let found: { id: string } | undefined
-        await expect
-          .poll(
-            async () => {
-              const list = (await (
-                await api.get('/api/v1/chats/?page=1', { headers: auth })
-              ).json()) as Array<{ id: string; title: string }>
-              found = list.find(
-                (chat) =>
-                  // Shortened with an ellipsis when it was made.
-                  chat.title.length > 12 &&
-                  directQuestion.startsWith(chat.title.replace(/…$/, '')),
-              )
-              return found !== undefined
-            },
-            { timeout: 60_000 },
+        while (found === undefined && Date.now() < deadline) {
+          const list = (await (
+            await api.get('/api/v1/chats/?page=1', { headers: auth })
+          ).json()) as Array<{ id: string; title: string }>
+          found = list.find(
+            (chat) =>
+              // Shortened with an ellipsis when it was made.
+              chat.title.length > 12 &&
+              directQuestion.startsWith(chat.title.replace(/…$/, '')),
           )
-          .toBe(true)
+          if (found === undefined) await page.waitForTimeout(1_000)
+        }
+        expect(found, 'the direct chat reached the account').toBeDefined()
         await api.delete(`/api/v1/chats/${found!.id}`, { headers: auth })
+        console.log(`[cleanup] deleted "${directQuestion}"`)
       } finally {
         await api.dispose()
       }
@@ -1338,5 +1460,84 @@ test.describe('against a real server', () => {
     await expect(settingsDialog.getByText('Open WebUI API')).toBeHidden({
       timeout: 30_000,
     })
+
+    // 16. MCP tools on a direct model (M4): a server added in settings,
+    // chosen in the composer, and a call that waits for the user's yes.
+    // The provider and the MCP server run in this process; the history
+    // stays on this computer, so the account is not touched.
+    const provider = await fakeToolProvider()
+    const mcpServer = await fakeMcpServer()
+    try {
+      await settingsDialog.getByLabel(/keep direct chats on this computer only/i).check()
+      await settingsDialog.getByRole('button', { name: /^connect provider$/i }).click()
+      const toolsEditor = settingsDialog.getByRole('group', { name: /connection details/i })
+      await toolsEditor.getByLabel(/^connection name$/i).fill('Tool provider')
+      await toolsEditor.getByLabel(/^base url$/i).fill(provider.baseUrl)
+      await toolsEditor.getByLabel(/model ids/i).fill('fake-model')
+      await toolsEditor.getByRole('button', { name: /^save$/i }).click()
+      await expect(toolsEditor).toBeHidden({ timeout: 30_000 })
+
+      await page.evaluate(() => {
+        window.history.pushState(null, '', '/settings/mcp')
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      })
+      await settingsDialog.getByRole('button', { name: /^add mcp server$/i }).click()
+      const mcpEditor = settingsDialog.getByRole('group', { name: /add mcp server/i })
+      await mcpEditor.getByLabel(/^server name$/i).fill('Fixture')
+      await mcpEditor.getByLabel(/streamable http endpoint/i).fill(mcpServer.endpoint)
+      await mcpEditor.getByRole('button', { name: /^test connection$/i }).click()
+      await expect(mcpEditor.getByText(/1 tool found/i)).toBeVisible({ timeout: 30_000 })
+      await shot(page, '16-mcp-editor')
+      await mcpEditor.getByRole('button', { name: /^save$/i }).click()
+      await expect(settingsDialog.getByText('Fixture')).toBeVisible({ timeout: 30_000 })
+      await shot(page, '16b-mcp-list')
+
+      await page.evaluate(() => {
+        window.history.pushState(null, '', '/')
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      })
+      // A new conversation, so this one's history stays local.
+      // The sidebar's own button; account chats can be titled the same.
+      await page.getByRole('button', { name: /^new chat$/i }).first().click()
+      await expect(transcript).not.toContainText('Direct check')
+      const fakeSuffix = `:${Buffer.from('fake-model').toString('base64url').replace(/=+$/, '')}`
+      let fakeValue: string | undefined
+      await expect
+        .poll(
+          async () => {
+            fakeValue = await page
+              .locator('#model option')
+              .evaluateAll(
+                (nodes, suffix) =>
+                  nodes
+                    .map((n) => (n as HTMLOptionElement).value)
+                    .find((v) => v.startsWith('direct:') && v.endsWith(suffix)),
+                fakeSuffix,
+              )
+            return fakeValue
+          },
+          { timeout: 60_000 },
+        )
+        .toBeTruthy()
+      await page.locator('#model').selectOption(fakeValue!)
+      await page.getByRole('button', { name: /^tools/i }).click()
+      await page.getByLabel(/^fixture$/i).check()
+      const toolComposer = page.getByPlaceholder('Ask Conduit')
+      await toolComposer.fill('Echo hi, please')
+      await toolComposer.press('Enter')
+
+      const approval = page.getByRole('alertdialog', { name: /server is asking/i })
+      await expect(approval).toContainText('echo', { timeout: 60_000 })
+      await expect(approval).toContainText('"value":"hi"')
+      await shot(page, '16c-mcp-approval')
+      expect(mcpServer.calls).toBe(0)
+      await approval.getByRole('button', { name: /^allow once$/i }).click()
+      await expect(transcript).toContainText('echoed: hi', { timeout: 60_000 })
+      expect(mcpServer.calls).toBe(1)
+      await shot(page, '16d-mcp-answer')
+    } finally {
+      provider.close()
+      mcpServer.close()
+    }
   })
 })

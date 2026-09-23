@@ -1615,7 +1615,7 @@ class _ComposerState extends State<_Composer> {
         if (options != null &&
             (options.webSearch ||
                 options.imageGeneration ||
-                options.tools.isNotEmpty))
+                _toolsOffered(options).isNotEmpty))
           _features(options),
         if (_asking case final prompt?)
           PromptInputsForm(
@@ -1904,6 +1904,17 @@ class _ComposerState extends State<_Composer> {
   ///
   /// Only what the daemon says this account and model may use. A switch
   /// that is shown but does nothing is worse than none.
+  /// The tools the answering model can use: the server's for its own
+  /// models, the app's MCP servers for a direct connection's (M4).
+  List<ToolSummary> _toolsOffered(ComposerOptions? options) {
+    if (options == null) return const <ToolSummary>[];
+    final answering =
+        _atModel?.id ?? context.read(modelListProvider).value?.selectedId;
+    return answering != null && answering.startsWith('direct:')
+        ? options.mcpTools
+        : options.tools;
+  }
+
   Component _features(ComposerOptions options) {
     Component toggle(
       String label, {
@@ -1932,7 +1943,7 @@ class _ComposerState extends State<_Composer> {
             on: _imageGeneration,
             flip: () => _imageGeneration = !_imageGeneration,
           ),
-        if (options.tools.isNotEmpty)
+        if (_toolsOffered(options).isNotEmpty)
           button(
             [
               Component.text(
@@ -1953,12 +1964,12 @@ class _ComposerState extends State<_Composer> {
             onClick: () => setState(() => _toolsOpen = !_toolsOpen),
           ),
       ]),
-      if (_toolsOpen && options.tools.isNotEmpty)
+      if (_toolsOpen && _toolsOffered(options).isNotEmpty)
         div(
           id: 'composer-tools',
           classes: 'mt-2 space-y-2 rounded border border-border p-3',
           [
-            for (final tool in options.tools)
+            for (final tool in _toolsOffered(options))
               div([
                 checkboxField(
                   id: 'tool-${tool.id}',
@@ -2186,9 +2197,9 @@ class _ComposerState extends State<_Composer> {
             // or a feature the new model lacks, must not ride along from an
             // earlier choice.
             toolIds: <String>[
-              for (final tool
-                  in context.read(composerOptionsProvider).value?.tools ??
-                      const <ToolSummary>[])
+              for (final tool in _toolsOffered(
+                context.read(composerOptionsProvider).value,
+              ))
                 if (_toolIds.contains(tool.id)) tool.id,
             ],
             webSearch:

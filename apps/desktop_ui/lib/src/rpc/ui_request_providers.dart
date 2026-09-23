@@ -45,9 +45,18 @@ class UiRequests extends Notifier<List<UiRequest>> {
   ///
   /// Off the queue first, then sent: a slow round trip must not leave the
   /// card on screen inviting a second, contradictory answer.
-  Future<void> answer(
+  Future<void> answer(UiRequest request, {required bool allow, String? text}) =>
+      answerWith(
+        request,
+        choice: allow ? 'allow' : request.defaultChoice,
+        text: text,
+      );
+
+  /// Answers with a kind-specific [choice] -- an MCP approval's
+  /// `allowSession` or `allowAlways`.
+  Future<void> answerWith(
     UiRequest request, {
-    required bool allow,
+    required String choice,
     String? text,
   }) async {
     _drop(request.requestId);
@@ -57,7 +66,7 @@ class UiRequests extends Notifier<List<UiRequest>> {
           ConduitMethods.uiRespond,
           params: UiResponse(
             requestId: request.requestId,
-            choice: allow ? 'allow' : request.defaultChoice,
+            choice: choice,
             text: text,
           ).toJson(),
           decode: (json) => json,

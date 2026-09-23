@@ -30,7 +30,30 @@ class _Recording extends UiRequests {
         if (r.requestId != request.requestId) r,
     ];
   }
+
+  final List<({String id, String choice})> choices = [];
+
+  @override
+  Future<void> answerWith(
+    UiRequest request, {
+    required String choice,
+    String? text,
+  }) async {
+    choices.add((id: request.requestId, choice: choice));
+    state = [
+      for (final r in state)
+        if (r.requestId != request.requestId) r,
+    ];
+  }
 }
+
+const _mcp = UiRequest(
+  requestId: 'r3',
+  kind: UiRequestKind.mcpApproval,
+  messageCode: 'mcp.approval',
+  messageArgs: {'serverName': 'Docs', 'toolName': 'search'},
+  detail: {'arguments': '{"query":"llamas"}'},
+);
 
 const _confirm = UiRequest(
   requestId: 'r1',
@@ -113,5 +136,54 @@ void main() {
     );
     await pumpEventQueue();
     expect(find.text('Ship it'), findsOneComponent);
+  });
+
+  testComponents('an MCP tool shows its call, and each answer says how long', (
+    tester,
+  ) async {
+    tester.pumpComponent(scoped(const [_mcp, _mcp]));
+    await pumpEventQueue();
+    expect(find.text(t.app.directMcpApprovalTitle), findsOneComponent);
+    expect(find.text('search'), findsOneComponent);
+    expect(find.text('{"query":"llamas"}'), findsOneComponent);
+
+    await tester.click(
+      find.ancestor(
+        of: find.text(t.app.directMcpApprovalAllowSession),
+        matching: find.tag('button'),
+      ),
+    );
+    await pumpEventQueue();
+    expect(recording.choices.single.choice, 'allowSession');
+  });
+
+  testComponents('"always" asks once more before it counts', (tester) async {
+    tester.pumpComponent(scoped(const [_mcp]));
+    await pumpEventQueue();
+    await tester.click(
+      find.ancestor(
+        of: find.text(t.app.directMcpApprovalAllowAlways),
+        matching: find.tag('button'),
+      ),
+    );
+    await pumpEventQueue();
+    expect(recording.choices, isEmpty);
+    expect(
+      find.text(
+        t.app.directMcpApprovalAlwaysMessage(
+          serverName: 'Docs',
+          toolName: 'search',
+        ),
+      ),
+      findsOneComponent,
+    );
+    await tester.click(
+      find.ancestor(
+        of: find.text(t.app.directMcpApprovalAllowAlways),
+        matching: find.tag('button'),
+      ),
+    );
+    await pumpEventQueue();
+    expect(recording.choices.single.choice, 'allowAlways');
   });
 }

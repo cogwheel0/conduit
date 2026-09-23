@@ -109,6 +109,27 @@ final class UiRequestsService implements UiRequestPort {
     return text == null || text.isEmpty ? null : text;
   }
 
+  /// Asks whether an MCP tool may run (M4), and how long the answer holds.
+  ///
+  /// The four answers mobile offers: `allow` (once), `allowSession`,
+  /// `allowAlways`, or anything else, which denies. Unanswered for
+  /// [timeout], it is denied, as the core's own approvals are.
+  Future<String> askMcpApproval({
+    required String serverName,
+    required String toolName,
+    required String argumentsJson,
+    Duration? timeout,
+  }) async {
+    final response = await _ask(
+      UiRequestKind.mcpApproval,
+      messageCode: 'mcp.approval',
+      args: <String, String>{'serverName': serverName, 'toolName': toolName},
+      detail: <String, dynamic>{'arguments': argumentsJson},
+      timeout: timeout,
+    );
+    return response.choice;
+  }
+
   @override
   void notify(UiNoticeLevel level, String message) {
     _events.publish(
@@ -120,16 +141,20 @@ final class UiRequestsService implements UiRequestPort {
   Future<UiResponse> _ask(
     UiRequestKind kind, {
     required Map<String, String> args,
+    // By default the server wrote this text, so it arrives as prose in
+    // `messageArgs`. The code tells the renderer that is what it is
+    // looking at.
+    String messageCode = 'server.prompt',
+    Map<String, dynamic> detail = const <String, dynamic>{},
     String defaultChoice = 'deny',
     Duration? timeout,
   }) {
     final request = UiRequest(
       requestId: _uuid.v4(),
       kind: kind,
-      // The server wrote this text, so it arrives as prose in `messageArgs`.
-      // The code tells the renderer that is what it is looking at.
-      messageCode: 'server.prompt',
+      messageCode: messageCode,
       messageArgs: args,
+      detail: detail,
       timeoutMs: timeout?.inMilliseconds,
       defaultChoice: defaultChoice,
     );

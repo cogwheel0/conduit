@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
@@ -6,6 +7,11 @@ import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_mcp_client.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_run_registry.dart'
+    show kMaxDirectMcpApprovalArgumentCharacters;
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
@@ -34,6 +40,7 @@ import 'event_bus.dart';
 import 'files_service.dart';
 import 'settled.dart';
 import 'temporary_chats.dart';
+import 'ui_requests_service.dart';
 
 part 'direct_turns.dart';
 
@@ -61,7 +68,33 @@ final class TurnsService {
     UiRequestPort? uiRequests,
   }) : _files = files,
        _uiRequests = uiRequests ?? const NullUiRequestPort(),
-       temporary = temporary ?? TemporaryChats();
+       temporary = temporary ?? TemporaryChats() {
+    _remaps = _container
+        .read(syncEngineProvider.notifier)
+        .remapEvents
+        .where((event) => event.entityKind == 'chat')
+        .listen((event) => _followRemap(event.fromId, event.toId));
+  }
+
+  StreamSubscription<RemapEvent>? _remaps;
+
+  /// Moves a turn to its chat's new id (M4).
+  ///
+  /// A direct chat mirrored to Open WebUI is written as `local:` and the
+  /// sync engine may give it the server's id while the answer is still
+  /// streaming. The window follows the chat (`route.remap`) and listens on
+  /// the new id from then on, so the turn has to publish there too, or the
+  /// rest of the answer goes to nobody.
+  void _followRemap(String fromId, String toId) {
+    final turn = _active.remove(fromId);
+    if (turn != null) {
+      turn.chatId = toId;
+      _active[toId] = turn;
+    }
+    if (_settling.remove(fromId) case final settling?) {
+      _settling[toId] = settling;
+    }
+  }
 
   /// Conversations the server never stores. Shared with `ChatsService`,
   /// which answers `chats.get` for them from the same memory.
@@ -88,6 +121,10 @@ final class TurnsService {
   static const Duration _deltaInterval = Duration(milliseconds: 16);
 
   final Map<String, _ActiveTurn> _active = <String, _ActiveTurn>{};
+
+  /// MCP tools allowed "for this session": approval fingerprint to the
+  /// server it was allowed on. Forgotten when the daemon exits.
+  final Map<String, String> _sessionMcpApprovals = <String, String>{};
 
   /// Chats currently generating, for the sidebar's spinner.
   Iterable<String> get activeChatIds => _active.keys;
@@ -731,6 +768,7 @@ final class TurnsService {
   }
 
   Future<void> dispose() async {
+    await _remaps?.cancel();
     for (final chatId in _active.keys.toList()) {
       await stop(chatId);
     }
@@ -1046,7 +1084,9 @@ class _ActiveTurn {
     required this.model,
   });
 
-  final String chatId;
+  /// Not final: a direct chat's `local:` id can be replaced by the
+  /// server's while the answer streams. See [TurnsService._followRemap].
+  String chatId;
   final String messageId;
   final String model;
 
