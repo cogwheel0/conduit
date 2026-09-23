@@ -21,6 +21,7 @@
     "build:whisper": "node scripts/build-whisper.mjs"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@playwright/test": "1.56.1",
     "@tailwindcss/cli": "4.3.3",
     "@types/node": "24.10.1",

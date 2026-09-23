@@ -37,6 +37,15 @@ class _QuickAskPageState extends State<QuickAskPage> {
   String? _chatId;
   String? _asked;
 
+  @override
+  void initState() {
+    super.initState();
+    // The panel exists to be typed into.
+    Future<void>.microtask(() {
+      if (mounted) context.read(windowCommandsProvider).focus('quick-ask');
+    });
+  }
+
   Future<void> _ask() async {
     final text = _text.trim();
     if (text.isEmpty || _busy) return;

@@ -1,13 +1,18 @@
+import 'dart:math' as math;
+
 import 'package:conduit_theme/conduit_theme.dart';
 import 'package:test/test.dart';
 
 void main() {
   group('registry', () {
     test('ships the five documented palettes in picker order', () {
-      expect(
-        kConduitPalettes.map((p) => p.id).toList(),
-        <String>['conduit', 'claude', 't3_chat', 'catppuccin', 'tangerine'],
-      );
+      expect(kConduitPalettes.map((p) => p.id).toList(), <String>[
+        'conduit',
+        'claude',
+        't3_chat',
+        'catppuccin',
+        'tangerine',
+      ]);
     });
 
     test('every palette defines all 33 colour tokens in both modes', () {
@@ -115,6 +120,63 @@ void main() {
     test('renders translucent colours as rgb() with an alpha channel', () {
       expect(cssColor(0x80102030), startsWith('rgb(16 32 48 / '));
       expect(cssColor(0x00FFFFFF), contains('/ 0'));
+    });
+  });
+
+  group('accessibleColors (WP-10.2)', () {
+    test(
+      'a light variant\'s red reads as text and under its own foreground',
+      () {
+        for (final palette in kConduitPalettes) {
+          final colors = accessibleColors(palette.light);
+          final red = colors['destructive']!;
+          for (final surface in <String>['background', 'card', 'muted']) {
+            expect(
+              contrastRatio(red, colors[surface]!),
+              greaterThanOrEqualTo(4.5),
+              reason: '${palette.id} red on $surface',
+            );
+          }
+          expect(
+            contrastRatio(colors['destructiveForeground']!, red),
+            greaterThanOrEqualTo(4.5),
+            reason: '${palette.id} text on red',
+          );
+        }
+      },
+    );
+
+    test('a dark variant never loses the fill\'s contrast', () {
+      for (final palette in kConduitPalettes) {
+        final before = palette.dark.colors;
+        final after = accessibleColors(palette.dark);
+        final fill = contrastRatio(
+          after['destructiveForeground']!,
+          after['destructive']!,
+        );
+        expect(
+          fill,
+          greaterThanOrEqualTo(
+            math.min(
+              4.5,
+              contrastRatio(
+                before['destructiveForeground']!,
+                before['destructive']!,
+              ),
+            ),
+          ),
+          reason: palette.id,
+        );
+      }
+    });
+
+    test('only the red changes', () {
+      final palette = kConduitPalettes.first;
+      final after = accessibleColors(palette.light);
+      for (final entry in palette.light.colors.entries) {
+        if (entry.key == 'destructive') continue;
+        expect(after[entry.key], entry.value, reason: entry.key);
+      }
     });
   });
 }
