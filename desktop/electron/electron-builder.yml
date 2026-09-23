@@ -1,0 +1,82 @@
+# Packaging for the six desktop targets (WP-9.5): macOS, Windows and Linux,
+# each on x64 and arm64. Each is built on a machine of its own OS and
+# architecture, because the daemon is native: run `npm run build`, then
+# `npm run stage`, then `npx electron-builder`. release-desktop.yml does
+# exactly that per target.
+appId: app.cogwheel.conduit.desktop
+productName: Conduit
+copyright: Copyright © cogwheel
+artifactName: Conduit-${version}-${os}-${arch}.${ext}
+
+directories:
+  output: dist
+  buildResources: packaging
+
+files:
+  - out/**/*.js
+  - package.json
+
+# Next to the app, where main.ts looks when packaged
+# (process.resourcesPath).
+extraResources:
+  - from: build/stage/conduitd
+    to: conduitd
+  - from: build/stage/web
+    to: web
+  - from: build/stage/icon.png
+    to: icon.png
+  - from: build/stage/THIRD_PARTY_NOTICES.md
+    to: THIRD_PARTY_NOTICES.md
+
+protocols:
+  - name: Conduit
+    schemes: [conduit]
+
+mac:
+  category: public.app-category.productivity
+  icon: ../../assets/icons/icon.png
+  target:
+    - target: dmg
+    - target: zip
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: packaging/entitlements.mac.plist
+  entitlementsInherit: packaging/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: Conduit uses the microphone for dictation, voice calls and note recordings.
+  # Notarized when APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID
+  # are set; signed with CSC_LINK / CSC_KEY_PASSWORD.
+  notarize: true
+
+win:
+  icon: ../../assets/icons/icon.png
+  target:
+    - target: nsis
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+
+linux:
+  icon: ../../assets/icons/icon.png
+  executableName: conduit
+  category: Utility
+  synopsis: Open WebUI, Hermes Agent and more, on the desktop
+  target:
+    - target: AppImage
+    - target: deb
+    - target: rpm
+  mimeTypes:
+    - x-scheme-handler/conduit
+  desktop:
+    entry:
+      StartupWMClass: Conduit
+
+# Updates come from the GitHub release the build was published to.
+# `desktop-v*` tags are prereleases; alphas update to newer alphas.
+publish:
+  provider: github
+  owner: cogwheel0
+  repo: conduit
+  releaseType: prerelease

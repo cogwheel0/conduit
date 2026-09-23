@@ -15,7 +15,9 @@
     "dev": "node scripts/dev.mjs",
     "start": "electron .",
     "test": "playwright test",
-    "test:unit": "tsc -p tsconfig.test.json && node --test \"out-test/tests/unit/**/*.test.js\""
+    "test:unit": "tsc -p tsconfig.test.json && node --test \"out-test/tests/unit/**/*.test.js\"",
+    "stage": "node scripts/stage.mjs",
+    "package": "npm run build:daemon && npm run build:ui -- --release && npm run build:ts && npm run stage && electron-builder"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",

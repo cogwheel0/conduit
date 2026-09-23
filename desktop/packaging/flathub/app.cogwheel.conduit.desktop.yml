@@ -1,0 +1,39 @@
+# Flatpak manifest (WP-9.6): the published .deb, unpacked into /app.
+app-id: app.cogwheel.conduit.desktop
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+base: org.electronjs.Electron2.BaseApp
+base-version: '24.08'
+command: conduit
+separate-locales: false
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=x11
+  - --socket=wayland
+  - --socket=pulseaudio
+  - --device=dri
+  # Saved credentials go to the system keyring.
+  - --talk-name=org.freedesktop.secrets
+  # Notifications and the tray.
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.kde.StatusNotifierWatcher
+modules:
+  - name: conduit
+    buildsystem: simple
+    build-commands:
+      - ar x conduit.deb
+      - tar -xf data.tar.* -C /app --strip-components=3 ./opt/Conduit
+      - install -Dm755 /app/conduit /app/bin/conduit
+    sources:
+      - type: file
+        dest-filename: conduit.deb
+        only-arches: [x86_64]
+        url: https://github.com/cogwheel0/conduit/releases/download/desktop-v0.1.0/Conduit-0.1.0-linux-x64.deb
+        sha256: 0000000000000000000000000000000000000000000000000000000000000000
+      - type: file
+        dest-filename: conduit.deb
+        only-arches: [aarch64]
+        url: https://github.com/cogwheel0/conduit/releases/download/desktop-v0.1.0/Conduit-0.1.0-linux-arm64.deb
+        sha256: 0000000000000000000000000000000000000000000000000000000000000000

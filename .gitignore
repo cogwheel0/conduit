@@ -56,6 +56,7 @@ apps/desktop_ui/web/app.css
 apps/desktop_ui/web/sandbox.html
 apps/desktop_ui/web/vendor/
 desktop/electron/dist/
+desktop/electron/build/
 desktop/electron/node_modules/
 desktop/electron/out/
 desktop/electron/out-test/

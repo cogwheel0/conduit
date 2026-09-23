@@ -1,0 +1,107 @@
+name: Release Desktop
+
+# Alphas of Conduit Desktop (WP-9.5), from `desktop-v*` tags, as
+# prereleases. Once the desktop is public (WP-10.6) these jobs join
+# release.yml's `v*` release and the separate tags are retired.
+on:
+  push:
+    tags:
+      - 'desktop-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing desktop-v* tag to (re)build'
+        required: true
+
+concurrency:
+  group: release-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.47.1'
+
+jobs:
+  release:
+    name: Create prerelease
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ inputs.tag || github.ref_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          prerelease: true
+          allowUpdates: true
+          generateReleaseNotes: true
+
+  package:
+    name: Package (${{ matrix.target }})
+    needs: release
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: mac-arm64, runner: macos-latest, flags: --mac --arm64 }
+          - { target: mac-x64, runner: macos-13, flags: --mac --x64 }
+          - { target: win-x64, runner: windows-latest, flags: --win --x64 }
+          - { target: win-arm64, runner: windows-11-arm, flags: --win --arm64 }
+          - { target: linux-x64, runner: ubuntu-latest, flags: --linux --x64 }
+          - { target: linux-arm64, runner: ubuntu-24.04-arm, flags: --linux --arm64 }
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+          submodules: recursive
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/electron/package-lock.json
+      - run: flutter pub get
+      - name: Generate code
+        shell: bash
+        run: |
+          (cd packages/conduit_protocol && dart run build_runner build --delete-conflicting-outputs)
+          (cd packages/conduit_core && dart run build_runner build --delete-conflicting-outputs)
+          dart run tool/arb_to_slang.dart
+          (cd apps/desktop_ui && dart run slang)
+      - name: Version from the tag
+        shell: bash
+        working-directory: desktop/electron
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          npm version --no-git-tag-version --allow-same-version "${TAG#desktop-v}"
+      - run: npm ci
+        working-directory: desktop/electron
+      - name: Build and package
+        working-directory: desktop/electron
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS signing and notarization; skipped when unset.
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Windows signing; skipped when unset.
+          WIN_CSC_LINK: ${{ secrets.WIN_CERTIFICATE_P12_BASE64 }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CERTIFICATE_PASSWORD }}
+        run: |
+          npm run build:daemon
+          npm run build:ui -- --release
+          npm run build:ts
+          npm run stage
+          if [ -z "$CSC_LINK" ]; then export CSC_IDENTITY_AUTO_DISCOVERY=false; fi
+          npx electron-builder ${{ matrix.flags }} --publish always \
+            $([ -z "$APPLE_ID" ] && echo "-c.mac.notarize=false")
