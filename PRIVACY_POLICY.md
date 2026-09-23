@@ -26,7 +26,8 @@ Conduit is an open‑source mobile and desktop client for Open‑WebUI, Hermes A
 The desktop app (Windows, macOS and Linux) handles data the same way, with these specifics:
 - Where data is kept: in the app's user-data folder, `%APPDATA%\Conduit` on Windows, `~/Library/Application Support/Conduit` on macOS and `~/.config/Conduit` on Linux. It holds a local database caching your conversations, notes and settings, the app's logs, and its window and desktop preferences.
 - Credentials: server tokens, API keys and certificates are encrypted with a key that the operating system's keyring protects (Keychain, the Windows Data Protection API, or GNOME Keyring/KWallet). On a Linux system with no keyring, the app warns you that this key is stored with weak protection.
-- Voice: recordings for dictation and voice calls are sent to your Open WebUI server for transcription and are not stored by the app. Answers read aloud use your system's voices or your server's.
+- Voice: recordings for dictation and voice calls are sent to your Open WebUI server for transcription, or, if you choose "On this computer", transcribed on your computer and sent nowhere. They are not stored by the app. Answers read aloud use your system's voices or your server's.
+- Speech models: if you choose to transcribe on your computer, the speech model you pick is downloaded once from Hugging Face (huggingface.co) and kept in the user-data folder. That request contains no personal data.
 - Update checks: installed builds check GitHub (github.com) for new versions of the app. This request contains no conversation data or credentials.
 - Links and files: `conduit://` links and files you open with Conduit are handled on your device. Opened files are uploaded only to the server you are signed in to, as attachments.
 - Notifications are shown by your operating system and are not sent anywhere.
