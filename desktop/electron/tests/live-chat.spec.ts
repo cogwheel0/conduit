@@ -225,6 +225,42 @@ async function fakeToolProvider(): Promise<{ baseUrl: string; close: () => void 
   return { baseUrl: `http://127.0.0.1:${port}/v1`, close: () => server.close() }
 }
 
+/** Enough of Ollama for its model-memory actions: two models, one loaded. */
+async function fakeOllama(): Promise<{ baseUrl: string; close: () => void }> {
+  const running = new Set<string>(['big:70b'])
+  const server = createServer(async (request, response) => {
+    const body = request.method === 'POST' ? await jsonBody(request) : {}
+    let reply: unknown
+    switch (request.url) {
+      case '/api/tags':
+        reply = { models: ['tiny:1b', 'big:70b'].map((name) => ({ name, model: name })) }
+        break
+      case '/api/show':
+        reply = { capabilities: ['completion'] }
+        break
+      case '/api/ps':
+        reply = { models: [...running].map((name) => ({ name, model: name })) }
+        break
+      case '/api/version':
+        reply = { version: '0.9.0' }
+        break
+      case '/api/chat':
+        if (body.keep_alive === 0) running.delete(body.model)
+        else running.add(body.model)
+        reply = { model: body.model, done: true }
+        break
+      default:
+        response.statusCode = 404
+        response.end()
+        return
+    }
+    response.setHeader('content-type', 'application/json')
+    response.end(JSON.stringify(reply))
+  })
+  const port = await listen(server)
+  return { baseUrl: `http://127.0.0.1:${port}`, close: () => server.close() }
+}
+
 /** A minimal MCP server with one `echo` tool, as the daemon's tests use. */
 async function fakeMcpServer(): Promise<{ endpoint: string; calls: number; close: () => void }> {
   const state = { endpoint: '', calls: 0, close: () => {} }
@@ -1580,6 +1616,33 @@ test.describe('against a real server', () => {
       await expect(sheet).toBeHidden()
       await expect(toolComposer).toHaveValue(/Water the plants\./)
       await toolComposer.fill('')
+
+      // 17. Ollama's model memory (M4), with the connection's models.
+      const ollama = await fakeOllama()
+      try {
+        await page.evaluate(() => {
+          window.history.pushState(null, '', '/settings/direct')
+          window.dispatchEvent(new PopStateEvent('popstate'))
+        })
+        await settingsDialog.getByRole('button', { name: /^connect provider$/i }).click()
+        const ollamaEditor = settingsDialog.getByRole('group', { name: /connection details/i })
+        await ollamaEditor.getByLabel(/^connection name$/i).fill('Home Ollama')
+        await ollamaEditor.getByLabel(/^provider type$/i).selectOption('ollama')
+        await ollamaEditor.getByLabel(/^base url$/i).fill(ollama.baseUrl)
+        await ollamaEditor.getByRole('button', { name: /^save$/i }).click()
+        await expect(ollamaEditor).toBeHidden({ timeout: 30_000 })
+        await settingsDialog.getByRole('button', { name: /^model memory$/i }).click()
+        const memory = settingsDialog.getByRole('group', { name: /^model memory$/i })
+        await expect(memory.getByText('big:70b')).toBeVisible({ timeout: 30_000 })
+        await expect(memory.getByText(/^loaded$/i)).toBeVisible()
+        await shot(page, '17-ollama-memory')
+        await memory.getByRole('button', { name: /^unload model$/i }).click()
+        await expect(memory.getByText(/^loaded$/i)).toBeHidden({ timeout: 30_000 })
+        await memory.getByLabel(/keep alive: tiny:1b/i).selectOption('30m')
+        await expect(memory.getByLabel(/keep alive: tiny:1b/i)).toHaveValue('30m')
+      } finally {
+        ollama.close()
+      }
     } finally {
       provider.close()
       mcpServer.close()

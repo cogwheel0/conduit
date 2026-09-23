@@ -862,6 +862,48 @@ class RpcSession {
       },
     );
 
+    registerTypedMethod<DirectRef, OllamaModelList>(
+      _peer,
+      ConduitMethods.directOllamaModels,
+      decodeParams: DirectRef.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (ref) {
+        _requireHandshake();
+        return _requireDirect().ollamaModels(ref.id);
+      },
+    );
+
+    for (final (method, run)
+        in <(String, Future<OllamaModelList> Function(OllamaModelAction))>[
+          (
+            ConduitMethods.directOllamaLoad,
+            (a) => _requireDirect().ollamaLoad(a),
+          ),
+          (
+            ConduitMethods.directOllamaUnload,
+            (a) => _requireDirect().ollamaUnload(a),
+          ),
+          (
+            ConduitMethods.directOllamaKeepAlive,
+            (a) => _requireDirect().ollamaKeepAlive(a),
+          ),
+          (
+            ConduitMethods.directOllamaThinking,
+            (a) => _requireDirect().ollamaThinking(a),
+          ),
+        ]) {
+      registerTypedMethod<OllamaModelAction, OllamaModelList>(
+        _peer,
+        method,
+        decodeParams: OllamaModelAction.fromJson,
+        encodeResult: (result) => result.toJson(),
+        handler: (action) {
+          _requireHandshake();
+          return run(action);
+        },
+      );
+    }
+
     registerTypedMethodNoParams<McpServerList>(
       _peer,
       ConduitMethods.mcpList,

@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.29.0",
+  "protocolVersion": "1.30.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.29.0",
+  "protocolVersion": "1.30.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -523,6 +523,34 @@ const Map<String, String> protocolGoldens = <String, String>{
   'directHistory': r'''
 {
   "localOnly": true
+}''',
+
+  'ollamaModelStatus': r'''
+{
+  "id": "llama3.2:1b",
+  "name": "llama3.2:1b",
+  "loaded": true,
+  "keepAlive": "30m"
+}''',
+
+  'ollamaModelList': r'''
+{
+  "models": [
+    {
+      "id": "gpt-oss:120b",
+      "name": "gpt-oss:120b",
+      "thinking": "high"
+    }
+  ],
+  "lifecycle": false,
+  "cloud": true
+}''',
+
+  'ollamaModelAction': r'''
+{
+  "id": "ollama",
+  "model": "llama3.2:1b",
+  "value": "-1"
 }''',
 
   'mcpApprovalSummary': r'''

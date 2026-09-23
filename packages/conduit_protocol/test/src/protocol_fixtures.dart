@@ -289,6 +289,27 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   'directRef': const DirectRef(id: 'ollama'),
   'directEnable': const DirectEnable(id: 'ollama', enabled: false),
   'directHistory': const DirectHistory(localOnly: true),
+  'ollamaModelStatus': const OllamaModelStatus(
+    id: 'llama3.2:1b',
+    name: 'llama3.2:1b',
+    loaded: true,
+    keepAlive: '30m',
+  ),
+  'ollamaModelList': const OllamaModelList(
+    models: <OllamaModelStatus>[
+      OllamaModelStatus(
+        id: 'gpt-oss:120b',
+        name: 'gpt-oss:120b',
+        thinking: 'high',
+      ),
+    ],
+    cloud: true,
+  ),
+  'ollamaModelAction': const OllamaModelAction(
+    id: 'ollama',
+    model: 'llama3.2:1b',
+    value: '-1',
+  ),
   'mcpApprovalSummary': const McpApprovalSummary(
     digest: 'sha256:1f2e',
     toolName: 'search',
@@ -678,6 +699,9 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'directRef': DirectRef.fromJson,
       'directEnable': DirectEnable.fromJson,
       'directHistory': DirectHistory.fromJson,
+      'ollamaModelStatus': OllamaModelStatus.fromJson,
+      'ollamaModelList': OllamaModelList.fromJson,
+      'ollamaModelAction': OllamaModelAction.fromJson,
       'mcpApprovalSummary': McpApprovalSummary.fromJson,
       'mcpServerSummary': McpServerSummary.fromJson,
       'mcpServerList': McpServerList.fromJson,

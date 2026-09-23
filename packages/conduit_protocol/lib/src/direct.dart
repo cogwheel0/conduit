@@ -138,3 +138,60 @@ abstract class DirectHistory with _$DirectHistory {
   factory DirectHistory.fromJson(Map<String, dynamic> json) =>
       _$DirectHistoryFromJson(json);
 }
+
+/// One of an Ollama connection's models, with what can be done to it
+/// (M4).
+@freezed
+abstract class OllamaModelStatus with _$OllamaModelStatus {
+  const factory OllamaModelStatus({
+    /// The id Ollama knows it by, as `/api/tags` lists it.
+    required String id,
+    required String name,
+
+    /// In memory now, as `/api/ps` says. Null when that could not be read.
+    bool? loaded,
+
+    /// How long it stays loaded after a chat: an Ollama duration (`5m`,
+    /// `-1` for always, `0` to unload straight away). Null is the server's
+    /// default.
+    String? keepAlive,
+
+    /// For Ollama Cloud: `disabled`, `low`, `medium` or `high`. Null
+    /// leaves it to the model.
+    String? thinking,
+  }) = _OllamaModelStatus;
+
+  factory OllamaModelStatus.fromJson(Map<String, dynamic> json) =>
+      _$OllamaModelStatusFromJson(json);
+}
+
+/// Reply to `direct.ollamaModels` and to each Ollama action.
+@freezed
+abstract class OllamaModelList with _$OllamaModelList {
+  const factory OllamaModelList({
+    @Default(<OllamaModelStatus>[]) List<OllamaModelStatus> models,
+
+    /// Load, unload and keep-alive apply: a local server, not Ollama Cloud.
+    @Default(false) bool lifecycle,
+
+    /// Ollama Cloud, where a model's thinking can be set.
+    @Default(false) bool cloud,
+  }) = _OllamaModelList;
+
+  factory OllamaModelList.fromJson(Map<String, dynamic> json) =>
+      _$OllamaModelListFromJson(json);
+}
+
+/// Params for the Ollama model actions. [value] is the keep-alive or the
+/// thinking setting; null resets it.
+@freezed
+abstract class OllamaModelAction with _$OllamaModelAction {
+  const factory OllamaModelAction({
+    required String id,
+    required String model,
+    String? value,
+  }) = _OllamaModelAction;
+
+  factory OllamaModelAction.fromJson(Map<String, dynamic> json) =>
+      _$OllamaModelActionFromJson(json);
+}

@@ -8,6 +8,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import '../l10n/strings.g.dart';
 import '../rpc/direct_providers.dart';
 import '../widgets/form_field.dart';
+import 'ollama_models.dart';
 
 /// Settings > Direct connections (WP-4.2): model providers the app talks to
 /// itself, without Open WebUI in between.
@@ -25,6 +26,9 @@ class _DirectConnectionsTabState extends State<DirectConnectionsTab> {
   /// The connection being edited; an empty id is a new one.
   DirectConnectionSummary? _editing;
   String? _deleting;
+
+  /// Ollama connections whose models are shown (M4).
+  final Set<String> _modelsOpen = <String>{};
 
   static const _blank = DirectConnectionSummary(
     id: '',
@@ -132,6 +136,20 @@ class _DirectConnectionsTabState extends State<DirectConnectionsTab> {
               Component.text(connection.baseUrl),
             ]),
           ]),
+          if (connection.kind == DirectKind.ollama)
+            button(
+              [Component.text(t.app.ollamaModelActions)],
+              classes: 'rounded px-2.5 py-1 text-xs hover:bg-accent',
+              type: ButtonType.button,
+              attributes: <String, String>{
+                'aria-expanded': '${_modelsOpen.contains(connection.id)}',
+              },
+              onClick: () => setState(
+                () => _modelsOpen.contains(connection.id)
+                    ? _modelsOpen.remove(connection.id)
+                    : _modelsOpen.add(connection.id),
+              ),
+            ),
           button(
             [Component.text(t.app.edit)],
             classes: 'rounded px-2.5 py-1 text-xs hover:bg-accent',
@@ -147,6 +165,11 @@ class _DirectConnectionsTabState extends State<DirectConnectionsTab> {
             onClick: () => setState(() => _deleting = connection.id),
           ),
         ]),
+        if (_modelsOpen.contains(connection.id))
+          OllamaModels(
+            key: ValueKey('ollama-${connection.id}'),
+            connectionId: connection.id,
+          ),
         if (_deleting == connection.id)
           div(
             classes:

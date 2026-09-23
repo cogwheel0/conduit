@@ -227,6 +227,22 @@ abstract final class ConduitMethods {
   /// Where direct chats are kept: this computer only, or mirrored.
   static const String directSetHistory = 'direct.setHistory';
 
+  /// An Ollama connection's models, with whether each is loaded and its
+  /// keep-alive or thinking setting.
+  static const String directOllamaModels = 'direct.ollamaModels';
+
+  /// Loads an Ollama model into memory ahead of a chat.
+  static const String directOllamaLoad = 'direct.ollamaLoad';
+
+  /// Frees an Ollama model's memory.
+  static const String directOllamaUnload = 'direct.ollamaUnload';
+
+  /// Sets how long an Ollama model stays loaded after a chat.
+  static const String directOllamaKeepAlive = 'direct.ollamaKeepAlive';
+
+  /// Sets an Ollama Cloud model's thinking level.
+  static const String directOllamaThinking = 'direct.ollamaThinking';
+
   // ---------------------------------------------------------------------
   // mcp.* -- MCP servers the app talks to itself (M4).
   // ---------------------------------------------------------------------

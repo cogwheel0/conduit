@@ -1,5 +1,8 @@
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/ollama_keep_alive.dart';
+import 'package:conduit_core/features/direct_connections/models/ollama_thinking.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -104,6 +107,134 @@ final class DirectService {
               : DirectHistoryPolicy.syncWithOpenWebUI,
         );
     return list();
+  }
+
+  /// An Ollama connection's models and what can be done to them (M4).
+  ///
+  /// Listed from the server itself rather than from the model picker, so a
+  /// connection that is switched off can still be managed.
+  Future<OllamaModelList> ollamaModels(String id) async {
+    final profile = await _ollama(id);
+    final adapter = _container
+        .read(directProviderAdapterRegistryProvider)
+        .require(profile.adapterKey);
+    final models = await adapter.listModels(profile);
+    Set<String>? loaded;
+    if (profile.supportsOllamaModelLifecycle &&
+        adapter is DirectModelLifecycleAdapter) {
+      try {
+        loaded = await (adapter as DirectModelLifecycleAdapter)
+            .listRunningModelIds(profile);
+      } on Object {
+        loaded = null;
+      }
+    }
+    return OllamaModelList(
+      lifecycle: profile.supportsOllamaModelLifecycle,
+      cloud: profile.isOllamaCloud,
+      models: <OllamaModelStatus>[
+        for (final model in models)
+          OllamaModelStatus(
+            id: model.id,
+            name: model.name,
+            loaded: loaded?.contains(model.id),
+            keepAlive: profile.ollamaKeepAliveFor(model.id),
+            thinking: profile.ollamaThinkingFor(model.id)?.storageValue,
+          ),
+      ],
+    );
+  }
+
+  Future<OllamaModelList> ollamaLoad(OllamaModelAction action) async {
+    final profile = await _ollama(action.id);
+    final configured = profile.ollamaKeepAliveFor(action.model);
+    // `0` means "unload after the request", which would undo the load
+    // straight away: warm it for the server's default instead, as mobile
+    // does. Chats still honour the saved zero.
+    await _lifecycle(profile).loadModel(
+      profile,
+      action.model,
+      keepAlive: configured == '0' ? null : configured,
+    );
+    return ollamaModels(action.id);
+  }
+
+  Future<OllamaModelList> ollamaUnload(OllamaModelAction action) async {
+    final profile = await _ollama(action.id);
+    await _lifecycle(profile).unloadModel(profile, action.model);
+    return ollamaModels(action.id);
+  }
+
+  Future<OllamaModelList> ollamaKeepAlive(OllamaModelAction action) async {
+    final profile = await _ollama(action.id);
+    final String? value;
+    try {
+      value = action.value == null
+          ? null
+          : normalizeOllamaKeepAlive(action.value!);
+    } on FormatException catch (error) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: error.message,
+      );
+    }
+    final updated = Map<String, String>.of(profile.ollamaKeepAliveByModel);
+    if (value == null) {
+      updated.remove(action.model.trim());
+    } else {
+      updated[action.model.trim()] = value;
+    }
+    await _container
+        .read(directConnectionProfilesProvider.notifier)
+        .upsert(
+          profile.copyWith(ollamaKeepAliveByModel: updated),
+          expectedPrevious: profile,
+        );
+    return ollamaModels(action.id);
+  }
+
+  Future<OllamaModelList> ollamaThinking(OllamaModelAction action) async {
+    await _ollama(action.id);
+    final OllamaThinkingSetting? setting;
+    try {
+      setting = action.value == null
+          ? null
+          : OllamaThinkingSetting.fromStorage(action.value!);
+    } on FormatException catch (error) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: error.message,
+      );
+    }
+    await _container
+        .read(directConnectionProfilesProvider.notifier)
+        .setOllamaThinking(action.id, action.model, setting);
+    return ollamaModels(action.id);
+  }
+
+  Future<DirectConnectionProfile> _ollama(String id) async {
+    final profile = (await _existing(id))!;
+    if (profile.adapterKey != kOllamaAdapterKey) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'connection $id is not an Ollama server',
+      );
+    }
+    return profile;
+  }
+
+  DirectModelLifecycleAdapter _lifecycle(DirectConnectionProfile profile) {
+    final adapter = _container
+        .read(directProviderAdapterRegistryProvider)
+        .require(profile.adapterKey);
+    if (!profile.supportsOllamaModelLifecycle ||
+        adapter is! DirectModelLifecycleAdapter) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: 'Ollama Cloud does not load or unload models',
+      );
+    }
+    return adapter as DirectModelLifecycleAdapter;
   }
 
   Future<DirectConnectionProfile?> _existing(String? id) async {

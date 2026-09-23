@@ -47,6 +47,21 @@ class DirectActions {
         decode: DirectTestResult.fromJson,
       );
 
+  /// An Ollama connection's models, or one of the Ollama actions
+  /// (`direct.ollamaLoad` and the rest) on one of them. Each answers with
+  /// the connection's models as they are afterwards.
+  Future<OllamaModelList> ollama(
+    String method, {
+    required String connectionId,
+    OllamaModelAction? action,
+  }) => _ref
+      .read(rpcClientProvider)
+      .call(
+        method,
+        params: action?.toJson() ?? DirectRef(id: connectionId).toJson(),
+        decode: OllamaModelList.fromJson,
+      );
+
   Future<void> _mutate(String method, Map<String, dynamic> params) async {
     await _ref
         .read(rpcClientProvider)
