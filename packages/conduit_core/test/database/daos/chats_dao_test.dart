@@ -772,6 +772,24 @@ void main() {
       }),
     ).isTrue();
 
+    // A share made without moving `updated_at` arrives the same way, and
+    // so does its deletion.
+    await db.chatsDao.mergeServerChat(
+      server: rows,
+      shareId: 'share-1',
+      meta: <String, dynamic>{
+        'tags': <String>['work', 'q3'],
+      },
+    );
+    check((await db.chatsDao.getChat(rows.chat.id))!.shareId).equals('share-1');
+    await db.chatsDao.mergeServerChat(
+      server: rows,
+      meta: <String, dynamic>{
+        'tags': <String>['work', 'q3'],
+      },
+    );
+    check((await db.chatsDao.getChat(rows.chat.id))!.shareId).isNull();
+
     // And an empty meta -- a caller with none to give -- leaves it alone.
     await db.chatsDao.mergeServerChat(server: rows);
     final after = await db.chatsDao.getChat(rows.chat.id);

@@ -372,23 +372,30 @@ final class ChatsService {
       );
     }
     final tags = await _api.addChatTag(edit.chatId, name);
-    await _afterTagChange(edit.chatId);
+    await _afterEnvelopeChange(edit.chatId);
     return TagList(tags: _tagsFrom(tags));
   }
 
   Future<TagList> removeTag(ChatTagEdit edit) async {
     final tags = await _api.removeChatTag(edit.chatId, edit.name.trim());
-    await _afterTagChange(edit.chatId);
+    await _afterEnvelopeChange(edit.chatId);
     return TagList(tags: _tagsFrom(tags));
   }
 
-  /// The chat's stored copy carries its tags, so it is pulled before the
-  /// windows are told -- otherwise they would refetch and see the old ones.
-  Future<void> _afterTagChange(String chatId) async {
+  /// Pulls one chat after a change Open WebUI makes without moving its
+  /// `updated_at` -- a tag, a share link. The incremental pull only fetches
+  /// chats whose timestamp moved, so it would never look at this one; and
+  /// the windows are told only afterwards, or they would refetch the old
+  /// copy.
+  Future<void> _afterEnvelopeChange(String chatId) async {
     try {
       await _container.read(syncEngineProvider.notifier).pullChatNow(chatId);
     } on Object catch (error) {
-      DebugLogger.error('tag-pull-failed', scope: 'daemon/chats', error: error);
+      DebugLogger.error(
+        'envelope-pull-failed',
+        scope: 'daemon/chats',
+        error: error,
+      );
     }
     _container.invalidate(loadConversationProvider(chatId));
     _events?.publish(
@@ -447,12 +454,14 @@ final class ChatsService {
 
   Future<ChatShare> share(String id) async {
     final shareId = await _api.shareConversation(id);
+    await _afterEnvelopeChange(id);
     await _refresh();
     return ChatShare(chatId: id, shareId: shareId);
   }
 
   Future<ChatShare> unshare(String id) async {
     await _api.deleteSharedConversation(id);
+    await _afterEnvelopeChange(id);
     await _refresh();
     return ChatShare(chatId: id);
   }

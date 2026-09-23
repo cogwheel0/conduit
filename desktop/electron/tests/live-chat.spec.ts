@@ -546,6 +546,68 @@ test.describe('against a real server', () => {
     await expect(tagChip).toBeHidden({ timeout: 30_000 })
     await page.getByLabel(/search conversations/i).fill('')
 
+    // 8e. A right-click menu on the open conversation's row, and sharing
+    // (WP-3.1). The link is deleted again before the step ends: a share is
+    // a public URL, and a test has no business leaving one up.
+    await page
+      .locator('nav[aria-label] button[aria-current="true"]')
+      .click({ button: 'right' })
+    const menu = page.getByRole('menu')
+    await expect(menu).toBeVisible()
+    await expect(menu.getByRole('menuitem').first()).toBeFocused()
+    await shot(page, '08e-context-menu')
+    await page.keyboard.press('Escape')
+    await expect(menu).toBeHidden()
+
+    const runStartedAt = Date.now() / 1000 - 600
+    try {
+    await page.locator('header').getByRole('button', { name: /^share chat$/i }).click()
+    const share = page.getByRole('dialog', { name: /share chat/i })
+    await expect(share).toBeVisible()
+    await share.getByRole('button', { name: /^copy link$/i }).click()
+    const link = share.getByRole('textbox', { name: /copy link/i })
+    const server = url.replace(/\/$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    await expect(link).toHaveValue(new RegExp(`^${server}/s/[\\w-]+$`), {
+      timeout: 30_000,
+    })
+    await shot(page, '08f-shared')
+    await share.getByRole('button', { name: /^close$/i }).click()
+    await expect(share).toBeHidden()
+    // Reopened, it knows the conversation is shared and offers to delete.
+    await page.locator('header').getByRole('button', { name: /^share chat$/i }).click()
+    await expect(share.getByText(/shared this chat before/i)).toBeVisible({
+      timeout: 30_000,
+    })
+    await share.getByRole('button', { name: /delete this link/i }).click()
+    await expect(share.getByText(/shared chat link deleted/i)).toBeVisible()
+    await share.getByRole('button', { name: /^close$/i }).click()
+    } finally {
+      // Should the step fail between sharing and deleting, the link would
+      // otherwise stay public. Only conversations this run made are looked
+      // at: the test's own title, created in the last few minutes.
+      const { api: cleanup, auth: cleanupAuth } = await serverApi(credentials!)
+      const recent = (await (
+        await cleanup.get('/api/v1/chats/?page=1', { headers: cleanupAuth })
+      ).json()) as { id: string; title: string; created_at: number }[]
+      for (const chat of recent) {
+        if (
+          chat.title !== 'Reply with exactly the word: pong' ||
+          chat.created_at < runStartedAt
+        ) {
+          continue
+        }
+        const full = (await (
+          await cleanup.get(`/api/v1/chats/${chat.id}`, { headers: cleanupAuth })
+        ).json()) as { share_id?: string | null }
+        if (full.share_id) {
+          await cleanup.delete(`/api/v1/chats/${chat.id}/share`, {
+            headers: cleanupAuth,
+          })
+        }
+      }
+      await cleanup.dispose()
+    }
+
     // 8c. Edit the question in place (WP-3.2). The conversation should read
     // as the edited question and a new answer, with the original gone from
     // view but kept on the server as the branch it was.

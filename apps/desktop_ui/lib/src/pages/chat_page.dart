@@ -16,8 +16,10 @@ import '../rpc/session_providers.dart';
 import '../sidebar_model.dart';
 import '../widgets/form_field.dart';
 import '../widgets/chat_tags.dart';
+import '../widgets/context_menu.dart';
 import '../widgets/markdown_view.dart';
 import '../widgets/prompt_menu.dart';
+import '../widgets/share_dialog.dart';
 import '../widgets/sources_list.dart';
 import '../widgets/usage_details.dart';
 
@@ -367,6 +369,9 @@ class _ChatRowState extends State<_ChatRow> {
   bool _confirmingDelete = false;
   String _draftTitle = '';
 
+  /// Where the right-click was, while its menu is open.
+  ({double x, double y})? _menuAt;
+
   @override
   Component build(BuildContext context) {
     final chat = component.chat;
@@ -398,66 +403,112 @@ class _ChatRowState extends State<_ChatRow> {
       ]);
     }
 
-    return li(classes: 'group relative', [
-      div(classes: 'flex items-center gap-1', [
-        button(
-          [
-            span(classes: 'truncate', [Component.text(chat.title)]),
-            if (chat.pinned)
-              span(
-                classes: 'ml-1 text-xs',
-                attributes: const <String, String>{'aria-hidden': 'true'},
-                [Component.text('\u2605')],
-              ),
-          ],
-          classes:
-              'flex min-w-0 flex-1 items-center rounded px-2 py-1.5 '
-              'text-left text-sm '
-              '${component.isSelected ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'}',
-          type: ButtonType.button,
-          // `aria-current` rather than `aria-selected`: these are navigation
-          // items, not options in a listbox.
-          attributes: component.isSelected
-              ? const <String, String>{'aria-current': 'true'}
-              : null,
-          onClick: () => actions.select(chat.id),
+    return li(
+      classes: 'group relative',
+      events: <String, EventCallback>{
+        'contextmenu': contextMenuAt(
+          (x, y) => setState(() => _menuAt = (x: x, y: y)),
         ),
-        _actionsMenu(context, chat, actions),
-      ]),
-      if (_confirmingDelete)
-        div(
-          classes:
-              'mt-1 rounded border border-destructive/40 '
-              'bg-destructive/10 p-2 text-xs',
-          // `alertdialog`: destructive and irreversible, so it should
-          // interrupt rather than wait to be found.
-          attributes: const <String, String>{'role': 'alertdialog'},
-          [
-            p(classes: 'text-destructive', [
-              Component.text(t.desktop.desktopConfirmDelete),
-            ]),
-            div(classes: 'mt-2 flex gap-2', [
-              button(
-                [Component.text(t.desktop.desktopDeleteChat)],
-                classes:
-                    'rounded bg-destructive px-2 py-1 '
-                    'text-destructive-foreground',
-                type: ButtonType.button,
-                onClick: () {
-                  setState(() => _confirmingDelete = false);
-                  unawaited(actions.delete(chat.id));
-                },
+      },
+      [
+        if (_menuAt case final at?)
+          ContextMenu(
+            x: at.x,
+            y: at.y,
+            label: t.desktop.desktopChatActions(title: chat.title),
+            onClose: () => setState(() => _menuAt = null),
+            items: <ContextMenuItem>[
+              ContextMenuItem(
+                chat.pinned
+                    ? t.desktop.desktopUnpinChat
+                    : t.desktop.desktopPinChat,
+                () =>
+                    unawaited(actions.setPinned(chat.id, value: !chat.pinned)),
               ),
-              button(
-                [Component.text(t.app.cancel)],
-                classes: 'rounded px-2 py-1 text-foreground',
-                type: ButtonType.button,
-                onClick: () => setState(() => _confirmingDelete = false),
+              ContextMenuItem(
+                t.desktop.desktopRenameChat,
+                () => setState(() {
+                  _renaming = true;
+                  _draftTitle = chat.title;
+                }),
               ),
-            ]),
-          ],
-        ),
-    ]);
+              ContextMenuItem(
+                t.app.shareChat,
+                () => context.read(shareDialogProvider.notifier).open(chat.id),
+              ),
+              ContextMenuItem(
+                chat.archived ? t.app.unarchive : t.desktop.desktopArchiveChat,
+                () => unawaited(
+                  actions.setArchived(chat.id, value: !chat.archived),
+                ),
+              ),
+              ContextMenuItem(
+                t.desktop.desktopDeleteChat,
+                () => setState(() => _confirmingDelete = true),
+                destructive: true,
+              ),
+            ],
+          ),
+        div(classes: 'flex items-center gap-1', [
+          button(
+            [
+              span(classes: 'truncate', [Component.text(chat.title)]),
+              if (chat.pinned)
+                span(
+                  classes: 'ml-1 text-xs',
+                  attributes: const <String, String>{'aria-hidden': 'true'},
+                  [Component.text('\u2605')],
+                ),
+            ],
+            classes:
+                'flex min-w-0 flex-1 items-center rounded px-2 py-1.5 '
+                'text-left text-sm '
+                '${component.isSelected ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'}',
+            type: ButtonType.button,
+            // `aria-current` rather than `aria-selected`: these are navigation
+            // items, not options in a listbox.
+            attributes: component.isSelected
+                ? const <String, String>{'aria-current': 'true'}
+                : null,
+            onClick: () => actions.select(chat.id),
+          ),
+          _actionsMenu(context, chat, actions),
+        ]),
+        if (_confirmingDelete)
+          div(
+            classes:
+                'mt-1 rounded border border-destructive/40 '
+                'bg-destructive/10 p-2 text-xs',
+            // `alertdialog`: destructive and irreversible, so it should
+            // interrupt rather than wait to be found.
+            attributes: const <String, String>{'role': 'alertdialog'},
+            [
+              p(classes: 'text-destructive', [
+                Component.text(t.desktop.desktopConfirmDelete),
+              ]),
+              div(classes: 'mt-2 flex gap-2', [
+                button(
+                  [Component.text(t.desktop.desktopDeleteChat)],
+                  classes:
+                      'rounded bg-destructive px-2 py-1 '
+                      'text-destructive-foreground',
+                  type: ButtonType.button,
+                  onClick: () {
+                    setState(() => _confirmingDelete = false);
+                    unawaited(actions.delete(chat.id));
+                  },
+                ),
+                button(
+                  [Component.text(t.app.cancel)],
+                  classes: 'rounded px-2 py-1 text-foreground',
+                  type: ButtonType.button,
+                  onClick: () => setState(() => _confirmingDelete = false),
+                ),
+              ]),
+            ],
+          ),
+      ],
+    );
   }
 
   /// Always in the DOM, visually revealed on hover or focus.
@@ -656,8 +707,34 @@ class _Transcript extends StatelessComponent {
               onFilter: (name) =>
                   context.read(searchQueryProvider.notifier).set('tag:$name'),
             ),
+          if (selected != null && !isTemporaryChatId(selected))
+            button(
+              [Component.text(t.app.shareChat)],
+              classes:
+                  'ml-auto shrink-0 rounded px-2 py-1 text-xs font-normal '
+                  'text-muted-foreground hover:bg-accent',
+              type: ButtonType.button,
+              onClick: () =>
+                  context.read(shareDialogProvider.notifier).open(selected),
+            ),
         ],
       ),
+      if (context.watch(shareDialogProvider) case final shareId?)
+        ShareDialog(
+          key: ValueKey('share-$shareId'),
+          chatId: shareId,
+          // From the open conversation when that is the one: list rows are
+          // envelopes without a share id, so only the full copy knows.
+          shared:
+              (shareId == selected
+                  ? detail.value?.summary.shared
+                  : _summaryIn(
+                      context.watch(chatListProvider).value,
+                      shareId,
+                    )?.shared) ??
+              false,
+          onClose: () => context.read(shareDialogProvider.notifier).close(),
+        ),
       div(
         id: 'transcript',
         classes: 'min-h-0 flex-1 overflow-y-auto px-6 py-6',
@@ -850,6 +927,14 @@ class _Transcript extends StatelessComponent {
       ),
       const _Composer(),
     ]);
+  }
+
+  /// The sidebar's row for [chatId], if the list has been loaded.
+  ChatSummary? _summaryIn(ChatList? list, String chatId) {
+    for (final chat in list?.chats ?? const <ChatSummary>[]) {
+      if (chat.id == chatId) return chat;
+    }
+    return null;
   }
 
   /// The sidebar's name for [chatId], if the list has been loaded.

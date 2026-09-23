@@ -306,6 +306,10 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// the SAME transaction as the dirty row writes (REQ 4 / outbox atomicity).
   Future<ChatMergeWriteResult> mergeServerChat({
     required ChatRows server,
+
+    /// The server's `share_id`, as given. Authoritative: null is a deleted
+    /// link, not an unknown one -- which is why this is only ever passed a
+    /// whole server response.
     String? shareId,
     String? userId,
     Map<String, dynamic> meta = const {},
@@ -410,11 +414,12 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       switch (result.outcome) {
         case MergeOutcome.noRemoteChange:
           // Rows untouched; only re-assert push below when needed. Except
-          // `meta`: Open WebUI changes a chat's tags in the meta column
-          // alone, without moving `updated_at`, so a meta-only change looks
-          // like no change at all. Without this a tag added anywhere never
-          // reached a chat that had already been pulled once.
-          await _refreshMetaIfChanged(existing, meta);
+          // `meta` and the share id: Open WebUI writes a chat's tags and its
+          // share link to those columns alone, without moving `updated_at`,
+          // so either change looks like no change at all. Without this a
+          // tag or a share made anywhere never reached a chat that had
+          // already been pulled once.
+          await _refreshEnvelopeIfChanged(existing, meta, shareId);
           return _mergeResultWithUpdateOpIfMissing(
             serverChat.id,
             ChatMergeWriteResult(
@@ -464,14 +469,17 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   }
 
   /// Caller is inside [mergeServerChat]'s transaction. Writes the server's
-  /// `meta` over the stored one when they differ. An empty [meta] is left
-  /// alone: callers that have no meta to give pass the default `{}`, which
-  /// is not the server saying the chat has none.
-  Future<void> _refreshMetaIfChanged(
+  /// `meta` and share id over the stored ones when they differ.
+  ///
+  /// An empty [meta] is left alone: a caller with no meta to give passes the
+  /// default `{}`, which is not the server saying the chat has none. The
+  /// share id has no such ambiguity -- the pull passes the server's
+  /// `share_id` as it is, and null there means the link was deleted.
+  Future<void> _refreshEnvelopeIfChanged(
     ChatRow existing,
     Map<String, dynamic> meta,
+    String? shareId,
   ) async {
-    if (meta.isEmpty) return;
     Object? stored;
     try {
       stored = jsonDecode(existing.meta);
@@ -481,9 +489,15 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     // Structurally, not as text: the same map encoded in a different key
     // order would otherwise rewrite the row, and wake every list watcher, on
     // every pull of every chat.
-    if (const DeepCollectionEquality().equals(stored, meta)) return;
+    final metaChanged =
+        meta.isNotEmpty && !const DeepCollectionEquality().equals(stored, meta);
+    final shareChanged = shareId != existing.shareId;
+    if (!metaChanged && !shareChanged) return;
     await (update(chats)..where((t) => t.id.equals(existing.id))).write(
-      ChatsCompanion(meta: Value(jsonEncode(meta))),
+      ChatsCompanion(
+        meta: metaChanged ? Value(jsonEncode(meta)) : const Value.absent(),
+        shareId: shareChanged ? Value(shareId) : const Value.absent(),
+      ),
     );
   }
 

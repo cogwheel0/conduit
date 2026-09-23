@@ -127,6 +127,20 @@ final paletteResultsProvider = FutureProvider<ChatSearchResults?>((ref) async {
       );
 });
 
+/// The conversation whose share dialog is open, if any (WP-3.1). One
+/// dialog for the window, opened from the header or a sidebar row's menu.
+final shareDialogProvider = NotifierProvider<ShareDialogTarget, String?>(
+  ShareDialogTarget.new,
+);
+
+class ShareDialogTarget extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  void open(String chatId) => state = chatId;
+  void close() => state = null;
+}
+
 /// Tag names by id (WP-3.8). A chat lists its tags by id -- `work_notes`
 /// -- and this is how the header shows "Work notes" instead.
 final tagNamesProvider = FutureProvider<Map<String, String>>((ref) async {
@@ -494,6 +508,23 @@ class ChatActions {
       model: model,
     ).toJson(),
     decode: SendTurnAccepted.fromJson,
+  );
+
+  /// Shares a conversation, or refreshes its snapshot if it was shared
+  /// before. Answers with the share id the link is built from.
+  Future<String?> share(String chatId) async {
+    final share = await _client.call(
+      ConduitMethods.chatsShare,
+      params: ChatRef(id: chatId).toJson(),
+      decode: ChatShare.fromJson,
+    );
+    return share.shareId;
+  }
+
+  Future<void> unshare(String chatId) => _client.call(
+    ConduitMethods.chatsUnshare,
+    params: ChatRef(id: chatId).toJson(),
+    decode: ChatShare.fromJson,
   );
 
   /// Tags a conversation (WP-3.8). The header refreshes from the stored

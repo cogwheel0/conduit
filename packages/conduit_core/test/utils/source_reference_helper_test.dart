@@ -35,7 +35,11 @@ void main() {
       );
 
       check(
-        SourceReferenceHelper.getInlineSourceLabel(titled, 0, preferTitle: true),
+        SourceReferenceHelper.getInlineSourceLabel(
+          titled,
+          0,
+          preferTitle: true,
+        ),
       ).equals('How solar panels work');
       check(
         SourceReferenceHelper.getInlineSourceLabel(

@@ -298,3 +298,18 @@ EventCallback submitOrCancel({
       cancel();
   }
 };
+
+/// A right-click, claimed so the browser's own menu does not open over the
+/// app's (WP-3.1). [open] gets where the pointer was.
+EventCallback contextMenuAt(void Function(double x, double y) open) =>
+    (web.Event event) {
+      final mouse = event as web.MouseEvent;
+      event.preventDefault();
+      open(mouse.clientX.toDouble(), mouse.clientY.toDouble());
+    };
+
+/// A right-click that only closes what is open.
+EventCallback suppressContextMenu(void Function() close) => (web.Event event) {
+  event.preventDefault();
+  close();
+};

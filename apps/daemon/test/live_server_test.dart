@@ -539,6 +539,19 @@ void main() {
               .lastOrNull;
           return answer != null && answer!.versions.isNotEmpty;
         }, seconds: 60);
+        // What the server holds, for when this fails: whether it linked both
+        // answers under the question, or the local copy missed one.
+        final raw = await runtime.container
+            .read(apiServiceProvider)!
+            .getChatRaw(accepted.chatId);
+        final history = (raw?['chat'] as Map?)?['history'] as Map?;
+        final question =
+            (history?['messages'] as Map?)?[accepted.userMessageId];
+        printOnFailure(
+          'server: currentId=${history?['currentId']} '
+          'question.childrenIds=${(question as Map?)?['childrenIds']} '
+          'local: ${(await _messagesOf(runtime, accepted.chatId)).map((m) => '${m.role}:${m.id}').join(', ')}',
+        );
         expect(
           answer?.versions.map((v) => v.id),
           contains(accepted.assistantMessageId),
@@ -626,8 +639,14 @@ void main() {
           ),
         );
         expect(edited.userMessageId, isNot(accepted.userMessageId));
+        // For the stored copy to show the edit, not merely for a
+        // `chats.changed`: the first turn can announce itself again after
+        // the clear above, and proceeding on that read the old branch.
         await _waitFor(
-          () => seen.contains(ConduitEvents.chatsChanged),
+          () async => (await _messagesOf(
+            runtime,
+            accepted.chatId,
+          )).any((m) => m.id == edited.userMessageId),
           seconds: 90,
         );
 
