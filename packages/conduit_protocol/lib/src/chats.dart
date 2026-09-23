@@ -214,6 +214,20 @@ abstract class TagList with _$TagList {
       _$TagListFromJson(json);
 }
 
+/// Params for `chats.move` (WP-3.1): into a folder, or out of all of them.
+@freezed
+abstract class MoveChat with _$MoveChat {
+  const factory MoveChat({
+    required String chatId,
+
+    /// Null takes it out of any folder.
+    String? folderId,
+  }) = _MoveChat;
+
+  factory MoveChat.fromJson(Map<String, dynamic> json) =>
+      _$MoveChatFromJson(json);
+}
+
 /// Params for `chats.tags.add` and `chats.tags.remove`.
 @freezed
 abstract class ChatTagEdit with _$ChatTagEdit {

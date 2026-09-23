@@ -127,6 +127,38 @@ final paletteResultsProvider = FutureProvider<ChatSearchResults?>((ref) async {
       );
 });
 
+/// A conversation being dragged in the sidebar, and where it would land
+/// (WP-3.1). Held here rather than in the drag's `DataTransfer`, because
+/// the drop target has to know during `dragover` -- when the browser keeps
+/// that data hidden -- whether the drop would mean anything.
+final draggingChatProvider = NotifierProvider<DraggingChat, DragState?>(
+  DraggingChat.new,
+);
+
+class DragState {
+  const DragState(this.chat, {this.over});
+
+  final ChatSummary chat;
+
+  /// The folder under the pointer: an id, `''` for "no folder", or null.
+  final String? over;
+}
+
+class DraggingChat extends Notifier<DragState?> {
+  @override
+  DragState? build() => null;
+
+  void start(ChatSummary chat) => state = DragState(chat);
+
+  void over(String? target) {
+    final current = state;
+    if (current == null || current.over == target) return;
+    state = DragState(current.chat, over: target);
+  }
+
+  void end() => state = null;
+}
+
 /// The conversation whose share dialog is open, if any (WP-3.1). One
 /// dialog for the window, opened from the header or a sidebar row's menu.
 final shareDialogProvider = NotifierProvider<ShareDialogTarget, String?>(
@@ -508,6 +540,13 @@ class ChatActions {
       model: model,
     ).toJson(),
     decode: SendTurnAccepted.fromJson,
+  );
+
+  /// Moves a conversation into [folderId], or out of every folder.
+  Future<void> move(String chatId, String? folderId) => _client.call(
+    ConduitMethods.chatsMove,
+    params: MoveChat(chatId: chatId, folderId: folderId).toJson(),
+    decode: ChatList.fromJson,
   );
 
   /// Shares a conversation, or refreshes its snapshot if it was shared

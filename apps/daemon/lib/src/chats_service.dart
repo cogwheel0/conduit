@@ -452,6 +452,11 @@ final class ChatsService {
     return _refresh();
   }
 
+  Future<ChatList> move(MoveChat request) async {
+    await _api.moveConversationToFolder(request.chatId, request.folderId);
+    return _refresh();
+  }
+
   Future<ChatShare> share(String id) async {
     final shareId = await _api.shareConversation(id);
     await _afterEnvelopeChange(id);

@@ -313,3 +313,29 @@ EventCallback suppressContextMenu(void Function() close) => (web.Event event) {
   event.preventDefault();
   close();
 };
+
+/// Starts dragging a sidebar row (WP-3.1). "Move" rather than "copy" so the
+/// pointer says what a drop will do.
+EventCallback startDrag(void Function() onStart) => (web.Event event) {
+  final transfer = (event as web.DragEvent).dataTransfer;
+  if (transfer != null) {
+    transfer.effectAllowed = 'move';
+    // Something has to be set for every engine to begin the drag at all.
+    transfer.setData('text/plain', '');
+  }
+  onStart();
+};
+
+/// Claims a `dragover` when [accepts] says the drop would mean something.
+/// Unclaimed, the browser shows "no drop" and never fires `drop`.
+EventCallback acceptDrop(bool Function() accepts) => (web.Event event) {
+  if (!accepts()) return;
+  event.preventDefault();
+  (event as web.DragEvent).dataTransfer?.dropEffect = 'move';
+};
+
+/// A `drop`, claimed so the browser does not also act on it.
+EventCallback onDrop(void Function() dropped) => (web.Event event) {
+  event.preventDefault();
+  dropped();
+};

@@ -608,6 +608,48 @@ test.describe('against a real server', () => {
       await cleanup.dispose()
     }
 
+    // 8f. Into a folder and back out (WP-3.1): the context menu one way,
+    // a drag the other. Only when the account has a folder to use; the
+    // conversation is this run's, and it ends where it started.
+    const folderRows = page
+      .locator('nav[aria-label] section')
+      .filter({ has: page.getByRole('heading', { name: /^folders$/i }) })
+      .locator(':scope > ul > li > button')
+    if ((await folderRows.count()) > 0) {
+      const folderName = (
+        await folderRows.first().locator('span').nth(1).innerText()
+      ).trim()
+      const current = page.locator('nav[aria-label] button[aria-current="true"]')
+      await current.click({ button: 'right' })
+      await page
+        .getByRole('menuitem', { name: `Move to ${folderName}` })
+        .click()
+      // Now inside the folder, which opens to show it.
+      const folderItem = page
+        .locator('nav[aria-label] section')
+        .filter({ has: page.getByRole('heading', { name: /^folders$/i }) })
+        .locator(':scope > ul > li')
+        .first()
+      if ((await folderRows.first().getAttribute('aria-expanded')) !== 'true') {
+        await folderRows.first().click()
+      }
+      await expect(
+        folderItem.locator('button[aria-current="true"]'),
+      ).toBeVisible({ timeout: 30_000 })
+      await shot(page, '08g-in-folder')
+      // Dragged out onto the recent list.
+      const today = page
+        .locator('nav[aria-label] section')
+        .filter({ has: page.getByRole('heading', { name: /^today$/i }) })
+      await folderItem
+        .locator('button[aria-current="true"]')
+        .dragTo(today.getByRole('heading', { name: /^today$/i }))
+      await expect(
+        folderItem.locator('button[aria-current="true"]'),
+      ).toBeHidden({ timeout: 30_000 })
+      await expect(today.locator('button[aria-current="true"]')).toBeVisible()
+    }
+
     // 8c. Edit the question in place (WP-3.2). The conversation should read
     // as the edited question and a new answer, with the original gone from
     // view but kept on the server as the branch it was.

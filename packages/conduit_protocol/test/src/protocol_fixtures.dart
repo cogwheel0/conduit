@@ -297,6 +297,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     size: 182_344,
     contentType: 'application/pdf',
   ),
+  'moveChat': const MoveChat(chatId: 'chat-7c1f0b2a', folderId: 'folder-1'),
   'tag': const TagDto(id: 'work_notes', name: 'Work notes'),
   'tagList': const TagList(
     tags: <TagDto>[TagDto(id: 'q3', name: 'Q3')],
@@ -495,6 +496,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'folderSummary': FolderSummary.fromJson,
       'archivedVisibility': ArchivedVisibility.fromJson,
       'uploadedFile': UploadedFile.fromJson,
+      'moveChat': MoveChat.fromJson,
       'tag': TagDto.fromJson,
       'tagList': TagList.fromJson,
       'chatTagEdit': ChatTagEdit.fromJson,

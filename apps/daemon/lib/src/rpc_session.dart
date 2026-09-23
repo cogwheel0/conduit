@@ -564,6 +564,17 @@ class RpcSession {
       },
     );
 
+    registerTypedMethod<MoveChat, ChatList>(
+      _peer,
+      ConduitMethods.chatsMove,
+      decodeParams: MoveChat.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireChats().move(request);
+      },
+    );
+
     registerTypedMethodNoParams<TagList>(
       _peer,
       ConduitMethods.chatsTagsAll,

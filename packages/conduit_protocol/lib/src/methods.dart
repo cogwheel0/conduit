@@ -121,6 +121,10 @@ abstract final class ConduitMethods {
   /// Full-text search over titles and message bodies.
   static const String chatsSearch = 'chats.search';
 
+  /// Moves a conversation into a folder, or out of one (WP-3.1). Open WebUI
+  /// unpins a conversation it moves; so does this.
+  static const String chatsMove = 'chats.move';
+
   /// Every tag the account has, with its display name (WP-3.8).
   static const String chatsTagsAll = 'chats.tags.all';
 

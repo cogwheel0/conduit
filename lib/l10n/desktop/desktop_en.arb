@@ -401,5 +401,14 @@
   "@desktopShowTagged": {
     "description": "Tooltip of a tag in the desktop conversation header. Clicking it filters the sidebar to conversations with that tag.",
     "placeholders": { "name": { "type": "String", "example": "work" } }
+  },
+  "desktopMoveTo": "Move to {folder}",
+  "@desktopMoveTo": {
+    "description": "Context-menu item that moves a conversation into the named folder in the desktop sidebar.",
+    "placeholders": { "folder": { "type": "String", "example": "Work" } }
+  },
+  "desktopRemoveFromFolder": "Remove from folder",
+  "@desktopRemoveFromFolder": {
+    "description": "Context-menu item that takes a conversation out of its folder in the desktop sidebar."
   }
 }

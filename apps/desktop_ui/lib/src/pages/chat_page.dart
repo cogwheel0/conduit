@@ -181,7 +181,7 @@ class _Sections extends StatelessComponent {
       for (final group in model.recent)
         _section(_bucketLabel(group.bucket), [
           for (final chat in group.chats) _row(chat),
-        ]),
+        ], dropOut: context),
       if (list.hasMore)
         _footerButton(
           t.app.workspaceLoadMore,
@@ -208,14 +208,43 @@ class _Sections extends StatelessComponent {
 
   /// A heading and its rows, as a real heading so a screen reader can jump
   /// between sections instead of reading two hundred titles in a row.
-  Component _section(String title, List<Component> rows) => section([
-    h2(
-      classes:
-          'px-2 pb-1 text-xs font-medium tracking-wide text-muted-foreground',
-      [Component.text(title)],
-    ),
-    ul(classes: 'space-y-0.5', rows),
-  ]);
+  ///
+  /// With [dropOut], the section takes a conversation dragged out of a
+  /// folder: the recent list is where a conversation in no folder lives.
+  Component _section(
+    String title,
+    List<Component> rows, {
+    BuildContext? dropOut,
+  }) {
+    if (dropOut == null) {
+      return section([_heading(title), ul(classes: 'space-y-0.5', rows)]);
+    }
+    final context = dropOut;
+    final dragging = context.watch(draggingChatProvider);
+    bool accepts() => context.read(draggingChatProvider)?.chat.folderId != null;
+    return section(
+      classes: dragging?.over == '' ? 'rounded bg-accent/40' : null,
+      events: <String, EventCallback>{
+        'dragover': (event) {
+          acceptDrop(accepts)(event);
+          if (accepts()) context.read(draggingChatProvider.notifier).over('');
+        },
+        'drop': onDrop(() {
+          final chat = context.read(draggingChatProvider)?.chat;
+          context.read(draggingChatProvider.notifier).end();
+          if (chat == null || chat.folderId == null) return;
+          unawaited(context.read(chatActionsProvider).move(chat.id, null));
+        }),
+      },
+      [_heading(title), ul(classes: 'space-y-0.5', rows)],
+    );
+  }
+
+  Component _heading(String title) => h2(
+    classes:
+        'px-2 pb-1 text-xs font-medium tracking-wide text-muted-foreground',
+    [Component.text(title)],
+  );
 
   /// A folder and, when open, what is in it.
   ///
@@ -225,38 +254,62 @@ class _Sections extends StatelessComponent {
   /// rows pushed right.
   Component _folder(BuildContext context, FolderNode node, Set<String> open) {
     final isOpen = open.contains(node.folder.id);
-    return li([
-      button(
-        [
-          span(
-            classes: 'w-3 shrink-0 text-xs',
-            attributes: const <String, String>{'aria-hidden': 'true'},
-            [Component.text(isOpen ? '\u25be' : '\u25b8')],
-          ),
-          span(classes: 'min-w-0 flex-1 truncate', [
-            Component.text(node.folder.name),
-          ]),
-          span(classes: 'text-xs tabular-nums opacity-60', [
-            Component.text('${node.totalChats}'),
-          ]),
-        ],
-        classes:
-            'flex w-full items-center gap-1.5 rounded px-2 py-1.5 '
-            'text-left text-sm text-foreground hover:bg-accent/50',
-        type: ButtonType.button,
-        attributes: <String, String>{
-          'aria-expanded': isOpen ? 'true' : 'false',
+    final folderId = node.folder.id;
+    final target = context.watch(draggingChatProvider)?.over == folderId;
+    bool accepts() {
+      final chat = context.read(draggingChatProvider)?.chat;
+      return chat != null && chat.folderId != folderId;
+    }
+
+    return li(
+      events: <String, EventCallback>{
+        'dragover': (event) {
+          acceptDrop(accepts)(event);
+          if (accepts()) {
+            context.read(draggingChatProvider.notifier).over(folderId);
+          }
         },
-        onClick: () => context
-            .read(expandedFoldersProvider.notifier)
-            .toggle(node.folder.id),
-      ),
-      if (isOpen)
-        ul(classes: 'ml-3 space-y-0.5 border-l border-border pl-1', [
-          for (final child in node.children) _folder(context, child, open),
-          for (final chat in node.chats) _row(chat),
-        ]),
-    ]);
+        'drop': onDrop(() {
+          final chat = context.read(draggingChatProvider)?.chat;
+          context.read(draggingChatProvider.notifier).end();
+          if (chat == null || chat.folderId == folderId) return;
+          unawaited(context.read(chatActionsProvider).move(chat.id, folderId));
+        }),
+      },
+      [
+        button(
+          [
+            span(
+              classes: 'w-3 shrink-0 text-xs',
+              attributes: const <String, String>{'aria-hidden': 'true'},
+              [Component.text(isOpen ? '\u25be' : '\u25b8')],
+            ),
+            span(classes: 'min-w-0 flex-1 truncate', [
+              Component.text(node.folder.name),
+            ]),
+            span(classes: 'text-xs tabular-nums opacity-60', [
+              Component.text('${node.totalChats}'),
+            ]),
+          ],
+          classes:
+              'flex w-full items-center gap-1.5 rounded px-2 py-1.5 '
+              'text-left text-sm text-foreground hover:bg-accent/50'
+              '${target ? ' bg-accent ring-1 ring-primary' : ''}',
+          type: ButtonType.button,
+          attributes: <String, String>{
+            'aria-expanded': isOpen ? 'true' : 'false',
+          },
+          onClick: () => context
+              .read(expandedFoldersProvider.notifier)
+              .toggle(node.folder.id),
+        ),
+        if (isOpen)
+          ul(classes: 'ml-3 space-y-0.5 border-l border-border pl-1', [
+            for (final child in node.children) _folder(context, child, open),
+            for (final chat in node.chats) _row(chat),
+          ]),
+      ],
+    );
   }
 
   Component _footerButton(
@@ -436,6 +489,21 @@ class _ChatRowState extends State<_ChatRow> {
                 t.app.shareChat,
                 () => context.read(shareDialogProvider.notifier).open(chat.id),
               ),
+              // Every folder, as drag-and-drop offers them -- for the same
+              // move without a mouse held down across the sidebar.
+              for (final folder
+                  in context.read(chatListProvider).value?.folders ??
+                      const <FolderSummary>[])
+                if (folder.id != chat.folderId)
+                  ContextMenuItem(
+                    t.desktop.desktopMoveTo(folder: folder.name),
+                    () => unawaited(actions.move(chat.id, folder.id)),
+                  ),
+              if (chat.folderId != null)
+                ContextMenuItem(
+                  t.desktop.desktopRemoveFromFolder,
+                  () => unawaited(actions.move(chat.id, null)),
+                ),
               ContextMenuItem(
                 chat.archived ? t.app.unarchive : t.desktop.desktopArchiveChat,
                 () => unawaited(
@@ -449,31 +517,41 @@ class _ChatRowState extends State<_ChatRow> {
               ),
             ],
           ),
-        div(classes: 'flex items-center gap-1', [
-          button(
-            [
-              span(classes: 'truncate', [Component.text(chat.title)]),
-              if (chat.pinned)
-                span(
-                  classes: 'ml-1 text-xs',
-                  attributes: const <String, String>{'aria-hidden': 'true'},
-                  [Component.text('\u2605')],
-                ),
-            ],
-            classes:
-                'flex min-w-0 flex-1 items-center rounded px-2 py-1.5 '
-                'text-left text-sm '
-                '${component.isSelected ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'}',
-            type: ButtonType.button,
-            // `aria-current` rather than `aria-selected`: these are navigation
-            // items, not options in a listbox.
-            attributes: component.isSelected
-                ? const <String, String>{'aria-current': 'true'}
-                : null,
-            onClick: () => actions.select(chat.id),
-          ),
-          _actionsMenu(context, chat, actions),
-        ]),
+        div(
+          classes: 'flex items-center gap-1',
+          attributes: const <String, String>{'draggable': 'true'},
+          events: <String, EventCallback>{
+            'dragstart': startDrag(
+              () => context.read(draggingChatProvider.notifier).start(chat),
+            ),
+            'dragend': (_) => context.read(draggingChatProvider.notifier).end(),
+          },
+          [
+            button(
+              [
+                span(classes: 'truncate', [Component.text(chat.title)]),
+                if (chat.pinned)
+                  span(
+                    classes: 'ml-1 text-xs',
+                    attributes: const <String, String>{'aria-hidden': 'true'},
+                    [Component.text('\u2605')],
+                  ),
+              ],
+              classes:
+                  'flex min-w-0 flex-1 items-center rounded px-2 py-1.5 '
+                  'text-left text-sm '
+                  '${component.isSelected ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'}',
+              type: ButtonType.button,
+              // `aria-current` rather than `aria-selected`: these are navigation
+              // items, not options in a listbox.
+              attributes: component.isSelected
+                  ? const <String, String>{'aria-current': 'true'}
+                  : null,
+              onClick: () => actions.select(chat.id),
+            ),
+            _actionsMenu(context, chat, actions),
+          ],
+        ),
         if (_confirmingDelete)
           div(
             classes:
