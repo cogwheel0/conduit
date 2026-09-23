@@ -22,3 +22,4 @@ export 'src/settings_service.dart';
 export 'src/system_service.dart';
 export 'src/temporary_chats.dart';
 export 'src/turns_service.dart';
+export 'src/ui_requests_service.dart';

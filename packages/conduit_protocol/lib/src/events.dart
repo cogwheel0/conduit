@@ -39,6 +39,11 @@ abstract final class ConduitEvents {
   /// `ui.respond`.
   static const String uiRequest = 'ui.request';
 
+  /// A `ui.request` has been answered or has run out of time. Payload is
+  /// `{requestId}`. Windows that did not answer close their card, so no
+  /// window offers a choice that no longer counts.
+  static const String uiSettled = 'ui.settled';
+
   /// Emitted when [Capabilities] change — a server switch, a sign-in, the
   /// Apple helper becoming available.
   static const String capabilitiesChanged = 'capabilities.changed';
@@ -58,6 +63,7 @@ abstract final class ConduitEvents {
     notifyShow,
     routeRemap,
     uiRequest,
+    uiSettled,
     capabilitiesChanged,
   };
 }

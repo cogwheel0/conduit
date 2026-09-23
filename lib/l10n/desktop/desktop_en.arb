@@ -291,5 +291,25 @@
   "desktopTemporaryHint": "Not saved. It disappears when you close the app.",
   "@desktopTemporaryHint": {
     "description": "Explains a temporary chat in the desktop composer and transcript header."
+  },
+  "desktopAllow": "Allow",
+  "@desktopAllow": {
+    "description": "Button that approves a server's request, such as a tool asking to run, in the desktop app."
+  },
+  "desktopDeny": "Deny",
+  "@desktopDeny": {
+    "description": "Button that declines a server's request, such as a tool asking to run, in the desktop app."
+  },
+  "desktopServerAsks": "The server is asking",
+  "@desktopServerAsks": {
+    "description": "Accessible name of the desktop card that shows a question the server sent during a reply."
+  },
+  "desktopShortcutAllowRequest": "Allow the server's request",
+  "@desktopShortcutAllowRequest": {
+    "description": "Name of the desktop keyboard shortcut that approves a waiting server request."
+  },
+  "desktopShortcutDenyRequest": "Deny the server's request",
+  "@desktopShortcutDenyRequest": {
+    "description": "Name of the desktop keyboard shortcut that declines a waiting server request."
   }
 }

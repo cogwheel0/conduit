@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:jaspr_riverpod/jaspr_riverpod.dart';
@@ -8,6 +9,7 @@ import 'package:jaspr_router/jaspr_router.dart';
 import '../l10n/strings.g.dart';
 import '../rpc/chat_providers.dart';
 import '../rpc/rpc_providers.dart';
+import '../rpc/ui_request_providers.dart';
 import '../shortcuts.dart';
 import 'shortcuts_overlay.dart';
 
@@ -112,6 +114,24 @@ class _KeyboardLayerState extends State<KeyboardLayer> {
         setState(() => _showShortcuts = !_showShortcuts);
       case ShortcutAction.copyLastResponse:
         unawaited(_copy(_lastReply?.read()));
+      case ShortcutAction.allowRequest || ShortcutAction.denyRequest:
+        final waiting = context.read(uiRequestsProvider);
+        if (waiting.isEmpty) return;
+        // A prompt's answer is the text in its card. Allowing it from the
+        // keyboard would submit nothing, so only a yes-or-no request takes
+        // the chord. Denying is always safe.
+        if (action == ShortcutAction.allowRequest &&
+            waiting.first.kind == UiRequestKind.inputPrompt) {
+          return;
+        }
+        unawaited(
+          context
+              .read(uiRequestsProvider.notifier)
+              .answer(
+                waiting.first,
+                allow: action == ShortcutAction.allowRequest,
+              ),
+        );
       case ShortcutAction.copyLastCodeBlock:
         final reply = _lastReply?.read();
         unawaited(_copy(reply == null ? null : lastCodeBlock(reply)));

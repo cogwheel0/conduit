@@ -96,5 +96,7 @@ class ShortcutsOverlay extends StatelessComponent {
       t.desktop.desktopShortcutCopyLastResponse,
     ShortcutAction.copyLastCodeBlock =>
       t.desktop.desktopShortcutCopyLastCodeBlock,
+    ShortcutAction.allowRequest => t.desktop.desktopShortcutAllowRequest,
+    ShortcutAction.denyRequest => t.desktop.desktopShortcutDenyRequest,
   };
 }

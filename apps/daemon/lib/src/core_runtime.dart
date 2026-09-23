@@ -6,6 +6,8 @@ import 'package:conduit_core/database/account_storage_isolation.dart';
 import 'package:conduit_core/persistence/hive_boxes.dart';
 import 'package:conduit_core/persistence/persistence_providers.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/app_providers.dart'
+    show socketServiceManagerProvider;
 import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/storage_providers.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
@@ -120,6 +122,18 @@ final class CoreRuntime {
     // history and no sync, because every one of those reads it. Nothing else
     // in the sidecar would ever construct it.
     container.read(openWebUiAccountStorageIsolationProvider);
+
+    // The Socket.IO connection, held open for the daemon's lifetime (WP-3.6).
+    //
+    // The manager is lazy and nothing else in the sidecar reads it, so until
+    // now the daemon had no socket at all. Turns went out as plain HTTP
+    // streams, which is enough for text. It is not enough for anything the
+    // server starts: a tool asking for approval, a function asking the user
+    // a question, a title arriving after the answer. All of those are
+    // socket event calls, and with no socket they had nowhere to arrive.
+    // A listener rather than a `read`, because the manager rebuilds on every
+    // sign-in and server switch, and a read would keep only the first.
+    container.listen(socketServiceManagerProvider, (_, _) {});
 
     _containerForSync = container;
     log.info('core runtime ready');

@@ -20,6 +20,7 @@ import 'files_service.dart';
 import 'log.dart';
 import 'rpc_session.dart';
 import 'temporary_chats.dart';
+import 'ui_requests_service.dart';
 import 'models_service.dart';
 import 'servers_service.dart';
 import 'settings_service.dart';
@@ -64,6 +65,11 @@ class DaemonServer {
   TurnsService? _turns;
   ModelsService? _models;
   FilesService? _files;
+  UiRequestsService? _uiRequests;
+
+  /// The broker the core asks its questions through. Exposed so tests can
+  /// ask one and watch it cross the RPC boundary.
+  UiRequestsService? get uiRequests => _uiRequests;
 
   final EventBus events = EventBus();
   final Map<String, RpcSession> _sessions = <String, RpcSession>{};
@@ -110,11 +116,13 @@ class DaemonServer {
     final temporary = TemporaryChats();
     _chats = ChatsService(core.container, events: events, temporary: temporary);
     _files = FilesService(core.container);
+    _uiRequests = UiRequestsService(events);
     _turns = TurnsService(
       core.container,
       events,
       files: _files!,
       temporary: temporary,
+      uiRequests: _uiRequests,
     );
     _models = ModelsService(core.container);
     _log.info('core attached');
@@ -339,6 +347,7 @@ class DaemonServer {
         chats: _chats,
         turns: _turns,
         models: _models,
+        uiRequests: _uiRequests,
       );
       _sessions[sessionId] = session;
       _log.debug('session $sessionId opened (subprotocol: $subprotocol)');

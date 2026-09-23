@@ -13,6 +13,7 @@ import 'pages/status_page.dart';
 import 'l10n/strings.g.dart';
 import 'rpc/session_providers.dart';
 import 'widgets/keyboard_layer.dart';
+import 'widgets/ui_request_card.dart';
 import 'widgets/server_issue_banner.dart';
 
 /// The desktop app shell and its routes.
@@ -224,6 +225,9 @@ class _Shell extends StatelessComponent {
       const ServerIssueBanner(),
       const _SessionGate(),
       const KeyboardLayer(),
+      // Above every route: a tool waiting for approval holds up its reply
+      // wherever the person happens to be looking.
+      const UiRequestCard(),
       div(classes: 'min-h-0 flex-1', [child]),
       if (showsFloatingSettingsLink(RouteState.of(context).location))
         _settingsLink(),

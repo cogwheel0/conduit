@@ -19,6 +19,8 @@ enum ShortcutAction {
   showShortcuts,
   copyLastResponse,
   copyLastCodeBlock,
+  allowRequest,
+  denyRequest,
 }
 
 /// A chord, as the user would describe it.
@@ -122,6 +124,19 @@ const List<Shortcut> defaultShortcuts = <Shortcut>[
     KeyStroke('c', primary: true, shift: true),
     whileTyping: true,
   ),
+  // Answer the server's waiting request (WP-3.6). Alt as well as the
+  // accelerator, so neither can be pressed by accident while typing.
+  // Allowing a tool to run should take a deliberate chord.
+  Shortcut(
+    ShortcutAction.allowRequest,
+    KeyStroke('enter', primary: true, alt: true),
+    whileTyping: true,
+  ),
+  Shortcut(
+    ShortcutAction.denyRequest,
+    KeyStroke('backspace', primary: true, alt: true),
+    whileTyping: true,
+  ),
   Shortcut(
     ShortcutAction.copyLastCodeBlock,
     KeyStroke(';', primary: true, shift: true),
@@ -162,6 +177,8 @@ String describeStroke(KeyStroke stroke, {required bool isMac}) {
 
 String _describeKey(String key) => switch (key) {
   'escape' => 'Esc',
+  'enter' => 'Enter',
+  'backspace' => 'Backspace',
   'arrowup' => '↑',
   'arrowdown' => '↓',
   ' ' => 'Space',

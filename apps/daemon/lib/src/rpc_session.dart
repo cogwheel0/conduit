@@ -13,6 +13,7 @@ import 'servers_service.dart';
 import 'settings_service.dart';
 import 'system_service.dart';
 import 'turns_service.dart';
+import 'ui_requests_service.dart';
 
 /// One connected renderer window.
 ///
@@ -32,7 +33,9 @@ class RpcSession {
     ChatsService? chats,
     TurnsService? turns,
     ModelsService? models,
+    UiRequestsService? uiRequests,
   }) : _events = events,
+       _uiRequests = uiRequests,
        _log = log,
        _system = system,
        _servers = servers,
@@ -69,22 +72,18 @@ class RpcSession {
 
   bool get isHandshakeComplete => _handshake != null;
 
-  /// Pending `ui.request` round-trips, keyed by request id.
-  final Map<String, Completer<UiResponse>> _pendingUiRequests =
-      <String, Completer<UiResponse>>{};
+  /// Questions from the core, shared by every window. Null until the core
+  /// is attached, when there is nothing to ask yet.
+  final UiRequestsService? _uiRequests;
 
   Future<void> listen() => _peer.listen();
 
   Future<void> close() async {
-    for (final completer in _pendingUiRequests.values) {
-      if (!completer.isCompleted) {
-        completer.completeError(
-          const RpcError(code: ConduitErrorCodes.cancelled),
-        );
-      }
-    }
-    _pendingUiRequests.clear();
     _events.detach(sessionId);
+    // If that was the last window, nobody is left to answer: questions
+    // still waiting take their conservative default now rather than hang
+    // the turn that asked them.
+    _uiRequests?.onWindowsChanged();
     await _peer.close();
   }
 
@@ -180,6 +179,19 @@ class RpcSession {
           }
         }
         _events.subscribe(sessionId, subscription);
+        // A window that opens while a question is waiting sees it too.
+        // Otherwise a tool approval asked before the window existed could
+        // only be answered by one that no longer does.
+        for (final request in _uiRequests?.pending ?? const <UiRequest>[]) {
+          sendEvent(
+            _peer,
+            EventEnvelope(
+              event: ConduitEvents.uiRequest,
+              seq: _events.lastSeq,
+              payload: request.toJson(),
+            ),
+          );
+        }
         // Echo the accepted filter back so the client can assert on what the
         // daemon actually stored rather than on what it hoped it sent.
         return subscription;
@@ -193,18 +205,16 @@ class RpcSession {
       encodeResult: (result) => result,
       handler: (response) {
         _requireHandshake();
-        final completer = _pendingUiRequests.remove(response.requestId);
-        if (completer == null) {
+        final accepted = _uiRequests?.respond(response) ?? false;
+        if (!accepted) {
           // Late or duplicate answer — the request already timed out or
           // another window answered first. Not an error worth surfacing.
           _log.debug(
             'session $sessionId: ui.respond for unknown request '
             '${response.requestId}',
           );
-          return <String, dynamic>{'accepted': false};
         }
-        completer.complete(response);
-        return <String, dynamic>{'accepted': true};
+        return <String, dynamic>{'accepted': accepted};
       },
     );
 
@@ -669,41 +679,6 @@ class RpcSession {
         code: ConduitErrorCodes.daemonUnavailable,
         debugMessage: 'the core is not up yet',
       ));
-
-  /// Asks this window a question and waits for the user.
-  ///
-  /// Used by the core for tool approvals, Open WebUI input prompts, MCP
-  /// approvals, and Hermes decisions.
-  Future<UiResponse> requestFromUi(UiRequest request) {
-    final completer = Completer<UiResponse>();
-    _pendingUiRequests[request.requestId] = completer;
-    sendEvent(
-      _peer,
-      EventEnvelope(
-        event: ConduitEvents.uiRequest,
-        seq: _events.lastSeq,
-        payload: request.toJson(),
-      ),
-    );
-
-    final timeoutMs = request.timeoutMs;
-    if (timeoutMs != null) {
-      return completer.future.timeout(
-        Duration(milliseconds: timeoutMs),
-        onTimeout: () {
-          _pendingUiRequests.remove(request.requestId);
-          // Falling back to the conservative default is the whole point of
-          // `defaultChoice`: a window that never answers must not allow a
-          // tool call by omission.
-          return UiResponse(
-            requestId: request.requestId,
-            choice: request.defaultChoice,
-          );
-        },
-      );
-    }
-    return completer.future;
-  }
 
   void _requireHandshake() {
     if (_handshake == null) {

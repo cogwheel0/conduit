@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/ports/ui_request_port.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/chat_completion_transport.dart';
@@ -40,12 +41,18 @@ final class TurnsService {
     this._events, {
     FilesService? files,
     TemporaryChats? temporary,
+    UiRequestPort? uiRequests,
   }) : _files = files,
+       _uiRequests = uiRequests ?? const NullUiRequestPort(),
        temporary = temporary ?? TemporaryChats();
 
   /// Conversations the server never stores. Shared with `ChatsService`,
   /// which answers `chats.get` for them from the same memory.
   final TemporaryChats temporary;
+
+  /// Where the streaming pipeline takes a question it needs a person to
+  /// answer: a tool approval, a server prompt. Declines with no UI attached.
+  final UiRequestPort _uiRequests;
 
   final ProviderContainer _container;
   final EventBus _events;
@@ -85,6 +92,49 @@ final class TurnsService {
     }
     return api;
   }
+
+  /// The live socket's session id, connecting it first if it has dropped.
+  ///
+  /// Sent with a turn so the server runs it as a task that reports over the
+  /// socket, the same way it runs for Open WebUI's own client and for
+  /// mobile. That is what makes server-initiated prompts possible: a tool
+  /// asking for approval addresses a session, and without one it has nobody
+  /// to ask. Null falls back to a plain HTTP stream, which still answers.
+  Future<String?> _socketSession(SendTurn request) async {
+    // Only for a turn that opts into what the server does itself: tools,
+    // web search, code execution, image generation. Those are the turns
+    // where a tool can ask for approval or a function can ask a question,
+    // and they need the socket to do it.
+    //
+    // Not for every turn, which is what Open WebUI's own client does. With
+    // a socket session the server injects its built-in tools into the
+    // request, and a model that cannot take tools (a small Ollama model,
+    // for instance) then fails every turn with "does not support tools".
+    // The model list does not say which models those are, and retrying
+    // cannot repair it: the failed attempt is persisted against the answer
+    // and read back after the retry succeeds. A plain turn therefore stays
+    // on HTTP, as it always has.
+    if (!_wantsServerTools(request)) return null;
+    final socket = _container.read(socketServiceProvider);
+    if (socket == null) return null;
+    if (!socket.isConnected) {
+      try {
+        await socket.ensureConnected(
+          timeout: const Duration(milliseconds: 1200),
+        );
+      } on Object catch (error) {
+        DebugLogger.log('socket-connect-failed: $error', scope: 'daemon/turns');
+      }
+    }
+    final id = socket.sessionId;
+    return socket.isConnected && id != null && id.isNotEmpty ? id : null;
+  }
+
+  static bool _wantsServerTools(SendTurn request) =>
+      request.toolIds.isNotEmpty ||
+      request.webSearch ||
+      request.codeInterpreter ||
+      request.imageGeneration;
 
   /// Refuses a second turn in a chat that is already generating.
   ///
@@ -180,41 +230,47 @@ final class TurnsService {
     // server needs none of that here, because the daemon keeps the
     // transcript itself.
     final isTemporary = TemporaryChats.isTemporary(resolvedChatId);
-    final completion = await api.sendMessageSession(
-      messages: payload,
-      model: model,
-      conversationId: isTemporary ? null : resolvedChatId,
-      responseMessageId: assistantMessageId,
-      parentId: isTemporary || history.isEmpty ? null : history.last.id,
-      // What the server records as the user's turn. Without it an existing
-      // chat gains an answer with nothing to answer.
-      userMessage: isTemporary
-          ? null
-          : <String, dynamic>{
-              'id': userMessageId,
-              'role': 'user',
-              'content': text,
-              'timestamp': userMessage.timestamp.millisecondsSinceEpoch ~/ 1000,
-              'models': <String>[model],
-              'childrenIds': <String>[assistantMessageId],
-              if (history.isNotEmpty) 'parentId': history.last.id,
-            },
-      toolIds: request.toolIds.isEmpty ? null : request.toolIds,
-      // Uploaded through `POST /upload`, so the daemon already knows each
-      // one's name and size -- which Open WebUI wants alongside the id.
-      files: request.fileIds.isEmpty
-          ? null
-          : _files?.attachmentsFor(request.fileIds),
-      enableWebSearch: request.webSearch,
-      enableImageGeneration: request.imageGeneration,
-      enableCodeInterpreter: request.codeInterpreter,
-    );
+    Future<ChatCompletionSession> dispatch(String? sessionId) =>
+        api.sendMessageSession(
+          sessionIdOverride: sessionId,
+          messages: payload,
+          model: model,
+          conversationId: isTemporary ? null : resolvedChatId,
+          responseMessageId: assistantMessageId,
+          parentId: isTemporary || history.isEmpty ? null : history.last.id,
+          // What the server records as the user's turn. Without it an existing
+          // chat gains an answer with nothing to answer.
+          userMessage: isTemporary
+              ? null
+              : <String, dynamic>{
+                  'id': userMessageId,
+                  'role': 'user',
+                  'content': text,
+                  'timestamp':
+                      userMessage.timestamp.millisecondsSinceEpoch ~/ 1000,
+                  'models': <String>[model],
+                  'childrenIds': <String>[assistantMessageId],
+                  if (history.isNotEmpty) 'parentId': history.last.id,
+                },
+          toolIds: request.toolIds.isEmpty ? null : request.toolIds,
+          // Uploaded through `POST /upload`, so the daemon already knows each
+          // one's name and size -- which Open WebUI wants alongside the id.
+          files: request.fileIds.isEmpty
+              ? null
+              : _files?.attachmentsFor(request.fileIds),
+          enableWebSearch: request.webSearch,
+          enableImageGeneration: request.imageGeneration,
+          enableCodeInterpreter: request.codeInterpreter,
+        );
+    final sessionId = isTemporary ? null : await _socketSession(request);
+    final completion = await dispatch(sessionId);
 
     _attach(
       api: api,
       chatId: resolvedChatId,
       model: model,
       completion: completion,
+      overSocket: sessionId != null,
       request: request,
     );
 
@@ -289,7 +345,10 @@ final class TurnsService {
       );
     }
 
-    final completion = await api.sendMessageSession(
+    Future<ChatCompletionSession> dispatch(
+      String? sessionId,
+    ) => api.sendMessageSession(
+      sessionIdOverride: sessionId,
       messages: <Map<String, dynamic>>[
         for (final message in prompt)
           <String, dynamic>{'role': message.role, 'content': message.content},
@@ -323,12 +382,15 @@ final class TurnsService {
         'childrenIds': message_tree.chatMessageChildrenIds(userMessage),
       },
     );
+    const String? sessionId = null;
+    final completion = await dispatch(sessionId);
 
     _attach(
       api: api,
       chatId: request.chatId,
       model: model,
       completion: completion,
+      overSocket: sessionId != null,
       // The flags a regenerate cannot carry: the original request's tool
       // and web-search choices are not recorded per message, so repeating
       // the turn repeats the prompt, not the tooling.
@@ -408,36 +470,44 @@ final class TurnsService {
     final assistantMessageId = _uuid.v4();
     final now = DateTime.now();
 
-    final completion = await api.sendMessageSession(
-      messages: <Map<String, dynamic>>[
-        for (final message in before)
-          <String, dynamic>{'role': message.role, 'content': message.content},
-        <String, dynamic>{'role': 'user', 'content': text},
-      ],
-      model: model,
-      conversationId: request.chatId,
-      responseMessageId: assistantMessageId,
-      // As with regenerate, `parent_id` is the *user message's* parent. The
-      // server uses the user message's own `parentId` to link it into that
-      // parent's children, which is what puts the new question beside the
-      // old one.
-      parentId: parentId,
-      userMessage: <String, dynamic>{
-        'id': userMessageId,
-        'role': 'user',
-        'content': text,
-        'timestamp': now.millisecondsSinceEpoch ~/ 1000,
-        'models': <String>[model],
-        'childrenIds': <String>[assistantMessageId],
-        'parentId': ?parentId,
-      },
-    );
+    Future<ChatCompletionSession> dispatch(String? sessionId) =>
+        api.sendMessageSession(
+          sessionIdOverride: sessionId,
+          messages: <Map<String, dynamic>>[
+            for (final message in before)
+              <String, dynamic>{
+                'role': message.role,
+                'content': message.content,
+              },
+            <String, dynamic>{'role': 'user', 'content': text},
+          ],
+          model: model,
+          conversationId: request.chatId,
+          responseMessageId: assistantMessageId,
+          // As with regenerate, `parent_id` is the *user message's* parent. The
+          // server uses the user message's own `parentId` to link it into that
+          // parent's children, which is what puts the new question beside the
+          // old one.
+          parentId: parentId,
+          userMessage: <String, dynamic>{
+            'id': userMessageId,
+            'role': 'user',
+            'content': text,
+            'timestamp': now.millisecondsSinceEpoch ~/ 1000,
+            'models': <String>[model],
+            'childrenIds': <String>[assistantMessageId],
+            'parentId': ?parentId,
+          },
+        );
+    const String? sessionId = null;
+    final completion = await dispatch(sessionId);
 
     _attach(
       api: api,
       chatId: request.chatId,
       model: model,
       completion: completion,
+      overSocket: sessionId != null,
       request: SendTurn(chatId: request.chatId, text: text),
     );
 
@@ -480,12 +550,13 @@ final class TurnsService {
     required String model,
     required ChatCompletionSession completion,
     required SendTurn request,
+    bool overSocket = false,
   }) {
     final turn = _ActiveTurn(
       chatId: chatId,
       messageId: completion.messageId,
       model: model,
-    );
+    )..overSocket = overSocket;
     _active[chatId] = turn;
 
     _events.publish(
@@ -507,7 +578,12 @@ final class TurnsService {
       sessionId: completion.sessionId,
       activeConversationId: chatId,
       api: api,
-      socketService: _container.read(socketServiceProvider),
+      // Only a turn sent over the socket listens on it. An HTTP turn gets
+      // everything on its own stream, and listening anyway let a *failed*
+      // socket attempt's late error event, carrying the same message id,
+      // land on the HTTP retry that had already answered.
+      socketService: overSocket ? _container.read(socketServiceProvider) : null,
+      uiRequests: _uiRequests,
       workerManager: _container.read(workerManagerProvider),
       appendToLastMessage: turn.append,
       bufferLastMessageContent: turn.buffer,
@@ -736,6 +812,9 @@ class _ActiveTurn {
   final String chatId;
   final String messageId;
   final String model;
+
+  /// Whether the server is running this turn as a socket task.
+  bool overSocket = false;
 
   final StringBuffer _content = StringBuffer();
   String? _pending;

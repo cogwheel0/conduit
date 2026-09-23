@@ -284,7 +284,8 @@ void main() {
         expect(
           seen,
           contains(ConduitEvents.turnCompleted),
-          reason: 'events seen: $seen',
+          reason:
+              'events seen: $seen; failed: ${payloads[ConduitEvents.turnFailed]}',
         );
         final completed = TurnCompleted.fromJson(
           payloads[ConduitEvents.turnCompleted]!,
