@@ -1,13 +1,19 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/note_mapper.dart';
 import 'package:conduit_core/error/api_error.dart';
 import 'package:conduit_core/features/notes/providers/notes_providers.dart';
 import 'package:conduit_core/features/notes/utils/note_quill_delta.dart';
 import 'package:conduit_core/models/note.dart';
+import 'package:conduit_core/sync/chat_locks.dart';
+import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:dio/dio.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:riverpod/riverpod.dart';
 
 import 'event_bus.dart';
@@ -85,7 +91,102 @@ final class NotesService {
   static NoteDetail _detail(Note note) => NoteDetail(
     summary: _summarize(note),
     ops: quillOpsFromMarkdown(note.markdownContent),
+    files: <NoteFile>[
+      for (final file in note.data.files ?? const <Map<String, dynamic>>[])
+        if (file['id'] case final Object id)
+          NoteFile(
+            id: '$id',
+            name: '${file['name'] ?? id}',
+            size: (file['size'] as num?)?.toInt(),
+            contentType: file['content_type'] as String?,
+          ),
+    ],
   );
+
+  /// Attaches an uploaded file to a note, written with its outbox
+  /// operation as mobile attaches a recording, so it survives going
+  /// offline. The attachment is Open WebUI's own file descriptor, which
+  /// the web client shows too.
+  Future<NoteDetail> attach(NoteAttach request) => _changeFiles(
+    request.noteId,
+    (files) => files.any((file) => '${file['id']}' == request.file.id)
+        ? files
+        : <Map<String, dynamic>>[
+            ...files,
+            <String, dynamic>{
+              'type': 'file',
+              'file': '',
+              'id': request.file.id,
+              'url': request.file.id,
+              'name': request.file.name,
+              'collection_name': '',
+              'status': 'uploaded',
+              'size': ?request.file.size,
+              'content_type': ?request.file.contentType,
+              'error': '',
+              // Mobile's replay key, so a retried attach is not doubled.
+              'itemId': request.file.id,
+            },
+          ],
+  );
+
+  /// Takes a file off a note. The file stays on the server.
+  Future<NoteDetail> detach(NoteDetach request) => _changeFiles(
+    request.noteId,
+    (files) => <Map<String, dynamic>>[
+      for (final file in files)
+        if ('${file['id']}' != request.fileId) file,
+    ],
+  );
+
+  Future<NoteDetail> _changeFiles(
+    String noteId,
+    List<Map<String, dynamic>> Function(List<Map<String, dynamic>> files)
+    change,
+  ) async {
+    await readSettled(_container, notesListProvider.future);
+    final db = _container.read(appDatabaseProvider);
+    if (db == null) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: 'attachments need the account database',
+      );
+    }
+    final id = await db.notesDao.resolveNoteRemapTarget(noteId);
+    await _container.read(noteLocksProvider).runExclusive(id, () async {
+      final row = await db.notesDao.getNote(id);
+      if (row == null || row.deleted) {
+        throw RpcError(
+          code: ConduitErrorCodes.notFound,
+          debugMessage: 'no note $noteId',
+        );
+      }
+      final data = decodeNoteData(row.data);
+      final files = <Map<String, dynamic>>[
+        if (data['files'] case final List<Object?> list)
+          for (final file in list)
+            if (file is Map) Map<String, dynamic>.from(file),
+      ];
+      final changed = change(files);
+      if (identical(changed, files)) return;
+      await db.notesDao.updateNoteWithOutbox(
+        id,
+        data: Value(jsonEncode(<String, dynamic>{...data, 'files': changed})),
+        localUpdatedAtNs: DateTime.now().microsecondsSinceEpoch * 1000,
+        enqueue: true,
+      );
+    });
+    // Pushed now; a failure leaves the operation queued for the next try.
+    unawaited(
+      _container
+          .read(syncEngineProvider.notifier)
+          .drainNow()
+          .catchError((Object _) {}),
+    );
+    _container.invalidate(noteByIdProvider(id));
+    final row = await db.notesDao.getNote(id);
+    return _detail(Note.fromJson(noteRowToServer(row!)));
+  }
 
   /// A note the server no longer has: gone, not an error.
   static bool _notFound(Object error) => switch (error) {

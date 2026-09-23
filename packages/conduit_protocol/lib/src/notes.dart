@@ -53,10 +53,49 @@ abstract class NoteDetail with _$NoteDetail {
   const factory NoteDetail({
     required NoteSummary summary,
     @Default(<Map<String, dynamic>>[]) List<Map<String, dynamic>> ops,
+
+    /// Files attached to the note: recordings, documents.
+    @Default(<NoteFile>[]) List<NoteFile> files,
   }) = _NoteDetail;
 
   factory NoteDetail.fromJson(Map<String, dynamic> json) =>
       _$NoteDetailFromJson(json);
+}
+
+/// A file attached to a note, stored as an Open WebUI file.
+@freezed
+abstract class NoteFile with _$NoteFile {
+  const factory NoteFile({
+    required String id,
+    required String name,
+    int? size,
+
+    /// The MIME type, when known: what decides whether it plays inline.
+    String? contentType,
+  }) = _NoteFile;
+
+  factory NoteFile.fromJson(Map<String, dynamic> json) =>
+      _$NoteFileFromJson(json);
+}
+
+/// Params for `notes.attach`: a file already uploaded through `/upload`.
+@freezed
+abstract class NoteAttach with _$NoteAttach {
+  const factory NoteAttach({required String noteId, required NoteFile file}) =
+      _NoteAttach;
+
+  factory NoteAttach.fromJson(Map<String, dynamic> json) =>
+      _$NoteAttachFromJson(json);
+}
+
+/// Params for `notes.detach`.
+@freezed
+abstract class NoteDetach with _$NoteDetach {
+  const factory NoteDetach({required String noteId, required String fileId}) =
+      _NoteDetach;
+
+  factory NoteDetach.fromJson(Map<String, dynamic> json) =>
+      _$NoteDetachFromJson(json);
 }
 
 /// Params for `notes.save`: a new note when [id] is null.

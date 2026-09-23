@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.36.0",
+  "protocolVersion": "1.37.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.36.0",
+  "protocolVersion": "1.37.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -731,6 +731,13 @@ const Map<String, String> protocolGoldens = <String, String>{
         "bold": true
       }
     }
+  ],
+  "files": [
+    {
+      "id": "f1",
+      "name": "list.pdf",
+      "contentType": "application/pdf"
+    }
   ]
 }''',
 
@@ -753,6 +760,29 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "id": "n1",
   "pinned": true
+}''',
+
+  'noteFile': r'''
+{
+  "id": "f1",
+  "name": "recording.webm",
+  "size": 48213,
+  "contentType": "audio/webm"
+}''',
+
+  'noteAttach': r'''
+{
+  "noteId": "n1",
+  "file": {
+    "id": "f1",
+    "name": "recording.webm"
+  }
+}''',
+
+  'noteDetach': r'''
+{
+  "noteId": "n1",
+  "fileId": "f1"
 }''',
 
   'noteAi': r'''

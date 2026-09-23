@@ -370,6 +370,12 @@ abstract final class ConduitMethods {
   /// Asks a model to rewrite the note as fuller, better-organised
   /// markdown; answers with the new body without saving it.
   static const String notesEnhance = 'notes.enhance';
+
+  /// Attaches an uploaded file -- a recording, a document -- to a note.
+  static const String notesAttach = 'notes.attach';
+
+  /// Takes a file off a note; the file itself stays on the server.
+  static const String notesDetach = 'notes.detach';
   static const String channelsPrefix = 'channels.';
   static const String workspacePrefix = 'workspace.';
   static const String directPrefix = 'direct.';

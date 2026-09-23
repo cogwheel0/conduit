@@ -54,6 +54,15 @@ abstract interface class AttachmentPort {
   /// paste its file name into the field. Empty for text, which proceeds as
   /// the browser would.
   List<PickedAttachment> takeFiles(Object event);
+
+  /// Starts recording from the microphone (M5). False when there is no
+  /// microphone or it was refused -- which is the user's answer, not an
+  /// error to report as one.
+  Future<bool> startRecording();
+
+  /// Stops recording and holds the result like a picked file, ready for
+  /// [upload]. Null when nothing was recorded.
+  Future<PickedAttachment?> stopRecording();
 }
 
 /// Records what it was asked to do. The default outside a browser.
@@ -97,5 +106,27 @@ final class RecordingAttachments implements AttachmentPort {
     final files = transfer;
     transfer = const <PickedAttachment>[];
     return files;
+  }
+
+  /// Whether [startRecording] finds a microphone.
+  bool microphone = true;
+
+  /// What [stopRecording] hands back.
+  PickedAttachment recording = const PickedAttachment(
+    handle: 'rec',
+    name: 'Recording.webm',
+    size: 1024,
+    contentType: 'audio/webm',
+  );
+  bool recordingNow = false;
+
+  @override
+  Future<bool> startRecording() async => recordingNow = microphone;
+
+  @override
+  Future<PickedAttachment?> stopRecording() async {
+    if (!recordingNow) return null;
+    recordingNow = false;
+    return recording;
   }
 }

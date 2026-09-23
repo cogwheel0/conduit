@@ -124,6 +124,22 @@ class NoteActions {
     return body.ops;
   }
 
+  Future<NoteDetail> attach(String noteId, NoteFile file) => _ref
+      .read(rpcClientProvider)
+      .call(
+        ConduitMethods.notesAttach,
+        params: NoteAttach(noteId: noteId, file: file).toJson(),
+        decode: NoteDetail.fromJson,
+      );
+
+  Future<NoteDetail> detach(String noteId, String fileId) => _ref
+      .read(rpcClientProvider)
+      .call(
+        ConduitMethods.notesDetach,
+        params: NoteDetach(noteId: noteId, fileId: fileId).toJson(),
+        decode: NoteDetail.fromJson,
+      );
+
   Future<void> setPinned(String id, {required bool pinned}) async {
     await _ref
         .read(rpcClientProvider)

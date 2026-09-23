@@ -390,6 +390,9 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   'noteQuery': const NoteQuery(query: 'milk'),
   'noteDetail': const NoteDetail(
     summary: NoteSummary(id: 'n1', title: 'Groceries', updatedAtMs: 1),
+    files: <NoteFile>[
+      NoteFile(id: 'f1', name: 'list.pdf', contentType: 'application/pdf'),
+    ],
     ops: <Map<String, dynamic>>[
       <String, dynamic>{'insert': 'milk '},
       <String, dynamic>{
@@ -406,6 +409,17 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   ),
   'noteRef': const NoteRef(id: 'n1'),
   'notePin': const NotePin(id: 'n1', pinned: true),
+  'noteFile': const NoteFile(
+    id: 'f1',
+    name: 'recording.webm',
+    size: 48213,
+    contentType: 'audio/webm',
+  ),
+  'noteAttach': const NoteAttach(
+    noteId: 'n1',
+    file: NoteFile(id: 'f1', name: 'recording.webm'),
+  ),
+  'noteDetach': const NoteDetach(noteId: 'n1', fileId: 'f1'),
   'noteAi': const NoteAi(
     ops: <Map<String, dynamic>>[
       <String, dynamic>{'insert': 'milk, eggs'},
@@ -786,6 +800,9 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'noteSave': NoteSave.fromJson,
       'noteRef': NoteRef.fromJson,
       'notePin': NotePin.fromJson,
+      'noteFile': NoteFile.fromJson,
+      'noteAttach': NoteAttach.fromJson,
+      'noteDetach': NoteDetach.fromJson,
       'noteAi': NoteAi.fromJson,
       'noteTitle': NoteTitle.fromJson,
       'noteBody': NoteBody.fromJson,

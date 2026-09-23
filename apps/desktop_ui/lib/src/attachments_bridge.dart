@@ -144,6 +144,72 @@ final class BrowserAttachments implements AttachmentPort {
   }
 
   /// Keeps each file in the browser under a new handle.
+  web.MediaRecorder? _recorder;
+  web.MediaStream? _stream;
+  final List<web.Blob> _chunks = <web.Blob>[];
+
+  @override
+  Future<bool> startRecording() async {
+    if (_recorder != null) return true;
+    try {
+      final stream = await web.window.navigator.mediaDevices
+          .getUserMedia(web.MediaStreamConstraints(audio: true.toJS))
+          .toDart;
+      _stream = stream;
+      _chunks.clear();
+      final recorder = web.MediaRecorder(stream);
+      recorder.ondataavailable = (web.BlobEvent event) {
+        if (event.data.size > 0) _chunks.add(event.data);
+      }.toJS;
+      recorder.start();
+      _recorder = recorder;
+      return true;
+    } on Object {
+      // No microphone, or permission refused.
+      return false;
+    }
+  }
+
+  @override
+  Future<PickedAttachment?> stopRecording() async {
+    final recorder = _recorder;
+    if (recorder == null) return null;
+    final stopped = Completer<void>();
+    recorder.onstop = (web.Event _) {
+      if (!stopped.isCompleted) stopped.complete();
+    }.toJS;
+    recorder.stop();
+    await stopped.future;
+    _recorder = null;
+    // Released, so the system's "recording" indicator goes out.
+    for (final track
+        in _stream?.getTracks().toDart ?? const <web.MediaStreamTrack>[]) {
+      track.stop();
+    }
+    _stream = null;
+    if (_chunks.isEmpty) return null;
+    final type = recorder.mimeType.isEmpty ? 'audio/webm' : recorder.mimeType;
+    final extension = type.contains('ogg') ? 'ogg' : 'webm';
+    final stamp = DateTime.now()
+        .toIso8601String()
+        .substring(0, 19)
+        .replaceAll(':', '-');
+    final file = web.File(
+      _chunks.toJS,
+      'Recording $stamp.$extension',
+      web.FilePropertyBag(type: type),
+    );
+    _chunks.clear();
+    final handle = 'a${_nextHandle++}';
+    _files[handle] = file;
+    return PickedAttachment(
+      handle: handle,
+      name: file.name,
+      size: file.size,
+      contentType: type,
+    );
+  }
+
   List<PickedAttachment> _hold(web.FileList? files) {
     final picked = <PickedAttachment>[];
     for (var i = 0; i < (files?.length ?? 0); i++) {

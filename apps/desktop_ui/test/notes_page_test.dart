@@ -1,10 +1,12 @@
 @TestOn('vm')
 library;
 
+import 'package:conduit_desktop_ui/src/attachments.dart';
 import 'package:conduit_desktop_ui/src/l10n/strings.g.dart';
 import 'package:conduit_desktop_ui/src/note_editor.dart';
 import 'package:conduit_desktop_ui/src/pages/notes_page.dart';
 import 'package:conduit_desktop_ui/src/rpc/notes_providers.dart';
+import 'package:conduit_desktop_ui/src/rpc/rpc_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:jaspr_riverpod/jaspr_riverpod.dart';
@@ -32,6 +34,17 @@ class _RecordingActions extends NoteActions {
   @override
   Future<void> setPinned(String id, {required bool pinned}) async =>
       pins.add((id, pinned));
+
+  final List<NoteFile> attached = <NoteFile>[];
+
+  @override
+  Future<NoteDetail> attach(String noteId, NoteFile file) async {
+    attached.add(file);
+    return NoteDetail(
+      summary: const NoteSummary(id: 'n1', title: 'Groceries', updatedAtMs: 1),
+      files: List<NoteFile>.of(attached),
+    );
+  }
 
   @override
   Future<String> generateTitle(List<Map<String, dynamic>> ops) async =>
@@ -74,11 +87,14 @@ const _detail = NoteDetail(
 void main() {
   late _RecordingActions actions;
   late RecordingNoteEditor editor;
+  late RecordingAttachments attachments;
 
   Component page({String? id}) {
     editor = RecordingNoteEditor();
+    attachments = RecordingAttachments();
     return ProviderScope(
       overrides: [
+        attachmentsProvider.overrideWithValue(attachments),
         noteListProvider.overrideWith((ref) async => _list),
         noteDetailProvider.overrideWith((ref, id) async => _detail),
         noteEditorProvider.overrideWithValue(editor),
@@ -147,5 +163,41 @@ void main() {
     final saved = actions.saves.last;
     expect(saved.title, '🛒 Shopping');
     expect(saved.ops!.single['insert'], 'Shopping\n');
+  });
+
+  testComponents('a recording is uploaded and attached to the note', (
+    tester,
+  ) async {
+    tester.pumpComponent(page(id: 'n1'));
+    await pumpEventQueue();
+
+    Finder buttonWith(String text) =>
+        find.ancestor(of: find.text(text), matching: find.tag('button'));
+
+    await tester.click(buttonWith(t.app.recordAudio));
+    await pumpEventQueue();
+    expect(attachments.recordingNow, isTrue);
+    expect(find.text(t.app.recordingAudio), findsOneComponent);
+
+    await tester.click(buttonWith(t.app.stopRecording));
+    await pumpEventQueue();
+    expect(attachments.uploaded, <String>['rec']);
+    expect(actions.attached.single.id, 'server-rec');
+    expect(actions.attached.single.contentType, 'audio/webm');
+    expect(find.text(t.app.audioRecordingSaved), findsOneComponent);
+  });
+
+  testComponents('a refused microphone says so', (tester) async {
+    tester.pumpComponent(page(id: 'n1'));
+    await pumpEventQueue();
+    attachments.microphone = false;
+    await tester.click(
+      find.ancestor(
+        of: find.text(t.app.recordAudio),
+        matching: find.tag('button'),
+      ),
+    );
+    await pumpEventQueue();
+    expect(find.text(t.app.microphonePermissionDenied), findsOneComponent);
   });
 }

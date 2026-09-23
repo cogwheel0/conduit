@@ -67,6 +67,7 @@ async function main(): Promise<void> {
   }
 
   serveAppScheme(webRoot)
+  installPermissionPolicy()
   installAuthHeaderInjection()
   hardenNavigation()
   registerAuthWindowChannel()
@@ -150,6 +151,37 @@ function createMainWindow(port: number): BrowserWindow {
   // same shape.
   void window.loadURL(`${APP_ORIGIN}/`)
   return window
+}
+
+/**
+ * What a page may ask the system for (M5).
+ *
+ * Electron grants every permission request unless told otherwise. The app
+ * origin needs exactly these: the microphone, for a note's recording (and
+ * audio only -- never the camera or the screen); the clipboard, for a
+ * prompt's `{{CLIPBOARD}}`; and fullscreen, for video. Anything else, and
+ * anything asked by another origin -- the sandboxed renders, an auth
+ * window -- is refused.
+ */
+function installPermissionPolicy(): void {
+  const allowed = new Set(['media', 'clipboard-read', 'clipboard-sanitized-write', 'fullscreen'])
+  const fromApp = (url: string | undefined): boolean =>
+    url !== undefined && (url === APP_ORIGIN || url.startsWith(`${APP_ORIGIN}/`))
+  session.defaultSession.setPermissionRequestHandler((_contents, permission, callback, details) => {
+    if (!allowed.has(permission) || !fromApp(details.requestingUrl)) {
+      callback(false)
+      return
+    }
+    if (permission === 'media') {
+      const types = (details as { mediaTypes?: string[] }).mediaTypes ?? []
+      callback(types.length > 0 && types.every((type) => type === 'audio'))
+      return
+    }
+    callback(true)
+  })
+  session.defaultSession.setPermissionCheckHandler((_contents, permission, requestingOrigin) =>
+    allowed.has(permission) && fromApp(requestingOrigin),
+  )
 }
 
 /**

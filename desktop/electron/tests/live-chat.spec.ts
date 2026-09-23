@@ -364,6 +364,9 @@ test.describe('against a real server', () => {
         `--user-data-dir=${userData}`,
         // CI containers have no user namespaces for the Chromium sandbox.
         '--no-sandbox',
+        // A microphone for a note's recording: Chromium's fake device, since
+        // a CI box has none. The app's own permission policy still decides.
+        '--use-fake-device-for-media-stream',
       ],
       cwd: join(__dirname, '..'),
     })
@@ -1661,6 +1664,7 @@ test.describe('against a real server', () => {
       await expect(notesList).toBeVisible()
       await shot(page, '18-notes')
       let noteId: string | undefined
+      let recordingIds: string[] = []
       try {
         await notesList.getByRole('button', { name: /^create note$/i }).click()
         await expect
@@ -1680,6 +1684,14 @@ test.describe('against a real server', () => {
           timeout: 30_000,
         })
         await expect(notesList.getByText(noteTitle)).toBeVisible({ timeout: 30_000 })
+
+        // A recording, attached to the note and playable in place.
+        await page.getByRole('button', { name: /^record audio$/i }).click()
+        await expect(page.getByRole('status').filter({ hasText: /^recording/i })).toBeVisible()
+        await page.waitForTimeout(1_500)
+        await page.getByRole('button', { name: /^stop recording$/i }).click()
+        const attachmentsList = page.getByRole('list', { name: /^attachments$/i })
+        await expect(attachmentsList.locator('audio')).toHaveCount(1, { timeout: 30_000 })
         await shot(page, '18b-note')
         // As the web client will read it.
         const { api, auth } = await serverApi(credentials!)
@@ -1695,6 +1707,19 @@ test.describe('against a real server', () => {
               { timeout: 30_000 },
             )
             .toContain('Buy milk and **eggs**')
+          // The recording, in the note's files where the web client finds it.
+          await expect
+            .poll(
+              async () => {
+                const note = (await (
+                  await api.get(`/api/v1/notes/${noteId}`, { headers: auth })
+                ).json()) as { data?: { files?: Array<{ id: string }> } }
+                recordingIds = (note.data?.files ?? []).map((file) => file.id)
+                return recordingIds.length
+              },
+              { timeout: 30_000 },
+            )
+            .toBe(1)
         } finally {
           await api.dispose()
         }
@@ -1709,11 +1734,16 @@ test.describe('against a real server', () => {
         await expect(notesList.getByText(noteTitle)).toBeHidden({ timeout: 30_000 })
         noteId = undefined
       } finally {
+        // The note (if the UI did not delete it) and the recording's file,
+        // which outlives the note on the server.
+        const { api, auth } = await serverApi(credentials!)
         if (noteId !== undefined) {
-          const { api, auth } = await serverApi(credentials!)
           await api.delete(`/api/v1/notes/${noteId}/delete`, { headers: auth }).catch(() => undefined)
-          await api.dispose()
         }
+        for (const fileId of recordingIds) {
+          await api.delete(`/api/v1/files/${fileId}`, { headers: auth }).catch(() => undefined)
+        }
+        await api.dispose()
       }
     } finally {
       provider.close()

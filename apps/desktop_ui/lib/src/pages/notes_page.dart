@@ -6,9 +6,12 @@ import 'package:jaspr/jaspr.dart';
 import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import 'package:jaspr_router/jaspr_router.dart';
 
+import '../attachments.dart';
 import '../l10n/strings.g.dart';
 import '../note_editor.dart';
+import '../rpc/chat_providers.dart' show fileUrlProvider;
 import '../rpc/notes_providers.dart';
+import '../rpc/rpc_providers.dart' show attachmentsProvider;
 import '../widgets/form_field.dart';
 
 /// Notes (M5): the list on the left, the note on the right.
@@ -214,6 +217,75 @@ class _NoteEditorPaneState extends State<_NoteEditorPane> {
   /// What the last AI action said: done, or why not.
   String? _notice;
 
+  /// The note's attachments, as last saved.
+  List<NoteFile> _files = const <NoteFile>[];
+  bool _recording = false;
+
+  /// Files on their way up: shown until they are attached.
+  int _uploading = 0;
+
+  /// Uploads [picked] and attaches it to the note.
+  Future<void> _attachPicked(PickedAttachment picked) async {
+    final actions = _actions;
+    if (actions == null) return;
+    final attachments = context.read(attachmentsProvider);
+    setState(() => _uploading++);
+    try {
+      final fileId = await attachments.upload(picked.handle);
+      final detail = await actions.attach(
+        component.id,
+        NoteFile(
+          id: fileId,
+          name: picked.name,
+          size: picked.size,
+          contentType: picked.contentType.isEmpty ? null : picked.contentType,
+        ),
+      );
+      if (mounted) setState(() => _files = detail.files);
+    } on Object {
+      if (mounted) setState(() => _notice = t.app.failedToAttachContent);
+    } finally {
+      if (mounted) setState(() => _uploading--);
+    }
+  }
+
+  Future<void> _attachFiles() async {
+    final picked = await context.read(attachmentsProvider).pick();
+    for (final file in picked) {
+      await _attachPicked(file);
+    }
+  }
+
+  Future<void> _toggleRecording() async {
+    final attachments = context.read(attachmentsProvider);
+    if (_recording) {
+      setState(() => _recording = false);
+      final recording = await attachments.stopRecording();
+      if (recording != null) {
+        await _attachPicked(recording);
+        if (mounted) setState(() => _notice = t.app.audioRecordingSaved);
+      }
+      return;
+    }
+    final started = await attachments.startRecording();
+    if (!mounted) return;
+    setState(() {
+      _recording = started;
+      _notice = started ? null : t.app.microphonePermissionDenied;
+    });
+  }
+
+  Future<void> _detach(NoteFile file) async {
+    final actions = _actions;
+    if (actions == null) return;
+    try {
+      final detail = await actions.detach(component.id, file.id);
+      if (mounted) setState(() => _files = detail.files);
+    } on Object {
+      if (mounted) setState(() => _notice = t.desktop.desktopNoteSaveFailed);
+    }
+  }
+
   /// The editor's text, for a model to read; null when there is none.
   List<Map<String, dynamic>>? _textForModel() {
     final ops = _session?.contents() ?? const <Map<String, dynamic>>[];
@@ -293,6 +365,7 @@ class _NoteEditorPaneState extends State<_NoteEditorPane> {
     _loaded = true;
     _title = detail.summary.title;
     _pinned = detail.summary.pinned;
+    _files = detail.files;
     final editor = context.read(noteEditorProvider);
     // After the frame that renders the host element.
     Future<void>.microtask(() {
@@ -337,6 +410,89 @@ class _NoteEditorPaneState extends State<_NoteEditorPane> {
       _titleChanged = _titleChanged || titleChanged;
       if (mounted) setState(() => _state = _SaveState.failed);
     }
+  }
+
+  /// Attach and record, and the files already on the note: a recording
+  /// plays in place, anything else opens.
+  Component _attachmentsRow(BuildContext context) {
+    final url = context.watch(fileUrlProvider);
+    return div(classes: 'space-y-2', [
+      div(classes: 'flex flex-wrap items-center gap-2', [
+        button(
+          [Component.text(t.app.attach)],
+          classes:
+              'rounded border border-border px-2.5 py-1 text-xs '
+              'hover:bg-accent disabled:opacity-50',
+          type: ButtonType.button,
+          disabled: _recording,
+          onClick: () => unawaited(_attachFiles()),
+        ),
+        button(
+          [
+            Component.text(
+              _recording ? t.app.stopRecording : t.app.recordAudio,
+            ),
+          ],
+          classes:
+              'rounded border px-2.5 py-1 text-xs hover:bg-accent '
+              '${_recording ? 'border-destructive text-destructive' : 'border-border'}',
+          type: ButtonType.button,
+          attributes: <String, String>{'aria-pressed': '$_recording'},
+          onClick: () => unawaited(_toggleRecording()),
+        ),
+        if (_recording)
+          span(
+            classes: 'text-xs text-destructive',
+            attributes: const <String, String>{'role': 'status'},
+            [Component.text(t.app.recordingAudio)],
+          ),
+        if (_uploading > 0)
+          span(classes: 'text-xs text-muted-foreground', [
+            Component.text(t.app.processingRecording),
+          ]),
+      ]),
+      if (_files.isNotEmpty)
+        ul(
+          classes: 'space-y-1',
+          attributes: <String, String>{'aria-label': t.app.attachments},
+          [
+            for (final file in _files)
+              li(classes: 'flex items-center gap-2 text-sm', [
+                if (url != null &&
+                    (file.contentType?.startsWith('audio/') ?? false))
+                  audio(
+                    src: url(file.id),
+                    controls: true,
+                    classes: 'h-8',
+                    attributes: <String, String>{'aria-label': file.name},
+                    [],
+                  )
+                else if (url != null)
+                  a(
+                    href: url(file.id),
+                    target: Target.blank,
+                    classes: 'truncate text-primary underline',
+                    [Component.text(file.name)],
+                  )
+                else
+                  span(classes: 'truncate', [Component.text(file.name)]),
+                if (file.contentType?.startsWith('audio/') ?? false)
+                  span(classes: 'truncate text-xs text-muted-foreground', [
+                    Component.text(file.name),
+                  ]),
+                button(
+                  [Component.text('×')],
+                  classes: 'rounded px-1.5 text-xs hover:bg-accent',
+                  type: ButtonType.button,
+                  attributes: <String, String>{
+                    'aria-label': '${t.app.delete}: ${file.name}',
+                  },
+                  onClick: () => unawaited(_detach(file)),
+                ),
+              ]),
+          ],
+        ),
+    ]);
   }
 
   @override
@@ -424,6 +580,7 @@ class _NoteEditorPaneState extends State<_NoteEditorPane> {
           onClick: () => setState(() => _confirmingDelete = true),
         ),
       ]),
+      _attachmentsRow(context),
       if (_notice case final notice?)
         p(
           classes: 'text-xs text-muted-foreground',

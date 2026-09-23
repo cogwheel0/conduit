@@ -4,6 +4,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/models/chat_message.dart';
@@ -1295,6 +1296,74 @@ void main() {
           contains('milk'),
         );
       }, timeout: const Timeout(Duration(minutes: 3)));
+
+      // M5: a file attached to a note, as a recording is. The note and the
+      // file are deleted afterwards, straight through the API.
+      test('attaches a file to a note and takes it off again', () async {
+        final api = runtime.container.read(apiServiceProvider)!;
+        final notes = NotesService(runtime.container);
+        final created = await notes.save(
+          NoteSave(title: 'Live note ${DateTime.now().millisecondsSinceEpoch}'),
+        );
+        final id = created.summary.id;
+        final uploaded = await FilesService(runtime.container).upload(
+          name: 'live-recording.webm',
+          bytes: Uint8List.fromList(List<int>.generate(256, (i) => i)),
+          contentType: 'audio/webm',
+        );
+        addTearDown(() async {
+          for (final cleanup in <Future<void> Function()>[
+            () async => api.deleteNote(id),
+            () => api.deleteFile(uploaded.id),
+          ]) {
+            try {
+              await cleanup();
+            } on Object catch (error) {
+              stderr.writeln(
+                'could not clean up after the attach test: $error',
+              );
+            }
+          }
+        });
+
+        final attached = await notes.attach(
+          NoteAttach(
+            noteId: id,
+            file: NoteFile(
+              id: uploaded.id,
+              name: 'live-recording.webm',
+              size: 256,
+              contentType: 'audio/webm',
+            ),
+          ),
+        );
+        expect(attached.files.single.id, uploaded.id);
+        expect(attached.files.single.contentType, 'audio/webm');
+
+        // On the server, in the note's own files, once the outbox drains.
+        Future<List<Object?>> serverFiles() async {
+          final raw = await api.getNoteById(id);
+          return ((raw['data'] as Map?)?['files'] as List?) ?? const [];
+        }
+
+        await _waitFor(
+          () async => (await serverFiles()).any(
+            (file) => (file as Map?)?['id'] == uploaded.id,
+          ),
+          seconds: 30,
+        );
+        expect(
+          (await serverFiles()).map((file) => (file as Map?)?['id']),
+          contains(uploaded.id),
+        );
+
+        final detached = await notes.detach(
+          NoteDetach(noteId: id, fileId: uploaded.id),
+        );
+        expect(detached.files, isEmpty);
+        await _waitFor(() async => (await serverFiles()).isEmpty, seconds: 30);
+        expect(await serverFiles(), isEmpty);
+      }, timeout: const Timeout(Duration(minutes: 2)));
     },
   );
 }
