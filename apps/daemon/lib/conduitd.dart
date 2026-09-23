@@ -19,6 +19,7 @@ export 'src/event_bus.dart';
 export 'src/files_service.dart';
 export 'src/log.dart';
 export 'src/mcp_service.dart';
+export 'src/notes_service.dart';
 export 'src/ports/open_url.dart';
 export 'src/ports/secure_store.dart';
 export 'src/rpc_session.dart';

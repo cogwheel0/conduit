@@ -9,6 +9,7 @@ import 'chats_service.dart';
 import 'composer_service.dart';
 import 'direct_service.dart';
 import 'mcp_service.dart';
+import 'notes_service.dart';
 import 'prompts_service.dart';
 import 'event_bus.dart';
 import 'log.dart';
@@ -42,8 +43,10 @@ class RpcSession {
     PromptsService? prompts,
     DirectService? direct,
     McpService? mcp,
+    NotesService? notes,
     void Function(bool online)? reportNetwork,
   }) : _events = events,
+       _notes = notes,
        _direct = direct,
        _mcp = mcp,
        _reportNetwork = reportNetwork,
@@ -93,6 +96,7 @@ class RpcSession {
   final PromptsService? _prompts;
   final DirectService? _direct;
   final McpService? _mcp;
+  final NotesService? _notes;
 
   /// Where a window's `online`/`offline` events go: the connectivity port,
   /// which then tells every window. Null before the core is up.
@@ -915,6 +919,65 @@ class RpcSession {
       );
     }
 
+    registerTypedMethod<NoteQuery, NoteList>(
+      _peer,
+      ConduitMethods.notesList,
+      decodeParams: NoteQuery.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireNotes().list(request.query);
+      },
+    );
+
+    registerTypedMethod<NoteRef, Map<String, dynamic>>(
+      _peer,
+      ConduitMethods.notesGet,
+      decodeParams: NoteRef.fromJson,
+      encodeResult: (result) => result,
+      handler: (ref) async {
+        _requireHandshake();
+        // Wrapped, as `chats.get` is: a note deleted elsewhere is null,
+        // not an error.
+        final note = await _requireNotes().get(ref.id);
+        return <String, dynamic>{'note': note?.toJson()};
+      },
+    );
+
+    registerTypedMethod<NoteSave, NoteDetail>(
+      _peer,
+      ConduitMethods.notesSave,
+      decodeParams: NoteSave.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireNotes().save(request);
+      },
+    );
+
+    registerTypedMethod<NoteRef, Map<String, dynamic>>(
+      _peer,
+      ConduitMethods.notesDelete,
+      decodeParams: NoteRef.fromJson,
+      encodeResult: (result) => result,
+      handler: (ref) async {
+        _requireHandshake();
+        await _requireNotes().delete(ref.id);
+        return <String, dynamic>{'deleted': true};
+      },
+    );
+
+    registerTypedMethod<NotePin, NoteSummary>(
+      _peer,
+      ConduitMethods.notesSetPinned,
+      decodeParams: NotePin.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireNotes().setPinned(request.id, pinned: request.pinned);
+      },
+    );
+
     registerTypedMethodNoParams<McpServerList>(
       _peer,
       ConduitMethods.mcpList,
@@ -1089,6 +1152,13 @@ class RpcSession {
       },
     );
   }
+
+  NotesService _requireNotes() =>
+      _notes ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
 
   McpService _requireMcp() =>
       _mcp ??

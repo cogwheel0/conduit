@@ -18,6 +18,7 @@ dependencies:
   # AES-256-GCM for the secure store (PLAN.md section 3.3). The master key
   # comes from Electron's safeStorage on stdin and never touches disk.
   cryptography: ^2.9.0
+  dio: ^5.9.0
   drift: ^2.34.0
   mcp_dart: ^2.4.0
   hive_ce: ^2.15.0

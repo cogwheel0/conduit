@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/database/account_storage_isolation.dart';
+import 'package:conduit_core/database/database_provider.dart'
+    show appDatabaseProvider;
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
     show openWebUiDirectCompletionSocketRelayProvider;
@@ -10,7 +12,7 @@ import 'package:conduit_core/persistence/hive_boxes.dart';
 import 'package:conduit_core/persistence/persistence_providers.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart'
-    show socketServiceManagerProvider;
+    show apiServiceProvider, socketServiceManagerProvider;
 import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/storage_providers.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
@@ -173,6 +175,15 @@ final class CoreRuntime {
       openWebUiDirectCompletionSocketRelayProvider,
       (_, _) {},
     );
+    // The session's API client, held for as long as the daemon runs, as
+    // mobile's UI holds it. Several core paths check "is this still the
+    // session I started with" by the client's identity; unheld, the
+    // provider was rebuilt between two reads and every such check failed --
+    // creating a note came back as "the session changed".
+    container.listen<Object?>(apiServiceProvider, (_, _) {});
+    // The same for the account's database, which the same checks compare:
+    // read cold, the first answer and the next could differ.
+    container.listen<Object?>(appDatabaseProvider, (_, _) {});
     log.info('core runtime ready');
     return CoreRuntime._(
       container: container,

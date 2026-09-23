@@ -1202,6 +1202,76 @@ void main() {
         final after = await direct.remove(connection.id);
         expect(after.connections.where(ours), isEmpty);
       }, timeout: const Timeout(Duration(minutes: 4)));
+
+      // M5: notes, stored as markdown and edited as Quill ops.
+      test('creates, edits, pins and deletes a note', () async {
+        final notes = NotesService(runtime.container);
+        final title = 'Live note ${DateTime.now().millisecondsSinceEpoch}';
+        final created = await notes.save(
+          NoteSave(
+            title: title,
+            ops: const <Map<String, dynamic>>[
+              <String, dynamic>{'insert': 'Groceries'},
+              <String, dynamic>{
+                'insert': '\n',
+                'attributes': <String, dynamic>{'header': 2},
+              },
+              <String, dynamic>{'insert': 'milk'},
+              <String, dynamic>{
+                'insert': '\n',
+                'attributes': <String, dynamic>{'list': 'bullet'},
+              },
+            ],
+          ),
+        );
+        final id = created.summary.id;
+        var deleted = false;
+        // Straight to the server: a delete through the daemon is queued, and
+        // the runtime is disposed before the queue would drain.
+        addTearDown(() async {
+          if (deleted) return;
+          try {
+            await runtime.container.read(apiServiceProvider)!.deleteNote(id);
+          } on Object catch (error) {
+            stderr.writeln('could not delete test note $id: $error');
+          }
+        });
+        expect(created.summary.title, title);
+
+        // Stored as markdown the web client reads.
+        final raw = await runtime.container
+            .read(apiServiceProvider)!
+            .getNoteById(id);
+        final markdown =
+            ((raw['data'] as Map?)?['content'] as Map?)?['md'] as String? ?? '';
+        expect(markdown, contains('## Groceries'));
+        expect(markdown, contains('milk'));
+
+        // And back as Quill ops.
+        final opened = await notes.get(id);
+        expect(
+          opened!.ops.any((op) => (op['attributes'] as Map?)?['header'] == 2),
+          isTrue,
+        );
+        expect((await notes.list('')).notes.map((n) => n.id), contains(id));
+
+        final renamed = await notes.save(NoteSave(id: id, title: '$title!'));
+        expect(renamed.summary.title, '$title!');
+        // A rename leaves the body alone.
+        expect((await notes.get(id))!.ops, isNotEmpty);
+
+        expect((await notes.setPinned(id, pinned: true)).pinned, isTrue);
+        // Asked twice, still pinned: a state, not a toggle.
+        expect((await notes.setPinned(id, pinned: true)).pinned, isTrue);
+        expect((await notes.setPinned(id, pinned: false)).pinned, isFalse);
+
+        await notes.delete(id);
+        // Written locally with its outbox operation; the server hears of it
+        // when the drain runs.
+        await _waitFor(() async => (await notes.get(id)) == null, seconds: 30);
+        expect(await notes.get(id), isNull);
+        deleted = true;
+      }, timeout: const Timeout(Duration(minutes: 2)));
     },
   );
 }

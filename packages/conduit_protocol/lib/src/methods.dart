@@ -346,6 +346,23 @@ abstract final class ConduitMethods {
   static const String filesPrefix = 'files.';
   static const String knowledgePrefix = 'knowledge.';
   static const String notesPrefix = 'notes.';
+
+  // notes.* (M5) -- listed with the prefixes because they are few.
+
+  /// Every note, or those matching a query; pinned first.
+  static const String notesList = 'notes.list';
+
+  /// One note, its body as Quill ops.
+  static const String notesGet = 'notes.get';
+
+  /// Creates or updates a note; answers with it as saved.
+  static const String notesSave = 'notes.save';
+
+  static const String notesDelete = 'notes.delete';
+
+  /// Pins or unpins a note; answers with it. A state rather than a toggle,
+  /// so a second window acting on a stale list cannot undo the first.
+  static const String notesSetPinned = 'notes.setPinned';
   static const String channelsPrefix = 'channels.';
   static const String workspacePrefix = 'workspace.';
   static const String directPrefix = 'direct.';

@@ -19,6 +19,7 @@ export 'src/handshake.dart';
 export 'src/mcp.dart';
 export 'src/methods.dart';
 export 'src/models.dart';
+export 'src/notes.dart';
 export 'src/peer_helpers.dart';
 export 'src/prompts.dart';
 export 'src/protocol_version.dart';

@@ -18,6 +18,7 @@ import 'chats_service.dart';
 import 'composer_service.dart';
 import 'direct_service.dart';
 import 'mcp_service.dart';
+import 'notes_service.dart';
 import 'prompts_service.dart';
 import 'core_runtime.dart';
 import 'daemon_paths.dart';
@@ -76,6 +77,7 @@ class DaemonServer {
   PromptsService? _prompts;
   DirectService? _direct;
   McpService? _mcp;
+  NotesService? _notes;
 
   /// The broker the core asks its questions through. Exposed so tests can
   /// ask one and watch it cross the RPC boundary.
@@ -139,6 +141,7 @@ class DaemonServer {
     _prompts = PromptsService(core.container);
     _direct = DirectService(core.container);
     _mcp = McpService(core.container);
+    _notes = NotesService(core.container, events: events);
     // An MCP sign-in opens the provider's page through a window.
     core.openUrl.attach(events);
     _log.info('core attached');
@@ -421,6 +424,7 @@ class DaemonServer {
         prompts: _prompts,
         direct: _direct,
         mcp: _mcp,
+        notes: _notes,
         reportNetwork: (online) => _core?.reportNetwork(online: online),
       );
       _sessions[sessionId] = session;

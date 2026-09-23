@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.33.0",
+  "protocolVersion": "1.34.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.33.0",
+  "protocolVersion": "1.34.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -680,6 +680,81 @@ const Map<String, String> protocolGoldens = <String, String>{
   'openUrl': r'''
 {
   "url": "https://auth.example.com/authorize?x=1"
+}''',
+
+  'noteSummary': r'''
+{
+  "id": "n1",
+  "title": "Groceries",
+  "updatedAtMs": 1790000000000,
+  "pinned": true,
+  "preview": "- milk"
+}''',
+
+  'noteList': r'''
+{
+  "notes": [
+    {
+      "id": "n2",
+      "title": "Ideas",
+      "updatedAtMs": 1790000000001,
+      "pinned": false,
+      "preview": ""
+    }
+  ]
+}''',
+
+  'noteQuery': r'''
+{
+  "query": "milk"
+}''',
+
+  'noteDetail': r'''
+{
+  "summary": {
+    "id": "n1",
+    "title": "Groceries",
+    "updatedAtMs": 1,
+    "pinned": false,
+    "preview": ""
+  },
+  "ops": [
+    {
+      "insert": "milk "
+    },
+    {
+      "insert": "and eggs",
+      "attributes": {
+        "bold": true
+      }
+    }
+  ]
+}''',
+
+  'noteSave': r'''
+{
+  "title": "New",
+  "ops": [
+    {
+      "insert": "Hello"
+    }
+  ]
+}''',
+
+  'noteRef': r'''
+{
+  "id": "n1"
+}''',
+
+  'notePin': r'''
+{
+  "id": "n1",
+  "pinned": true
+}''',
+
+  'notesChanged': r'''
+{
+  "noteId": "n1"
 }''',
 
   'mcpPromptArgument': r'''

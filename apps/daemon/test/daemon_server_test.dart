@@ -289,7 +289,7 @@ void main() {
           ),
         );
         await expectLater(
-          callVoid(peer, 'notes.list'),
+          callVoid(peer, 'hermes.sessions'),
           throwsA(
             isA<RpcError>().having(
               (e) => e.code,

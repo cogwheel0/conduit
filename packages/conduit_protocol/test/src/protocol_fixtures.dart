@@ -370,6 +370,38 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   'mcpEnable': const McpEnable(id: 'mcp-1', enabled: false),
   'mcpForgetApproval': const McpForgetApproval(serverId: 'mcp-1'),
   'openUrl': const OpenUrl(url: 'https://auth.example.com/authorize?x=1'),
+  'noteSummary': const NoteSummary(
+    id: 'n1',
+    title: 'Groceries',
+    updatedAtMs: 1790000000000,
+    pinned: true,
+    preview: '- milk',
+  ),
+  'noteList': const NoteList(
+    notes: <NoteSummary>[
+      NoteSummary(id: 'n2', title: 'Ideas', updatedAtMs: 1790000000001),
+    ],
+  ),
+  'noteQuery': const NoteQuery(query: 'milk'),
+  'noteDetail': const NoteDetail(
+    summary: NoteSummary(id: 'n1', title: 'Groceries', updatedAtMs: 1),
+    ops: <Map<String, dynamic>>[
+      <String, dynamic>{'insert': 'milk '},
+      <String, dynamic>{
+        'insert': 'and eggs',
+        'attributes': <String, dynamic>{'bold': true},
+      },
+    ],
+  ),
+  'noteSave': const NoteSave(
+    title: 'New',
+    ops: <Map<String, dynamic>>[
+      <String, dynamic>{'insert': 'Hello'},
+    ],
+  ),
+  'noteRef': const NoteRef(id: 'n1'),
+  'notePin': const NotePin(id: 'n1', pinned: true),
+  'notesChanged': const NotesChanged(noteId: 'n1'),
   'mcpPromptArgument': const McpPromptArgument(
     name: 'topic',
     label: 'Topic',
@@ -730,6 +762,14 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'mcpEnable': McpEnable.fromJson,
       'mcpForgetApproval': McpForgetApproval.fromJson,
       'openUrl': OpenUrl.fromJson,
+      'noteSummary': NoteSummary.fromJson,
+      'noteList': NoteList.fromJson,
+      'noteQuery': NoteQuery.fromJson,
+      'noteDetail': NoteDetail.fromJson,
+      'noteSave': NoteSave.fromJson,
+      'noteRef': NoteRef.fromJson,
+      'notePin': NotePin.fromJson,
+      'notesChanged': NotesChanged.fromJson,
       'mcpPromptArgument': McpPromptArgument.fromJson,
       'mcpPromptSummary': McpPromptSummary.fromJson,
       'mcpResourceSummary': McpResourceSummary.fromJson,
