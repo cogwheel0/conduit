@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.22.0",
+  "protocolVersion": "1.23.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.22.0",
+  "protocolVersion": "1.23.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -434,6 +434,88 @@ const Map<String, String> protocolGoldens = <String, String>{
   "label": "dart.dev",
   "url": "https://dart.dev/overview",
   "snippet": "Dart is a client-optimized language"
+}''',
+
+  'directConnectionSummary': r'''
+{
+  "id": "openrouter",
+  "name": "OpenRouter",
+  "kind": "openai",
+  "baseUrl": "https://openrouter.ai/api/v1",
+  "apiMode": "chat",
+  "apiKeyHeader": false,
+  "enabled": true,
+  "hasApiKey": true,
+  "customHeaderNames": [
+    "HTTP-Referer"
+  ],
+  "manualModelIds": [],
+  "allowSelfSignedCertificates": false,
+  "openRouter": true,
+  "ollamaCloud": false
+}''',
+
+  'directConnectionList': r'''
+{
+  "connections": [
+    {
+      "id": "ollama",
+      "name": "Home Ollama",
+      "kind": "ollama",
+      "baseUrl": "http://192.168.1.10:11434",
+      "apiMode": "chat",
+      "apiKeyHeader": false,
+      "enabled": true,
+      "hasApiKey": false,
+      "customHeaderNames": [],
+      "manualModelIds": [],
+      "allowSelfSignedCertificates": false,
+      "openRouter": false,
+      "ollamaCloud": false
+    }
+  ],
+  "localHistory": true
+}''',
+
+  'directConnectionEdit': r'''
+{
+  "name": "Azure",
+  "kind": "openai",
+  "baseUrl": "https://example.openai.azure.com/openai",
+  "apiMode": "chat",
+  "apiVersion": "2024-10-21",
+  "apiKeyHeader": true,
+  "enabled": true,
+  "apiKey": "sk-test",
+  "customHeaders": {
+    "X-Team": "platform"
+  },
+  "manualModelIds": [
+    "gpt-4o"
+  ],
+  "allowSelfSignedCertificates": false
+}''',
+
+  'directTestResult': r'''
+{
+  "reachable": true,
+  "modelCount": 12
+}''',
+
+  'directRef': r'''
+{
+  "id": "ollama"
+}''',
+
+  'directEnable': r'''
+{
+  "id": "ollama",
+  "enabled": false
+}''',
+
+  'directHistory': r'''
+{
+  "localOnly": true
 }''',
 
   'knowledgeSummary': r'''

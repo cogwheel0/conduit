@@ -7,6 +7,7 @@ import 'package:stream_channel/stream_channel.dart';
 import 'auth_service.dart';
 import 'chats_service.dart';
 import 'composer_service.dart';
+import 'direct_service.dart';
 import 'prompts_service.dart';
 import 'event_bus.dart';
 import 'log.dart';
@@ -38,8 +39,10 @@ class RpcSession {
     UiRequestsService? uiRequests,
     ComposerService? composer,
     PromptsService? prompts,
+    DirectService? direct,
     void Function(bool online)? reportNetwork,
   }) : _events = events,
+       _direct = direct,
        _reportNetwork = reportNetwork,
        _composer = composer,
        _prompts = prompts,
@@ -85,6 +88,7 @@ class RpcSession {
   final UiRequestsService? _uiRequests;
   final ComposerService? _composer;
   final PromptsService? _prompts;
+  final DirectService? _direct;
 
   /// Where a window's `online`/`offline` events go: the connectivity port,
   /// which then tells every window. Null before the core is up.
@@ -789,6 +793,71 @@ class RpcSession {
       },
     );
 
+    registerTypedMethodNoParams<DirectConnectionList>(
+      _peer,
+      ConduitMethods.directList,
+      encodeResult: (result) => result.toJson(),
+      handler: () {
+        _requireHandshake();
+        return _requireDirect().list();
+      },
+    );
+
+    registerTypedMethod<DirectConnectionEdit, DirectConnectionList>(
+      _peer,
+      ConduitMethods.directSave,
+      decodeParams: DirectConnectionEdit.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (edit) {
+        _requireHandshake();
+        return _requireDirect().save(edit);
+      },
+    );
+
+    registerTypedMethod<DirectRef, DirectConnectionList>(
+      _peer,
+      ConduitMethods.directRemove,
+      decodeParams: DirectRef.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (ref) {
+        _requireHandshake();
+        return _requireDirect().remove(ref.id);
+      },
+    );
+
+    registerTypedMethod<DirectEnable, DirectConnectionList>(
+      _peer,
+      ConduitMethods.directSetEnabled,
+      decodeParams: DirectEnable.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireDirect().setEnabled(request.id, request.enabled);
+      },
+    );
+
+    registerTypedMethod<DirectConnectionEdit, DirectTestResult>(
+      _peer,
+      ConduitMethods.directTest,
+      decodeParams: DirectConnectionEdit.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (edit) {
+        _requireHandshake();
+        return _requireDirect().test(edit);
+      },
+    );
+
+    registerTypedMethod<DirectHistory, DirectConnectionList>(
+      _peer,
+      ConduitMethods.directSetHistory,
+      decodeParams: DirectHistory.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireDirect().setHistory(localOnly: request.localOnly);
+      },
+    );
+
     registerTypedMethodNoParams<PromptList>(
       _peer,
       ConduitMethods.promptsList,
@@ -831,6 +900,13 @@ class RpcSession {
       },
     );
   }
+
+  DirectService _requireDirect() =>
+      _direct ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
 
   PromptsService _requirePrompts() =>
       _prompts ??

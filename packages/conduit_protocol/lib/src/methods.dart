@@ -205,6 +205,29 @@ abstract final class ConduitMethods {
   static const String promptsRender = 'prompts.render';
 
   // ---------------------------------------------------------------------
+  // direct.* -- connections the app talks to itself, not through Open
+  // WebUI (M4).
+  // ---------------------------------------------------------------------
+
+  /// Every direct connection, secrets reported only as present.
+  static const String directList = 'direct.list';
+
+  /// Adds or changes a connection; answers with the list.
+  static const String directSave = 'direct.save';
+
+  /// Removes a connection; answers with the list.
+  static const String directRemove = 'direct.remove';
+
+  /// Turns a connection on or off without losing it.
+  static const String directSetEnabled = 'direct.setEnabled';
+
+  /// Tries a connection as edited, without saving it.
+  static const String directTest = 'direct.test';
+
+  /// Where direct chats are kept: this computer only, or mirrored.
+  static const String directSetHistory = 'direct.setHistory';
+
+  // ---------------------------------------------------------------------
   // turns.* -- sending and stopping generation (M3).
   // ---------------------------------------------------------------------
 
