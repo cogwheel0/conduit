@@ -40,25 +40,7 @@ final class BrowserAttachments implements AttachmentPort {
     // request -- and the composer stays usable either way.
     element.onchange = (web.Event _) {
       if (completer.isCompleted) return;
-      final files = element.files;
-      final picked = <PickedAttachment>[];
-      for (var i = 0; i < (files?.length ?? 0); i++) {
-        final file = files!.item(i);
-        if (file == null) continue;
-        final handle = 'a${_nextHandle++}';
-        _files[handle] = file;
-        picked.add(
-          PickedAttachment(
-            handle: handle,
-            name: file.name,
-            size: file.size,
-            // An empty type is what the browser reports when it cannot
-            // tell, which the server copes with better than a guess.
-            contentType: file.type,
-          ),
-        );
-      }
-      completer.complete(picked);
+      completer.complete(_hold(element.files));
     }.toJS;
     element.click();
     return completer.future;
@@ -131,6 +113,57 @@ final class BrowserAttachments implements AttachmentPort {
 
   @override
   void discard(String handle) => _files.remove(handle);
+
+  @override
+  bool claimDrag(Object event) {
+    final transfer = _transferOf(event as web.Event);
+    // `files` is empty until the drop -- the browser withholds them while
+    // dragging -- but `types` already says whether there are any.
+    final carriesFiles =
+        transfer?.types.toDart.any((type) => type.toDart == 'Files') ?? false;
+    if (carriesFiles) event.preventDefault();
+    return carriesFiles;
+  }
+
+  @override
+  List<PickedAttachment> takeFiles(Object event) {
+    final dom = event as web.Event;
+    final picked = _hold(_transferOf(dom)?.files);
+    if (picked.isNotEmpty) dom.preventDefault();
+    return picked;
+  }
+
+  static web.DataTransfer? _transferOf(web.Event event) {
+    if (event.isA<web.DragEvent>()) {
+      return (event as web.DragEvent).dataTransfer;
+    }
+    if (event.isA<web.ClipboardEvent>()) {
+      return (event as web.ClipboardEvent).clipboardData;
+    }
+    return null;
+  }
+
+  /// Keeps each file in the browser under a new handle.
+  List<PickedAttachment> _hold(web.FileList? files) {
+    final picked = <PickedAttachment>[];
+    for (var i = 0; i < (files?.length ?? 0); i++) {
+      final file = files!.item(i);
+      if (file == null) continue;
+      final handle = 'a${_nextHandle++}';
+      _files[handle] = file;
+      picked.add(
+        PickedAttachment(
+          handle: handle,
+          name: file.name,
+          size: file.size,
+          // An empty type is what the browser reports when it cannot
+          // tell, which the server copes with better than a guess.
+          contentType: file.type,
+        ),
+      );
+    }
+    return picked;
+  }
 
   static String _codeFor(int status) => switch (status) {
     401 => ConduitErrorCodes.unauthenticated,

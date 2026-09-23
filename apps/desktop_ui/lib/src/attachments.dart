@@ -38,6 +38,22 @@ abstract interface class AttachmentPort {
 
   /// Forgets [handle] without uploading it.
   void discard(String handle);
+
+  /// Whether a drag over the composer carries files, and if it does,
+  /// claims it so it can be dropped there.
+  ///
+  /// A drag of text is left alone, so dropping a selection into the field
+  /// still inserts it. [event] is the DOM event, typed loosely so this
+  /// interface stays compilable on the VM.
+  bool claimDrag(Object event);
+
+  /// The files a drop or a paste carries, each held like a picked one.
+  ///
+  /// When there are any, the event is claimed: otherwise Electron would
+  /// also navigate to a dropped file, and a pasted screenshot would also
+  /// paste its file name into the field. Empty for text, which proceeds as
+  /// the browser would.
+  List<PickedAttachment> takeFiles(Object event);
 }
 
 /// Records what it was asked to do. The default outside a browser.
@@ -69,4 +85,17 @@ final class RecordingAttachments implements AttachmentPort {
 
   @override
   void discard(String handle) => discarded.add(handle);
+
+  /// What the next drop or paste carries.
+  List<PickedAttachment> transfer = const <PickedAttachment>[];
+
+  @override
+  bool claimDrag(Object event) => transfer.isNotEmpty;
+
+  @override
+  List<PickedAttachment> takeFiles(Object event) {
+    final files = transfer;
+    transfer = const <PickedAttachment>[];
+    return files;
+  }
 }

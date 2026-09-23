@@ -557,6 +557,68 @@ test.describe('against a real server', () => {
     await shot(page, '12-attachment')
     rmSync(attachPath, { force: true })
 
+    // 12b. A dropped file and a pasted one take the same path as a picked
+    // one. Synthetic events, but carrying a real `DataTransfer` -- which is
+    // the part the component tests cannot reach -- and both claimed, so
+    // Electron does not also navigate to the file.
+    const dragClaimed = await page.evaluate(() => {
+      const field = document.querySelector('#composer')!
+      const data = new DataTransfer()
+      data.items.add(new File(['x'], 'dropped.txt', { type: 'text/plain' }))
+      field.dispatchEvent(
+        new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: data }),
+      )
+      // False when a handler called `preventDefault`: without that on every
+      // `dragover`, the browser refuses the drop.
+      return !field.dispatchEvent(
+        new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: data }),
+      )
+    })
+    expect(dragClaimed).toBe(true)
+    await expect(page.getByText(/drop files to attach/i)).toBeVisible()
+    await shot(page, '12b-drag-over')
+    const results = await page.evaluate(() => {
+      const field = document.querySelector('#composer')!
+      const transfer = (name: string) => {
+        const data = new DataTransfer()
+        data.items.add(new File([`${name} contents`], name, { type: 'text/plain' }))
+        return data
+      }
+      // `dispatchEvent` returns false when a handler called
+      // `preventDefault`, which is what "claimed" means here.
+      const drop = field.dispatchEvent(
+        new DragEvent('drop', {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer: transfer('dropped.txt'),
+        }),
+      )
+      const paste = field.dispatchEvent(
+        new ClipboardEvent('paste', {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: transfer('pasted.txt'),
+        }),
+      )
+      return { drop, paste }
+    })
+    expect(results).toEqual({ drop: false, paste: false })
+    await expect(page.getByText(/drop files to attach/i)).toBeHidden()
+    const chips = page.locator('[aria-label="Attachments"]')
+    await expect(chips.getByText('dropped.txt')).toBeVisible()
+    await expect(chips.getByText('pasted.txt')).toBeVisible()
+    await expect(
+      page.getByText(/waiting for attachments/i),
+    ).toBeHidden({ timeout: 60_000 })
+    await expect(page.getByText(/could not attach/i)).toBeHidden()
+    await shot(page, '12c-dropped-and-pasted')
+    // Taken back rather than sent: the path to the server is the one the
+    // picked file just proved.
+    for (const name of ['dropped.txt', 'pasted.txt']) {
+      await chips.getByRole('button', { name: new RegExp(name) }).click()
+    }
+    await expect(chips).toBeHidden()
+
     // 13. Delete the conversation this run created, through the UI.
     //
     // Two reasons. It exercises delete and its confirmation against a real

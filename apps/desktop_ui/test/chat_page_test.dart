@@ -678,6 +678,56 @@ void main() {
       expect(find.text('notes.pdf'), findsOneComponent);
     });
 
+    testComponents('a dropped file becomes a chip and is uploaded', (
+      tester,
+    ) async {
+      final port = RecordingAttachments()..transfer = <PickedAttachment>[file];
+      tester.pumpComponent(_scoped(selected: 'chat-1', attachments: port));
+      await pumpEventQueue();
+
+      final composer = find.byKey(const ValueKey('composer'));
+      tester.dispatchEvent(composer, 'dragenter');
+      await pumpEventQueue();
+      expect(find.text(t.desktop.desktopDropToAttach), findsOneComponent);
+
+      tester.dispatchEvent(composer, 'drop');
+      await pumpEventQueue();
+      expect(find.text(t.desktop.desktopDropToAttach), findsNothing);
+      expect(find.text('notes.pdf'), findsOneComponent);
+      expect(port.uploaded, <String>['h1']);
+    });
+
+    testComponents('a pasted file is attached like a picked one', (
+      tester,
+    ) async {
+      final port = RecordingAttachments()..transfer = <PickedAttachment>[file];
+      tester.pumpComponent(_scoped(selected: 'chat-1', attachments: port));
+      await pumpEventQueue();
+
+      tester.dispatchEvent(find.byKey(const ValueKey('composer')), 'paste');
+      await pumpEventQueue();
+      expect(find.text('notes.pdf'), findsOneComponent);
+      expect(port.uploaded, <String>['h1']);
+    });
+
+    testComponents('dragging text over the composer is not a file drop', (
+      tester,
+    ) async {
+      // Nothing to attach, so no hint -- and the port left the event
+      // alone, so the text still lands in the field.
+      final port = RecordingAttachments();
+      tester.pumpComponent(_scoped(selected: 'chat-1', attachments: port));
+      await pumpEventQueue();
+
+      final composer = find.byKey(const ValueKey('composer'));
+      tester.dispatchEvent(composer, 'dragenter');
+      await pumpEventQueue();
+      expect(find.text(t.desktop.desktopDropToAttach), findsNothing);
+      tester.dispatchEvent(composer, 'paste');
+      await pumpEventQueue();
+      expect(port.uploaded, isEmpty);
+    });
+
     // Sending *with* an attachment is asserted in the Electron suite
     // instead. The form's submit handler calls `preventDefault`, which
     // throws on the VM -- `universal_web` stubs every real DOM call -- so

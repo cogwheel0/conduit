@@ -1074,6 +1074,10 @@ class _ComposerState extends State<_Composer> {
   final Set<String> _toolIds = <String>{};
   bool _toolsOpen = false;
 
+  /// Counted rather than a flag: `dragleave` fires every time the pointer
+  /// crosses into a child, so a flag flickered off over the text field.
+  int _dragDepth = 0;
+
   @override
   Component build(BuildContext context) {
     final live = context.watch(liveTurnProvider).value;
@@ -1090,149 +1094,182 @@ class _ComposerState extends State<_Composer> {
 
     final options = context.watch(composerOptionsProvider).value;
 
-    return div(classes: 'border-t border-border bg-background p-4', [
-      if (options != null &&
-          (options.webSearch ||
-              options.imageGeneration ||
-              options.tools.isNotEmpty))
-        _features(options),
-      if (_attachments.isNotEmpty)
-        div(
-          classes: 'mx-auto mb-2 flex max-w-3xl flex-wrap gap-2',
-          attributes: <String, String>{'aria-label': t.app.attachments},
-          [for (final attachment in _attachments) _chip(context, attachment)],
-        ),
-      if (models != null && models.models.isNotEmpty)
-        div(classes: 'mx-auto mb-2 flex max-w-3xl items-center gap-2', [
-          label(
-            [Component.text(t.app.chooseModel)],
-            htmlFor: 'model',
-            classes: 'text-xs text-muted-foreground',
+    final attachments = context.read(attachmentsProvider);
+
+    return div(
+      key: const ValueKey('composer'),
+      classes:
+          'border-t border-border bg-background p-4'
+          '${_dragDepth > 0 ? ' ring-2 ring-inset ring-primary' : ''}',
+      // Files arrive three ways: the + button, a drop anywhere on the
+      // composer, and a paste into it. The last two go through the port,
+      // which is what may call `preventDefault` -- that throws on the VM.
+      events: <String, EventCallback>{
+        'dragenter': (event) {
+          if (attachments.claimDrag(event)) setState(() => _dragDepth++);
+        },
+        // Every `dragover` has to be claimed, not just the first, or the
+        // browser refuses the drop.
+        'dragover': attachments.claimDrag,
+        'dragleave': (_) {
+          if (_dragDepth > 0) setState(() => _dragDepth--);
+        },
+        'drop': (event) {
+          setState(() => _dragDepth = 0);
+          _upload(attachments, attachments.takeFiles(event));
+        },
+        'paste': (event) => _upload(attachments, attachments.takeFiles(event)),
+      },
+      [
+        if (options != null &&
+            (options.webSearch ||
+                options.imageGeneration ||
+                options.tools.isNotEmpty))
+          _features(options),
+        if (_attachments.isNotEmpty)
+          div(
+            classes: 'mx-auto mb-2 flex max-w-3xl flex-wrap gap-2',
+            attributes: <String, String>{'aria-label': t.app.attachments},
+            [for (final attachment in _attachments) _chip(context, attachment)],
           ),
-          select(
-            [
-              for (final model in models.models)
-                option(
-                  value: model.id,
-                  selected: models.selectedId == model.id,
-                  [Component.text(model.name)],
-                ),
-            ],
-            id: 'model',
-            classes:
-                'rounded border border-border bg-background '
-                'px-2 py-1 text-xs text-foreground',
-            disabled: _busy,
-            onChange: (values) {
-              if (values.isEmpty) return;
-              unawaited(
-                context.read(chatActionsProvider).selectModel(values.first),
-              );
-            },
-          ),
-          // Only before the first message. A conversation is temporary or
-          // not from the start: switching an existing chat would mean
-          // deleting it from the server, which is what Delete is for.
-          if (context.watch(selectedChatIdProvider) == null)
-            div(classes: 'ml-auto', [
-              checkboxField(
-                id: 'temporary-chat',
-                text: t.app.temporaryChat,
-                checked: context.watch(temporaryChatProvider),
-                onChanged: ({required value}) => context
-                    .read(temporaryChatProvider.notifier)
-                    .set(value: value),
-              ),
-            ]),
-        ]),
-      form(
-        [
-          // `min-w-0` on the field: a flex item's automatic minimum is its
-          // content's, and a textarea's is its `cols` -- without this the
-          // field refuses to give ground and the row overflows instead.
-          div(classes: 'mx-auto flex max-w-3xl items-end gap-2', [
-            button(
-              [
-                span(
-                  attributes: const <String, String>{'aria-hidden': 'true'},
-                  [Component.text('\u002b')],
-                ),
-              ],
-              classes:
-                  'shrink-0 rounded border border-border px-3 py-2 text-sm '
-                  'text-muted-foreground hover:bg-accent',
-              type: ButtonType.button,
-              attributes: <String, String>{
-                'aria-label': t.desktop.desktopAttachFiles,
-                'title': t.desktop.desktopAttachFiles,
-              },
-              onClick: () => unawaited(_attach(context)),
+        if (models != null && models.models.isNotEmpty)
+          div(classes: 'mx-auto mb-2 flex max-w-3xl items-center gap-2', [
+            label(
+              [Component.text(t.app.chooseModel)],
+              htmlFor: 'model',
+              classes: 'text-xs text-muted-foreground',
             ),
-            div(classes: 'min-w-0 flex-1', [
-              textAreaField(
-                id: 'composer',
-                labelText: t.app.sendMessage,
-                placeholder: t.app.messageHintText,
-                hideLabel: true,
-                value: _text,
-                rows: 2,
-                // Not disabled while the turn is being accepted. The send
-                // button is, which is what prevents a double send -- and
-                // greying out the field costs the user the caret twice: a
-                // disabled element cannot be focused, so the refocus below
-                // was a no-op against a DOM that had not rebuilt yet, and
-                // they were left typing into nothing.
-                onInput: (value) => setState(() => _text = value),
-                onKeyDown: sendOnEnter(() => unawaited(_send(context))),
-              ),
-            ]),
-            if (streaming)
-              button(
-                [Component.text(t.app.stopGenerating)],
-                classes:
-                    'shrink-0 rounded border border-border px-4 py-2 '
-                    'text-sm text-foreground',
-                type: ButtonType.button,
-                onClick: () => unawaited(
-                  context.read(chatActionsProvider).stop(live.chatId),
+            select(
+              [
+                for (final model in models.models)
+                  option(
+                    value: model.id,
+                    selected: models.selectedId == model.id,
+                    [Component.text(model.name)],
+                  ),
+              ],
+              id: 'model',
+              classes:
+                  'rounded border border-border bg-background '
+                  'px-2 py-1 text-xs text-foreground',
+              disabled: _busy,
+              onChange: (values) {
+                if (values.isEmpty) return;
+                unawaited(
+                  context.read(chatActionsProvider).selectModel(values.first),
+                );
+              },
+            ),
+            // Only before the first message. A conversation is temporary or
+            // not from the start: switching an existing chat would mean
+            // deleting it from the server, which is what Delete is for.
+            if (context.watch(selectedChatIdProvider) == null)
+              div(classes: 'ml-auto', [
+                checkboxField(
+                  id: 'temporary-chat',
+                  text: t.app.temporaryChat,
+                  checked: context.watch(temporaryChatProvider),
+                  onChanged: ({required value}) => context
+                      .read(temporaryChatProvider.notifier)
+                      .set(value: value),
                 ),
+              ]),
+          ]),
+        form(
+          [
+            // `min-w-0` on the field: a flex item's automatic minimum is its
+            // content's, and a textarea's is its `cols` -- without this the
+            // field refuses to give ground and the row overflows instead.
+            div(classes: 'mx-auto flex max-w-3xl items-end gap-2', [
+              button(
+                [
+                  span(
+                    attributes: const <String, String>{'aria-hidden': 'true'},
+                    [Component.text('\u002b')],
+                  ),
+                ],
+                classes:
+                    'shrink-0 rounded border border-border px-3 py-2 text-sm '
+                    'text-muted-foreground hover:bg-accent',
+                type: ButtonType.button,
+                attributes: <String, String>{
+                  'aria-label': t.desktop.desktopAttachFiles,
+                  'title': t.desktop.desktopAttachFiles,
+                },
+                onClick: () => unawaited(_attach(context)),
+              ),
+              div(classes: 'min-w-0 flex-1', [
+                textAreaField(
+                  id: 'composer',
+                  labelText: t.app.sendMessage,
+                  placeholder: t.app.messageHintText,
+                  hideLabel: true,
+                  value: _text,
+                  rows: 2,
+                  // Not disabled while the turn is being accepted. The send
+                  // button is, which is what prevents a double send -- and
+                  // greying out the field costs the user the caret twice: a
+                  // disabled element cannot be focused, so the refocus below
+                  // was a no-op against a DOM that had not rebuilt yet, and
+                  // they were left typing into nothing.
+                  onInput: (value) => setState(() => _text = value),
+                  onKeyDown: sendOnEnter(() => unawaited(_send(context))),
+                ),
+              ]),
+              if (streaming)
+                button(
+                  [Component.text(t.app.stopGenerating)],
+                  classes:
+                      'shrink-0 rounded border border-border px-4 py-2 '
+                      'text-sm text-foreground',
+                  type: ButtonType.button,
+                  onClick: () => unawaited(
+                    context.read(chatActionsProvider).stop(live.chatId),
+                  ),
+                )
+              else
+                submitButton(
+                  labelText: t.app.send,
+                  busyLabel: t.desktop.desktopSending,
+                  busy: _busy,
+                  // An attachment still climbing is not a reason to grey the
+                  // button out -- the user would watch it and wonder. The
+                  // send waits for the upload instead, and says so.
+                  enabled: _text.trim().isNotEmpty || _attachments.isNotEmpty,
+                  fullWidth: false,
+                ),
+            ]),
+            if (_dragDepth > 0)
+              p(classes: 'mx-auto mt-1.5 max-w-3xl text-xs text-primary', [
+                Component.text(t.desktop.desktopDropToAttach),
+              ])
+            else if (_error case final message?)
+              div(classes: 'mx-auto mt-2 max-w-3xl', [formError(message)])
+            else if (uploading)
+              p(
+                classes:
+                    'mx-auto mt-1.5 max-w-3xl text-xs text-muted-foreground',
+                [Component.text(t.desktop.desktopAttachmentsUploading)],
               )
             else
-              submitButton(
-                labelText: t.app.send,
-                busyLabel: t.desktop.desktopSending,
-                busy: _busy,
-                // An attachment still climbing is not a reason to grey the
-                // button out -- the user would watch it and wonder. The
-                // send waits for the upload instead, and says so.
-                enabled: _text.trim().isNotEmpty || _attachments.isNotEmpty,
-                fullWidth: false,
+              // Said once, quietly, under the field -- rather than left for
+              // the user to discover by pressing Enter and watching their
+              // message not send.
+              p(
+                classes:
+                    'mx-auto mt-1.5 max-w-3xl text-xs text-muted-foreground',
+                [Component.text(t.desktop.desktopComposerHint)],
               ),
-          ]),
-          if (_error case final message?)
-            div(classes: 'mx-auto mt-2 max-w-3xl', [formError(message)])
-          else if (uploading)
-            p(
-              classes: 'mx-auto mt-1.5 max-w-3xl text-xs text-muted-foreground',
-              [Component.text(t.desktop.desktopAttachmentsUploading)],
-            )
-          else
-            // Said once, quietly, under the field -- rather than left for
-            // the user to discover by pressing Enter and watching their
-            // message not send.
-            p(
-              classes: 'mx-auto mt-1.5 max-w-3xl text-xs text-muted-foreground',
-              [Component.text(t.desktop.desktopComposerHint)],
-            ),
-        ],
-        events: <String, EventCallback>{
-          'submit': (event) {
-            event.preventDefault();
-            unawaited(_send(context));
+          ],
+          events: <String, EventCallback>{
+            'submit': (event) {
+              event.preventDefault();
+              unawaited(_send(context));
+            },
           },
-        },
-      ),
-    ]);
+        ),
+      ],
+    );
   }
 
   /// Web search, image generation and tools: switches for the next turn.
@@ -1364,8 +1401,13 @@ class _ComposerState extends State<_Composer> {
   Future<void> _attach(BuildContext context) async {
     final port = context.read(attachmentsProvider);
     final picked = await port.pick();
-    if (!mounted || picked.isEmpty) return;
+    if (!mounted) return;
+    _upload(port, picked);
+  }
 
+  /// Shows [picked] as chips and uploads each, however they arrived.
+  void _upload(AttachmentPort port, List<PickedAttachment> picked) {
+    if (picked.isEmpty) return;
     final added = picked.map(_Attachment.new).toList(growable: false);
     setState(() => _attachments.addAll(added));
 

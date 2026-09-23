@@ -329,5 +329,9 @@
   "desktopDetails": "Details",
   "@desktopDetails": {
     "description": "Label of a collapsible section in a desktop reply that carried no title of its own."
+  },
+  "desktopDropToAttach": "Drop files to attach",
+  "@desktopDropToAttach": {
+    "description": "Shown under the desktop composer while files are dragged over it."
   }
 }
