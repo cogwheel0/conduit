@@ -1759,12 +1759,29 @@ class _ComposerState extends State<_Composer> {
     if (context.watch(composerPrefillProvider) != null) {
       Future<void>.microtask(() {
         if (!mounted) return;
-        final text = context.read(composerPrefillProvider.notifier).take();
-        if (text == null) return;
-        setState(() => _text = text);
-        context.read(windowCommandsProvider)
-          ..setValue('composer', text)
-          ..focus('composer');
+        final draft = context.read(composerPrefillProvider.notifier).take();
+        if (draft == null) return;
+        setState(() {
+          if (draft.text case final text?) _text = text;
+          // Uploaded already, by the shell: attached and ready.
+          for (final file in draft.files) {
+            _attachments.add(
+              _Attachment(
+                  PickedAttachment(
+                    handle: 'opened-${file.id}',
+                    name: file.name,
+                    size: file.size,
+                    contentType: file.contentType ?? '',
+                  ),
+                )
+                ..id = file.id
+                ..progress = 1,
+            );
+          }
+        });
+        final commands = context.read(windowCommandsProvider);
+        if (draft.text case final text?) commands.setValue('composer', text);
+        commands.focus('composer');
       });
     }
 

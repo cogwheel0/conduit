@@ -32,6 +32,18 @@ protocols:
   - name: Conduit
     schemes: [conduit]
 
+# "Open with Conduit": a new chat with the file attached (WP-9.3). Never the
+# default app for any of these -- an alternative the user chooses.
+fileAssociations:
+  - ext: [pdf, txt, md, csv, json, docx, xlsx, pptx]
+    name: Document
+    role: Viewer
+    rank: Alternate
+  - ext: [png, jpg, jpeg, gif, webp]
+    name: Image
+    role: Viewer
+    rank: Alternate
+
 mac:
   category: public.app-category.productivity
   icon: ../../assets/icons/icon.png

@@ -12,6 +12,7 @@ import {
 import { DaemonSupervisor, resolveDaemonPath } from './daemon.js'
 import { DEEP_LINK_SCHEME, deepLinkInArgs, parseDeepLink } from './deep-link.js'
 import { DesktopShell } from './desktop-shell.js'
+import { filesInArgs, uploadFiles } from './open-files.js'
 import { loadOrCreateSecrets, type CoreSecrets } from './secrets.js'
 import { ShellSettingsStore } from './shell-settings.js'
 import { WindowStateStore } from './window-state.js'
@@ -43,6 +44,28 @@ const startHidden = process.argv.includes('--hidden')
 let launchLink: string | null = deepLinkInArgs(process.argv)
 
 /**
+ * The launch's own arguments start after the executable -- and, run as
+ * `electron .`, after the app's path too.
+ */
+const argsSkip = app.isPackaged ? 1 : 2
+
+/** Files given to open ("Open with Conduit") before the app was ready. */
+let launchFiles: string[] = filesInArgs(process.argv, process.cwd(), argsSkip)
+
+/** Uploads [paths] through the daemon and starts a chat with them. */
+async function openFiles(paths: string[]): Promise<void> {
+  const port = supervisor?.port
+  if (desktop === null || port === null || port === undefined || secrets === null) {
+    launchFiles.push(...paths)
+    return
+  }
+  if (paths.length === 0) return
+  desktop.showMain()
+  const files = await uploadFiles(paths, port, secrets.sessionToken)
+  if (files.length > 0) desktop.open({ kind: 'newChat', files })
+}
+
+/**
  * Only one copy of the app may own the user's data directory: two daemons
  * against one SQLite file is corruption waiting to happen.
  */
@@ -51,15 +74,23 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   // A second launch is the user asking for this one -- with a link, on
   // Windows and Linux, as the link's arguments.
-  app.on('second-instance', (_event, argv) => {
+  app.on('second-instance', (_event, argv, workingDirectory) => {
     const link = deepLinkInArgs(argv)
     const request = link === null ? null : parseDeepLink(link)
+    const files = filesInArgs(argv, workingDirectory, argsSkip)
     if (desktop === null) {
       launchLink = link ?? launchLink
+      launchFiles.push(...files)
       return
     }
     if (request !== null) desktop.open(request)
+    else if (files.length > 0) void openFiles(files)
     else desktop.showMain()
+  })
+  // macOS hands files over as events too, one at a time.
+  app.on('open-file', (event, path) => {
+    event.preventDefault()
+    void openFiles([path])
   })
   // macOS hands links over as an event, possibly before `ready`.
   app.on('open-url', (event, url) => {
@@ -145,6 +176,9 @@ async function main(): Promise<void> {
   const link = launchLink === null ? null : parseDeepLink(launchLink)
   launchLink = null
   if (link !== null) desktop.open(link)
+  const files = launchFiles
+  launchFiles = []
+  void openFiles(files)
 
   app.on('activate', () => {
     desktop?.showMain()

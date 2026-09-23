@@ -1,18 +1,32 @@
+import 'package:conduit_protocol/conduit_protocol.dart';
+
 /// What the window may be asked to open (M9): from a `conduit://` link, a
 /// notification, the tray, or the quick-ask panel. The main process has
 /// already checked it; the renderer maps it onto its own navigation.
 class OpenRequest {
-  const OpenRequest(this.kind, {this.id, this.text, this.tab});
+  const OpenRequest(
+    this.kind, {
+    this.id,
+    this.text,
+    this.tab,
+    this.files = const <UploadedFile>[],
+  });
 
   const OpenRequest.chat(String id) : this('chat', id: id);
 
-  const OpenRequest.newChat({String? text}) : this('newChat', text: text);
+  const OpenRequest.newChat({
+    String? text,
+    List<UploadedFile> files = const <UploadedFile>[],
+  }) : this('newChat', text: text, files: files);
 
   /// `chat`, `newChat`, `channel`, `note` or `settings`.
   final String kind;
   final String? id;
   final String? text;
   final String? tab;
+
+  /// Files the OS handed the app ("Open with"), already uploaded.
+  final List<UploadedFile> files;
 
   static OpenRequest? fromJson(Map<String, dynamic> json) {
     final kind = json['kind'];
@@ -22,6 +36,12 @@ class OpenRequest {
       id: json['id'] as String?,
       text: json['text'] as String?,
       tab: json['tab'] as String?,
+      files: <UploadedFile>[
+        if (json['files'] case final List<dynamic> files)
+          for (final file in files)
+            if (file is Map)
+              UploadedFile.fromJson(file.cast<String, dynamic>()),
+      ],
     );
   }
 
@@ -30,6 +50,7 @@ class OpenRequest {
     'id': ?id,
     'text': ?text,
     'tab': ?tab,
+    if (files.isNotEmpty) 'files': [for (final file in files) file.toJson()],
   };
 
   @override
@@ -38,10 +59,19 @@ class OpenRequest {
       other.kind == kind &&
       other.id == id &&
       other.text == text &&
-      other.tab == tab;
+      other.tab == tab &&
+      _sameFiles(other.files, files);
+
+  static bool _sameFiles(List<UploadedFile> a, List<UploadedFile> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
 
   @override
-  int get hashCode => Object.hash(kind, id, text, tab);
+  int get hashCode => Object.hash(kind, id, text, tab, Object.hashAll(files));
 
   @override
   String toString() => 'OpenRequest(${toJson()})';

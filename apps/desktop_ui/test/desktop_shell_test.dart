@@ -152,7 +152,41 @@ void main() {
       await _settle();
       shell.open(const OpenRequest.newChat(text: 'Plan a trip'));
       expect(chats.selected, [null]);
-      expect(container.read(composerPrefillProvider), 'Plan a trip');
+      expect(container.read(composerPrefillProvider)?.text, 'Plan a trip');
+    });
+
+    testComponents('files opened with Conduit start a chat with them', (
+      tester,
+    ) async {
+      late ProviderContainer container;
+      tester.pumpComponent(
+        scoped(
+          Builder(
+            builder: (context) {
+              container = ProviderScope.containerOf(context);
+              return const DesktopIntegration();
+            },
+          ),
+        ),
+      );
+      await _settle();
+      final request = OpenRequest.fromJson(<String, dynamic>{
+        'kind': 'newChat',
+        'files': [
+          {
+            'id': 'f1',
+            'name': 'notes.md',
+            'size': 4,
+            'contentType': 'text/markdown',
+          },
+        ],
+      })!;
+      shell.open(request);
+      expect(chats.selected, [null]);
+      expect(went, ['/']);
+      final draft = container.read(composerPrefillProvider)!;
+      expect(draft.text, isNull);
+      expect(draft.files.single.name, 'notes.md');
     });
 
     testComponents('an answer out of sight is a notification', (tester) async {

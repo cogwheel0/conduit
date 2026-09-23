@@ -24,23 +24,29 @@ final shortcutTableProvider = Provider<List<Shortcut>>(
   ),
 );
 
-/// Text for the composer to take up: a `conduit://new?q=` link, or the
-/// quick-ask panel's question continued here.
-final composerPrefillProvider = NotifierProvider<ComposerPrefill, String?>(
-  ComposerPrefill.new,
-);
+/// What the composer should start with: a `conduit://new?q=` link's text,
+/// or files the OS handed the app, already uploaded.
+class ComposerDraft {
+  const ComposerDraft({this.text, this.files = const <UploadedFile>[]});
 
-class ComposerPrefill extends Notifier<String?> {
+  final String? text;
+  final List<UploadedFile> files;
+}
+
+final composerPrefillProvider =
+    NotifierProvider<ComposerPrefill, ComposerDraft?>(ComposerPrefill.new);
+
+class ComposerPrefill extends Notifier<ComposerDraft?> {
   @override
-  String? build() => null;
+  ComposerDraft? build() => null;
 
-  void set(String? text) => state = text;
+  void set(ComposerDraft? draft) => state = draft;
 
-  /// The text, once: whoever takes it clears it.
-  String? take() {
-    final text = state;
-    if (text != null) state = null;
-    return text;
+  /// The draft, once: whoever takes it clears it.
+  ComposerDraft? take() {
+    final draft = state;
+    if (draft != null) state = null;
+    return draft;
   }
 }
 
@@ -100,8 +106,10 @@ class _DesktopIntegrationState extends State<DesktopIntegration> {
         workspaceGo(context, '/');
       case 'newChat':
         chats.select(null);
-        if (request.text case final text?) {
-          context.read(composerPrefillProvider.notifier).set(text);
+        if (request.text != null || request.files.isNotEmpty) {
+          context
+              .read(composerPrefillProvider.notifier)
+              .set(ComposerDraft(text: request.text, files: request.files));
         }
         workspaceGo(context, '/');
       case 'channel':
