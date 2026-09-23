@@ -18,6 +18,7 @@ import 'package:conduit_core/features/direct_connections/services/direct_chat_br
 import 'package:conduit_core/features/direct_connections/services/direct_chat_storage.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/ports/ui_request_port.dart';
@@ -320,6 +321,7 @@ final class TurnsService {
       String? sessionId,
     ) => api.sendMessageSession(
       sessionIdOverride: sessionId,
+      terminalId: _terminalIdFor(model),
       messages: payload,
       model: model,
       conversationId: isTemporary ? null : resolvedChatId,
@@ -454,6 +456,7 @@ final class TurnsService {
       String? sessionId,
     ) => api.sendMessageSession(
       sessionIdOverride: sessionId,
+      terminalId: _terminalIdFor(model),
       messages: withSystemMessage(<Map<String, dynamic>>[
         for (final message in prompt)
           <String, dynamic>{'role': message.role, 'content': message.content},
@@ -594,6 +597,7 @@ final class TurnsService {
     Future<ChatCompletionSession> dispatch(String? sessionId) =>
         api.sendMessageSession(
           sessionIdOverride: sessionId,
+          terminalId: _terminalIdFor(model),
           messages: withSystemMessage(<Map<String, dynamic>>[
             for (final message in before)
               <String, dynamic>{
@@ -846,6 +850,21 @@ final class TurnsService {
   /// answered differently here than on the phone or the web. Settings are
   /// kept for a minute: they change rarely, and a turn should not wait on
   /// a second request to learn nothing new.
+  /// The terminal a turn may use, as mobile sends it (M7): the one
+  /// selected, unless the model has switched terminals off in its
+  /// capabilities.
+  String? _terminalIdFor(String modelId) {
+    final selected = _container.read(selectedTerminalIdProvider)?.trim();
+    if (selected == null || selected.isEmpty) return null;
+    final models = _container.read(modelsProvider).value ?? const <Model>[];
+    final model = models.where((m) => m.id == modelId).firstOrNull;
+    final info = model?.metadata?['info'];
+    final meta = info is Map ? info['meta'] : null;
+    final capabilities = meta is Map ? meta['capabilities'] : null;
+    if (capabilities is Map && capabilities['terminal'] == false) return null;
+    return selected;
+  }
+
   Future<String?> _systemPromptFor(ApiService api, String? chatId) async {
     String? own;
     if (chatId != null && !temporary.contains(chatId)) {

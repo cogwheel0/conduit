@@ -159,6 +159,9 @@ abstract class WorkspaceModelDto with _$WorkspaceModelDto {
     @Default(<String>[]) List<String> actionIds,
     @Default(<String>[]) List<String> defaultFeatureIds,
     @Default('') String ttsVoice,
+
+    /// The terminal chats with this model use, selected when the model is.
+    @Default('') String terminalId,
     @Default(true) bool active,
     @Default(false) bool hidden,
 

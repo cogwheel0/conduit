@@ -1554,6 +1554,9 @@ class _ComposerState extends State<_Composer> {
   bool _webSearch = false;
   bool _imageGeneration = false;
   final Set<String> _toolIds = <String>{};
+
+  /// Whether the terminal chooser is open (M7).
+  bool _terminalOpen = false;
   bool _toolsOpen = false;
 
   /// The MCP content sheet (M4), for a direct model with MCP servers.
@@ -1983,6 +1986,10 @@ class _ComposerState extends State<_Composer> {
       attributes: <String, String>{'aria-pressed': on ? 'true' : 'false'},
       onClick: () => setState(flip),
     );
+    final terminals = context.watch(terminalServersProvider).value;
+    final selectedTerminal = terminals?.servers
+        .where((server) => server.id == terminals.selectedId)
+        .firstOrNull;
     return div(classes: 'mx-auto mb-2 max-w-3xl', [
       div(classes: 'flex flex-wrap items-center gap-2', [
         if (options.webSearch)
@@ -2017,6 +2024,28 @@ class _ComposerState extends State<_Composer> {
             },
             onClick: () => setState(() => _toolsOpen = !_toolsOpen),
           ),
+        // The terminal the model may use, from the account's (M7). Direct
+        // models answer here, without Open WebUI's terminal.
+        if (!_answeredDirectly && terminalOffered(terminals))
+          button(
+            [
+              Component.text(
+                selectedTerminal == null
+                    ? t.app.terminal
+                    : '${t.app.terminal}: ${selectedTerminal.name}',
+              ),
+            ],
+            classes:
+                'rounded-full border px-3 py-1 text-xs '
+                '${selectedTerminal != null ? 'border-primary text-foreground' : 'border-border text-muted-foreground'} '
+                'hover:bg-accent',
+            type: ButtonType.button,
+            attributes: <String, String>{
+              'aria-expanded': _terminalOpen ? 'true' : 'false',
+              'aria-controls': 'composer-terminal',
+            },
+            onClick: () => setState(() => _terminalOpen = !_terminalOpen),
+          ),
         // Prompts and resources from the same servers, as text to send.
         if (_answeredDirectly && options.mcpTools.isNotEmpty)
           button(
@@ -2046,6 +2075,36 @@ class _ComposerState extends State<_Composer> {
               ..setValue('composer', text)
               ..focus('composer');
           },
+        ),
+      if (_terminalOpen && !_answeredDirectly && terminalOffered(terminals))
+        div(
+          id: 'composer-terminal',
+          classes: 'mt-2 flex flex-wrap gap-2 rounded border border-border p-3',
+          attributes: <String, String>{
+            'role': 'group',
+            'aria-label': t.app.terminalSelectServer,
+          },
+          [
+            for (final (id, name) in <(String?, String)>[
+              (null, t.app.workspaceModelSelectNone),
+              for (final server in terminals!.servers) (server.id, server.name),
+            ])
+              button(
+                [Component.text(name)],
+                classes:
+                    'rounded-full border px-3 py-1 text-xs '
+                    '${terminals.selectedId == id ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:bg-accent'}',
+                type: ButtonType.button,
+                attributes: <String, String>{
+                  'aria-pressed': terminals.selectedId == id ? 'true' : 'false',
+                },
+                onClick: () async {
+                  setState(() => _terminalOpen = false);
+                  await context.read(terminalActionsProvider).select(id);
+                  context.invalidate(terminalServersProvider);
+                },
+              ),
+          ],
         ),
       if (_toolsOpen && _toolsOffered(options).isNotEmpty)
         div(

@@ -560,6 +560,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     actionIds: <String>['a1'],
     defaultFeatureIds: <String>['web_search'],
     ttsVoice: 'alloy',
+    terminalId: 'http://127.0.0.1:8000',
     hidden: true,
     params: <String, dynamic>{'temperature': 0.5},
   ),

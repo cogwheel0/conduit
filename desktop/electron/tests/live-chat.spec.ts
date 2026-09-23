@@ -2267,6 +2267,34 @@ test.describe('against a real server', () => {
         await expect(panel).toBeHidden()
         await shot(page, '21b-terminal-fullscreen')
         await page.locator('#terminal-fullscreen').click()
+
+        // Chats use it once chosen in the composer, which marks it in the
+        // account's settings as the web client does.
+        await page.getByRole('link', { name: /^back$/i }).click()
+        await expect.poll(pathname, { timeout: 30_000 }).toBe('/')
+        // A server model: a direct one answers here, without Open WebUI's
+        // terminal, and the composer offers none for it.
+        await page.locator('#model').selectOption(credentials!.model ?? { index: 0 })
+        await page.getByRole('button', { name: /^terminal$/i }).click()
+        const chooser = page.getByRole('group', { name: /^select a terminal server$/i })
+        await chooser.getByRole('button', { name: 'E2E shell' }).click()
+        await expect(page.getByRole('button', { name: /^terminal: e2e shell$/i })).toBeVisible({
+          timeout: 30_000,
+        })
+        {
+          const { api, auth } = await serverApi(credentials!)
+          try {
+            const settings = (await (
+              await api.get('/api/v1/users/user/settings', { headers: auth })
+            ).json()) as { ui?: { terminalServers?: Array<{ url: string; enabled?: boolean }> } }
+            expect(
+              settings.ui?.terminalServers?.find((s) => s.url === terminal.url)?.enabled,
+            ).toBe(true)
+          } finally {
+            await api.dispose()
+          }
+        }
+        await shot(page, '21c-composer-terminal')
       } finally {
         await terminalSettings((servers) => servers.filter((s) => s.url !== terminal.url)).catch(
           () => undefined,

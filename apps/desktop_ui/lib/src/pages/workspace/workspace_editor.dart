@@ -11,6 +11,7 @@ import '../../l10n/strings.g.dart';
 import '../../file_picker.dart';
 import '../../rpc/rpc_providers.dart'
     show filePickerProvider, fileSaverProvider;
+import '../../rpc/terminal_providers.dart';
 import '../../rpc/workspace_providers.dart';
 import '../../widgets/form_field.dart';
 import 'workspace_access.dart';
@@ -1065,6 +1066,42 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
             set(m.copyWith(defaultFeatureIds: splitList(value)));
           },
         ),
+        div(classes: 'space-y-1.5', [
+          label(
+            htmlFor: 'model-terminal',
+            classes: 'block text-sm font-medium',
+            [Component.text(t.app.workspaceModelTerminal)],
+          ),
+          select(
+            [
+              option(value: '', selected: m.terminalId.isEmpty, [
+                Component.text(t.app.workspaceModelSelectNone),
+              ]),
+              for (final server in <TerminalServerDto>[
+                ...?context.watch(terminalServersProvider).value?.servers,
+                // One the model names that this account cannot see.
+                if (m.terminalId.isNotEmpty &&
+                    !(context
+                            .watch(terminalServersProvider)
+                            .value
+                            ?.servers
+                            .any((server) => server.id == m.terminalId) ??
+                        false))
+                  TerminalServerDto(id: m.terminalId, name: m.terminalId),
+              ])
+                option(value: server.id, selected: server.id == m.terminalId, [
+                  Component.text(server.name.isEmpty ? server.id : server.name),
+                ]),
+            ],
+            id: 'model-terminal',
+            classes:
+                'w-full rounded border border-border bg-background px-3 py-2 '
+                'text-sm',
+            disabled: disabled,
+            onChange: (values) =>
+                set(m.copyWith(terminalId: values.isEmpty ? '' : values.first)),
+          ),
+        ]),
         textField(
           id: 'model-tts',
           labelText: t.app.workspaceModelTtsVoice,

@@ -1121,6 +1121,7 @@ final class WorkspaceService {
         actionIds: draft.actionIds,
         defaultFeatureIds: draft.defaultFeatureIds,
         ttsVoice: draft.ttsVoice,
+        terminalId: draft.terminalId,
         active: draft.isActive,
         hidden: draft.hidden,
         params: draft.advancedParams,
@@ -1202,6 +1203,7 @@ final class WorkspaceService {
       ..actionIds = [...dto.actionIds]
       ..defaultFeatureIds = [...dto.defaultFeatureIds]
       ..ttsVoice = dto.ttsVoice
+      ..terminalId = dto.terminalId
       ..isActive = dto.active
       ..hidden = dto.hidden
       ..advancedParams = {...dto.params};
