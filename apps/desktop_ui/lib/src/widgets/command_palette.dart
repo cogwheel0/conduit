@@ -101,7 +101,7 @@ class _CommandPaletteState extends State<CommandPalette> {
         id: 'palette-option-$index',
         classes:
             'flex cursor-pointer items-baseline gap-3 rounded px-3 py-2 '
-            'text-sm ${active ? 'bg-accent text-accent-foreground' : ''}',
+            'text-ui-base ${active ? 'bg-accent text-accent-foreground' : ''}',
         attributes: <String, String>{
           'role': 'option',
           'aria-selected': '$active',
@@ -116,14 +116,14 @@ class _CommandPaletteState extends State<CommandPalette> {
           div(classes: 'min-w-0 flex-1', [
             div(classes: 'truncate', [Component.text(item.label)]),
             if (item case PaletteChatItem(:final snippet?))
-              div(classes: 'truncate text-xs text-muted-foreground', [
+              div(classes: 'truncate text-ui-sm text-muted-foreground', [
                 Component.text(snippet),
               ]),
           ]),
           if (item case PaletteCommandItem(:final shortcut?))
             Component.element(
               tag: 'kbd',
-              classes: 'shrink-0 text-xs text-muted-foreground',
+              classes: 'shrink-0 text-ui-sm text-muted-foreground',
               children: <Component>[Component.text(shortcut)],
             ),
         ],
@@ -131,7 +131,7 @@ class _CommandPaletteState extends State<CommandPalette> {
     }
 
     Component heading(String text) => div(
-      classes: 'px-3 pb-1 pt-3 text-xs font-medium text-muted-foreground',
+      classes: 'px-3 pb-1 pt-3 text-ui-sm font-medium text-muted-foreground',
       attributes: const <String, String>{'role': 'presentation'},
       [Component.text(text)],
     );
@@ -161,7 +161,7 @@ class _CommandPaletteState extends State<CommandPalette> {
               id: 'palette-input',
               classes:
                   'w-full border-b border-border bg-transparent px-4 py-3 '
-                  'text-sm outline-none',
+                  'text-ui-base outline-none',
               type: InputType.text,
               value: context.read(paletteQueryProvider),
               onInput: (value) {
@@ -217,7 +217,7 @@ class _CommandPaletteState extends State<CommandPalette> {
                   ),
                 for (var i = commands.length; i < items.length; i++) row(i),
                 if (items.isEmpty)
-                  p(classes: 'px-3 py-4 text-sm text-muted-foreground', [
+                  p(classes: 'px-3 py-4 text-ui-base text-muted-foreground', [
                     Component.text(t.desktop.desktopSearchNoResults),
                   ]),
               ],

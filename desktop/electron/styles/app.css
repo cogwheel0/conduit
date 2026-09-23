@@ -23,6 +23,32 @@
  * `classes:` strings only ever live in these Dart files. */
 @source "../../../apps/desktop_ui/lib/**/*.dart";
 
+/* The interface type scale (docs/desktop/REDESIGN.md). Every step follows
+ * `--ui-font-size`, which the text-size setting writes on <html>; the root
+ * font size never changes, so rem-based spacing stays put. Code, diffs and
+ * the terminal use Tailwind's fixed sizes and keep them. */
+@theme {
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    "PingFang SC", "Microsoft YaHei UI", "Noto Sans CJK SC", sans-serif;
+  --text-ui-xl: calc(var(--ui-font-size) + 4px);
+  --text-ui-xl--line-height: 1.4;
+  --text-ui-lg: calc(var(--ui-font-size) + 2px);
+  --text-ui-lg--line-height: 1.45;
+  --text-ui-base: var(--ui-font-size);
+  --text-ui-base--line-height: 1.5;
+  --text-ui-caption: calc(var(--ui-font-size) - 1px);
+  --text-ui-caption--line-height: 1.45;
+  --text-ui-sm: calc(var(--ui-font-size) - 2px);
+  --text-ui-sm--line-height: 1.45;
+  --text-ui-xs: calc(var(--ui-font-size) - 4px);
+  --text-ui-xs--line-height: 1.4;
+}
+
+:root {
+  --ui-font-size: 14px;
+}
+
 /* Electron gives us a real window, so the document itself should never
  * scroll — panes manage their own overflow. Without this a long transcript
  * drags the whole chrome, including the sidebar, out of view. */
@@ -30,6 +56,15 @@ html,
 body {
   height: 100%;
   overflow: hidden;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--ui-font-size);
+  line-height: 1.5;
+  background-color: var(--conduit-window);
+  color: var(--conduit-foreground);
+  -webkit-font-smoothing: antialiased;
 }
 
 /* Selection and focus rings follow the palette rather than the browser
@@ -42,6 +77,74 @@ body {
 :focus-visible {
   outline: 2px solid var(--conduit-ring);
   outline-offset: 2px;
+}
+
+/* Tooltips (widgets/ui.dart `tooltipAttributes`). A pseudo-element, so it
+ * costs no DOM and no JavaScript, and it is not in the accessibility tree --
+ * the control's own label is the name. It shows on hover after a beat, and
+ * at once on keyboard focus. */
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 60;
+  pointer-events: none;
+  white-space: pre;
+  padding: 3px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--conduit-border);
+  background-color: var(--conduit-tooltip);
+  color: var(--conduit-tooltip-foreground);
+  font-size: calc(var(--ui-font-size) - 2px);
+  font-weight: 400;
+  line-height: 1.4;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.08);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 120ms ease;
+}
+
+[data-tooltip]:hover::after {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 500ms;
+}
+
+[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+[data-tooltip][disabled]::after,
+[data-tooltip][aria-expanded="true"]::after {
+  display: none;
+}
+
+[data-tooltip-side="bottom"]::after {
+  top: calc(100% + 6px);
+  left: 50%;
+  translate: -50% 0;
+}
+
+[data-tooltip-side="top"]::after {
+  bottom: calc(100% + 6px);
+  left: 50%;
+  translate: -50% 0;
+}
+
+[data-tooltip-side="right"]::after {
+  left: calc(100% + 6px);
+  top: 50%;
+  translate: 0 -50%;
+}
+
+[data-tooltip-side="left"]::after {
+  right: calc(100% + 6px);
+  top: 50%;
+  translate: 0 -50%;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -176,7 +176,7 @@ class _AccessDialogState extends State<AccessDialog> {
                       ];
               }),
             ),
-            p(classes: 'pl-6 text-xs text-muted-foreground', [
+            p(classes: 'pl-6 text-ui-sm text-muted-foreground', [
               Component.text(
                 component.section.sharePublicly
                     ? t.app.workspaceAccessVisibilityDescription
@@ -184,7 +184,7 @@ class _AccessDialogState extends State<AccessDialog> {
               ),
             ]),
           ]),
-          h3(classes: 'text-sm font-semibold', [
+          h3(classes: 'text-ui-base font-semibold', [
             Component.text(t.app.workspaceAccessPeopleHeading),
           ]),
           if (!component.allowUserGrants)
@@ -250,7 +250,7 @@ class _AccessDialogState extends State<AccessDialog> {
                     principal.name.isEmpty ? principal.id : principal.name,
                   ),
                   if (principal.email case final email?)
-                    span(classes: 'ml-1 text-xs text-muted-foreground', [
+                    span(classes: 'ml-1 text-ui-sm text-muted-foreground', [
                       Component.text(email),
                     ]),
                 ]),

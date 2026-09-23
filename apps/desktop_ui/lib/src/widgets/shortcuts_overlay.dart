@@ -46,12 +46,12 @@ class ShortcutsOverlay extends StatelessComponent {
         },
         [
           div(classes: 'mb-4 flex items-center justify-between', [
-            h2(classes: 'text-base font-semibold', [
+            h2(classes: 'text-ui-lg font-semibold', [
               Component.text(t.desktop.desktopShortcutsTitle),
             ]),
             button(
               [Component.text('✕')],
-              classes: 'rounded px-2 py-1 text-sm hover:bg-accent',
+              classes: 'rounded px-2 py-1 text-ui-base hover:bg-accent',
               type: ButtonType.button,
               attributes: <String, String>{'aria-label': t.app.close},
               onClick: onClose,
@@ -60,7 +60,7 @@ class ShortcutsOverlay extends StatelessComponent {
           dl(classes: 'space-y-2', [
             for (final shortcut in table) ...<Component>[
               div(classes: 'flex items-baseline justify-between gap-4', [
-                dt(classes: 'text-sm', [
+                dt(classes: 'text-ui-base', [
                   Component.text(shortcutLabel(shortcut.action)),
                 ]),
                 dd(

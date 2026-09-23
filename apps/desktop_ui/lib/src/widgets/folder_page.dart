@@ -43,20 +43,20 @@ class _FolderPageState extends State<FolderPage> {
       header(
         classes:
             'flex h-12 shrink-0 items-center gap-3 border-b border-border '
-            'px-6 text-sm font-medium',
+            'px-6 text-ui-base font-medium',
         [
           span(classes: 'truncate', [
             Component.text(contents?.folder.name ?? t.app.loadingShort),
           ]),
           if (contents != null)
-            span(classes: 'text-xs font-normal text-muted-foreground', [
+            span(classes: 'text-ui-sm font-normal text-muted-foreground', [
               Component.text('${contents.chats.length}'),
             ]),
           div(classes: 'ml-auto flex items-center gap-2', [
             label(
               [Component.text(t.desktop.desktopSortBy)],
               htmlFor: 'folder-sort',
-              classes: 'text-xs font-normal text-muted-foreground',
+              classes: 'text-ui-sm font-normal text-muted-foreground',
             ),
             select(
               [
@@ -70,7 +70,7 @@ class _FolderPageState extends State<FolderPage> {
               id: 'folder-sort',
               classes:
                   'rounded border border-border bg-background px-2 py-1 '
-                  'text-xs font-normal',
+                  'text-ui-sm font-normal',
               onChange: (values) => setState(
                 () => _sort = values.firstOrNull == 'title'
                     ? _Sort.title
@@ -86,14 +86,14 @@ class _FolderPageState extends State<FolderPage> {
             button(
               [Component.text('▸ ${folder.name}')],
               classes:
-                  'block w-full rounded px-3 py-2 text-left text-sm '
+                  'block w-full rounded px-3 py-2 text-left text-ui-base '
                   'hover:bg-accent/50',
               type: ButtonType.button,
               onClick: () =>
                   context.read(openFolderProvider.notifier).open(folder.id),
             ),
           if (contents != null && chats.isEmpty && subfolders.isEmpty)
-            p(classes: 'py-8 text-sm text-muted-foreground', [
+            p(classes: 'py-8 text-ui-base text-muted-foreground', [
               Component.text(t.desktop.desktopFolderEmpty),
             ]),
           for (final chat in chats)
@@ -102,13 +102,13 @@ class _FolderPageState extends State<FolderPage> {
                 span(classes: 'min-w-0 flex-1 truncate', [
                   Component.text(chat.title),
                 ]),
-                span(classes: 'shrink-0 text-xs text-muted-foreground', [
+                span(classes: 'shrink-0 text-ui-sm text-muted-foreground', [
                   Component.text(_date(chat.updatedAtMs)),
                 ]),
               ],
               classes:
                   'flex w-full items-center gap-3 rounded px-3 py-2 '
-                  'text-left text-sm hover:bg-accent/50',
+                  'text-left text-ui-base hover:bg-accent/50',
               type: ButtonType.button,
               onClick: () => context.read(chatActionsProvider).select(chat.id),
             ),

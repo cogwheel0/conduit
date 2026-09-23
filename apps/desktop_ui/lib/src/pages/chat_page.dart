@@ -97,7 +97,7 @@ class _Sidebar extends StatelessComponent {
           button(
             [Component.text(t.app.newChat)],
             classes:
-                'w-full rounded bg-primary px-3 py-2 text-sm '
+                'w-full rounded bg-primary px-3 py-2 text-ui-base '
                 'text-primary-foreground',
             type: ButtonType.button,
             onClick: () => context.read(chatActionsProvider).select(null),
@@ -151,7 +151,7 @@ class _Sidebar extends StatelessComponent {
                   ]),
                 if (!results.complete)
                   p(
-                    classes: 'px-2 py-3 text-xs text-muted-foreground',
+                    classes: 'px-2 py-3 text-ui-sm text-muted-foreground',
                     attributes: const <String, String>{'role': 'status'},
                     [Component.text(t.desktop.desktopSearchIncomplete)],
                   ),
@@ -198,7 +198,7 @@ class _Sidebar extends StatelessComponent {
             Link(
               to: '/notes',
               classes:
-                  'block rounded px-2 py-1.5 text-sm text-muted-foreground '
+                  'block rounded px-2 py-1.5 text-ui-base text-muted-foreground '
                   'hover:bg-accent hover:text-accent-foreground',
               child: Component.text(t.app.notes),
             ),
@@ -209,7 +209,7 @@ class _Sidebar extends StatelessComponent {
             Link(
               to: '/channels',
               classes:
-                  'block rounded px-2 py-1.5 text-sm text-muted-foreground '
+                  'block rounded px-2 py-1.5 text-ui-base text-muted-foreground '
                   'hover:bg-accent hover:text-accent-foreground',
               child: Component.text(t.app.sidebarChannelsTab),
             ),
@@ -218,7 +218,7 @@ class _Sidebar extends StatelessComponent {
             Link(
               to: '/hermes',
               classes:
-                  'block rounded px-2 py-1.5 text-sm text-muted-foreground '
+                  'block rounded px-2 py-1.5 text-ui-base text-muted-foreground '
                   'hover:bg-accent hover:text-accent-foreground',
               child: Component.text(t.app.hermesAgentSettingsTitle),
             ),
@@ -227,7 +227,7 @@ class _Sidebar extends StatelessComponent {
             Link(
               to: '/terminal',
               classes:
-                  'block rounded px-2 py-1.5 text-sm text-muted-foreground '
+                  'block rounded px-2 py-1.5 text-ui-base text-muted-foreground '
                   'hover:bg-accent hover:text-accent-foreground',
               child: Component.text(t.app.terminal),
             ),
@@ -240,14 +240,14 @@ class _Sidebar extends StatelessComponent {
             Link(
               to: '/workspace',
               classes:
-                  'block rounded px-2 py-1.5 text-sm text-muted-foreground '
+                  'block rounded px-2 py-1.5 text-ui-base text-muted-foreground '
                   'hover:bg-accent hover:text-accent-foreground',
               child: Component.text(t.app.workspaceTitle),
             ),
           a(
             href: '/settings/appearance',
             classes:
-                'block rounded px-2 py-1.5 text-sm text-muted-foreground '
+                'block rounded px-2 py-1.5 text-ui-base text-muted-foreground '
                 'hover:bg-accent hover:text-accent-foreground',
             [Component.text(t.desktop.desktopSettingsTitle)],
           ),
@@ -257,7 +257,7 @@ class _Sidebar extends StatelessComponent {
   }
 
   Component _hint(String text) => p(
-    classes: 'px-2 py-4 text-sm text-muted-foreground',
+    classes: 'px-2 py-4 text-ui-base text-muted-foreground',
     [Component.text(text)],
   );
 }
@@ -390,7 +390,7 @@ class _Sections extends StatelessComponent {
 
   Component _heading(String title) => h2(
     classes:
-        'px-2 pb-1 text-xs font-medium tracking-wide text-muted-foreground',
+        'px-2 pb-1 text-ui-sm font-medium tracking-wide text-muted-foreground',
     [Component.text(title)],
   );
 
@@ -429,7 +429,7 @@ class _Sections extends StatelessComponent {
         // the folder's page with all of it.
         div(
           classes:
-              'flex w-full items-center rounded text-sm text-foreground '
+              'flex w-full items-center rounded text-ui-base text-foreground '
               'hover:bg-accent/50'
               '${target ? ' bg-accent ring-1 ring-primary' : ''}'
               '${context.watch(openFolderProvider) == folderId ? ' bg-accent' : ''}',
@@ -441,7 +441,7 @@ class _Sections extends StatelessComponent {
                   [Component.text(isOpen ? '\u25be' : '\u25b8')],
                 ),
               ],
-              classes: 'w-6 shrink-0 py-1.5 pl-2 text-left text-xs',
+              classes: 'w-6 shrink-0 py-1.5 pl-2 text-left text-ui-sm',
               type: ButtonType.button,
               attributes: <String, String>{
                 'aria-expanded': isOpen ? 'true' : 'false',
@@ -458,7 +458,7 @@ class _Sections extends StatelessComponent {
                 span(classes: 'min-w-0 flex-1 truncate', [
                   Component.text(node.folder.name),
                 ]),
-                span(classes: 'text-xs tabular-nums opacity-60', [
+                span(classes: 'text-ui-sm tabular-nums opacity-60', [
                   Component.text('${node.totalChats}'),
                 ]),
               ],
@@ -491,7 +491,7 @@ class _Sections extends StatelessComponent {
   }) => button(
     [Component.text(label)],
     classes:
-        'w-full rounded px-2 py-1.5 text-left text-xs text-muted-foreground '
+        'w-full rounded px-2 py-1.5 text-left text-ui-sm text-muted-foreground '
         'hover:bg-accent/50',
     type: ButtonType.button,
     attributes: <String, String>{
@@ -529,7 +529,7 @@ class _LazyRows extends StatefulComponent {
   final int count;
   final List<Component> Function() build;
 
-  /// A row's height with its gap: `text-sm` with `py-1.5`, and `space-y-0.5`.
+  /// A row's height with its gap: `text-ui-base` with `py-1.5`, and `space-y-0.5`.
   static const int rowHeight = 34;
 
   @override
@@ -604,7 +604,7 @@ class _SyncIndicator extends StatelessComponent {
     if (text == null) return const Component.fragment([]);
     return p(
       classes:
-          'px-2 pb-1 text-xs '
+          'px-2 pb-1 text-ui-sm '
           '${detail == null ? 'text-muted-foreground' : 'text-destructive'}',
       // `status`, so the change is announced without interrupting.
       attributes: <String, String>{'role': 'status', 'title': ?detail},
@@ -633,7 +633,7 @@ class _HermesRecent extends StatelessComponent {
         'aria-label': t.app.hermesConversationsTitle,
       },
       [
-        h2(classes: 'px-2 pb-1 text-xs font-medium text-muted-foreground', [
+        h2(classes: 'px-2 pb-1 text-ui-sm font-medium text-muted-foreground', [
           Component.text(t.app.hermesAgentSettingsTitle),
         ]),
         ul(classes: 'space-y-0.5', [
@@ -648,7 +648,7 @@ class _HermesRecent extends StatelessComponent {
                   ),
                 ],
                 classes:
-                    'block w-full truncate rounded px-2 py-1.5 text-left text-sm '
+                    'block w-full truncate rounded px-2 py-1.5 text-left text-ui-base '
                     '${selected == session.chatId ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'}',
                 type: ButtonType.button,
                 onClick: () =>
@@ -671,9 +671,11 @@ class _SearchRow extends StatelessComponent {
   Component build(BuildContext context) => li([
     button(
       [
-        span(classes: 'block truncate text-sm', [Component.text(hit.title)]),
+        span(classes: 'block truncate text-ui-base', [
+          Component.text(hit.title),
+        ]),
         if (hit.snippet case final snippet?)
-          span(classes: 'block truncate text-xs opacity-70', [
+          span(classes: 'block truncate text-ui-sm opacity-70', [
             // The index's own snippet. Re-deriving one here would mean
             // reimplementing the tokenizer to agree with it.
             Component.text(snippet),
@@ -846,14 +848,14 @@ class _ChatRowState extends State<_ChatRow> {
                 span(classes: 'truncate', [Component.text(chat.title)]),
                 if (chat.pinned)
                   span(
-                    classes: 'ml-1 text-xs',
+                    classes: 'ml-1 text-ui-sm',
                     attributes: const <String, String>{'aria-hidden': 'true'},
                     [Component.text('\u2605')],
                   ),
               ],
               classes:
                   'flex min-w-0 flex-1 items-center rounded px-2 py-1.5 '
-                  'text-left text-sm '
+                  'text-left text-ui-base '
                   '${component.isSelected ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'}',
               type: ButtonType.button,
               // `aria-current` rather than `aria-selected`: these are navigation
@@ -870,7 +872,7 @@ class _ChatRowState extends State<_ChatRow> {
           div(
             classes:
                 'mt-1 rounded border border-destructive/40 '
-                'bg-destructive/10 p-2 text-xs',
+                'bg-destructive/10 p-2 text-ui-sm',
             // `alertdialog`: destructive and irreversible, so it should
             // interrupt rather than wait to be found.
             attributes: const <String, String>{'role': 'alertdialog'},
@@ -968,7 +970,7 @@ class _ChatRowState extends State<_ChatRow> {
       ),
     ],
     classes:
-        'rounded px-1 text-xs '
+        'rounded px-1 text-ui-sm '
         '${destructive ? 'text-destructive hover:bg-destructive/10' : 'text-muted-foreground hover:bg-accent'}',
     type: ButtonType.button,
     attributes: <String, String>{'aria-label': label, 'title': label},
@@ -1073,7 +1075,7 @@ class _Transcript extends StatelessComponent {
       header(
         classes:
             'flex h-12 shrink-0 items-center border-b border-border px-6 '
-            'text-sm font-medium text-foreground',
+            'text-ui-base font-medium text-foreground',
         [
           // A conversation the list has not caught up with yet is a
           // conversation this window just created.
@@ -1088,7 +1090,7 @@ class _Transcript extends StatelessComponent {
             span(
               classes:
                   'ml-3 shrink-0 rounded-full border border-border px-2 py-0.5 '
-                  'text-xs font-normal text-muted-foreground',
+                  'text-ui-sm font-normal text-muted-foreground',
               attributes: <String, String>{
                 'title': t.desktop.desktopTemporaryHint,
               },
@@ -1121,7 +1123,7 @@ class _Transcript extends StatelessComponent {
               button(
                 [Component.text(t.app.shareChat)],
                 classes:
-                    'ml-auto shrink-0 rounded px-2 py-1 text-xs font-normal '
+                    'ml-auto shrink-0 rounded px-2 py-1 text-ui-sm font-normal '
                     'text-muted-foreground hover:bg-accent',
                 type: ButtonType.button,
                 onClick: () =>
@@ -1130,7 +1132,7 @@ class _Transcript extends StatelessComponent {
             button(
               [Component.text(t.desktop.desktopControls)],
               classes:
-                  'shrink-0 rounded px-2 py-1 text-xs font-normal '
+                  'shrink-0 rounded px-2 py-1 text-ui-sm font-normal '
                   'text-muted-foreground hover:bg-accent aria-pressed:bg-accent',
               type: ButtonType.button,
               attributes: <String, String>{
@@ -1147,7 +1149,7 @@ class _Transcript extends StatelessComponent {
       if (context.watch(onlineProvider).value == false)
         div(
           classes:
-              'shrink-0 border-b border-border bg-muted px-6 py-2 text-xs '
+              'shrink-0 border-b border-border bg-muted px-6 py-2 text-ui-sm '
               'text-muted-foreground',
           attributes: const <String, String>{'role': 'status'},
           [Component.text(t.desktop.desktopOffline)],
@@ -1214,7 +1216,7 @@ class _Transcript extends StatelessComponent {
                             ],
                             id: 'transcript-older',
                             classes:
-                                'rounded border border-border px-3 py-1 text-xs '
+                                'rounded border border-border px-3 py-1 text-ui-sm '
                                 'text-muted-foreground hover:bg-accent',
                             type: ButtonType.button,
                             onClick: () => context
@@ -1428,10 +1430,10 @@ class _Transcript extends StatelessComponent {
     classes:
         'mx-auto flex max-w-3xl flex-col items-center gap-2 py-24 text-center',
     [
-      p(classes: 'text-lg font-medium text-foreground', [
+      p(classes: 'text-ui-xl font-medium text-foreground', [
         Component.text(t.desktop.desktopPickAConversation),
       ]),
-      p(classes: 'text-sm text-muted-foreground', [
+      p(classes: 'text-ui-base text-muted-foreground', [
         Component.text(t.desktop.desktopPickAConversationHint),
       ]),
     ],
@@ -1475,7 +1477,7 @@ class _Transcript extends StatelessComponent {
         if (isUser && files.isNotEmpty) MessageFiles(files, alignEnd: true),
         article(
           classes:
-              'rounded px-4 py-3 text-sm '
+              'rounded px-4 py-3 text-ui-base '
               '${isUser ? 'ml-auto max-w-[80%] bg-primary text-primary-foreground whitespace-pre-wrap' : 'mr-auto max-w-[90%] bg-card text-card-foreground'} '
               '${failed ? 'border border-destructive' : ''}',
           [
@@ -1494,7 +1496,7 @@ class _Transcript extends StatelessComponent {
             if (failure case final message?)
               p(
                 classes:
-                    '${content.isEmpty ? '' : 'mt-2 '}text-sm text-destructive',
+                    '${content.isEmpty ? '' : 'mt-2 '}text-ui-base text-destructive',
                 attributes: const <String, String>{'role': 'alert'},
                 [Component.text(message)],
               ),
@@ -1604,7 +1606,7 @@ class _Transcript extends StatelessComponent {
         ),
       ],
       classes:
-          'rounded px-1.5 py-0.5 text-xs text-muted-foreground '
+          'rounded px-1.5 py-0.5 text-ui-sm text-muted-foreground '
           'hover:bg-accent disabled:opacity-40',
       type: ButtonType.button,
       disabled: target == null,
@@ -1612,7 +1614,7 @@ class _Transcript extends StatelessComponent {
       onClick: target == null ? null : () => show(target),
     );
     return div(
-      classes: 'flex items-center text-xs text-muted-foreground',
+      classes: 'flex items-center text-ui-sm text-muted-foreground',
       attributes: <String, String>{
         'role': 'group',
         'aria-label': t.desktop.desktopAnswerPosition(
@@ -1649,7 +1651,7 @@ class _Transcript extends StatelessComponent {
       ),
     ],
     classes:
-        'rounded px-1 py-0.5 text-xs '
+        'rounded px-1 py-0.5 text-ui-sm '
         '${pressed ? 'bg-accent' : 'opacity-60 hover:bg-accent hover:opacity-100'}',
     type: ButtonType.button,
     attributes: <String, String>{
@@ -1663,7 +1665,7 @@ class _Transcript extends StatelessComponent {
   Component _messageAction(String label, void Function() onClick) => button(
     [Component.text(label)],
     classes:
-        'rounded px-1.5 py-0.5 text-xs text-muted-foreground '
+        'rounded px-1.5 py-0.5 text-ui-sm text-muted-foreground '
         'hover:bg-accent hover:text-accent-foreground',
     type: ButtonType.button,
     attributes: <String, String>{'title': label},
@@ -1699,43 +1701,41 @@ class _QuestionEditorState extends State<_QuestionEditor> {
       _text.trim().isNotEmpty && _text.trim() != component.original.trim();
 
   @override
-  Component build(BuildContext context) => div(
-    classes: 'ml-auto flex w-full max-w-[80%] flex-col gap-2',
-    [
-      textAreaField(
-        id: 'edit-question',
-        labelText: t.app.edit,
-        hideLabel: true,
-        value: _text,
-        rows: 3,
-        onInput: (value) => setState(() => _text = value),
-        onKeyDown: sendOnEnter(() {
-          if (_changed) component.onSave(_text.trim());
-        }),
-      ),
-      div(classes: 'flex justify-end gap-2', [
-        button(
-          [Component.text(t.app.cancel)],
-          classes:
-              'rounded px-3 py-1.5 text-sm text-muted-foreground '
-              'hover:bg-accent',
-          type: ButtonType.button,
-          onClick: component.onCancel,
+  Component build(BuildContext context) =>
+      div(classes: 'ml-auto flex w-full max-w-[80%] flex-col gap-2', [
+        textAreaField(
+          id: 'edit-question',
+          labelText: t.app.edit,
+          hideLabel: true,
+          value: _text,
+          rows: 3,
+          onInput: (value) => setState(() => _text = value),
+          onKeyDown: sendOnEnter(() {
+            if (_changed) component.onSave(_text.trim());
+          }),
         ),
-        button(
-          [Component.text(t.app.send)],
-          classes:
-              'rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground '
-              'disabled:opacity-60',
-          type: ButtonType.button,
-          // Unchanged text would branch the conversation to ask the same
-          // thing again, which is what Regenerate is for.
-          disabled: !_changed,
-          onClick: () => component.onSave(_text.trim()),
-        ),
-      ]),
-    ],
-  );
+        div(classes: 'flex justify-end gap-2', [
+          button(
+            [Component.text(t.app.cancel)],
+            classes:
+                'rounded px-3 py-1.5 text-ui-base text-muted-foreground '
+                'hover:bg-accent',
+            type: ButtonType.button,
+            onClick: component.onCancel,
+          ),
+          button(
+            [Component.text(t.app.send)],
+            classes:
+                'rounded bg-primary px-3 py-1.5 text-ui-base text-primary-foreground '
+                'disabled:opacity-60',
+            type: ButtonType.button,
+            // Unchanged text would branch the conversation to ask the same
+            // thing again, which is what Regenerate is for.
+            disabled: !_changed,
+            onClick: () => component.onSave(_text.trim()),
+          ),
+        ]),
+      ]);
 }
 
 class _Composer extends StatefulComponent {
@@ -2013,7 +2013,7 @@ class _ComposerState extends State<_Composer> {
             span(
               classes:
                   'flex items-center gap-1 rounded-full border border-border '
-                  'py-0.5 pl-2 pr-1 text-xs text-muted-foreground',
+                  'py-0.5 pl-2 pr-1 text-ui-sm text-muted-foreground',
               [
                 Component.text(
                   t.desktop.desktopAnswerWith(model: modelLabel(model)),
@@ -2046,7 +2046,7 @@ class _ComposerState extends State<_Composer> {
                 span(
                   classes:
                       'flex items-center gap-1 rounded-full border '
-                      'border-border py-0.5 pl-2 pr-1 text-xs',
+                      'border-border py-0.5 pl-2 pr-1 text-ui-sm',
                   [
                     Component.text('# ${knowledge.name}'),
                     button(
@@ -2077,7 +2077,7 @@ class _ComposerState extends State<_Composer> {
             label(
               [Component.text(t.app.chooseModel)],
               htmlFor: 'model',
-              classes: 'text-xs text-muted-foreground',
+              classes: 'text-ui-sm text-muted-foreground',
             ),
             select(
               [
@@ -2091,7 +2091,7 @@ class _ComposerState extends State<_Composer> {
               id: 'model',
               classes:
                   'rounded border border-border bg-background '
-                  'px-2 py-1 text-xs text-foreground',
+                  'px-2 py-1 text-ui-sm text-foreground',
               disabled: _busy,
               onChange: (values) {
                 if (values.isEmpty) return;
@@ -2129,7 +2129,7 @@ class _ComposerState extends State<_Composer> {
                   ),
                 ],
                 classes:
-                    'shrink-0 rounded border border-border px-3 py-2 text-sm '
+                    'shrink-0 rounded border border-border px-3 py-2 text-ui-base '
                     'text-muted-foreground hover:bg-accent',
                 type: ButtonType.button,
                 attributes: <String, String>{
@@ -2194,7 +2194,7 @@ class _ComposerState extends State<_Composer> {
                   [Component.text(t.app.stopGenerating)],
                   classes:
                       'shrink-0 rounded border border-border px-4 py-2 '
-                      'text-sm text-foreground',
+                      'text-ui-base text-foreground',
                   type: ButtonType.button,
                   onClick: () => unawaited(
                     context.read(chatActionsProvider).stop(live.chatId),
@@ -2215,7 +2215,7 @@ class _ComposerState extends State<_Composer> {
                 ),
             ]),
             if (_dragDepth > 0)
-              p(classes: 'mx-auto mt-1.5 max-w-3xl text-xs text-primary', [
+              p(classes: 'mx-auto mt-1.5 max-w-3xl text-ui-sm text-primary', [
                 Component.text(t.desktop.desktopDropToAttach),
               ])
             else if (_error case final message?)
@@ -2223,12 +2223,12 @@ class _ComposerState extends State<_Composer> {
             else if (uploading)
               p(
                 classes:
-                    'mx-auto mt-1.5 max-w-3xl text-xs text-muted-foreground',
+                    'mx-auto mt-1.5 max-w-3xl text-ui-sm text-muted-foreground',
                 [Component.text(t.desktop.desktopAttachmentsUploading)],
               )
             else if (dictationProblem case final message?)
               p(
-                classes: 'mx-auto mt-1.5 max-w-3xl text-xs text-destructive',
+                classes: 'mx-auto mt-1.5 max-w-3xl text-ui-sm text-destructive',
                 attributes: const <String, String>{'role': 'status'},
                 [Component.text(message)],
               )
@@ -2238,7 +2238,7 @@ class _ComposerState extends State<_Composer> {
               // message not send.
               p(
                 classes:
-                    'mx-auto mt-1.5 max-w-3xl text-xs text-muted-foreground',
+                    'mx-auto mt-1.5 max-w-3xl text-ui-sm text-muted-foreground',
                 [Component.text(t.desktop.desktopComposerHint)],
               ),
           ],
@@ -2287,7 +2287,7 @@ class _ComposerState extends State<_Composer> {
     }) => button(
       [Component.text(label)],
       classes:
-          'rounded-full border px-3 py-1 text-xs '
+          'rounded-full border px-3 py-1 text-ui-sm '
           '${on ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground hover:bg-accent'}',
       type: ButtonType.button,
       attributes: <String, String>{'aria-pressed': on ? 'true' : 'false'},
@@ -2321,7 +2321,7 @@ class _ComposerState extends State<_Composer> {
               ),
             ],
             classes:
-                'rounded-full border px-3 py-1 text-xs '
+                'rounded-full border px-3 py-1 text-ui-sm '
                 '${_toolIds.isNotEmpty ? 'border-primary text-foreground' : 'border-border text-muted-foreground'} '
                 'hover:bg-accent',
             type: ButtonType.button,
@@ -2345,7 +2345,7 @@ class _ComposerState extends State<_Composer> {
               ),
             ],
             classes:
-                'rounded-full border px-3 py-1 text-xs '
+                'rounded-full border px-3 py-1 text-ui-sm '
                 '${selectedTerminal != null ? 'border-primary text-foreground' : 'border-border text-muted-foreground'} '
                 'hover:bg-accent',
             type: ButtonType.button,
@@ -2360,7 +2360,7 @@ class _ComposerState extends State<_Composer> {
           button(
             [Component.text(t.app.directMcpContentAction)],
             classes:
-                'rounded-full border px-3 py-1 text-xs '
+                'rounded-full border px-3 py-1 text-ui-sm '
                 '${_contentOpen ? 'border-primary text-foreground' : 'border-border text-muted-foreground'} '
                 'hover:bg-accent',
             type: ButtonType.button,
@@ -2401,7 +2401,7 @@ class _ComposerState extends State<_Composer> {
               button(
                 [Component.text(name)],
                 classes:
-                    'rounded-full border px-3 py-1 text-xs '
+                    'rounded-full border px-3 py-1 text-ui-sm '
                     '${terminals.selectedId == id ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:bg-accent'}',
                 type: ButtonType.button,
                 attributes: <String, String>{
@@ -2434,7 +2434,8 @@ class _ComposerState extends State<_Composer> {
                 ),
                 if (tool.description case final description?)
                   p(
-                    classes: 'ml-6 line-clamp-2 text-xs text-muted-foreground',
+                    classes:
+                        'ml-6 line-clamp-2 text-ui-sm text-muted-foreground',
                     [Component.text(description)],
                   ),
               ]),
@@ -2449,7 +2450,7 @@ class _ComposerState extends State<_Composer> {
     final name = attachment.picked.name;
     return div(
       classes:
-          'flex items-center gap-2 rounded border px-2 py-1 text-xs '
+          'flex items-center gap-2 rounded border px-2 py-1 text-ui-sm '
           '${attachment.failed ? 'border-destructive text-destructive' : 'border-border text-muted-foreground'}',
       [
         span(classes: 'max-w-48 truncate', [Component.text(name)]),

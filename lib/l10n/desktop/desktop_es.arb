@@ -407,5 +407,10 @@
   "desktopSttModelEnglishOnly": "Solo inglés",
   "desktopSttModelFailedChecksum": "La descarga no era el archivo esperado, así que se ha descartado.",
   "desktopSttModelFailedNetwork": "La descarga ha fallado. Comprueba la conexión e inténtalo de nuevo.",
-  "desktopSttLocalNeedsModel": "Descarga un modelo para transcribir en este equipo; mientras tanto, lo hace el servidor."
+  "desktopSttLocalNeedsModel": "Descarga un modelo para transcribir en este equipo; mientras tanto, lo hace el servidor.",
+  "themePaletteZaiLabel": "Zai",
+  "themePaletteZaiDescription": "Monocromo, sereno y denso",
+  "desktopUiFontSize": "Tamaño del texto",
+  "desktopUiFontSizeValue": "{size} px",
+  "desktopUiFontSizeHint": "El código, los diffs y el terminal mantienen sus propios tamaños."
 }

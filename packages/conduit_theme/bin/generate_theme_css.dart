@@ -17,7 +17,7 @@ void main(List<String> args) {
   file.parent.createSync(recursive: true);
   file.writeAsStringSync(generateThemeCss());
   stdout.writeln(
-    'Wrote ${kConduitPalettes.length} palettes to ${file.path} '
+    'Wrote ${kDesktopPalettes.length} palettes to ${file.path} '
     '(${file.lengthSync()} bytes)',
   );
 }

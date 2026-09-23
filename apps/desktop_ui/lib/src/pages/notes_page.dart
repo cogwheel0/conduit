@@ -59,17 +59,17 @@ class _NoteList extends StatelessComponent {
           // `Link`, not a bare anchor: an anchor reloads the whole app.
           Link(
             to: '/',
-            classes: 'rounded px-2 py-1 text-sm hover:bg-accent',
+            classes: 'rounded px-2 py-1 text-ui-base hover:bg-accent',
             attributes: <String, String>{'aria-label': t.app.back},
             child: Component.text('←'),
           ),
-          h1(classes: 'flex-1 text-sm font-semibold', [
+          h1(classes: 'flex-1 text-ui-base font-semibold', [
             Component.text(t.app.notes),
           ]),
           button(
             [Component.text(t.app.createNote)],
             classes:
-                'rounded bg-primary px-2.5 py-1 text-xs '
+                'rounded bg-primary px-2.5 py-1 text-ui-sm '
                 'text-primary-foreground',
             type: ButtonType.button,
             onClick: () async {
@@ -91,13 +91,13 @@ class _NoteList extends StatelessComponent {
               context.read(noteSearchProvider.notifier).set(value),
         ),
         if (list.isLoading && list.value == null)
-          p(classes: 'text-xs text-muted-foreground', [
+          p(classes: 'text-ui-sm text-muted-foreground', [
             Component.text(t.app.loadingNotes),
           ])
         else if (list.hasError && list.value == null)
           formError(t.app.failedToLoadNotes)
         else if (notes.isEmpty)
-          p(classes: 'text-xs text-muted-foreground', [
+          p(classes: 'text-ui-sm text-muted-foreground', [
             Component.text(
               query.trim().isEmpty ? t.app.noNotesYet : t.app.noNotesFound,
             ),
@@ -114,10 +114,10 @@ class _NoteList extends StatelessComponent {
                   if (note.id == openId) 'aria-current': 'page',
                 },
                 children: [
-                  span(classes: 'flex items-center gap-1 text-sm', [
+                  span(classes: 'flex items-center gap-1 text-ui-base', [
                     if (note.pinned)
                       span(
-                        classes: 'text-xs',
+                        classes: 'text-ui-sm',
                         attributes: <String, String>{'aria-label': t.app.pin},
                         [Component.text('★')],
                       ),
@@ -132,13 +132,14 @@ class _NoteList extends StatelessComponent {
                       span(
                         classes:
                             'shrink-0 rounded-full border border-destructive/50 '
-                            'px-1.5 text-[10px] text-destructive',
+                            'px-1.5 text-ui-xs text-destructive',
                         [Component.text(t.app.noteConflictCopyBadge)],
                       ),
                   ]),
                   if (note.preview.isNotEmpty)
                     span(
-                      classes: 'block truncate text-xs text-muted-foreground',
+                      classes:
+                          'block truncate text-ui-sm text-muted-foreground',
                       [Component.text(_plain(note.preview))],
                     ),
                 ],
@@ -168,8 +169,8 @@ class _NoNote extends StatelessComponent {
   @override
   Component build(BuildContext context) =>
       div(classes: 'm-auto max-w-sm space-y-2 p-8 text-center', [
-        p(classes: 'text-sm font-medium', [Component.text(t.app.notes)]),
-        p(classes: 'text-sm text-muted-foreground', [
+        p(classes: 'text-ui-base font-medium', [Component.text(t.app.notes)]),
+        p(classes: 'text-ui-base text-muted-foreground', [
           Component.text(t.app.createFirstNoteHint),
         ]),
       ]);
@@ -421,7 +422,7 @@ class _NoteEditorPaneState extends State<_NoteEditorPane> {
         button(
           [Component.text(t.app.attach)],
           classes:
-              'rounded border border-border px-2.5 py-1 text-xs '
+              'rounded border border-border px-2.5 py-1 text-ui-sm '
               'hover:bg-accent disabled:opacity-50',
           type: ButtonType.button,
           disabled: _recording,
@@ -434,7 +435,7 @@ class _NoteEditorPaneState extends State<_NoteEditorPane> {
             ),
           ],
           classes:
-              'rounded border px-2.5 py-1 text-xs hover:bg-accent '
+              'rounded border px-2.5 py-1 text-ui-sm hover:bg-accent '
               '${_recording ? 'border-destructive text-destructive' : 'border-border'}',
           type: ButtonType.button,
           attributes: <String, String>{'aria-pressed': '$_recording'},
@@ -442,12 +443,12 @@ class _NoteEditorPaneState extends State<_NoteEditorPane> {
         ),
         if (_recording)
           span(
-            classes: 'text-xs text-destructive',
+            classes: 'text-ui-sm text-destructive',
             attributes: const <String, String>{'role': 'status'},
             [Component.text(t.app.recordingAudio)],
           ),
         if (_uploading > 0)
-          span(classes: 'text-xs text-muted-foreground', [
+          span(classes: 'text-ui-sm text-muted-foreground', [
             Component.text(t.app.processingRecording),
           ]),
       ]),
@@ -457,7 +458,7 @@ class _NoteEditorPaneState extends State<_NoteEditorPane> {
           attributes: <String, String>{'aria-label': t.app.attachments},
           [
             for (final file in _files)
-              li(classes: 'flex items-center gap-2 text-sm', [
+              li(classes: 'flex items-center gap-2 text-ui-base', [
                 if (url != null &&
                     (file.contentType?.startsWith('audio/') ?? false))
                   audio(
@@ -477,12 +478,12 @@ class _NoteEditorPaneState extends State<_NoteEditorPane> {
                 else
                   span(classes: 'truncate', [Component.text(file.name)]),
                 if (file.contentType?.startsWith('audio/') ?? false)
-                  span(classes: 'truncate text-xs text-muted-foreground', [
+                  span(classes: 'truncate text-ui-sm text-muted-foreground', [
                     Component.text(file.name),
                   ]),
                 button(
                   [Component.text('×')],
-                  classes: 'rounded px-1.5 text-xs hover:bg-accent',
+                  classes: 'rounded px-1.5 text-ui-sm hover:bg-accent',
                   type: ButtonType.button,
                   attributes: <String, String>{
                     'aria-label': '${t.app.delete}: ${file.name}',
@@ -502,12 +503,12 @@ class _NoteEditorPaneState extends State<_NoteEditorPane> {
     final note = detail.value;
     if (note != null) _adopt(note);
     if (detail.isLoading && note == null) {
-      return p(classes: 'm-auto text-sm text-muted-foreground', [
+      return p(classes: 'm-auto text-ui-base text-muted-foreground', [
         Component.text(t.app.loadingNote),
       ]);
     }
     if (note == null) {
-      return p(classes: 'm-auto text-sm text-muted-foreground', [
+      return p(classes: 'm-auto text-ui-base text-muted-foreground', [
         Component.text(t.app.noteNotFound),
       ]);
     }
@@ -531,7 +532,7 @@ class _NoteEditorPaneState extends State<_NoteEditorPane> {
           },
         ),
         span(
-          classes: 'text-xs text-muted-foreground',
+          classes: 'text-ui-sm text-muted-foreground',
           attributes: const <String, String>{'role': 'status'},
           [
             Component.text(switch (_state) {
@@ -544,23 +545,21 @@ class _NoteEditorPaneState extends State<_NoteEditorPane> {
         ),
         button(
           [Component.text(t.app.generateTitle)],
-          classes:
-              'rounded px-2.5 py-1 text-xs hover:bg-accent disabled:opacity-50',
+          classes: 'rounded px-2.5 py-1 text-ui-sm hover:bg-accent disabled:opacity-50',
           type: ButtonType.button,
           disabled: _asking,
           onClick: () => unawaited(_generateTitle()),
         ),
         button(
           [Component.text(t.app.enhanceNote)],
-          classes:
-              'rounded px-2.5 py-1 text-xs hover:bg-accent disabled:opacity-50',
+          classes: 'rounded px-2.5 py-1 text-ui-sm hover:bg-accent disabled:opacity-50',
           type: ButtonType.button,
           disabled: _asking,
           onClick: () => unawaited(_enhance()),
         ),
         button(
           [Component.text(_pinned ? t.app.unpin : t.app.pin)],
-          classes: 'rounded px-2.5 py-1 text-xs hover:bg-accent',
+          classes: 'rounded px-2.5 py-1 text-ui-sm hover:bg-accent',
           type: ButtonType.button,
           attributes: <String, String>{'aria-pressed': '$_pinned'},
           onClick: () async {
@@ -574,7 +573,7 @@ class _NoteEditorPaneState extends State<_NoteEditorPane> {
         button(
           [Component.text(t.app.delete)],
           classes:
-              'rounded px-2.5 py-1 text-xs text-destructive '
+              'rounded px-2.5 py-1 text-ui-sm text-destructive '
               'hover:bg-destructive/10',
           type: ButtonType.button,
           onClick: () => setState(() => _confirmingDelete = true),
@@ -583,7 +582,7 @@ class _NoteEditorPaneState extends State<_NoteEditorPane> {
       _attachmentsRow(context),
       if (_notice case final notice?)
         p(
-          classes: 'text-xs text-muted-foreground',
+          classes: 'text-ui-sm text-muted-foreground',
           attributes: const <String, String>{'role': 'status'},
           [Component.text(notice)],
         ),
@@ -591,7 +590,7 @@ class _NoteEditorPaneState extends State<_NoteEditorPane> {
         div(
           classes:
               'space-y-2 rounded border border-destructive/40 '
-              'bg-destructive/10 p-3 text-sm',
+              'bg-destructive/10 p-3 text-ui-base',
           attributes: const <String, String>{'role': 'alertdialog'},
           [
             p([Component.text(t.app.deleteNoteTitle)]),
@@ -599,7 +598,7 @@ class _NoteEditorPaneState extends State<_NoteEditorPane> {
               button(
                 [Component.text(t.app.delete)],
                 classes:
-                    'rounded bg-destructive px-2.5 py-1 text-xs '
+                    'rounded bg-destructive px-2.5 py-1 text-ui-sm '
                     'text-destructive-foreground',
                 type: ButtonType.button,
                 onClick: () async {
@@ -613,7 +612,7 @@ class _NoteEditorPaneState extends State<_NoteEditorPane> {
               ),
               button(
                 [Component.text(t.app.cancel)],
-                classes: 'rounded px-2.5 py-1 text-xs hover:bg-accent',
+                classes: 'rounded px-2.5 py-1 text-ui-sm hover:bg-accent',
                 type: ButtonType.button,
                 onClick: () => setState(() => _confirmingDelete = false),
               ),

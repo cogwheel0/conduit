@@ -1,6 +1,8 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 
+import 'ui.dart';
+
 /// Form controls shared by onboarding, sign-in and settings.
 ///
 /// Plain functions rather than components: they hold no state and have no
@@ -107,7 +109,7 @@ Component checkboxField({
 }) => div(classes: 'flex items-center gap-2', [
   input<bool>(
     id: id,
-    classes: 'size-4 rounded border-border',
+    classes: 'size-4 rounded border-border accent-primary',
     type: InputType.checkbox,
     disabled: disabled,
     checked: checked,
@@ -116,7 +118,7 @@ Component checkboxField({
   label(
     [Component.text(text)],
     htmlFor: id,
-    classes: 'text-sm text-foreground',
+    classes: 'text-ui-base text-foreground',
   ),
 ]);
 
@@ -138,8 +140,8 @@ Component submitButton({
 }) => button(
   [Component.text(busy ? busyLabel : labelText)],
   classes:
-      '${fullWidth ? 'w-full' : 'shrink-0'} rounded bg-primary px-4 py-2 '
-      'text-primary-foreground disabled:opacity-60',
+      '${buttonClasses(tone: ButtonTone.primary)} '
+      '${fullWidth ? 'w-full' : 'shrink-0'}',
   type: ButtonType.submit,
   disabled: busy || !enabled,
   attributes: <String, String>{if (busy) 'aria-busy': 'true'},
@@ -147,7 +149,7 @@ Component submitButton({
 
 /// A whole-form failure, as opposed to a single bad field.
 Component formError(String message) => p(
-  classes: 'text-sm text-destructive',
+  classes: 'text-ui-base text-destructive',
   // `alert` so it is announced when it appears, rather than only being found
   // by someone who happens to navigate back over it.
   attributes: const <String, String>{'role': 'alert'},
@@ -155,10 +157,7 @@ Component formError(String message) => p(
 );
 
 String _controlClasses({bool invalid = false}) =>
-    'w-full rounded border bg-background px-3 py-2 text-sm '
-    'text-foreground outline-none focus-visible:ring-2 '
-    'focus-visible:ring-ring disabled:opacity-60 '
-    '${invalid ? 'border-destructive' : 'border-border'}';
+    fieldClasses(invalid: invalid);
 
 /// [hidden] keeps the label in the DOM and takes it off the screen.
 ///
@@ -169,11 +168,16 @@ String _controlClasses({bool invalid = false}) =>
 Component _label(String id, String text, {bool hidden = false}) => label(
   [Component.text(text)],
   htmlFor: id,
-  classes: hidden ? 'sr-only' : 'block text-sm font-medium text-foreground',
+  classes: hidden
+      ? 'sr-only'
+      : 'block text-ui-base font-medium text-foreground',
 );
 
-Component _fieldError(String id, String message) =>
-    p(id: id, classes: 'text-xs text-destructive', [Component.text(message)]);
+Component _fieldError(String id, String message) => p(
+  id: id,
+  classes: 'text-ui-sm text-destructive',
+  [Component.text(message)],
+);
 
 /// What a text callback gets from an input's value: a number field's value
 /// arrives as a `num` in the browser.

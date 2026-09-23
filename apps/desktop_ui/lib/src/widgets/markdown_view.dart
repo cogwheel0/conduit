@@ -105,7 +105,7 @@ class MarkdownView extends StatelessComponent {
     _mathIndex = 0;
     final nodes = _parse(markdown);
     return div(
-      classes: 'conduit-markdown space-y-3 text-sm leading-relaxed',
+      classes: 'conduit-markdown space-y-3 text-ui-base leading-relaxed',
       nodes.map(_node).toList(growable: false),
     );
   }
@@ -232,10 +232,13 @@ class MarkdownView extends StatelessComponent {
       'em' => em(children),
       'strong' => strong(children),
       'del' => Component.element(tag: 'del', children: children),
-      'code' => code(classes: 'rounded bg-muted px-1 py-0.5 text-xs', children),
+      'code' => code(
+        classes: 'rounded bg-muted px-1 py-0.5 text-ui-sm',
+        children,
+      ),
       'pre' => pre(
         classes:
-            'overflow-x-auto rounded bg-muted p-3 text-xs '
+            'overflow-x-auto rounded bg-muted p-3 text-ui-sm '
             'whitespace-pre',
         children,
       ),
@@ -243,14 +246,14 @@ class MarkdownView extends StatelessComponent {
         classes: 'border-l-2 border-border pl-3 text-muted-foreground',
         children,
       ),
-      'h1' => h1(classes: 'text-lg font-semibold', children),
-      'h2' => h2(classes: 'text-base font-semibold', children),
-      'h3' => h3(classes: 'text-sm font-semibold', children),
-      'h4' || 'h5' || 'h6' => h4(classes: 'text-sm font-medium', children),
+      'h1' => h1(classes: 'text-ui-xl font-semibold', children),
+      'h2' => h2(classes: 'text-ui-lg font-semibold', children),
+      'h3' => h3(classes: 'text-ui-base font-semibold', children),
+      'h4' || 'h5' || 'h6' => h4(classes: 'text-ui-base font-medium', children),
       'ul' => ul(classes: 'list-disc space-y-1 pl-5', children),
       'ol' => ol(classes: 'list-decimal space-y-1 pl-5', children),
       'li' => li(children),
-      'table' => table(classes: 'w-full border-collapse text-xs', children),
+      'table' => table(classes: 'w-full border-collapse text-ui-sm', children),
       'thead' => thead(children),
       'tbody' => tbody(children),
       'tr' => tr(classes: 'border-b border-border', children),
@@ -280,7 +283,7 @@ class MarkdownView extends StatelessComponent {
         : '${shortSourceLabel(first)} +${cited.length - 1}';
     const classes =
         'mx-0.5 inline-flex items-center rounded bg-muted px-1.5 '
-        'align-baseline text-xs text-muted-foreground no-underline '
+        'align-baseline text-ui-sm text-muted-foreground no-underline '
         'hover:text-foreground';
     final title = cited.map((cite) => cite.label).join('\n');
     final url = first.url;
@@ -348,7 +351,7 @@ class MarkdownView extends StatelessComponent {
     final display = element.attributes['display'] == 'block';
     final prefix = mathIdPrefix;
     if (prefix == null) {
-      return code(classes: 'rounded bg-muted px-1 py-0.5 text-xs', [
+      return code(classes: 'rounded bg-muted px-1 py-0.5 text-ui-sm', [
         Component.text(source),
       ]);
     }

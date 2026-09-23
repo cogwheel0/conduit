@@ -56,7 +56,7 @@ class _SignInPageState extends State<SignInPage> {
       [
         header(classes: 'space-y-2', [
           h1(classes: 'text-2xl font-semibold', [Component.text(t.app.signIn)]),
-          p(classes: 'text-sm text-muted-foreground', [
+          p(classes: 'text-ui-base text-muted-foreground', [
             Component.text(t.app.enterCredentials),
           ]),
           if (serverUrl != null)
@@ -88,7 +88,7 @@ class _SignInPageState extends State<SignInPage> {
         button(
           [Component.text(t.app.backToServerSetup)],
           classes:
-              'text-sm text-muted-foreground underline underline-offset-4 '
+              'text-ui-base text-muted-foreground underline underline-offset-4 '
               'disabled:opacity-60',
           type: ButtonType.button,
           disabled: _busy,
@@ -186,7 +186,7 @@ class _SignInPageState extends State<SignInPage> {
           label(
             [Component.text(_methodLabel(method))],
             htmlFor: 'method-${method.name}',
-            classes: 'text-sm',
+            classes: 'text-ui-base',
           ),
         ]),
     ]),

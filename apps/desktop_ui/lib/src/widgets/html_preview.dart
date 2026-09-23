@@ -39,7 +39,7 @@ class _HtmlPreviewState extends State<HtmlPreview> {
         ),
       ],
       classes:
-          'rounded border border-border px-2 py-0.5 text-xs '
+          'rounded border border-border px-2 py-0.5 text-ui-sm '
           'text-muted-foreground hover:bg-accent',
       type: ButtonType.button,
       attributes: <String, String>{

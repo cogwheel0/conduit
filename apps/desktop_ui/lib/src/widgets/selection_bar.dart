@@ -39,14 +39,14 @@ class _SelectionBarState extends State<SelectionBar> {
       return div(classes: 'flex justify-end px-3 pb-1', [
         if (_notice case final notice?)
           p(
-            classes: 'mr-auto text-xs text-destructive',
+            classes: 'mr-auto text-ui-sm text-destructive',
             attributes: const <String, String>{'role': 'alert'},
             [Component.text(notice)],
           ),
         button(
           [Component.text(t.desktop.desktopSelect)],
           classes:
-              'rounded px-2 py-0.5 text-xs text-muted-foreground '
+              'rounded px-2 py-0.5 text-ui-sm text-muted-foreground '
               'hover:bg-accent',
           type: ButtonType.button,
           onClick: () {
@@ -60,7 +60,7 @@ class _SelectionBarState extends State<SelectionBar> {
     final count = selection.length;
     final none = count == 0 || _busy;
     const action =
-        'rounded px-2 py-0.5 text-xs hover:bg-accent disabled:opacity-40';
+        'rounded px-2 py-0.5 text-ui-sm hover:bg-accent disabled:opacity-40';
     return div(
       classes: 'mx-2 mb-2 space-y-2 rounded border border-border p-2',
       attributes: <String, String>{
@@ -70,7 +70,7 @@ class _SelectionBarState extends State<SelectionBar> {
       [
         div(classes: 'flex items-center gap-1', [
           span(
-            classes: 'mr-auto text-xs font-medium',
+            classes: 'mr-auto text-ui-sm font-medium',
             attributes: const <String, String>{'aria-live': 'polite'},
             [Component.text(t.desktop.desktopSelectedCount(count: count))],
           ),
@@ -83,7 +83,7 @@ class _SelectionBarState extends State<SelectionBar> {
         ]),
         if (_confirmingDelete)
           div(
-            classes: 'space-y-2 text-xs',
+            classes: 'space-y-2 text-ui-sm',
             attributes: const <String, String>{'role': 'alertdialog'},
             [
               p(classes: 'text-destructive', [
@@ -141,7 +141,7 @@ class _SelectionBarState extends State<SelectionBar> {
                 ],
                 classes:
                     'rounded border border-border bg-background px-1 py-0.5 '
-                    'text-xs disabled:opacity-40',
+                    'text-ui-sm disabled:opacity-40',
                 disabled: none,
                 attributes: <String, String>{
                   'aria-label': t.desktop.desktopMoveSelected,

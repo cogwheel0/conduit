@@ -1,10 +1,9 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { createServer, type IncomingMessage } from 'node:http'
-import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import AxeBuilder from '@axe-core/playwright'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { fakeProvider, go } from './support/fake-provider'
 
 /**
  * Accessibility (WP-10.2): axe-core over every screen a setup with no server
@@ -13,30 +12,6 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
  * structure. What only a person with a screen reader can judge is in
  * docs/desktop/ACCESSIBILITY.md.
  */
-
-async function jsonBody(request: IncomingMessage): Promise<any> {
-  const chunks: Buffer[] = []
-  for await (const chunk of request) chunks.push(chunk as Buffer)
-  return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
-}
-
-async function provider() {
-  const server = createServer(async (request, response) => {
-    if (request.url?.endsWith('/models')) {
-      response.setHeader('content-type', 'application/json')
-      response.end(JSON.stringify({ data: [{ id: 'echo-model', object: 'model' }] }))
-      return
-    }
-    await jsonBody(request)
-    response.setHeader('content-type', 'text/event-stream; charset=utf-8')
-    const answer = '## An answer\n\nWith **markdown**, a list:\n\n- one\n- two\n\n```dart\nfinal x = 1;\n```\n'
-    response.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: answer } }] })}\n\n`)
-    response.end('data: [DONE]\n\n')
-  })
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-  const port = (server.address() as AddressInfo).port
-  return { baseUrl: `http://127.0.0.1:${port}/v1`, close: () => server.close() }
-}
 
 let app: ElectronApplication
 let userDataDir: string
@@ -74,16 +49,9 @@ async function audit(page: Page, screen: string): Promise<void> {
   }))
 }
 
-async function go(page: Page, path: string): Promise<void> {
-  await page.evaluate((to) => {
-    history.pushState(null, '', to)
-    dispatchEvent(new PopStateEvent('popstate'))
-  }, path)
-}
-
 test('every screen passes axe', async () => {
   test.setTimeout(240_000)
-  const fake = await provider()
+  const fake = await fakeProvider()
   try {
     const page = await app.firstWindow()
     await expect.poll(() => page.url(), { timeout: 30_000 }).toMatch(/^app:\/\/conduit\//)

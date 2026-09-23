@@ -407,5 +407,10 @@
   "desktopSttModelEnglishOnly": "Nur Englisch",
   "desktopSttModelFailedChecksum": "Der Download war nicht die erwartete Datei und wurde daher verworfen.",
   "desktopSttModelFailedNetwork": "Der Download ist fehlgeschlagen. Prüfe die Verbindung und versuche es erneut.",
-  "desktopSttLocalNeedsModel": "Lade ein Modell herunter, um auf diesem Computer zu transkribieren; bis dahin übernimmt das der Server."
+  "desktopSttLocalNeedsModel": "Lade ein Modell herunter, um auf diesem Computer zu transkribieren; bis dahin übernimmt das der Server.",
+  "themePaletteZaiLabel": "Zai",
+  "themePaletteZaiDescription": "Monochrom, ruhig und kompakt",
+  "desktopUiFontSize": "Textgröße",
+  "desktopUiFontSizeValue": "{size} px",
+  "desktopUiFontSizeHint": "Code, Diffs und das Terminal behalten ihre eigenen Größen."
 }

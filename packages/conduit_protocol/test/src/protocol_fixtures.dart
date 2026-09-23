@@ -1251,10 +1251,12 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   'appPreferencesFull': const AppPreferences(
     themeMode: AppThemeMode.dark,
     themePaletteId: 't3_chat',
+    uiFontSize: 16,
     localeCode: 'zh-Hant',
   ),
   'appPreferencesPatch': const AppPreferencesPatch(
     themePaletteId: 'claude',
+    uiFontSize: 15,
     clearLocaleCode: true,
   ),
   'signOutResult': const SignOutResult(

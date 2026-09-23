@@ -269,6 +269,24 @@ EventCallback paletteKeys({
   }
 };
 
+/// Arrow keys in a tab strip: Left and Right step, Home and End jump.
+///
+/// [move] gets the step; Home and End are steps far past either end, for
+/// the caller to clamp.
+EventCallback tabKeys(void Function(int step) move) => (web.Event event) {
+  final key = event as web.KeyboardEvent;
+  final step = switch (key.key) {
+    'ArrowRight' => 1,
+    'ArrowLeft' => -1,
+    'Home' => -1000,
+    'End' => 1000,
+    _ => 0,
+  };
+  if (step == 0) return;
+  event.preventDefault();
+  move(step);
+};
+
 /// The composer's keys, with the `/` menu open or not (WP-3.3).
 ///
 /// While the menu shows, the arrows move its highlight, Enter and Tab

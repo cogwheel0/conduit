@@ -168,7 +168,7 @@ class ConduitDesktopApp extends StatelessComponent {
           h1(classes: 'text-xl font-semibold', [
             Component.text('Page not found'),
           ]),
-          p(classes: 'mt-2 text-sm text-muted-foreground', [
+          p(classes: 'mt-2 text-ui-base text-muted-foreground', [
             Component.text(state.location),
           ]),
         ]),
@@ -221,7 +221,7 @@ Component _settingsLink() => a(
   href: '/settings/appearance',
   classes:
       'fixed bottom-4 right-4 rounded-full border border-border bg-card '
-      'px-3 py-1.5 text-xs text-muted-foreground shadow hover:bg-accent',
+      'px-3 py-1.5 text-ui-sm text-muted-foreground shadow hover:bg-accent',
   [Component.text(t.desktop.desktopSettingsTitle)],
 );
 

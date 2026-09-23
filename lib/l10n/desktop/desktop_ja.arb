@@ -407,5 +407,10 @@
   "desktopSttModelEnglishOnly": "英語のみ",
   "desktopSttModelFailedChecksum": "ダウンロードしたファイルが想定と異なるため、破棄しました。",
   "desktopSttModelFailedNetwork": "ダウンロードに失敗しました。接続を確認して、もう一度お試しください。",
-  "desktopSttLocalNeedsModel": "このコンピューターで文字起こしするにはモデルをダウンロードしてください。それまではサーバーが文字起こしします。"
+  "desktopSttLocalNeedsModel": "このコンピューターで文字起こしするにはモデルをダウンロードしてください。それまではサーバーが文字起こしします。",
+  "themePaletteZaiLabel": "Zai",
+  "themePaletteZaiDescription": "モノクロで、落ち着いた高密度なデザイン",
+  "desktopUiFontSize": "文字サイズ",
+  "desktopUiFontSizeValue": "{size} px",
+  "desktopUiFontSizeHint": "コード、差分、ターミナルはそれぞれ独自のサイズを保ちます。"
 }

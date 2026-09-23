@@ -24,6 +24,7 @@ final appPreferencesProvider = FutureProvider<AppPreferences>((ref) async {
       .apply(
         paletteId: preferences.themePaletteId,
         mode: preferences.themeMode,
+        uiFontSize: preferences.uiFontSize,
       );
   return preferences;
 });
@@ -51,6 +52,7 @@ class SettingsActions {
           .apply(
             paletteId: patch.themePaletteId ?? current.themePaletteId,
             mode: patch.themeMode ?? current.themeMode,
+            uiFontSize: patch.uiFontSize ?? current.uiFontSize,
           );
     }
 

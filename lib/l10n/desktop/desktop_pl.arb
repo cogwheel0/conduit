@@ -407,5 +407,10 @@
   "desktopSttModelEnglishOnly": "Tylko angielski",
   "desktopSttModelFailedChecksum": "Pobrany plik nie był oczekiwanym plikiem, więc został odrzucony.",
   "desktopSttModelFailedNetwork": "Pobieranie nie powiodło się. Sprawdź połączenie i spróbuj ponownie.",
-  "desktopSttLocalNeedsModel": "Pobierz model, aby transkrybować na tym komputerze; do tego czasu robi to serwer."
+  "desktopSttLocalNeedsModel": "Pobierz model, aby transkrybować na tym komputerze; do tego czasu robi to serwer.",
+  "themePaletteZaiLabel": "Zai",
+  "themePaletteZaiDescription": "Monochromatyczny, spokojny i zwarty",
+  "desktopUiFontSize": "Rozmiar tekstu",
+  "desktopUiFontSizeValue": "{size} px",
+  "desktopUiFontSizeHint": "Kod, różnice i terminal zachowują własne rozmiary."
 }

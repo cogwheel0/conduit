@@ -41,7 +41,7 @@ class UiRequestCard extends StatelessComponent {
           [
             _RequestBody(key: ValueKey(request.requestId), request: request),
             if (waiting.length > 1)
-              p(classes: 'mt-2 text-xs text-muted-foreground', [
+              p(classes: 'mt-2 text-ui-sm text-muted-foreground', [
                 Component.text('+${waiting.length - 1}'),
               ]),
           ],
@@ -95,16 +95,16 @@ class _RequestBodyState extends State<_RequestBody> {
         button(
           [Component.text(text)],
           classes: primary
-              ? 'rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground'
-              : 'rounded px-3 py-1.5 text-sm hover:bg-accent',
+              ? 'rounded bg-primary px-3 py-1.5 text-ui-base text-primary-foreground'
+              : 'rounded px-3 py-1.5 text-ui-base hover:bg-accent',
           type: ButtonType.button,
           onClick: () => _choose(context, choice),
         );
     return div(classes: 'space-y-3', [
-      h2(classes: 'text-sm font-semibold', [
+      h2(classes: 'text-ui-base font-semibold', [
         Component.text(t.app.directMcpApprovalTitle),
       ]),
-      p(classes: 'text-sm', [
+      p(classes: 'text-ui-base', [
         span(classes: 'font-medium', [Component.text(tool)]),
         Component.text(' · $server'),
       ]),
@@ -116,7 +116,7 @@ class _RequestBodyState extends State<_RequestBody> {
           [Component.text(arguments)],
         ),
       if (_confirmingAlways) ...[
-        p(classes: 'text-sm text-muted-foreground', [
+        p(classes: 'text-ui-base text-muted-foreground', [
           Component.text(
             t.app.directMcpApprovalAlwaysMessage(
               serverName: server,
@@ -127,7 +127,7 @@ class _RequestBodyState extends State<_RequestBody> {
         div(classes: 'flex justify-end gap-2', [
           button(
             [Component.text(t.app.cancel)],
-            classes: 'rounded px-3 py-1.5 text-sm hover:bg-accent',
+            classes: 'rounded px-3 py-1.5 text-ui-base hover:bg-accent',
             type: ButtonType.button,
             onClick: () => setState(() => _confirmingAlways = false),
           ),
@@ -142,7 +142,7 @@ class _RequestBodyState extends State<_RequestBody> {
           action(t.app.directMcpApprovalDeny, 'deny'),
           button(
             [Component.text(t.app.directMcpApprovalAllowAlways)],
-            classes: 'rounded px-3 py-1.5 text-sm hover:bg-accent',
+            classes: 'rounded px-3 py-1.5 text-ui-base hover:bg-accent',
             type: ButtonType.button,
             onClick: () => setState(() => _confirmingAlways = true),
           ),
@@ -170,10 +170,10 @@ class _RequestBodyState extends State<_RequestBody> {
       _ => choice,
     };
     return div(classes: 'space-y-3', [
-      h2(classes: 'text-sm font-semibold', [
+      h2(classes: 'text-ui-base font-semibold', [
         Component.text(t.app.hermesApprovalRequired),
       ]),
-      p(classes: 'whitespace-pre-wrap text-sm', [
+      p(classes: 'whitespace-pre-wrap text-ui-base', [
         Component.text(
           summary.isEmpty ? t.app.hermesApprovalFallback : summary,
         ),
@@ -188,8 +188,8 @@ class _RequestBodyState extends State<_RequestBody> {
           button(
             [Component.text(label(choice))],
             classes: choice == 'once'
-                ? 'rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground'
-                : 'rounded px-3 py-1.5 text-sm hover:bg-accent',
+                ? 'rounded bg-primary px-3 py-1.5 text-ui-base text-primary-foreground'
+                : 'rounded px-3 py-1.5 text-ui-base hover:bg-accent',
             type: ButtonType.button,
             onClick: () => _choose(context, choice),
           ),
@@ -210,9 +210,9 @@ class _RequestBodyState extends State<_RequestBody> {
     final message = args['message'] ?? '';
     return div(classes: 'space-y-3', [
       if (title.isNotEmpty)
-        h2(classes: 'text-sm font-semibold', [Component.text(title)]),
+        h2(classes: 'text-ui-base font-semibold', [Component.text(title)]),
       if (message.isNotEmpty)
-        p(classes: 'whitespace-pre-wrap text-sm text-muted-foreground', [
+        p(classes: 'whitespace-pre-wrap text-ui-base text-muted-foreground', [
           Component.text(message),
         ]),
       if (_isPrompt)
@@ -234,7 +234,7 @@ class _RequestBodyState extends State<_RequestBody> {
             ),
           ],
           classes:
-              'rounded px-3 py-1.5 text-sm text-muted-foreground '
+              'rounded px-3 py-1.5 text-ui-base text-muted-foreground '
               'hover:bg-accent',
           type: ButtonType.button,
           onClick: () => _answer(context, allow: false),
@@ -246,8 +246,7 @@ class _RequestBodyState extends State<_RequestBody> {
                   (_isPrompt ? t.app.ok : t.desktop.desktopAllow),
             ),
           ],
-          classes:
-              'rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground',
+          classes: 'rounded bg-primary px-3 py-1.5 text-ui-base text-primary-foreground',
           type: ButtonType.button,
           onClick: () => _answer(context, allow: true),
         ),

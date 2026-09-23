@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.47.0",
+  "protocolVersion": "1.48.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.47.0",
+  "protocolVersion": "1.48.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -2528,19 +2528,22 @@ const Map<String, String> protocolGoldens = <String, String>{
   'appPreferencesDefault': r'''
 {
   "themeMode": "system",
-  "themePaletteId": "conduit"
+  "themePaletteId": "zai",
+  "uiFontSize": 14
 }''',
 
   'appPreferencesFull': r'''
 {
   "themeMode": "dark",
   "themePaletteId": "t3_chat",
+  "uiFontSize": 16,
   "localeCode": "zh-Hant"
 }''',
 
   'appPreferencesPatch': r'''
 {
   "themePaletteId": "claude",
+  "uiFontSize": 15,
   "clearLocaleCode": true
 }''',
 
@@ -2551,4 +2554,5 @@ const Map<String, String> protocolGoldens = <String, String>{
     "cookies"
   ]
 }''',
+
 };

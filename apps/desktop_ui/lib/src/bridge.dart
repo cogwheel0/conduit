@@ -108,18 +108,27 @@ final class ElectronExternalSignIn implements ExternalSignInPort {
 
 /// [ThemeApplierPort] writing to the document element.
 ///
-/// Two attributes on `<html>`, which is the entire mechanism: `theme.css`
-/// carries a `[data-palette][data-mode]` rule for every combination, so a
-/// palette change is an attribute write and a repaint.
+/// Two attributes and a variable on `<html>`, which is the entire
+/// mechanism: `theme.css` carries a `[data-palette][data-mode]` rule for
+/// every combination, so a palette change is an attribute write and a
+/// repaint.
 final class DocumentThemeApplier implements ThemeApplierPort {
   const DocumentThemeApplier();
 
   @override
-  void apply({required String paletteId, required AppThemeMode mode}) {
+  void apply({
+    required String paletteId,
+    required AppThemeMode mode,
+    int uiFontSize = kDefaultUiFontSize,
+  }) {
     final root = web.document.documentElement;
     if (root == null) return;
     root.setAttribute('data-palette', paletteId);
     root.setAttribute('data-mode', mode.name);
+    (root as web.HTMLElement).style.setProperty(
+      '--ui-font-size',
+      '${uiFontSize}px',
+    );
   }
 }
 

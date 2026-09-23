@@ -75,7 +75,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
         h1(classes: 'text-2xl font-semibold', [
           Component.text(t.app.backendChooserWelcome),
         ]),
-        p(classes: 'text-sm text-muted-foreground', [
+        p(classes: 'text-ui-base text-muted-foreground', [
           Component.text(t.app.backendChooserPrompt),
         ]),
       ]),
@@ -100,7 +100,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
       button(
         [Component.text(t.app.skipServerSetupTryDemo)],
         classes:
-            'self-start text-sm text-muted-foreground underline '
+            'self-start text-ui-base text-muted-foreground underline '
             'underline-offset-4 disabled:opacity-60',
         type: ButtonType.button,
         disabled: _busy,
@@ -115,13 +115,15 @@ class _OnboardingPageState extends State<OnboardingPage> {
     required String subtitle,
     required void Function() onChoose,
   }) => div(classes: 'space-y-2', [
-    h2(classes: 'text-xs font-medium uppercase text-muted-foreground', [
+    h2(classes: 'text-ui-sm font-medium uppercase text-muted-foreground', [
       Component.text(section),
     ]),
     button(
       [
-        span(classes: 'block text-sm font-medium', [Component.text(title)]),
-        span(classes: 'block text-xs text-muted-foreground', [
+        span(classes: 'block text-ui-base font-medium', [
+          Component.text(title),
+        ]),
+        span(classes: 'block text-ui-sm text-muted-foreground', [
           Component.text(subtitle),
         ]),
       ],
@@ -149,7 +151,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
   Component _back(BuildContext context) => button(
     [Component.text('← ${t.app.backendChooserWelcome}')],
     classes:
-        'self-start text-sm text-muted-foreground hover:text-foreground '
+        'self-start text-ui-base text-muted-foreground hover:text-foreground '
         'disabled:opacity-60',
     type: ButtonType.button,
     disabled: _busy,
@@ -187,12 +189,12 @@ class _OnboardingPageState extends State<OnboardingPage> {
           h1(classes: 'text-2xl font-semibold', [
             Component.text(t.app.backendChooserHermesTitle),
           ]),
-          p(classes: 'text-sm text-muted-foreground', [
+          p(classes: 'text-ui-base text-muted-foreground', [
             Component.text(t.app.hermesNativeSettingsSubtitle),
           ]),
         ]),
         if (saved == null)
-          p(classes: 'text-sm text-muted-foreground', [
+          p(classes: 'text-ui-base text-muted-foreground', [
             Component.text(t.app.loadingShort),
           ])
         else
@@ -214,7 +216,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
           h1(classes: 'text-2xl font-semibold', [
             Component.text(t.app.connectToServer),
           ]),
-          p(classes: 'text-sm text-muted-foreground', [
+          p(classes: 'text-ui-base text-muted-foreground', [
             Component.text(t.app.signInServerDescription),
           ]),
         ]),
@@ -262,7 +264,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
         button(
           [Component.text(t.app.skipServerSetupTryDemo)],
           classes:
-              'text-sm text-muted-foreground underline underline-offset-4 '
+              'text-ui-base text-muted-foreground underline underline-offset-4 '
               'disabled:opacity-60',
           type: ButtonType.button,
           disabled: _busy,
@@ -285,7 +287,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
           '${_advancedOpen ? '▾' : '▸'} ${t.app.advancedSettings}',
         ),
       ],
-      classes: 'text-sm font-medium',
+      classes: 'text-ui-base font-medium',
       type: ButtonType.button,
       attributes: <String, String>{'aria-expanded': '$_advancedOpen'},
       onClick: () => setState(() => _advancedOpen = !_advancedOpen),
@@ -372,7 +374,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
   }) => div(classes: 'space-y-1.5', [
     span(
       id: '$id-label',
-      classes: 'block text-sm font-medium text-foreground',
+      classes: 'block text-ui-base font-medium text-foreground',
       [Component.text(labelText)],
     ),
     div(classes: 'flex items-center gap-2', [
@@ -386,7 +388,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
         ],
         id: id,
         classes:
-            'rounded border border-border px-3 py-1.5 text-sm '
+            'rounded border border-border px-3 py-1.5 text-ui-base '
             'text-foreground hover:bg-accent disabled:opacity-60',
         type: ButtonType.button,
         disabled: _busy,
@@ -402,7 +404,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
         ]),
         button(
           [Component.text(t.app.clear)],
-          classes: 'text-xs text-muted-foreground underline',
+          classes: 'text-ui-sm text-muted-foreground underline',
           type: ButtonType.button,
           disabled: _busy,
           onClick: onCleared,

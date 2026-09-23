@@ -87,7 +87,7 @@ class _KeyboardSettingsTabState extends State<KeyboardSettingsTab> {
       ul(classes: 'divide-y divide-border rounded border border-border', [
         for (final shortcut in table)
           li(
-            classes: 'flex items-center gap-3 px-3 py-2 text-sm',
+            classes: 'flex items-center gap-3 px-3 py-2 text-ui-base',
             attributes: <String, String>{'data-shortcut': shortcut.action.name},
             [
               span(classes: 'min-w-0 flex-1', [
@@ -98,7 +98,7 @@ class _KeyboardSettingsTabState extends State<KeyboardSettingsTab> {
                   id: 'shortcut-capture',
                   classes:
                       'w-56 rounded border border-primary bg-background '
-                      'px-2 py-1 text-xs',
+                      'px-2 py-1 text-ui-sm',
                   attributes: <String, String>{
                     'readonly': '',
                     'autofocus': '',
@@ -121,7 +121,7 @@ class _KeyboardSettingsTabState extends State<KeyboardSettingsTab> {
               else
                 Component.element(
                   tag: 'kbd',
-                  classes: 'rounded border border-border px-1.5 text-xs',
+                  classes: 'rounded border border-border px-1.5 text-ui-sm',
                   children: [
                     Component.text(
                       describeStroke(shortcut.stroke, isMac: isMac),
@@ -131,7 +131,7 @@ class _KeyboardSettingsTabState extends State<KeyboardSettingsTab> {
               button(
                 [Component.text(t.desktop.desktopShortcutChange)],
                 classes:
-                    'rounded border border-border px-2 py-0.5 text-xs '
+                    'rounded border border-border px-2 py-0.5 text-ui-sm '
                     'hover:bg-accent',
                 type: ButtonType.button,
                 attributes: <String, String>{
@@ -156,7 +156,7 @@ class _KeyboardSettingsTabState extends State<KeyboardSettingsTab> {
                 button(
                   [Component.text(t.desktop.desktopShortcutReset)],
                   classes:
-                      'rounded px-2 py-0.5 text-xs text-muted-foreground '
+                      'rounded px-2 py-0.5 text-ui-sm text-muted-foreground '
                       'hover:bg-accent',
                   type: ButtonType.button,
                   onClick: () => _reset(shortcut.action),

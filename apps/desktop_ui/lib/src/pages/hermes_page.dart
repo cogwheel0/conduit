@@ -26,16 +26,16 @@ class HermesPage extends StatelessComponent {
         div(classes: 'flex items-center gap-2', [
           Link(
             to: '/',
-            classes: 'rounded px-2 py-1 text-sm hover:bg-accent',
+            classes: 'rounded px-2 py-1 text-ui-base hover:bg-accent',
             attributes: <String, String>{'aria-label': t.app.back},
             child: Component.text('←'),
           ),
-          h1(classes: 'flex-1 text-lg font-semibold', [
+          h1(classes: 'flex-1 text-ui-xl font-semibold', [
             Component.text(t.app.hermesAgentSettingsTitle),
           ]),
           a(
             href: '/settings/hermes',
-            classes: 'text-xs text-muted-foreground hover:underline',
+            classes: 'text-ui-sm text-muted-foreground hover:underline',
             [Component.text(t.desktop.desktopSettingsTitle)],
           ),
         ]),
@@ -106,7 +106,7 @@ class _SessionsState extends State<_Sessions> {
       },
       [
         div(classes: 'flex items-center gap-2', [
-          h2(classes: 'flex-1 text-sm font-semibold', [
+          h2(classes: 'flex-1 text-ui-base font-semibold', [
             Component.text(t.app.hermesConversationsTitle),
           ]),
           actionButton(
@@ -139,13 +139,13 @@ class _SessionsState extends State<_Sessions> {
                       ),
                     ],
                     classes:
-                        'min-w-0 flex-1 truncate text-left text-sm font-medium '
+                        'min-w-0 flex-1 truncate text-left text-ui-base font-medium '
                         'hover:underline',
                     type: ButtonType.button,
                     onClick: () => _open(context, session.chatId),
                   ),
                   if (session.updatedAtMs case final ms?)
-                    span(classes: 'text-xs text-muted-foreground', [
+                    span(classes: 'text-ui-sm text-muted-foreground', [
                       Component.text(dayOf(ms)),
                     ]),
                   actionButton(
@@ -174,7 +174,7 @@ class _SessionsState extends State<_Sessions> {
                   ),
                 ]),
                 if (session.preview case final preview?)
-                  p(classes: 'truncate text-xs text-muted-foreground', [
+                  p(classes: 'truncate text-ui-sm text-muted-foreground', [
                     Component.text(preview),
                   ]),
                 if (_renaming == session.id)
@@ -292,7 +292,7 @@ class _JobsState extends State<_Jobs> {
       },
       [
         div(classes: 'flex items-center gap-2', [
-          h2(classes: 'flex-1 text-sm font-semibold', [
+          h2(classes: 'flex-1 text-ui-base font-semibold', [
             Component.text(t.app.hermesScheduledAgentsTitle),
           ]),
           if (admin)
@@ -319,9 +319,10 @@ class _JobsState extends State<_Jobs> {
               attributes: <String, String>{'data-job': job.id},
               [
                 div(classes: 'flex items-center gap-2', [
-                  span(classes: 'min-w-0 flex-1 truncate text-sm font-medium', [
-                    Component.text(job.name ?? job.prompt),
-                  ]),
+                  span(
+                    classes: 'min-w-0 flex-1 truncate text-ui-base font-medium',
+                    [Component.text(job.name ?? job.prompt)],
+                  ),
                   if (!job.enabled) badge(t.app.hermesJobPaused),
                   if (admin) ...[
                     checkboxField(
@@ -359,7 +360,7 @@ class _JobsState extends State<_Jobs> {
                     ),
                   ],
                 ]),
-                p(classes: 'text-xs text-muted-foreground', [
+                p(classes: 'text-ui-sm text-muted-foreground', [
                   Component.text(
                     [
                       job.scheduleText ?? job.schedule,
@@ -397,7 +398,7 @@ class _JobsState extends State<_Jobs> {
 
   Component _editor(BuildContext context, HermesJobDto? job) =>
       div(classes: 'space-y-3 rounded border border-border p-3', [
-        h3(classes: 'text-sm font-semibold', [
+        h3(classes: 'text-ui-base font-semibold', [
           Component.text(
             job == null ? t.app.hermesJobNew : t.app.hermesJobEditorEditTitle,
           ),
@@ -424,7 +425,7 @@ class _JobsState extends State<_Jobs> {
           value: _schedule,
           onInput: (value) => setState(() => _schedule = value),
         ),
-        p(classes: 'text-xs text-muted-foreground', [
+        p(classes: 'text-ui-sm text-muted-foreground', [
           Component.text(t.app.hermesJobScheduleHelp),
         ]),
         div(classes: 'flex justify-end gap-2', [

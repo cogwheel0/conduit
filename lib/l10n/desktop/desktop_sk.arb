@@ -407,5 +407,10 @@
   "desktopSttModelEnglishOnly": "Iba angličtina",
   "desktopSttModelFailedChecksum": "Stiahnutý súbor nebol ten očakávaný, preto bol zahodený.",
   "desktopSttModelFailedNetwork": "Sťahovanie zlyhalo. Skontrolujte pripojenie a skúste to znova.",
-  "desktopSttLocalNeedsModel": "Ak chcete prepisovať v tomto počítači, stiahnite model; dovtedy prepisuje server."
+  "desktopSttLocalNeedsModel": "Ak chcete prepisovať v tomto počítači, stiahnite model; dovtedy prepisuje server.",
+  "themePaletteZaiLabel": "Zai",
+  "themePaletteZaiDescription": "Monochromatický, pokojný a hutný",
+  "desktopUiFontSize": "Veľkosť textu",
+  "desktopUiFontSizeValue": "{size} px",
+  "desktopUiFontSizeHint": "Kód, rozdiely a terminál si ponechávajú vlastné veľkosti."
 }

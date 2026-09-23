@@ -7,5 +7,7 @@
 library;
 
 export 'src/css.dart';
+export 'src/desktop_palettes.dart';
 export 'src/palette.dart';
 export 'src/registry.dart';
+export 'src/surfaces.dart';

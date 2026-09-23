@@ -97,7 +97,7 @@ class _KeyboardLayerState extends State<KeyboardLayer> {
         div(
           classes:
               'fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded border '
-              'border-border bg-popover px-3 py-1.5 text-xs '
+              'border-border bg-popover px-3 py-1.5 text-ui-sm '
               'text-popover-foreground shadow',
           // `status` not `alert`: "Copied" is a confirmation, and an alert
           // interrupts whatever a screen reader was in the middle of

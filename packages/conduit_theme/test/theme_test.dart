@@ -83,10 +83,19 @@ void main() {
       expect(css, contains('@media (prefers-color-scheme: dark) {'));
     });
 
-    test('defaults are present before any data-palette is set', () {
-      expect(css, contains(':root {'));
-      final defaults = kDefaultPalette.light;
-      expect(css, contains(cssColor(defaults.background)));
+    test('defaults are Zai before any data-palette is set', () {
+      expect(css, contains(':root {\n  --conduit-background: #ffffff;'));
+      expect(css, contains('--conduit-window: #f8f8f8;'));
+    });
+
+    test('aliases the surface tokens too', () {
+      expect(css, contains('--color-window: var(--conduit-window);'));
+      expect(
+        css,
+        contains(
+          '--color-foreground-subtle: var(--conduit-foreground-subtle);',
+        ),
+      );
     });
 
     test('kebab-cases compound token names', () {
@@ -100,10 +109,20 @@ void main() {
     });
 
     test('writes every token of every variant', () {
-      // 5 palettes x 2 modes x 33 tokens, plus the :root defaults in both
-      // modes. Counting catches a generator that silently drops a rule.
-      final occurrences = '--conduit-background:'.allMatches(css).length;
-      expect(occurrences, (kConduitPalettes.length * 3) + 2);
+      // Each palette's light, dark and system rules, plus the :root
+      // defaults in both modes. Counting catches a generator that silently
+      // drops a rule.
+      for (final token in <String>[
+        'background',
+        'window',
+        'tooltip-foreground',
+      ]) {
+        expect(
+          '--conduit-$token:'.allMatches(css).length,
+          (kDesktopPalettes.length * 3) + 2,
+          reason: token,
+        );
+      }
     });
   });
 
@@ -127,7 +146,7 @@ void main() {
     test(
       'a light variant\'s red reads as text and under its own foreground',
       () {
-        for (final palette in kConduitPalettes) {
+        for (final palette in kDesktopPalettes) {
           final colors = accessibleColors(palette.light);
           final red = colors['destructive']!;
           for (final surface in <String>['background', 'card', 'muted']) {
@@ -147,7 +166,7 @@ void main() {
     );
 
     test('a dark variant never loses the fill\'s contrast', () {
-      for (final palette in kConduitPalettes) {
+      for (final palette in kDesktopPalettes) {
         final before = palette.dark.colors;
         final after = accessibleColors(palette.dark);
         final fill = contrastRatio(
@@ -176,6 +195,93 @@ void main() {
       for (final entry in palette.light.colors.entries) {
         if (entry.key == 'destructive') continue;
         expect(after[entry.key], entry.value, reason: entry.key);
+      }
+    });
+  });
+
+  group('desktop palettes', () {
+    test('Zai comes first, then the shared registry', () {
+      expect(kDesktopPalettes.first.id, 'zai');
+      expect(
+        kDesktopPalettes.skip(1).map((p) => p.id),
+        kConduitPalettes.map((p) => p.id),
+      );
+      // The phone's list must not grow a desktop-only palette.
+      expect(kConduitPalettes.map((p) => p.id), isNot(contains('zai')));
+    });
+
+    test('an unknown id falls back to Zai', () {
+      expect(desktopPaletteById('claude').id, 'claude');
+      expect(desktopPaletteById(null).id, 'zai');
+      expect(desktopPaletteById('gone').id, 'zai');
+    });
+
+    test('Zai defines every colour token, opaque, in both modes', () {
+      final expected = kConduitPalettes.first.light.colors.keys.toSet();
+      for (final variant in <ThemeVariant>[
+        kZaiPalette.light,
+        kZaiPalette.dark,
+      ]) {
+        expect(variant.colors.keys.toSet(), expected);
+        for (final entry in variant.colors.entries) {
+          expect(entry.value >> 24 & 0xFF, 0xFF, reason: entry.key);
+        }
+        expect(variant.surfaces.keys.toSet(), kSurfaceTokens.toSet());
+      }
+    });
+  });
+
+  group('desktopSurfaces', () {
+    test('every variant gets every surface token', () {
+      for (final palette in kDesktopPalettes) {
+        for (final variant in <ThemeVariant>[palette.light, palette.dark]) {
+          expect(
+            desktopSurfaces(variant).keys,
+            kSurfaceTokens,
+            reason: palette.id,
+          );
+        }
+      }
+    });
+
+    test('a variant\'s own values win over derived ones', () {
+      expect(desktopSurfaces(kZaiPalette.light)['window'], 0xFFF8F8F8);
+      expect(desktopSurfaces(kZaiPalette.dark)['menuHover'], 0xFF363636);
+    });
+
+    test('subtle text reads at AA on every opaque layer', () {
+      for (final palette in kDesktopPalettes) {
+        for (final variant in <ThemeVariant>[palette.light, palette.dark]) {
+          final s = desktopSurfaces(variant);
+          final layers = <int>[
+            variant.background,
+            variant.card,
+            variant.popover,
+            s['window']!,
+            s['panel']!,
+            s['menu']!,
+          ];
+          for (final layer in layers) {
+            expect(
+              contrastRatio(s['foregroundSubtle']!, layer),
+              greaterThanOrEqualTo(4.5),
+              reason: '${palette.id} subtle on ${cssColor(layer)}',
+            );
+            expect(
+              contrastRatio(s['foregroundSubtlest']!, layer),
+              greaterThanOrEqualTo(3),
+              reason: '${palette.id} subtlest on ${cssColor(layer)}',
+            );
+          }
+        }
+      }
+    });
+
+    test('hover and selected are translucent, so they work on any layer', () {
+      for (final palette in kDesktopPalettes) {
+        final s = desktopSurfaces(palette.light);
+        expect(s['hover']! >> 24 & 0xFF, lessThan(0xFF), reason: palette.id);
+        expect(s['selected']! >> 24 & 0xFF, lessThan(0xFF), reason: palette.id);
       }
     });
   });

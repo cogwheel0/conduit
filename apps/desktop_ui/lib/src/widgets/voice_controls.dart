@@ -25,7 +25,7 @@ class ReadAloudButton extends StatelessComponent {
     return button(
       [Component.text(reading ? t.app.ttsStop : t.app.ttsListen)],
       classes:
-          'rounded px-1.5 py-0.5 text-xs hover:bg-accent '
+          'rounded px-1.5 py-0.5 text-ui-sm hover:bg-accent '
           'hover:text-accent-foreground '
           '${reading ? 'text-primary' : 'text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100'}',
       type: ButtonType.button,
@@ -87,7 +87,7 @@ class DictationButton extends StatelessComponent {
       ],
       id: 'dictate',
       classes:
-          'flex shrink-0 items-center gap-1 rounded border px-3 py-2 text-sm '
+          'flex shrink-0 items-center gap-1 rounded border px-3 py-2 text-ui-base '
           '${listening ? 'border-primary text-primary' : 'border-border text-muted-foreground hover:bg-accent'}',
       type: ButtonType.button,
       disabled: transcribing,
@@ -133,7 +133,7 @@ class VoiceCallButton extends StatelessComponent {
       ],
       id: 'voice-call',
       classes:
-          'shrink-0 rounded border border-border px-3 py-2 text-sm '
+          'shrink-0 rounded border border-border px-3 py-2 text-ui-base '
           'text-muted-foreground hover:bg-accent',
       type: ButtonType.button,
       attributes: <String, String>{'aria-label': label, 'title': label},
@@ -161,7 +161,7 @@ class VoiceCallPanel extends StatelessComponent {
       };
       if (problem == null) return const Component.empty();
       return p(
-        classes: 'mx-auto mb-2 max-w-3xl text-sm text-destructive',
+        classes: 'mx-auto mb-2 max-w-3xl text-ui-base text-destructive',
         attributes: const <String, String>{'role': 'alert'},
         [Component.text(problem)],
       );
@@ -185,7 +185,7 @@ class VoiceCallPanel extends StatelessComponent {
       [Component.text(text)],
       id: id,
       classes:
-          'rounded border px-3 py-1.5 text-sm '
+          'rounded border px-3 py-1.5 text-ui-base '
           '${danger
               ? 'border-destructive bg-destructive text-white hover:opacity-90'
               : pressed ?? false
@@ -207,7 +207,7 @@ class VoiceCallPanel extends StatelessComponent {
       [
         div(classes: 'min-w-0 flex-1', [
           p(
-            classes: 'flex items-center gap-2 text-sm font-medium',
+            classes: 'flex items-center gap-2 text-ui-base font-medium',
             attributes: const <String, String>{
               'role': 'status',
               'aria-live': 'polite',
@@ -219,11 +219,11 @@ class VoiceCallPanel extends StatelessComponent {
             ],
           ),
           if (call.heard case final heard?)
-            p(classes: 'truncate text-xs text-muted-foreground', [
+            p(classes: 'truncate text-ui-sm text-muted-foreground', [
               Component.text(t.desktop.desktopVoiceCallHeard(text: heard)),
             ]),
           if (call.problem == CallProblem.failed)
-            p(classes: 'text-xs text-destructive', [
+            p(classes: 'text-ui-sm text-destructive', [
               Component.text(t.app.couldNotConnectGeneric),
             ]),
         ]),

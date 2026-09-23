@@ -46,6 +46,7 @@ class ThemeVariant {
     required this.info,
     required this.infoForeground,
     this.radius = 16,
+    this.surfaces = const <String, int>{},
   });
 
   final int background;
@@ -84,6 +85,12 @@ class ThemeVariant {
 
   /// Corner radius in logical pixels. CSS gets it as `px`.
   final double radius;
+
+  /// Values for the desktop's layered surface tokens ([kSurfaceTokens]),
+  /// keyed by name. Unlike [colors] these may be translucent. Any left out
+  /// are derived from [colors] by [desktopSurfaces], which is what the
+  /// shared palettes rely on: the phone app never reads them.
+  final Map<String, int> surfaces;
 
   /// Every colour token keyed by its camelCase name, in declaration order.
   ///

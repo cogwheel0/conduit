@@ -407,5 +407,10 @@
   "desktopSttModelEnglishOnly": "僅限英文",
   "desktopSttModelFailedChecksum": "下載的檔案與預期不符，已捨棄。",
   "desktopSttModelFailedNetwork": "下載失敗。請檢查連線後再試一次。",
-  "desktopSttLocalNeedsModel": "下載模型後即可在這台電腦上轉錄；在此之前由伺服器轉錄。"
+  "desktopSttLocalNeedsModel": "下載模型後即可在這台電腦上轉錄；在此之前由伺服器轉錄。",
+  "themePaletteZaiLabel": "Zai",
+  "themePaletteZaiDescription": "單色、沉穩而緊湊",
+  "desktopUiFontSize": "文字大小",
+  "desktopUiFontSizeValue": "{size} px",
+  "desktopUiFontSizeHint": "程式碼、差異比對和終端機保持各自的字級。"
 }

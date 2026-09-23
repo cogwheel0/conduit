@@ -135,7 +135,7 @@ class _ValvesDialogState extends State<ValvesDialog> {
     final Component control;
     if (spec['enum'] case final List<dynamic> choices) {
       control = div(classes: 'space-y-1.5', [
-        label(htmlFor: id, classes: 'block text-sm font-medium', [
+        label(htmlFor: id, classes: 'block text-ui-base font-medium', [
           Component.text(title),
         ]),
         select(
@@ -148,7 +148,7 @@ class _ValvesDialogState extends State<ValvesDialog> {
           id: id,
           classes:
               'w-full rounded border border-border bg-background px-3 py-2 '
-              'text-sm',
+              'text-ui-base',
           onChange: (values) => set(values.isEmpty ? null : values.first),
         ),
       ]);
@@ -190,11 +190,11 @@ class _ValvesDialogState extends State<ValvesDialog> {
     return div(classes: 'space-y-1', [
       control,
       if (description != null && description.isNotEmpty)
-        p(classes: 'text-xs text-muted-foreground', [
+        p(classes: 'text-ui-sm text-muted-foreground', [
           Component.text(description),
         ]),
       if (fallback != null)
-        p(classes: 'text-[11px] text-muted-foreground', [
+        p(classes: 'text-ui-xs text-muted-foreground', [
           Component.text('${t.app.workspaceValveDefault}: $fallback'),
         ]),
     ]);

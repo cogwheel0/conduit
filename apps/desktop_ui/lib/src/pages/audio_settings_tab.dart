@@ -37,7 +37,7 @@ Component _section(String title, List<Component> children) => section(
   classes: 'space-y-4',
   attributes: <String, String>{'aria-label': title},
   [
-    h3(classes: 'text-sm font-semibold text-foreground', [
+    h3(classes: 'text-ui-base font-semibold text-foreground', [
       Component.text(title),
     ]),
     ...children,
@@ -45,7 +45,7 @@ Component _section(String title, List<Component> children) => section(
 );
 
 Component _hint(String text) =>
-    p(classes: 'text-xs text-muted-foreground', [Component.text(text)]);
+    p(classes: 'text-ui-sm text-muted-foreground', [Component.text(text)]);
 
 /// A slider that saves when it is let go.
 Component _slider({
@@ -59,11 +59,11 @@ Component _slider({
   required void Function(double value) onChanged,
   bool disabled = false,
 }) => div(classes: 'space-y-1.5', [
-  div(classes: 'flex items-center justify-between text-sm', [
+  div(classes: 'flex items-center justify-between text-ui-base', [
     label(htmlFor: id, classes: 'font-medium text-foreground', [
       Component.text(text),
     ]),
-    span(classes: 'text-xs text-muted-foreground', [Component.text(shown)]),
+    span(classes: 'text-ui-sm text-muted-foreground', [Component.text(shown)]),
   ]),
   input<Object?>(
     id: id,
@@ -103,7 +103,7 @@ class _DictationState extends State<_Dictation> {
     return _section(t.app.sttSettings, [
       if (settings.localStt) ...[
         fieldset(classes: 'space-y-2 border-0 p-0', [
-          legend(classes: 'text-sm font-medium text-foreground', [
+          legend(classes: 'text-ui-base font-medium text-foreground', [
             Component.text(t.app.sttEngineLabel),
           ]),
           for (final (engine, text, description, enabled)
@@ -135,7 +135,7 @@ class _DictationState extends State<_Dictation> {
                     _save(context, VoiceSettingsEdit(sttEngine: engine)),
               ),
               div([
-                label(htmlFor: 'stt-engine-$engine', classes: 'text-sm', [
+                label(htmlFor: 'stt-engine-$engine', classes: 'text-ui-base', [
                   Component.text(text),
                 ]),
                 _hint(description),
@@ -214,7 +214,7 @@ class _Speech extends StatelessComponent {
     final previewing = context.watch(speechPlayerProvider).id == 'preview';
     return _section(t.app.ttsSettings, [
       fieldset(classes: 'space-y-2 border-0 p-0', [
-        legend(classes: 'text-sm font-medium text-foreground', [
+        legend(classes: 'text-ui-base font-medium text-foreground', [
           Component.text(t.app.ttsEngineLabel),
         ]),
         for (final (engine, text, description, enabled)
@@ -246,7 +246,7 @@ class _Speech extends StatelessComponent {
                   _save(context, VoiceSettingsEdit(ttsEngine: engine)),
             ),
             div([
-              label(htmlFor: 'tts-engine-$engine', classes: 'text-sm', [
+              label(htmlFor: 'tts-engine-$engine', classes: 'text-ui-base', [
                 Component.text(text),
               ]),
               _hint(description),
@@ -301,7 +301,7 @@ class _Speech extends StatelessComponent {
     required String defaultText,
     required void Function(String? id) onChanged,
   }) => div(classes: 'space-y-1.5', [
-    label(htmlFor: 'tts-voice', classes: 'block text-sm font-medium', [
+    label(htmlFor: 'tts-voice', classes: 'block text-ui-base font-medium', [
       Component.text(t.app.ttsVoice),
     ]),
     select(
@@ -313,8 +313,7 @@ class _Speech extends StatelessComponent {
           option(value: id, selected: selected == id, [Component.text(name)]),
       ],
       id: 'tts-voice',
-      classes:
-          'w-full rounded border border-border bg-background px-3 py-2 text-sm',
+      classes: 'w-full rounded border border-border bg-background px-3 py-2 text-ui-base',
       onChange: (values) {
         final id = values.isEmpty ? '' : values.first;
         onChanged(id.isEmpty ? null : id);
@@ -386,7 +385,7 @@ class _LocalModels extends StatelessComponent {
           [Component.text(text)],
           id: id,
           classes:
-              'rounded border border-border px-2 py-0.5 text-xs '
+              'rounded border border-border px-2 py-0.5 text-ui-sm '
               'hover:bg-accent',
           type: ButtonType.button,
           onClick: onClick,
@@ -397,7 +396,7 @@ class _LocalModels extends StatelessComponent {
         'aria-label': t.desktop.desktopSttModelsTitle,
       },
       [
-        h4(classes: 'text-sm font-medium', [
+        h4(classes: 'text-ui-base font-medium', [
           Component.text(t.desktop.desktopSttModelsTitle),
         ]),
         _hint(t.desktop.desktopSttModelsDescription),
@@ -416,19 +415,19 @@ class _LocalModels extends StatelessComponent {
           ul(classes: 'divide-y divide-border', [
             for (final model in models.models)
               li(
-                classes: 'flex items-center gap-2 py-2 text-sm',
+                classes: 'flex items-center gap-2 py-2 text-ui-base',
                 attributes: <String, String>{'data-model': model.id},
                 [
                   span(classes: 'min-w-0 flex-1', [
                     Component.text(model.name),
                     if (model.englishOnly)
-                      span(classes: 'ml-2 text-xs text-muted-foreground', [
+                      span(classes: 'ml-2 text-ui-sm text-muted-foreground', [
                         Component.text(t.desktop.desktopSttModelEnglishOnly),
                       ]),
                   ]),
                   if (model.receivedBytes case final received?)
                     span(
-                      classes: 'text-xs text-muted-foreground',
+                      classes: 'text-ui-sm text-muted-foreground',
                       attributes: const <String, String>{'role': 'status'},
                       [
                         Component.text(
@@ -442,7 +441,7 @@ class _LocalModels extends StatelessComponent {
                     )
                   else if (model.downloaded) ...[
                     if (settings.localModel == model.id)
-                      span(classes: 'text-xs text-primary', [
+                      span(classes: 'text-ui-sm text-primary', [
                         Component.text(t.desktop.desktopSttModelInUse),
                       ])
                     else

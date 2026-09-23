@@ -106,12 +106,13 @@ class _KnowledgeFilesState extends State<KnowledgeFiles> {
       },
       [
         div(classes: 'flex flex-wrap items-center gap-2', [
-          h3(classes: 'flex-1 text-sm font-semibold', [
+          h3(classes: 'flex-1 text-ui-base font-semibold', [
             Component.text(t.app.workspaceKnowledgeFilesTitle),
             if (value != null)
-              span(classes: 'ml-2 text-xs font-normal text-muted-foreground', [
-                Component.text('${value.total}'),
-              ]),
+              span(
+                classes: 'ml-2 text-ui-sm font-normal text-muted-foreground',
+                [Component.text('${value.total}')],
+              ),
           ]),
           actionButton(
             t.app.workspaceKnowledgeRefreshFiles,
@@ -144,7 +145,7 @@ class _KnowledgeFilesState extends State<KnowledgeFiles> {
         ]),
         // Where this folder is, from the top.
         nav(
-          classes: 'flex flex-wrap items-center gap-1 text-xs',
+          classes: 'flex flex-wrap items-center gap-1 text-ui-sm',
           attributes: <String, String>{
             'aria-label': t.app.workspaceKnowledgeRoot,
           },
@@ -211,7 +212,7 @@ class _KnowledgeFilesState extends State<KnowledgeFiles> {
         ul(classes: 'divide-y divide-border', [
           for (final folder in folders) _folderRow(context, folder),
           for (final file in value?.pending ?? const <WorkspaceFile>[])
-            li(classes: 'flex items-center gap-2 py-1.5 text-sm', [
+            li(classes: 'flex items-center gap-2 py-1.5 text-ui-base', [
               span(classes: 'min-w-0 flex-1 truncate', [
                 Component.text(file.filename),
               ]),
@@ -266,7 +267,7 @@ class _KnowledgeFilesState extends State<KnowledgeFiles> {
     classes: 'space-y-2 py-1.5',
     attributes: <String, String>{'data-folder': folder.id},
     [
-      div(classes: 'flex items-center gap-2 text-sm', [
+      div(classes: 'flex items-center gap-2 text-ui-base', [
         button(
           [Component.text('📁 ${folder.name}')],
           classes: 'min-w-0 flex-1 truncate text-left hover:underline',
@@ -339,11 +340,11 @@ class _KnowledgeFilesState extends State<KnowledgeFiles> {
       classes: 'space-y-2 py-1.5',
       attributes: <String, String>{'data-file': file.id},
       [
-        div(classes: 'flex items-center gap-2 text-sm', [
+        div(classes: 'flex items-center gap-2 text-ui-base', [
           span(classes: 'min-w-0 flex-1 truncate', [
             Component.text(file.filename),
             if (file.size case final size?)
-              span(classes: 'ml-2 text-xs text-muted-foreground', [
+              span(classes: 'ml-2 text-ui-sm text-muted-foreground', [
                 Component.text(_size(size)),
               ]),
           ]),
@@ -415,7 +416,7 @@ class _KnowledgeFilesState extends State<KnowledgeFiles> {
             ),
           ]),
         if (_moving == file.id)
-          div(classes: 'flex flex-wrap items-center gap-1 text-xs', [
+          div(classes: 'flex flex-wrap items-center gap-1 text-ui-sm', [
             span(classes: 'text-muted-foreground', [
               Component.text(t.app.workspaceKnowledgeMoveTitle),
             ]),

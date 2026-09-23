@@ -84,7 +84,7 @@ class StatusPage extends StatelessComponent {
           Component.text(t.desktop.desktopCoreConnected),
         ]),
       ]),
-      dl(classes: 'mt-4 grid grid-cols-2 gap-y-1 text-sm', [
+      dl(classes: 'mt-4 grid grid-cols-2 gap-y-1 text-ui-base', [
         ..._definition('Protocol', handshake.protocolVersion),
         ..._definition('Daemon', handshake.daemonVersion),
         ..._definition('Platform', handshake.platform),
@@ -113,7 +113,7 @@ class StatusPage extends StatelessComponent {
   ];
 
   Component _detailRow(String label, String value) =>
-      div(classes: 'flex justify-between text-sm text-muted-foreground', [
+      div(classes: 'flex justify-between text-ui-base text-muted-foreground', [
         span([Component.text(label)]),
         span(classes: 'font-mono', [Component.text(value)]),
       ]);
@@ -124,6 +124,8 @@ class StatusPage extends StatelessComponent {
     required String detail,
   }) => div(classes: 'rounded border border-border bg-card p-6', [
     div(classes: 'font-medium text-$tone', [Component.text(title)]),
-    p(classes: 'mt-2 text-sm text-muted-foreground', [Component.text(detail)]),
+    p(classes: 'mt-2 text-ui-base text-muted-foreground', [
+      Component.text(detail),
+    ]),
   ]);
 }

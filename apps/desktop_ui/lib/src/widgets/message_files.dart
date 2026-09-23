@@ -76,7 +76,7 @@ class MessageFiles extends StatelessComponent {
               href: srcOf(file)!,
               target: Target.blank,
               classes:
-                  'rounded border border-border px-2 py-1 text-xs '
+                  'rounded border border-border px-2 py-1 text-ui-sm '
                   'text-foreground underline-offset-2 hover:underline',
               attributes: const <String, String>{'rel': 'noopener noreferrer'},
               [Component.text(file.name)],
@@ -84,7 +84,7 @@ class MessageFiles extends StatelessComponent {
           else
             span(
               classes:
-                  'rounded border border-border px-2 py-1 text-xs '
+                  'rounded border border-border px-2 py-1 text-ui-sm '
                   'text-muted-foreground',
               [Component.text(file.name)],
             ),
@@ -158,7 +158,7 @@ class _LightboxOverlayState extends State<LightboxOverlay> {
           id: 'lightbox-close',
           classes:
               'absolute right-4 top-4 rounded bg-black/50 px-3 py-1.5 '
-              'text-sm text-white hover:bg-black/70',
+              'text-ui-base text-white hover:bg-black/70',
           type: ButtonType.button,
           attributes: <String, String>{'aria-label': t.app.close},
           onClick: close,

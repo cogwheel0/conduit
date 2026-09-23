@@ -6,6 +6,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 
 import '../keyboard.dart';
 import '../rpc/rpc_providers.dart';
+import 'ui.dart';
 
 /// One entry in a [ContextMenu].
 class ContextMenuItem {
@@ -63,9 +64,7 @@ class _ContextMenuState extends State<ContextMenu> {
     },
     [
       div(
-        classes:
-            'fixed min-w-40 rounded border border-border bg-popover p-1 '
-            'text-sm text-popover-foreground shadow-lg',
+        classes: 'fixed z-50 $menuClasses',
         styles: Styles(
           raw: <String, String>{
             'left': '${component.x}px',
@@ -85,9 +84,9 @@ class _ContextMenuState extends State<ContextMenu> {
             button(
               [Component.text(component.items[i].label)],
               id: 'context-menu-$i',
-              classes:
-                  'block w-full rounded px-3 py-1.5 text-left '
-                  '${component.items[i].destructive ? 'text-destructive hover:bg-destructive/10' : 'hover:bg-accent'}',
+              classes: menuItemClasses(
+                destructive: component.items[i].destructive,
+              ),
               type: ButtonType.button,
               attributes: const <String, String>{'role': 'menuitem'},
               onClick: () {

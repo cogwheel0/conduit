@@ -75,10 +75,12 @@ class WorkspaceScreen extends StatelessComponent {
     ]);
   }
 
-  Component _centered(String text) =>
-      div(classes: 'flex flex-1 items-center justify-center p-8', [
-        p(classes: 'text-sm text-muted-foreground', [Component.text(text)]),
-      ]);
+  Component _centered(String text) => div(
+    classes: 'flex flex-1 items-center justify-center p-8',
+    [
+      p(classes: 'text-ui-base text-muted-foreground', [Component.text(text)]),
+    ],
+  );
 }
 
 /// The sections, down the left. Leaving an editor with changes asks first.
@@ -113,12 +115,12 @@ class _SectionNavState extends State<_SectionNav> {
         div(classes: 'mb-2 flex items-center gap-2', [
           button(
             [Component.text('←')],
-            classes: 'rounded px-2 py-1 text-sm hover:bg-accent',
+            classes: 'rounded px-2 py-1 text-ui-base hover:bg-accent',
             type: ButtonType.button,
             attributes: <String, String>{'aria-label': t.app.back},
             onClick: () => _go(context, '/'),
           ),
-          h1(classes: 'text-sm font-semibold', [
+          h1(classes: 'text-ui-base font-semibold', [
             Component.text(t.app.workspaceTitle),
           ]),
         ]),
@@ -126,7 +128,7 @@ class _SectionNavState extends State<_SectionNav> {
           button(
             [Component.text(sectionLabel(kind))],
             classes:
-                'block w-full rounded px-2 py-1.5 text-left text-sm '
+                'block w-full rounded px-2 py-1.5 text-left text-ui-base '
                 'hover:bg-accent aria-[current=page]:bg-accent '
                 'aria-[current=page]:font-medium',
             type: ButtonType.button,
@@ -256,12 +258,13 @@ class _WorkspaceListState extends State<WorkspaceList> {
     final items = page.value?.items ?? const <WorkspaceItem>[];
     return div(classes: 'mx-auto w-full max-w-4xl space-y-4 p-6', [
       div(classes: 'flex flex-wrap items-center gap-2', [
-        h2(classes: 'flex-1 text-lg font-semibold', [
+        h2(classes: 'flex-1 text-ui-xl font-semibold', [
           Component.text(sectionLabel(kind)),
           if (page.value case final value?)
-            span(classes: 'ml-2 text-sm font-normal text-muted-foreground', [
-              Component.text('${value.total}'),
-            ]),
+            span(
+              classes: 'ml-2 text-ui-base font-normal text-muted-foreground',
+              [Component.text('${value.total}')],
+            ),
         ]),
         if (access.importItems && kind != WorkspaceKind.knowledge)
           actionButton(
@@ -364,7 +367,7 @@ class _WorkspaceListState extends State<WorkspaceList> {
         div(classes: 'flex items-center gap-2', [
           Link(
             to: sectionPath(kind, item.id),
-            classes: 'truncate text-sm font-medium hover:underline',
+            classes: 'truncate text-ui-base font-medium hover:underline',
             child: Component.text(item.name.isEmpty ? item.id : item.name),
           ),
           if (item.public) badge(t.app.workspaceAccessVisibilityLabel),
@@ -372,10 +375,10 @@ class _WorkspaceListState extends State<WorkspaceList> {
           if (item.active == false) badge(t.app.workspaceModelDeactivate),
         ]),
         if (item.subtitle case final subtitle?)
-          p(classes: 'truncate text-xs text-muted-foreground', [
+          p(classes: 'truncate text-ui-sm text-muted-foreground', [
             Component.text(subtitle),
           ]),
-        p(classes: 'text-[11px] text-muted-foreground', [
+        p(classes: 'text-ui-xs text-muted-foreground', [
           Component.text(
             [
               ?item.ownerName,
@@ -387,7 +390,7 @@ class _WorkspaceListState extends State<WorkspaceList> {
         ]),
       ]),
       if (item.active != null && item.writeAccess)
-        label(classes: 'flex items-center gap-1.5 text-xs', [
+        label(classes: 'flex items-center gap-1.5 text-ui-sm', [
           input<bool>(
             classes: 'size-4',
             type: InputType.checkbox,
@@ -417,7 +420,7 @@ class _WorkspaceListState extends State<WorkspaceList> {
     ],
     id: id,
     classes:
-        'rounded border border-border bg-background px-2 py-2 text-sm '
+        'rounded border border-border bg-background px-2 py-2 text-ui-base '
         'text-foreground',
     attributes: <String, String>{'aria-label': label},
     onChange: (values) => onChange(values.isEmpty ? '' : values.first),

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
@@ -20,9 +21,12 @@ final class SettingsService {
 
   AppPreferences read() => AppPreferences(
     themeMode: _parseThemeMode(_storage.getThemeMode()),
-    // The registry's own default rather than a literal, so adding a palette
-    // and changing the default is one edit in one place.
-    themePaletteId: _storage.getThemePaletteId() ?? _defaultPaletteId,
+    // The protocol's own default rather than a literal, so changing the
+    // default is one edit in one place.
+    themePaletteId:
+        _storage.getThemePaletteId() ?? const AppPreferences().themePaletteId,
+    uiFontSize: (PreferencesStore.getInt(_uiFontSizeKey) ?? kDefaultUiFontSize)
+        .clamp(kMinUiFontSize, kMaxUiFontSize),
     localeCode: _storage.getLocaleCode(),
   );
 
@@ -32,6 +36,12 @@ final class SettingsService {
     }
     if (patch.themePaletteId case final palette?) {
       await _storage.setThemePaletteId(palette);
+    }
+    if (patch.uiFontSize case final size?) {
+      await PreferencesStore.put(
+        _uiFontSizeKey,
+        size.clamp(kMinUiFontSize, kMaxUiFontSize),
+      );
     }
     // Order matters only here: clearing wins over setting, so a caller that
     // sends both gets "follow the system" rather than a silent coin toss.
@@ -53,5 +63,6 @@ final class SettingsService {
     _ => AppThemeMode.system,
   };
 
-  static const String _defaultPaletteId = 'conduit';
+  /// Desktop only: the phone app has its own text scaling.
+  static const String _uiFontSizeKey = 'desktop.uiFontSize';
 }

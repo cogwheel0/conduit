@@ -407,5 +407,10 @@
   "desktopSttModelEnglishOnly": "Anglais uniquement",
   "desktopSttModelFailedChecksum": "Le fichier téléchargé n’était pas celui attendu ; il a donc été supprimé.",
   "desktopSttModelFailedNetwork": "Le téléchargement a échoué. Vérifiez la connexion et réessayez.",
-  "desktopSttLocalNeedsModel": "Téléchargez un modèle pour transcrire sur cet ordinateur ; en attendant, le serveur s’en charge."
+  "desktopSttLocalNeedsModel": "Téléchargez un modèle pour transcrire sur cet ordinateur ; en attendant, le serveur s’en charge.",
+  "themePaletteZaiLabel": "Zai",
+  "themePaletteZaiDescription": "Monochrome, calme et dense",
+  "desktopUiFontSize": "Taille du texte",
+  "desktopUiFontSizeValue": "{size} px",
+  "desktopUiFontSizeHint": "Le code, les diffs et le terminal conservent leurs propres tailles."
 }

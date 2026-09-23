@@ -43,7 +43,7 @@ class TerminalPage extends StatelessComponent {
           statusLine(t.app.terminalNoServersConfigured),
           Link(
             to: '/',
-            classes: 'text-xs text-muted-foreground hover:underline',
+            classes: 'text-ui-sm text-muted-foreground hover:underline',
             child: Component.text('← ${t.app.back}'),
           ),
         ])
@@ -309,11 +309,11 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
         div(classes: 'flex items-center gap-2', [
           Link(
             to: '/',
-            classes: 'rounded px-2 py-1 text-sm hover:bg-accent',
+            classes: 'rounded px-2 py-1 text-ui-base hover:bg-accent',
             attributes: <String, String>{'aria-label': t.app.back},
             child: Component.text('←'),
           ),
-          h1(classes: 'flex-1 text-sm font-semibold', [
+          h1(classes: 'flex-1 text-ui-base font-semibold', [
             Component.text(t.app.terminal),
           ]),
         ]),
@@ -328,7 +328,7 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
             id: 'terminal-server',
             classes:
                 'w-full rounded border border-border bg-background px-2 py-2 '
-                'text-sm',
+                'text-ui-base',
             attributes: <String, String>{
               'aria-label': t.app.terminalSelectServer,
             },
@@ -339,7 +339,7 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
             },
           )
         else
-          p(classes: 'text-sm', [Component.text(servers.single.name)]),
+          p(classes: 'text-ui-base', [Component.text(servers.single.name)]),
         if (_status case final status?)
           statusLine(status, error: _statusIsError),
         section(
@@ -377,7 +377,7 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
               ),
             ]),
             if (listing != null)
-              code(classes: 'block truncate text-xs text-muted-foreground', [
+              code(classes: 'block truncate text-ui-sm text-muted-foreground', [
                 Component.text(listing.path),
               ]),
             if (_namingFolder)
@@ -409,7 +409,7 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
           },
           [
             div(classes: 'flex items-center gap-2', [
-              h2(classes: 'flex-1 text-xs font-semibold', [
+              h2(classes: 'flex-1 text-ui-sm font-semibold', [
                 Component.text(t.app.terminalPortsSectionLabel),
               ]),
               actionButton(
@@ -421,11 +421,10 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
             if (_ports.isEmpty) statusLine(t.app.terminalNoPorts),
             ul(classes: 'space-y-1', [
               for (final port in _ports)
-                li(classes: 'flex items-center gap-2 text-sm', [
+                li(classes: 'flex items-center gap-2 text-ui-base', [
                   code([Component.text('${port.port}')]),
                   span(
-                    classes:
-                        'min-w-0 flex-1 truncate text-xs text-muted-foreground',
+                    classes: 'min-w-0 flex-1 truncate text-ui-sm text-muted-foreground',
                     [Component.text(port.process ?? '')],
                   ),
                   actionButton(
@@ -444,7 +443,7 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
     classes: 'space-y-1',
     attributes: <String, String>{'data-entry': entry.path},
     [
-      div(classes: 'group flex items-center gap-1 text-sm', [
+      div(classes: 'group flex items-center gap-1 text-ui-base', [
         button(
           [Component.text('${entry.directory ? '📁' : '📄'} ${entry.name}')],
           classes:
@@ -560,7 +559,7 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
       [
         div(classes: 'mb-2 flex flex-wrap items-center gap-2', [
           span(
-            classes: 'flex-1 text-xs text-muted-foreground',
+            classes: 'flex-1 text-ui-sm text-muted-foreground',
             attributes: const <String, String>{'role': 'status'},
             [Component.text(label)],
           ),

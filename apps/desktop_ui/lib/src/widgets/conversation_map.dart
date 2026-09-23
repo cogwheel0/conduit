@@ -56,7 +56,7 @@ class ConversationMap extends StatelessComponent {
           ],
           classes:
               'flex w-full items-center gap-1.5 rounded px-1.5 py-1 '
-              'text-left text-xs '
+              'text-left text-ui-sm '
               '${onPath.contains(node.id) ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'}',
           type: ButtonType.button,
           attributes: <String, String>{
@@ -97,10 +97,10 @@ class ConversationMap extends StatelessComponent {
     return section(
       attributes: <String, String>{'aria-label': t.desktop.desktopOverview},
       [
-        h3(classes: 'text-sm font-semibold', [
+        h3(classes: 'text-ui-base font-semibold', [
           Component.text(t.desktop.desktopOverview),
         ]),
-        p(classes: 'mb-2 text-xs text-muted-foreground', [
+        p(classes: 'mb-2 text-ui-sm text-muted-foreground', [
           Component.text(t.desktop.desktopOverviewHint),
         ]),
         ul(classes: 'space-y-0.5', [

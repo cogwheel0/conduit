@@ -105,7 +105,7 @@ class _OllamaModelsState extends State<OllamaModels> {
       [
         if (_error case final error?) formError(error),
         if (list == null && _error == null)
-          p(classes: 'text-xs text-muted-foreground', [
+          p(classes: 'text-ui-sm text-muted-foreground', [
             Component.text(t.app.directMcpContentLoading),
           ]),
         if (list != null)
@@ -122,14 +122,13 @@ class _OllamaModelsState extends State<OllamaModels> {
     final custom =
         _customFor == model.id ||
         (model.keepAlive != null && !presets.contains(model.keepAlive));
-    return li(classes: 'flex flex-wrap items-center gap-2 text-sm', [
+    return li(classes: 'flex flex-wrap items-center gap-2 text-ui-base', [
       span(classes: 'min-w-0 flex-1 truncate font-mono text-xs', [
         Component.text(model.name),
       ]),
       if (model.loaded == true)
         span(
-          classes:
-              'rounded-full border border-primary px-2 text-xs text-foreground',
+          classes: 'rounded-full border border-primary px-2 text-ui-sm text-foreground',
           [Component.text(t.app.ollamaModelLoaded)],
         ),
       if (list.lifecycle) ...[
@@ -141,8 +140,7 @@ class _OllamaModelsState extends State<OllamaModels> {
                   : t.app.ollamaLoadModel,
             ),
           ],
-          classes:
-              'rounded px-2 py-0.5 text-xs hover:bg-accent disabled:opacity-50',
+          classes: 'rounded px-2 py-0.5 text-ui-sm hover:bg-accent disabled:opacity-50',
           type: ButtonType.button,
           disabled: busy,
           onClick: () {
@@ -173,7 +171,7 @@ class _OllamaModelsState extends State<OllamaModels> {
               ),
             ]),
           ],
-          classes: 'rounded border border-border bg-background px-1.5 py-0.5 text-xs',
+          classes: 'rounded border border-border bg-background px-1.5 py-0.5 text-ui-sm',
           attributes: <String, String>{
             'aria-label': '${t.app.ollamaKeepAlive}: ${model.name}',
           },
@@ -217,7 +215,7 @@ class _OllamaModelsState extends State<OllamaModels> {
               button(
                 [Component.text(t.app.save)],
                 classes:
-                    'rounded bg-primary px-2 py-1 text-xs '
+                    'rounded bg-primary px-2 py-1 text-ui-sm '
                     'text-primary-foreground',
                 type: ButtonType.button,
                 onClick: () {
@@ -242,7 +240,7 @@ class _OllamaModelsState extends State<OllamaModels> {
                 Component.text(labelOf()),
               ]),
           ],
-          classes: 'rounded border border-border bg-background px-1.5 py-0.5 text-xs',
+          classes: 'rounded border border-border bg-background px-1.5 py-0.5 text-ui-sm',
           attributes: <String, String>{
             'aria-label': '${t.app.ollamaThinking}: ${model.name}',
           },

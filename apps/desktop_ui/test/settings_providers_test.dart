@@ -65,6 +65,7 @@ void main() {
       const AppPreferences(
         themeMode: AppThemeMode.dark,
         themePaletteId: 't3_chat',
+        uiFontSize: 16,
       ),
     );
 
@@ -76,6 +77,7 @@ void main() {
     expect(harness.applier.applied.single, (
       paletteId: 't3_chat',
       mode: AppThemeMode.dark,
+      uiFontSize: 16,
     ));
   });
 
@@ -99,6 +101,7 @@ void main() {
       const AppPreferences(
         themeMode: AppThemeMode.dark,
         themePaletteId: 'conduit',
+        uiFontSize: 13,
       ),
     );
     await harness.container.read(appPreferencesProvider.future);
@@ -108,10 +111,12 @@ void main() {
         .read(settingsActionsProvider)
         .update(const AppPreferencesPatch(themePaletteId: 'claude'));
 
-    // Changing the palette must not silently switch the app to light mode.
+    // Changing the palette must not silently switch the app to light mode,
+    // or reset the text size.
     expect(harness.applier.applied.first, (
       paletteId: 'claude',
       mode: AppThemeMode.dark,
+      uiFontSize: 13,
     ));
   });
 

@@ -26,7 +26,7 @@ class HermesSettingsTab extends StatelessComponent {
       );
     }
     return div(classes: 'space-y-6', [
-      p(classes: 'text-sm text-muted-foreground', [
+      p(classes: 'text-ui-base text-muted-foreground', [
         Component.text(t.app.hermesNativeSettingsSubtitle),
       ]),
       HermesConnectionForm(
@@ -104,7 +104,7 @@ class _HermesConnectionFormState extends State<HermesConnectionForm> {
           checked: _enabled,
           onChanged: ({required value}) => setState(() => _enabled = value),
         ),
-        p(classes: '-mt-3 pl-6 text-xs text-muted-foreground', [
+        p(classes: '-mt-3 pl-6 text-ui-sm text-muted-foreground', [
           Component.text(t.app.hermesEnableSubtitle),
         ]),
         textField(
@@ -115,9 +115,11 @@ class _HermesConnectionFormState extends State<HermesConnectionForm> {
           onInput: (value) => setState(() => _url = value),
         ),
         div(classes: 'space-y-1.5', [
-          label(htmlFor: 'hermes-mode', classes: 'block text-sm font-medium', [
-            Component.text(t.desktop.desktopHermesMode),
-          ]),
+          label(
+            htmlFor: 'hermes-mode',
+            classes: 'block text-ui-base font-medium',
+            [Component.text(t.desktop.desktopHermesMode)],
+          ),
           select(
             [
               option(value: 'responses', selected: !desktop, [
@@ -130,7 +132,7 @@ class _HermesConnectionFormState extends State<HermesConnectionForm> {
             id: 'hermes-mode',
             classes:
                 'w-full rounded border border-border bg-background px-3 py-2 '
-                'text-sm',
+                'text-ui-base',
             onChange: (values) => setState(
               () => _mode = values.isEmpty ? 'responses' : values.first,
             ),
@@ -157,7 +159,7 @@ class _HermesConnectionFormState extends State<HermesConnectionForm> {
             value: _memoryKey,
             onInput: (value) => setState(() => _memoryKey = value),
           ),
-          p(classes: '-mt-2 text-xs text-muted-foreground', [
+          p(classes: '-mt-2 text-ui-sm text-muted-foreground', [
             Component.text(t.app.hermesMemoryKeyShortDescription),
           ]),
         ] else ...[
@@ -170,7 +172,7 @@ class _HermesConnectionFormState extends State<HermesConnectionForm> {
           div(classes: 'space-y-1.5', [
             label(
               htmlFor: 'hermes-auth',
-              classes: 'block text-sm font-medium',
+              classes: 'block text-ui-base font-medium',
               [Component.text(t.app.hermesDesktopAuthentication)],
             ),
             select(
@@ -187,7 +189,7 @@ class _HermesConnectionFormState extends State<HermesConnectionForm> {
               id: 'hermes-auth',
               classes:
                   'w-full rounded border border-border bg-background px-3 '
-                  'py-2 text-sm',
+                  'py-2 text-ui-base',
               onChange: (values) => setState(
                 () => _authKind = values.isEmpty ? 'legacyToken' : values.first,
               ),
@@ -268,7 +270,7 @@ class _HermesStatusSection extends StatelessComponent {
           'aria-label': t.app.hermesServerStatusTitle,
         },
         [
-          h3(classes: 'text-sm font-semibold', [
+          h3(classes: 'text-ui-base font-semibold', [
             Component.text(t.app.hermesServerStatusTitle),
           ]),
           if (status == null)
@@ -300,7 +302,7 @@ class _HermesStatusSection extends StatelessComponent {
           'aria-label': t.app.hermesCapabilityToolsets,
         },
         [
-          h3(classes: 'text-sm font-semibold', [
+          h3(classes: 'text-ui-base font-semibold', [
             Component.text(t.app.hermesCapabilityToolsets),
           ]),
           if (catalog == null)
@@ -310,13 +312,13 @@ class _HermesStatusSection extends StatelessComponent {
           else
             ul(classes: 'space-y-1', [
               for (final toolset in catalog.toolsets)
-                li(classes: 'text-sm', [
+                li(classes: 'text-ui-base', [
                   span(classes: 'font-medium', [
                     Component.text(
                       toolset.label.isEmpty ? toolset.name : toolset.label,
                     ),
                   ]),
-                  span(classes: 'ml-2 text-xs text-muted-foreground', [
+                  span(classes: 'ml-2 text-ui-sm text-muted-foreground', [
                     Component.text(
                       t.app.hermesToolCount(count: toolset.tools.length),
                     ),
@@ -325,15 +327,15 @@ class _HermesStatusSection extends StatelessComponent {
                 ]),
             ]),
           if (catalog != null && catalog.skills.isNotEmpty) ...[
-            h3(classes: 'pt-2 text-sm font-semibold', [
+            h3(classes: 'pt-2 text-ui-base font-semibold', [
               Component.text(t.app.hermesCapabilitySkills),
             ]),
             ul(classes: 'space-y-1', [
               for (final skill in catalog.skills)
-                li(classes: 'text-sm', [
+                li(classes: 'text-ui-base', [
                   code([Component.text('/${skill.name}')]),
                   if (skill.description case final description?)
-                    span(classes: 'ml-2 text-xs text-muted-foreground', [
+                    span(classes: 'ml-2 text-ui-sm text-muted-foreground', [
                       Component.text(description),
                     ]),
                 ]),

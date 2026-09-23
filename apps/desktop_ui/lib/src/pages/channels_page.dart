@@ -34,10 +34,10 @@ class ChannelsPage extends StatelessComponent {
       if (id == null)
         main_(classes: 'flex min-w-0 flex-1', [
           div(classes: 'm-auto max-w-sm space-y-2 p-8 text-center', [
-            p(classes: 'text-sm font-medium', [
+            p(classes: 'text-ui-base font-medium', [
               Component.text(t.app.sidebarChannelsTab),
             ]),
-            p(classes: 'text-sm text-muted-foreground', [
+            p(classes: 'text-ui-base text-muted-foreground', [
               Component.text(t.app.channelEmptyHint),
             ]),
           ]),
@@ -100,16 +100,16 @@ class _ChannelListState extends State<_ChannelList> {
         div(classes: 'flex items-center gap-2', [
           Link(
             to: '/',
-            classes: 'rounded px-2 py-1 text-sm hover:bg-accent',
+            classes: 'rounded px-2 py-1 text-ui-base hover:bg-accent',
             attributes: <String, String>{'aria-label': t.app.back},
             child: Component.text('←'),
           ),
-          h1(classes: 'flex-1 text-sm font-semibold', [
+          h1(classes: 'flex-1 text-ui-base font-semibold', [
             Component.text(t.app.sidebarChannelsTab),
           ]),
           button(
             [Component.text('+')],
-            classes: 'rounded px-2 py-0.5 text-sm hover:bg-accent',
+            classes: 'rounded px-2 py-0.5 text-ui-base hover:bg-accent',
             type: ButtonType.button,
             attributes: <String, String>{
               'aria-label': t.app.channelCreateTitle,
@@ -149,7 +149,7 @@ class _ChannelListState extends State<_ChannelList> {
               button(
                 [Component.text(t.app.channelCreateTitle)],
                 classes:
-                    'w-full rounded bg-primary px-2 py-1 text-xs '
+                    'w-full rounded bg-primary px-2 py-1 text-ui-sm '
                     'text-primary-foreground disabled:opacity-50',
                 type: ButtonType.button,
                 disabled: _name.trim().isEmpty,
@@ -160,7 +160,7 @@ class _ChannelListState extends State<_ChannelList> {
         if (list.hasError && list.value == null)
           formError(t.app.channelLoadError)
         else if (list.value != null && channels.isEmpty)
-          p(classes: 'text-xs text-muted-foreground', [
+          p(classes: 'text-ui-sm text-muted-foreground', [
             Component.text(t.app.channelEmptyState),
           ]),
         ul(classes: 'min-h-0 flex-1 space-y-0.5 overflow-y-auto', [
@@ -169,7 +169,7 @@ class _ChannelListState extends State<_ChannelList> {
               Link(
                 to: '/channels/${channel.id}',
                 classes:
-                    'flex items-center gap-2 rounded px-2 py-1.5 text-sm '
+                    'flex items-center gap-2 rounded px-2 py-1.5 text-ui-base '
                     'hover:bg-accent aria-[current=page]:bg-accent',
                 attributes: <String, String>{
                   if (channel.id == component.openId) 'aria-current': 'page',
@@ -187,7 +187,7 @@ class _ChannelListState extends State<_ChannelList> {
                   if (channel.unread > 0 && channel.id != component.openId)
                     span(
                       classes:
-                          'rounded-full bg-primary px-1.5 text-[10px] '
+                          'rounded-full bg-primary px-1.5 text-ui-xs '
                           'text-primary-foreground',
                       [Component.text('${channel.unread}')],
                     ),
@@ -263,19 +263,19 @@ class _ChannelViewState extends State<_ChannelView> {
         header(
           classes: 'flex h-12 shrink-0 items-center gap-3 border-b border-border px-6',
           [
-            h2(classes: 'truncate text-sm font-semibold', [
+            h2(classes: 'truncate text-ui-base font-semibold', [
               Component.text(channel == null ? '' : '# ${channel.name}'),
             ]),
             if (channel?.description case final description?
                 when description.isNotEmpty)
-              span(classes: 'truncate text-xs text-muted-foreground', [
+              span(classes: 'truncate text-ui-sm text-muted-foreground', [
                 Component.text(description),
               ]),
             div(classes: 'flex-1', []),
             if (channel?.manager ?? false)
               button(
                 [Component.text(t.app.channelEdit)],
-                classes: 'rounded px-2.5 py-1 text-xs hover:bg-accent',
+                classes: 'rounded px-2.5 py-1 text-ui-sm hover:bg-accent',
                 type: ButtonType.button,
                 onClick: () => setState(
                   () => _editing = (
@@ -288,7 +288,7 @@ class _ChannelViewState extends State<_ChannelView> {
             if (channel != null && !channel.manager)
               button(
                 [Component.text(t.app.channelLeave)],
-                classes: 'rounded px-2.5 py-1 text-xs hover:bg-accent',
+                classes: 'rounded px-2.5 py-1 text-ui-sm hover:bg-accent',
                 type: ButtonType.button,
                 onClick: () => setState(() => _confirmingLeave = true),
               ),
@@ -296,7 +296,7 @@ class _ChannelViewState extends State<_ChannelView> {
               button(
                 [Component.text(t.app.channelDelete)],
                 classes:
-                    'rounded px-2.5 py-1 text-xs text-destructive '
+                    'rounded px-2.5 py-1 text-ui-sm text-destructive '
                     'hover:bg-destructive/10',
                 type: ButtonType.button,
                 onClick: () => setState(() => _confirmingDelete = true),
@@ -351,7 +351,7 @@ class _ChannelViewState extends State<_ChannelView> {
                 button(
                   [Component.text(t.app.save)],
                   classes:
-                      'rounded bg-primary px-2.5 py-1 text-xs '
+                      'rounded bg-primary px-2.5 py-1 text-ui-sm '
                       'text-primary-foreground disabled:opacity-50',
                   type: ButtonType.button,
                   disabled: editing.name.trim().isEmpty,
@@ -374,7 +374,7 @@ class _ChannelViewState extends State<_ChannelView> {
                 ),
                 button(
                   [Component.text(t.app.cancel)],
-                  classes: 'rounded px-2.5 py-1 text-xs hover:bg-accent',
+                  classes: 'rounded px-2.5 py-1 text-ui-sm hover:bg-accent',
                   type: ButtonType.button,
                   onClick: () => setState(() => _editing = null),
                 ),
@@ -383,8 +383,7 @@ class _ChannelViewState extends State<_ChannelView> {
           ),
         if (_confirmingLeave)
           div(
-            classes:
-                'mx-6 mt-3 space-y-2 rounded border border-border p-3 text-sm',
+            classes: 'mx-6 mt-3 space-y-2 rounded border border-border p-3 text-ui-base',
             attributes: const <String, String>{'role': 'alertdialog'},
             [
               p([Component.text(t.app.channelLeaveConfirm)]),
@@ -392,7 +391,7 @@ class _ChannelViewState extends State<_ChannelView> {
                 button(
                   [Component.text(t.app.channelLeave)],
                   classes:
-                      'rounded bg-primary px-2.5 py-1 text-xs '
+                      'rounded bg-primary px-2.5 py-1 text-ui-sm '
                       'text-primary-foreground',
                   type: ButtonType.button,
                   onClick: () async {
@@ -403,7 +402,7 @@ class _ChannelViewState extends State<_ChannelView> {
                 ),
                 button(
                   [Component.text(t.app.cancel)],
-                  classes: 'rounded px-2.5 py-1 text-xs hover:bg-accent',
+                  classes: 'rounded px-2.5 py-1 text-ui-sm hover:bg-accent',
                   type: ButtonType.button,
                   onClick: () => setState(() => _confirmingLeave = false),
                 ),
@@ -414,7 +413,7 @@ class _ChannelViewState extends State<_ChannelView> {
           div(
             classes:
                 'mx-6 mt-3 space-y-2 rounded border border-destructive/40 '
-                'bg-destructive/10 p-3 text-sm',
+                'bg-destructive/10 p-3 text-ui-base',
             attributes: const <String, String>{'role': 'alertdialog'},
             [
               p([Component.text(t.app.channelDeleteConfirm)]),
@@ -422,7 +421,7 @@ class _ChannelViewState extends State<_ChannelView> {
                 button(
                   [Component.text(t.app.delete)],
                   classes:
-                      'rounded bg-destructive px-2.5 py-1 text-xs '
+                      'rounded bg-destructive px-2.5 py-1 text-ui-sm '
                       'text-destructive-foreground',
                   type: ButtonType.button,
                   onClick: () async {
@@ -435,7 +434,7 @@ class _ChannelViewState extends State<_ChannelView> {
                 ),
                 button(
                   [Component.text(t.app.cancel)],
-                  classes: 'rounded px-2.5 py-1 text-xs hover:bg-accent',
+                  classes: 'rounded px-2.5 py-1 text-ui-sm hover:bg-accent',
                   type: ButtonType.button,
                   onClick: () => setState(() => _confirmingDelete = false),
                 ),
@@ -458,12 +457,12 @@ class _ChannelViewState extends State<_ChannelView> {
               classes:
                   'flex h-12 shrink-0 items-center border-b border-border px-4',
               [
-                h3(classes: 'flex-1 text-sm font-semibold', [
+                h3(classes: 'flex-1 text-ui-base font-semibold', [
                   Component.text(t.app.thread),
                 ]),
                 button(
                   [Component.text('×')],
-                  classes: 'rounded px-2 text-sm hover:bg-accent',
+                  classes: 'rounded px-2 text-ui-base hover:bg-accent',
                   type: ButtonType.button,
                   attributes: <String, String>{'aria-label': t.app.close},
                   onClick: () => setState(() => _thread = null),
@@ -534,7 +533,7 @@ class _MessageList extends StatelessComponent {
           button(
             [Component.text(t.desktop.desktopLoadOlderMessages)],
             classes:
-                'mx-auto block rounded px-2.5 py-1 text-xs hover:bg-accent',
+                'mx-auto block rounded px-2.5 py-1 text-ui-sm hover:bg-accent',
             type: ButtonType.button,
             onClick: () => unawaited(
               context
@@ -543,7 +542,7 @@ class _MessageList extends StatelessComponent {
             ),
           ),
         if (value != null && messages.isEmpty && parentId == null)
-          p(classes: 'py-8 text-center text-sm text-muted-foreground', [
+          p(classes: 'py-8 text-center text-ui-base text-muted-foreground', [
             Component.text(t.app.channelNoMessages),
           ]),
         for (final message in messages)
@@ -556,7 +555,7 @@ class _MessageList extends StatelessComponent {
           ),
         if (typing.isNotEmpty)
           p(
-            classes: 'text-xs italic text-muted-foreground',
+            classes: 'text-ui-sm italic text-muted-foreground',
             attributes: const <String, String>{'role': 'status'},
             [Component.text('${typing.join(', ')} …')],
           ),
@@ -612,19 +611,19 @@ class _MessageRowState extends State<_MessageRow> {
       classes: 'group relative rounded px-2 py-1.5 hover:bg-accent/40',
       [
         div(classes: 'flex items-baseline gap-2', [
-          span(classes: 'text-sm font-semibold', [
+          span(classes: 'text-ui-base font-semibold', [
             Component.text(message.user?.name ?? t.app.channelUnknownMember),
           ]),
-          span(classes: 'text-xs text-muted-foreground', [
+          span(classes: 'text-ui-sm text-muted-foreground', [
             Component.text('${two(time.hour)}:${two(time.minute)}'),
           ]),
           if (message.editedAtMs != null)
-            span(classes: 'text-xs text-muted-foreground', [
+            span(classes: 'text-ui-sm text-muted-foreground', [
               Component.text('(${t.desktop.desktopMessageEdited})'),
             ]),
           if (message.pinned)
             span(
-              classes: 'text-xs',
+              classes: 'text-ui-sm',
               attributes: <String, String>{'aria-label': t.app.pin},
               [Component.text('📌')],
             ),
@@ -647,21 +646,21 @@ class _MessageRowState extends State<_MessageRow> {
               button(
                 [Component.text(t.app.save)],
                 classes:
-                    'rounded bg-primary px-2 py-0.5 text-xs '
+                    'rounded bg-primary px-2 py-0.5 text-ui-sm '
                     'text-primary-foreground',
                 type: ButtonType.button,
                 onClick: () => unawaited(_saveEdit()),
               ),
               button(
                 [Component.text(t.app.cancel)],
-                classes: 'rounded px-2 py-0.5 text-xs hover:bg-accent',
+                classes: 'rounded px-2 py-0.5 text-ui-sm hover:bg-accent',
                 type: ButtonType.button,
                 onClick: () => setState(() => _editing = false),
               ),
             ]),
           ])
         else
-          div(classes: 'text-sm', [
+          div(classes: 'text-ui-base', [
             MarkdownView(channelMarkdown(message.content)),
           ]),
         if (message.reactions.isNotEmpty)
@@ -670,7 +669,7 @@ class _MessageRowState extends State<_MessageRow> {
               button(
                 [Component.text('${reaction.name} ${reaction.count}')],
                 classes:
-                    'rounded-full border px-2 text-xs '
+                    'rounded-full border px-2 text-ui-sm '
                     '${reaction.mine ? 'border-primary bg-primary/10' : 'border-border'}',
                 type: ButtonType.button,
                 attributes: <String, String>{
@@ -683,7 +682,7 @@ class _MessageRowState extends State<_MessageRow> {
         if (!component.inThread && message.replyCount > 0)
           button(
             [Component.text(t.app.threadWithCount(count: message.replyCount))],
-            classes: 'mt-1 text-xs text-primary hover:underline',
+            classes: 'mt-1 text-ui-sm text-primary hover:underline',
             type: ButtonType.button,
             onClick: () => component.onOpenThread?.call(message),
           ),
@@ -707,7 +706,7 @@ class _MessageRowState extends State<_MessageRow> {
         div(
           classes:
               'absolute right-2 top-1 hidden gap-0.5 rounded border '
-              'border-border bg-popover px-1 text-xs shadow-sm '
+              'border-border bg-popover px-1 text-ui-sm shadow-sm '
               'group-hover:flex group-focus-within:flex',
           [
             _action(t.app.channelMessageReact, () {
@@ -911,7 +910,7 @@ class _ChannelComposerState extends State<_ChannelComposer> {
             for (final (index, user) in members.indexed)
               li(
                 classes:
-                    'cursor-pointer rounded px-2 py-1 text-sm '
+                    'cursor-pointer rounded px-2 py-1 text-ui-base '
                     '${index == highlighted ? 'bg-accent' : ''}',
                 attributes: <String, String>{
                   'role': 'option',

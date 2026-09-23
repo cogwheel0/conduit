@@ -407,5 +407,10 @@
   "desktopSttModelEnglishOnly": "영어 전용",
   "desktopSttModelFailedChecksum": "다운로드한 파일이 예상한 파일이 아니어서 삭제했습니다.",
   "desktopSttModelFailedNetwork": "다운로드에 실패했습니다. 연결을 확인하고 다시 시도하세요.",
-  "desktopSttLocalNeedsModel": "이 컴퓨터에서 받아쓰려면 모델을 다운로드하세요. 그 전까지는 서버가 받아씁니다."
+  "desktopSttLocalNeedsModel": "이 컴퓨터에서 받아쓰려면 모델을 다운로드하세요. 그 전까지는 서버가 받아씁니다.",
+  "themePaletteZaiLabel": "Zai",
+  "themePaletteZaiDescription": "단색의 차분하고 촘촘한 테마",
+  "desktopUiFontSize": "텍스트 크기",
+  "desktopUiFontSizeValue": "{size} px",
+  "desktopUiFontSizeHint": "코드, 차이점(diff), 터미널은 각자의 크기를 유지합니다."
 }

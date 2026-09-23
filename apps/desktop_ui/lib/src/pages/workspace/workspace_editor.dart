@@ -162,7 +162,7 @@ class WorkspaceEditor extends StatelessComponent {
 
   static Component _backLink(WorkspaceKind kind) => Link(
     to: sectionPath(kind),
-    classes: 'text-xs text-muted-foreground hover:underline',
+    classes: 'text-ui-sm text-muted-foreground hover:underline',
     child: Component.text('← ${sectionLabel(kind)}'),
   );
 }
@@ -549,7 +549,7 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
     return div(classes: 'mx-auto w-full max-w-3xl space-y-4 p-6', [
       button(
         [Component.text('← ${sectionLabel(kind)}')],
-        classes: 'text-xs text-muted-foreground hover:underline',
+        classes: 'text-ui-sm text-muted-foreground hover:underline',
         type: ButtonType.button,
         onClick: () {
           if (_isDirty) {
@@ -572,7 +572,7 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
           onCancel: () => setState(() => _confirmingLeave = false),
         ),
       div(classes: 'flex flex-wrap items-center gap-2', [
-        h2(classes: 'min-w-0 flex-1 truncate text-lg font-semibold', [
+        h2(classes: 'min-w-0 flex-1 truncate text-ui-xl font-semibold', [
           Component.text(title),
         ]),
         if (!_canWrite) badge(t.app.workspaceReadOnlyBadge),
@@ -733,7 +733,7 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
 
   Component _section2(String title, List<Component> children) =>
       section(classes: 'space-y-3 rounded border border-border p-4', [
-        h3(classes: 'text-sm font-semibold', [Component.text(title)]),
+        h3(classes: 'text-ui-base font-semibold', [Component.text(title)]),
         ...children,
       ]);
 
@@ -769,9 +769,9 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
       List<String> selected,
       void Function(List<String>) onChanged,
     ) => div(classes: 'space-y-1', [
-      p(classes: 'text-sm font-medium', [
+      p(classes: 'text-ui-base font-medium', [
         Component.text(title),
-        span(classes: 'ml-2 text-xs font-normal text-muted-foreground', [
+        span(classes: 'ml-2 text-ui-sm font-normal text-muted-foreground', [
           Component.text(
             selected.isEmpty
                 ? t.app.workspaceModelSelectNone
@@ -780,7 +780,7 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
         ]),
       ]),
       if (choices.isEmpty)
-        p(classes: 'text-xs text-muted-foreground', [
+        p(classes: 'text-ui-sm text-muted-foreground', [
           Component.text(t.app.workspaceModelRelationshipEmpty),
         ])
       else
@@ -840,9 +840,11 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
           ),
         ),
         div(classes: 'space-y-1.5', [
-          label(htmlFor: 'model-base', classes: 'block text-sm font-medium', [
-            Component.text(t.app.workspaceModelBaseModel),
-          ]),
+          label(
+            htmlFor: 'model-base',
+            classes: 'block text-ui-base font-medium',
+            [Component.text(t.app.workspaceModelBaseModel)],
+          ),
           select(
             [
               option(value: '', selected: (m.baseModelId ?? '').isEmpty, [
@@ -863,7 +865,7 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
             id: 'model-base',
             classes:
                 'w-full rounded border border-border bg-background px-3 py-2 '
-                'text-sm',
+                'text-ui-base',
             disabled: disabled,
             onChange: (values) => set(
               m.copyWith(
@@ -906,7 +908,7 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
             span(
               classes:
                   'flex size-12 items-center justify-center rounded-full '
-                  'border border-border text-xs text-muted-foreground',
+                  'border border-border text-ui-sm text-muted-foreground',
               [Component.text(t.app.workspaceModelProfileImage)],
             ),
           if (!disabled) ...[
@@ -1069,7 +1071,7 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
         div(classes: 'space-y-1.5', [
           label(
             htmlFor: 'model-terminal',
-            classes: 'block text-sm font-medium',
+            classes: 'block text-ui-base font-medium',
             [Component.text(t.app.workspaceModelTerminal)],
           ),
           select(
@@ -1096,7 +1098,7 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
             id: 'model-terminal',
             classes:
                 'w-full rounded border border-border bg-background px-3 py-2 '
-                'text-sm',
+                'text-ui-base',
             disabled: disabled,
             onChange: (values) =>
                 set(m.copyWith(terminalId: values.isEmpty ? '' : values.first)),
@@ -1251,7 +1253,7 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
       p(
         classes:
             'rounded border border-destructive/40 bg-destructive/10 p-2 '
-            'text-xs',
+            'text-ui-sm',
         [Component.text(t.app.workspaceToolWarning)],
       ),
       if (tool.requiresServerVersion case final version?)
@@ -1328,9 +1330,9 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
       ),
       if (tool.functions.isNotEmpty)
         div(classes: 'space-y-1', [
-          p(classes: 'text-sm font-medium', [
+          p(classes: 'text-ui-base font-medium', [
             Component.text(t.app.workspaceToolSpecs),
-            span(classes: 'ml-2 text-xs font-normal text-muted-foreground', [
+            span(classes: 'ml-2 text-ui-sm font-normal text-muted-foreground', [
               Component.text(
                 t.app.workspaceToolFunctionCount(count: tool.functions.length),
               ),
@@ -1339,7 +1341,7 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
           ul(classes: 'flex flex-wrap gap-1', [
             for (final name in tool.functions)
               li([
-                code(classes: 'rounded bg-muted px-1.5 py-0.5 text-xs', [
+                code(classes: 'rounded bg-muted px-1.5 py-0.5 text-ui-sm', [
                   Component.text(name),
                 ]),
               ]),

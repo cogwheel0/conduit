@@ -407,5 +407,10 @@
   "desktopSttModelEnglishOnly": "Solo inglese",
   "desktopSttModelFailedChecksum": "Il file scaricato non era quello previsto, quindi è stato scartato.",
   "desktopSttModelFailedNetwork": "Download non riuscito. Controlla la connessione e riprova.",
-  "desktopSttLocalNeedsModel": "Scarica un modello per trascrivere su questo computer; fino ad allora se ne occupa il server."
+  "desktopSttLocalNeedsModel": "Scarica un modello per trascrivere su questo computer; fino ad allora se ne occupa il server.",
+  "themePaletteZaiLabel": "Zai",
+  "themePaletteZaiDescription": "Monocromatico, calmo e denso",
+  "desktopUiFontSize": "Dimensione del testo",
+  "desktopUiFontSizeValue": "{size} px",
+  "desktopUiFontSizeHint": "Codice, diff e terminale mantengono le proprie dimensioni."
 }

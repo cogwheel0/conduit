@@ -50,7 +50,7 @@ class _ShareDialogState extends State<ShareDialog> {
       div(
         classes:
             'w-full max-w-md space-y-4 rounded border border-border '
-            'bg-popover p-5 text-sm text-popover-foreground shadow-lg',
+            'bg-popover p-5 text-ui-base text-popover-foreground shadow-lg',
         attributes: <String, String>{
           'role': 'dialog',
           'aria-modal': 'true',
@@ -60,7 +60,7 @@ class _ShareDialogState extends State<ShareDialog> {
           'click': (event) => event.stopPropagation(),
         },
         [
-          h2(classes: 'text-base font-semibold', [
+          h2(classes: 'text-ui-lg font-semibold', [
             Component.text(t.app.shareChat),
           ]),
           p(classes: 'text-muted-foreground', [

@@ -55,7 +55,7 @@ class _ControlsPaneState extends State<ControlsPane> {
     attributes: <String, String>{'aria-label': t.desktop.desktopControls},
     [
       div(classes: 'flex items-center justify-between', [
-        h2(classes: 'text-sm font-semibold', [
+        h2(classes: 'text-ui-base font-semibold', [
           Component.text(t.desktop.desktopControls),
         ]),
         button(
@@ -65,7 +65,7 @@ class _ControlsPaneState extends State<ControlsPane> {
               [Component.text('✕')],
             ),
           ],
-          classes: 'rounded px-2 py-1 text-xs hover:bg-accent',
+          classes: 'rounded px-2 py-1 text-ui-sm hover:bg-accent',
           type: ButtonType.button,
           attributes: <String, String>{'aria-label': t.app.close},
           onClick: () => context.read(controlsOpenProvider.notifier).close(),
@@ -81,14 +81,14 @@ class _ControlsPaneState extends State<ControlsPane> {
           _status = null;
         }),
       ),
-      p(classes: 'text-xs text-muted-foreground', [
+      p(classes: 'text-ui-sm text-muted-foreground', [
         Component.text(t.desktop.desktopSystemPromptHint),
       ]),
       div(classes: 'flex items-center gap-2', [
         button(
           [Component.text(t.app.save)],
           classes:
-              'rounded bg-primary px-3 py-1.5 text-xs text-primary-foreground '
+              'rounded bg-primary px-3 py-1.5 text-ui-sm text-primary-foreground '
               'disabled:opacity-50',
           type: ButtonType.button,
           disabled: !_changed || _saving,
@@ -96,7 +96,7 @@ class _ControlsPaneState extends State<ControlsPane> {
         ),
         if (_status case final status?)
           span(
-            classes: 'text-xs text-muted-foreground',
+            classes: 'text-ui-sm text-muted-foreground',
             attributes: const <String, String>{'role': 'status'},
             [Component.text(status)],
           ),

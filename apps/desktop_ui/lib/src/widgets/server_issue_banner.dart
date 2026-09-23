@@ -61,7 +61,7 @@ class ServerIssueBanner extends StatelessComponent {
     required String detail,
   }) => div(
     classes:
-        'border-b px-5 py-2 text-sm '
+        'border-b px-5 py-2 text-ui-base '
         '${tone == 'destructive' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-warning/40 bg-warning/10 text-warning'}',
     // `status`, not `alert`: this is a condition that persists rather than an
     // event, so it should be announced politely when reached rather than

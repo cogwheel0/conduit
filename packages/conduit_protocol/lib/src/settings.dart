@@ -22,9 +22,14 @@ abstract class AppPreferences with _$AppPreferences {
   const factory AppPreferences({
     @Default(AppThemeMode.system) AppThemeMode themeMode,
 
-    /// Palette id from `conduit_theme`'s registry, e.g. `t3_chat`. Stable
-    /// across upgrades because a stored preference has to survive them.
-    @Default('conduit') String themePaletteId,
+    /// Palette id from `conduit_theme`'s desktop palettes, e.g. `t3_chat`.
+    /// Stable across upgrades because a stored preference has to survive
+    /// them.
+    @Default('zai') String themePaletteId,
+
+    /// The interface font size in pixels, which the whole text scale
+    /// follows. Code, diffs and the terminal keep their own sizes.
+    @Default(kDefaultUiFontSize) int uiFontSize,
 
     /// BCP-47 code, or null to follow the OS. Null is a real value here, not
     /// an absent one: "follow the system" is a choice a user can return to.
@@ -34,6 +39,11 @@ abstract class AppPreferences with _$AppPreferences {
   factory AppPreferences.fromJson(Map<String, dynamic> json) =>
       _$AppPreferencesFromJson(json);
 }
+
+/// The interface font size before a user picks one, and its bounds.
+const int kDefaultUiFontSize = 14;
+const int kMinUiFontSize = 12;
+const int kMaxUiFontSize = 18;
 
 /// Params for `settings.setApp`.
 ///
@@ -45,6 +55,7 @@ abstract class AppPreferencesPatch with _$AppPreferencesPatch {
   const factory AppPreferencesPatch({
     AppThemeMode? themeMode,
     String? themePaletteId,
+    int? uiFontSize,
     String? localeCode,
     @Default(false) bool clearLocaleCode,
   }) = _AppPreferencesPatch;

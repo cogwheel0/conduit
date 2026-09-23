@@ -614,10 +614,11 @@ void main() {
           decodeResult: AppPreferences.fromJson,
         );
 
-    test('defaults to system mode and the conduit palette', () async {
+    test('defaults to system mode, the Zai palette and 14 px', () async {
       final prefs = await readPrefs();
       expect(prefs.themeMode, AppThemeMode.system);
-      expect(prefs.themePaletteId, 'conduit');
+      expect(prefs.themePaletteId, 'zai');
+      expect(prefs.uiFontSize, 14);
       expect(prefs.localeCode, isNull);
     });
 
@@ -645,6 +646,27 @@ void main() {
       expect(prefs.themePaletteId, 'claude');
       expect(prefs.themeMode, AppThemeMode.dark);
       expect(prefs.localeCode, 'zh-Hant');
+    });
+
+    test('the font size persists, held to its bounds', () async {
+      expect(
+        (await patchPrefs(const AppPreferencesPatch(uiFontSize: 16)))
+            .uiFontSize,
+        16,
+      );
+      expect((await readPrefs()).uiFontSize, 16);
+      expect(
+        (await patchPrefs(const AppPreferencesPatch(uiFontSize: 40)))
+            .uiFontSize,
+        kMaxUiFontSize,
+      );
+      expect(
+        (await patchPrefs(const AppPreferencesPatch(uiFontSize: 2))).uiFontSize,
+        kMinUiFontSize,
+      );
+      // The palette is left alone.
+      expect((await readPrefs()).themePaletteId, 'claude');
+      await patchPrefs(const AppPreferencesPatch(uiFontSize: 14));
     });
 
     test('clearLocaleCode is how "follow the system" is chosen', () async {

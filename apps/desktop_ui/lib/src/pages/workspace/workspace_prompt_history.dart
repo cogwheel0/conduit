@@ -103,7 +103,7 @@ class _PromptHistoryPanelState extends State<PromptHistoryPanel> {
       classes: 'space-y-2 rounded border border-border p-4',
       attributes: <String, String>{'aria-label': t.app.workspacePromptHistory},
       [
-        h3(classes: 'text-sm font-semibold', [
+        h3(classes: 'text-ui-base font-semibold', [
           Component.text(t.app.workspacePromptHistory),
         ]),
         if (_status case final status?)
@@ -120,7 +120,7 @@ class _PromptHistoryPanelState extends State<PromptHistoryPanel> {
               classes: 'space-y-1 rounded border border-border p-2',
               attributes: <String, String>{'data-version': version.id},
               [
-                div(classes: 'flex items-center gap-2 text-sm', [
+                div(classes: 'flex items-center gap-2 text-ui-base', [
                   span(classes: 'min-w-0 flex-1 truncate', [
                     Component.text(
                       version.commitMessage ??
@@ -130,7 +130,7 @@ class _PromptHistoryPanelState extends State<PromptHistoryPanel> {
                   if (version.production)
                     badge(t.app.workspacePromptHistoryLive, muted: false),
                 ]),
-                p(classes: 'text-[11px] text-muted-foreground', [
+                p(classes: 'text-ui-xs text-muted-foreground', [
                   Component.text(
                     [
                       ?version.authorName,

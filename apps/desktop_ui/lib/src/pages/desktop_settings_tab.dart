@@ -72,7 +72,7 @@ class _DesktopSettingsState extends State<_DesktopSettings> {
       onChanged: ({required value}) =>
           unawaited(_save(<String, Object?>{key: value})),
     ),
-    p(classes: 'pl-6 text-xs text-muted-foreground', [
+    p(classes: 'pl-6 text-ui-sm text-muted-foreground', [
       Component.text(description),
     ]),
   ]);
@@ -81,7 +81,7 @@ class _DesktopSettingsState extends State<_DesktopSettings> {
     classes: 'space-y-4',
     attributes: <String, String>{'aria-label': title},
     [
-      h3(classes: 'text-sm font-semibold text-foreground', [
+      h3(classes: 'text-ui-base font-semibold text-foreground', [
         Component.text(title),
       ]),
       ...children,

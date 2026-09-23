@@ -81,7 +81,7 @@ class SettingsPage extends StatelessComponent {
   ) => nav(classes: 'w-56 shrink-0 border-r border-border bg-background p-3', [
     h2(
       id: 'settings-title',
-      classes: 'px-2 pb-3 pt-1 text-sm font-semibold text-foreground',
+      classes: 'px-2 pb-3 pt-1 text-ui-base font-semibold text-foreground',
       [Component.text(t.desktop.desktopSettingsTitle)],
     ),
     ul(classes: 'space-y-0.5', [
@@ -90,7 +90,7 @@ class SettingsPage extends StatelessComponent {
           a(
             href: '/settings/${tab.name}',
             classes:
-                'block rounded px-2 py-1.5 text-sm '
+                'block rounded px-2 py-1.5 text-ui-base '
                 '${tab == current ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'}',
             // `page`, not `selected`: these are navigation links, and
             // `aria-current="page"` is what a screen reader reports for
@@ -124,13 +124,13 @@ class SettingsPage extends StatelessComponent {
               'flex items-center justify-between border-b border-border px-5 '
               'py-3',
           [
-            span(classes: 'text-sm font-medium text-card-foreground', [
+            span(classes: 'text-ui-base font-medium text-card-foreground', [
               Component.text(_label(current)),
             ]),
             button(
               [Component.text('×')],
               classes:
-                  'size-7 rounded text-lg leading-none '
+                  'size-7 rounded text-ui-xl leading-none '
                   'text-muted-foreground hover:bg-accent',
               type: ButtonType.button,
               attributes: <String, String>{'aria-label': t.app.close},
@@ -170,6 +170,7 @@ class _AppearanceTab extends StatelessComponent {
       data: (prefs) => div(classes: 'space-y-8', [
         _modeSection(context, prefs),
         _paletteSection(context, prefs),
+        _fontSizeSection(context, prefs),
         _languageSection(context, prefs),
       ]),
     );
@@ -177,7 +178,7 @@ class _AppearanceTab extends StatelessComponent {
 
   Component _modeSection(BuildContext context, AppPreferences prefs) =>
       fieldset(classes: 'space-y-2 border-0 p-0', [
-        legend(classes: 'text-sm font-medium text-foreground', [
+        legend(classes: 'text-ui-base font-medium text-foreground', [
           Component.text(t.app.darkMode),
         ]),
         div(classes: 'flex gap-4', [
@@ -197,7 +198,7 @@ class _AppearanceTab extends StatelessComponent {
               label(
                 [Component.text(_modeLabel(mode))],
                 htmlFor: 'mode-${mode.name}',
-                classes: 'text-sm',
+                classes: 'text-ui-base',
               ),
             ]),
         ]),
@@ -219,11 +220,11 @@ class _AppearanceTab extends StatelessComponent {
     BuildContext context,
     AppPreferences prefs,
   ) => fieldset(classes: 'space-y-2 border-0 p-0', [
-    legend(classes: 'text-sm font-medium text-foreground', [
+    legend(classes: 'text-ui-base font-medium text-foreground', [
       Component.text(t.app.themePalette),
     ]),
     div(classes: 'grid grid-cols-2 gap-2 sm:grid-cols-3', [
-      for (final palette in kConduitPalettes)
+      for (final palette in kDesktopPalettes)
         label(
           [
             input<bool>(
@@ -254,7 +255,9 @@ class _AppearanceTab extends StatelessComponent {
                   ),
               ],
             ),
-            span(classes: 'text-sm', [Component.text(_paletteLabel(palette))]),
+            span(classes: 'text-ui-base', [
+              Component.text(_paletteLabel(palette)),
+            ]),
           ],
           htmlFor: 'palette-${palette.id}',
           classes:
@@ -267,8 +270,57 @@ class _AppearanceTab extends StatelessComponent {
 
   /// The registry stores ARB *keys*, not strings, because it has no locale of
   /// its own -- so the label is looked up rather than read off the palette.
+  /// The desktop's own palettes are named in the desktop strings, the shared
+  /// ones in the app's.
   String _paletteLabel(ThemePalette palette) =>
-      (t['app.${palette.labelKey}'] as String?) ?? palette.id;
+      (t['desktop.${palette.labelKey}'] as String?) ??
+      (t['app.${palette.labelKey}'] as String?) ??
+      palette.id;
+
+  /// The interface text size, which the whole `text-ui-*` scale follows.
+  ///
+  /// Applied as the slider moves: the size is only judged by seeing it.
+  Component _fontSizeSection(BuildContext context, AppPreferences prefs) =>
+      div(classes: 'space-y-1.5', [
+        div(classes: 'flex items-center justify-between', [
+          label(
+            htmlFor: 'ui-font-size',
+            classes: 'text-ui-sm font-medium text-foreground',
+            [Component.text(t.desktop.desktopUiFontSize)],
+          ),
+          span(classes: 'text-ui-xs text-foreground-subtle', [
+            Component.text(
+              t.desktop.desktopUiFontSizeValue(size: prefs.uiFontSize),
+            ),
+          ]),
+        ]),
+        input<Object?>(
+          id: 'ui-font-size',
+          type: InputType.range,
+          classes: 'w-full accent-primary',
+          value: '${prefs.uiFontSize}',
+          attributes: <String, String>{
+            'min': '$kMinUiFontSize',
+            'max': '$kMaxUiFontSize',
+            'step': '1',
+            'aria-describedby': 'ui-font-size-hint',
+          },
+          onInput: (raw) {
+            final size = int.tryParse(numberFieldText(raw));
+            if (size == null || size == prefs.uiFontSize) return;
+            unawaited(
+              context
+                  .read(settingsActionsProvider)
+                  .update(AppPreferencesPatch(uiFontSize: size)),
+            );
+          },
+        ),
+        p(
+          id: 'ui-font-size-hint',
+          classes: 'text-ui-xs text-foreground-subtle',
+          [Component.text(t.desktop.desktopUiFontSizeHint)],
+        ),
+      ]);
 
   Component _languageSection(BuildContext context, AppPreferences prefs) => div(
     classes: 'space-y-2',
@@ -276,7 +328,7 @@ class _AppearanceTab extends StatelessComponent {
       label(
         [Component.text(t.app.language)],
         htmlFor: 'locale',
-        classes: 'block text-sm font-medium text-foreground',
+        classes: 'block text-ui-base font-medium text-foreground',
       ),
       select(
         [
@@ -295,7 +347,7 @@ class _AppearanceTab extends StatelessComponent {
         id: 'locale',
         classes:
             'w-full rounded border border-border bg-background '
-            'px-3 py-2 text-sm text-foreground',
+            'px-3 py-2 text-ui-base text-foreground',
         onChange: (values) =>
             unawaited(_setLocale(context, values.isEmpty ? '' : values.first)),
       ),
@@ -331,7 +383,7 @@ class _ConnectionsTab extends StatelessComponent {
       error: (error, _) => formError('$error'),
       data: (list) => div(classes: 'space-y-4', [
         if (list.servers.isEmpty)
-          p(classes: 'text-sm text-muted-foreground', [
+          p(classes: 'text-ui-base text-muted-foreground', [
             Component.text(t.desktop.desktopSettingsNoServers),
           ]),
         ul(classes: 'space-y-2', [
@@ -341,7 +393,7 @@ class _ConnectionsTab extends StatelessComponent {
           href: '/onboarding',
           classes:
               'inline-block rounded border border-border px-3 '
-              'py-1.5 text-sm text-foreground hover:bg-accent',
+              'py-1.5 text-ui-base text-foreground hover:bg-accent',
           [Component.text(t.desktop.desktopSettingsAddServer)],
         ),
       ]),
@@ -355,13 +407,13 @@ class _ConnectionsTab extends StatelessComponent {
     [
       div(classes: 'min-w-0 flex-1', [
         div(classes: 'flex items-center gap-2', [
-          span(classes: 'truncate text-sm font-medium text-foreground', [
+          span(classes: 'truncate text-ui-base font-medium text-foreground', [
             Component.text(server.name),
           ]),
           if (server.isActive)
             span(
               classes:
-                  'rounded-full bg-primary/15 px-2 py-0.5 text-xs '
+                  'rounded-full bg-primary/15 px-2 py-0.5 text-ui-sm '
                   'text-primary',
               [Component.text(t.app.connectedToServer)],
             ),
@@ -374,14 +426,14 @@ class _ConnectionsTab extends StatelessComponent {
       // one you are on: "signed in" next to the server you are using says
       // nothing, while next to another it is the whole reason to switch.
       if (server.hasStoredSession && !server.isActive)
-        span(classes: 'text-xs text-muted-foreground', [
+        span(classes: 'text-ui-sm text-muted-foreground', [
           Component.text(t.desktop.desktopSettingsSignedIn),
         ]),
       if (!server.isActive)
         button(
           [Component.text(t.desktop.desktopSettingsSwitchServer)],
           classes:
-              'rounded border border-border px-2.5 py-1 text-xs '
+              'rounded border border-border px-2.5 py-1 text-ui-sm '
               'text-foreground hover:bg-accent',
           type: ButtonType.button,
           onClick: () => unawaited(
@@ -391,7 +443,7 @@ class _ConnectionsTab extends StatelessComponent {
       button(
         [Component.text(t.desktop.desktopSettingsRemoveServer)],
         classes:
-            'rounded px-2.5 py-1 text-xs text-destructive '
+            'rounded px-2.5 py-1 text-ui-sm text-destructive '
             'hover:bg-destructive/10',
         type: ButtonType.button,
         onClick: () => unawaited(
@@ -419,7 +471,7 @@ class _DataTabState extends State<_DataTab> {
   @override
   Component build(BuildContext context) => div(classes: 'space-y-6', [
     div(classes: 'space-y-2', [
-      h3(classes: 'text-sm font-medium text-foreground', [
+      h3(classes: 'text-ui-base font-medium text-foreground', [
         Component.text(t.app.signOut),
       ]),
       checkboxField(
@@ -430,7 +482,7 @@ class _DataTabState extends State<_DataTab> {
         onChanged: ({required value}) =>
             setState(() => _keepServerDetails = value),
       ),
-      p(classes: 'text-xs text-muted-foreground', [
+      p(classes: 'text-ui-sm text-muted-foreground', [
         Component.text(t.app.keepServerDetailsDescription),
       ]),
     ]),
@@ -439,7 +491,7 @@ class _DataTabState extends State<_DataTab> {
     button(
       [Component.text(_busy ? t.desktop.desktopSigningOut : t.app.signOut)],
       classes:
-          'rounded bg-destructive px-4 py-2 text-sm '
+          'rounded bg-destructive px-4 py-2 text-ui-base '
           'text-destructive-foreground disabled:opacity-60',
       type: ButtonType.button,
       disabled: _busy,
@@ -453,11 +505,11 @@ class _DataTabState extends State<_DataTab> {
   /// finishes, so "you are signed out here, but this device has not finished
   /// forgetting" is a real and temporary state the user is entitled to see.
   Component _outcomeNotice(SignOutOutcome outcome) => switch (outcome) {
-    SignOutOutcome.cleared => p(classes: 'text-sm text-muted-foreground', [
+    SignOutOutcome.cleared => p(classes: 'text-ui-base text-muted-foreground', [
       Component.text(t.desktop.desktopSignedOut),
     ]),
     SignOutOutcome.ownershipYielded => p(
-      classes: 'text-sm text-muted-foreground',
+      classes: 'text-ui-base text-muted-foreground',
       [Component.text(t.desktop.desktopSignOutSuperseded)],
     ),
     SignOutOutcome.localDataClearedSessionCleanupIncomplete ||
@@ -511,15 +563,18 @@ class _AboutTab extends StatelessComponent {
       a(
         href: href,
         target: Target.blank,
-        classes: 'text-sm underline underline-offset-2 hover:text-foreground',
+        classes:
+            'text-ui-base underline underline-offset-2 hover:text-foreground',
         attributes: const <String, String>{'rel': 'noopener'},
         [Component.text(text)],
       ),
       if (detail != null)
-        p(classes: 'text-xs text-muted-foreground', [Component.text(detail)]),
+        p(classes: 'text-ui-sm text-muted-foreground', [
+          Component.text(detail),
+        ]),
     ]);
     return div(classes: 'space-y-8', [
-      dl(classes: 'grid grid-cols-2 gap-y-1 text-sm', [
+      dl(classes: 'grid grid-cols-2 gap-y-1 text-ui-base', [
         ..._row(t.app.appVersion, version),
         if (handshake != null) ...<Component>[
           ..._row(t.desktop.desktopAboutDaemon, handshake.daemonVersion),
@@ -537,10 +592,10 @@ class _AboutTab extends StatelessComponent {
         classes: 'space-y-2',
         attributes: <String, String>{'aria-label': t.app.supportConduit},
         [
-          h3(classes: 'text-sm font-semibold', [
+          h3(classes: 'text-ui-base font-semibold', [
             Component.text(t.app.supportConduit),
           ]),
-          p(classes: 'text-xs text-muted-foreground', [
+          p(classes: 'text-ui-sm text-muted-foreground', [
             Component.text(t.app.supportConduitSubtitle),
           ]),
           ul(classes: 'space-y-2', [
@@ -569,7 +624,7 @@ class _AboutTab extends StatelessComponent {
 }
 
 Component _loading() =>
-    p(classes: 'text-sm text-muted-foreground', [Component.text('…')]);
+    p(classes: 'text-ui-base text-muted-foreground', [Component.text('…')]);
 
 /// A language's name in that language.
 ///

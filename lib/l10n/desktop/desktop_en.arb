@@ -829,5 +829,30 @@
   "desktopSttLocalNeedsModel": "Download a model to transcribe on this computer; until then the server does.",
   "@desktopSttLocalNeedsModel": {
     "description": "Shown when on-this-computer is chosen but no model is downloaded."
+  },
+  "themePaletteZaiLabel": "Zai",
+  "@themePaletteZaiLabel": {
+    "description": "Name of the desktop's default monochrome palette, after ZCode's Zai theme. A proper name; usually left untranslated."
+  },
+  "themePaletteZaiDescription": "Monochrome, calm and dense",
+  "@themePaletteZaiDescription": {
+    "description": "One-line description of the Zai palette."
+  },
+  "desktopUiFontSize": "Text size",
+  "@desktopUiFontSize": {
+    "description": "Label of the interface text-size slider in Settings > Appearance."
+  },
+  "desktopUiFontSizeValue": "{size} px",
+  "@desktopUiFontSizeValue": {
+    "description": "The chosen text size in pixels, shown beside the slider.",
+    "placeholders": {
+      "size": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopUiFontSizeHint": "Code, diffs and the terminal keep their own sizes.",
+  "@desktopUiFontSizeHint": {
+    "description": "Explains what the text-size slider does not change."
   }
 }

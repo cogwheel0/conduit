@@ -50,13 +50,13 @@ class DetailsBlock extends StatelessComponent {
       ...body,
     ];
     return details(
-      classes: 'conduit-details rounded border border-border text-sm',
+      classes: 'conduit-details rounded border border-border text-ui-base',
       attributes: <String, String>{'data-type': _type},
       [
         Component.element(
           tag: 'summary',
           classes:
-              'cursor-pointer select-none px-3 py-1.5 text-xs '
+              'cursor-pointer select-none px-3 py-1.5 text-ui-sm '
               'text-muted-foreground hover:text-foreground'
               '${pending ? ' animate-pulse' : ''}',
           children: <Component>[Component.text(label())],
@@ -122,10 +122,10 @@ class DetailsBlock extends StatelessComponent {
   }
 
   static Component _section(String title, String text) => div([
-    p(classes: 'mb-1 text-xs font-medium', [Component.text(title)]),
+    p(classes: 'mb-1 text-ui-sm font-medium', [Component.text(title)]),
     pre(
       classes:
-          'max-h-64 overflow-auto rounded bg-muted p-2 text-xs '
+          'max-h-64 overflow-auto rounded bg-muted p-2 text-ui-sm '
           'whitespace-pre-wrap break-words',
       [Component.text(text)],
     ),

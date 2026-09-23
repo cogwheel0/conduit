@@ -56,7 +56,7 @@ class CodeBlock extends StatelessComponent {
               button(
                 [Component.text(t.app.copy)],
                 classes:
-                    'rounded px-2 py-0.5 text-xs text-muted-foreground '
+                    'rounded px-2 py-0.5 text-ui-sm text-muted-foreground '
                     'opacity-0 transition-opacity hover:bg-accent '
                     'group-hover:opacity-100 focus-visible:opacity-100',
                 type: ButtonType.button,

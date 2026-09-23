@@ -407,5 +407,10 @@
   "desktopSttModelEnglishOnly": "Alleen Engels",
   "desktopSttModelFailedChecksum": "De download was niet het verwachte bestand en is daarom weggegooid.",
   "desktopSttModelFailedNetwork": "Het downloaden is mislukt. Controleer de verbinding en probeer het opnieuw.",
-  "desktopSttLocalNeedsModel": "Download een model om op deze computer te transcriberen; tot die tijd doet de server dat."
+  "desktopSttLocalNeedsModel": "Download een model om op deze computer te transcriberen; tot die tijd doet de server dat.",
+  "themePaletteZaiLabel": "Zai",
+  "themePaletteZaiDescription": "Monochroom, rustig en compact",
+  "desktopUiFontSize": "Tekstgrootte",
+  "desktopUiFontSizeValue": "{size} px",
+  "desktopUiFontSizeHint": "Code, diffs en de terminal behouden hun eigen grootte."
 }

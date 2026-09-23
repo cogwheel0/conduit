@@ -407,5 +407,10 @@
   "desktopSttModelEnglishOnly": "Только английский",
   "desktopSttModelFailedChecksum": "Скачанный файл оказался не тем, что ожидался, поэтому он удалён.",
   "desktopSttModelFailedNetwork": "Не удалось скачать. Проверьте подключение и попробуйте ещё раз.",
-  "desktopSttLocalNeedsModel": "Скачайте модель, чтобы распознавать речь на этом компьютере; до тех пор это делает сервер."
+  "desktopSttLocalNeedsModel": "Скачайте модель, чтобы распознавать речь на этом компьютере; до тех пор это делает сервер.",
+  "themePaletteZaiLabel": "Zai",
+  "themePaletteZaiDescription": "Монохромная, спокойная и плотная",
+  "desktopUiFontSize": "Размер текста",
+  "desktopUiFontSizeValue": "{size} px",
+  "desktopUiFontSizeHint": "Код, диффы и терминал сохраняют собственные размеры."
 }

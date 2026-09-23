@@ -407,5 +407,10 @@
   "desktopSttModelEnglishOnly": "仅限英语",
   "desktopSttModelFailedChecksum": "下载的文件与预期不符，已丢弃。",
   "desktopSttModelFailedNetwork": "下载失败。请检查连接后重试。",
-  "desktopSttLocalNeedsModel": "下载模型后即可在此电脑上转写；在此之前由服务器转写。"
+  "desktopSttLocalNeedsModel": "下载模型后即可在此电脑上转写；在此之前由服务器转写。",
+  "themePaletteZaiLabel": "Zai",
+  "themePaletteZaiDescription": "单色、沉稳而紧凑",
+  "desktopUiFontSize": "文字大小",
+  "desktopUiFontSizeValue": "{size} px",
+  "desktopUiFontSizeHint": "代码、差异对比和终端保持各自的字号。"
 }

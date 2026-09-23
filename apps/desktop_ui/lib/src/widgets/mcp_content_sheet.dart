@@ -112,12 +112,12 @@ class _McpContentSheetState extends State<McpContentSheet> {
       },
       [
         div(classes: 'flex items-center gap-2', [
-          h2(classes: 'flex-1 text-sm font-semibold', [
+          h2(classes: 'flex-1 text-ui-base font-semibold', [
             Component.text(t.app.directMcpContentTitle),
           ]),
           button(
             [Component.text('↻')],
-            classes: 'rounded px-2 py-0.5 text-xs hover:bg-accent',
+            classes: 'rounded px-2 py-0.5 text-ui-sm hover:bg-accent',
             type: ButtonType.button,
             attributes: <String, String>{
               'aria-label': t.app.directMcpContentRefresh,
@@ -126,7 +126,7 @@ class _McpContentSheetState extends State<McpContentSheet> {
           ),
           button(
             [Component.text('×')],
-            classes: 'rounded px-2 py-0.5 text-xs hover:bg-accent',
+            classes: 'rounded px-2 py-0.5 text-ui-sm hover:bg-accent',
             type: ButtonType.button,
             attributes: <String, String>{'aria-label': t.app.close},
             onClick: component.onClose,
@@ -137,7 +137,7 @@ class _McpContentSheetState extends State<McpContentSheet> {
             label(
               [Component.text(t.app.directMcpContentServer)],
               htmlFor: 'mcp-content-server',
-              classes: 'text-xs font-medium',
+              classes: 'text-ui-sm font-medium',
             ),
             select(
               [
@@ -151,7 +151,7 @@ class _McpContentSheetState extends State<McpContentSheet> {
               id: 'mcp-content-server',
               classes:
                   'w-full rounded border border-border bg-background px-2 '
-                  'py-1 text-sm',
+                  'py-1 text-ui-base',
               onChange: (values) {
                 final id = values.firstOrNull;
                 if (id == null || id == _serverId) return;
@@ -169,20 +169,20 @@ class _McpContentSheetState extends State<McpContentSheet> {
           onInput: (value) => setState(() => _query = value),
         ),
         if (_loading)
-          p(classes: 'text-xs text-muted-foreground', [
+          p(classes: 'text-ui-sm text-muted-foreground', [
             Component.text(t.app.directMcpContentLoading),
           ]),
         if (_error case final error?) formError(error),
         if (empty)
-          p(classes: 'text-xs text-muted-foreground', [
+          p(classes: 'text-ui-sm text-muted-foreground', [
             Component.text(t.app.directMcpContentEmpty),
           ])
         else if (content != null && prompts.isEmpty && resources.isEmpty)
-          p(classes: 'text-xs text-muted-foreground', [
+          p(classes: 'text-ui-sm text-muted-foreground', [
             Component.text(t.app.directMcpContentNoMatches),
           ]),
         if (prompts.isNotEmpty) ...[
-          h3(classes: 'text-xs font-medium text-muted-foreground', [
+          h3(classes: 'text-ui-sm font-medium text-muted-foreground', [
             Component.text(t.app.directMcpContentPrompts),
           ]),
           ul(classes: 'max-h-40 space-y-1 overflow-auto', [
@@ -196,7 +196,7 @@ class _McpContentSheetState extends State<McpContentSheet> {
           ]),
         ],
         if (resources.isNotEmpty) ...[
-          h3(classes: 'text-xs font-medium text-muted-foreground', [
+          h3(classes: 'text-ui-sm font-medium text-muted-foreground', [
             Component.text(t.app.directMcpContentResources),
           ]),
           ul(classes: 'max-h-40 space-y-1 overflow-auto', [
@@ -226,13 +226,13 @@ class _McpContentSheetState extends State<McpContentSheet> {
               }),
             ),
         if (_preview case final preview?) ...[
-          h3(classes: 'text-xs font-medium text-muted-foreground', [
+          h3(classes: 'text-ui-sm font-medium text-muted-foreground', [
             Component.text(t.app.directMcpContentPreviewTitle),
           ]),
           pre(
             classes:
                 'max-h-48 overflow-auto whitespace-pre-wrap rounded bg-muted '
-                'p-2 text-xs',
+                'p-2 text-ui-sm',
             [Component.text(_format(preview))],
           ),
         ],
@@ -241,7 +241,7 @@ class _McpContentSheetState extends State<McpContentSheet> {
             button(
               [Component.text(t.app.directMcpContentPreviewTitle)],
               classes:
-                  'rounded border border-border px-3 py-1 text-sm '
+                  'rounded border border-border px-3 py-1 text-ui-base '
                   'hover:bg-accent disabled:opacity-50',
               type: ButtonType.button,
               disabled: _busy || !_argumentsComplete,
@@ -250,7 +250,7 @@ class _McpContentSheetState extends State<McpContentSheet> {
             button(
               [Component.text(t.app.directMcpContentInsert)],
               classes:
-                  'rounded bg-primary px-3 py-1 text-sm '
+                  'rounded bg-primary px-3 py-1 text-ui-base '
                   'text-primary-foreground disabled:opacity-50',
               type: ButtonType.button,
               disabled: _busy || !_argumentsComplete,
@@ -269,9 +269,9 @@ class _McpContentSheetState extends State<McpContentSheet> {
   }) => li([
     button(
       [
-        span(classes: 'block truncate text-sm', [Component.text(name)]),
+        span(classes: 'block truncate text-ui-base', [Component.text(name)]),
         if (detail.isNotEmpty)
-          span(classes: 'block truncate text-xs text-muted-foreground', [
+          span(classes: 'block truncate text-ui-sm text-muted-foreground', [
             Component.text(detail),
           ]),
       ],

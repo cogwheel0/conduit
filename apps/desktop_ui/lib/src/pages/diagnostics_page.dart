@@ -22,7 +22,7 @@ class DiagnosticsPage extends StatelessComponent {
       h1(classes: 'text-xl font-semibold', [
         Component.text('Diagnostics: $section'),
       ]),
-      p(classes: 'mt-2 text-sm text-muted-foreground', [
+      p(classes: 'mt-2 text-ui-base text-muted-foreground', [
         Component.text(
           connection.hasValue
               ? 'Last event sequence: '
@@ -32,7 +32,7 @@ class DiagnosticsPage extends StatelessComponent {
       ]),
       Link(
         to: '/',
-        classes: 'mt-6 inline-block text-sm text-primary underline',
+        classes: 'mt-6 inline-block text-ui-base text-primary underline',
         child: Component.text('Back to status'),
       ),
     ]);
