@@ -232,38 +232,43 @@ final class TurnsService {
     // server needs none of that here, because the daemon keeps the
     // transcript itself.
     final isTemporary = TemporaryChats.isTemporary(resolvedChatId);
-    Future<ChatCompletionSession> dispatch(String? sessionId) =>
-        api.sendMessageSession(
-          sessionIdOverride: sessionId,
-          messages: payload,
-          model: model,
-          conversationId: isTemporary ? null : resolvedChatId,
-          responseMessageId: assistantMessageId,
-          parentId: isTemporary || history.isEmpty ? null : history.last.id,
-          // What the server records as the user's turn. Without it an existing
-          // chat gains an answer with nothing to answer.
-          userMessage: isTemporary
-              ? null
-              : <String, dynamic>{
-                  'id': userMessageId,
-                  'role': 'user',
-                  'content': text,
-                  'timestamp':
-                      userMessage.timestamp.millisecondsSinceEpoch ~/ 1000,
-                  'models': <String>[model],
-                  'childrenIds': <String>[assistantMessageId],
-                  if (history.isNotEmpty) 'parentId': history.last.id,
-                },
-          toolIds: request.toolIds.isEmpty ? null : request.toolIds,
-          // Uploaded through `POST /upload`, so the daemon already knows each
-          // one's name and size -- which Open WebUI wants alongside the id.
-          files: request.fileIds.isEmpty
-              ? null
-              : _files?.attachmentsFor(request.fileIds),
-          enableWebSearch: request.webSearch,
-          enableImageGeneration: request.imageGeneration,
-          enableCodeInterpreter: request.codeInterpreter,
-        );
+    final attachments = request.fileIds.isEmpty
+        ? null
+        : _files?.attachmentsFor(request.fileIds);
+    Future<ChatCompletionSession> dispatch(
+      String? sessionId,
+    ) => api.sendMessageSession(
+      sessionIdOverride: sessionId,
+      messages: payload,
+      model: model,
+      conversationId: isTemporary ? null : resolvedChatId,
+      responseMessageId: assistantMessageId,
+      parentId: isTemporary || history.isEmpty ? null : history.last.id,
+      // What the server records as the user's turn. Without it an existing
+      // chat gains an answer with nothing to answer.
+      userMessage: isTemporary
+          ? null
+          : <String, dynamic>{
+              'id': userMessageId,
+              'role': 'user',
+              'content': text,
+              'timestamp': userMessage.timestamp.millisecondsSinceEpoch ~/ 1000,
+              'models': <String>[model],
+              'childrenIds': <String>[assistantMessageId],
+              if (history.isNotEmpty) 'parentId': history.last.id,
+              // On the question as well as the request, as Open WebUI's
+              // own client does: the request is what the model reads,
+              // the stored question is what shows the attachment later.
+              'files': ?attachments,
+            },
+      toolIds: request.toolIds.isEmpty ? null : request.toolIds,
+      // Uploaded through `POST /upload`, so the daemon already knows each
+      // one's name and size -- which Open WebUI wants alongside the id.
+      files: attachments,
+      enableWebSearch: request.webSearch,
+      enableImageGeneration: request.imageGeneration,
+      enableCodeInterpreter: request.codeInterpreter,
+    );
     final sessionId = isTemporary ? null : await _socketSession(request);
     final completion = await dispatch(sessionId);
 

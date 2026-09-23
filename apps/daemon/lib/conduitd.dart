@@ -15,6 +15,7 @@ export 'src/core_runtime.dart';
 export 'src/daemon_paths.dart';
 export 'src/daemon_server.dart';
 export 'src/event_bus.dart';
+export 'src/files_service.dart';
 export 'src/log.dart';
 export 'src/ports/secure_store.dart';
 export 'src/rpc_session.dart';

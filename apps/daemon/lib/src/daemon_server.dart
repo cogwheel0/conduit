@@ -4,6 +4,8 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:conduit_core/services/api_service.dart'
+    show FileContentTooLargeException;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:shelf/shelf.dart' as shelf;
 import 'package:shelf/shelf_io.dart' as shelf_io;
@@ -224,6 +226,7 @@ class DaemonServer {
     final path = '/${request.url.path}';
     if (path == ConduitHttpRoutes.rpc) return _rpcHandler(request);
     if (path == ConduitHttpRoutes.upload) return _upload(request);
+    if (path.startsWith('/files/')) return _file(request);
     if (path == '/health') {
       // Authenticated liveness probe for the Electron supervisor; it does not
       // reveal anything a holder of the token cannot already ask for on /rpc.
@@ -307,6 +310,54 @@ class DaemonServer {
     } on Object catch (error, stack) {
       _log.error('upload failed', error, stack);
       return _problem(502, ConduitErrorCodes.serverError, 'upload failed');
+    }
+  }
+
+  /// `GET /files/{serverId}/{fileId}` -- an attachment for an `<img>` (WP-3.2).
+  ///
+  /// Electron adds the daemon's token to the window's requests to this
+  /// port, so the image tag carries no credential and the daemon still
+  /// refuses anyone else.
+  Future<shelf.Response> _file(shelf.Request request) async {
+    final files = _files;
+    if (files == null) {
+      return _problem(
+        503,
+        ConduitErrorCodes.daemonUnavailable,
+        'core starting',
+      );
+    }
+    if (request.method != 'GET') {
+      return shelf.Response(405, body: 'GET only');
+    }
+    final segments = request.url.pathSegments;
+    if (segments.length != 3) {
+      return _problem(404, ConduitErrorCodes.notFound, 'no such file');
+    }
+    try {
+      final file = await files.download(segments[1], segments[2]);
+      return shelf.Response.ok(
+        file.bytes,
+        headers: <String, String>{
+          'content-type': file.contentType,
+          // Private: it is the user's file. An hour: the same image is drawn
+          // every time the conversation is opened.
+          'cache-control': 'private, max-age=3600',
+          ..._corsHeaders,
+        },
+      );
+    } on RpcError catch (error) {
+      final status = switch (error.code) {
+        ConduitErrorCodes.unauthenticated => 401,
+        ConduitErrorCodes.notFound => 404,
+        _ => 502,
+      };
+      return _problem(status, error.code, error.debugMessage);
+    } on FileContentTooLargeException {
+      return _problem(413, ConduitErrorCodes.invalidParams, 'file too large');
+    } on Object catch (error, stack) {
+      _log.error('file download failed', error, stack);
+      return _problem(502, ConduitErrorCodes.serverError, 'download failed');
     }
   }
 

@@ -115,6 +115,10 @@ abstract class ChatMessageDto with _$ChatMessageDto {
 
     /// The user's thumb: 1 up, -1 down, null unrated (WP-3.8).
     int? rating,
+
+    /// What was attached to a question, or generated with an answer
+    /// (WP-3.2).
+    @Default(<ChatFileDto>[]) List<ChatFileDto> files,
   }) = _ChatMessageDto;
 
   factory ChatMessageDto.fromJson(Map<String, dynamic> json) =>
@@ -138,6 +142,27 @@ abstract class ChatSourceDto with _$ChatSourceDto {
 
   factory ChatSourceDto.fromJson(Map<String, dynamic> json) =>
       _$ChatSourceDtoFromJson(json);
+}
+
+/// A file on a message (WP-3.2).
+///
+/// By id: the renderer loads it from the daemon's `/files/{server}/{id}`,
+/// which proxies it with the server's credentials, so the window never
+/// holds one. [dataUrl] is only for old conversations whose images were
+/// stored inline; a remote URL is deliberately not carried, because an
+/// image fetched from anywhere is a tracking pixel.
+@freezed
+abstract class ChatFileDto with _$ChatFileDto {
+  const factory ChatFileDto({
+    String? id,
+    required String name,
+    @Default(false) bool image,
+    String? contentType,
+    String? dataUrl,
+  }) = _ChatFileDto;
+
+  factory ChatFileDto.fromJson(Map<String, dynamic> json) =>
+      _$ChatFileDtoFromJson(json);
 }
 
 /// How an answer was produced, in the figures people read (WP-3.2).

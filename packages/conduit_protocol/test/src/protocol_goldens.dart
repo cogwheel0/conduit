@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.18.0",
+  "protocolVersion": "1.19.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.18.0",
+  "protocolVersion": "1.19.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -402,6 +402,14 @@ const Map<String, String> protocolGoldens = <String, String>{
   "description": "Current conditions for a city"
 }''',
 
+  'chatFile': r'''
+{
+  "id": "file-1",
+  "name": "diagram.png",
+  "image": true,
+  "contentType": "image/png"
+}''',
+
   'chatUsage': r'''
 {
   "generationPerSecond": 42.5,
@@ -669,7 +677,8 @@ const Map<String, String> protocolGoldens = <String, String>{
     "generationTokens": 7,
     "totalSeconds": 0.5
   },
-  "rating": 1
+  "rating": 1,
+  "files": []
 }''',
 
   'chatDetail': r'''
@@ -691,7 +700,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "timestampMs": 1758412700000,
       "streaming": false,
       "versions": [],
-      "sources": []
+      "sources": [],
+      "files": []
     }
   ]
 }''',

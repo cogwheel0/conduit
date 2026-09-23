@@ -857,6 +857,12 @@ test.describe('against a real server', () => {
       .toBeGreaterThan(beforeAttachment + 1)
     // And the composer emptied of chips along with the text.
     await expect(chip).toBeHidden()
+    // The question carries its attachment in the transcript (WP-3.2), once
+    // the stored copy is back.
+    // `first`: the answer's collapsed Sources list names the file too.
+    await expect(transcript.getByText(basename(attachPath)).first()).toBeVisible({
+      timeout: 30_000,
+    })
     // The pane follows the conversation: the newest message is on screen
     // without the user scrolling for it.
     await expect

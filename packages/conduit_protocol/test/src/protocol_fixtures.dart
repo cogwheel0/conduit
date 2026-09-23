@@ -223,6 +223,12 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     name: 'Weather',
     description: 'Current conditions for a city',
   ),
+  'chatFile': const ChatFileDto(
+    id: 'file-1',
+    name: 'diagram.png',
+    image: true,
+    contentType: 'image/png',
+  ),
   'chatUsage': const ChatUsageDto(
     generationPerSecond: 42.5,
     generationTokens: 85,
@@ -495,6 +501,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'turnFailed': TurnFailed.fromJson,
       'stopTurn': StopTurn.fromJson,
       'toolSummary': ToolSummary.fromJson,
+      'chatFile': ChatFileDto.fromJson,
       'chatUsage': ChatUsageDto.fromJson,
       'chatSource': ChatSourceDto.fromJson,
       'promptSummary': PromptSummary.fromJson,

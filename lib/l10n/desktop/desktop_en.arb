@@ -457,5 +457,10 @@
   "desktopSaved": "Saved",
   "@desktopSaved": {
     "description": "Status after the desktop controls pane stores a change."
+  },
+  "desktopOpenImage": "Open image {name}",
+  "@desktopOpenImage": {
+    "description": "Accessible name of an image thumbnail in a desktop message; activating it shows the image full size.",
+    "placeholders": { "name": { "type": "String", "example": "diagram.png" } }
   }
 }

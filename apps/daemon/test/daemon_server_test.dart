@@ -149,6 +149,31 @@ void main() {
       expect(body['protocolVersion'], kConduitProtocolVersion);
     });
 
+    test('a file needs the token, like every HTTP endpoint', () async {
+      // The route an `<img>` in the window points at. Electron adds the
+      // token; anything else on this machine gets nothing.
+      final client = HttpClient();
+      addTearDown(client.close);
+      final anonymous = await client.getUrl(
+        Uri.parse(
+          'http://127.0.0.1:$port${ConduitHttpRoutes.file('s1', 'f1')}',
+        ),
+      );
+      expect((await anonymous.close()).statusCode, HttpStatus.unauthorized);
+
+      // With it, still nothing for a server that is not the active one --
+      // here there is none at all.
+      final authorised = await client.getUrl(
+        Uri.parse(
+          'http://127.0.0.1:$port${ConduitHttpRoutes.file('s1', 'f1')}',
+        ),
+      );
+      authorised.headers.set(HttpHeaders.authorizationHeader, 'Bearer $_token');
+      final response = await authorised.close();
+      await response.drain<void>();
+      expect(response.statusCode, isNot(HttpStatus.ok));
+    });
+
     test('HTTP endpoints reject a wrong bearer token', () async {
       final client = HttpClient();
       addTearDown(client.close);

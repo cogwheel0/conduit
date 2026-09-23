@@ -617,7 +617,58 @@ final class ChatsService {
       final int rating => rating,
       _ => null,
     },
+    files: _files(message.files),
   );
+
+  /// Open WebUI's file descriptors, reduced to what the window draws.
+  ///
+  /// The id is found wherever this server version put it: `file_id`, `id`,
+  /// a `/api/v1/files/{id}/content` URL, or a bare id in `url`. A remote
+  /// http(s) URL is dropped rather than passed on -- the window would load
+  /// it straight from the internet, which is what a tracking pixel is.
+  static List<ChatFileDto> _files(
+    List<Map<String, dynamic>>? files,
+  ) => <ChatFileDto>[
+    for (final file in files ?? const <Map<String, dynamic>>[]) ?_file(file),
+  ];
+
+  static ChatFileDto? _file(Map<String, dynamic> file) {
+    final url = file['url']?.toString() ?? '';
+    final nested = file['file'] is Map
+        ? Map<String, dynamic>.from(file['file'] as Map)
+        : const <String, dynamic>{};
+    final meta = nested['meta'] is Map
+        ? Map<String, dynamic>.from(nested['meta'] as Map)
+        : const <String, dynamic>{};
+    String? id = file['file_id']?.toString() ?? nested['id']?.toString();
+    final fromUrl = RegExp(r'/api/v1/files/([^/]+)(?:/content)?$')
+        .firstMatch(url);
+    if (id == null && fromUrl != null) id = fromUrl.group(1);
+    if (id == null &&
+        url.isNotEmpty &&
+        !url.startsWith('data:') &&
+        !url.startsWith('http') &&
+        !url.startsWith('/')) {
+      id = url;
+    }
+    id ??= file['id']?.toString();
+    final dataUrl = url.startsWith('data:') ? url : null;
+    if (id == null && dataUrl == null) return null;
+    final contentType = (file['content_type'] ?? meta['content_type'])
+        ?.toString();
+    final image =
+        file['type'] == 'image' || (contentType?.startsWith('image/') ?? false);
+    final name =
+        (file['name'] ?? meta['name'] ?? nested['filename'])?.toString() ??
+        (image ? 'image' : 'file');
+    return ChatFileDto(
+      id: dataUrl == null ? id : null,
+      name: name,
+      image: image,
+      contentType: contentType,
+      dataUrl: dataUrl,
+    );
+  }
 
   /// The core's reading of whatever shape the provider reported in; null
   /// when it reported nothing usable.

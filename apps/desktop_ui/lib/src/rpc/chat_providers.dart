@@ -226,6 +226,29 @@ class DraggingChat extends Notifier<DragState?> {
   void end() => state = null;
 }
 
+/// Where the window loads a message's file from (WP-3.2): the daemon's
+/// `/files/{server}/{file}`, which Electron adds the daemon token to. Null
+/// until the active server is known.
+final fileUrlProvider = Provider<String Function(String fileId)?>((ref) {
+  final server = ref.watch(serverListProvider).value?.activeServerId;
+  if (server == null) return null;
+  final base = ref.watch(shellBridgeProvider).httpBase;
+  return (fileId) =>
+      base.replace(path: ConduitHttpRoutes.file(server, fileId)).toString();
+});
+
+/// The image shown full size over the window, if any (WP-3.2).
+final lightboxProvider =
+    NotifierProvider<Lightbox, ({String src, String name})?>(Lightbox.new);
+
+class Lightbox extends Notifier<({String src, String name})?> {
+  @override
+  ({String src, String name})? build() => null;
+
+  void show(String src, String name) => state = (src: src, name: name);
+  void close() => state = null;
+}
+
 /// Whether the controls pane is open beside the transcript (WP-3.4).
 final controlsOpenProvider = NotifierProvider<ControlsOpen, bool>(
   ControlsOpen.new,

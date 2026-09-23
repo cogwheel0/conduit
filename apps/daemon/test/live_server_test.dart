@@ -393,6 +393,38 @@ void main() {
         timeout: const Timeout(Duration(minutes: 2)),
       );
 
+      test('an uploaded image comes back through the files route', () async {
+        // The bytes the window's `<img>` gets: same bytes, image type. The
+        // file is this test's own and is deleted again.
+        final png = base64Decode(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8Dw'
+          'HwAFAAH/iZk9HQAAAABJRU5ErkJggg==',
+        );
+        final files = FilesService(runtime.container);
+        final uploaded = await files.upload(
+          name: 'conduit-e2e-$pid.png',
+          bytes: png,
+          contentType: 'image/png',
+        );
+        try {
+          final server = await runtime.container.read(
+            activeServerProvider.future,
+          );
+          final file = await files.download(server!.id, uploaded.id);
+          expect(file.bytes, png);
+          expect(file.contentType, startsWith('image/'));
+          // And not for another server's id.
+          await expectLater(
+            files.download('not-${server.id}', uploaded.id),
+            throwsA(isA<RpcError>()),
+          );
+        } finally {
+          await runtime.container
+              .read(apiServiceProvider)!
+              .deleteFile(uploaded.id);
+        }
+      }, timeout: const Timeout(Duration(minutes: 1)));
+
       test('tags a chat, finds it by tag, and untags it', () async {
         final events = EventBus();
         final turns = TurnsService(runtime.container, events);

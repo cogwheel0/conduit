@@ -19,6 +19,7 @@ import '../widgets/chat_tags.dart';
 import '../widgets/context_menu.dart';
 import '../widgets/controls_pane.dart';
 import '../widgets/markdown_view.dart';
+import '../widgets/message_files.dart';
 import '../widgets/prompt_menu.dart';
 import '../widgets/selection_bar.dart';
 import '../widgets/share_dialog.dart';
@@ -39,9 +40,16 @@ class ChatPage extends StatelessComponent {
     final detail = showControls
         ? context.watch(chatDetailProvider).value
         : null;
+    final lightbox = context.watch(lightboxProvider);
     return div(classes: 'flex h-screen min-h-0', [
       const _Sidebar(),
       const _Transcript(),
+      if (lightbox != null)
+        LightboxOverlay(
+          key: ValueKey(lightbox.src),
+          src: lightbox.src,
+          name: lightbox.name,
+        ),
       // Keyed on the conversation, so switching chats reseeds the field
       // instead of carrying one chat's draft into the next.
       if (showControls && detail != null)
@@ -946,6 +954,7 @@ class _Transcript extends StatelessComponent {
                               versions[message.id],
                             ),
                             usage: _shownUsage(message, versions[message.id]),
+                            files: message.files,
                             // Only on the answer the server says is current:
                             // an older version's rating is not in the
                             // stored copy, so its thumb would be a guess.
@@ -1122,6 +1131,7 @@ class _Transcript extends StatelessComponent {
     ChatUsageDto? usage,
     int? rating,
     void Function(int rating)? onRate,
+    List<ChatFileDto> files = const <ChatFileDto>[],
   }) {
     final isUser = role == 'user';
     final failed = failure != null;
@@ -1132,6 +1142,9 @@ class _Transcript extends StatelessComponent {
           'group flex flex-col gap-1 '
           '${isUser ? 'items-end' : 'items-start'}',
       [
+        // Above a question, as they were attached before it was asked;
+        // below an answer, as what it produced.
+        if (isUser && files.isNotEmpty) MessageFiles(files, alignEnd: true),
         article(
           classes:
               'rounded px-4 py-3 text-sm '
@@ -1165,6 +1178,7 @@ class _Transcript extends StatelessComponent {
               ),
           ],
         ),
+        if (!isUser && files.isNotEmpty) MessageFiles(files),
         if (!isUser && (sources.isNotEmpty || usage != null))
           div(classes: 'mr-auto flex max-w-[90%] items-start gap-4', [
             if (sources.isNotEmpty) SourcesList(sources),
