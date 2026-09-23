@@ -12,11 +12,13 @@ import '../rpc/rpc_providers.dart';
 import '../rpc/session_providers.dart';
 import '../rpc/settings_providers.dart';
 import '../widgets/form_field.dart';
+import 'direct_connections_tab.dart';
 
 /// The tabs, and the order they appear in.
 enum SettingsTab {
   appearance,
   connections,
+  direct,
   data,
   about;
 
@@ -94,6 +96,7 @@ class SettingsPage extends StatelessComponent {
   String _label(SettingsTab tab) => switch (tab) {
     SettingsTab.appearance => t.app.settingsAppearance,
     SettingsTab.connections => t.app.settingsCategoryServer,
+    SettingsTab.direct => t.app.directConnectionsTitle,
     SettingsTab.data => t.app.settingsDataAndConnection,
     SettingsTab.about => t.app.aboutConduit,
   };
@@ -126,6 +129,7 @@ class SettingsPage extends StatelessComponent {
           switch (current) {
             SettingsTab.appearance => const _AppearanceTab(),
             SettingsTab.connections => const _ConnectionsTab(),
+            SettingsTab.direct => const DirectConnectionsTab(),
             SettingsTab.data => const _DataTab(),
             SettingsTab.about => const _AboutTab(),
           },

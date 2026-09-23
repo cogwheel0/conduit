@@ -1227,5 +1227,39 @@ test.describe('against a real server', () => {
     })
     await page.waitForTimeout(500)
     await shot(page, '14-settings-connections')
+
+    // 15. A direct connection (WP-4.2): the test server's own OpenAI-
+    // compatible API, with this session's token as its key. Tested, saved,
+    // shown without its key, and deleted. It lives in this run's throwaway
+    // profile, so nothing outlives the run even if a step fails.
+    await page.evaluate(() => {
+      window.history.pushState(null, '', '/settings/direct')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    const settingsDialog = page.getByRole('dialog')
+    await settingsDialog.getByRole('button', { name: /^connect provider$/i }).click()
+    const directEditor = settingsDialog.getByRole('group', { name: /connection details/i })
+    await directEditor.getByLabel(/^connection name$/i).fill('Open WebUI API')
+    await directEditor.getByLabel(/^base url$/i).fill(`${url.replace(/\/$/, '')}/api`)
+    const { api: tokenApi, auth: tokenAuth } = await serverApi(credentials!)
+    await tokenApi.dispose()
+    await directEditor
+      .getByLabel(/^api key$/i)
+      .fill(tokenAuth.authorization.replace(/^Bearer /, ''))
+    await directEditor.getByRole('button', { name: /^test connection$/i }).click()
+    await expect(directEditor.getByText(/^connected/i)).toBeVisible({ timeout: 30_000 })
+    await shot(page, '15-direct-test')
+    await directEditor.getByRole('button', { name: /^save$/i }).click()
+    await expect(directEditor).toBeHidden({ timeout: 30_000 })
+    await expect(settingsDialog.getByText('Open WebUI API')).toBeVisible()
+    await shot(page, '15b-direct-list')
+    await settingsDialog.getByRole('button', { name: /^delete$/i }).click()
+    await settingsDialog
+      .getByRole('alertdialog')
+      .getByRole('button', { name: /^delete$/i })
+      .click()
+    await expect(settingsDialog.getByText('Open WebUI API')).toBeHidden({
+      timeout: 30_000,
+    })
   })
 })

@@ -508,5 +508,18 @@
   "desktopKnowledgeMenu": "Knowledge",
   "@desktopKnowledgeMenu": {
     "description": "Accessible name of the list of knowledge bases that opens when typing # in the desktop composer."
+  },
+  "desktopOpenAiCompatible": "OpenAI-compatible",
+  "@desktopOpenAiCompatible": {
+    "description": "Provider type of a desktop direct connection: any server that speaks the OpenAI API, including OpenRouter, Azure and LM Studio."
+  },
+  "desktopDirectHistoryLocal": "Keep direct chats on this computer only",
+  "@desktopDirectHistoryLocal": {
+    "description": "Setting on the desktop direct connections page: direct chats are not mirrored to the Open WebUI server."
+  },
+  "desktopDirectEnable": "Use {name}",
+  "@desktopDirectEnable": {
+    "description": "Accessible name of the switch that turns one desktop direct connection on or off.",
+    "placeholders": { "name": { "type": "String", "example": "OpenRouter" } }
   }
 }
