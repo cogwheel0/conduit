@@ -9,7 +9,7 @@ void main() {
     test('matches a chord exactly', () {
       expect(
         resolveShortcut(const KeyStroke('k', primary: true), typing: false),
-        ShortcutAction.focusSearch,
+        ShortcutAction.openPalette,
       );
     });
 
@@ -31,10 +31,10 @@ void main() {
 
     group('while typing', () {
       test('modified chords still fire', () {
-        // The point of Cmd+K is reaching search from the composer.
+        // The point of Cmd+K is reaching the palette from the composer.
         expect(
           resolveShortcut(const KeyStroke('k', primary: true), typing: true),
-          ShortcutAction.focusSearch,
+          ShortcutAction.openPalette,
         );
       });
 

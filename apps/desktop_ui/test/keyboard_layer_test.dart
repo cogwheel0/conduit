@@ -34,6 +34,13 @@ const _detail = ChatDetail(
   ],
 );
 
+const _list = ChatList(
+  chats: <ChatSummary>[
+    ChatSummary(id: 'chat-1', title: 'A chat', updatedAtMs: 2),
+    ChatSummary(id: 'chat-2', title: 'Holiday plans', updatedAtMs: 1),
+  ],
+);
+
 /// The layer under test, with both browser ports recorded instead.
 ({NoShortcutBinding keys, RecordingWindowCommands commands, Component tree})
 _scoped({ChatDetail? detail = _detail, LiveTurn? live}) {
@@ -50,6 +57,7 @@ _scoped({ChatDetail? detail = _detail, LiveTurn? live}) {
         chatDetailProvider.overrideWith((ref) async => detail),
         liveTurnProvider.overrideWith((ref) => Stream<LiveTurn?>.value(live)),
         selectedChatIdProvider.overrideWith(() => _Selection('chat-1')),
+        chatListProvider.overrideWith((ref) async => _list),
       ],
       child: const KeyboardLayer(),
     ),
@@ -83,15 +91,10 @@ void main() {
     tester.pumpComponent(scoped.tree);
     await pumpEventQueue();
 
-    scoped.keys.handler!(ShortcutAction.focusSearch);
     scoped.keys.handler!(ShortcutAction.focusComposer);
     scoped.keys.handler!(ShortcutAction.focusModelPicker);
 
-    expect(scoped.commands.focused, <String>[
-      'chat-search',
-      'composer',
-      'model',
-    ]);
+    expect(scoped.commands.focused, <String>['composer', 'model']);
   });
 
   testComponents('the overlay lists the real table', (tester) async {
@@ -181,5 +184,71 @@ void main() {
 
     expect(scoped.commands.copied, isEmpty);
     expect(find.text(t.desktop.desktopNothingToCopy), findsOneComponent);
+  });
+
+  group('command palette', () {
+    testComponents('opens on the chord, focused and listing recents', (
+      tester,
+    ) async {
+      final scoped = _scoped();
+      tester.pumpComponent(scoped.tree);
+      await pumpEventQueue();
+      expect(find.text(t.desktop.desktopPaletteCommands), findsNothing);
+
+      scoped.keys.handler!(ShortcutAction.openPalette);
+      await pumpEventQueue();
+
+      expect(find.text(t.desktop.desktopPaletteCommands), findsOneComponent);
+      expect(find.text(t.desktop.desktopPaletteRecent), findsOneComponent);
+      expect(find.text('Holiday plans'), findsOneComponent);
+      // The chord it teaches is the table's, like the overlay's.
+      expect(find.text('Ctrl+Shift+O'), findsOneComponent);
+      expect(scoped.commands.focused, contains('palette-input'));
+    });
+
+    testComponents('Esc closes it before it stops anything', (tester) async {
+      final scoped = _scoped(
+        live: const LiveTurn(chatId: 'chat-1', messageId: 'm3', text: 'half'),
+      );
+      tester.pumpComponent(scoped.tree);
+      await pumpEventQueue();
+
+      scoped.keys.handler!(ShortcutAction.openPalette);
+      await pumpEventQueue();
+      scoped.keys.handler!(ShortcutAction.stopGenerating);
+      await pumpEventQueue();
+
+      expect(find.text(t.desktop.desktopPaletteCommands), findsNothing);
+    });
+
+    testComponents('the chord toggles it closed again', (tester) async {
+      final scoped = _scoped();
+      tester.pumpComponent(scoped.tree);
+      await pumpEventQueue();
+
+      scoped.keys.handler!(ShortcutAction.openPalette);
+      await pumpEventQueue();
+      scoped.keys.handler!(ShortcutAction.openPalette);
+      await pumpEventQueue();
+
+      expect(find.text(t.desktop.desktopPaletteCommands), findsNothing);
+    });
+
+    testComponents('choosing a command runs it and closes the palette', (
+      tester,
+    ) async {
+      final scoped = _scoped();
+      tester.pumpComponent(scoped.tree);
+      await pumpEventQueue();
+
+      scoped.keys.handler!(ShortcutAction.openPalette);
+      await pumpEventQueue();
+      // The last command: keyboard shortcuts, which needs no router.
+      await tester.click(find.byKey(const ValueKey('palette-option-4')));
+      await pumpEventQueue();
+
+      expect(find.text(t.desktop.desktopPaletteCommands), findsNothing);
+      expect(find.text(t.desktop.desktopShortcutsTitle), findsOneComponent);
+    });
   });
 }

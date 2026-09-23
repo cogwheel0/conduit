@@ -189,9 +189,9 @@
   "@desktopShortcutFocusComposer": {
     "description": "Name of the desktop shortcut that moves focus to the composer."
   },
-  "desktopShortcutFocusSearch": "Search conversations",
-  "@desktopShortcutFocusSearch": {
-    "description": "Name of the desktop shortcut that moves focus to the sidebar search field."
+  "desktopShortcutOpenPalette": "Search conversations and commands",
+  "@desktopShortcutOpenPalette": {
+    "description": "Name of the desktop shortcut that opens the command palette, which finds both conversations and app commands."
   },
   "desktopShortcutFocusModelPicker": "Choose a model",
   "@desktopShortcutFocusModelPicker": {
@@ -333,5 +333,29 @@
   "desktopDropToAttach": "Drop files to attach",
   "@desktopDropToAttach": {
     "description": "Shown under the desktop composer while files are dragged over it."
+  },
+  "desktopPaletteLabel": "Command palette",
+  "@desktopPaletteLabel": {
+    "description": "Accessible name of the desktop command palette dialog."
+  },
+  "desktopPalettePlaceholder": "Search conversations and commands",
+  "@desktopPalettePlaceholder": {
+    "description": "Placeholder in the desktop command palette's search field."
+  },
+  "desktopPaletteCommands": "Commands",
+  "@desktopPaletteCommands": {
+    "description": "Heading over app commands, such as New Chat or Settings, in the desktop command palette."
+  },
+  "desktopPaletteRecent": "Recent conversations",
+  "@desktopPaletteRecent": {
+    "description": "Heading over the most recent conversations in the desktop command palette before anything is typed."
+  },
+  "desktopPaletteConversations": "Conversations",
+  "@desktopPaletteConversations": {
+    "description": "Heading over conversations that match the search in the desktop command palette."
+  },
+  "desktopNewTemporaryChat": "New temporary chat",
+  "@desktopNewTemporaryChat": {
+    "description": "Command in the desktop command palette that starts a chat which is not saved."
   }
 }

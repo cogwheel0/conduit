@@ -97,6 +97,36 @@ final searchResultsProvider = FutureProvider<ChatSearchResults?>((ref) async {
       );
 });
 
+/// The command palette's text (WP-3.1).
+///
+/// Separate from [searchQueryProvider] on purpose. The palette is a
+/// passing glance, and typing into it should not replace what the sidebar
+/// was showing -- closing the palette would otherwise leave the sidebar
+/// filtered by a query the user never typed there.
+final paletteQueryProvider = NotifierProvider<SearchQuery, String>(
+  SearchQuery.new,
+);
+
+/// Conversations matching the palette's text, or null with no text.
+///
+/// The same `chats.search` as the sidebar, debounced the same way, so a
+/// conversation is found by what was said in it and not only by its title.
+final paletteResultsProvider = FutureProvider<ChatSearchResults?>((ref) async {
+  final query = ref.watch(paletteQueryProvider).trim();
+  if (query.isEmpty) return null;
+  var cancelled = false;
+  ref.onDispose(() => cancelled = true);
+  await Future<void>.delayed(const Duration(milliseconds: 150));
+  if (cancelled) return null;
+  return ref
+      .read(rpcClientProvider)
+      .call(
+        ConduitMethods.chatsSearch,
+        params: ChatSearchQuery(query: query, limit: 8).toJson(),
+        decode: ChatSearchResults.fromJson,
+      );
+});
+
 /// Which conversation the transcript is showing. Null is the empty state.
 final selectedChatIdProvider = NotifierProvider<SelectedChatId, String?>(
   SelectedChatId.new,

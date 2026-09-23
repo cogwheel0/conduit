@@ -124,6 +124,13 @@ final class DocumentWindowCommands implements WindowCommandsPort {
     pane.scrollTop = pane.scrollHeight.toDouble();
   }
 
+  @override
+  void reveal(String id) {
+    web.document
+        .getElementById(id)
+        ?.scrollIntoView(web.ScrollIntoViewOptions(block: 'nearest'));
+  }
+
   /// Within a line or so of the bottom.
   ///
   /// Slack rather than equality: a fractional scroll position and subpixel
@@ -190,4 +197,28 @@ EventCallback sendOnEnter(void Function() send) => (web.Event event) {
   // is sent, so the next message starts with a blank line.
   event.preventDefault();
   send();
+};
+
+/// Arrow keys and Enter inside the command palette's field (WP-3.1).
+///
+/// On the field rather than the document: the palette is the one place
+/// arrows mean "move the highlight", and everywhere else they must keep
+/// moving the caret.
+EventCallback paletteKeys({
+  required void Function({required bool down}) move,
+  required void Function() choose,
+}) => (web.Event event) {
+  final key = event as web.KeyboardEvent;
+  if (key.isComposing || key.keyCode == 229) return;
+  switch (key.key) {
+    case 'ArrowDown':
+      event.preventDefault();
+      move(down: true);
+    case 'ArrowUp':
+      event.preventDefault();
+      move(down: false);
+    case 'Enter':
+      event.preventDefault();
+      choose();
+  }
 };

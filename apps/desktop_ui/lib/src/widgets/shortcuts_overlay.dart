@@ -34,10 +34,10 @@ class ShortcutsOverlay extends StatelessComponent {
         classes:
             'max-h-full w-full max-w-md overflow-y-auto rounded border '
             'border-border bg-popover p-5 text-popover-foreground shadow-lg',
-        attributes: const <String, String>{
+        attributes: <String, String>{
           'role': 'dialog',
           'aria-modal': 'true',
-          'aria-label': 'Keyboard shortcuts',
+          'aria-label': t.desktop.desktopShortcutsTitle,
         },
         // Otherwise the scrim's handler fires for every click inside the
         // dialog and it closes as soon as it is touched.
@@ -85,7 +85,7 @@ class ShortcutsOverlay extends StatelessComponent {
   /// and the button it stands in for say the same words.
   String _describe(ShortcutAction action) => switch (action) {
     ShortcutAction.newChat => t.app.newChat,
-    ShortcutAction.focusSearch => t.desktop.desktopShortcutFocusSearch,
+    ShortcutAction.openPalette => t.desktop.desktopShortcutOpenPalette,
     ShortcutAction.focusComposer => t.desktop.desktopShortcutFocusComposer,
     ShortcutAction.focusModelPicker =>
       t.desktop.desktopShortcutFocusModelPicker,

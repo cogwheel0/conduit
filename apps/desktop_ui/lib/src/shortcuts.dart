@@ -11,7 +11,7 @@ library;
 /// affected control rather than by the engine.
 enum ShortcutAction {
   newChat,
-  focusSearch,
+  openPalette,
   focusComposer,
   focusModelPicker,
   stopGenerating,
@@ -85,8 +85,11 @@ const List<Shortcut> defaultShortcuts = <Shortcut>[
     KeyStroke('o', primary: true, shift: true),
     whileTyping: true,
   ),
+  // The command palette (WP-3.1), which is also where search lives: it
+  // finds conversations as well as commands, so a separate "focus the
+  // sidebar search" chord would be a second way to do half of this.
   Shortcut(
-    ShortcutAction.focusSearch,
+    ShortcutAction.openPalette,
     KeyStroke('k', primary: true),
     whileTyping: true,
   ),

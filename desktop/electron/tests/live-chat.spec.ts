@@ -338,9 +338,68 @@ test.describe('against a real server', () => {
     await page.keyboard.press('Escape')
     await expect(overlay).toBeHidden()
 
-    // Ctrl+K from nowhere in particular puts the caret in search.
+    // 7b. The command palette (WP-3.1). Ctrl+K from anywhere opens it with
+    // the caret in its field, and Enter runs the highlighted row -- here a
+    // command, found by a fragment of its name.
     await page.keyboard.press('Control+k')
-    await expect(page.getByLabel(/search conversations/i)).toBeFocused()
+    const palette = page.getByRole('dialog', { name: /command palette/i })
+    await expect(palette).toBeVisible()
+    const paletteInput = palette.getByRole('combobox')
+    await expect(paletteInput).toBeFocused()
+    await expect(palette).toContainText(/recent conversations/i)
+    await shot(page, '07b-palette')
+    await page.keyboard.type('shortcuts')
+    await expect(palette.getByRole('option')).toHaveCount(1)
+    await page.keyboard.press('Enter')
+    await expect(palette).toBeHidden()
+    await expect(overlay).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(overlay).toBeHidden()
+
+    // And a conversation, found through the same search the sidebar uses
+    // and opened with the arrow keys. Any conversation will do; one whose
+    // title is not also a command's name, so the first row is a chat.
+    //
+    // A conversation row is the one with an actions group (folders have
+    // none), and its title is the one button there without an aria-label.
+    const titles = await page
+      .locator('nav[aria-label] li:has([role="group"]) button:not([aria-label])')
+      .allInnerTexts()
+    const title = titles
+      .map((text) => text.trim())
+      .find((text) => text !== '' && !/^new chat$/i.test(text))
+    // Step 6 already needed conversations on this account, so a missing one
+    // is the locator being wrong -- which silently skipped this once.
+    expect(title, 'no titled conversation in the sidebar').toBeDefined()
+    if (title !== undefined) {
+      await page.keyboard.press('Control+k')
+      await expect(paletteInput).toBeFocused()
+      await page.keyboard.type(title)
+      const hit = palette.getByRole('option').filter({ hasText: title })
+      await expect(hit.first()).toBeVisible({ timeout: 30_000 })
+      await shot(page, '07c-palette-search')
+      // Down then up: the highlight wraps and comes back to the first row.
+      await page.keyboard.press('ArrowDown')
+      await page.keyboard.press('ArrowUp')
+      await expect(palette.getByRole('option').first()).toHaveAttribute(
+        'aria-selected',
+        'true',
+      )
+      // Full-text search may rank another conversation that mentions the
+      // title above the one that has it, so the check is on the row chosen.
+      const chosen = (
+        await palette.getByRole('option').first().locator('div').nth(1).innerText()
+      ).trim()
+      await page.keyboard.press('Enter')
+      await expect(palette).toBeHidden()
+      await expect(
+        page.locator('nav[aria-label] button[aria-current="true"]'),
+      ).toContainText(chosen)
+      await page.keyboard.press('Control+Shift+O')
+      await expect
+        .poll(() => transcript.locator('article').count(), { timeout: 15_000 })
+        .toBe(0)
+    }
 
     // 8. Send with Enter rather than the button, which is how the app is
     // actually used, and is a different code path from clicking.

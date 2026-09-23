@@ -34,6 +34,12 @@ abstract interface class WindowCommandsPort {
   /// every time a token arrives -- so "follow the conversation" has to mean
   /// "keep following it if that is where they already were".
   void scrollToEnd(String id);
+
+  /// Scrolls the least distance that brings [id] into view, if it is not.
+  ///
+  /// For a highlight moved by the keyboard: a row the arrows reached but the
+  /// eye cannot see is a selection the user does not know they made.
+  void reveal(String id);
 }
 
 /// Records what it was asked to do. The default outside a browser.
@@ -57,6 +63,11 @@ final class RecordingWindowCommands implements WindowCommandsPort {
   void scrollToEnd(String id) => scrolled.add(id);
 
   final List<String> scrolled = <String>[];
+
+  @override
+  void reveal(String id) => revealed.add(id);
+
+  final List<String> revealed = <String>[];
 
   final List<({String id, String text})> values =
       <({String id, String text})>[];

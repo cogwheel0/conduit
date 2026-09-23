@@ -7,10 +7,12 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import 'package:jaspr_router/jaspr_router.dart';
 
 import '../l10n/strings.g.dart';
+import '../palette.dart';
 import '../rpc/chat_providers.dart';
 import '../rpc/rpc_providers.dart';
 import '../rpc/ui_request_providers.dart';
 import '../shortcuts.dart';
+import 'command_palette.dart';
 import 'shortcuts_overlay.dart';
 
 /// Binds the shortcut table to the running window (WP-3.7).
@@ -29,6 +31,7 @@ class KeyboardLayer extends StatefulComponent {
 
 class _KeyboardLayerState extends State<KeyboardLayer> {
   bool _showShortcuts = false;
+  bool _showPalette = false;
   String? _notice;
   Timer? _noticeTimer;
   ProviderSubscription<String?>? _lastReply;
@@ -63,10 +66,18 @@ class _KeyboardLayerState extends State<KeyboardLayer> {
 
   @override
   Component build(BuildContext context) {
+    final isMac = context.read(shellBridgeProvider).platform == 'darwin';
     return div(classes: 'contents', <Component>[
+      if (_showPalette)
+        CommandPalette(
+          isMac: isMac,
+          onClose: () => setState(() => _showPalette = false),
+          onCommand: _run,
+          onChat: _openChat,
+        ),
       if (_showShortcuts)
         ShortcutsOverlay(
-          isMac: context.read(shellBridgeProvider).platform == 'darwin',
+          isMac: isMac,
           onClose: () => setState(() => _showShortcuts = false),
         ),
       if (_notice case final message?)
@@ -87,13 +98,12 @@ class _KeyboardLayerState extends State<KeyboardLayer> {
   void _dispatch(ShortcutAction action) {
     switch (action) {
       case ShortcutAction.newChat:
-        if (RouteState.of(context).location != '/') {
-          Router.of(context).push('/');
-        }
-        context.read(chatActionsProvider).select(null);
-        context.read(windowCommandsProvider).focus('composer');
-      case ShortcutAction.focusSearch:
-        context.read(windowCommandsProvider).focus('chat-search');
+        _run(PaletteCommand.newChat);
+      case ShortcutAction.openPalette:
+        setState(() {
+          _showPalette = !_showPalette;
+          _showShortcuts = false;
+        });
       case ShortcutAction.focusComposer:
         context.read(windowCommandsProvider).focus('composer');
       case ShortcutAction.focusModelPicker:
@@ -101,8 +111,11 @@ class _KeyboardLayerState extends State<KeyboardLayer> {
       case ShortcutAction.stopGenerating:
         // Esc means "back out of whatever is in front of me" first. Only
         // once there is no overlay does it reach the running turn.
-        if (_showShortcuts) {
-          setState(() => _showShortcuts = false);
+        if (_showPalette || _showShortcuts) {
+          setState(() {
+            _showPalette = false;
+            _showShortcuts = false;
+          });
           return;
         }
         final live = context.read(liveTurnProvider).value;
@@ -111,7 +124,10 @@ class _KeyboardLayerState extends State<KeyboardLayer> {
       case ShortcutAction.openSettings:
         Router.of(context).push('/settings/appearance');
       case ShortcutAction.showShortcuts:
-        setState(() => _showShortcuts = !_showShortcuts);
+        setState(() {
+          _showShortcuts = !_showShortcuts;
+          _showPalette = false;
+        });
       case ShortcutAction.copyLastResponse:
         unawaited(_copy(_lastReply?.read()));
       case ShortcutAction.allowRequest || ShortcutAction.denyRequest:
@@ -135,6 +151,41 @@ class _KeyboardLayerState extends State<KeyboardLayer> {
       case ShortcutAction.copyLastCodeBlock:
         final reply = _lastReply?.read();
         unawaited(_copy(reply == null ? null : lastCodeBlock(reply)));
+    }
+  }
+
+  /// A palette command, and the shortcuts that do the same thing.
+  void _run(PaletteCommand command) {
+    switch (command) {
+      case PaletteCommand.newChat || PaletteCommand.newTemporaryChat:
+        _goHome();
+        context.read(chatActionsProvider).select(null);
+        // Only ever switched on here. Plain New Chat leaves the toggle as
+        // the user set it, as the sidebar's button does.
+        if (command == PaletteCommand.newTemporaryChat) {
+          context.read(temporaryChatProvider.notifier).set(value: true);
+        }
+        context.read(windowCommandsProvider).focus('composer');
+      case PaletteCommand.chooseModel:
+        _goHome();
+        context.read(windowCommandsProvider).focus('model');
+      case PaletteCommand.openSettings:
+        Router.of(context).push('/settings/appearance');
+      case PaletteCommand.showShortcuts:
+        setState(() => _showShortcuts = true);
+    }
+  }
+
+  void _openChat(String chatId) {
+    _goHome();
+    context.read(chatActionsProvider).select(chatId);
+    context.read(windowCommandsProvider).focus('composer');
+  }
+
+  /// The chat page, from wherever the palette was opened.
+  void _goHome() {
+    if (RouteState.of(context).location != '/') {
+      Router.of(context).push('/');
     }
   }
 
