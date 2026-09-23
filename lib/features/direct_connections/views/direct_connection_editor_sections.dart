@@ -48,7 +48,9 @@ final class DirectConnectionAvailabilitySection extends StatelessWidget {
                   ),
                   const SizedBox(height: Spacing.xxs),
                   Text(
-                    l10n.directConnectionEnabledSubtitle,
+                    isOllamaCloudApiBaseUrl(form.baseUrl.text.trim())
+                        ? l10n.directConnectionOllamaCloudToggleSubtitle
+                        : l10n.directConnectionEnabledSubtitle,
                     style: AppTypography.bodySmallStyle.copyWith(
                       color: theme.textSecondary,
                     ),
@@ -79,9 +81,11 @@ final class DirectConnectionGeneralSection extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     return InsetGroupedList(
       useNativeSurface: true,
-      footer: form.policy.editsProvider
-          ? l10n.directConnectionEnabledSubtitle
-          : l10n.openWebUiDirectConnectionProviderDescription,
+      footer: !form.policy.editsProvider
+          ? l10n.openWebUiDirectConnectionProviderDescription
+          : isOllamaCloudApiBaseUrl(form.baseUrl.text.trim())
+          ? l10n.directConnectionOllamaCloudToggleSubtitle
+          : l10n.directConnectionEnabledSubtitle,
       children: [
         UtilityRow(
           title: l10n.enabledLabel,
