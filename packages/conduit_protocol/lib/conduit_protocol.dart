@@ -16,6 +16,7 @@ export 'src/direct.dart';
 export 'src/events.dart';
 export 'src/files.dart';
 export 'src/handshake.dart';
+export 'src/mcp.dart';
 export 'src/methods.dart';
 export 'src/models.dart';
 export 'src/peer_helpers.dart';

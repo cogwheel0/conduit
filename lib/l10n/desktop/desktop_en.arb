@@ -521,5 +521,26 @@
   "@desktopDirectEnable": {
     "description": "Accessible name of the switch that turns one desktop direct connection on or off.",
     "placeholders": { "name": { "type": "String", "example": "OpenRouter" } }
+  },
+  "desktopMcpReachabilityHelp": "Add a Streamable HTTP endpoint that this computer can reach. Its tools can then be offered to models from your direct connections.",
+  "@desktopMcpReachabilityHelp": {
+    "description": "Explanation at the top of the desktop MCP servers settings page."
+  },
+  "desktopMcpSignedIn": "Signed in",
+  "@desktopMcpSignedIn": {
+    "description": "Badge on an MCP server whose OAuth sign-in is complete."
+  },
+  "desktopMcpNotSignedIn": "Not signed in",
+  "@desktopMcpNotSignedIn": {
+    "description": "Badge on an OAuth MCP server that has not been signed in yet."
+  },
+  "desktopMcpHeadersConfigured": "Configured: {names}. Type new headers to replace them.",
+  "@desktopMcpHeadersConfigured": {
+    "description": "Hint under the custom headers field of an MCP server that already has headers stored; values are never shown.",
+    "placeholders": { "names": { "type": "String", "example": "X-Team, X-Region" } }
+  },
+  "desktopMcpSaveFirst": "Save the server before signing in.",
+  "@desktopMcpSaveFirst": {
+    "description": "Shown when OAuth sign-in is attempted on an MCP server that has not been saved."
   }
 }

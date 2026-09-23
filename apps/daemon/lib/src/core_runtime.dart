@@ -14,6 +14,7 @@ import 'package:conduit_core/providers/storage_providers.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:hive_ce/hive.dart';
+import 'package:mcp_dart/mcp_dart.dart' as mcp;
 import 'package:path/path.dart' as p;
 import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
@@ -24,6 +25,7 @@ import 'log.dart';
 import 'ports/connectivity.dart';
 import 'ports/database_opener.dart';
 import 'ports/key_value_store.dart';
+import 'ports/open_url.dart';
 import 'ports/secure_store.dart';
 import 'ports/worker.dart';
 
@@ -44,6 +46,7 @@ final class CoreRuntime {
     required this.container,
     required this.directories,
     required DaemonConnectivity connectivity,
+    required this.openUrl,
     required List<Box<dynamic>> boxes,
   }) : _connectivity = connectivity,
        _boxes = boxes;
@@ -51,6 +54,10 @@ final class CoreRuntime {
   final ProviderContainer container;
   final DaemonDirectories directories;
   final DaemonConnectivity _connectivity;
+
+  /// How the core opens a page in the system browser; the server attaches
+  /// its event bus once there is one.
+  final DaemonOpenUrlPort openUrl;
 
   /// Takes a window's view of the network, which arrives as an event where
   /// the port can only poll.
@@ -74,6 +81,16 @@ final class CoreRuntime {
     // The daemon, like the mobile app, owns two database files on purpose:
     // the server's and the direct-local one.
     driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+    // The MCP client narrates every connection on stderr. Its warnings and
+    // errors belong in the daemon's log; the rest is noise.
+    mcp.setMcpLogHandler((name, level, message) {
+      if (level.index < mcp.LogLevel.warn.index) return;
+      DebugLogger.warning(
+        'mcp-client',
+        scope: 'daemon/mcp',
+        data: <String, Object?>{'logger': name, 'message': message},
+      );
+    });
     final secureStore = await DaemonSecureStore.open(
       file: File(p.join(directories.paths.userData, 'secure_store.bin')),
       masterKey: base64.decode(config.masterKey),
@@ -90,6 +107,7 @@ final class CoreRuntime {
 
     final connectivity = DaemonConnectivity();
     connectivity.start();
+    final openUrl = DaemonOpenUrlPort();
 
     final container = ProviderContainer(
       observers: observers,
@@ -99,6 +117,7 @@ final class CoreRuntime {
         ),
         workerPortProvider.overrideWithValue(const DaemonWorkerPort()),
         connectivityPortProvider.overrideWithValue(connectivity),
+        openExternalUrlProvider.overrideWithValue(openUrl),
         secureStorageProvider.overrideWithValue(secureStore),
         hiveBoxesProvider.overrideWithValue(boxes.value),
         // Mobile routes the post-certification catch-up through its sync
@@ -149,6 +168,7 @@ final class CoreRuntime {
       container: container,
       directories: directories,
       connectivity: connectivity,
+      openUrl: openUrl,
       boxes: boxes.all,
     );
   }

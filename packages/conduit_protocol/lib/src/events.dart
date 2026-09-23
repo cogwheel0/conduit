@@ -53,6 +53,11 @@ abstract final class ConduitEvents {
   /// payload; `models.list` says what they are.
   static const String modelsChanged = 'models.changed';
 
+  /// The daemon needs a page opened in the system browser (M4): an MCP
+  /// server's OAuth sign-in. Payload [OpenUrl]. The first window to hear it
+  /// opens it.
+  static const String openUrl = 'shell.openUrl';
+
   /// Every event name, for subscription validation and tests.
   static const Set<String> all = {
     turnStarted,
@@ -71,6 +76,7 @@ abstract final class ConduitEvents {
     uiSettled,
     capabilitiesChanged,
     modelsChanged,
+    openUrl,
   };
 }
 

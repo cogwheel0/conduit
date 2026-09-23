@@ -29,6 +29,12 @@ class UiRequests extends Notifier<List<UiRequest>> {
           state = <UiRequest>[...state, request];
         case ConduitEvents.uiSettled:
           _drop(envelope.payload['requestId'] as String?);
+        // The daemon's other request of a window: a page for the system
+        // browser, such as an MCP server's sign-in.
+        case ConduitEvents.openUrl:
+          ref
+              .read(windowCommandsProvider)
+              .openExternal(OpenUrl.fromJson(envelope.payload).url);
       }
     });
     ref.onDispose(subscription.cancel);

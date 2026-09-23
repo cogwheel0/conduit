@@ -8,6 +8,7 @@ import 'auth_service.dart';
 import 'chats_service.dart';
 import 'composer_service.dart';
 import 'direct_service.dart';
+import 'mcp_service.dart';
 import 'prompts_service.dart';
 import 'event_bus.dart';
 import 'log.dart';
@@ -40,9 +41,11 @@ class RpcSession {
     ComposerService? composer,
     PromptsService? prompts,
     DirectService? direct,
+    McpService? mcp,
     void Function(bool online)? reportNetwork,
   }) : _events = events,
        _direct = direct,
+       _mcp = mcp,
        _reportNetwork = reportNetwork,
        _composer = composer,
        _prompts = prompts,
@@ -89,6 +92,7 @@ class RpcSession {
   final ComposerService? _composer;
   final PromptsService? _prompts;
   final DirectService? _direct;
+  final McpService? _mcp;
 
   /// Where a window's `online`/`offline` events go: the connectivity port,
   /// which then tells every window. Null before the core is up.
@@ -858,6 +862,105 @@ class RpcSession {
       },
     );
 
+    registerTypedMethodNoParams<McpServerList>(
+      _peer,
+      ConduitMethods.mcpList,
+      encodeResult: (result) => result.toJson(),
+      handler: () {
+        _requireHandshake();
+        return _requireMcp().list();
+      },
+    );
+
+    registerTypedMethod<McpServerEdit, McpServerList>(
+      _peer,
+      ConduitMethods.mcpSave,
+      decodeParams: McpServerEdit.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (edit) {
+        _requireHandshake();
+        return _requireMcp().save(edit);
+      },
+    );
+
+    registerTypedMethod<McpRef, McpServerList>(
+      _peer,
+      ConduitMethods.mcpRemove,
+      decodeParams: McpRef.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (ref) {
+        _requireHandshake();
+        return _requireMcp().remove(ref.id);
+      },
+    );
+
+    registerTypedMethod<McpEnable, McpServerList>(
+      _peer,
+      ConduitMethods.mcpSetEnabled,
+      decodeParams: McpEnable.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireMcp().setEnabled(request.id, request.enabled);
+      },
+    );
+
+    registerTypedMethod<McpServerEdit, McpTestResult>(
+      _peer,
+      ConduitMethods.mcpTest,
+      decodeParams: McpServerEdit.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (edit) {
+        _requireHandshake();
+        return _requireMcp().test(edit);
+      },
+    );
+
+    registerTypedMethod<McpRef, McpServerList>(
+      _peer,
+      ConduitMethods.mcpConnect,
+      decodeParams: McpRef.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (ref) {
+        _requireHandshake();
+        return _requireMcp().connect(ref.id);
+      },
+    );
+
+    registerTypedMethod<McpRef, Map<String, dynamic>>(
+      _peer,
+      ConduitMethods.mcpCancelConnect,
+      decodeParams: McpRef.fromJson,
+      encodeResult: (result) => result,
+      handler: (ref) async {
+        _requireHandshake();
+        await _requireMcp().cancelConnect(ref.id);
+        return <String, dynamic>{'cancelled': true};
+      },
+    );
+
+    registerTypedMethod<McpRef, McpServerList>(
+      _peer,
+      ConduitMethods.mcpDisconnect,
+      decodeParams: McpRef.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (ref) {
+        _requireHandshake();
+        return _requireMcp().disconnect(ref.id);
+      },
+    );
+
+    registerTypedMethod<McpForgetApproval, McpServerList>(
+      _peer,
+      ConduitMethods.mcpForgetApproval,
+      decodeParams: McpForgetApproval.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireMcp().forgetApproval(request);
+      },
+    );
+
     registerTypedMethodNoParams<PromptList>(
       _peer,
       ConduitMethods.promptsList,
@@ -900,6 +1003,13 @@ class RpcSession {
       },
     );
   }
+
+  McpService _requireMcp() =>
+      _mcp ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
 
   DirectService _requireDirect() =>
       _direct ??

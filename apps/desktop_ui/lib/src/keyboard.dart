@@ -127,6 +127,12 @@ final class DocumentWindowCommands implements WindowCommandsPort {
   }
 
   @override
+  void openExternal(String url) {
+    if (!web.document.hasFocus()) return;
+    web.window.open(url, '_blank');
+  }
+
+  @override
   void reveal(String id) {
     web.document
         .getElementById(id)

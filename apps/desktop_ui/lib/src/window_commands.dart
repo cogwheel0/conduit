@@ -45,6 +45,11 @@ abstract interface class WindowCommandsPort {
   /// For a highlight moved by the keyboard: a row the arrows reached but the
   /// eye cannot see is a selection the user does not know they made.
   void reveal(String id);
+
+  /// Opens [url] in the system browser -- the shell sends an http(s)
+  /// `window.open` there -- if this is the window the user is in, so that
+  /// several open windows do not each open it.
+  void openExternal(String url);
 }
 
 /// Records what it was asked to do. The default outside a browser.
@@ -79,6 +84,11 @@ final class RecordingWindowCommands implements WindowCommandsPort {
   Future<String?> readClipboard() async => clipboardText;
 
   final List<String> revealed = <String>[];
+
+  @override
+  void openExternal(String url) => opened.add(url);
+
+  final List<String> opened = <String>[];
 
   final List<({String id, String text})> values =
       <({String id, String text})>[];

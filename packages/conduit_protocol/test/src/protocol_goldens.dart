@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.26.0",
+  "protocolVersion": "1.27.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.26.0",
+  "protocolVersion": "1.27.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -523,6 +523,93 @@ const Map<String, String> protocolGoldens = <String, String>{
   'directHistory': r'''
 {
   "localOnly": true
+}''',
+
+  'mcpApprovalSummary': r'''
+{
+  "digest": "sha256:1f2e",
+  "toolName": "search",
+  "createdAtMs": 1790000000000
+}''',
+
+  'mcpServerSummary': r'''
+{
+  "id": "mcp-1",
+  "name": "Docs",
+  "endpoint": "https://mcp.example.com/mcp",
+  "enabled": true,
+  "auth": "oauth",
+  "hasBearerToken": false,
+  "customHeaderNames": [
+    "X-Team"
+  ],
+  "oauthConnected": true,
+  "allowInsecureCredentials": false,
+  "approvals": [
+    {
+      "digest": "sha256:1f2e",
+      "toolName": "search",
+      "createdAtMs": 1790000000000
+    }
+  ]
+}''',
+
+  'mcpServerList': r'''
+{
+  "servers": [
+    {
+      "id": "mcp-2",
+      "name": "Local",
+      "endpoint": "http://127.0.0.1:8808/mcp",
+      "enabled": false,
+      "auth": "none",
+      "hasBearerToken": false,
+      "customHeaderNames": [],
+      "oauthConnected": false,
+      "allowInsecureCredentials": false,
+      "approvals": []
+    }
+  ]
+}''',
+
+  'mcpServerEdit': r'''
+{
+  "name": "Docs",
+  "endpoint": "https://mcp.example.com/mcp",
+  "enabled": true,
+  "auth": "bearer",
+  "bearerToken": "secret",
+  "customHeaders": {
+    "X-Team": "blue"
+  },
+  "allowInsecureCredentials": false
+}''',
+
+  'mcpTestResult': r'''
+{
+  "reachable": true,
+  "toolCount": 4
+}''',
+
+  'mcpRef': r'''
+{
+  "id": "mcp-1"
+}''',
+
+  'mcpEnable': r'''
+{
+  "id": "mcp-1",
+  "enabled": false
+}''',
+
+  'mcpForgetApproval': r'''
+{
+  "serverId": "mcp-1"
+}''',
+
+  'openUrl': r'''
+{
+  "url": "https://auth.example.com/authorize?x=1"
 }''',
 
   'knowledgeSummary': r'''

@@ -228,6 +228,39 @@ abstract final class ConduitMethods {
   static const String directSetHistory = 'direct.setHistory';
 
   // ---------------------------------------------------------------------
+  // mcp.* -- MCP servers the app talks to itself (M4).
+  // ---------------------------------------------------------------------
+
+  /// Every MCP server, secrets reported only as present.
+  static const String mcpList = 'mcp.list';
+
+  /// Adds or changes a server; answers with the list.
+  static const String mcpSave = 'mcp.save';
+
+  /// Removes a server; answers with the list.
+  static const String mcpRemove = 'mcp.remove';
+
+  /// Turns a server on or off without losing it.
+  static const String mcpSetEnabled = 'mcp.setEnabled';
+
+  /// Connects to a server as edited and counts its tools, without saving.
+  static const String mcpTest = 'mcp.test';
+
+  /// Signs in with OAuth: the daemon listens on a loopback port and a
+  /// window opens the provider's page (`shell.openUrl`). Answers once the
+  /// sign-in finishes, fails or is cancelled.
+  static const String mcpConnect = 'mcp.connect';
+
+  /// Abandons a sign-in in progress.
+  static const String mcpCancelConnect = 'mcp.cancelConnect';
+
+  /// Forgets an OAuth sign-in.
+  static const String mcpDisconnect = 'mcp.disconnect';
+
+  /// Forgets remembered tool approvals.
+  static const String mcpForgetApproval = 'mcp.forgetApproval';
+
+  // ---------------------------------------------------------------------
   // turns.* -- sending and stopping generation (M3).
   // ---------------------------------------------------------------------
 
