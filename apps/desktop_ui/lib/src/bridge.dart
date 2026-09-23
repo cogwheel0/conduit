@@ -1,12 +1,14 @@
 import 'package:conduit_protocol/conduit_protocol.dart';
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:js_interop';
 
 import 'package:web/web.dart' as web;
 
 import 'external_sign_in.dart';
 import 'file_picker.dart';
+import 'file_saver.dart';
 import 'shell_bridge.dart';
 import 'theme_applier.dart';
 
@@ -164,6 +166,35 @@ final class BrowserFilePicker implements FilePickerPort {
 
     element.click();
     return completer.future;
+  }
+}
+
+/// [FileSaverPort] as a download: a `Blob` behind a detached `<a download>`,
+/// which Electron turns into its Save dialog.
+final class BrowserFileSaver implements FileSaverPort {
+  const BrowserFileSaver();
+
+  @override
+  void save({
+    required String filename,
+    required String mimeType,
+    String? text,
+    String? base64,
+  }) {
+    final JSAny part = base64 != null
+        ? base64Decode(base64).toJS
+        : (text ?? '').toJS;
+    final blob = web.Blob(
+      <JSAny>[part].toJS,
+      web.BlobPropertyBag(type: mimeType),
+    );
+    final url = web.URL.createObjectURL(blob);
+    (web.document.createElement('a') as web.HTMLAnchorElement)
+      ..href = url
+      ..download = filename
+      ..click();
+    // After the click has handed the file over, not before.
+    Timer(const Duration(minutes: 1), () => web.URL.revokeObjectURL(url));
   }
 }
 

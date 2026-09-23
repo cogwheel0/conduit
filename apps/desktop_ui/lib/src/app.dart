@@ -8,6 +8,7 @@ import 'pages/chat_page.dart';
 import 'pages/diagnostics_page.dart';
 import 'pages/channels_page.dart';
 import 'pages/notes_page.dart';
+import 'pages/workspace/workspace_page.dart';
 import 'pages/onboarding_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/sign_in_page.dart';
@@ -101,6 +102,33 @@ class ConduitDesktopApp extends StatelessComponent {
               builder: (context, state) => const ChannelsPage(),
             ),
             Route(
+              path: '/workspace/:section/new',
+              title: 'Workspace',
+              builder: (context, state) => WorkspaceScreen(
+                section: state.params['section'],
+                create: true,
+              ),
+            ),
+            Route(
+              path: '/workspace/:section/:id',
+              title: 'Workspace',
+              builder: (context, state) => WorkspaceScreen(
+                section: state.params['section'],
+                id: Uri.decodeComponent(state.params['id'] ?? ''),
+              ),
+            ),
+            Route(
+              path: '/workspace/:section',
+              title: 'Workspace',
+              builder: (context, state) =>
+                  WorkspaceScreen(section: state.params['section']),
+            ),
+            Route(
+              path: '/workspace',
+              title: 'Workspace',
+              builder: (context, state) => const WorkspaceScreen(),
+            ),
+            Route(
               path: '/notes/:id',
               title: 'Notes',
               builder: (context, state) =>
@@ -182,10 +210,11 @@ bool showsFloatingSettingsLink(String location) =>
     location != '/' &&
     location != '/index.html' &&
     !location.startsWith('/settings') &&
-    // Notes and channels lead back to the chat, which has its own way in;
+    // Notes, channels and the workspace lead back to the chat, which has its own way in;
     // the pill would sit on their composers.
     !location.startsWith('/notes') &&
-    !location.startsWith('/channels');
+    !location.startsWith('/channels') &&
+    !location.startsWith('/workspace');
 
 /// Sends a window to onboarding or sign-in when it has no session.
 String? _sessionRedirect(BuildContext context, String location) =>

@@ -15,6 +15,7 @@ import '../rpc/channels_providers.dart' show channelListProvider;
 import '../rpc/chat_providers.dart';
 import '../rpc/rpc_providers.dart';
 import '../rpc/session_providers.dart';
+import '../rpc/workspace_providers.dart';
 import '../sidebar_model.dart';
 import '../widgets/form_field.dart';
 import '../widgets/chat_tags.dart';
@@ -192,6 +193,19 @@ class _Sidebar extends StatelessComponent {
                   'block rounded px-2 py-1.5 text-sm text-muted-foreground '
                   'hover:bg-accent hover:text-accent-foreground',
               child: Component.text(t.app.sidebarChannelsTab),
+            ),
+          // The workspace, when there is a section this account may manage
+          // (M6).
+          if (manageableSections(
+            context.watch(workspaceAccessProvider).value ??
+                const WorkspaceAccess(),
+          ).isNotEmpty)
+            Link(
+              to: '/workspace',
+              classes:
+                  'block rounded px-2 py-1.5 text-sm text-muted-foreground '
+                  'hover:bg-accent hover:text-accent-foreground',
+              child: Component.text(t.app.workspaceTitle),
             ),
           a(
             href: '/settings/appearance',

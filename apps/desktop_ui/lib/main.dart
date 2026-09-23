@@ -46,6 +46,7 @@ Future<void> main() async {
       // and looking right there is most of what makes it worth developing in.
       themeApplierProvider.overrideWithValue(const DocumentThemeApplier()),
       filePickerProvider.overrideWithValue(const BrowserFilePicker()),
+      fileSaverProvider.overrideWithValue(const BrowserFileSaver()),
       windowCommandsProvider.overrideWithValue(DocumentWindowCommands()),
       networkEventsProvider.overrideWithValue(WindowNetworkEvents()),
       // `platform` is the shell's own report, not a user-agent guess: the

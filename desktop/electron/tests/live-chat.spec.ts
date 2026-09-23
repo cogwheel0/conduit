@@ -1804,6 +1804,158 @@ test.describe('against a real server', () => {
         }
         await api.dispose()
       }
+
+      // 20. The workspace (M6): a prompt made, versioned, compared,
+      // exported, shared and deleted; a knowledge base with a folder and a
+      // file uploaded into it. Everything is this run's own, and deleted
+      // through the API as well should a step fail first.
+      const pathname = () => page.evaluate(() => window.location.pathname)
+      await page.evaluate(() => {
+        window.history.pushState(null, '', '/')
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      })
+      await page.getByRole('link', { name: /^workspace$/i }).click()
+      await expect.poll(pathname, { timeout: 30_000 }).toBe('/workspace/models')
+      const sections = page.getByRole('navigation', { name: /^workspace$/i })
+      await expect(page.getByRole('heading', { name: /^models/i })).toBeVisible({ timeout: 30_000 })
+      await shot(page, '20-workspace')
+      const stamp = Date.now()
+      const promptName = `Live e2e prompt ${stamp}`
+      const command = `live-e2e-prompt-${stamp}`
+      const knowledgeName = `Live e2e knowledge ${stamp}`
+      const knowledgeFile = join(tmpdir(), `conduit-knowledge-${stamp}.txt`)
+      writeFileSync(knowledgeFile, 'The deploy window is Tuesday at nine.\n')
+      // Exports are downloads; the main process is told where to put them
+      // rather than asking, as it would a person.
+      const downloads = mkdtempSync(join(tmpdir(), 'conduit-downloads-'))
+      await app.evaluate(({ session }, dir) => {
+        session.defaultSession.on('will-download', (_event, item) => {
+          item.setSavePath(`${dir}/${item.getFilename()}`)
+        })
+      }, downloads)
+      try {
+        await sections.getByRole('button', { name: /^prompts$/i }).click()
+        await expect.poll(pathname).toBe('/workspace/prompts')
+        await page.locator('#workspace-create').click()
+        await expect.poll(pathname).toBe('/workspace/prompts/new')
+        await page.locator('#prompt-name').fill(promptName)
+        // The command follows the name until it is typed.
+        await expect(page.locator('#prompt-command')).toHaveValue(`/${command}`)
+        await page.locator('#prompt-content').fill('Say hello to {{USER_NAME}}.')
+        await page.locator('#workspace-save').click()
+        await expect
+          .poll(pathname, { timeout: 30_000 })
+          .toMatch(/^\/workspace\/prompts\/(?!new$).+/)
+        await expect(page.getByRole('heading', { name: promptName })).toBeVisible({
+          timeout: 30_000,
+        })
+
+        // A second version, with a message, compared with the first.
+        await page.locator('#prompt-content').fill('Say hello warmly to {{USER_NAME}}.')
+        await page.locator('#prompt-commit').fill('Warmer')
+        await page.locator('#workspace-save').click()
+        await expect(
+          page.getByRole('status').filter({ hasText: /^prompt saved$/i }),
+        ).toBeVisible({ timeout: 30_000 })
+        await page.locator('#workspace-history').click()
+        const history = page.getByRole('region', { name: /^version history$/i })
+        await expect(history.getByText('Warmer')).toBeVisible({ timeout: 30_000 })
+        await history.getByRole('button', { name: /^compare with production$/i }).click()
+        const diffDialog = page.getByRole('dialog', { name: /^version comparison$/i })
+        await expect(diffDialog.getByText('+Say hello warmly to {{USER_NAME}}.')).toBeVisible({
+          timeout: 30_000,
+        })
+        await expect(diffDialog.getByText('-Say hello to {{USER_NAME}}.')).toBeVisible()
+        await shot(page, '20b-prompt-diff')
+        await diffDialog.getByRole('button', { name: /^close$/i }).click()
+
+        // Exported as the file Open WebUI imports.
+        await page.getByRole('button', { name: /^export$/i }).click()
+        const exportedPath = join(downloads, `${command}.json`)
+        await expect
+          .poll(() => {
+            try {
+              return JSON.parse(readFileSync(exportedPath, 'utf8'))[0]?.command
+            } catch {
+              return undefined
+            }
+          }, { timeout: 30_000 })
+          .toBe(command)
+
+        // Who may use it.
+        await page.locator('#workspace-access').click()
+        const accessDialog = page.getByRole('dialog', { name: /^sharing & access$/i })
+        await expect(accessDialog.getByLabel(/^public$/i)).toBeVisible()
+        await shot(page, '20c-access')
+        await accessDialog.getByRole('button', { name: /^cancel$/i }).click()
+
+        // And gone.
+        await page.locator('#workspace-delete').click()
+        await page.getByRole('alertdialog').getByRole('button', { name: /^delete$/i }).click()
+        await expect.poll(pathname, { timeout: 30_000 }).toBe('/workspace/prompts')
+        await expect(page.getByText(promptName)).toBeHidden({ timeout: 30_000 })
+
+        // A knowledge base: a folder, and a file uploaded into it.
+        await sections.getByRole('button', { name: /^knowledge$/i }).click()
+        await expect.poll(pathname).toBe('/workspace/knowledge')
+        await page.locator('#workspace-create').click()
+        await page.locator('#knowledge-name').fill(knowledgeName)
+        await page.locator('#workspace-save').click()
+        await expect
+          .poll(pathname, { timeout: 30_000 })
+          .toMatch(/^\/workspace\/knowledge\/(?!new$).+/)
+        const files = page.getByRole('region', { name: /^files$/i })
+        await expect(files).toBeVisible({ timeout: 30_000 })
+        await page.locator('#knowledge-new-folder').click()
+        await page.locator('#knowledge-folder-name').fill('Guides')
+        await page.locator('#knowledge-folder-save').click()
+        await files.getByRole('button', { name: /guides/i }).click()
+        await expect(files.getByRole('navigation').getByRole('button', { name: /^guides$/i })).toBeVisible({
+          timeout: 30_000,
+        })
+        const chooser = page.waitForEvent('filechooser')
+        await page.locator('#knowledge-upload').click()
+        await (await chooser).setFiles(knowledgeFile)
+        // Its row, in the folder -- not the "Uploading" line, which names it
+        // too and would pass before the upload had finished.
+        await expect(
+          files.locator('li[data-file]').filter({ hasText: basename(knowledgeFile) }),
+        ).toBeVisible({ timeout: 90_000 })
+        await shot(page, '20d-knowledge')
+        await page.locator('#workspace-delete').click()
+        await page.getByRole('alertdialog').getByRole('button', { name: /^delete$/i }).click()
+        await expect.poll(pathname, { timeout: 30_000 }).toBe('/workspace/knowledge')
+        await expect(page.getByText(knowledgeName)).toBeHidden({ timeout: 30_000 })
+      } finally {
+        const { api, auth } = await serverApi(credentials!)
+        const prompts = (await (await api.get('/api/v1/prompts/', { headers: auth })).json()) as Array<{
+          id: string
+          command: string
+        }>
+        for (const prompt of prompts.filter((p) => p.command === command)) {
+          await api.delete(`/api/v1/prompts/id/${prompt.id}/delete`, { headers: auth }).catch(() => undefined)
+        }
+        const knowledge = (await (await api.get('/api/v1/knowledge/', { headers: auth })).json()) as {
+          items?: Array<{ id: string; name: string }>
+        }
+        for (const base of (knowledge.items ?? []).filter((k) => k.name === knowledgeName)) {
+          await api.delete(`/api/v1/knowledge/${base.id}/delete`, { headers: auth }).catch(() => undefined)
+        }
+        // The uploaded file outlives the knowledge base it was put in.
+        const uploaded = (await (
+          await api.get(`/api/v1/files/search?filename=${encodeURIComponent(basename(knowledgeFile))}`, {
+            headers: auth,
+          })
+        )
+          .json()
+          .catch(() => [])) as Array<{ id: string }>
+        for (const file of Array.isArray(uploaded) ? uploaded : []) {
+          await api.delete(`/api/v1/files/${file.id}`, { headers: auth }).catch(() => undefined)
+        }
+        await api.dispose()
+        rmSync(downloads, { recursive: true, force: true })
+        rmSync(knowledgeFile, { force: true })
+      }
     } finally {
       provider.close()
       mcpServer.close()

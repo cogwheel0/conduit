@@ -3,6 +3,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 
 import '../external_sign_in.dart';
 import '../file_picker.dart';
+import '../file_saver.dart';
 import '../attachments.dart';
 import '../sandbox_port.dart';
 import '../shell_bridge.dart';
@@ -32,6 +33,11 @@ final externalSignInProvider = Provider<ExternalSignInPort>(
 /// Picks PEM files for mutual TLS, overridden in `main.dart`.
 final filePickerProvider = Provider<FilePickerPort>(
   (ref) => const UnavailableFilePicker(),
+);
+
+/// Saves exports as downloads, overridden in `main.dart` (M6).
+final fileSaverProvider = Provider<FileSaverPort>(
+  (ref) => RecordingFileSaver(),
 );
 
 /// Focus and clipboard for the keyboard layer, overridden in `main.dart`.

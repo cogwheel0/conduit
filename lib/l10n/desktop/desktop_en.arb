@@ -554,5 +554,71 @@
   "desktopMessageEdited": "edited",
   "@desktopMessageEdited": {
     "description": "Marker beside a channel message that was changed after it was posted."
+  },
+  "desktopWorkspaceImport": "Import",
+  "@desktopWorkspaceImport": {
+    "description": "Workspace toolbar button that imports items of the open section from an exported JSON file."
+  },
+  "desktopWorkspaceExportAll": "Export all",
+  "@desktopWorkspaceExportAll": {
+    "description": "Workspace toolbar button that saves every item of the open section to a JSON file."
+  },
+  "desktopWorkspaceExport": "Export",
+  "@desktopWorkspaceExport": {
+    "description": "Workspace editor button that saves the open item to a file."
+  },
+  "desktopWorkspaceUpdated": "Updated {date}",
+  "@desktopWorkspaceUpdated": {
+    "description": "Workspace list: when the item last changed.",
+    "placeholders": { "date": { "type": "String" } }
+  },
+  "desktopWorkspaceImportFailed": "Not imported: {items}",
+  "@desktopWorkspaceImportFailed": {
+    "description": "Workspace import result: the items that did not go in, each with the reason.",
+    "placeholders": { "items": { "type": "String" } }
+  },
+  "desktopWorkspaceOnePerLine": "One per line",
+  "@desktopWorkspaceOnePerLine": {
+    "description": "Hint under a workspace field that takes a list, one entry per line."
+  },
+  "desktopWorkspaceCommaSeparated": "Separate with commas",
+  "@desktopWorkspaceCommaSeparated": {
+    "description": "Hint under a workspace field that takes a comma-separated list."
+  },
+  "desktopWorkspaceActive": "Active",
+  "@desktopWorkspaceActive": {
+    "description": "Workspace checkbox and list toggle: whether the item is switched on."
+  },
+  "desktopWorkspaceNoSections": "There is nothing in the workspace you can manage on this server.",
+  "@desktopWorkspaceNoSections": {
+    "description": "Workspace page when the account may manage none of its sections."
+  },
+  "desktopWorkspaceNotFound": "This item no longer exists.",
+  "@desktopWorkspaceNotFound": {
+    "description": "Workspace editor for an item that was deleted, here or elsewhere."
+  },
+  "desktopWorkspaceCleanupFailed": "Remove failed files",
+  "@desktopWorkspaceCleanupFailed": {
+    "description": "Knowledge file browser button that takes out the files that could not be read in."
+  },
+  "desktopWorkspaceAccessSaved": "Access saved.",
+  "@desktopWorkspaceAccessSaved": {
+    "description": "Status after the workspace access editor saved who may read and write an item."
+  },
+  "desktopWorkspaceAccessAdd": "Add",
+  "@desktopWorkspaceAccessAdd": {
+    "description": "Button beside a person or group found in the access editor search."
+  },
+  "desktopWorkspaceValvesUserHint": "Your own settings for this tool; the server valves apply to everyone.",
+  "@desktopWorkspaceValvesUserHint": {
+    "description": "Explains user valves in the tool editor."
+  },
+  "desktopWorkspaceProfileImageKept": "The profile image is kept as it is; change it in the web client.",
+  "@desktopWorkspaceProfileImageKept": {
+    "description": "Model editor note: the desktop does not edit model images yet."
+  },
+  "desktopWorkspaceDefaultFeaturesHint": "Features switched on in a new chat with this model, e.g. web_search, code_interpreter.",
+  "@desktopWorkspaceDefaultFeaturesHint": {
+    "description": "Hint under the default features field of the model editor."
   }
 }
