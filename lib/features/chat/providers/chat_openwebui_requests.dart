@@ -248,69 +248,6 @@ Map<String, dynamic> buildOpenWebUiBackgroundTasksForTest({
   );
 }
 
-String _formatOpenWebUiDate(DateTime value) {
-  final year = value.year.toString().padLeft(4, '0');
-  final month = value.month.toString().padLeft(2, '0');
-  final day = value.day.toString().padLeft(2, '0');
-  return '$year-$month-$day';
-}
-
-String _formatOpenWebUiTime(DateTime value) {
-  final hour = value.hour.toString().padLeft(2, '0');
-  final minute = value.minute.toString().padLeft(2, '0');
-  final second = value.second.toString().padLeft(2, '0');
-  return '$hour:$minute:$second';
-}
-
-String _openWebUiWeekday(DateTime value) {
-  const weekdays = <String>[
-    'Monday',
-    'Tuesday',
-    'Wednesday',
-    'Thursday',
-    'Friday',
-    'Saturday',
-    'Sunday',
-  ];
-  return weekdays[value.weekday - 1];
-}
-
-Map<String, dynamic> _buildOpenWebUiPromptVariables({
-  required DateTime now,
-  required String userName,
-  required String userEmail,
-  required String userLanguage,
-  String? userLocation,
-}) {
-  final normalizedUserName = userName.trim().isNotEmpty
-      ? userName.trim()
-      : 'User';
-  final normalizedUserEmail = userEmail.trim().isNotEmpty
-      ? userEmail.trim()
-      : 'Unknown';
-  final normalizedUserLanguage = userLanguage.trim().isNotEmpty
-      ? userLanguage.trim()
-      : 'en-US';
-  final normalizedUserLocation =
-      userLocation != null && userLocation.trim().isNotEmpty
-      ? userLocation.trim()
-      : 'Unknown';
-  final date = _formatOpenWebUiDate(now);
-  final time = _formatOpenWebUiTime(now);
-
-  return <String, dynamic>{
-    '{{USER_NAME}}': normalizedUserName,
-    '{{USER_EMAIL}}': normalizedUserEmail,
-    '{{USER_LOCATION}}': normalizedUserLocation,
-    '{{CURRENT_DATETIME}}': '$date $time',
-    '{{CURRENT_DATE}}': date,
-    '{{CURRENT_TIME}}': time,
-    '{{CURRENT_WEEKDAY}}': _openWebUiWeekday(now),
-    '{{CURRENT_TIMEZONE}}': now.timeZoneName,
-    '{{USER_LANGUAGE}}': normalizedUserLanguage,
-  };
-}
-
 Future<Map<String, dynamic>> _buildOpenWebUiPromptVariablesForRequest(
   dynamic ref, {
   required DateTime now,
@@ -357,7 +294,7 @@ Future<Map<String, dynamic>> _buildOpenWebUiPromptVariablesForRequest(
     );
   }
 
-  return _buildOpenWebUiPromptVariables(
+  return buildOpenWebUiPromptVariables(
     now: now,
     userName: userName,
     userEmail: userEmail,

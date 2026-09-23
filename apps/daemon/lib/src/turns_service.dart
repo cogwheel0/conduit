@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
@@ -30,6 +31,7 @@ import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/ports/ui_request_port.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -40,6 +42,7 @@ import 'package:conduit_core/services/streaming_helper.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
+import 'package:conduit_core/utils/openwebui_request_variables.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/utils/message_tree_utils.dart' as message_tree;
 import 'package:conduit_core/utils/system_prompt.dart';
@@ -338,10 +341,12 @@ final class TurnsService {
         },
     ];
     final attachments = descriptors.isEmpty ? null : descriptors;
+    final variables = await _variables();
     Future<ChatCompletionSession> dispatch(
       String? sessionId,
     ) => api.sendMessageSession(
       sessionIdOverride: sessionId,
+      variables: variables,
       terminalId: _terminalIdFor(model),
       messages: payload,
       model: model,
@@ -473,9 +478,11 @@ final class TurnsService {
 
     final api = _requireApi();
     final systemPrompt = await _systemPromptFor(api, request.chatId);
+    final variables = await _variables();
     Future<ChatCompletionSession> dispatch(
       String? sessionId,
     ) => api.sendMessageSession(
+      variables: variables,
       sessionIdOverride: sessionId,
       terminalId: _terminalIdFor(model),
       messages: withSystemMessage(<Map<String, dynamic>>[
@@ -615,8 +622,10 @@ final class TurnsService {
     final now = DateTime.now();
 
     final systemPrompt = await _systemPromptFor(api, request.chatId);
+    final variables = await _variables();
     Future<ChatCompletionSession> dispatch(String? sessionId) =>
         api.sendMessageSession(
+          variables: variables,
           sessionIdOverride: sessionId,
           terminalId: _terminalIdFor(model),
           messages: withSystemMessage(<Map<String, dynamic>>[
@@ -920,6 +929,44 @@ final class TurnsService {
 
   Map<String, dynamic>? _settings;
   DateTime? _settingsFetchedAt;
+
+  /// Open WebUI's request `variables` -- `{{USER_NAME}}`, `{{CURRENT_DATE}}`
+  /// and the rest -- as its own client fills them, so a model's system
+  /// prompt reads the same from here as from the browser.
+  ///
+  /// The location is the account's fixed one, when it has one. Looking it up
+  /// live is the phone's job; Chromium's geolocation needs a Google key on
+  /// Windows and Linux, and the Apple helper is not here yet (WP-8.4).
+  Future<Map<String, dynamic>> _variables() async {
+    User? user;
+    try {
+      user = await readSettled(_container, currentUserProvider.future);
+    } on Object {
+      user = null;
+    }
+    final name = user?.name?.trim();
+    final location = extractUserLocationSetting(_settings).legacyLocation;
+    return buildOpenWebUiPromptVariables(
+      now: DateTime.now(),
+      userName: name != null && name.isNotEmpty ? name : (user?.email ?? ''),
+      userEmail: user?.email ?? '',
+      userLanguage: _languageTag(),
+      userLocation: location,
+    );
+  }
+
+  /// The window's language when chosen in settings, else the system's, as a
+  /// BCP-47 tag (`en_US.UTF-8` becomes `en-US`).
+  String _languageTag() {
+    final chosen = _container
+        .read(optimizedStorageServiceProvider)
+        .getLocaleCode();
+    final raw = (chosen != null && chosen.isNotEmpty)
+        ? chosen
+        : Platform.localeName;
+    final tag = raw.split('.').first.split('@').first.replaceAll('_', '-');
+    return tag.isEmpty || tag == 'C' || tag == 'POSIX' ? 'en-US' : tag;
+  }
 
   /// The conversation so far, as the server has it.
   ///
