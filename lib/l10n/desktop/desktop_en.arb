@@ -542,5 +542,9 @@
   "desktopMcpSaveFirst": "Save the server before signing in.",
   "@desktopMcpSaveFirst": {
     "description": "Shown when OAuth sign-in is attempted on an MCP server that has not been saved."
+  },
+  "desktopNoteSaveFailed": "Not saved yet; trying again with the next change",
+  "@desktopNoteSaveFailed": {
+    "description": "Status beside a note's title when saving it failed; the pending edit is kept and sent with the next save."
   }
 }

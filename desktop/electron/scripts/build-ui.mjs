@@ -78,6 +78,19 @@ for (const [pkg, dir, file] of [
   cpSync(from, join(vendorDir, dir, file.split('/').pop()))
 }
 
+// Quill 2, the notes editor (M5). Unlike the libraries above it runs in the
+// app's own origin -- it edits the user's text, not model output -- so it is
+// loaded by index.html, not the sandbox.
+for (const file of ['quill.js', 'quill.snow.css']) {
+  const from = join(here, '..', 'node_modules', 'quill', 'dist', file)
+  if (!existsSync(from)) {
+    console.error('Quill not found. Run `npm install` in desktop/electron.')
+    process.exit(1)
+  }
+  mkdirSync(join(vendorDir, 'quill'), { recursive: true })
+  cpSync(from, join(vendorDir, 'quill', file))
+}
+
 cpSync(join(here, '..', 'sandbox', 'sandbox.js'), join(vendorDir, 'sandbox.js'))
 cpSync(join(here, '..', 'sandbox', 'sandbox.html'), join(webDir, 'sandbox.html'))
 

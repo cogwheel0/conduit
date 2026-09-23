@@ -4,6 +4,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:jaspr_riverpod/jaspr_riverpod.dart';
+import 'package:jaspr_router/jaspr_router.dart';
 
 import '../attachments.dart';
 import '../keyboard.dart';
@@ -171,6 +172,15 @@ class _Sidebar extends StatelessComponent {
         // which is where it used to sit -- on top of the send button.
         div(classes: 'shrink-0 border-t border-border p-2', [
           const _SyncIndicator(),
+          // Notes live in the Open WebUI account, so only with one (M5).
+          if (context.watch(authStatusProvider).value?.isAuthenticated ?? false)
+            Link(
+              to: '/notes',
+              classes:
+                  'block rounded px-2 py-1.5 text-sm text-muted-foreground '
+                  'hover:bg-accent hover:text-accent-foreground',
+              child: Component.text(t.app.notes),
+            ),
           a(
             href: '/settings/appearance',
             classes:

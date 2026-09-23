@@ -6,6 +6,7 @@ import 'package:jaspr_router/jaspr_router.dart';
 
 import 'pages/chat_page.dart';
 import 'pages/diagnostics_page.dart';
+import 'pages/notes_page.dart';
 import 'pages/onboarding_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/sign_in_page.dart';
@@ -86,6 +87,17 @@ class ConduitDesktopApp extends StatelessComponent {
             Route(
               path: '/settings',
               redirect: (context, state) => '/settings/appearance',
+            ),
+            Route(
+              path: '/notes/:id',
+              title: 'Notes',
+              builder: (context, state) =>
+                  NotesPage(noteId: state.params['id']),
+            ),
+            Route(
+              path: '/notes',
+              title: 'Notes',
+              builder: (context, state) => const NotesPage(),
             ),
           ],
         ),

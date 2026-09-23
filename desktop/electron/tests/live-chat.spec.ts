@@ -1645,6 +1645,76 @@ test.describe('against a real server', () => {
       } finally {
         ollama.close()
       }
+
+      // 18. Notes (M5): the account's notes, edited in Quill, saved as the
+      // markdown the web client reads. This run's note is deleted in the UI,
+      // and again through the API should any step fail first.
+      await page.evaluate(() => {
+        window.history.pushState(null, '', '/')
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      })
+      await page.getByRole('link', { name: /^notes$/i }).click()
+      await expect
+        .poll(() => page.evaluate(() => window.location.pathname), { timeout: 30_000 })
+        .toBe('/notes')
+      const notesList = page.getByRole('navigation', { name: /^notes$/i })
+      await expect(notesList).toBeVisible()
+      await shot(page, '18-notes')
+      let noteId: string | undefined
+      try {
+        await notesList.getByRole('button', { name: /^create note$/i }).click()
+        await expect
+          .poll(() => page.evaluate(() => window.location.pathname), { timeout: 30_000 })
+          .toMatch(/^\/notes\/.+/)
+        noteId = (await page.evaluate(() => window.location.pathname)).split('/').pop()
+        const noteTitle = `Live note ${Date.now()}`
+        await page.locator('#note-title').fill(noteTitle)
+        const quill = page.locator('#note-editor-host .ql-editor')
+        await expect(quill).toBeVisible({ timeout: 30_000 })
+        await quill.click()
+        await page.keyboard.type('Buy milk and ')
+        await page.keyboard.press('Control+b')
+        await page.keyboard.type('eggs')
+        await page.keyboard.press('Control+b')
+        await expect(page.getByRole('status').filter({ hasText: /^saved$/i })).toBeVisible({
+          timeout: 30_000,
+        })
+        await expect(notesList.getByText(noteTitle)).toBeVisible({ timeout: 30_000 })
+        await shot(page, '18b-note')
+        // As the web client will read it.
+        const { api, auth } = await serverApi(credentials!)
+        try {
+          await expect
+            .poll(
+              async () => {
+                const note = (await (
+                  await api.get(`/api/v1/notes/${noteId}`, { headers: auth })
+                ).json()) as { title?: string; data?: { content?: { md?: string } } }
+                return `${note.title}|${note.data?.content?.md ?? ''}`
+              },
+              { timeout: 30_000 },
+            )
+            .toContain('Buy milk and **eggs**')
+        } finally {
+          await api.dispose()
+        }
+        await page.getByRole('button', { name: /^delete$/i }).first().click()
+        await page
+          .getByRole('alertdialog')
+          .getByRole('button', { name: /^delete$/i })
+          .click()
+        await expect
+          .poll(() => page.evaluate(() => window.location.pathname), { timeout: 30_000 })
+          .toBe('/notes')
+        await expect(notesList.getByText(noteTitle)).toBeHidden({ timeout: 30_000 })
+        noteId = undefined
+      } finally {
+        if (noteId !== undefined) {
+          const { api, auth } = await serverApi(credentials!)
+          await api.delete(`/api/v1/notes/${noteId}/delete`, { headers: auth }).catch(() => undefined)
+          await api.dispose()
+        }
+      }
     } finally {
       provider.close()
       mcpServer.close()

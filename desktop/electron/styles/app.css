@@ -125,3 +125,77 @@ body {
 .hljs-strong {
   font-weight: 700;
 }
+
+/* Quill, the notes editor (M5). Its snow theme hard-codes greys; these take
+   the app's palette instead so the editor follows light and dark. */
+
+/* The toolbar stays put and the text scrolls under it: only the container
+   scrolls, not the host around both. */
+.note-editor .ql-container {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.ql-toolbar.ql-snow,
+.ql-container.ql-snow {
+  border-color: var(--conduit-border);
+}
+
+.ql-container.ql-snow {
+  font-family: inherit;
+  font-size: 0.9375rem;
+}
+
+.ql-editor {
+  color: var(--conduit-foreground);
+  min-height: 16rem;
+}
+
+.ql-editor.ql-blank::before {
+  color: var(--conduit-muted-foreground);
+  font-style: normal;
+}
+
+.ql-snow .ql-stroke {
+  stroke: var(--conduit-muted-foreground);
+}
+
+.ql-snow .ql-fill {
+  fill: var(--conduit-muted-foreground);
+}
+
+.ql-snow .ql-picker {
+  color: var(--conduit-muted-foreground);
+}
+
+.ql-snow.ql-toolbar button:hover .ql-stroke,
+.ql-snow.ql-toolbar button.ql-active .ql-stroke {
+  stroke: var(--conduit-foreground);
+}
+
+.ql-snow.ql-toolbar button:hover .ql-fill,
+.ql-snow.ql-toolbar button.ql-active .ql-fill {
+  fill: var(--conduit-foreground);
+}
+
+.ql-snow .ql-picker-options {
+  background: var(--conduit-popover);
+  border-color: var(--conduit-border);
+}
+
+.ql-snow .ql-tooltip {
+  background: var(--conduit-popover);
+  border-color: var(--conduit-border);
+  color: var(--conduit-popover-foreground);
+  box-shadow: none;
+}
+
+.ql-editor pre.ql-syntax,
+.ql-editor .ql-code-block-container {
+  background: var(--conduit-muted);
+  color: var(--conduit-foreground);
+}
+
+.ql-editor blockquote {
+  border-left-color: var(--conduit-border);
+}

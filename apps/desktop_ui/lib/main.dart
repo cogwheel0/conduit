@@ -9,6 +9,8 @@ import 'src/app.dart';
 import 'src/attachments_bridge.dart';
 import 'src/bridge.dart';
 import 'src/keyboard.dart';
+import 'src/quill_editor.dart';
+import 'src/rpc/notes_providers.dart';
 import 'src/sandbox_bridge.dart';
 import 'src/l10n/strings.g.dart';
 import 'src/rpc/rpc_providers.dart';
@@ -54,6 +56,7 @@ Future<void> main() async {
       ),
       sandboxProvider.overrideWithValue(DocumentSandbox()),
       attachmentsProvider.overrideWithValue(BrowserAttachments(bridge)),
+      noteEditorProvider.overrideWithValue(const QuillNoteEditor()),
     ],
   );
   // Start connecting before the first paint so the status card usually

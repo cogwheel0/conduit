@@ -30,9 +30,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <!-- Built by desktop/electron/scripts/build-ui.mjs. Bundles Tailwind and
          the generated palette variables into one stylesheet. -->
+    <!-- Quill 2, the notes editor, vendored by build-ui.mjs. Before app.css
+         so the theme's overrides of its colours win. -->
+    <link rel="stylesheet" href="vendor/quill/quill.snow.css" />
     <link rel="stylesheet" href="app.css" />
   </head>
   <body class="bg-background text-foreground antialiased">
+    <script defer src="vendor/quill/quill.js"></script>
     <script defer src="main.dart.js"></script>
   </body>
 </html>
