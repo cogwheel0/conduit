@@ -766,10 +766,32 @@ final class TurnsService {
     // lands. Publishing straight away made the renderer refetch a
     // transcript whose answer was still the empty placeholder. It then kept
     // that version, because nothing told it to look again.
-    unawaited(_announceWhenSynced(chatId));
+    unawaited(
+      _announceWhenSynced(
+        chatId,
+        answerId: turn.failure == null ? turn.messageId : null,
+      ),
+    );
   }
 
-  Future<void> _announceWhenSynced(String chatId) async {
+  /// How long to keep looking for a finished answer in the server's copy.
+  ///
+  /// Open WebUI writes the answer when its own stream handler finishes,
+  /// which is not the moment ours does. A single pull straight after the
+  /// stream usually wins that race, and when it lost, the renderer fetched
+  /// a transcript without the answer and was never told to look again: a
+  /// regenerated answer sat beside the one it replaced instead of becoming
+  /// its second version.
+  ///
+  /// Assignable so a test can shorten it.
+  static List<Duration> syncRetryDelays = const <Duration>[
+    Duration(seconds: 1),
+    Duration(seconds: 2),
+    Duration(seconds: 4),
+    Duration(seconds: 8),
+  ];
+
+  Future<void> _announceWhenSynced(String chatId, {String? answerId}) async {
     // Nothing to pull for a chat the server never stored, and the core's
     // pull would refuse a `local:` id anyway.
     if (TemporaryChats.isTemporary(chatId)) {
@@ -779,6 +801,22 @@ final class TurnsService {
       );
       return;
     }
+    for (final delay in <Duration>[Duration.zero, ...syncRetryDelays]) {
+      if (delay > Duration.zero) await Future<void>.delayed(delay);
+      await _pull(chatId);
+      // A failed turn has no answer to wait for; one pull is all it gets.
+      if (answerId == null || await _hasAnswer(chatId, answerId)) break;
+    }
+    // Unscoped, so every window's sidebar reorders, including a window
+    // showing a different conversation. The payload says which chat it was
+    // about, so only a window showing that chat refetches its transcript.
+    _events.publish(
+      ConduitEvents.chatsChanged,
+      payload: ChatsChanged(chatId: chatId).toJson(),
+    );
+  }
+
+  Future<void> _pull(String chatId) async {
     try {
       await _container.read(syncEngineProvider.notifier).pullChatNow(chatId);
     } on Object catch (error) {
@@ -791,13 +829,23 @@ final class TurnsService {
     // `loadConversationProvider` is a family. An entry that already loaded
     // this chat would otherwise answer from what it read before the pull.
     _container.invalidate(loadConversationProvider(chatId));
-    // Unscoped, so every window's sidebar reorders, including a window
-    // showing a different conversation. The payload says which chat it was
-    // about, so only a window showing that chat refetches its transcript.
-    _events.publish(
-      ConduitEvents.chatsChanged,
-      payload: ChatsChanged(chatId: chatId).toJson(),
-    );
+  }
+
+  /// Whether the stored conversation has [answerId] with its text in it.
+  Future<bool> _hasAnswer(String chatId, String answerId) async {
+    try {
+      final conversation = await readSettled(
+        _container,
+        loadConversationProvider(chatId).future,
+      );
+      return conversation.messages.any(
+        (message) => message.id == answerId && message.content.isNotEmpty,
+      );
+    } on Object {
+      // Unreadable is not the same as missing, and retrying would not make
+      // it readable. Announce what there is.
+      return true;
+    }
   }
 }
 
