@@ -133,10 +133,26 @@ final class FilesService {
         contentType: type.isEmpty ? 'application/octet-stream' : type,
       );
     }
-    return (
-      bytes: base64Decode(content),
-      contentType: 'application/octet-stream',
-    );
+    final bytes = base64Decode(content);
+    return (bytes: bytes, contentType: _typeOf(bytes));
+  }
+
+  /// A PDF by its signature, since the core hands non-images over without
+  /// a type -- and a PDF has to arrive as one for the viewer to open it.
+  /// Anything else stays opaque bytes: never a type a browser would run.
+  static String _typeOf(Uint8List bytes) {
+    const pdf = <int>[0x25, 0x50, 0x44, 0x46, 0x2D]; // %PDF-
+    if (bytes.length >= pdf.length) {
+      var matches = true;
+      for (var i = 0; i < pdf.length; i++) {
+        if (bytes[i] != pdf[i]) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) return 'application/pdf';
+    }
+    return 'application/octet-stream';
   }
 
   /// Larger than any image a chat shows; a download of something bigger

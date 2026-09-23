@@ -221,6 +221,50 @@ function registerAuthWindowChannel(): void {
   )
 }
 
+/** Whether [url] is a file on the running daemon's `/files/` route. */
+function isDaemonFileUrl(url: string): boolean {
+  const port = supervisor?.port
+  if (port === null || port === undefined) return false
+  try {
+    const parsed = new URL(url)
+    return (
+      parsed.protocol === 'http:' &&
+      parsed.hostname === '127.0.0.1' &&
+      parsed.port === String(port) &&
+      parsed.pathname.startsWith('/files/')
+    )
+  } catch {
+    return false
+  }
+}
+
+/**
+ * A window that shows one file from the daemon, with Chromium's own PDF
+ * viewer.
+ *
+ * Nothing of the app's: no preload, sandboxed, no Node. It shares the
+ * default session only so the daemon token is added to its one request,
+ * as it is for the app's `<img>` tags. What it can load is decided by the
+ * daemon's `Content-Type`: a PDF shows, anything else is opaque bytes
+ * (served `nosniff`), never a page that runs.
+ */
+function openFileViewer(url: string): void {
+  const viewer = new BrowserWindow({
+    width: 900,
+    height: 1000,
+    autoHideMenuBar: true,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      // Chromium's PDF viewer is a plugin; nothing else uses one.
+      plugins: true,
+    },
+  })
+  void viewer.loadURL(url)
+}
+
 /**
  * Keeps the app origin from becoming a browser.
  *
@@ -231,6 +275,13 @@ function registerAuthWindowChannel(): void {
 function hardenNavigation(): void {
   app.on('web-contents-created', (_event, contents) => {
     contents.setWindowOpenHandler(({ url }) => {
+      // A file the daemon serves -- a PDF on a message -- opens in a viewer
+      // of our own. The real browser would get it without the daemon's
+      // token, which only this app's session adds, and answer 401.
+      if (isDaemonFileUrl(url)) {
+        openFileViewer(url)
+        return { action: 'deny' }
+      }
       if (url.startsWith('https://') || url.startsWith('http://')) {
         void shell.openExternal(url)
       }

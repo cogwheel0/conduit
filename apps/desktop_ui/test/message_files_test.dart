@@ -81,4 +81,17 @@ void main() {
     await pumpEventQueue();
     expect(find.tag('audio'), findsOneComponent);
   });
+
+  testComponents('a PDF is a link that opens a window', (tester) async {
+    tester.pumpComponent(
+      scoped(
+        const MessageFiles(<ChatFileDto>[
+          ChatFileDto(id: 'p1', name: 'report.pdf'),
+        ]),
+      ),
+    );
+    await pumpEventQueue();
+    expect(find.tag('a'), findsOneComponent);
+    expect(find.text('report.pdf'), findsOneComponent);
+  });
 }

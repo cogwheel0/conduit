@@ -69,6 +69,18 @@ class MessageFiles extends StatelessComponent {
                 'aria-label': file.name,
               },
             )
+          // A PDF opens in a viewer window of the shell's own, which is the
+          // only thing a daemon file link opening a window leads to.
+          else if (_isPdf(file) && srcOf(file) != null)
+            a(
+              href: srcOf(file)!,
+              target: Target.blank,
+              classes:
+                  'rounded border border-border px-2 py-1 text-xs '
+                  'text-foreground underline-offset-2 hover:underline',
+              attributes: const <String, String>{'rel': 'noopener noreferrer'},
+              [Component.text(file.name)],
+            )
           else
             span(
               classes:
@@ -80,6 +92,10 @@ class MessageFiles extends StatelessComponent {
     );
   }
 }
+
+bool _isPdf(ChatFileDto file) =>
+    file.contentType == 'application/pdf' ||
+    file.name.toLowerCase().endsWith('.pdf');
 
 /// `audio` or `video` when [file] is one, going by its type.
 String? _media(ChatFileDto file) {

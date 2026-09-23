@@ -130,6 +130,32 @@ async function serverApi(credentials: Credentials) {
   return { api, auth: { authorization: `Bearer ${token}` } }
 }
 
+/** A one-page PDF saying [text], with a correct cross-reference table. */
+function tinyPdf(text: string): Buffer {
+  const content = `BT /F1 18 Tf 20 100 Td (${text}) Tj ET`
+  const objects = [
+    '<</Type/Catalog/Pages 2 0 R>>',
+    '<</Type/Pages/Kids[3 0 R]/Count 1>>',
+    '<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 144]/Contents 4 0 R' +
+      '/Resources<</Font<</F1 5 0 R>>>>>>',
+    `<</Length ${content.length}>>stream\n${content}\nendstream`,
+    '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>',
+  ]
+  let body = '%PDF-1.4\n'
+  const offsets: number[] = []
+  objects.forEach((object, i) => {
+    offsets.push(body.length)
+    body += `${i + 1} 0 obj${object}endobj\n`
+  })
+  const xref = body.length
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
+  for (const offset of offsets) {
+    body += `${String(offset).padStart(10, '0')} 00000 n \n`
+  }
+  body += `trailer<</Size ${objects.length + 1}/Root 1 0 R>>\nstartxref\n${xref}\n%%EOF\n`
+  return Buffer.from(body, 'latin1')
+}
+
 async function shot(page: Page, name: string): Promise<void> {
   mkdirSync(shotDir, { recursive: true })
   await page.screenshot({ path: join(shotDir, `${name}.png`) })
@@ -869,9 +895,12 @@ test.describe('against a real server', () => {
       attachPath,
       'The passphrase is oxbow-lantern-42. Repeat it exactly.\n',
     )
+    // And a PDF alongside, to open from the transcript afterwards.
+    const pdfPath = join(tmpdir(), `conduit-attach-${process.pid}.pdf`)
+    writeFileSync(pdfPath, tinyPdf('Conduit PDF'))
     const chooser = page.waitForEvent('filechooser')
     await page.getByRole('button', { name: /attach files/i }).click()
-    await (await chooser).setFiles(attachPath)
+    await (await chooser).setFiles([attachPath, pdfPath])
 
     // The chip appears, and the upload finishes: the composer says it is
     // waiting while one is in flight, so its absence is the signal.
@@ -917,6 +946,26 @@ test.describe('against a real server', () => {
       .toBeLessThan(48)
     await shot(page, '12-attachment')
     rmSync(attachPath, { force: true })
+
+    // 12a. The PDF opens in the shell's own viewer window: through the
+    // daemon, with its token, as a PDF -- not in the real browser, which
+    // would have no token.
+    const pdfLink = transcript.getByRole('link', { name: basename(pdfPath) })
+    await expect(pdfLink).toBeVisible({ timeout: 30_000 })
+    const [viewer] = await Promise.all([
+      app.waitForEvent('window'),
+      pdfLink.click(),
+    ])
+    await expect
+      .poll(() => viewer.url(), { timeout: 30_000 })
+      .toMatch(/^http:\/\/127\.0\.0\.1:\d+\/files\//)
+    await expect
+      .poll(() => viewer.evaluate(() => document.contentType), {
+        timeout: 30_000,
+      })
+      .toBe('application/pdf')
+    await viewer.close()
+    rmSync(pdfPath, { force: true })
 
     // 12b. A dropped file and a pasted one take the same path as a picked
     // one. Synthetic events, but carrying a real `DataTransfer` -- which is

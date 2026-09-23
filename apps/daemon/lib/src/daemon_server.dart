@@ -340,6 +340,10 @@ class DaemonServer {
         file.bytes,
         headers: <String, String>{
           'content-type': file.contentType,
+          // Taken as given: a file claiming to be bytes must never be read
+          // as HTML because its first line looks like some.
+          'x-content-type-options': 'nosniff',
+          'content-disposition': 'inline',
           // Private: it is the user's file. An hour: the same image is drawn
           // every time the conversation is opened.
           'cache-control': 'private, max-age=3600',
