@@ -123,3 +123,21 @@ test('quick ask opens its own panel, which says to set up first', async () => {
   expect(kind).toBe('quickAsk')
   await expect(panel.getByText(/finish setting it up first/i)).toBeVisible()
 })
+
+test('About links open in the system browser, not in the app', async () => {
+  const page = await mainWindow()
+  await expect.poll(() => pathname(page), { timeout: 30_000 }).toBe('/onboarding')
+  await app.evaluate(({ shell }) => {
+    ;(globalThis as { __opened?: string[] }).__opened = []
+    shell.openExternal = async (url: string) => {
+      ;(globalThis as unknown as { __opened: string[] }).__opened.push(url)
+    }
+  })
+  await go(page, '/settings/about')
+  await page.getByRole('link', { name: /^github repository$/i }).click()
+  await expect
+    .poll(() => app.evaluate(() => (globalThis as { __opened?: string[] }).__opened ?? []))
+    .toEqual(['https://github.com/cogwheel0/conduit'])
+  expect(await pathname(page)).toBe('/settings/about')
+  await expect(page.getByRole('region', { name: /^support conduit$/i })).toBeVisible()
+})

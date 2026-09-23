@@ -21,6 +21,7 @@ import 'rpc/rpc_providers.dart';
 import 'rpc/session_providers.dart';
 import 'widgets/desktop_integration.dart';
 import 'widgets/keyboard_layer.dart';
+import 'widgets/release_banner.dart';
 import 'widgets/ui_request_card.dart';
 import 'widgets/server_issue_banner.dart';
 
@@ -312,6 +313,7 @@ class _Shell extends StatelessComponent {
       // Above the route, so it is visible wherever the user is rather than
       // only on the screen that happened to notice the problem.
       const ServerIssueBanner(),
+      const ReleaseBanner(),
       const _SessionGate(),
       const KeyboardLayer(),
       const DesktopIntegration(),

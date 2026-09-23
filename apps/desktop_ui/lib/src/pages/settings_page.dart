@@ -11,6 +11,7 @@ import '../l10n/strings.g.dart';
 import '../rpc/rpc_providers.dart';
 import '../rpc/session_providers.dart';
 import '../rpc/settings_providers.dart';
+import '../widgets/release_banner.dart';
 import '../widgets/form_field.dart';
 import 'audio_settings_tab.dart';
 import 'desktop_settings_tab.dart';
@@ -505,15 +506,57 @@ class _AboutTab extends StatelessComponent {
   Component build(BuildContext context) {
     final connection = context.watch(coreConnectionProvider).value;
     final handshake = connection?.handshake;
-    return dl(classes: 'grid grid-cols-2 gap-y-1 text-sm', [
-      ..._row(t.app.appVersion, kDesktopUiVersion),
-      if (handshake != null) ...<Component>[
-        ..._row('Daemon', handshake.daemonVersion),
-        ..._row('Protocol', handshake.protocolVersion),
-        ..._row('Platform', handshake.platform),
-        ..._row('User data', handshake.paths.userData),
-        ..._row('Logs', handshake.paths.logs),
-      ],
+    final version = context.read(shellBridgeProvider).appVersion;
+    Component link(String text, String href, {String? detail}) => li([
+      a(
+        href: href,
+        target: Target.blank,
+        classes: 'text-sm underline underline-offset-2 hover:text-foreground',
+        attributes: const <String, String>{'rel': 'noopener'},
+        [Component.text(text)],
+      ),
+      if (detail != null)
+        p(classes: 'text-xs text-muted-foreground', [Component.text(detail)]),
+    ]);
+    return div(classes: 'space-y-8', [
+      dl(classes: 'grid grid-cols-2 gap-y-1 text-sm', [
+        ..._row(t.app.appVersion, version),
+        if (handshake != null) ...<Component>[
+          ..._row(t.desktop.desktopAboutDaemon, handshake.daemonVersion),
+          ..._row(t.desktop.desktopAboutProtocol, handshake.protocolVersion),
+          ..._row(t.desktop.desktopAboutPlatform, handshake.platform),
+          ..._row(t.desktop.desktopAboutUserData, handshake.paths.userData),
+          ..._row(t.desktop.desktopAboutLogs, handshake.paths.logs),
+        ],
+      ]),
+      ul(classes: 'space-y-2', [
+        link(t.app.releaseNotesTitle, desktopReleaseUrl(version)),
+        link(t.app.githubRepository, conduitRepositoryUrl),
+      ]),
+      section(
+        classes: 'space-y-2',
+        attributes: <String, String>{'aria-label': t.app.supportConduit},
+        [
+          h3(classes: 'text-sm font-semibold', [
+            Component.text(t.app.supportConduit),
+          ]),
+          p(classes: 'text-xs text-muted-foreground', [
+            Component.text(t.app.supportConduitSubtitle),
+          ]),
+          ul(classes: 'space-y-2', [
+            link(
+              t.app.buyMeACoffeeTitle,
+              conduitCoffeeUrl,
+              detail: t.app.buyMeACoffeeSubtitle,
+            ),
+            link(
+              t.app.githubSponsorsTitle,
+              conduitSponsorsUrl,
+              detail: t.app.githubSponsorsSubtitle,
+            ),
+          ]),
+        ],
+      ),
     ]);
   }
 

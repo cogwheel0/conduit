@@ -15,6 +15,7 @@ import 'package:conduit_desktop_ui/src/rpc/rpc_providers.dart';
 import 'package:conduit_desktop_ui/src/rpc/session_providers.dart';
 import 'package:conduit_desktop_ui/src/shell_bridge.dart';
 import 'package:conduit_desktop_ui/src/widgets/desktop_integration.dart';
+import 'package:conduit_desktop_ui/src/widgets/release_banner.dart';
 import 'package:conduit_desktop_ui/src/window_commands.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:jaspr/dom.dart';
@@ -69,7 +70,11 @@ void main() {
   late StreamController<LiveTurn?> turns;
   late StreamController<ChannelList> channels;
 
-  Component scoped(Component child, {bool signedIn = true}) {
+  Component scoped(
+    Component child, {
+    bool signedIn = true,
+    String version = '0.1.0',
+  }) {
     shell = RecordingDesktopShell(available: true);
     went = <String>[];
     turns = StreamController<LiveTurn?>.broadcast();
@@ -82,12 +87,13 @@ void main() {
       overrides: [
         desktopShellProvider.overrideWithValue(shell),
         shellBridgeProvider.overrideWithValue(
-          const ShellBridge(
+          ShellBridge(
             rpcPort: 1,
             token: 'test',
             platform: 'linux',
             windowKind: WindowKind.main,
             isElectron: true,
+            appVersion: version,
           ),
         ),
         chatActionsProvider.overrideWith((ref) => chats = _Chats(ref)),
@@ -328,6 +334,50 @@ void main() {
       );
       await _settle();
       expect(shell.patches.last, {'shortcuts': <String, String>{}});
+    });
+  });
+
+  group("What's new", () {
+    test('versions compare as releases do', () {
+      expect(isNewerVersion('0.2.0', '0.1.9'), isTrue);
+      expect(isNewerVersion('0.10.0', '0.9.0'), isTrue);
+      expect(isNewerVersion('0.2.0', '0.2.0'), isFalse);
+      expect(isNewerVersion('0.2.0-alpha.2', '0.2.0-alpha.1'), isTrue);
+      expect(isNewerVersion('0.2.0', '0.2.0-alpha.1'), isTrue);
+      expect(isNewerVersion('0.1.0', '0.2.0'), isFalse);
+    });
+
+    testComponents('a first run only remembers the version', (tester) async {
+      tester.pumpComponent(scoped(const ReleaseBanner(), version: '0.2.0'));
+      await _settle();
+      expect(find.text(t.app.releaseNotesTitle), findsNothing);
+      expect(shell.patches.single, {'lastSeenVersion': '0.2.0'});
+    });
+
+    testComponents('after an update it says so, until dismissed', (
+      tester,
+    ) async {
+      final component = scoped(const ReleaseBanner(), version: '0.2.1');
+      shell.current = const ShellSettings(lastSeenVersion: '0.1.0');
+      tester.pumpComponent(component);
+      await _settle();
+      expect(
+        find.text(t.app.releaseNotesAnnouncementTitle(version: '0.2')),
+        findsOneComponent,
+      );
+      await tester.click(
+        find.byComponentPredicate(
+          (c) =>
+              c is button &&
+              c.attributes?['aria-label'] == t.desktop.desktopReleaseDismiss,
+        ),
+      );
+      await _settle();
+      expect(shell.patches.last, {'lastSeenVersion': '0.2.1'});
+      expect(
+        find.text(t.app.releaseNotesAnnouncementTitle(version: '0.2')),
+        findsNothing,
+      );
     });
   });
 }

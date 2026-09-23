@@ -747,5 +747,33 @@
   "@desktopShortcutChangeLabel": {
     "description": "Accessible name of a shortcut's Change button.",
     "placeholders": { "command": { "type": "String" } }
+  },
+  "desktopReleaseSeeChanges": "See what changed",
+  "@desktopReleaseSeeChanges": {
+    "description": "Link in the What's new banner to the release's notes on GitHub."
+  },
+  "desktopReleaseDismiss": "Dismiss",
+  "@desktopReleaseDismiss": {
+    "description": "Accessible name of the button that closes the What's new banner."
+  },
+  "desktopAboutDaemon": "Core",
+  "@desktopAboutDaemon": {
+    "description": "About tab: the version of the conduitd core process."
+  },
+  "desktopAboutProtocol": "Protocol",
+  "@desktopAboutProtocol": {
+    "description": "About tab: the version of the protocol between the window and its core."
+  },
+  "desktopAboutPlatform": "Platform",
+  "@desktopAboutPlatform": {
+    "description": "About tab: the operating system the app runs on."
+  },
+  "desktopAboutUserData": "User data",
+  "@desktopAboutUserData": {
+    "description": "About tab: the folder where the app keeps its data."
+  },
+  "desktopAboutLogs": "Logs",
+  "@desktopAboutLogs": {
+    "description": "About tab: the folder where the app writes its logs."
   }
 }

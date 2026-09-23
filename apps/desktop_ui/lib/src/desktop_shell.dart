@@ -88,6 +88,7 @@ class ShellSettings {
     this.notifyAnswers = true,
     this.notifyChannels = true,
     this.shortcuts = const <String, String>{},
+    this.lastSeenVersion = '',
   });
 
   factory ShellSettings.fromJson(Map<String, dynamic> json) => ShellSettings(
@@ -104,6 +105,7 @@ class ShellSettings {
         for (final MapEntry(:key, :value) in map.entries)
           if (key is String && value is String) key: value,
     },
+    lastSeenVersion: json['lastSeenVersion'] as String? ?? '',
   );
 
   final bool closeToTray;
@@ -121,6 +123,9 @@ class ShellSettings {
   /// The user's own keys, by action name, as `encodeStroke` writes them
   /// (WP-9.4).
   final Map<String, String> shortcuts;
+
+  /// The version whose "What's new" was seen, or empty before the first.
+  final String lastSeenVersion;
 }
 
 /// The desktop around the window (M9). Unavailable outside Electron.
@@ -182,6 +187,7 @@ final class RecordingDesktopShell implements DesktopShellPort {
         'notifyAnswers': current.notifyAnswers,
         'notifyChannels': current.notifyChannels,
         'shortcuts': current.shortcuts,
+        'lastSeenVersion': current.lastSeenVersion,
         ...patch,
       });
     }

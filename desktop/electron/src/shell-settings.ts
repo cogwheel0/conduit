@@ -26,6 +26,8 @@ export interface ShellSettings {
    * as the renderer encodes it, e.g. `mod+shift+o`.
    */
   shortcuts: Record<string, string>
+  /** The version whose "What's new" the user has seen; empty before any. */
+  lastSeenVersion: string
 }
 
 export const DEFAULT_SHELL_SETTINGS: ShellSettings = {
@@ -36,6 +38,7 @@ export const DEFAULT_SHELL_SETTINGS: ShellSettings = {
   notifyAnswers: true,
   notifyChannels: true,
   shortcuts: {},
+  lastSeenVersion: '',
 }
 
 /**
@@ -54,6 +57,8 @@ export function sanitizeShellSettings(raw: unknown, base: ShellSettings): ShellS
       if (typeof value === 'string' && isAccelerator(value)) next.quickAskShortcut = value
     } else if (key === 'shortcuts') {
       next.shortcuts = sanitizeShortcuts(value)
+    } else if (key === 'lastSeenVersion') {
+      if (typeof value === 'string' && /^[0-9A-Za-z.+-]{0,32}$/.test(value)) next.lastSeenVersion = value
     } else if (typeof value === 'boolean') {
       next[key] = value
     }

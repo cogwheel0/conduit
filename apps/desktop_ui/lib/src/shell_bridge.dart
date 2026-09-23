@@ -12,6 +12,7 @@ class ShellBridge {
     required this.platform,
     required this.windowKind,
     required this.isElectron,
+    this.appVersion = '0.0.0',
   });
 
   final int rpcPort;
@@ -21,6 +22,10 @@ class ShellBridge {
 
   /// False when running under a plain browser during development.
   final bool isElectron;
+
+  /// The installed app's version (Electron's `app.getVersion()`), which a
+  /// release sets from its tag.
+  final String appVersion;
 
   Uri get rpcUri =>
       Uri.parse('ws://127.0.0.1:$rpcPort${ConduitHttpRoutes.rpc}');

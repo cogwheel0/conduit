@@ -29,6 +29,7 @@ extension type _PreloadBridge._(JSObject _) implements JSObject {
   external String? get token;
   external String? get platform;
   external String? get windowKind;
+  external String? get appVersion;
   external JSPromise<JSObject>? openAuthWindow(JSObject request);
   external JSPromise<JSAny?>? shellSettings(JSAny? patch);
   external JSPromise<JSBoolean>? notify(JSAny request);
@@ -277,6 +278,7 @@ ShellBridge? resolveShellBridge() {
       platform: bridge.platform ?? 'unknown',
       windowKind: ShellBridge.parseWindowKind(bridge.windowKind),
       isElectron: true,
+      appVersion: bridge.appVersion ?? '0.0.0',
     );
   }
 
