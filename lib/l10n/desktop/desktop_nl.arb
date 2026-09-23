@@ -388,5 +388,24 @@
   "desktopAboutProtocol": "Protocol",
   "desktopAboutPlatform": "Platform",
   "desktopAboutUserData": "Gebruikersgegevens",
-  "desktopAboutLogs": "Logboeken"
+  "desktopAboutLogs": "Logboeken",
+  "desktopSttEngineLocal": "Op deze computer",
+  "desktopSttEngineLocalDescription": "Getranscribeerd door Whisper op deze computer. Je stem verlaat hem nooit.",
+  "desktopSttModelsTitle": "Spraakmodellen",
+  "desktopSttModelsDescription": "Eenmalig gedownload van Hugging Face en bewaard op deze computer. Grotere modellen verstaan beter en doen er langer over.",
+  "desktopSttModelDownload": "Downloaden ({size})",
+  "@desktopSttModelDownload": {
+    "placeholders": { "size": { "type": "String" } }
+  },
+  "desktopSttModelDownloading": "Downloaden… {percent}%",
+  "@desktopSttModelDownloading": {
+    "placeholders": { "percent": { "type": "String" } }
+  },
+  "desktopSttModelDelete": "Verwijderen",
+  "desktopSttModelUse": "Gebruiken",
+  "desktopSttModelInUse": "In gebruik",
+  "desktopSttModelEnglishOnly": "Alleen Engels",
+  "desktopSttModelFailedChecksum": "De download was niet het verwachte bestand en is daarom weggegooid.",
+  "desktopSttModelFailedNetwork": "Het downloaden is mislukt. Controleer de verbinding en probeer het opnieuw.",
+  "desktopSttLocalNeedsModel": "Download een model om op deze computer te transcriberen; tot die tijd doet de server dat."
 }

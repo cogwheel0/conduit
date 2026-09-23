@@ -388,5 +388,24 @@
   "desktopAboutProtocol": "Protokol",
   "desktopAboutPlatform": "Platforma",
   "desktopAboutUserData": "Používateľské údaje",
-  "desktopAboutLogs": "Záznamy"
+  "desktopAboutLogs": "Záznamy",
+  "desktopSttEngineLocal": "V tomto počítači",
+  "desktopSttEngineLocalDescription": "Prepisuje Whisper v tomto počítači. Váš hlas ho nikdy neopustí.",
+  "desktopSttModelsTitle": "Modely reči",
+  "desktopSttModelsDescription": "Stiahnu sa raz z Hugging Face a zostanú v tomto počítači. Väčšie modely počujú lepšie, ale pracujú dlhšie.",
+  "desktopSttModelDownload": "Stiahnuť ({size})",
+  "@desktopSttModelDownload": {
+    "placeholders": { "size": { "type": "String" } }
+  },
+  "desktopSttModelDownloading": "Sťahovanie… {percent}%",
+  "@desktopSttModelDownloading": {
+    "placeholders": { "percent": { "type": "String" } }
+  },
+  "desktopSttModelDelete": "Odstrániť",
+  "desktopSttModelUse": "Použiť",
+  "desktopSttModelInUse": "Používa sa",
+  "desktopSttModelEnglishOnly": "Iba angličtina",
+  "desktopSttModelFailedChecksum": "Stiahnutý súbor nebol ten očakávaný, preto bol zahodený.",
+  "desktopSttModelFailedNetwork": "Sťahovanie zlyhalo. Skontrolujte pripojenie a skúste to znova.",
+  "desktopSttLocalNeedsModel": "Ak chcete prepisovať v tomto počítači, stiahnite model; dovtedy prepisuje server."
 }

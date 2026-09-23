@@ -206,6 +206,44 @@ void main() {
       expect(port.transcribed, ['v0']);
     });
 
+    test('with a model on this computer, it sends WAV', () async {
+      final container = make(
+        const VoiceSettings(
+          sttEngine: 'local',
+          localStt: true,
+          localReady: true,
+          silenceMs: 400,
+        ),
+      );
+      final dictation = container.read(dictationProvider.notifier);
+      await dictation.start();
+      port
+        ..level(0.3, const Duration(milliseconds: 100))
+        ..level(0, const Duration(milliseconds: 600));
+      await _settle();
+      await _settle();
+      expect(port.transcribedAsWav, [true]);
+    });
+
+    test('local chosen but no model yet: the server, as it was', () async {
+      final container = make(
+        const VoiceSettings(
+          serverStt: true,
+          sttEngine: 'local',
+          localStt: true,
+          silenceMs: 400,
+        ),
+      );
+      final dictation = container.read(dictationProvider.notifier);
+      await dictation.start();
+      port
+        ..level(0.3, const Duration(milliseconds: 100))
+        ..level(0, const Duration(milliseconds: 600));
+      await _settle();
+      await _settle();
+      expect(port.transcribedAsWav, [false]);
+    });
+
     test('says so when the server does not transcribe', () async {
       final container = make(const VoiceSettings());
       await container.read(dictationProvider.notifier).start();

@@ -388,5 +388,24 @@
   "desktopAboutProtocol": "프로토콜",
   "desktopAboutPlatform": "플랫폼",
   "desktopAboutUserData": "사용자 데이터",
-  "desktopAboutLogs": "로그"
+  "desktopAboutLogs": "로그",
+  "desktopSttEngineLocal": "이 컴퓨터에서",
+  "desktopSttEngineLocalDescription": "이 컴퓨터의 Whisper가 받아씁니다. 음성은 이 컴퓨터 밖으로 나가지 않습니다.",
+  "desktopSttModelsTitle": "음성 모델",
+  "desktopSttModelsDescription": "Hugging Face에서 한 번 다운로드하여 이 컴퓨터에 보관합니다. 큰 모델일수록 더 잘 알아듣지만 시간이 더 걸립니다.",
+  "desktopSttModelDownload": "다운로드({size})",
+  "@desktopSttModelDownload": {
+    "placeholders": { "size": { "type": "String" } }
+  },
+  "desktopSttModelDownloading": "다운로드 중… {percent}%",
+  "@desktopSttModelDownloading": {
+    "placeholders": { "percent": { "type": "String" } }
+  },
+  "desktopSttModelDelete": "삭제",
+  "desktopSttModelUse": "사용",
+  "desktopSttModelInUse": "사용 중",
+  "desktopSttModelEnglishOnly": "영어 전용",
+  "desktopSttModelFailedChecksum": "다운로드한 파일이 예상한 파일이 아니어서 삭제했습니다.",
+  "desktopSttModelFailedNetwork": "다운로드에 실패했습니다. 연결을 확인하고 다시 시도하세요.",
+  "desktopSttLocalNeedsModel": "이 컴퓨터에서 받아쓰려면 모델을 다운로드하세요. 그 전까지는 서버가 받아씁니다."
 }

@@ -11,6 +11,29 @@ import 'package:jaspr/jaspr.dart';
 import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import 'package:jaspr_test/jaspr_test.dart';
 
+const VoiceModels _models = VoiceModels(
+  models: <VoiceModel>[
+    VoiceModel(
+      id: 'tiny.en',
+      name: 'Tiny (English)',
+      sizeBytes: 77704715,
+      englishOnly: true,
+    ),
+    VoiceModel(
+      id: 'base',
+      name: 'Base',
+      sizeBytes: 147951465,
+      downloaded: true,
+    ),
+    VoiceModel(
+      id: 'small',
+      name: 'Small',
+      sizeBytes: 487601967,
+      receivedBytes: 243800984,
+    ),
+  ],
+);
+
 class _FakeVoice extends VoiceActions {
   _FakeVoice(super.ref);
 
@@ -24,6 +47,18 @@ class _FakeVoice extends VoiceActions {
   Future<VoiceSettings> save(VoiceSettingsEdit edit) async {
     saved.add(edit);
     return current;
+  }
+
+  VoiceModels list = _models;
+  final List<String> downloads = <String>[];
+
+  @override
+  Future<VoiceModels> models() async => list;
+
+  @override
+  Future<VoiceModels> downloadModel(String id) async {
+    downloads.add(id);
+    return list;
   }
 
   @override
@@ -51,6 +86,7 @@ void main() {
     return ProviderScope(
       overrides: [
         voicePortProvider.overrideWithValue(port),
+        voiceModelsProvider.overrideWith((ref) => Stream.value(_models)),
         voiceActionsProvider.overrideWith((ref) {
           voice = _FakeVoice(ref);
           if (settings != null) voice.current = settings;
@@ -123,5 +159,45 @@ void main() {
     );
     await pumpEventQueue();
     expect(port.spoken.single, startsWith('device:'));
+  });
+
+  testComponents('on this computer: models to download, use and delete', (
+    tester,
+  ) async {
+    tester.pumpComponent(
+      scoped(
+        settings: const VoiceSettings(
+          localStt: true,
+          sttEngine: 'local',
+          localModel: 'base',
+          localReady: true,
+        ),
+      ),
+    );
+    await pumpEventQueue();
+    await pumpEventQueue();
+    expect(find.text(t.desktop.desktopSttModelsTitle), findsOneComponent);
+    expect(find.text(t.desktop.desktopSttModelInUse), findsOneComponent);
+    expect(
+      find.text(t.desktop.desktopSttModelDownloading(percent: '50')),
+      findsOneComponent,
+    );
+    await tester.click(
+      find.byComponentPredicate(
+        (c) => c is DomComponent && c.id == 'download-tiny.en',
+      ),
+    );
+    await pumpEventQueue();
+    expect(voice.downloads, ['tiny.en']);
+    // The server engine is offered only when the server transcribes.
+    expect(_input('stt-engine-server').disabled, isTrue);
+  });
+
+  testComponents('without the local engine, no engine choice at all', (
+    tester,
+  ) async {
+    tester.pumpComponent(scoped());
+    await pumpEventQueue();
+    expect(find.text(t.desktop.desktopSttEngineLocal), findsNothing);
   });
 }

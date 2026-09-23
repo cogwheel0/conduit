@@ -775,5 +775,59 @@
   "desktopAboutLogs": "Logs",
   "@desktopAboutLogs": {
     "description": "About tab: the folder where the app writes its logs."
+  },
+  "desktopSttEngineLocal": "On this computer",
+  "@desktopSttEngineLocal": {
+    "description": "Speech-to-text engine choice: Whisper running locally, nothing sent to a server."
+  },
+  "desktopSttEngineLocalDescription": "Transcribed by Whisper on this computer. Your voice never leaves it.",
+  "@desktopSttEngineLocalDescription": {
+    "description": "Help under the on-this-computer speech-to-text choice."
+  },
+  "desktopSttModelsTitle": "Speech models",
+  "@desktopSttModelsTitle": {
+    "description": "Heading of the list of downloadable Whisper models."
+  },
+  "desktopSttModelsDescription": "Downloaded once from Hugging Face and kept on this computer. Larger models hear better and take longer.",
+  "@desktopSttModelsDescription": {
+    "description": "Help above the list of downloadable Whisper models."
+  },
+  "desktopSttModelDownload": "Download ({size})",
+  "@desktopSttModelDownload": {
+    "description": "Button that downloads a speech model; size is e.g. 148 MB.",
+    "placeholders": { "size": { "type": "String" } }
+  },
+  "desktopSttModelDownloading": "Downloading… {percent}%",
+  "@desktopSttModelDownloading": {
+    "description": "Progress of a speech model download.",
+    "placeholders": { "percent": { "type": "String" } }
+  },
+  "desktopSttModelDelete": "Delete",
+  "@desktopSttModelDelete": {
+    "description": "Button that deletes a downloaded speech model."
+  },
+  "desktopSttModelUse": "Use",
+  "@desktopSttModelUse": {
+    "description": "Button that makes a downloaded speech model the one used."
+  },
+  "desktopSttModelInUse": "In use",
+  "@desktopSttModelInUse": {
+    "description": "Label on the speech model currently used."
+  },
+  "desktopSttModelEnglishOnly": "English only",
+  "@desktopSttModelEnglishOnly": {
+    "description": "Label on a speech model that only understands English."
+  },
+  "desktopSttModelFailedChecksum": "The download was not the file expected, so it was thrown away.",
+  "@desktopSttModelFailedChecksum": {
+    "description": "Shown when a downloaded speech model failed its checksum."
+  },
+  "desktopSttModelFailedNetwork": "The download failed. Check the connection and try again.",
+  "@desktopSttModelFailedNetwork": {
+    "description": "Shown when a speech model download failed on the network."
+  },
+  "desktopSttLocalNeedsModel": "Download a model to transcribe on this computer; until then the server does.",
+  "@desktopSttLocalNeedsModel": {
+    "description": "Shown when on-this-computer is chosen but no model is downloaded."
   }
 }

@@ -99,8 +99,52 @@ class _DictationState extends State<_Dictation> {
   @override
   Component build(BuildContext context) {
     final settings = component.settings;
+    final local = settings.sttEngine == 'local';
     return _section(t.app.sttSettings, [
-      if (!settings.serverStt) statusLine(t.app.sttServerUnavailableWarning),
+      if (settings.localStt) ...[
+        fieldset(classes: 'space-y-2 border-0 p-0', [
+          legend(classes: 'text-sm font-medium text-foreground', [
+            Component.text(t.app.sttEngineLabel),
+          ]),
+          for (final (engine, text, description, enabled)
+              in <(String, String, String, bool)>[
+                (
+                  'server',
+                  t.app.sttEngineServer,
+                  settings.serverStt
+                      ? t.app.sttEngineServerDescription
+                      : t.app.sttServerUnavailableWarning,
+                  settings.serverStt,
+                ),
+                (
+                  'local',
+                  t.desktop.desktopSttEngineLocal,
+                  t.desktop.desktopSttEngineLocalDescription,
+                  true,
+                ),
+              ])
+            div(classes: 'flex items-start gap-2', [
+              input<bool>(
+                id: 'stt-engine-$engine',
+                type: InputType.radio,
+                name: 'stt-engine',
+                classes: 'mt-1',
+                checked: settings.sttEngine == engine,
+                disabled: !enabled,
+                onChange: (_) =>
+                    _save(context, VoiceSettingsEdit(sttEngine: engine)),
+              ),
+              div([
+                label(htmlFor: 'stt-engine-$engine', classes: 'text-sm', [
+                  Component.text(text),
+                ]),
+                _hint(description),
+              ]),
+            ]),
+        ]),
+        if (local) _LocalModels(settings),
+      ] else if (!settings.serverStt)
+        statusLine(t.app.sttServerUnavailableWarning),
       div(classes: 'space-y-1', [
         textField(
           id: 'voice-language',
@@ -321,6 +365,119 @@ class _Speech extends StatelessComponent {
             ? const VoiceSettingsEdit(clearServerVoice: true)
             : VoiceSettingsEdit(serverVoice: id),
       ),
+    );
+  }
+}
+
+String _megabytes(int bytes) => '${(bytes / 1e6).round()} MB';
+
+/// The whisper models to download, use and delete (M11).
+class _LocalModels extends StatelessComponent {
+  const _LocalModels(this.settings);
+
+  final VoiceSettings settings;
+
+  @override
+  Component build(BuildContext context) {
+    final models = context.watch(voiceModelsProvider).value;
+    final actions = context.read(voiceActionsProvider);
+    Component small(String text, void Function() onClick, {String? id}) =>
+        button(
+          [Component.text(text)],
+          id: id,
+          classes:
+              'rounded border border-border px-2 py-0.5 text-xs '
+              'hover:bg-accent',
+          type: ButtonType.button,
+          onClick: onClick,
+        );
+    return section(
+      classes: 'space-y-3 rounded border border-border p-3',
+      attributes: <String, String>{
+        'aria-label': t.desktop.desktopSttModelsTitle,
+      },
+      [
+        h4(classes: 'text-sm font-medium', [
+          Component.text(t.desktop.desktopSttModelsTitle),
+        ]),
+        _hint(t.desktop.desktopSttModelsDescription),
+        if (!settings.localReady)
+          statusLine(t.desktop.desktopSttLocalNeedsModel),
+        if (models?.failure case final failure?)
+          statusLine(
+            failure == 'checksum'
+                ? t.desktop.desktopSttModelFailedChecksum
+                : t.desktop.desktopSttModelFailedNetwork,
+            error: true,
+          ),
+        if (models == null)
+          statusLine(t.app.loadingShort)
+        else
+          ul(classes: 'divide-y divide-border', [
+            for (final model in models.models)
+              li(
+                classes: 'flex items-center gap-2 py-2 text-sm',
+                attributes: <String, String>{'data-model': model.id},
+                [
+                  span(classes: 'min-w-0 flex-1', [
+                    Component.text(model.name),
+                    if (model.englishOnly)
+                      span(classes: 'ml-2 text-xs text-muted-foreground', [
+                        Component.text(t.desktop.desktopSttModelEnglishOnly),
+                      ]),
+                  ]),
+                  if (model.receivedBytes case final received?)
+                    span(
+                      classes: 'text-xs text-muted-foreground',
+                      attributes: const <String, String>{'role': 'status'},
+                      [
+                        Component.text(
+                          t.desktop.desktopSttModelDownloading(
+                            percent: model.sizeBytes == 0
+                                ? '0'
+                                : '${(received * 100 / model.sizeBytes).floor()}',
+                          ),
+                        ),
+                      ],
+                    )
+                  else if (model.downloaded) ...[
+                    if (settings.localModel == model.id)
+                      span(classes: 'text-xs text-primary', [
+                        Component.text(t.desktop.desktopSttModelInUse),
+                      ])
+                    else
+                      small(
+                        t.desktop.desktopSttModelUse,
+                        () => _save(
+                          context,
+                          VoiceSettingsEdit(localModel: model.id),
+                        ),
+                      ),
+                    small(
+                      t.desktop.desktopSttModelDelete,
+                      () => unawaited(actions.deleteModel(model.id)),
+                    ),
+                  ] else
+                    small(
+                      t.desktop.desktopSttModelDownload(
+                        size: _megabytes(model.sizeBytes),
+                      ),
+                      () {
+                        unawaited(actions.downloadModel(model.id));
+                        // The first one downloaded is the one used.
+                        if (settings.localModel == null) {
+                          _save(
+                            context,
+                            VoiceSettingsEdit(localModel: model.id),
+                          );
+                        }
+                      },
+                      id: 'download-${model.id}',
+                    ),
+                ],
+              ),
+          ]),
+      ],
     );
   }
 }

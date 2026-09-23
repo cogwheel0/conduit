@@ -388,5 +388,24 @@
   "desktopAboutProtocol": "Protokół",
   "desktopAboutPlatform": "Platforma",
   "desktopAboutUserData": "Dane użytkownika",
-  "desktopAboutLogs": "Logi"
+  "desktopAboutLogs": "Logi",
+  "desktopSttEngineLocal": "Na tym komputerze",
+  "desktopSttEngineLocalDescription": "Transkrypcja przez Whisper na tym komputerze. Twój głos nigdy go nie opuszcza.",
+  "desktopSttModelsTitle": "Modele mowy",
+  "desktopSttModelsDescription": "Pobierane raz z Hugging Face i przechowywane na tym komputerze. Większe modele lepiej rozumieją mowę, ale działają dłużej.",
+  "desktopSttModelDownload": "Pobierz ({size})",
+  "@desktopSttModelDownload": {
+    "placeholders": { "size": { "type": "String" } }
+  },
+  "desktopSttModelDownloading": "Pobieranie… {percent}%",
+  "@desktopSttModelDownloading": {
+    "placeholders": { "percent": { "type": "String" } }
+  },
+  "desktopSttModelDelete": "Usuń",
+  "desktopSttModelUse": "Użyj",
+  "desktopSttModelInUse": "W użyciu",
+  "desktopSttModelEnglishOnly": "Tylko angielski",
+  "desktopSttModelFailedChecksum": "Pobrany plik nie był oczekiwanym plikiem, więc został odrzucony.",
+  "desktopSttModelFailedNetwork": "Pobieranie nie powiodło się. Sprawdź połączenie i spróbuj ponownie.",
+  "desktopSttLocalNeedsModel": "Pobierz model, aby transkrybować na tym komputerze; do tego czasu robi to serwer."
 }

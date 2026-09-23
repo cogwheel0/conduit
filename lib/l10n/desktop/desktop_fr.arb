@@ -388,5 +388,24 @@
   "desktopAboutProtocol": "Protocole",
   "desktopAboutPlatform": "Plateforme",
   "desktopAboutUserData": "Données utilisateur",
-  "desktopAboutLogs": "Journaux"
+  "desktopAboutLogs": "Journaux",
+  "desktopSttEngineLocal": "Sur cet ordinateur",
+  "desktopSttEngineLocalDescription": "Transcrit par Whisper sur cet ordinateur. Votre voix ne le quitte jamais.",
+  "desktopSttModelsTitle": "Modèles vocaux",
+  "desktopSttModelsDescription": "Téléchargés une seule fois depuis Hugging Face et conservés sur cet ordinateur. Les modèles plus grands comprennent mieux mais prennent plus de temps.",
+  "desktopSttModelDownload": "Télécharger ({size})",
+  "@desktopSttModelDownload": {
+    "placeholders": { "size": { "type": "String" } }
+  },
+  "desktopSttModelDownloading": "Téléchargement… {percent}%",
+  "@desktopSttModelDownloading": {
+    "placeholders": { "percent": { "type": "String" } }
+  },
+  "desktopSttModelDelete": "Supprimer",
+  "desktopSttModelUse": "Utiliser",
+  "desktopSttModelInUse": "Utilisé",
+  "desktopSttModelEnglishOnly": "Anglais uniquement",
+  "desktopSttModelFailedChecksum": "Le fichier téléchargé n’était pas celui attendu ; il a donc été supprimé.",
+  "desktopSttModelFailedNetwork": "Le téléchargement a échoué. Vérifiez la connexion et réessayez.",
+  "desktopSttLocalNeedsModel": "Téléchargez un modèle pour transcrire sur cet ordinateur ; en attendant, le serveur s’en charge."
 }

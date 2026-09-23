@@ -388,5 +388,24 @@
   "desktopAboutProtocol": "Protocolo",
   "desktopAboutPlatform": "Plataforma",
   "desktopAboutUserData": "Datos de usuario",
-  "desktopAboutLogs": "Registros"
+  "desktopAboutLogs": "Registros",
+  "desktopSttEngineLocal": "En este equipo",
+  "desktopSttEngineLocalDescription": "Whisper transcribe en este equipo. Tu voz nunca sale de él.",
+  "desktopSttModelsTitle": "Modelos de voz",
+  "desktopSttModelsDescription": "Se descargan una vez desde Hugging Face y se guardan en este equipo. Los modelos más grandes entienden mejor y tardan más.",
+  "desktopSttModelDownload": "Descargar ({size})",
+  "@desktopSttModelDownload": {
+    "placeholders": { "size": { "type": "String" } }
+  },
+  "desktopSttModelDownloading": "Descargando… {percent}%",
+  "@desktopSttModelDownloading": {
+    "placeholders": { "percent": { "type": "String" } }
+  },
+  "desktopSttModelDelete": "Eliminar",
+  "desktopSttModelUse": "Usar",
+  "desktopSttModelInUse": "En uso",
+  "desktopSttModelEnglishOnly": "Solo inglés",
+  "desktopSttModelFailedChecksum": "La descarga no era el archivo esperado, así que se ha descartado.",
+  "desktopSttModelFailedNetwork": "La descarga ha fallado. Comprueba la conexión e inténtalo de nuevo.",
+  "desktopSttLocalNeedsModel": "Descarga un modelo para transcribir en este equipo; mientras tanto, lo hace el servidor."
 }

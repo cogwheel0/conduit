@@ -388,5 +388,24 @@
   "desktopAboutProtocol": "Протокол",
   "desktopAboutPlatform": "Платформа",
   "desktopAboutUserData": "Данные пользователя",
-  "desktopAboutLogs": "Журналы"
+  "desktopAboutLogs": "Журналы",
+  "desktopSttEngineLocal": "На этом компьютере",
+  "desktopSttEngineLocalDescription": "Whisper распознаёт речь на этом компьютере. Ваш голос никуда не отправляется.",
+  "desktopSttModelsTitle": "Модели речи",
+  "desktopSttModelsDescription": "Скачиваются один раз с Hugging Face и хранятся на этом компьютере. Модели побольше распознают лучше, но работают дольше.",
+  "desktopSttModelDownload": "Скачать ({size})",
+  "@desktopSttModelDownload": {
+    "placeholders": { "size": { "type": "String" } }
+  },
+  "desktopSttModelDownloading": "Скачивание… {percent}%",
+  "@desktopSttModelDownloading": {
+    "placeholders": { "percent": { "type": "String" } }
+  },
+  "desktopSttModelDelete": "Удалить",
+  "desktopSttModelUse": "Использовать",
+  "desktopSttModelInUse": "Используется",
+  "desktopSttModelEnglishOnly": "Только английский",
+  "desktopSttModelFailedChecksum": "Скачанный файл оказался не тем, что ожидался, поэтому он удалён.",
+  "desktopSttModelFailedNetwork": "Не удалось скачать. Проверьте подключение и попробуйте ещё раз.",
+  "desktopSttLocalNeedsModel": "Скачайте модель, чтобы распознавать речь на этом компьютере; до тех пор это делает сервер."
 }

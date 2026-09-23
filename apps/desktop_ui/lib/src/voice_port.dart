@@ -44,8 +44,10 @@ abstract interface class VoicePort {
   /// Stops recording and throws it away.
   void cancelCapture();
 
-  /// The server's transcription of [audio], through the daemon.
-  Future<String> transcribe(CapturedAudio audio);
+  /// The transcription of [audio], through the daemon. With [wav], the
+  /// recording is sent as 16 kHz mono WAV, which transcribing on this
+  /// computer needs (M11).
+  Future<String> transcribe(CapturedAudio audio, {bool wav = false});
 
   /// The system's voices; empty when it has none.
   Future<List<DeviceVoice>> deviceVoices();
@@ -87,6 +89,9 @@ final class RecordingVoice implements VoicePort {
   /// Whether a capture is running, and who hears its levels.
   LevelListener? listening;
   final List<String> transcribed = <String>[];
+
+  /// Whether each transcription asked for WAV.
+  final List<bool> transcribedAsWav = <bool>[];
   int cancelled = 0;
 
   /// Everything said, as `device:<text>` or `server:<jobId>`, in order.
@@ -131,12 +136,13 @@ final class RecordingVoice implements VoicePort {
   }
 
   @override
-  Future<String> transcribe(CapturedAudio audio) async {
+  Future<String> transcribe(CapturedAudio audio, {bool wav = false}) async {
     if (failWith case final error?) {
       failWith = null;
       throw error;
     }
     transcribed.add(audio.handle);
+    transcribedAsWav.add(wav);
     return transcript;
   }
 

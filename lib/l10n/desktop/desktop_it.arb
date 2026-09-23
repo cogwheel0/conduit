@@ -388,5 +388,24 @@
   "desktopAboutProtocol": "Protocollo",
   "desktopAboutPlatform": "Piattaforma",
   "desktopAboutUserData": "Dati utente",
-  "desktopAboutLogs": "Log"
+  "desktopAboutLogs": "Log",
+  "desktopSttEngineLocal": "Su questo computer",
+  "desktopSttEngineLocalDescription": "Trascritto da Whisper su questo computer. La tua voce non lo lascia mai.",
+  "desktopSttModelsTitle": "Modelli vocali",
+  "desktopSttModelsDescription": "Scaricati una sola volta da Hugging Face e conservati su questo computer. I modelli più grandi capiscono meglio e impiegano più tempo.",
+  "desktopSttModelDownload": "Scarica ({size})",
+  "@desktopSttModelDownload": {
+    "placeholders": { "size": { "type": "String" } }
+  },
+  "desktopSttModelDownloading": "Download in corso… {percent}%",
+  "@desktopSttModelDownloading": {
+    "placeholders": { "percent": { "type": "String" } }
+  },
+  "desktopSttModelDelete": "Elimina",
+  "desktopSttModelUse": "Usa",
+  "desktopSttModelInUse": "In uso",
+  "desktopSttModelEnglishOnly": "Solo inglese",
+  "desktopSttModelFailedChecksum": "Il file scaricato non era quello previsto, quindi è stato scartato.",
+  "desktopSttModelFailedNetwork": "Download non riuscito. Controlla la connessione e riprova.",
+  "desktopSttLocalNeedsModel": "Scarica un modello per trascrivere su questo computer; fino ad allora se ne occupa il server."
 }

@@ -388,5 +388,24 @@
   "desktopAboutProtocol": "协议",
   "desktopAboutPlatform": "平台",
   "desktopAboutUserData": "用户数据",
-  "desktopAboutLogs": "日志"
+  "desktopAboutLogs": "日志",
+  "desktopSttEngineLocal": "在此电脑上",
+  "desktopSttEngineLocalDescription": "由此电脑上的 Whisper 转写。您的语音不会离开此电脑。",
+  "desktopSttModelsTitle": "语音模型",
+  "desktopSttModelsDescription": "从 Hugging Face 下载一次并保存在此电脑上。模型越大，识别越准确，但耗时越长。",
+  "desktopSttModelDownload": "下载（{size}）",
+  "@desktopSttModelDownload": {
+    "placeholders": { "size": { "type": "String" } }
+  },
+  "desktopSttModelDownloading": "正在下载… {percent}%",
+  "@desktopSttModelDownloading": {
+    "placeholders": { "percent": { "type": "String" } }
+  },
+  "desktopSttModelDelete": "删除",
+  "desktopSttModelUse": "使用",
+  "desktopSttModelInUse": "使用中",
+  "desktopSttModelEnglishOnly": "仅限英语",
+  "desktopSttModelFailedChecksum": "下载的文件与预期不符，已丢弃。",
+  "desktopSttModelFailedNetwork": "下载失败。请检查连接后重试。",
+  "desktopSttLocalNeedsModel": "下载模型后即可在此电脑上转写；在此之前由服务器转写。"
 }

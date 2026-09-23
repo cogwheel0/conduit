@@ -388,5 +388,24 @@
   "desktopAboutProtocol": "通訊協定",
   "desktopAboutPlatform": "平台",
   "desktopAboutUserData": "使用者資料",
-  "desktopAboutLogs": "記錄檔"
+  "desktopAboutLogs": "記錄檔",
+  "desktopSttEngineLocal": "在這台電腦上",
+  "desktopSttEngineLocalDescription": "由這台電腦上的 Whisper 轉錄。您的語音不會離開這台電腦。",
+  "desktopSttModelsTitle": "語音模型",
+  "desktopSttModelsDescription": "從 Hugging Face 下載一次並保留在這台電腦上。模型越大，辨識越準確，但耗時越久。",
+  "desktopSttModelDownload": "下載（{size}）",
+  "@desktopSttModelDownload": {
+    "placeholders": { "size": { "type": "String" } }
+  },
+  "desktopSttModelDownloading": "正在下載… {percent}%",
+  "@desktopSttModelDownloading": {
+    "placeholders": { "percent": { "type": "String" } }
+  },
+  "desktopSttModelDelete": "刪除",
+  "desktopSttModelUse": "使用",
+  "desktopSttModelInUse": "使用中",
+  "desktopSttModelEnglishOnly": "僅限英文",
+  "desktopSttModelFailedChecksum": "下載的檔案與預期不符，已捨棄。",
+  "desktopSttModelFailedNetwork": "下載失敗。請檢查連線後再試一次。",
+  "desktopSttLocalNeedsModel": "下載模型後即可在這台電腦上轉錄；在此之前由伺服器轉錄。"
 }

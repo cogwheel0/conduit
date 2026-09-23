@@ -388,5 +388,24 @@
   "desktopAboutProtocol": "プロトコル",
   "desktopAboutPlatform": "プラットフォーム",
   "desktopAboutUserData": "ユーザーデータ",
-  "desktopAboutLogs": "ログ"
+  "desktopAboutLogs": "ログ",
+  "desktopSttEngineLocal": "このコンピューター",
+  "desktopSttEngineLocalDescription": "このコンピューター上の Whisper で文字起こしします。音声が外部に送られることはありません。",
+  "desktopSttModelsTitle": "音声モデル",
+  "desktopSttModelsDescription": "Hugging Face から一度だけダウンロードし、このコンピューターに保存します。大きいモデルほど聞き取りの精度が高く、時間がかかります。",
+  "desktopSttModelDownload": "ダウンロード ({size})",
+  "@desktopSttModelDownload": {
+    "placeholders": { "size": { "type": "String" } }
+  },
+  "desktopSttModelDownloading": "ダウンロード中… {percent}%",
+  "@desktopSttModelDownloading": {
+    "placeholders": { "percent": { "type": "String" } }
+  },
+  "desktopSttModelDelete": "削除",
+  "desktopSttModelUse": "使用",
+  "desktopSttModelInUse": "使用中",
+  "desktopSttModelEnglishOnly": "英語のみ",
+  "desktopSttModelFailedChecksum": "ダウンロードしたファイルが想定と異なるため、破棄しました。",
+  "desktopSttModelFailedNetwork": "ダウンロードに失敗しました。接続を確認して、もう一度お試しください。",
+  "desktopSttLocalNeedsModel": "このコンピューターで文字起こしするにはモデルをダウンロードしてください。それまではサーバーが文字起こしします。"
 }

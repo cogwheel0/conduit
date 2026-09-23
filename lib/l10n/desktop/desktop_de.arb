@@ -388,5 +388,24 @@
   "desktopAboutProtocol": "Protokoll",
   "desktopAboutPlatform": "Plattform",
   "desktopAboutUserData": "Benutzerdaten",
-  "desktopAboutLogs": "Protokolle"
+  "desktopAboutLogs": "Protokolle",
+  "desktopSttEngineLocal": "Auf diesem Computer",
+  "desktopSttEngineLocalDescription": "Von Whisper auf diesem Computer transkribiert. Deine Stimme verlässt ihn nie.",
+  "desktopSttModelsTitle": "Sprachmodelle",
+  "desktopSttModelsDescription": "Einmalig von Hugging Face heruntergeladen und auf diesem Computer behalten. Größere Modelle verstehen besser und brauchen länger.",
+  "desktopSttModelDownload": "Herunterladen ({size})",
+  "@desktopSttModelDownload": {
+    "placeholders": { "size": { "type": "String" } }
+  },
+  "desktopSttModelDownloading": "Wird heruntergeladen… {percent}%",
+  "@desktopSttModelDownloading": {
+    "placeholders": { "percent": { "type": "String" } }
+  },
+  "desktopSttModelDelete": "Löschen",
+  "desktopSttModelUse": "Verwenden",
+  "desktopSttModelInUse": "In Verwendung",
+  "desktopSttModelEnglishOnly": "Nur Englisch",
+  "desktopSttModelFailedChecksum": "Der Download war nicht die erwartete Datei und wurde daher verworfen.",
+  "desktopSttModelFailedNetwork": "Der Download ist fehlgeschlagen. Prüfe die Verbindung und versuche es erneut.",
+  "desktopSttLocalNeedsModel": "Lade ein Modell herunter, um auf diesem Computer zu transkribieren; bis dahin übernimmt das der Server."
 }

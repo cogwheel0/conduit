@@ -53,6 +53,15 @@ class UtteranceDetector {
   }
 }
 
+/// Whether speech can be transcribed now: on this computer when that is
+/// chosen and a model is ready, by the server otherwise.
+bool canTranscribe(VoiceSettings settings) =>
+    transcribesLocally(settings) || settings.serverStt;
+
+/// Whether this computer does the transcribing (M11), which wants WAV.
+bool transcribesLocally(VoiceSettings settings) =>
+    settings.sttEngine == 'local' && settings.localReady;
+
 Future<VoiceSettings> _voiceSettings(Ref ref) async {
   try {
     return await ref.read(voiceSettingsProvider.future);
@@ -243,6 +252,7 @@ class Dictation extends Notifier<DictationState> {
       StreamController<String>.broadcast();
   UtteranceDetector? _detector;
   int _session = 0;
+  bool _wav = false;
 
   /// What each dictation said, for the composer to insert.
   Stream<String> get results => _results.stream;
@@ -277,10 +287,11 @@ class Dictation extends Notifier<DictationState> {
     if (session != _session || state.phase != DictationPhase.listening) {
       return;
     }
-    if (!settings.serverStt) {
+    if (!canTranscribe(settings)) {
       state = const DictationState(problem: DictationProblem.unavailable);
       return;
     }
+    _wav = transcribesLocally(settings);
     // Its own voice must not be what it hears.
     ref.read(speechPlayerProvider.notifier).stop();
     final detector = _detector = hold
@@ -318,7 +329,7 @@ class Dictation extends Notifier<DictationState> {
       return;
     }
     try {
-      final text = (await _port.transcribe(audio)).trim();
+      final text = (await _port.transcribe(audio, wav: _wav)).trim();
       if (session != _session) return;
       if (text.isEmpty) {
         state = const DictationState(problem: DictationProblem.nothingHeard);
@@ -420,7 +431,7 @@ class VoiceCall extends Notifier<CallState> {
     state = const CallState(phase: CallPhase.listening);
     _settings = await _voiceSettings(ref);
     if (session != _session) return;
-    if (!_settings.serverStt) {
+    if (!canTranscribe(_settings)) {
       state = const CallState(problem: CallProblem.unavailable);
       return;
     }
@@ -523,7 +534,12 @@ class VoiceCall extends Notifier<CallState> {
     var text = '';
     try {
       final audio = await _port.stopCapture();
-      if (audio != null) text = (await _port.transcribe(audio)).trim();
+      if (audio != null) {
+        text = (await _port.transcribe(
+          audio,
+          wav: transcribesLocally(_settings),
+        )).trim();
+      }
     } on Object {
       text = '';
     }

@@ -1785,10 +1785,10 @@ class _ComposerState extends State<_Composer> {
       });
     }
 
-    // Voice needs the server to transcribe (M8); on a system with the
-    // Apple helper that will change (WP-8.4).
-    final voice =
-        context.watch(voiceSettingsProvider).value?.serverStt ?? false;
+    // Voice needs something to transcribe it: the server (M8), or whisper
+    // on this computer (M11).
+    final voiceSettings = context.watch(voiceSettingsProvider).value;
+    final voice = voiceSettings != null && canTranscribe(voiceSettings);
     final dictationProblem = dictationProblemText(
       context.watch(dictationProvider).problem,
     );
