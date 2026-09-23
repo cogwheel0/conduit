@@ -7,6 +7,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit_core/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_transfer.dart';
 import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/models/workspace_tool_content.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
@@ -439,7 +440,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
         items,
         importItem: (item) => ref
             .read(workspaceToolsProvider.notifier)
-            .importTool(_formFromImport(item)),
+            .importTool(workspaceToolFormFromImport(item)),
         labelOf: (item) =>
             item['name']?.toString() ?? item['id']?.toString() ?? '',
       ),
@@ -617,19 +618,6 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       context,
       message: message,
       type: isError ? AdaptiveSnackBarType.error : AdaptiveSnackBarType.success,
-    );
-  }
-
-  WorkspaceToolForm _formFromImport(Map<String, dynamic> json) {
-    final normalized = normalizeImportedTool(json);
-    final rawId = normalized['id']?.toString().trim() ?? '';
-    final name = normalized['name']?.toString() ?? '';
-    final id = rawId.isEmpty ? WorkspaceToolContent.nameToId(name) : rawId;
-    return WorkspaceToolForm(
-      id: id,
-      name: name,
-      content: normalized['content']?.toString() ?? '',
-      meta: workspaceJsonMap(normalized['meta']),
     );
   }
 
