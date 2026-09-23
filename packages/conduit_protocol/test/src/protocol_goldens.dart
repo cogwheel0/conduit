@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.43.0",
+  "protocolVersion": "1.44.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.43.0",
+  "protocolVersion": "1.44.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -1582,6 +1582,175 @@ const Map<String, String> protocolGoldens = <String, String>{
   'terminalPreview': r'''
 {
   "url": "http://127.0.0.1:41234/k1"
+}''',
+
+  'hermesSettings': r'''
+{
+  "enabled": true,
+  "baseUrl": "https://hermes.example.com/v1",
+  "mode": "responses",
+  "hasApiKey": true,
+  "hasSessionKey": true,
+  "desktopProfile": "work",
+  "desktopAuthKind": "nativePkce",
+  "desktopSignedIn": true,
+  "allowSelfSignedCertificates": true,
+  "usable": true
+}''',
+
+  'hermesSettingsEdit': r'''
+{
+  "enabled": false,
+  "baseUrl": "https://hermes.example.com",
+  "mode": "desktop",
+  "apiKey": "k",
+  "sessionKey": "",
+  "desktopProfile": "work",
+  "desktopAuthKind": "dashboardCookie",
+  "allowSelfSignedCertificates": true
+}''',
+
+  'hermesTestResult': r'''
+{
+  "ok": false,
+  "reason": "unauthorized"
+}''',
+
+  'hermesCapabilitiesDto': r'''
+{
+  "runApproval": true,
+  "skills": true,
+  "toolsets": true,
+  "jobs": true,
+  "jobsAdmin": true,
+  "sessions": true,
+  "inputImages": true,
+  "inputFiles": true
+}''',
+
+  'hermesStatus': r'''
+{
+  "configured": true,
+  "reachable": true,
+  "capabilities": {
+    "runApproval": false,
+    "skills": false,
+    "toolsets": false,
+    "jobs": true,
+    "jobsAdmin": false,
+    "sessions": false,
+    "inputImages": false,
+    "inputFiles": false
+  },
+  "details": {
+    "active_sessions": 2
+  }
+}''',
+
+  'hermesSessionDto': r'''
+{
+  "id": "s1",
+  "chatId": "local:hermes_s1",
+  "title": "Plan the trip",
+  "preview": "Where to?",
+  "updatedAtMs": 1767225600000
+}''',
+
+  'hermesSessions': r'''
+{
+  "sessions": [
+    {
+      "id": "s2",
+      "chatId": "local:hermes_s2",
+      "title": ""
+    }
+  ]
+}''',
+
+  'hermesRef': r'''
+{
+  "id": "s1"
+}''',
+
+  'hermesRename': r'''
+{
+  "id": "s1",
+  "title": "Trip"
+}''',
+
+  'hermesJobDto': r'''
+{
+  "id": "j1",
+  "name": "Morning brief",
+  "prompt": "Summarise the news",
+  "schedule": "0 8 * * *",
+  "scheduleText": "At 08:00",
+  "enabled": false,
+  "lastStatus": "ok",
+  "lastError": "none",
+  "lastRunAtMs": 1767225600000,
+  "nextRunAtMs": 1767312000000
+}''',
+
+  'hermesJobs': r'''
+{
+  "jobs": [
+    {
+      "id": "j2",
+      "prompt": "",
+      "schedule": "",
+      "enabled": true
+    }
+  ]
+}''',
+
+  'hermesJobEdit': r'''
+{
+  "id": "j1",
+  "name": "Brief",
+  "prompt": "Summarise",
+  "schedule": "every 1h"
+}''',
+
+  'hermesJobToggle': r'''
+{
+  "id": "j1",
+  "enabled": true
+}''',
+
+  'hermesSkillDto': r'''
+{
+  "name": "review",
+  "description": "Reviews code"
+}''',
+
+  'hermesToolsetDto': r'''
+{
+  "name": "web",
+  "label": "Web",
+  "description": "Search and fetch",
+  "enabled": false,
+  "tools": [
+    "search",
+    "fetch"
+  ]
+}''',
+
+  'hermesCatalog': r'''
+{
+  "skills": [
+    {
+      "name": "review"
+    }
+  ],
+  "toolsets": [
+    {
+      "name": "web",
+      "label": "",
+      "enabled": true,
+      "tools": []
+    }
+  ]
 }''',
 
   'noteFile': r'''

@@ -481,6 +481,40 @@ abstract final class ConduitMethods {
   static const String directPrefix = 'direct.';
   static const String mcpPrefix = 'mcp.';
   static const String hermesPrefix = 'hermes.';
+
+  // hermes.* (M7): the Hermes Agent connection, its sessions -- chats with
+  // `local:hermes_<id>` ids, sent to through turns.* -- jobs and catalog.
+
+  static const String hermesSettings = 'hermes.settings';
+  static const String hermesSaveSettings = 'hermes.saveSettings';
+
+  /// Tries a connection without saving it.
+  static const String hermesTest = 'hermes.test';
+
+  /// Reachability, capabilities and the server's health.
+  static const String hermesStatus = 'hermes.status';
+
+  /// Signs in to a desktop gateway in the system browser (native PKCE).
+  static const String hermesSignIn = 'hermes.signIn';
+  static const String hermesSignOut = 'hermes.signOut';
+  static const String hermesSessions = 'hermes.sessions';
+  static const String hermesRenameSession = 'hermes.renameSession';
+  static const String hermesDeleteSession = 'hermes.deleteSession';
+
+  /// A copy of a session to go on from; answers with the new one.
+  static const String hermesForkSession = 'hermes.forkSession';
+  static const String hermesJobs = 'hermes.jobs';
+
+  /// Creates or edits a scheduled agent; answers with the jobs.
+  static const String hermesSaveJob = 'hermes.saveJob';
+  static const String hermesSetJobEnabled = 'hermes.setJobEnabled';
+
+  /// Runs a job now, whatever its schedule.
+  static const String hermesRunJob = 'hermes.runJob';
+  static const String hermesDeleteJob = 'hermes.deleteJob';
+
+  /// The agent's skills and toolsets.
+  static const String hermesCatalog = 'hermes.catalog';
   static const String terminalPrefix = 'terminal.';
 
   // terminal.* (M7). The shell itself is `WS /terminal/{handle}`.

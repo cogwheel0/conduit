@@ -69,6 +69,9 @@ abstract final class ConduitEvents {
   /// A workspace section's items changed (M6). Payload [WorkspaceChanged].
   static const String workspaceChanged = 'workspace.changed';
 
+  /// Hermes's settings, sessions or jobs changed (M7). No payload.
+  static const String hermesChanged = 'hermes.changed';
+
   /// Every event name, for subscription validation and tests.
   static const Set<String> all = {
     turnStarted,
@@ -91,6 +94,7 @@ abstract final class ConduitEvents {
     modelsChanged,
     openUrl,
     workspaceChanged,
+    hermesChanged,
   };
 }
 
