@@ -197,12 +197,19 @@ void main() {
       expect(redirect(location: '/settings/appearance'), isNull);
     });
 
-    test('is still behind onboarding', () {
-      // With nothing configured there is nothing for it to show, and the
-      // first thing to do is add a server.
+    test('is reachable from onboarding, whose corner link leads there', () {
+      // Language, theme and the desktop's own settings mean something
+      // before any server does; the rest of the app stays behind setup.
       expect(
         redirect(
-          location: '/settings/connections',
+          location: '/settings/appearance',
+          needsOnboarding: const AsyncValue<bool>.data(true),
+        ),
+        isNull,
+      );
+      expect(
+        redirect(
+          location: '/notes',
           needsOnboarding: const AsyncValue<bool>.data(true),
         ),
         '/onboarding',

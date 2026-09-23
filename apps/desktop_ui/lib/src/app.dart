@@ -267,7 +267,12 @@ String? sessionRedirectFor({
   if (needsOnboarding.isLoading || needsOnboarding.hasError) return null;
 
   if (needsOnboarding.requireValue) {
-    return location == '/onboarding' ? null : '/onboarding';
+    // Settings too: onboarding's corner link leads there, and language,
+    // theme and the desktop's own settings mean something before a server
+    // does.
+    return location == '/onboarding' || location.startsWith('/settings')
+        ? null
+        : '/onboarding';
   }
   if (location == '/onboarding') return '/';
   // Direct connections and no server: there is no account to sign in to.
