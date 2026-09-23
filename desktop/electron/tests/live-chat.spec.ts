@@ -994,6 +994,25 @@ test.describe('against a real server', () => {
       await api.dispose()
     }
 
+    // 12d'. `@model` (WP-3.3): picks who answers the next message, shown
+    // as a chip, and the text loses the mention. Cleared rather than sent.
+    {
+      const composer = page.getByPlaceholder('Ask Conduit')
+      await composer.fill('')
+      await composer.focus()
+      await page.keyboard.type('@gem')
+      const models = page.getByRole('listbox', { name: /^models$/i })
+      await expect(models).toBeVisible()
+      await expect(models.getByRole('option').first()).toContainText(/gemma/i)
+      await page.keyboard.press('Enter')
+      await expect(models).toBeHidden()
+      await expect(page.getByText(/^next answer from /i)).toBeVisible()
+      await expect(composer).toHaveValue('')
+      await shot(page, '12g-mention')
+      await page.getByRole('button', { name: /use the selected model instead/i }).click()
+      await expect(page.getByText(/^next answer from /i)).toBeHidden()
+    }
+
     // 12e. Offline (WP-3.3). The window's own `offline` event, as the
     // browser fires it when the network goes: the banner appears, Send
     // pauses, and both come back with `online`.

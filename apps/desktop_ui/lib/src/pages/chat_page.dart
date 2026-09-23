@@ -1456,6 +1456,10 @@ class _ComposerState extends State<_Composer> {
   int _promptIndex = 0;
   String? _promptsDismissedAt;
 
+  /// The model an `@` chose for the next message only (WP-3.3). Open
+  /// WebUI's rule: the conversation's selected model is left as it was.
+  ModelSummary? _atModel;
+
   // A chosen prompt that needs values before it can be inserted.
   PromptSummary? _asking;
   List<PromptInput> _askingFor = const <PromptInput>[];
@@ -1490,9 +1494,18 @@ class _ComposerState extends State<_Composer> {
             context.watch(promptListProvider).value?.prompts ??
                 const <PromptSummary>[],
           );
-    final highlighted = prompts.isEmpty
+    // `@model`, when no `/` menu is open: which model answers next.
+    final mention =
+        prompts.isNotEmpty || _promptsDismissedAt == _text || _asking != null
+        ? null
+        : mentionTriggerIn(_text);
+    final mentioned = mention == null
+        ? const <ModelSummary>[]
+        : matchModels(mention.query, models?.models ?? const <ModelSummary>[]);
+    final menuLength = prompts.isNotEmpty ? prompts.length : mentioned.length;
+    final highlighted = menuLength == 0
         ? -1
-        : _promptIndex.clamp(0, prompts.length - 1);
+        : _promptIndex.clamp(0, menuLength - 1);
 
     return div(
       key: const ValueKey('composer'),
@@ -1539,7 +1552,40 @@ class _ComposerState extends State<_Composer> {
             highlighted: highlighted,
             onChoose: (prompt) => unawaited(_choosePrompt(context, prompt)),
             onHighlight: (index) => setState(() => _promptIndex = index),
+          )
+        else if (mentioned.isNotEmpty)
+          ModelMenu(
+            models: mentioned,
+            highlighted: highlighted,
+            onChoose: (model) => _chooseModel(context, model),
+            onHighlight: (index) => setState(() => _promptIndex = index),
           ),
+        if (_atModel case final model?)
+          div(classes: 'mx-auto mb-2 flex max-w-3xl', [
+            span(
+              classes:
+                  'flex items-center gap-1 rounded-full border border-border '
+                  'py-0.5 pl-2 pr-1 text-xs text-muted-foreground',
+              [
+                Component.text(t.desktop.desktopAnswerWith(model: model.name)),
+                button(
+                  [
+                    span(
+                      attributes: const <String, String>{'aria-hidden': 'true'},
+                      [Component.text('×')],
+                    ),
+                  ],
+                  classes: 'rounded-full px-1 hover:text-foreground',
+                  type: ButtonType.button,
+                  attributes: <String, String>{
+                    'aria-label': t.desktop.desktopClearMention,
+                    'title': t.desktop.desktopClearMention,
+                  },
+                  onClick: () => setState(() => _atModel = null),
+                ),
+              ],
+            ),
+          ]),
         if (_attachments.isNotEmpty)
           div(
             classes: 'mx-auto mb-2 flex max-w-3xl flex-wrap gap-2',
@@ -1631,22 +1677,26 @@ class _ComposerState extends State<_Composer> {
                     _promptIndex = 0;
                   }),
                   onKeyDown: composerKeys(
-                    menuOpen: () => prompts.isNotEmpty,
+                    menuOpen: () => menuLength > 0,
                     move: ({required down}) {
                       final next = movePaletteIndex(
                         highlighted,
-                        prompts.length,
+                        menuLength,
                         down: down,
                       );
                       setState(() => _promptIndex = next);
+                      final prefix = prompts.isNotEmpty ? 'prompt' : 'model';
                       Future<void>.microtask(
                         () => context
                             .read(windowCommandsProvider)
-                            .reveal('prompt-option-$next'),
+                            .reveal('$prefix-option-$next'),
                       );
                     },
-                    choose: () =>
-                        unawaited(_choosePrompt(context, prompts[highlighted])),
+                    choose: () => prompts.isNotEmpty
+                        ? unawaited(
+                            _choosePrompt(context, prompts[highlighted]),
+                          )
+                        : _chooseModel(context, mentioned[highlighted]),
                     dismiss: () => setState(() => _promptsDismissedAt = _text),
                     send: () => unawaited(_send(context)),
                   ),
@@ -1843,6 +1893,20 @@ class _ComposerState extends State<_Composer> {
     _upload(port, picked);
   }
 
+  /// Takes the `@name` out of the text and remembers the model for the
+  /// next message.
+  void _chooseModel(BuildContext context, ModelSummary model) {
+    final start = mentionTriggerIn(_text)?.start ?? _text.length;
+    final text = _text.substring(0, start);
+    setState(() {
+      _atModel = model;
+      _text = text;
+    });
+    context.read(windowCommandsProvider)
+      ..setValue('composer', text)
+      ..focus('composer');
+  }
+
   /// Puts [prompt] where its `/command` was typed, or asks for its values.
   Future<void> _choosePrompt(BuildContext context, PromptSummary prompt) async {
     final start = slashTriggerIn(_text)?.start ?? _text.length;
@@ -1959,6 +2023,7 @@ class _ComposerState extends State<_Composer> {
           .read(chatActionsProvider)
           .send(
             text: text,
+            model: _atModel?.id,
             fileIds: <String>[for (final file in _attachments) ?file.id],
             // Only what the server still offers. A tool removed on the server,
             // or a feature the new model lacks, must not ride along from an
@@ -1986,6 +2051,8 @@ class _ComposerState extends State<_Composer> {
         _text = '';
         // Sent, so they belong to the message now rather than the box.
         _attachments.clear();
+        // One message only, as in Open WebUI.
+        _atModel = null;
       });
       // The field as well as the state. A textarea's value stops tracking
       // its markup the moment the user types into it, so `_text = ''` alone

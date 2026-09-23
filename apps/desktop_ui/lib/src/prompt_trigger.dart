@@ -19,8 +19,13 @@ class SlashTrigger {
 /// not a request for the prompt menu. The end, rather than the caret,
 /// because that is where typing happens nearly always, and the composer
 /// cannot see the caret without reaching into the DOM.
-SlashTrigger? slashTriggerIn(String text) {
-  final match = _trigger.firstMatch(text);
+SlashTrigger? slashTriggerIn(String text) => _triggerIn(text, _slash);
+
+/// An `@model` being typed at the end of the composer, by the same rules.
+SlashTrigger? mentionTriggerIn(String text) => _triggerIn(text, _at);
+
+SlashTrigger? _triggerIn(String text, RegExp pattern) {
+  final match = pattern.firstMatch(text);
   if (match == null) return null;
   final command = match.group(1)!;
   return SlashTrigger(
@@ -29,7 +34,29 @@ SlashTrigger? slashTriggerIn(String text) {
   );
 }
 
-final RegExp _trigger = RegExp(r'(?:^|\s)(/[^\s/]*)$');
+final RegExp _slash = RegExp(r'(?:^|\s)(/[^\s/]*)$');
+final RegExp _at = RegExp(r'(?:^|\s)(@[^\s@]*)$');
+
+/// The models whose name or id matches what follows the `@`: those that
+/// start with it first.
+List<ModelSummary> matchModels(
+  String query,
+  List<ModelSummary> models, {
+  int limit = 8,
+}) {
+  final starts = <ModelSummary>[];
+  final contains = <ModelSummary>[];
+  for (final model in models) {
+    final name = model.name.toLowerCase();
+    final id = model.id.toLowerCase();
+    if (name.startsWith(query) || id.startsWith(query)) {
+      starts.add(model);
+    } else if (name.contains(query) || id.contains(query)) {
+      contains.add(model);
+    }
+  }
+  return <ModelSummary>[...starts, ...contains].take(limit).toList();
+}
 
 /// The prompts that match what has been typed after the `/`.
 ///

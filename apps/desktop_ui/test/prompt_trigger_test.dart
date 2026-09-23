@@ -37,6 +37,25 @@ void main() {
     });
   });
 
+  group('mentions', () {
+    test('an @ at the start of a word', () {
+      expect(mentionTriggerIn('ask @gpt')?.query, 'gpt');
+      expect(mentionTriggerIn('mail me@example.com'), isNull);
+    });
+
+    test('models by name or id, the ones that start with it first', () {
+      const models = <ModelSummary>[
+        ModelSummary(id: 'llama3:8b', name: 'Llama 3'),
+        ModelSummary(id: 'gemma3:1b', name: 'Gemma 3'),
+        ModelSummary(id: 'my-gemma-tune', name: 'Tuned'),
+      ];
+      expect(matchModels('gem', models).map((m) => m.id), <String>[
+        'gemma3:1b',
+        'my-gemma-tune',
+      ]);
+    });
+  });
+
   group('matchPrompts', () {
     const prompts = <PromptSummary>[
       PromptSummary(command: '/review', title: 'Summarize a review'),

@@ -70,6 +70,62 @@ class PromptMenu extends StatelessComponent {
   );
 }
 
+/// The `@` menu: which model answers the next message (WP-3.3).
+class ModelMenu extends StatelessComponent {
+  const ModelMenu({
+    required this.models,
+    required this.highlighted,
+    required this.onChoose,
+    required this.onHighlight,
+    super.key,
+  });
+
+  final List<ModelSummary> models;
+  final int highlighted;
+  final void Function(ModelSummary model) onChoose;
+  final void Function(int index) onHighlight;
+
+  @override
+  Component build(BuildContext context) => div(
+    id: 'model-menu',
+    classes:
+        'mx-auto mb-2 max-h-64 max-w-3xl overflow-y-auto rounded border '
+        'border-border bg-popover p-1 text-popover-foreground shadow',
+    attributes: <String, String>{
+      'role': 'listbox',
+      'aria-label': t.desktop.desktopModelMenu,
+    },
+    [
+      for (var i = 0; i < models.length; i++)
+        div(
+          key: ValueKey('model-${models[i].id}'),
+          id: 'model-option-$i',
+          classes:
+              'flex cursor-pointer items-baseline gap-3 rounded px-3 py-1.5 '
+              'text-sm ${i == highlighted ? 'bg-accent text-accent-foreground' : ''}',
+          attributes: <String, String>{
+            'role': 'option',
+            'aria-selected': '${i == highlighted}',
+          },
+          events: <String, EventCallback>{
+            'click': (_) => onChoose(models[i]),
+            'mouseenter': (_) => onHighlight(i),
+          },
+          [
+            span(classes: 'min-w-0 truncate', [Component.text(models[i].name)]),
+            if (models[i].name != models[i].id)
+              span(
+                classes:
+                    'ml-auto min-w-0 truncate font-mono text-xs '
+                    'text-muted-foreground',
+                [Component.text(models[i].id)],
+              ),
+          ],
+        ),
+    ],
+  );
+}
+
 /// Asks for a prompt's values before it goes into the composer.
 ///
 /// Open WebUI shows a modal for this. Inline here, directly above the

@@ -462,5 +462,18 @@
   "@desktopOpenImage": {
     "description": "Accessible name of an image thumbnail in a desktop message; activating it shows the image full size.",
     "placeholders": { "name": { "type": "String", "example": "diagram.png" } }
+  },
+  "desktopModelMenu": "Models",
+  "@desktopModelMenu": {
+    "description": "Accessible name of the list of models that opens when typing @ in the desktop composer."
+  },
+  "desktopAnswerWith": "Next answer from {model}",
+  "@desktopAnswerWith": {
+    "description": "Chip above the desktop composer after choosing a model with @: only the next message goes to that model.",
+    "placeholders": { "model": { "type": "String", "example": "gpt-4o" } }
+  },
+  "desktopClearMention": "Use the selected model instead",
+  "@desktopClearMention": {
+    "description": "Accessible name of the button that removes the @-chosen model from the desktop composer."
   }
 }
