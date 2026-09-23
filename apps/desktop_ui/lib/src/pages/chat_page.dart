@@ -572,7 +572,11 @@ class _LazyRowsState extends State<_LazyRows> {
               'height': '${component.count * _LazyRows.rowHeight}px',
             },
           ),
-    attributes: _near ? null : const <String, String>{'aria-hidden': 'true'},
+    attributes: <String, String>{
+      // How many rows it stands for, drawn or not.
+      'data-count': '${component.count}',
+      if (!_near) 'aria-hidden': 'true',
+    },
     _near ? component.build() : const <Component>[],
   );
 }

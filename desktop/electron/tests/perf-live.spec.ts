@@ -209,7 +209,15 @@ test.describe('a big account', () => {
     // The sidebar lists what the local database holds, so a big account is
     // only all there once the first full sync is done: time that.
     const sidebar = page.locator('nav[aria-label]')
-    const rows = sidebar.locator('li button')
+    // Rows loaded, drawn or not: big groups draw chunks only near the view,
+    // and each says how many rows it stands for.
+    const rowsLoaded = () =>
+      sidebar.evaluate((nav) => {
+        const chunks = [...nav.querySelectorAll('ul[data-count]')]
+        const inChunks = chunks.reduce((sum, ul) => sum + Number(ul.getAttribute('data-count')), 0)
+        const drawnElsewhere = [...nav.querySelectorAll('li')].filter((li) => !li.closest('ul[data-count]')).length
+        return inChunks + drawnElsewhere
+      })
     const big = sidebar.getByRole('button', { name: new RegExp(`^Perf ${run}: ten thousand messages`) }).first()
     await expect(big).toBeVisible({ timeout: 300_000 })
     const firstPageMs = Date.now() - signedInAt
@@ -221,12 +229,12 @@ test.describe('a big account', () => {
     const pagesAt = Date.now()
     const loadMore = page.getByRole('button', { name: /^load more$/i })
     for (let i = 0; i < 40 && (await loadMore.isVisible()); i++) {
-      const before = await rows.count()
+      const before = await rowsLoaded()
       await loadMore.click()
-      await expect.poll(() => rows.count(), { timeout: 120_000 }).toBeGreaterThan(before)
+      await expect.poll(rowsLoaded, { timeout: 120_000 }).toBeGreaterThan(before)
     }
     const allPagesMs = Date.now() - pagesAt
-    const sidebarRows = await rows.count()
+    const sidebarRows = await rowsLoaded()
     const sidebarScroll = await framesDuring(page, async () => {
       for (let i = 0; i < 40; i++) {
         await sidebar.evaluate((el) => {

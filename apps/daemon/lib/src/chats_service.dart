@@ -320,10 +320,12 @@ final class ChatsService {
       _container,
       conversationsProvider.future,
     );
+    // Only the pages the sidebar has loaded. A conversation further back --
+    // a search hit, a `conduit://` link, a notification -- is still one to
+    // open, so its absence here only means loading it without an envelope.
     final summary = conversations
         .where((candidate) => candidate.id == id)
         .firstOrNull;
-    if (summary == null) return null;
 
     // The list carries envelopes only -- `conversationFromListEntry` builds
     // a summary with no message bodies, deliberately, because the sidebar
@@ -349,6 +351,7 @@ final class ChatsService {
       );
     }
     final conversation = full ?? summary;
+    if (conversation == null) return null;
 
     final prompt = conversation.systemPrompt?.trim();
     return ChatDetail(

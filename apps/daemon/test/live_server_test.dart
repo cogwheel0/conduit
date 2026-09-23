@@ -345,6 +345,35 @@ void main() {
         // A real model answering a real prompt over a real network.
       }, timeout: const Timeout(Duration(minutes: 3)));
 
+      test('opens a conversation from past the list it has loaded', () async {
+        // A search hit, a link or a notification can name a conversation
+        // the sidebar has not paged to; opening it must not need the list.
+        final chats = ChatsService(runtime.container);
+        final loaded = (await chats.list()).chats.map((c) => c.id).toSet();
+        final api = runtime.container.read(apiServiceProvider)!;
+        String? older;
+        for (var page = 2; page <= 12 && older == null; page++) {
+          final rows = await api.getChatListPageRaw(page: page);
+          for (final row in rows) {
+            final id = row['id'];
+            if (id is String && !loaded.contains(id)) {
+              older = id;
+              break;
+            }
+          }
+          if (rows.isEmpty) break;
+        }
+        if (older == null) {
+          markTestSkipped(
+            'the account has no conversation past the first page',
+          );
+          return;
+        }
+        final detail = await chats.get(older);
+        expect(detail, isNotNull);
+        expect(detail!.summary.id, older);
+      }, timeout: const Timeout(Duration(minutes: 1)));
+
       test('opens an existing conversation with its transcript', () async {
         // The bug this pins: `conversationsProvider` is the sidebar's list,
         // and its rows are envelopes with no message bodies. Reading
