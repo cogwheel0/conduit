@@ -284,6 +284,17 @@ then pick how you want to connect.
 
 Full details in [PRIVACY_POLICY.md](PRIVACY_POLICY.md).
 
+## Conduit Desktop
+
+Conduit also runs on Windows, macOS and Linux: an Electron window around the
+same core the phone app uses, with desktop extras such as a tray, a
+quick-ask panel on a global shortcut, `conduit://` links, "Open with
+Conduit", notifications and rebindable shortcuts. It is in alpha, released
+as `desktop-v*` prereleases; see
+**[docs/BUILDING-DESKTOP.md](docs/BUILDING-DESKTOP.md)** to build and run it,
+and [docs/desktop/THREAT-MODEL.md](docs/desktop/THREAT-MODEL.md) for how it
+keeps your credentials and your machine safe.
+
 ## Build from source
 
 See **[docs/BUILDING.md](docs/BUILDING.md)** for requirements, submodules,
