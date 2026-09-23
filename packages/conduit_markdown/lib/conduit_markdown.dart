@@ -14,4 +14,5 @@ export 'src/mention_inline_syntax.dart';
 export 'src/message_segments.dart';
 export 'src/reasoning_parser.dart';
 export 'src/semantic_details.dart';
+export 'src/speech_text.dart';
 export 'src/tool_calls_parser.dart';
