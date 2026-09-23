@@ -127,7 +127,10 @@ final class DirectService {
             // Only a key typed again in this edit may move with the URL; the
             // core strips the stored ones otherwise.
             secretsConfirmedForNewOrigin:
-                edit.apiKey != null || edit.customHeaders != null,
+                edit.apiKey != null ||
+                edit.customHeaders != null ||
+                edit.certificatePem != null ||
+                edit.privateKeyPem != null,
           );
     } on DirectConnectionProfileConflictException {
       throw const RpcError(
@@ -421,6 +424,18 @@ final class DirectService {
         : DirectApiKeyAuthMode.bearer;
     String? key(String? given, String? stored) =>
         given == null ? stored : (given.trim().isEmpty ? null : given.trim());
+    // A PEM and the name it was picked under move together: a new file
+    // brings its name, clearing one clears both.
+    String? pem(String? given, String? stored) =>
+        given == null ? stored : (given.trim().isEmpty ? null : given);
+    String? label(String? pemGiven, String? labelGiven, String? stored) =>
+        pemGiven == null
+        ? stored
+        : (pemGiven.trim().isEmpty ? null : labelGiven);
+    final tags = <String>[
+      for (final tag in edit.tags)
+        if (tag.trim().isNotEmpty) tag.trim(),
+    ];
 
     if (previous == null) {
       return DirectConnectionProfile(
@@ -437,6 +452,20 @@ final class DirectService {
         customHeaders: edit.customHeaders ?? const <String, String>{},
         manualModelIds: edit.manualModelIds,
         allowSelfSignedCertificates: edit.allowSelfSignedCertificates,
+        tags: tags,
+        mtlsCertificateChainPem: pem(edit.certificatePem, null),
+        mtlsCertificateLabel: label(
+          edit.certificatePem,
+          edit.certificateLabel,
+          null,
+        ),
+        mtlsPrivateKeyPem: pem(edit.privateKeyPem, null),
+        mtlsPrivateKeyLabel: label(
+          edit.privateKeyPem,
+          edit.privateKeyLabel,
+          null,
+        ),
+        mtlsPrivateKeyPassword: key(edit.privateKeyPassword, null),
       );
     }
     return previous.copyWith(
@@ -452,6 +481,26 @@ final class DirectService {
       customHeaders: edit.customHeaders ?? previous.customHeaders,
       manualModelIds: edit.manualModelIds,
       allowSelfSignedCertificates: edit.allowSelfSignedCertificates,
+      tags: tags,
+      mtlsCertificateChainPem: pem(
+        edit.certificatePem,
+        previous.mtlsCertificateChainPem,
+      ),
+      mtlsCertificateLabel: label(
+        edit.certificatePem,
+        edit.certificateLabel,
+        previous.mtlsCertificateLabel,
+      ),
+      mtlsPrivateKeyPem: pem(edit.privateKeyPem, previous.mtlsPrivateKeyPem),
+      mtlsPrivateKeyLabel: label(
+        edit.privateKeyPem,
+        edit.privateKeyLabel,
+        previous.mtlsPrivateKeyLabel,
+      ),
+      mtlsPrivateKeyPassword: key(
+        edit.privateKeyPassword,
+        previous.mtlsPrivateKeyPassword,
+      ),
     );
   }
 
@@ -473,6 +522,13 @@ final class DirectService {
         enabled: profile.enabled,
         hasApiKey: (profile.apiKey ?? '').isNotEmpty,
         customHeaderNames: profile.customHeaders.keys.toList(growable: false),
+        tags: profile.tags,
+        certificateLabel: profile.mtlsCertificateChainPem == null
+            ? null
+            : (profile.mtlsCertificateLabel ?? 'certificate.pem'),
+        privateKeyLabel: profile.mtlsPrivateKeyPem == null
+            ? null
+            : (profile.mtlsPrivateKeyLabel ?? 'key.pem'),
         manualModelIds: profile.manualModelIds,
         allowSelfSignedCertificates: profile.allowSelfSignedCertificates,
         openRouter: profile.isOpenRouter,

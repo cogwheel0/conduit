@@ -55,6 +55,14 @@ abstract class DirectConnectionSummary with _$DirectConnectionSummary {
     /// False for an Open WebUI connection this app cannot use (an
     /// authentication kind it does not support). Listed, not editable.
     @Default(true) bool compatible,
+
+    /// Labels applied to this connection's models in the picker.
+    @Default(<String>[]) List<String> tags,
+
+    /// The client certificate and key for mutual TLS, by file name only:
+    /// the PEM itself, like a key, never comes back out.
+    String? certificateLabel,
+    String? privateKeyLabel,
   }) = _DirectConnectionSummary;
 
   factory DirectConnectionSummary.fromJson(Map<String, dynamic> json) =>
@@ -117,6 +125,16 @@ abstract class DirectConnectionEdit with _$DirectConnectionEdit {
     Map<String, String>? customHeaders,
     @Default(<String>[]) List<String> manualModelIds,
     @Default(false) bool allowSelfSignedCertificates,
+    @Default(<String>[]) List<String> tags,
+
+    /// Mutual TLS: a PEM client certificate chain and its private key, with
+    /// the file names they were picked from. Secrets, so the `apiKey` rule:
+    /// null keeps what is stored, empty clears it.
+    String? certificatePem,
+    String? certificateLabel,
+    String? privateKeyPem,
+    String? privateKeyLabel,
+    String? privateKeyPassword,
   }) = _DirectConnectionEdit;
 
   factory DirectConnectionEdit.fromJson(Map<String, dynamic> json) =>

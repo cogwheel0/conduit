@@ -263,6 +263,9 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     hasApiKey: true,
     customHeaderNames: <String>['HTTP-Referer'],
     openRouter: true,
+    tags: <String>['cloud'],
+    certificateLabel: 'client.pem',
+    privateKeyLabel: 'client.key',
   ),
   'directConnectionList': const DirectConnectionList(
     connections: <DirectConnectionSummary>[
@@ -296,6 +299,9 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     apiKey: 'sk-test',
     customHeaders: <String, String>{'X-Team': 'platform'},
     manualModelIds: <String>['gpt-4o'],
+    tags: <String>['work'],
+    certificatePem: '-----BEGIN CERTIFICATE-----',
+    certificateLabel: 'client.pem',
   ),
   'directTestResult': const DirectTestResult(reachable: true, modelCount: 12),
   'directRef': const DirectRef(id: 'ollama'),

@@ -2,6 +2,7 @@
 library;
 
 import 'package:conduit_desktop_ui/src/app.dart';
+import 'package:conduit_desktop_ui/src/file_picker.dart';
 import 'package:conduit_desktop_ui/src/l10n/strings.g.dart';
 import 'package:conduit_desktop_ui/src/pages/onboarding_page.dart';
 import 'package:conduit_desktop_ui/src/pages/settings_page.dart';

@@ -414,3 +414,17 @@ test('the render sandbox cannot reach the app it is embedded in', async () => {
   )
   expect(reached).toBe(false)
 })
+
+test("the server form's advanced settings stay open while they are used", async () => {
+  const window = await appWindow(app)
+  await expect
+    .poll(() => window.evaluate(() => window.location.pathname), { timeout: 20_000 })
+    .toBe('/onboarding')
+  await window.getByRole('button', { name: /^open webui/i }).click()
+  await window.getByRole('button', { name: /advanced settings$/i }).click()
+  const selfSigned = window.getByLabel(/unverified certificate|self-signed/i)
+  await selfSigned.check()
+  // The rebuild that checking it causes must not close the section around it.
+  await expect(selfSigned).toBeVisible()
+  await expect(selfSigned).toBeChecked()
+})

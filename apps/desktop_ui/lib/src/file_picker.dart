@@ -32,3 +32,16 @@ final class UnavailableFilePicker implements FilePickerPort {
   Future<PickedTextFile?> pickText({required String accept}) async =>
       throw UnsupportedError('file picking needs a browser context');
 }
+
+/// Whether [content] holds a PEM block of the given [marker] type.
+///
+/// Deliberately shallow: it checks for the armour, not the contents. Parsing
+/// the base64 or the ASN.1 here would duplicate what the TLS stack does
+/// properly a moment later, and get it wrong. What this catches is the
+/// genuinely common mistake -- a DER file, a PKCS#12 bundle, or the
+/// certificate picked into the key field -- where the armour is absent or
+/// says something else.
+bool containsPemBlock(String content, String marker) {
+  final escaped = RegExp.escape(marker);
+  return RegExp('-----BEGIN [A-Z0-9 ]*$escaped-----').hasMatch(content);
+}

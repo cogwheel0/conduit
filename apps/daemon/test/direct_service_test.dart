@@ -130,6 +130,37 @@ void main() {
     expect(result.reachable, isFalse);
   });
 
+  test('tags, and a client certificate known only by its file name', () async {
+    final current = (await direct.list()).connections.single;
+    final id = current.id;
+    // At the address it has now: moving it drops TLS material by design.
+    final here = edit.copyWith(baseUrl: current.baseUrl);
+    const pem =
+        '-----BEGIN CERTIFICATE-----\nMIIBfake\n-----END CERTIFICATE-----\n';
+    final list = await direct.save(
+      here.copyWith(
+        id: id,
+        apiKey: null,
+        customHeaders: null,
+        tags: const <String>[' work ', ''],
+        certificatePem: pem,
+        certificateLabel: 'client.pem',
+      ),
+    );
+    final saved = list.connections.single;
+    expect(saved.tags, <String>['work']);
+    expect(saved.certificateLabel, 'client.pem');
+    expect(jsonEncode(list.toJson()), isNot(contains('MIIBfake')));
+
+    // Left out, it stays; sent empty, it goes -- with its name.
+    final kept = await direct.save(here.copyWith(id: id, apiKey: null));
+    expect(kept.connections.single.certificateLabel, 'client.pem');
+    final cleared = await direct.save(
+      here.copyWith(id: id, apiKey: null, certificatePem: ''),
+    );
+    expect(cleared.connections.single.certificateLabel, isNull);
+  });
+
   test('disable, remove, and where history is kept', () async {
     final id = (await direct.list()).connections.single.id;
     expect(

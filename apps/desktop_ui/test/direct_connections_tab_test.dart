@@ -115,4 +115,46 @@ void main() {
       findsOneComponent,
     );
   });
+
+  testComponents('advanced settings show what is stored, never its secrets', (
+    tester,
+  ) async {
+    tester.pumpComponent(
+      tab(
+        const DirectConnectionList(
+          connections: <DirectConnectionSummary>[
+            DirectConnectionSummary(
+              id: 'c1',
+              name: 'Studio',
+              kind: DirectKind.openai,
+              baseUrl: 'https://llm.example.com/v1',
+              modelIdPrefix: 'studio',
+              tags: <String>['work', 'fast'],
+              customHeaderNames: <String>['X-Team'],
+              certificateLabel: 'client.pem',
+              privateKeyLabel: 'client.key',
+            ),
+          ],
+        ),
+      ),
+    );
+    await pumpEventQueue();
+    await tester.click(find.componentWithText(button, t.app.edit));
+    await pumpEventQueue();
+    // Collapsed until asked for.
+    expect(find.text(t.app.directModelIdPrefix), findsNothing);
+    await tester.click(
+      find.componentWithText(button, '▸ ${t.app.advancedSettings}'),
+    );
+    await pumpEventQueue();
+    expect(find.text(t.app.directModelIdPrefix), findsOneComponent);
+    // The certificate and key by file name; the headers by name.
+    expect(find.text('client.pem'), findsOneComponent);
+    expect(find.text('client.key'), findsOneComponent);
+    expect(
+      find.text(t.desktop.desktopMcpHeadersConfigured(names: 'X-Team')),
+      findsOneComponent,
+    );
+    expect(find.text(t.app.mutualTlsClearCredentials), findsOneComponent);
+  });
 }

@@ -100,6 +100,10 @@ test('chats through a direct connection with no server', async () => {
     await editor.getByLabel(/^base url$/i).fill(provider.baseUrl)
     await editor.getByLabel(/model ids/i).fill('echo-model')
     await shot(page, 'direct-02-setup')
+    // The rarely needed settings, collapsed until asked for.
+    await editor.getByRole('button', { name: /advanced settings$/i }).click()
+    await editor.getByLabel(/^model tags$/i).fill('local, test')
+    await shot(page, 'direct-02b-advanced')
     await editor.getByRole('button', { name: /^save$/i }).click()
 
     // A working connection is a setup: straight to the chat, no sign-in.

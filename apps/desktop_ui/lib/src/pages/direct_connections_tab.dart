@@ -5,8 +5,10 @@ import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 
+import '../file_picker.dart';
 import '../l10n/strings.g.dart';
 import '../rpc/direct_providers.dart';
+import '../rpc/rpc_providers.dart';
 import '../widgets/form_field.dart';
 import 'ollama_models.dart';
 
@@ -303,6 +305,22 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
 
   /// Empty means "leave the stored key alone"; see [_edit].
   String _apiKey = '';
+  late String _prefix = component.connection.modelIdPrefix ?? '';
+  late String _tags = component.connection.tags.join(', ');
+
+  /// Typed headers replace the stored ones; untouched, they are kept.
+  String _headers = '';
+
+  /// A picked certificate or key: its PEM and file name. Null leaves the
+  /// stored one alone; [_clearTls] removes both.
+  ({String pem, String label})? _certificate;
+  ({String pem, String label})? _privateKey;
+  bool _clearTls = false;
+  String _keyPassword = '';
+
+  /// Open or not is this component's to say: a native `<details>` is
+  /// closed again by the rebuild that typing in it causes.
+  bool _advancedOpen = false;
   bool _busy = false;
   String? _result;
   bool _resultOk = false;
@@ -321,6 +339,27 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
     apiKeyHeader: _keyHeader,
     enabled: component.connection.enabled,
     openWebUi: component.connection.openWebUi,
+    modelIdPrefix: _prefix.trim().isEmpty ? null : _prefix.trim(),
+    tags: <String>[
+      for (final tag in _tags.split(RegExp('[,\n]')))
+        if (tag.trim().isNotEmpty) tag.trim(),
+    ],
+    customHeaders: _headers.trim().isEmpty
+        ? null
+        : <String, String>{
+            for (final line in _headers.split('\n'))
+              if (line.contains(':'))
+                line.substring(0, line.indexOf(':')).trim(): line
+                    .substring(line.indexOf(':') + 1)
+                    .trim(),
+          },
+    certificatePem: _clearTls ? '' : _certificate?.pem,
+    certificateLabel: _certificate?.label,
+    privateKeyPem: _clearTls ? '' : _privateKey?.pem,
+    privateKeyLabel: _privateKey?.label,
+    privateKeyPassword: _clearTls
+        ? ''
+        : (_keyPassword.isEmpty ? null : _keyPassword),
     apiKey: _apiKey.isEmpty ? null : _apiKey,
     manualModelIds: <String>[
       for (final line in _manualIds.split('\n'))
@@ -463,6 +502,7 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
           checked: _selfSigned,
           onChanged: ({required value}) => setState(() => _selfSigned = value),
         ),
+        _advanced(context),
         if (_result case final result?)
           p(
             classes:
@@ -501,6 +541,179 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
       ],
     );
   }
+
+  /// What most connections never need: a display prefix, tags, extra
+  /// headers and a client certificate. Collapsed, as on the server form.
+  Component _advanced(BuildContext context) {
+    final connection = component.connection;
+    final certificate = _clearTls
+        ? null
+        : (_certificate?.label ?? connection.certificateLabel);
+    final key = _clearTls
+        ? null
+        : (_privateKey?.label ?? connection.privateKeyLabel);
+    return div([
+      button(
+        [
+          Component.text(
+            '${_advancedOpen ? '▾' : '▸'} ${t.app.advancedSettings}',
+          ),
+        ],
+        classes: 'text-sm font-medium',
+        type: ButtonType.button,
+        attributes: <String, String>{'aria-expanded': '$_advancedOpen'},
+        onClick: () => setState(() => _advancedOpen = !_advancedOpen),
+      ),
+      if (_advancedOpen)
+        div(classes: 'mt-3 space-y-3', [
+          textField(
+            id: 'direct-prefix',
+            labelText: t.app.directModelIdPrefix,
+            value: _prefix,
+            onInput: (value) => setState(() => _prefix = value),
+          ),
+          p(classes: '-mt-2 text-xs text-muted-foreground', [
+            Component.text(t.app.directModelIdPrefixDescription),
+          ]),
+          textField(
+            id: 'direct-tags',
+            labelText: t.app.directModelTags,
+            value: _tags,
+            placeholder: 'local, private',
+            onInput: (value) => setState(() => _tags = value),
+          ),
+          p(classes: '-mt-2 text-xs text-muted-foreground', [
+            Component.text(t.app.directModelTagsDescription),
+          ]),
+          textAreaField(
+            id: 'direct-headers',
+            labelText: t.app.directCustomHeaders,
+            value: _headers,
+            rows: 2,
+            monospace: true,
+            placeholder: t.app.directMcpCustomHeadersHint,
+            onInput: (value) => setState(() => _headers = value),
+          ),
+          p(classes: '-mt-2 text-xs text-muted-foreground', [
+            Component.text(
+              connection.customHeaderNames.isEmpty
+                  ? t.app.customHeadersDescription
+                  : t.desktop.desktopMcpHeadersConfigured(
+                      names: connection.customHeaderNames.join(', '),
+                    ),
+            ),
+          ]),
+          div(classes: 'space-y-2', [
+            p(classes: 'text-sm font-medium', [
+              Component.text(t.app.mutualTlsSectionTitle),
+            ]),
+            p(classes: 'text-xs text-muted-foreground', [
+              Component.text(t.app.mutualTlsSectionDescription),
+            ]),
+            _pemRow(
+              context,
+              id: 'direct-certificate',
+              labelText: t.app.mutualTlsSelectCertificate,
+              accept: '.pem,.crt,.cer',
+              marker: 'CERTIFICATE',
+              invalid: t.app.mutualTlsCertificatePemRequired,
+              current: certificate,
+              onPicked: (pem, name) => setState(() {
+                _certificate = (pem: pem, label: name);
+                _clearTls = false;
+              }),
+            ),
+            _pemRow(
+              context,
+              id: 'direct-private-key',
+              labelText: t.app.mutualTlsSelectPrivateKey,
+              accept: '.pem,.key',
+              marker: 'PRIVATE KEY',
+              invalid: t.app.mutualTlsPrivateKeyPemRequired,
+              current: key,
+              onPicked: (pem, name) => setState(() {
+                _privateKey = (pem: pem, label: name);
+                _clearTls = false;
+              }),
+            ),
+            textField(
+              id: 'direct-key-password',
+              labelText: t.app.mutualTlsPrivateKeyPasswordHint,
+              value: _keyPassword,
+              type: InputType.password,
+              onInput: (value) => setState(() => _keyPassword = value),
+            ),
+            if (certificate != null || key != null)
+              button(
+                [Component.text(t.app.mutualTlsClearCredentials)],
+                classes: 'text-xs text-muted-foreground underline',
+                type: ButtonType.button,
+                onClick: () => setState(() {
+                  _certificate = null;
+                  _privateKey = null;
+                  _keyPassword = '';
+                  _clearTls = true;
+                }),
+              ),
+          ]),
+        ]),
+    ]);
+  }
+
+  Component _pemRow(
+    BuildContext context, {
+    required String id,
+    required String labelText,
+    required String accept,
+    required String marker,
+    required String invalid,
+    required String? current,
+    required void Function(String pem, String label) onPicked,
+  }) => div(classes: 'flex items-center gap-2 text-sm', [
+    span(id: '$id-label', classes: 'w-24 shrink-0', [
+      Component.text(labelText),
+    ]),
+    button(
+      [
+        Component.text(
+          current == null
+              ? t.desktop.desktopChooseFile
+              : t.desktop.desktopReplaceFile,
+        ),
+      ],
+      id: id,
+      classes:
+          'rounded border border-border px-2.5 py-1 text-xs hover:bg-accent',
+      type: ButtonType.button,
+      attributes: <String, String>{'aria-labelledby': '$id-label $id'},
+      onClick: () async {
+        try {
+          final file = await context
+              .read(filePickerProvider)
+              .pickText(accept: accept);
+          if (file == null || !mounted) return;
+          if (!containsPemBlock(file.content, marker)) {
+            setState(() {
+              _resultOk = false;
+              _result = invalid;
+            });
+            return;
+          }
+          onPicked(file.content, file.name);
+        } on UnsupportedError {
+          if (!mounted) return;
+          setState(() {
+            _resultOk = false;
+            _result = t.app.mutualTlsFileReadFailed;
+          });
+        }
+      },
+    ),
+    if (current != null)
+      span(classes: 'truncate font-mono text-xs text-muted-foreground', [
+        Component.text(current),
+      ]),
+  ]);
 
   Future<void> _test(BuildContext context) async {
     setState(() => _busy = true);

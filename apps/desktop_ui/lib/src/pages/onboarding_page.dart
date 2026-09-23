@@ -38,6 +38,7 @@ enum _Step { choose, server, direct }
 
 class _OnboardingPageState extends State<OnboardingPage> {
   _Step _step = _Step.choose;
+  bool _advancedOpen = false;
   String _name = '';
   String _url = '';
   bool _allowSelfSigned = false;
@@ -235,69 +236,81 @@ class _OnboardingPageState extends State<OnboardingPage> {
   /// Collapsed by default. Self-signed certificates and custom headers are
   /// for the minority who need them, and putting them in front of everyone
   /// else turns a two-field form into a configuration chore.
-  Component _advanced() => details([
-    summary(classes: 'cursor-pointer text-sm font-medium', [
-      Component.text(t.app.advancedSettings),
-    ]),
-    div(classes: 'mt-4 space-y-4', [
-      checkboxField(
-        id: 'allow-self-signed',
-        text: t.app.allowSelfSignedCertificates,
-        checked: _allowSelfSigned,
-        disabled: _busy,
-        onChanged: ({required value}) =>
-            setState(() => _allowSelfSigned = value),
-      ),
-      _pemPicker(
-        context,
-        id: 'mtls-certificate',
-        labelText: t.app.mutualTlsSelectCertificate,
-        accept: '.pem,.crt,.cer',
-        marker: 'CERTIFICATE',
-        invalidMessage: t.app.mutualTlsCertificatePemRequired,
-        label: _certificateLabel,
-        onPicked: (file) => setState(() {
-          _certificatePem = file.content;
-          _certificateLabel = file.name;
-        }),
-        onCleared: () => setState(() {
-          _certificatePem = null;
-          _certificateLabel = null;
-        }),
-      ),
-      _pemPicker(
-        context,
-        id: 'mtls-private-key',
-        labelText: t.app.mutualTlsSelectPrivateKey,
-        accept: '.pem,.key',
-        marker: 'PRIVATE KEY',
-        invalidMessage: t.app.mutualTlsPrivateKeyPemRequired,
-        label: _privateKeyLabel,
-        onPicked: (file) => setState(() {
-          _privateKeyPem = file.content;
-          _privateKeyLabel = file.name;
-        }),
-        onCleared: () => setState(() {
-          _privateKeyPem = null;
-          _privateKeyLabel = null;
-        }),
-      ),
-      textAreaField(
-        monospace: true,
-        id: 'custom-headers',
-        labelText: t.app.customHeaders,
-        // One `Name: value` per line. A JSON box would be stricter, but
-        // this is the shape people paste out of a proxy's documentation.
-        placeholder: 'X-Proxy-Token: abc123',
-        value: _headers,
-        disabled: _busy,
-        error: _headerError,
-        onInput: (value) => setState(() {
-          _headers = value;
-          _headerError = null;
-        }),
-      ),
-    ]),
+  ///
+  /// A toggle this component owns rather than a native `<details>`: the
+  /// rebuild that checking a box in it causes closed the section again.
+  Component _advanced() => div([
+    button(
+      [
+        Component.text(
+          '${_advancedOpen ? '▾' : '▸'} ${t.app.advancedSettings}',
+        ),
+      ],
+      classes: 'text-sm font-medium',
+      type: ButtonType.button,
+      attributes: <String, String>{'aria-expanded': '$_advancedOpen'},
+      onClick: () => setState(() => _advancedOpen = !_advancedOpen),
+    ),
+    if (_advancedOpen)
+      div(classes: 'mt-4 space-y-4', [
+        checkboxField(
+          id: 'allow-self-signed',
+          text: t.app.allowSelfSignedCertificates,
+          checked: _allowSelfSigned,
+          disabled: _busy,
+          onChanged: ({required value}) =>
+              setState(() => _allowSelfSigned = value),
+        ),
+        _pemPicker(
+          context,
+          id: 'mtls-certificate',
+          labelText: t.app.mutualTlsSelectCertificate,
+          accept: '.pem,.crt,.cer',
+          marker: 'CERTIFICATE',
+          invalidMessage: t.app.mutualTlsCertificatePemRequired,
+          label: _certificateLabel,
+          onPicked: (file) => setState(() {
+            _certificatePem = file.content;
+            _certificateLabel = file.name;
+          }),
+          onCleared: () => setState(() {
+            _certificatePem = null;
+            _certificateLabel = null;
+          }),
+        ),
+        _pemPicker(
+          context,
+          id: 'mtls-private-key',
+          labelText: t.app.mutualTlsSelectPrivateKey,
+          accept: '.pem,.key',
+          marker: 'PRIVATE KEY',
+          invalidMessage: t.app.mutualTlsPrivateKeyPemRequired,
+          label: _privateKeyLabel,
+          onPicked: (file) => setState(() {
+            _privateKeyPem = file.content;
+            _privateKeyLabel = file.name;
+          }),
+          onCleared: () => setState(() {
+            _privateKeyPem = null;
+            _privateKeyLabel = null;
+          }),
+        ),
+        textAreaField(
+          monospace: true,
+          id: 'custom-headers',
+          labelText: t.app.customHeaders,
+          // One `Name: value` per line. A JSON box would be stricter, but
+          // this is the shape people paste out of a proxy's documentation.
+          placeholder: 'X-Proxy-Token: abc123',
+          value: _headers,
+          disabled: _busy,
+          error: _headerError,
+          onInput: (value) => setState(() {
+            _headers = value;
+            _headerError = null;
+          }),
+        ),
+      ]),
   ], classes: 'rounded border border-border p-4');
 
   /// A button plus the chosen filename, not an `<input type="file">` in the
@@ -489,17 +502,4 @@ Map<String, String> parseCustomHeaders(String raw) {
     headers[name] = value;
   }
   return headers;
-}
-
-/// Whether [content] holds a PEM block of the given [marker] type.
-///
-/// Deliberately shallow: it checks for the armour, not the contents. Parsing
-/// the base64 or the ASN.1 here would duplicate what the TLS stack does
-/// properly a moment later, and get it wrong. What this catches is the
-/// genuinely common mistake -- a DER file, a PKCS#12 bundle, or the
-/// certificate picked into the key field -- where the armour is absent or
-/// says something else.
-bool containsPemBlock(String content, String marker) {
-  final escaped = RegExp.escape(marker);
-  return RegExp('-----BEGIN [A-Z0-9 ]*$escaped-----').hasMatch(content);
 }
