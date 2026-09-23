@@ -5,6 +5,10 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/utils/prompt_variable_parser.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+
+import 'settled.dart';
 
 /// Implements `prompts.*`: the composer's `/` menu (WP-3.3).
 ///
@@ -107,11 +111,25 @@ final class PromptsService {
   }
 
   Future<List<Prompt>> _fetch() async {
-    final prompts = await (_fetchOverride ?? _fromServer)();
+    // With Hermes Agent's model chosen, the `/` menu is its skills, as on
+    // mobile (M7): `/review` sent to the agent runs that skill.
+    final selected = _container.read(selectedModelProvider);
+    final prompts = selected != null && isHermesModel(selected)
+        ? await _hermesSkills()
+        : await (_fetchOverride ?? _fromServer)();
     _byCommand = <String, Prompt>{
       for (final prompt in prompts) prompt.command: prompt,
     };
     return prompts;
+  }
+
+  Future<List<Prompt>> _hermesSkills() async {
+    _container.invalidate(hermesSkillPromptsProvider);
+    try {
+      return await readSettled(_container, hermesSkillPromptsProvider.future);
+    } on Object {
+      return const <Prompt>[];
+    }
   }
 
   Future<List<Prompt>> _fromServer() async {

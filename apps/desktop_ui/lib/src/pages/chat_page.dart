@@ -2029,8 +2029,16 @@ class _ComposerState extends State<_Composer> {
   /// The tools the answering model can use: the server's for its own
   /// models, the app's MCP servers for a direct connection's (M4).
   List<ToolSummary> _toolsOffered(ComposerOptions? options) {
-    if (options == null) return const <ToolSummary>[];
+    if (options == null || _answeredByHermes) return const <ToolSummary>[];
     return _answeredDirectly ? options.mcpTools : options.tools;
+  }
+
+  /// Whether the next answer comes from Hermes Agent (M7), which has its
+  /// own tools and search: Open WebUI's switches would do nothing there.
+  bool get _answeredByHermes {
+    final answering =
+        _atModel?.id ?? context.read(modelListProvider).value?.selectedId;
+    return answering != null && answering.startsWith('hermes:agent:');
   }
 
   /// Whether the next answer comes from a direct connection's model.
@@ -2060,13 +2068,13 @@ class _ComposerState extends State<_Composer> {
         .firstOrNull;
     return div(classes: 'mx-auto mb-2 max-w-3xl', [
       div(classes: 'flex flex-wrap items-center gap-2', [
-        if (options.webSearch)
+        if (options.webSearch && !_answeredByHermes)
           toggle(
             t.app.webSearch,
             on: _webSearch,
             flip: () => _webSearch = !_webSearch,
           ),
-        if (options.imageGeneration)
+        if (options.imageGeneration && !_answeredByHermes)
           toggle(
             t.app.imageGeneration,
             on: _imageGeneration,
@@ -2094,7 +2102,9 @@ class _ComposerState extends State<_Composer> {
           ),
         // The terminal the model may use, from the account's (M7). Direct
         // models answer here, without Open WebUI's terminal.
-        if (!_answeredDirectly && terminalOffered(terminals))
+        if (!_answeredDirectly &&
+            !_answeredByHermes &&
+            terminalOffered(terminals))
           button(
             [
               Component.text(

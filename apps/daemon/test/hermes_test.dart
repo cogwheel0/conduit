@@ -120,6 +120,11 @@ void main() {
     }
     expect(agent, isNotNull);
 
+    // With the agent chosen, the `/` menu is its skills.
+    await models.select(agent!.id);
+    final prompts = await PromptsService(runtime.container).list();
+    expect(prompts.prompts.map((p) => p.command), <String>['/review']);
+
     Future<void> answered(int count) async {
       final until = DateTime.now().add(const Duration(seconds: 20));
       while (completed.length + failed.length < count &&
@@ -129,7 +134,7 @@ void main() {
     }
 
     final first = await turns.send(
-      SendTurn(text: 'Hello Hermes', model: agent!.id),
+      SendTurn(text: 'Hello Hermes', model: agent.id),
     );
     events.subscribe(
       'window',

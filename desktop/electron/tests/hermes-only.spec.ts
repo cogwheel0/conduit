@@ -215,6 +215,10 @@ test('talks to Hermes Agent with no server, approvals and all', async () => {
     await page.locator('#model').selectOption(agent!)
 
     const composer = page.getByPlaceholder('Ask Conduit')
+    // Its skills are the `/` menu, and Open WebUI's switches stay away.
+    await composer.fill('/')
+    await expect(page.getByRole('option', { name: /\/review/ })).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByRole('button', { name: /^web search$/i })).toBeHidden()
     await composer.fill('Hello Hermes')
     await composer.press('Enter')
     const transcript = page.getByRole('log')

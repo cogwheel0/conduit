@@ -394,6 +394,9 @@ final knowledgeSearchProvider = FutureProvider.family<KnowledgeList, String>((
 /// never type a `/`, and the list is one request away when one does.
 final promptListProvider = FutureProvider<PromptList>((ref) async {
   ref.watch(coreConnectionProvider);
+  // Refetched when the model changes: Hermes Agent's `/` menu is its
+  // skills (M7).
+  ref.watch(modelListProvider.select((models) => models.value?.selectedId));
   return ref
       .read(rpcClientProvider)
       .call(ConduitMethods.promptsList, decode: PromptList.fromJson);
