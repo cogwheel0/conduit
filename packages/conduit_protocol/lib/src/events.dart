@@ -66,6 +66,9 @@ abstract final class ConduitEvents {
   /// opens it.
   static const String openUrl = 'shell.openUrl';
 
+  /// A workspace section's items changed (M6). Payload [WorkspaceChanged].
+  static const String workspaceChanged = 'workspace.changed';
+
   /// Every event name, for subscription validation and tests.
   static const Set<String> all = {
     turnStarted,
@@ -87,6 +90,7 @@ abstract final class ConduitEvents {
     capabilitiesChanged,
     modelsChanged,
     openUrl,
+    workspaceChanged,
   };
 }
 

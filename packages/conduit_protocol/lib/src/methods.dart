@@ -411,6 +411,73 @@ abstract final class ConduitMethods {
   /// Who is in a channel, for `@` mentions.
   static const String channelsMembers = 'channels.members';
   static const String workspacePrefix = 'workspace.';
+
+  // workspace.* (M6): models, knowledge, prompts, tools and skills. Most
+  // methods take a [WorkspaceKind]; the rest belong to one section.
+
+  /// Which sections the user may manage, and what each allows.
+  static const String workspaceCapabilities = 'workspace.capabilities';
+
+  /// A section's items, a page at a time.
+  static const String workspaceList = 'workspace.list';
+
+  /// One item, everything its editor shows.
+  static const String workspaceGet = 'workspace.get';
+
+  /// Creates or replaces an item; answers with it as saved.
+  static const String workspaceSave = 'workspace.save';
+  static const String workspaceDelete = 'workspace.delete';
+
+  /// Switches a model, prompt or skill on or off; answers with it.
+  static const String workspaceToggle = 'workspace.toggle';
+
+  /// Replaces who may read and write an item.
+  static const String workspaceSetAccess = 'workspace.setAccess';
+
+  /// Users and groups to grant access to.
+  static const String workspacePrincipals = 'workspace.principals';
+  static const String workspaceExport = 'workspace.export';
+  static const String workspaceImport = 'workspace.import';
+
+  /// What the model editor's pickers offer.
+  static const String workspaceModelOptions = 'workspace.modelOptions';
+
+  /// A prompt's saved versions, newest first.
+  static const String workspacePromptHistory = 'workspace.promptHistory';
+
+  /// How a version differs from another.
+  static const String workspacePromptDiff = 'workspace.promptDiff';
+
+  /// Puts a saved version of a prompt in production.
+  static const String workspacePromptSetVersion = 'workspace.promptSetVersion';
+  static const String workspacePromptDeleteVersion =
+      'workspace.promptDeleteVersion';
+
+  /// A tool's valves, or the user's own for it.
+  static const String workspaceValves = 'workspace.valves';
+  static const String workspaceSaveValves = 'workspace.saveValves';
+
+  /// Reads a tool from a URL -- GitHub links become raw ones -- without
+  /// saving it; the editor fills in from the answer.
+  static const String workspaceToolFromUrl = 'workspace.toolFromUrl';
+
+  /// One folder of a knowledge base.
+  static const String workspaceFiles = 'workspace.files';
+
+  /// Puts uploaded files into a knowledge base.
+  static const String workspaceAttachFiles = 'workspace.attachFiles';
+
+  /// Renames, moves, re-reads, removes or deletes a knowledge file.
+  static const String workspaceFileAction = 'workspace.fileAction';
+
+  /// Creates, renames or deletes a knowledge folder.
+  static const String workspaceDirectoryAction = 'workspace.directoryAction';
+
+  /// Empties a knowledge base.
+  static const String workspaceKnowledgeReset = 'workspace.knowledgeReset';
+
+  /// Takes the files that failed to be read in out of a knowledge base.
+  static const String workspaceKnowledgeCleanup = 'workspace.knowledgeCleanup';
   static const String directPrefix = 'direct.';
   static const String mcpPrefix = 'mcp.';
   static const String hermesPrefix = 'hermes.';

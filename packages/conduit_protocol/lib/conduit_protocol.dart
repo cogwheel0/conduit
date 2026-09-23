@@ -28,5 +28,6 @@ export 'src/rpc_error.dart';
 export 'src/servers.dart';
 export 'src/settings.dart';
 export 'src/turns.dart';
+export 'src/workspace.dart';
 export 'src/subprotocol.dart';
 export 'src/system.dart';

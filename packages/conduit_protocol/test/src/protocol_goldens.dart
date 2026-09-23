@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.39.0",
+  "protocolVersion": "1.40.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.39.0",
+  "protocolVersion": "1.40.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -927,6 +927,540 @@ const Map<String, String> protocolGoldens = <String, String>{
       "name": "Ada"
     }
   ]
+}''',
+
+  'workspaceSectionAccess': r'''
+{
+  "manage": true,
+  "importItems": false,
+  "exportItems": true,
+  "share": false,
+  "sharePublicly": false
+}''',
+
+  'workspaceAccess': r'''
+{
+  "models": {
+    "manage": true,
+    "importItems": false,
+    "exportItems": false,
+    "share": true,
+    "sharePublicly": false
+  },
+  "knowledge": {
+    "manage": false,
+    "importItems": false,
+    "exportItems": false,
+    "share": false,
+    "sharePublicly": false
+  },
+  "prompts": {
+    "manage": true,
+    "importItems": true,
+    "exportItems": false,
+    "share": false,
+    "sharePublicly": false
+  },
+  "tools": {
+    "manage": false,
+    "importItems": false,
+    "exportItems": false,
+    "share": false,
+    "sharePublicly": false
+  },
+  "skills": {
+    "manage": false,
+    "importItems": false,
+    "exportItems": false,
+    "share": false,
+    "sharePublicly": false
+  },
+  "allowUserGrants": true,
+  "admin": false
+}''',
+
+  'workspaceGrant': r'''
+{
+  "principalType": "group",
+  "principalId": "g1",
+  "write": true
+}''',
+
+  'workspaceItem': r'''
+{
+  "kind": "prompts",
+  "id": "p1",
+  "name": "Summarize",
+  "subtitle": "/summarize",
+  "ownerName": "Ada",
+  "writeAccess": true,
+  "active": true,
+  "public": true,
+  "updatedAtMs": 1767225600000,
+  "tags": [
+    "writing"
+  ]
+}''',
+
+  'workspaceQuery': r'''
+{
+  "kind": "knowledge",
+  "query": "docs",
+  "view": "created",
+  "source": "local",
+  "more": true
+}''',
+
+  'workspacePage': r'''
+{
+  "kind": "tools",
+  "items": [
+    {
+      "kind": "tools",
+      "id": "t1",
+      "name": "Web",
+      "writeAccess": false,
+      "public": false,
+      "tags": []
+    }
+  ],
+  "total": 3,
+  "hasMore": true
+}''',
+
+  'workspaceRef': r'''
+{
+  "kind": "skills",
+  "id": "s1"
+}''',
+
+  'workspaceRelation': r'''
+{
+  "id": "k1",
+  "name": "Handbook",
+  "subtitle": "Ada"
+}''',
+
+  'workspaceModelDto': r'''
+{
+  "id": "helper",
+  "name": "Helper",
+  "baseModelId": "gemma3:1b",
+  "description": "Answers briefly",
+  "tags": [
+    "short"
+  ],
+  "system": "Be brief.",
+  "stop": [
+    "END"
+  ],
+  "suggestionPrompts": [
+    "Hello"
+  ],
+  "capabilities": {
+    "vision": true,
+    "usage": false
+  },
+  "knowledge": [
+    {
+      "id": "k1",
+      "name": "Docs"
+    }
+  ],
+  "toolIds": [
+    "t1"
+  ],
+  "skillIds": [
+    "s1"
+  ],
+  "filterIds": [
+    "f1"
+  ],
+  "defaultFilterIds": [
+    "f1"
+  ],
+  "actionIds": [
+    "a1"
+  ],
+  "defaultFeatureIds": [
+    "web_search"
+  ],
+  "ttsVoice": "alloy",
+  "active": true,
+  "hidden": true,
+  "params": {
+    "temperature": 0.5
+  }
+}''',
+
+  'workspaceKnowledgeDto': r'''
+{
+  "id": "k1",
+  "name": "Docs",
+  "description": "Manuals",
+  "fileCount": 4
+}''',
+
+  'workspacePromptDto': r'''
+{
+  "id": "p1",
+  "command": "summarize",
+  "name": "Summarize",
+  "content": "Summarize {{CLIPBOARD}}",
+  "tags": [
+    "writing"
+  ],
+  "active": true,
+  "versionId": "v2",
+  "commitMessage": "Shorter",
+  "production": false
+}''',
+
+  'workspaceToolDto': r'''
+{
+  "id": "web",
+  "name": "Web",
+  "description": "Fetches pages",
+  "content": "class Tools: pass",
+  "functions": [
+    "fetch"
+  ],
+  "hasValves": true,
+  "hasUserValves": false,
+  "requiresServerVersion": "0.9.0"
+}''',
+
+  'workspaceSkillDto': r'''
+{
+  "id": "tidy",
+  "name": "Tidy",
+  "description": "Tidies text",
+  "content": "Tidy the text.",
+  "active": false
+}''',
+
+  'workspaceDetail': r'''
+{
+  "kind": "skills",
+  "skill": {
+    "id": "tidy",
+    "name": "Tidy",
+    "description": "",
+    "content": "",
+    "active": true
+  },
+  "grants": [
+    {
+      "principalType": "user",
+      "principalId": "*",
+      "write": false
+    }
+  ],
+  "writeAccess": false,
+  "ownerName": "Ada",
+  "updatedAtMs": 1767225600000
+}''',
+
+  'workspaceSave': r'''
+{
+  "detail": {
+    "kind": "knowledge",
+    "knowledge": {
+      "id": "",
+      "name": "Docs",
+      "description": "",
+      "fileCount": 0
+    },
+    "grants": [],
+    "writeAccess": true
+  },
+  "create": true
+}''',
+
+  'workspaceAccessEdit': r'''
+{
+  "kind": "models",
+  "id": "helper",
+  "grants": [
+    {
+      "principalType": "user",
+      "principalId": "u2",
+      "write": false
+    }
+  ]
+}''',
+
+  'workspacePrincipal': r'''
+{
+  "type": "user",
+  "id": "u2",
+  "name": "Grace",
+  "email": "grace@example.com"
+}''',
+
+  'workspacePrincipalQuery': r'''
+{
+  "query": "gr",
+  "ids": [
+    "g1"
+  ]
+}''',
+
+  'workspacePrincipals': r'''
+{
+  "items": [
+    {
+      "type": "group",
+      "id": "g1",
+      "name": "Staff"
+    }
+  ]
+}''',
+
+  'workspaceExportQuery': r'''
+{
+  "kind": "prompts",
+  "id": "p1"
+}''',
+
+  'workspaceExportFile': r'''
+{
+  "filename": "docs.zip",
+  "mimeType": "application/zip",
+  "base64": "UEsDBA=="
+}''',
+
+  'workspaceImport': r'''
+{
+  "kind": "skills",
+  "text": "[]"
+}''',
+
+  'workspaceImportFailure': r'''
+{
+  "label": "Tidy",
+  "reason": "already exists"
+}''',
+
+  'workspaceImportResult': r'''
+{
+  "imported": 2,
+  "failed": [
+    {
+      "label": "Tidy",
+      "reason": ""
+    }
+  ]
+}''',
+
+  'workspaceModelOptions': r'''
+{
+  "baseModels": [
+    {
+      "id": "gemma3:1b",
+      "name": ""
+    }
+  ],
+  "knowledge": [
+    {
+      "id": "k1",
+      "name": "Docs"
+    }
+  ],
+  "tools": [
+    {
+      "id": "t1",
+      "name": "Web"
+    }
+  ],
+  "skills": [
+    {
+      "id": "s1",
+      "name": "Tidy"
+    }
+  ],
+  "filters": [
+    {
+      "id": "f1",
+      "name": "Clean"
+    }
+  ],
+  "actions": [
+    {
+      "id": "a1",
+      "name": "Copy"
+    }
+  ]
+}''',
+
+  'workspacePromptVersion': r'''
+{
+  "id": "v1",
+  "parentId": "v0",
+  "commitMessage": "First",
+  "authorName": "Ada",
+  "createdAtMs": 1767225600000,
+  "name": "Summarize",
+  "command": "summarize",
+  "content": "Summarize this.",
+  "production": true
+}''',
+
+  'workspacePromptHistory': r'''
+{
+  "promptId": "p1",
+  "versions": [
+    {
+      "id": "v1",
+      "createdAtMs": 0,
+      "name": "",
+      "command": "",
+      "content": "",
+      "production": false
+    }
+  ]
+}''',
+
+  'workspacePromptVersionRef': r'''
+{
+  "promptId": "p1",
+  "versionId": "v1"
+}''',
+
+  'workspacePromptDiffQuery': r'''
+{
+  "promptId": "p1",
+  "fromId": "v1",
+  "toId": "v2"
+}''',
+
+  'workspacePromptDiff': r'''
+{
+  "lines": [
+    "-Summarize this.",
+    "+Summarize this briefly."
+  ],
+  "nameChanged": true
+}''',
+
+  'workspaceValvesQuery': r'''
+{
+  "toolId": "web",
+  "user": true
+}''',
+
+  'workspaceValves': r'''
+{
+  "toolId": "web",
+  "user": true,
+  "schema": {
+    "properties": {
+      "limit": {
+        "type": "integer",
+        "default": 3
+      }
+    }
+  },
+  "values": {
+    "limit": 5
+  }
+}''',
+
+  'workspaceUrl': r'''
+{
+  "url": "https://example.com/tool.py"
+}''',
+
+  'workspaceDirectory': r'''
+{
+  "id": "d1",
+  "name": "Guides",
+  "parentId": "d0"
+}''',
+
+  'workspaceFile': r'''
+{
+  "id": "f1",
+  "filename": "guide.pdf",
+  "contentType": "application/pdf",
+  "size": 2048,
+  "updatedAtMs": 1767225600000,
+  "status": "failed",
+  "error": "unreadable"
+}''',
+
+  'workspaceFilesQuery': r'''
+{
+  "knowledgeId": "k1",
+  "directoryId": "d1",
+  "more": true
+}''',
+
+  'workspaceFiles': r'''
+{
+  "knowledgeId": "k1",
+  "directoryId": "d1",
+  "breadcrumbs": [
+    {
+      "id": "d1",
+      "name": ""
+    }
+  ],
+  "directories": [
+    {
+      "id": "d2",
+      "name": ""
+    }
+  ],
+  "files": [
+    {
+      "id": "f1",
+      "filename": ""
+    }
+  ],
+  "pending": [
+    {
+      "id": "f2",
+      "filename": "",
+      "status": "processing"
+    }
+  ],
+  "total": 9,
+  "hasMore": true
+}''',
+
+  'workspaceFilesAttach': r'''
+{
+  "knowledgeId": "k1",
+  "directoryId": "d1",
+  "fileIds": [
+    "f1",
+    "f2"
+  ]
+}''',
+
+  'workspaceFileAction': r'''
+{
+  "knowledgeId": "k1",
+  "fileId": "f1",
+  "op": "move",
+  "filename": "renamed.pdf",
+  "directoryId": "d2"
+}''',
+
+  'workspaceDirectoryAction': r'''
+{
+  "knowledgeId": "k1",
+  "op": "rename",
+  "directoryId": "d1",
+  "parentId": "d0",
+  "name": "Manuals"
+}''',
+
+  'workspaceChanged': r'''
+{
+  "kind": "models",
+  "id": "helper"
 }''',
 
   'noteFile': r'''
