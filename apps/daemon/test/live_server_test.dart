@@ -345,8 +345,10 @@ void main() {
         // to the model with no memory of the conversation it was in.
         final chats = ChatsService(runtime.container);
         final list = await chats.list();
+        // Not one this run made: those can still be mid-answer, with the
+        // question stored and the reply not yet.
         final existing = list.chats.firstWhere(
-          (chat) => !chat.archived,
+          (chat) => !chat.archived && !created.contains(chat.id),
           orElse: () => throw StateError('this account has no conversations'),
         );
 
