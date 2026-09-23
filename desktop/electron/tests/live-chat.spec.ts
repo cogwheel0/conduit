@@ -24,6 +24,7 @@ import {
   type ElectronApplication,
   type Page,
 } from '@playwright/test'
+import electronBinary from 'electron'
 import { WebSocketServer } from 'ws'
 
 /**
@@ -2285,8 +2286,15 @@ test.describe('against a real server', () => {
         // A server model: a direct one answers here, without Open WebUI's
         // terminal, and the composer offers none for it.
         await page.locator('#model').selectOption(credentials!.model ?? { index: 0 })
-        await page.getByRole('button', { name: /^terminal$/i }).click()
         const chooser = page.getByRole('group', { name: /^select a terminal server$/i })
+        // The chips re-render as the new model's options arrive, and a click
+        // mid-shuffle lands on the chip beside it. Until the chooser is open.
+        await expect(async () => {
+          if (!(await chooser.isVisible())) {
+            await page.getByRole('button', { name: /^terminal$/i }).click()
+          }
+          await expect(chooser).toBeVisible({ timeout: 2_000 })
+        }).toPass({ timeout: 30_000 })
         await chooser.getByRole('button', { name: 'E2E shell' }).click()
         await expect(page.getByRole('button', { name: /^terminal: e2e shell$/i })).toBeVisible({
           timeout: 30_000,
@@ -2348,13 +2356,59 @@ test.describe('against a real server', () => {
           await expect(call).toBeHidden()
         }
 
-        // Read aloud: the system's voice, and stopped again.
+        // Read aloud: the system's voice, and stopped again. A CI box has no
+        // voices, and an engine with none ends every sentence at once, so
+        // the engine is replaced by one that only listens.
+        await page.evaluate(() => {
+          const heard: string[] = []
+          ;(window as unknown as { __heard: string[] }).__heard = heard
+          window.speechSynthesis.speak = (utterance) => {
+            heard.push(utterance.text)
+          }
+        })
         const listen = page.locator('[data-read-aloud]').last()
         await expect(listen).toBeAttached({ timeout: 30_000 })
         await listen.click({ force: true })
         await expect(listen).toHaveAttribute('aria-pressed', 'true')
+        await expect
+          .poll(() => page.evaluate(() => (window as unknown as { __heard: string[] }).__heard.length))
+          .toBeGreaterThan(0)
         await listen.click()
         await expect(listen).toHaveAttribute('aria-pressed', 'false')
+      }
+
+      // M9: "Open with Conduit". A second launch with a file, as the OS
+      // does, uploads it through the daemon and starts a chat with it.
+      {
+        const name = `conduit-e2e-open-${process.pid}.txt`
+        const file = join(tmpdir(), name)
+        writeFileSync(file, 'Opened with Conduit.\n')
+        try {
+          const second = spawn(
+            electronBinary as unknown as string,
+            ['.', `--user-data-dir=${userData}`, '--no-sandbox', file],
+            { cwd: join(__dirname, '..'), stdio: 'ignore' },
+          )
+          await new Promise((resolve) => second.once('exit', resolve))
+          const chips = page.locator('[aria-label="Attachments"]')
+          await expect(chips.getByText(name)).toBeVisible({ timeout: 30_000 })
+          await shot(page, '23-open-with')
+        } finally {
+          rmSync(file, { force: true })
+          const { api, auth } = await serverApi(credentials!)
+          try {
+            const found = (await (
+              await api.get(`/api/v1/files/search?filename=${encodeURIComponent(name)}`, { headers: auth })
+            )
+              .json()
+              .catch(() => [])) as Array<{ id: string }>
+            for (const uploaded of Array.isArray(found) ? found : []) {
+              await api.delete(`/api/v1/files/${uploaded.id}`, { headers: auth }).catch(() => undefined)
+            }
+          } finally {
+            await api.dispose()
+          }
+        }
       }
     } finally {
       provider.close()
