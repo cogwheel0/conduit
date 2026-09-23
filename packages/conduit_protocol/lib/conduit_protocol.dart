@@ -11,6 +11,7 @@ library;
 export 'src/auth.dart';
 export 'src/capabilities.dart';
 export 'src/chats.dart';
+export 'src/composer.dart';
 export 'src/events.dart';
 export 'src/files.dart';
 export 'src/handshake.dart';

@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.8.0",
+  "protocolVersion": "1.9.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.8.0",
+  "protocolVersion": "1.9.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -393,6 +393,25 @@ const Map<String, String> protocolGoldens = <String, String>{
   'stopTurn': r'''
 {
   "chatId": "chat-7c1f0b2a"
+}''',
+
+  'toolSummary': r'''
+{
+  "id": "weather",
+  "name": "Weather",
+  "description": "Current conditions for a city"
+}''',
+
+  'composerOptions': r'''
+{
+  "webSearch": true,
+  "imageGeneration": false,
+  "tools": [
+    {
+      "id": "weather",
+      "name": "Weather"
+    }
+  ]
 }''',
 
   'syncState': r'''

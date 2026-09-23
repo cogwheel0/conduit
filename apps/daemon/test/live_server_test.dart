@@ -133,6 +133,19 @@ void main() {
         // and with no listener nothing ever rebuilt it. See `readSettled`.
       });
 
+      test('reports what the composer may offer', () async {
+        final options = await ComposerService(runtime.container).options();
+        // The answer depends on the server's configuration, so this checks
+        // the shape of it rather than particular switches. It also has to
+        // come back at all: every source it waits on can be slow on first
+        // read, and a one-off read of those is how `models.list` hung.
+        printOnFailure('options: $options');
+        expect(
+          options.tools.map((t) => t.id).toSet(),
+          hasLength(options.tools.length),
+        );
+      }, timeout: const Timeout(Duration(minutes: 2)));
+
       test('renames, pins and deletes a conversation', () async {
         final chats = ChatsService(runtime.container);
 

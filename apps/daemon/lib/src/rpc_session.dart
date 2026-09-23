@@ -6,6 +6,7 @@ import 'package:stream_channel/stream_channel.dart';
 
 import 'auth_service.dart';
 import 'chats_service.dart';
+import 'composer_service.dart';
 import 'event_bus.dart';
 import 'log.dart';
 import 'models_service.dart';
@@ -34,7 +35,9 @@ class RpcSession {
     TurnsService? turns,
     ModelsService? models,
     UiRequestsService? uiRequests,
+    ComposerService? composer,
   }) : _events = events,
+       _composer = composer,
        _uiRequests = uiRequests,
        _log = log,
        _system = system,
@@ -75,6 +78,7 @@ class RpcSession {
   /// Questions from the core, shared by every window. Null until the core
   /// is attached, when there is nothing to ask yet.
   final UiRequestsService? _uiRequests;
+  final ComposerService? _composer;
 
   Future<void> listen() => _peer.listen();
 
@@ -616,6 +620,23 @@ class RpcSession {
   }
 
   void _registerModels() {
+    registerTypedMethodNoParams<ComposerOptions>(
+      _peer,
+      ConduitMethods.composerOptions,
+      encodeResult: (result) => result.toJson(),
+      handler: () {
+        _requireHandshake();
+        final composer = _composer;
+        if (composer == null) {
+          throw const RpcError(
+            code: ConduitErrorCodes.daemonUnavailable,
+            debugMessage: 'the core is not up yet',
+          );
+        }
+        return composer.options();
+      },
+    );
+
     registerTypedMethodNoParams<ModelList>(
       _peer,
       ConduitMethods.modelsList,

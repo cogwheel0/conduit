@@ -365,6 +365,9 @@ class ChatActions {
     required String text,
     String? model,
     List<String> fileIds = const <String>[],
+    List<String> toolIds = const <String>[],
+    bool webSearch = false,
+    bool imageGeneration = false,
   }) async {
     final sentText = text;
     final accepted = await _client.call(
@@ -374,6 +377,9 @@ class ChatActions {
         model: model,
         text: text,
         fileIds: fileIds,
+        toolIds: toolIds,
+        webSearch: webSearch,
+        imageGeneration: imageGeneration,
         temporary:
             _ref.read(selectedChatIdProvider) == null &&
             _ref.read(temporaryChatProvider),
@@ -643,3 +649,16 @@ class TemporaryChat extends Notifier<bool> {
 /// the core and Open WebUI all read the same way.
 bool isTemporaryChatId(String? chatId) =>
     chatId != null && chatId.startsWith('local:');
+
+/// What the composer may offer for the next turn (WP-3.3).
+///
+/// Re-asked when the session or the model changes, since both decide it:
+/// image generation depends on the account's permissions, and a direct
+/// model has its own rules.
+final composerOptionsProvider = FutureProvider<ComposerOptions>((ref) async {
+  ref.watch(authStatusProvider);
+  ref.watch(modelListProvider);
+  return ref
+      .read(rpcClientProvider)
+      .call(ConduitMethods.composerOptions, decode: ComposerOptions.fromJson);
+});

@@ -155,6 +155,10 @@ abstract final class ConduitMethods {
   /// choice survives a restart and agrees with the mobile app.
   static const String modelsSelect = 'models.select';
 
+  /// What the composer may offer: web search, image generation, the
+  /// server's tools. Re-asked when the model or the session changes.
+  static const String composerOptions = 'composer.options';
+
   // ---------------------------------------------------------------------
   // turns.* -- sending and stopping generation (M3).
   // ---------------------------------------------------------------------

@@ -205,6 +205,20 @@ test.describe('against a real server', () => {
     await expect(page.getByPlaceholder('Ask Conduit')).toBeVisible()
 
     await shot(page, '03-chat-empty')
+    // What the composer offers depends on the account, so it is looked at,
+    // not asserted: open the tool list if there is one, and capture it.
+    const toolsChip = page.getByRole('button', { name: /^tools/i })
+    // `waitFor`, not `isVisible`: the latter ignores its timeout and
+    // answers immediately, before the options have arrived.
+    if (
+      await toolsChip
+        .waitFor({ state: 'visible', timeout: 30_000 })
+        .then(() => true, () => false)
+    ) {
+      await toolsChip.click()
+      await shot(page, '03b-composer-features')
+      await toolsChip.click()
+    }
 
     // 4. A model list the daemon fetched from the server.
     const picker = page.locator('#model')

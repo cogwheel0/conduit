@@ -218,6 +218,15 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     partialText: 'The outbox dra',
   ),
   'stopTurn': const StopTurn(chatId: 'chat-7c1f0b2a'),
+  'toolSummary': const ToolSummary(
+    id: 'weather',
+    name: 'Weather',
+    description: 'Current conditions for a city',
+  ),
+  'composerOptions': const ComposerOptions(
+    webSearch: true,
+    tools: <ToolSummary>[ToolSummary(id: 'weather', name: 'Weather')],
+  ),
   'syncState': const SyncState(running: true, progress: 0.4),
   'chatsChanged': const ChatsChanged(chatId: 'chat-7c1f0b2a'),
   'editTurn': const EditTurn(
@@ -407,6 +416,8 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'turnCompleted': TurnCompleted.fromJson,
       'turnFailed': TurnFailed.fromJson,
       'stopTurn': StopTurn.fromJson,
+      'toolSummary': ToolSummary.fromJson,
+      'composerOptions': ComposerOptions.fromJson,
       'syncState': SyncState.fromJson,
       'chatsChanged': ChatsChanged.fromJson,
       'editTurn': EditTurn.fromJson,

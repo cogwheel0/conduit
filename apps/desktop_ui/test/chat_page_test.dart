@@ -67,8 +67,11 @@ Component _scoped({
   RecordingWindowCommands? commands,
   RecordingAttachments? attachments,
   ModelList? models,
+  ComposerOptions? composer,
 }) => ProviderScope(
   overrides: [
+    if (composer != null)
+      composerOptionsProvider.overrideWith((ref) async => composer),
     if (models != null) modelListProvider.overrideWith((ref) async => models),
     if (commands != null) windowCommandsProvider.overrideWithValue(commands),
     if (attachments != null) attachmentsProvider.overrideWithValue(attachments),
@@ -176,6 +179,9 @@ class _RecordingActions extends ChatActions {
     required String text,
     String? model,
     List<String> fileIds = const <String>[],
+    List<String> toolIds = const <String>[],
+    bool webSearch = false,
+    bool imageGeneration = false,
   }) async {
     calls.add('send($text${fileIds.isEmpty ? '' : ',files=$fileIds'})');
     return const SendTurnAccepted(
@@ -372,6 +378,79 @@ void main() {
 
     expect(find.text(t.desktop.desktopSearchNoResults), findsNothing);
     expect(find.text(t.desktop.desktopSearchIncomplete), findsOneComponent);
+  });
+
+  testComponents('an empty list during the first sync says syncing', (
+    tester,
+  ) async {
+    tester.pumpComponent(
+      ProviderScope(
+        overrides: [
+          syncStateProvider.overrideWith(
+            (ref) => Stream.value(const SyncState(running: true)),
+          ),
+        ],
+        child: _scoped(chats: const ChatList()),
+      ),
+    );
+    await pumpEventQueue();
+    expect(find.text(t.desktop.desktopNoChatsYet), findsNothing);
+    // Once here as the list's hint, once in the footer's indicator.
+    expect(find.text(t.desktop.desktopSyncing), findsNComponents(2));
+  });
+
+  group('composer features', () {
+    testComponents('offers only what the server allows', (tester) async {
+      tester.pumpComponent(
+        _scoped(composer: const ComposerOptions(imageGeneration: true)),
+      );
+      await pumpEventQueue();
+      // A switch that is shown but does nothing is worse than none.
+      expect(find.text(t.app.imageGeneration), findsOneComponent);
+      expect(find.text(t.app.webSearch), findsNothing);
+      expect(find.text(t.app.tools), findsNothing);
+    });
+
+    testComponents('a toggle says whether it is on', (tester) async {
+      tester.pumpComponent(
+        _scoped(composer: const ComposerOptions(webSearch: true)),
+      );
+      await pumpEventQueue();
+      final chip = find.ancestor(
+        of: find.text(t.app.webSearch),
+        matching: find.tag('button'),
+      );
+      bool pressed() =>
+          (chip.evaluate().whereType<DomElement>().first.component)
+              .attributes?['aria-pressed'] ==
+          'true';
+      expect(pressed(), isFalse);
+      await tester.click(chip);
+      await pumpEventQueue();
+      expect(pressed(), isTrue);
+    });
+
+    testComponents('tools open as a list and count what is chosen', (
+      tester,
+    ) async {
+      tester.pumpComponent(
+        _scoped(
+          composer: const ComposerOptions(
+            tools: <ToolSummary>[
+              ToolSummary(id: 'viz', name: 'Inline Visualizer'),
+            ],
+          ),
+        ),
+      );
+      await pumpEventQueue();
+      expect(find.text('Inline Visualizer'), findsNothing);
+
+      await tester.click(
+        find.ancestor(of: find.text(t.app.tools), matching: find.tag('button')),
+      );
+      await pumpEventQueue();
+      expect(find.text('Inline Visualizer'), findsOneComponent);
+    });
   });
 
   group('temporary chat', () {

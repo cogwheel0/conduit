@@ -100,7 +100,16 @@ class _Sidebar extends StatelessComponent {
               _hint(t.app.loadingShort)
           else if (chats.value case final list?)
             list.chats.isEmpty && list.archivedCount == 0
-                ? _hint(t.desktop.desktopNoChatsYet)
+                // "No conversations yet" is only true once a sync has
+                // finished. Before that, it told someone with two hundred
+                // conversations that they had none, for as long as the
+                // first sync took.
+                ? _hint(
+                    context.watch(syncStateProvider).value?.everCompleted ??
+                            true
+                        ? t.desktop.desktopNoChatsYet
+                        : t.desktop.desktopSyncing,
+                  )
                 : _Sections(list: list, selected: selected)
           else if (chats.hasError)
             _hint('${chats.error}')
@@ -1058,6 +1067,13 @@ class _ComposerState extends State<_Composer> {
   String? _error;
   final List<_Attachment> _attachments = <_Attachment>[];
 
+  // Kept across sends, as Open WebUI keeps them: turning on web search is a
+  // choice about the conversation, not about one message.
+  bool _webSearch = false;
+  bool _imageGeneration = false;
+  final Set<String> _toolIds = <String>{};
+  bool _toolsOpen = false;
+
   @override
   Component build(BuildContext context) {
     final live = context.watch(liveTurnProvider).value;
@@ -1072,7 +1088,14 @@ class _ComposerState extends State<_Composer> {
 
     final uploading = _attachments.any((file) => !file.ready && !file.failed);
 
+    final options = context.watch(composerOptionsProvider).value;
+
     return div(classes: 'border-t border-border bg-background p-4', [
+      if (options != null &&
+          (options.webSearch ||
+              options.imageGeneration ||
+              options.tools.isNotEmpty))
+        _features(options),
       if (_attachments.isNotEmpty)
         div(
           classes: 'mx-auto mb-2 flex max-w-3xl flex-wrap gap-2',
@@ -1212,6 +1235,87 @@ class _ComposerState extends State<_Composer> {
     ]);
   }
 
+  /// Web search, image generation and tools: switches for the next turn.
+  ///
+  /// Only what the daemon says this account and model may use. A switch
+  /// that is shown but does nothing is worse than none.
+  Component _features(ComposerOptions options) {
+    Component toggle(
+      String label, {
+      required bool on,
+      required void Function() flip,
+    }) => button(
+      [Component.text(label)],
+      classes:
+          'rounded-full border px-3 py-1 text-xs '
+          '${on ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground hover:bg-accent'}',
+      type: ButtonType.button,
+      attributes: <String, String>{'aria-pressed': on ? 'true' : 'false'},
+      onClick: () => setState(flip),
+    );
+    return div(classes: 'mx-auto mb-2 max-w-3xl', [
+      div(classes: 'flex flex-wrap items-center gap-2', [
+        if (options.webSearch)
+          toggle(
+            t.app.webSearch,
+            on: _webSearch,
+            flip: () => _webSearch = !_webSearch,
+          ),
+        if (options.imageGeneration)
+          toggle(
+            t.app.imageGeneration,
+            on: _imageGeneration,
+            flip: () => _imageGeneration = !_imageGeneration,
+          ),
+        if (options.tools.isNotEmpty)
+          button(
+            [
+              Component.text(
+                _toolIds.isEmpty
+                    ? t.app.tools
+                    : '${t.app.tools} (${_toolIds.length})',
+              ),
+            ],
+            classes:
+                'rounded-full border px-3 py-1 text-xs '
+                '${_toolIds.isNotEmpty ? 'border-primary text-foreground' : 'border-border text-muted-foreground'} '
+                'hover:bg-accent',
+            type: ButtonType.button,
+            attributes: <String, String>{
+              'aria-expanded': _toolsOpen ? 'true' : 'false',
+              'aria-controls': 'composer-tools',
+            },
+            onClick: () => setState(() => _toolsOpen = !_toolsOpen),
+          ),
+      ]),
+      if (_toolsOpen && options.tools.isNotEmpty)
+        div(
+          id: 'composer-tools',
+          classes: 'mt-2 space-y-2 rounded border border-border p-3',
+          [
+            for (final tool in options.tools)
+              div([
+                checkboxField(
+                  id: 'tool-${tool.id}',
+                  text: tool.name,
+                  checked: _toolIds.contains(tool.id),
+                  onChanged: ({required value}) => setState(
+                    () => value
+                        ? _toolIds.add(tool.id)
+                        : _toolIds.remove(tool.id),
+                  ),
+                ),
+                if (tool.description case final description?)
+                  p(
+                    classes: 'ml-6 line-clamp-2 text-xs text-muted-foreground',
+                    [Component.text(description)],
+                  ),
+              ]),
+          ],
+        ),
+    ]);
+  }
+
   /// One chip per attachment: name, progress while it climbs, and a way
   /// to take it back off.
   Component _chip(BuildContext context, _Attachment attachment) {
@@ -1312,6 +1416,23 @@ class _ComposerState extends State<_Composer> {
           .send(
             text: text,
             fileIds: <String>[for (final file in _attachments) ?file.id],
+            // Only what the server still offers. A tool removed on the server,
+            // or a feature the new model lacks, must not ride along from an
+            // earlier choice.
+            toolIds: <String>[
+              for (final tool
+                  in context.read(composerOptionsProvider).value?.tools ??
+                      const <ToolSummary>[])
+                if (_toolIds.contains(tool.id)) tool.id,
+            ],
+            webSearch:
+                _webSearch &&
+                (context.read(composerOptionsProvider).value?.webSearch ??
+                    false),
+            imageGeneration:
+                _imageGeneration &&
+                (context.read(composerOptionsProvider).value?.imageGeneration ??
+                    false),
           );
       if (!mounted) return;
       // Cleared only on success: a failed send should leave the text where
