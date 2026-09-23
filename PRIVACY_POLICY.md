@@ -1,8 +1,8 @@
 # Conduit Privacy Policy
 
-Effective date: 2026-08-21
+Effective date: 2026-09-23
 
-Conduit is an open‑source mobile client for Open‑WebUI and directly connected AI providers. This app acts as a client to services you choose and configure. This policy describes how the app itself handles data on your device. Open WebUI servers and AI providers may collect, process, and store data under their own policies; please review their privacy terms separately.
+Conduit is an open‑source mobile and desktop client for Open‑WebUI, Hermes Agent and directly connected AI providers. This app acts as a client to services you choose and configure. This policy describes how the app itself handles data on your device. Open WebUI servers and AI providers may collect, process, and store data under their own policies; please review their privacy terms separately.
 
 ## Information We Collect
 - Device-stored data: minimal settings and preferences (e.g., theme, UI options) saved locally on your device.
@@ -21,6 +21,16 @@ Conduit is an open‑source mobile client for Open‑WebUI and directly connecte
 - Direct chat history: by default, a direct chat is also synchronized to your active Open WebUI server when you are signed in. You can instead keep direct chat history only on this device. Changing this setting applies to new chats and does not automatically upload existing on-device chats.
 - Apple On-Device: when you select Apple On-Device, model inference runs locally through Apple's Foundation Models framework. Prompt and response content is not sent to an AI provider by Conduit, though optional Open WebUI history synchronization remains a separate setting.
 - Apple Private Cloud Compute: when you select the Apple PCC provider, Conduit sends the conversation content and selected images needed for that request to Apple's Private Cloud Compute service. Conduit does not operate an intermediary server. If you enable on-device fallback, a PCC network failure may instead be retried with Apple's on-device model. Apple's processing and retention terms apply separately from Conduit's optional Open WebUI history synchronization.
+
+## Conduit Desktop
+The desktop app (Windows, macOS and Linux) handles data the same way, with these specifics:
+- Where data is kept: in the app's user-data folder, `%APPDATA%\Conduit` on Windows, `~/Library/Application Support/Conduit` on macOS and `~/.config/Conduit` on Linux. It holds a local database caching your conversations, notes and settings, the app's logs, and its window and desktop preferences.
+- Credentials: server tokens, API keys and certificates are encrypted with a key that the operating system's keyring protects (Keychain, the Windows Data Protection API, or GNOME Keyring/KWallet). On a Linux system with no keyring, the app warns you that this key is stored with weak protection.
+- Voice: recordings for dictation and voice calls are sent to your Open WebUI server for transcription and are not stored by the app. Answers read aloud use your system's voices or your server's.
+- Update checks: installed builds check GitHub (github.com) for new versions of the app. This request contains no conversation data or credentials.
+- Links and files: `conduit://` links and files you open with Conduit are handled on your device. Opened files are uploaded only to the server you are signed in to, as attachments.
+- Notifications are shown by your operating system and are not sent anywhere.
+- Removing the app's user-data folder removes everything the app stored on the computer.
 
 ## Permissions
 Depending on how you use Conduit, the app may request:

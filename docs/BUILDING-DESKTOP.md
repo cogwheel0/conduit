@@ -8,13 +8,15 @@
 > packaging ships the directory.
 
 The desktop client is an Electron shell around two Dart programs: `conduitd`,
-a native sidecar that will host the shared core, and a Jaspr renderer that
-talks to it over a loopback JSON-RPC WebSocket. See
+a native sidecar that hosts the shared core, and a Jaspr renderer that talks
+to it over a loopback JSON-RPC WebSocket. See
 [docs/desktop/PLAN.md](desktop/PLAN.md) for the architecture and the milestone
-plan; this file is how to build and run it.
+plan, and [docs/desktop/THREAT-MODEL.md](desktop/THREAT-MODEL.md) for the
+security design; this file is how to build, test and package it.
 
-> Status: M0 (foundations). The shell launches, supervises the daemon, and
-> completes a protocol handshake. There is no chat UI yet — that is M3.
+> Status: M0 to M9 are done, apart from the Apple helper (WP-8.4) and what
+> needs signing certificates. M10 (hardening and the public release) is in
+> progress.
 
 ## Requirements
 
@@ -38,28 +40,26 @@ runs too, so "works on my machine" and "works in CI" stay the same thing.
 
 ## What works today
 
-Enough to use, not yet enough to switch to. The window opens on server setup
-the first time; point it at an Open WebUI instance, sign in, and you get a
-conversation sidebar, a transcript and a composer that streams replies.
+Everything the phone app does against Open WebUI, Hermes Agent and direct
+connections, plus what a desktop adds:
 
-| Works | Notes |
+| Area | What is there |
 | --- | --- |
-| Server setup, custom headers, self-signed TLS, mutual TLS | The PEM pickers validate the armour before accepting a file. |
-| Password, LDAP and API-key sign-in | |
-| SSO, OAuth and reverse-proxy sign-in | Opens a real browser window; the daemon validates before committing. |
-| Several servers, switching between them | Switching restores the session rather than asking again. |
-| Conversation list, opening a chat, sending, streaming, stopping | Real history, synced from the server. |
-| Rename, pin, archive, delete, share a conversation | Delete asks first. |
-| Full-text search over titles and message bodies | Uses the database index, not the loaded page. |
-| Model picker | The choice is stored with the account, so it survives a restart. |
-| Markdown replies | Headings, lists, tables, code, links. No images or embeds yet. |
-| Settings: appearance, palette, language, connections, sign-out | Thirteen languages, five palettes, light/dark/system. |
+| Servers and sign-in | Several servers; password, LDAP, API key, SSO/OAuth/proxy windows; custom headers, self-signed and mutual TLS |
+| Chat | Streaming, stop, regenerate and edit as branches, attachments, `/` prompts, `@` models, `#` knowledge, web search, image generation, tools, MCP, terminal |
+| Rendering | Markdown, code highlighting, KaTeX, Mermaid, charts and HTML previews in a sandbox, citations, reasoning and tool-call sections |
+| Organise | Folders, tags, pins, archive, search, share, export, temporary chats |
+| Notes, channels, workspace | Notes with recordings, channels with threads and reactions, models/knowledge/prompts/tools/skills with access control |
+| Hermes Agent | Its API server as a backend: sessions, approvals, schedules, skills |
+| Terminal | Open WebUI terminal servers: a shell, files, ports and previews |
+| Voice | Dictation, read aloud, voice calls, Settings → Audio |
+| Desktop | Tray, open at login, `conduit://` links, "Open with Conduit", notifications, quick ask, rebindable shortcuts, What's new |
 
 | Not yet | Where it lands |
 | --- | --- |
-| Syntax highlighting, KaTeX, Mermaid, embeds | WP-3.5 -- markdown renders, these do not |
-| Attachments, folders, virtualized list | WP-3.1 to WP-3.3 |
-| Notes, channels, workspace, Hermes, terminal, voice | M5 to M8 |
+| On-device speech and Apple models on macOS | WP-8.4, the Swift helper |
+| Signed and notarized packages, store listings | WP-9.5/9.6, needs certificates and a first release |
+| Local speech recognition on Windows and Linux | M11 |
 
 Run `npm test` in `desktop/electron` to check the shell still launches and
 talks to the daemon.
@@ -85,6 +85,16 @@ bug in this path was actually found.
 model the server offers", which on a real deployment is as likely as not to
 be one the account cannot use; the refusal is reported properly now, but a
 test that picks a working model is a better test of the happy path.
+
+`CONDUIT_SPEECH_SAMPLE`, set to a WAV of someone saying "The quick brown
+fox jumps over the lazy dog.", makes both live suites test dictation and a
+voice call with real words: the Electron spec plays it through Chromium's
+fake microphone. Without it they check only that transcription answers.
+
+The other Electron specs need no server: `launch.spec.ts` (the shell, the
+security boundaries), `direct-only.spec.ts` and `hermes-only.spec.ts` (fake
+providers), and `desktop-shell.spec.ts` (links, tray, quick ask, shortcuts).
+`npm run test:unit` runs the main process's own unit tests.
 
 **`.env` and `test-results/` are both gitignored, and must stay that way.** A
 Playwright failure snapshot captures the DOM, and the DOM of a sign-in form
@@ -117,6 +127,29 @@ A pub workspace means **one** `flutter pub get` at the repo root resolves every
 package into a single `pubspec.lock`. Running `dart pub get` inside a member
 works too and resolves to that same lockfile.
 
+## Packaging
+
+```bash
+cd desktop/electron
+npm run package          # daemon + release renderer + main, staged, then electron-builder
+```
+
+`npm run package` builds for the machine it runs on: the daemon is native, so
+each OS and architecture is packaged on its own. `scripts/stage.mjs` gathers
+the daemon bundle, the renderer (without source maps), the tray icon and
+`THIRD_PARTY_NOTICES.md` into `build/stage/`, and `electron-builder.yml` packs
+them next to the app. Output lands in `desktop/electron/dist/`.
+
+Releases are built by `.github/workflows/release-desktop.yml` from a
+`desktop-v<version>` tag, one runner per target, and published as a GitHub
+prerelease that installed builds update from. macOS builds are signed and
+notarized when `MAC_CERTIFICATE_P12_BASE64`, `MAC_CERTIFICATE_PASSWORD`,
+`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` are set;
+Windows builds are signed with `WIN_CERTIFICATE_P12_BASE64` and
+`WIN_CERTIFICATE_PASSWORD`. Without them the builds are unsigned.
+
+Package-manager manifests live in `desktop/packaging/`; see its README.
+
 ## Verify
 
 ```bash
@@ -142,10 +175,10 @@ cd desktop/electron && npx playwright test     # prefix with `xvfb-run -a` on he
 ## How the pieces fit
 
 ```text
-apps/daemon        conduitd: loopback JSON-RPC server, will host conduit_core
+apps/daemon        conduitd: loopback JSON-RPC server hosting conduit_core
 apps/desktop_ui    Jaspr client-mode renderer (pure DOM, Tailwind v4)
 packages/
-  conduit_core     host ports + the 25 shared models (M1, extraction ongoing)
+  conduit_core     the shared core: models, services, providers, host ports
   conduit_markdown markdown preprocessing and the block parsers (web-safe)
   conduit_protocol DTOs + RPC contracts, shared verbatim by both sides
   conduit_theme    tweakcn palettes as plain ARGB ints, plus the CSS generator
