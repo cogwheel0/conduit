@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.30.0",
+  "protocolVersion": "1.31.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.30.0",
+  "protocolVersion": "1.31.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -459,7 +459,9 @@ const Map<String, String> protocolGoldens = <String, String>{
   "manualModelIds": [],
   "allowSelfSignedCertificates": false,
   "openRouter": true,
-  "ollamaCloud": false
+  "ollamaCloud": false,
+  "openWebUi": false,
+  "compatible": true
 }''',
 
   'directConnectionList': r'''
@@ -478,10 +480,30 @@ const Map<String, String> protocolGoldens = <String, String>{
       "manualModelIds": [],
       "allowSelfSignedCertificates": false,
       "openRouter": false,
-      "ollamaCloud": false
+      "ollamaCloud": false,
+      "openWebUi": false,
+      "compatible": true
+    },
+    {
+      "id": "owui-0",
+      "name": "Team gateway",
+      "kind": "openai",
+      "baseUrl": "https://llm.example.com/v1",
+      "apiMode": "chat",
+      "apiKeyHeader": false,
+      "enabled": true,
+      "hasApiKey": false,
+      "customHeaderNames": [],
+      "manualModelIds": [],
+      "allowSelfSignedCertificates": false,
+      "openRouter": false,
+      "ollamaCloud": false,
+      "openWebUi": true,
+      "compatible": false
     }
   ],
-  "localHistory": true
+  "localHistory": true,
+  "openWebUiAvailable": true
 }''',
 
   'directConnectionEdit': r'''
@@ -493,6 +515,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   "apiVersion": "2024-10-21",
   "apiKeyHeader": true,
   "enabled": true,
+  "openWebUi": false,
   "apiKey": "sk-test",
   "customHeaders": {
     "X-Team": "platform"

@@ -19,6 +19,7 @@ import 'package:conduit_core/features/direct_connections/services/direct_chat_st
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/ports/ui_request_port.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -154,7 +155,7 @@ final class TurnsService {
   /// mobile. That is what makes server-initiated prompts possible: a tool
   /// asking for approval addresses a session, and without one it has nobody
   /// to ask. Null falls back to a plain HTTP stream, which still answers.
-  Future<String?> _socketSession(SendTurn request) async {
+  Future<String?> _socketSession(SendTurn request, {bool force = false}) async {
     // Only for a turn that opts into what the server does itself: tools,
     // web search, code execution, image generation. Those are the turns
     // where a tool can ask for approval or a function can ask a question,
@@ -168,7 +169,11 @@ final class TurnsService {
     // cannot repair it: the failed attempt is persisted against the answer
     // and read back after the retry succeeds. A plain turn therefore stays
     // on HTTP, as it always has.
-    if (!_wantsServerTools(request)) return null;
+    //
+    // `force` is for a model from a direct connection kept in the Open
+    // WebUI account: the server asks this app, over the socket, to make the
+    // request, so without a session there is nobody for it to ask.
+    if (!force && !_wantsServerTools(request)) return null;
     final socket = _container.read(socketServiceProvider);
     if (socket == null) return null;
     if (!socket.isConnected) {
@@ -213,17 +218,24 @@ final class TurnsService {
       );
     }
 
-    final model = await _resolveModel(request.model);
-    if (model == null) {
+    final requested = await _resolveModel(request.model);
+    if (requested == null) {
       throw const RpcError(
         code: ConduitErrorCodes.unsupported,
         debugMessage: 'this server offers no models',
       );
     }
+    // A connection kept in the Open WebUI account: sent through the server
+    // under the id it knows, and relayed back through this app.
+    final relayed = await _openWebUiWireModel(requested);
+    final model = relayed ?? requested;
 
-    // A model from a direct connection: the daemon is the client.
-    if (DirectModelId.decode(model) case final route?) {
-      return _sendDirect(request, model: model, text: text, route: route);
+    // A model from a direct connection on this computer: the daemon is the
+    // client.
+    if (relayed == null) {
+      if (DirectModelId.decode(model) case final route?) {
+        return _sendDirect(request, model: model, text: text, route: route);
+      }
     }
     final api = _requireApi();
 
@@ -338,7 +350,9 @@ final class TurnsService {
       enableImageGeneration: request.imageGeneration,
       enableCodeInterpreter: request.codeInterpreter,
     );
-    final sessionId = isTemporary ? null : await _socketSession(request);
+    final sessionId = isTemporary
+        ? null
+        : await _socketSession(request, force: relayed != null);
     final completion = await dispatch(sessionId);
 
     _attach(
@@ -412,15 +426,19 @@ final class TurnsService {
     // already falls back to "the first model the server offers". On a
     // server whose first model is paid-tier, every regenerate came back as
     // a refusal for a model the user had not chosen.
-    final model = await _resolveModel(request.model ?? history[index].model);
-    if (model == null) {
+    final requested = await _resolveModel(
+      request.model ?? history[index].model,
+    );
+    if (requested == null) {
       throw const RpcError(
         code: ConduitErrorCodes.unsupported,
         debugMessage: 'this server offers no models',
       );
     }
+    final relayed = await _openWebUiWireModel(requested);
+    final model = relayed ?? requested;
 
-    if (DirectModelId.decode(model) case final route?) {
+    if (DirectModelId.decode(model) case final route? when relayed == null) {
       return _regenerateDirect(
         chatId: request.chatId,
         model: model,
@@ -469,7 +487,9 @@ final class TurnsService {
         'childrenIds': message_tree.chatMessageChildrenIds(userMessage),
       },
     );
-    const String? sessionId = null;
+    final sessionId = relayed == null
+        ? null
+        : await _socketSession(const SendTurn(text: ''), force: true);
     final completion = await dispatch(sessionId);
 
     _attach(
@@ -544,15 +564,17 @@ final class TurnsService {
         .where((m) => m.role == 'assistant')
         .firstOrNull
         ?.model;
-    final model = await _resolveModel(request.model ?? answeredWith);
-    if (model == null) {
+    final requested = await _resolveModel(request.model ?? answeredWith);
+    if (requested == null) {
       throw const RpcError(
         code: ConduitErrorCodes.unsupported,
         debugMessage: 'this server offers no models',
       );
     }
+    final relayed = await _openWebUiWireModel(requested);
+    final model = relayed ?? requested;
 
-    if (DirectModelId.decode(model) case final route?) {
+    if (DirectModelId.decode(model) case final route? when relayed == null) {
       return _editDirect(
         chatId: request.chatId,
         model: model,
@@ -598,7 +620,9 @@ final class TurnsService {
             'parentId': ?parentId,
           },
         );
-    const String? sessionId = null;
+    final sessionId = relayed == null
+        ? null
+        : await _socketSession(const SendTurn(text: ''), force: true);
     final completion = await dispatch(sessionId);
 
     _attach(

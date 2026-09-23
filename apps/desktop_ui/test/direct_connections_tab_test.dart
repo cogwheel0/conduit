@@ -62,4 +62,57 @@ void main() {
     expect(find.text(t.app.directApiKey), findsOneComponent);
     expect(find.text(t.app.directCompletionApi), findsOneComponent);
   });
+
+  testComponents('connections kept in the Open WebUI account have a section', (
+    tester,
+  ) async {
+    tester.pumpComponent(
+      tab(
+        const DirectConnectionList(
+          openWebUiAvailable: true,
+          connections: <DirectConnectionSummary>[
+            DirectConnectionSummary(
+              id: 'a1',
+              name: 'llm.example.com · 1',
+              kind: DirectKind.openai,
+              baseUrl: 'https://llm.example.com/v1',
+              openWebUi: true,
+            ),
+            DirectConnectionSummary(
+              id: 'a2',
+              name: 'sso.example.com · 2',
+              kind: DirectKind.openai,
+              baseUrl: 'https://sso.example.com/v1',
+              openWebUi: true,
+              compatible: false,
+            ),
+          ],
+        ),
+      ),
+    );
+    await pumpEventQueue();
+    expect(
+      find.text(t.app.openWebUiDirectConnectionsSectionTitle),
+      findsOneComponent,
+    );
+    // This computer's section is empty; the account's is not.
+    expect(find.text(t.app.directProfilesEmptyTitle), findsOneComponent);
+    expect(find.text('llm.example.com · 1'), findsOneComponent);
+    // One the app cannot use is listed, says why, and cannot be edited.
+    expect(
+      find.text(t.app.openWebUiDirectConnectionUnsupportedAuth),
+      findsOneComponent,
+    );
+    expect(find.componentWithText(button, t.app.edit), findsOneComponent);
+
+    // Its editor asks neither a name nor a kind, and says why.
+    await tester.click(find.componentWithText(button, t.app.edit));
+    await pumpEventQueue();
+    expect(find.text(t.app.directConnectionName), findsNothing);
+    expect(find.text(t.app.directProvider), findsNothing);
+    expect(
+      find.text(t.app.openWebUiDirectConnectionProviderDescription),
+      findsOneComponent,
+    );
+  });
 }

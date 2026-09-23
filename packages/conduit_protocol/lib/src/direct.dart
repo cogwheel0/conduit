@@ -46,6 +46,15 @@ abstract class DirectConnectionSummary with _$DirectConnectionSummary {
     @Default(false) bool allowSelfSignedCertificates,
     @Default(false) bool openRouter,
     @Default(false) bool ollamaCloud,
+
+    /// Kept in the Open WebUI account's settings rather than on this
+    /// computer (M4). Its chats go through Open WebUI, which asks the app
+    /// to make the request -- Open WebUI's own "direct connections".
+    @Default(false) bool openWebUi,
+
+    /// False for an Open WebUI connection this app cannot use (an
+    /// authentication kind it does not support). Listed, not editable.
+    @Default(true) bool compatible,
   }) = _DirectConnectionSummary;
 
   factory DirectConnectionSummary.fromJson(Map<String, dynamic> json) =>
@@ -62,6 +71,10 @@ abstract class DirectConnectionList with _$DirectConnectionList {
     /// Keep direct chats on this computer only, rather than mirroring them
     /// to the Open WebUI server.
     @Default(false) bool localHistory,
+
+    /// The signed-in server lets its users keep direct connections in their
+    /// account, so the settings offer a section for them.
+    @Default(false) bool openWebUiAvailable,
   }) = _DirectConnectionList;
 
   factory DirectConnectionList.fromJson(Map<String, dynamic> json) =>
@@ -88,6 +101,10 @@ abstract class DirectConnectionEdit with _$DirectConnectionEdit {
     @Default(false) bool apiKeyHeader,
     String? modelIdPrefix,
     @Default(true) bool enabled,
+
+    /// For a new connection: keep it in the Open WebUI account instead of
+    /// on this computer. An existing one stays where it is.
+    @Default(false) bool openWebUi,
     String? apiKey,
     Map<String, String>? customHeaders,
     @Default(<String>[]) List<String> manualModelIds,

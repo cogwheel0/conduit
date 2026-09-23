@@ -1,8 +1,10 @@
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/openwebui_direct_connection.dart';
 import 'package:conduit_core/features/direct_connections/models/ollama_keep_alive.dart';
 import 'package:conduit_core/features/direct_connections/models/ollama_thinking.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -25,6 +27,8 @@ final class DirectService {
       _container,
       directConnectionProfilesProvider.future,
     );
+    await _settleAccountSources();
+    final account = await _openWebUi();
     return DirectConnectionList(
       connections: <DirectConnectionSummary>[
         for (final profile in profiles)
@@ -32,14 +36,77 @@ final class DirectService {
           if (profile.adapterKey == kOpenAiCompatibleAdapterKey ||
               profile.adapterKey == kOllamaAdapterKey)
             _summarize(profile),
+        for (final record
+            in account?.records ?? const <OpenWebUiDirectConnectionRecord>[])
+          _summarize(record.profile)
+              .copyWith(openWebUi: true, compatible: record.isCompatible),
       ],
       localHistory:
           _container.read(directHistoryPolicyProvider) ==
           DirectHistoryPolicy.localOnly,
+      openWebUiAvailable: _container.read(
+        openWebUiDirectConnectionsAvailableProvider,
+      ),
     );
   }
 
+  /// Waits for what decides whether the account can hold connections: the
+  /// server's config and this device's identity key. Both load
+  /// asynchronously, and read cold the answer is "no" -- which hid the
+  /// section from a window that asked straight after signing in.
+  Future<void> _settleAccountSources() async {
+    final api = _container.read(apiServiceProvider);
+    if (api == null) return;
+    for (final source in <Future<Object?> Function()>[
+      () async {
+        // The config answers from a cache first and refreshes behind it; a
+        // fresh install has no cache, so ask for the refresh itself.
+        final config = await readSettled(
+          _container,
+          backendConfigProvider.future,
+        );
+        if (config?.serverId != api.serverConfig.id) {
+          await _container.read(backendConfigProvider.notifier).refresh();
+        }
+        return null;
+      },
+      () => readSettled(_container, openWebUiDirectIdentityKeyProvider.future),
+    ]) {
+      try {
+        await source();
+      } on Object {
+        // Unavailable, then; the flag says so.
+      }
+    }
+  }
+
+  /// The connections kept in the Open WebUI account, when the server
+  /// allows them and they could be read.
+  Future<OpenWebUiDirectConnectionsSnapshot?> _openWebUi() async {
+    if (!_container.read(openWebUiDirectConnectionsAvailableProvider)) {
+      return null;
+    }
+    try {
+      return await readSettled(
+        _container,
+        openWebUiDirectConnectionsProvider.future,
+      );
+    } on Object {
+      // Unreadable account settings should not hide this computer's own
+      // connections.
+      return null;
+    }
+  }
+
+  /// [id]'s record in the Open WebUI account, if it is one of those.
+  Future<OpenWebUiDirectConnectionRecord?> _accountRecord(String? id) async =>
+      id == null ? null : (await _openWebUi())?.recordByProfileId(id);
+
   Future<DirectConnectionList> save(DirectConnectionEdit edit) async {
+    final record = await _accountRecord(edit.id);
+    if (record != null || (edit.id == null && edit.openWebUi)) {
+      return _saveToAccount(edit, record);
+    }
     final previous = await _existing(edit.id);
     final profile = _apply(edit, previous);
     try {
@@ -68,12 +135,77 @@ final class DirectService {
     return list();
   }
 
+  /// A connection kept in the Open WebUI account: the core's store writes
+  /// it into the user's settings, under the same checks.
+  Future<DirectConnectionList> _saveToAccount(
+    DirectConnectionEdit edit,
+    OpenWebUiDirectConnectionRecord? record,
+  ) async {
+    if (record != null && !record.isCompatible) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: 'this connection signs in a way the app cannot use',
+      );
+    }
+    // Open WebUI keeps no name for these -- the core names them after the
+    // host on reading -- so a window need not ask for one.
+    final named = edit.name.trim().isNotEmpty
+        ? edit
+        : edit.copyWith(
+            name: Uri.tryParse(edit.baseUrl.trim())?.host ?? 'Open WebUI',
+          );
+    final profile = _apply(named, record?.profile);
+    final invalid = profile.validateOrNull();
+    if (invalid != null) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: invalid,
+      );
+    }
+    final controller = _container.read(
+      openWebUiDirectConnectionsProvider.notifier,
+    );
+    try {
+      if (record == null) {
+        await controller.add(profile);
+      } else {
+        await controller.updateConnection(
+          record,
+          profile,
+          authType: record.authType,
+        );
+      }
+    } on StateError catch (error) {
+      throw RpcError(
+        code: ConduitErrorCodes.conflict,
+        debugMessage: error.message,
+      );
+    }
+    return list();
+  }
+
   Future<DirectConnectionList> remove(String id) async {
+    if (await _accountRecord(id) case final record?) {
+      await _container
+          .read(openWebUiDirectConnectionsProvider.notifier)
+          .delete(record);
+      return list();
+    }
     await _container.read(directConnectionProfilesProvider.notifier).remove(id);
     return list();
   }
 
   Future<DirectConnectionList> setEnabled(String id, bool enabled) async {
+    if (await _accountRecord(id) case final record?) {
+      await _container
+          .read(openWebUiDirectConnectionsProvider.notifier)
+          .updateConnection(
+            record,
+            record.profile.copyWith(enabled: enabled),
+            authType: record.authType,
+          );
+      return list();
+    }
     await _container
         .read(directConnectionProfilesProvider.notifier)
         .setEnabled(id, enabled);
@@ -239,6 +371,7 @@ final class DirectService {
 
   Future<DirectConnectionProfile?> _existing(String? id) async {
     if (id == null) return null;
+    if (await _accountRecord(id) case final record?) return record.profile;
     final profiles = await readSettled(
       _container,
       directConnectionProfilesProvider.future,

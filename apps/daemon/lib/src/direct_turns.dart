@@ -339,6 +339,29 @@ extension _DirectTurns on TurnsService {
     );
   }
 
+  /// The id Open WebUI knows [model] by, when it comes from a direct
+  /// connection kept in the account; null for any other model.
+  ///
+  /// Decided by the core's registry of the models it minted, not by the
+  /// id's shape: an id alone is not proof of where a model came from.
+  Future<String?> _openWebUiWireModel(String model) async {
+    if (DirectModelId.decode(model) == null) return null;
+    final List<Model> models;
+    try {
+      models = await readSettled(_container, modelsProvider.future);
+    } on Object {
+      return null;
+    }
+    final match = models
+        .where((candidate) => candidate.id == model)
+        .firstOrNull;
+    if (match == null) return null;
+    final binding = _container.read(directModelRegistryProvider).resolve(match);
+    return binding?.source == DirectModelSource.openWebUi
+        ? binding!.openWebUiModelId
+        : null;
+  }
+
   /// Writes a new direct chat holding the question and the placeholder.
   Future<(ChatDatabaseLocation, String)> _createDirectChat({
     required String model,

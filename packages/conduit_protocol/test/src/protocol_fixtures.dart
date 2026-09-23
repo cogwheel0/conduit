@@ -272,8 +272,17 @@ final Map<String, Object> protocolFixtures = <String, Object>{
         kind: DirectKind.ollama,
         baseUrl: 'http://192.168.1.10:11434',
       ),
+      DirectConnectionSummary(
+        id: 'owui-0',
+        name: 'Team gateway',
+        kind: DirectKind.openai,
+        baseUrl: 'https://llm.example.com/v1',
+        openWebUi: true,
+        compatible: false,
+      ),
     ],
     localHistory: true,
+    openWebUiAvailable: true,
   ),
   'directConnectionEdit': const DirectConnectionEdit(
     name: 'Azure',

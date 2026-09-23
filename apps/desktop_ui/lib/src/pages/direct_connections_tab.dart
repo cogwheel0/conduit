@@ -37,6 +37,19 @@ class _DirectConnectionsTabState extends State<DirectConnectionsTab> {
     baseUrl: '',
   );
 
+  /// A new connection for the Open WebUI account (M4): OpenAI-compatible
+  /// only, and named by Open WebUI after its host.
+  static const _blankAccount = DirectConnectionSummary(
+    id: '',
+    name: '',
+    kind: DirectKind.openai,
+    baseUrl: '',
+    openWebUi: true,
+  );
+
+  bool _addingTo({required bool account}) =>
+      _editing?.id == '' && _editing!.openWebUi == account;
+
   @override
   Component build(BuildContext context) {
     final list = context.watch(directConnectionsProvider);
@@ -55,157 +68,212 @@ class _DirectConnectionsTabState extends State<DirectConnectionsTab> {
           ),
         ),
       if (list.hasError && value == null) formError('${list.error}'),
-      if (value != null && value.connections.isEmpty && _editing == null)
-        div(classes: 'rounded border border-dashed border-border p-4', [
-          p(classes: 'text-sm font-medium', [
-            Component.text(t.app.directProfilesEmptyTitle),
+      if (value != null)
+        ..._section(
+          context,
+          value.connections.where((c) => !c.openWebUi).toList(),
+          account: false,
+        ),
+      // Open WebUI's own direct connections, kept in the account and
+      // shared with its other clients.
+      if (value != null && value.openWebUiAvailable) ...[
+        div(classes: 'space-y-1 border-t border-border pt-4', [
+          h3(classes: 'text-sm font-semibold', [
+            Component.text(t.app.openWebUiDirectConnectionsSectionTitle),
           ]),
           p(classes: 'text-xs text-muted-foreground', [
-            Component.text(t.app.directProfilesEmptySubtitle),
+            Component.text(t.app.openWebUiDirectConnectionsSectionDescription),
           ]),
         ]),
-      if (value != null)
-        ul(classes: 'space-y-2', [
-          for (final connection in value.connections)
-            if (_editing?.id == connection.id)
-              li([
-                _ConnectionEditor(
-                  key: ValueKey('edit-${connection.id}'),
-                  connection: connection,
-                  onDone: () => setState(() => _editing = null),
-                ),
-              ])
-            else
-              _row(context, connection),
-        ]),
-      if (_editing?.id == '')
-        _ConnectionEditor(
-          key: const ValueKey('edit-new'),
-          connection: _blank,
-          onDone: () => setState(() => _editing = null),
-        )
-      else if (_editing == null)
-        button(
-          [Component.text(t.app.directConnectProvider)],
-          classes:
-              'rounded border border-border px-3 py-1.5 text-sm '
-              'hover:bg-accent',
-          type: ButtonType.button,
-          onClick: () => setState(() => _editing = _blank),
+        ..._section(
+          context,
+          value.connections.where((c) => c.openWebUi).toList(),
+          account: true,
         ),
+      ],
     ]);
   }
 
-  Component _row(BuildContext context, DirectConnectionSummary connection) =>
-      li(classes: 'rounded border border-border p-3', [
-        div(classes: 'flex items-center gap-3', [
-          input<bool>(
-            classes: 'size-4',
-            type: InputType.checkbox,
-            checked: connection.enabled,
-            attributes: <String, String>{
-              'aria-label': t.desktop.desktopDirectEnable(
-                name: connection.name,
-              ),
-            },
-            onChange: (enabled) => unawaited(
-              context
-                  .read(directActionsProvider)
-                  .setEnabled(connection.id, enabled: enabled),
-            ),
-          ),
-          div(classes: 'min-w-0 flex-1', [
-            div(classes: 'flex items-center gap-2', [
-              span(classes: 'truncate text-sm font-medium', [
-                Component.text(connection.name),
-              ]),
-              span(
-                classes:
-                    'rounded-full border border-border px-2 text-xs '
-                    'text-muted-foreground',
-                [
-                  Component.text(
-                    connection.kind == DirectKind.ollama
-                        ? t.app.ollama
-                        : t.desktop.desktopOpenAiCompatible,
-                  ),
-                ],
-              ),
-            ]),
-            span(classes: 'truncate font-mono text-xs text-muted-foreground', [
-              Component.text(connection.baseUrl),
-            ]),
-          ]),
-          if (connection.kind == DirectKind.ollama)
-            button(
-              [Component.text(t.app.ollamaModelActions)],
-              classes: 'rounded px-2.5 py-1 text-xs hover:bg-accent',
-              type: ButtonType.button,
-              attributes: <String, String>{
-                'aria-expanded': '${_modelsOpen.contains(connection.id)}',
-              },
-              onClick: () => setState(
-                () => _modelsOpen.contains(connection.id)
-                    ? _modelsOpen.remove(connection.id)
-                    : _modelsOpen.add(connection.id),
-              ),
-            ),
-          button(
-            [Component.text(t.app.edit)],
-            classes: 'rounded px-2.5 py-1 text-xs hover:bg-accent',
-            type: ButtonType.button,
-            onClick: () => setState(() => _editing = connection),
-          ),
-          button(
-            [Component.text(t.app.delete)],
-            classes:
-                'rounded px-2.5 py-1 text-xs text-destructive '
-                'hover:bg-destructive/10',
-            type: ButtonType.button,
-            onClick: () => setState(() => _deleting = connection.id),
+  /// One group of connections: its empty state, its rows, and its way to
+  /// add one.
+  List<Component> _section(
+    BuildContext context,
+    List<DirectConnectionSummary> connections, {
+    required bool account,
+  }) => <Component>[
+    if (connections.isEmpty && !_addingTo(account: account))
+      div(classes: 'rounded border border-dashed border-border p-4', [
+        p(classes: 'text-sm font-medium', [
+          Component.text(
+            account
+                ? t.app.openWebUiDirectProfilesEmptyTitle
+                : t.app.directProfilesEmptyTitle,
           ),
         ]),
-        if (_modelsOpen.contains(connection.id))
-          OllamaModels(
-            key: ValueKey('ollama-${connection.id}'),
-            connectionId: connection.id,
+        p(classes: 'text-xs text-muted-foreground', [
+          Component.text(
+            account
+                ? t.app.openWebUiDirectProfilesEmptySubtitle
+                : t.app.directProfilesEmptySubtitle,
           ),
-        if (_deleting == connection.id)
-          div(
+        ]),
+      ]),
+    ul(classes: 'space-y-2', [
+      for (final connection in connections)
+        if (_editing?.id == connection.id)
+          li([
+            _ConnectionEditor(
+              key: ValueKey('edit-${connection.id}'),
+              connection: connection,
+              onDone: () => setState(() => _editing = null),
+            ),
+          ])
+        else
+          _row(context, connection),
+    ]),
+    if (_addingTo(account: account))
+      _ConnectionEditor(
+        key: ValueKey(account ? 'edit-new-account' : 'edit-new'),
+        connection: account ? _blankAccount : _blank,
+        onDone: () => setState(() => _editing = null),
+      )
+    else if (_editing == null)
+      button(
+        [Component.text(t.app.directConnectProvider)],
+        classes:
+            'rounded border border-border px-3 py-1.5 text-sm '
+            'hover:bg-accent',
+        type: ButtonType.button,
+        attributes: <String, String>{
+          if (account)
+            'aria-label':
+                '${t.app.directConnectProvider} · '
+                '${t.app.openWebUiDirectConnectionSourceLabel}',
+        },
+        onClick: () =>
+            setState(() => _editing = account ? _blankAccount : _blank),
+      ),
+  ];
+
+  Component _row(
+    BuildContext context,
+    DirectConnectionSummary connection,
+  ) => li(classes: 'rounded border border-border p-3', [
+    div(classes: 'flex items-center gap-3', [
+      input<bool>(
+        classes: 'size-4',
+        type: InputType.checkbox,
+        checked: connection.enabled,
+        attributes: <String, String>{
+          'aria-label': t.desktop.desktopDirectEnable(name: connection.name),
+        },
+        onChange: (enabled) => unawaited(
+          context
+              .read(directActionsProvider)
+              .setEnabled(connection.id, enabled: enabled),
+        ),
+      ),
+      div(classes: 'min-w-0 flex-1', [
+        div(classes: 'flex items-center gap-2', [
+          span(classes: 'truncate text-sm font-medium', [
+            Component.text(connection.name),
+          ]),
+          span(
             classes:
-                'mt-2 space-y-2 rounded border border-destructive/40 '
-                'bg-destructive/10 p-2 text-xs',
-            attributes: const <String, String>{'role': 'alertdialog'},
+                'rounded-full border border-border px-2 text-xs '
+                'text-muted-foreground',
             [
-              p([
-                Component.text(
-                  t.app.directConnectionDeleteMessage(name: connection.name),
-                ),
-              ]),
-              div(classes: 'flex gap-2', [
-                button(
-                  [Component.text(t.app.delete)],
-                  classes:
-                      'rounded bg-destructive px-2 py-1 '
-                      'text-destructive-foreground',
-                  type: ButtonType.button,
-                  onClick: () {
-                    setState(() => _deleting = null);
-                    unawaited(
-                      context.read(directActionsProvider).remove(connection.id),
-                    );
-                  },
-                ),
-                button(
-                  [Component.text(t.app.cancel)],
-                  classes: 'rounded px-2 py-1',
-                  type: ButtonType.button,
-                  onClick: () => setState(() => _deleting = null),
-                ),
-              ]),
+              Component.text(
+                connection.kind == DirectKind.ollama
+                    ? t.app.ollama
+                    : t.desktop.desktopOpenAiCompatible,
+              ),
             ],
           ),
-      ]);
+        ]),
+        span(classes: 'truncate font-mono text-xs text-muted-foreground', [
+          Component.text(connection.baseUrl),
+        ]),
+        if (!connection.compatible)
+          p(classes: 'text-xs text-destructive', [
+            Component.text(t.app.openWebUiDirectConnectionUnsupportedAuth),
+          ]),
+      ]),
+      if (connection.kind == DirectKind.ollama)
+        button(
+          [Component.text(t.app.ollamaModelActions)],
+          classes: 'rounded px-2.5 py-1 text-xs hover:bg-accent',
+          type: ButtonType.button,
+          attributes: <String, String>{
+            'aria-expanded': '${_modelsOpen.contains(connection.id)}',
+          },
+          onClick: () => setState(
+            () => _modelsOpen.contains(connection.id)
+                ? _modelsOpen.remove(connection.id)
+                : _modelsOpen.add(connection.id),
+          ),
+        ),
+      if (connection.compatible)
+        button(
+          [Component.text(t.app.edit)],
+          classes: 'rounded px-2.5 py-1 text-xs hover:bg-accent',
+          type: ButtonType.button,
+          onClick: () => setState(() => _editing = connection),
+        ),
+      button(
+        [Component.text(t.app.delete)],
+        classes:
+            'rounded px-2.5 py-1 text-xs text-destructive '
+            'hover:bg-destructive/10',
+        type: ButtonType.button,
+        onClick: () => setState(() => _deleting = connection.id),
+      ),
+    ]),
+    if (_modelsOpen.contains(connection.id))
+      OllamaModels(
+        key: ValueKey('ollama-${connection.id}'),
+        connectionId: connection.id,
+      ),
+    if (_deleting == connection.id)
+      div(
+        classes:
+            'mt-2 space-y-2 rounded border border-destructive/40 '
+            'bg-destructive/10 p-2 text-xs',
+        attributes: const <String, String>{'role': 'alertdialog'},
+        [
+          p([
+            Component.text(
+              connection.openWebUi
+                  ? t.app.openWebUiDirectConnectionDeleteMessage(
+                      name: connection.name,
+                    )
+                  : t.app.directConnectionDeleteMessage(name: connection.name),
+            ),
+          ]),
+          div(classes: 'flex gap-2', [
+            button(
+              [Component.text(t.app.delete)],
+              classes:
+                  'rounded bg-destructive px-2 py-1 '
+                  'text-destructive-foreground',
+              type: ButtonType.button,
+              onClick: () {
+                setState(() => _deleting = null);
+                unawaited(
+                  context.read(directActionsProvider).remove(connection.id),
+                );
+              },
+            ),
+            button(
+              [Component.text(t.app.cancel)],
+              classes: 'rounded px-2 py-1',
+              type: ButtonType.button,
+              onClick: () => setState(() => _deleting = null),
+            ),
+          ]),
+        ],
+      ),
+  ]);
 }
 
 /// One connection's fields, with Test and Save.
@@ -252,6 +320,7 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
     apiVersion: _apiVersion.trim().isEmpty ? null : _apiVersion.trim(),
     apiKeyHeader: _keyHeader,
     enabled: component.connection.enabled,
+    openWebUi: component.connection.openWebUi,
     apiKey: _apiKey.isEmpty ? null : _apiKey,
     manualModelIds: <String>[
       for (final line in _manualIds.split('\n'))
@@ -270,38 +339,48 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
         'aria-label': t.app.directConnectionDetailsTitle,
       },
       [
-        textField(
-          id: 'direct-name',
-          labelText: t.app.directConnectionName,
-          value: _name,
-          onInput: (value) => setState(() => _name = value),
-        ),
-        div(classes: 'space-y-1.5', [
-          label(
-            [Component.text(t.app.directProvider)],
-            htmlFor: 'direct-kind',
-            classes: 'text-sm font-medium',
+        // Open WebUI names these after their host and supports only
+        // OpenAI-compatible ones, so neither is asked.
+        if (component.connection.openWebUi)
+          p(classes: 'text-xs text-muted-foreground', [
+            Component.text(t.app.openWebUiDirectConnectionEditorDescription),
+            Component.text(' '),
+            Component.text(t.app.openWebUiDirectConnectionProviderDescription),
+          ])
+        else ...[
+          textField(
+            id: 'direct-name',
+            labelText: t.app.directConnectionName,
+            value: _name,
+            onInput: (value) => setState(() => _name = value),
           ),
-          select(
-            [
-              option(value: 'openai', selected: openAi, [
-                Component.text(t.desktop.desktopOpenAiCompatible),
-              ]),
-              option(value: 'ollama', selected: !openAi, [
-                Component.text(t.app.ollama),
-              ]),
-            ],
-            id: 'direct-kind',
-            classes:
-                'w-full rounded border border-border bg-background px-2 '
-                'py-1.5 text-sm',
-            onChange: (values) => setState(
-              () => _kind = values.firstOrNull == 'ollama'
-                  ? DirectKind.ollama
-                  : DirectKind.openai,
+          div(classes: 'space-y-1.5', [
+            label(
+              [Component.text(t.app.directProvider)],
+              htmlFor: 'direct-kind',
+              classes: 'text-sm font-medium',
             ),
-          ),
-        ]),
+            select(
+              [
+                option(value: 'openai', selected: openAi, [
+                  Component.text(t.desktop.desktopOpenAiCompatible),
+                ]),
+                option(value: 'ollama', selected: !openAi, [
+                  Component.text(t.app.ollama),
+                ]),
+              ],
+              id: 'direct-kind',
+              classes:
+                  'w-full rounded border border-border bg-background px-2 '
+                  'py-1.5 text-sm',
+              onChange: (values) => setState(
+                () => _kind = values.firstOrNull == 'ollama'
+                    ? DirectKind.ollama
+                    : DirectKind.openai,
+              ),
+            ),
+          ]),
+        ],
         textField(
           id: 'direct-url',
           labelText: t.app.directApiBaseUrl,

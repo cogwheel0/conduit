@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:conduit_core/database/account_storage_isolation.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
+    show openWebUiDirectCompletionSocketRelayProvider;
 import 'package:conduit_core/persistence/hive_boxes.dart';
 import 'package:conduit_core/persistence/persistence_providers.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -163,6 +165,14 @@ final class CoreRuntime {
     container.listen(socketServiceManagerProvider, (_, _) {});
 
     _containerForSync = container;
+    // Open WebUI's own direct connections: when a chat uses one, the server
+    // asks the client, over the socket, to make the request. The core's
+    // relay answers; mobile keeps it for the whole session, and so does the
+    // daemon.
+    container.listen<void>(
+      openWebUiDirectCompletionSocketRelayProvider,
+      (_, _) {},
+    );
     log.info('core runtime ready');
     return CoreRuntime._(
       container: container,

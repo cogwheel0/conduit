@@ -1114,6 +1114,94 @@ void main() {
         expect(answer?['content'], isA<String>());
         expect((answer!['content'] as String).trim(), isNotEmpty);
       }, timeout: const Timeout(Duration(minutes: 4)));
+
+      // M4: a direct connection kept in the Open WebUI account. Open WebUI
+      // sends the chat, then asks this app over the socket to make the
+      // request -- the core's relay answers. Removed again afterwards; the
+      // account had none before.
+      test('answers through a connection kept in the account', () async {
+        final api = runtime.container.read(apiServiceProvider)!;
+        final direct = DirectService(runtime.container);
+        final baseUrl = '${credentials!.url.replaceAll(RegExp(r'/$'), '')}/api';
+        bool ours(DirectConnectionSummary c) =>
+            c.openWebUi && c.baseUrl == baseUrl;
+        final before = await direct.list();
+        expect(before.openWebUiAvailable, isTrue);
+        // A run that failed before its teardown leaves its connection
+        // behind; this address is only ever this test's.
+        for (final stale in before.connections.where(ours)) {
+          await direct.remove(stale.id);
+        }
+        final saved = await direct.save(
+          DirectConnectionEdit(
+            // Open WebUI keeps no name for these; the core names them after
+            // the host.
+            name: 'ignored',
+            kind: DirectKind.openai,
+            baseUrl: baseUrl,
+            apiKey: api.authToken,
+            openWebUi: true,
+            // Not gemma3:1b: over the socket Open WebUI adds its built-in
+            // tools, and that model refuses any request that has tools.
+            manualModelIds: const <String>['openai/gpt-oss-20b'],
+          ),
+        );
+        final connection = saved.connections.singleWhere(ours);
+        addTearDown(() async {
+          if ((await direct.list()).connections.any(ours)) {
+            await direct.remove(connection.id);
+          }
+        });
+        final name = connection.name;
+        expect(connection.openWebUi, isTrue);
+        expect(connection.compatible, isTrue);
+        expect(connection.hasApiKey, isTrue);
+
+        // Offered alongside everything else, labelled with the connection.
+        ModelSummary? offered;
+        await _waitFor(() async {
+          offered = (await models.list()).models
+              .where((m) => m.connection == name)
+              .firstOrNull;
+          return offered != null;
+        }, seconds: 60);
+        expect(offered, isNotNull);
+
+        final events = EventBus();
+        final turns = TurnsService(runtime.container, events);
+        addTearDown(turns.dispose);
+        final seen = <String, Map<String, dynamic>>{};
+        events.attach('probe', (envelope) {
+          seen[envelope.event] = envelope.payload;
+        });
+        final accepted = await turns.send(
+          SendTurn(model: offered!.id, text: 'Say the word: xi'),
+        );
+        created.add(accepted.chatId);
+        events.subscribe(
+          'probe',
+          EventSubscription(scopes: <String>[accepted.chatId]),
+        );
+        await _waitFor(
+          () =>
+              seen.containsKey(ConduitEvents.turnCompleted) ||
+              seen.containsKey(ConduitEvents.turnFailed),
+          seconds: 120,
+        );
+        expect(
+          seen[ConduitEvents.turnFailed],
+          isNull,
+          reason: '${seen[ConduitEvents.turnFailed]}',
+        );
+        expect(
+          TurnCompleted.fromJson(seen[ConduitEvents.turnCompleted]!).text
+              .trim(),
+          isNotEmpty,
+        );
+
+        final after = await direct.remove(connection.id);
+        expect(after.connections.where(ours), isEmpty);
+      }, timeout: const Timeout(Duration(minutes: 4)));
     },
   );
 }
