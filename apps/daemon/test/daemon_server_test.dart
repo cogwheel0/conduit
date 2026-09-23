@@ -289,7 +289,7 @@ void main() {
           ),
         );
         await expectLater(
-          callVoid(peer, 'hermes.sessions'),
+          callVoid(peer, 'voice.transcribe'),
           throwsA(
             isA<RpcError>().having(
               (e) => e.code,

@@ -22,6 +22,7 @@ import 'turns_service.dart';
 import 'ui_requests_service.dart';
 import 'workspace_service.dart';
 import 'terminals_service.dart';
+import 'hermes_service.dart';
 
 /// One connected renderer window.
 ///
@@ -50,11 +51,13 @@ class RpcSession {
     ChannelsService? channels,
     WorkspaceService? workspace,
     TerminalsService? terminals,
+    HermesService? hermes,
     void Function(bool online)? reportNetwork,
   }) : _events = events,
        _channels = channels,
        _workspace = workspace,
        _terminals = terminals,
+       _hermes = hermes,
        _notes = notes,
        _direct = direct,
        _mcp = mcp,
@@ -109,6 +112,7 @@ class RpcSession {
   final ChannelsService? _channels;
   final WorkspaceService? _workspace;
   final TerminalsService? _terminals;
+  final HermesService? _hermes;
 
   /// Where a window's `online`/`offline` events go: the connectivity port,
   /// which then tells every window. Null before the core is up.
@@ -1065,6 +1069,120 @@ class RpcSession {
       },
     );
 
+    // hermes.* (M7).
+    void hermes<P, R>(
+      String method,
+      P Function(Map<String, dynamic>) decode,
+      Map<String, dynamic> Function(R) encode,
+      Future<R> Function(HermesService service, P params) run,
+    ) => registerTypedMethod<P, R>(
+      _peer,
+      method,
+      decodeParams: decode,
+      encodeResult: encode,
+      handler: (params) {
+        _requireHandshake();
+        return run(_requireHermes(), params);
+      },
+    );
+    Map<String, dynamic> none(Map<String, dynamic> json) => json;
+    hermes<Map<String, dynamic>, HermesSettings>(
+      ConduitMethods.hermesSettings,
+      none,
+      (r) => r.toJson(),
+      (s, _) => s.settings(),
+    );
+    hermes<HermesSettingsEdit, HermesSettings>(
+      ConduitMethods.hermesSaveSettings,
+      HermesSettingsEdit.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.saveSettings(p),
+    );
+    hermes<HermesSettingsEdit, HermesTestResult>(
+      ConduitMethods.hermesTest,
+      HermesSettingsEdit.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.test(p),
+    );
+    hermes<Map<String, dynamic>, HermesStatus>(
+      ConduitMethods.hermesStatus,
+      none,
+      (r) => r.toJson(),
+      (s, _) => s.status(),
+    );
+    hermes<Map<String, dynamic>, HermesSettings>(
+      ConduitMethods.hermesSignIn,
+      none,
+      (r) => r.toJson(),
+      (s, _) => s.signIn(),
+    );
+    hermes<Map<String, dynamic>, HermesSettings>(
+      ConduitMethods.hermesSignOut,
+      none,
+      (r) => r.toJson(),
+      (s, _) => s.signOut(),
+    );
+    hermes<Map<String, dynamic>, HermesSessions>(
+      ConduitMethods.hermesSessions,
+      none,
+      (r) => r.toJson(),
+      (s, _) => s.sessions(),
+    );
+    hermes<HermesRename, HermesSessions>(
+      ConduitMethods.hermesRenameSession,
+      HermesRename.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.rename(p),
+    );
+    hermes<HermesRef, HermesSessions>(
+      ConduitMethods.hermesDeleteSession,
+      HermesRef.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.delete(p.id),
+    );
+    hermes<HermesRef, HermesSessionDto>(
+      ConduitMethods.hermesForkSession,
+      HermesRef.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.fork(p.id),
+    );
+    hermes<Map<String, dynamic>, HermesJobs>(
+      ConduitMethods.hermesJobs,
+      none,
+      (r) => r.toJson(),
+      (s, _) => s.jobs(),
+    );
+    hermes<HermesJobEdit, HermesJobs>(
+      ConduitMethods.hermesSaveJob,
+      HermesJobEdit.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.saveJob(p),
+    );
+    hermes<HermesJobToggle, HermesJobs>(
+      ConduitMethods.hermesSetJobEnabled,
+      HermesJobToggle.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.setJobEnabled(p),
+    );
+    hermes<HermesRef, HermesJobs>(
+      ConduitMethods.hermesRunJob,
+      HermesRef.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.runJob(p.id),
+    );
+    hermes<HermesRef, HermesJobs>(
+      ConduitMethods.hermesDeleteJob,
+      HermesRef.fromJson,
+      (r) => r.toJson(),
+      (s, p) => s.deleteJob(p.id),
+    );
+    hermes<Map<String, dynamic>, HermesCatalog>(
+      ConduitMethods.hermesCatalog,
+      none,
+      (r) => r.toJson(),
+      (s, _) => s.catalog(),
+    );
+
     // terminal.* (M7).
     void terminal<P, R>(
       String method,
@@ -1585,6 +1703,13 @@ class RpcSession {
 
   ChannelsService _requireChannels() =>
       _channels ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  HermesService _requireHermes() =>
+      _hermes ??
       (throw const RpcError(
         code: ConduitErrorCodes.daemonUnavailable,
         debugMessage: 'the core is not up yet',

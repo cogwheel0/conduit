@@ -676,7 +676,7 @@ void main() {
     'an unimplemented reserved namespace is still capability.unsupported',
     () async {
       expect(
-        () => peer.sendRequest('hermes.sessions'),
+        () => peer.sendRequest('voice.transcribe'),
         throwsA(
           isA<json_rpc.RpcException>().having(
             (e) => (e.data! as Map)['code'],

@@ -22,6 +22,7 @@ import 'package:riverpod/riverpod.dart';
 import 'event_bus.dart';
 import 'settled.dart';
 import 'temporary_chats.dart';
+import 'hermes_service.dart';
 
 /// Implements `chats.*` over the core's conversation providers (M3).
 ///
@@ -36,7 +37,9 @@ final class ChatsService {
     EventBus? events,
     DateTime Function()? now,
     TemporaryChats? temporary,
+    HermesService? hermes,
   }) : _events = events,
+       _hermes = hermes,
        _now = now ?? DateTime.now,
        _temporary = temporary ?? TemporaryChats() {
     if (events != null) {
@@ -46,6 +49,9 @@ final class ChatsService {
       _announceRemaps();
     }
   }
+
+  /// Hermes sessions, which open as chats (M7).
+  final HermesService? _hermes;
 
   /// Whether this computer has a network at all, as the port last said.
   bool _online = true;
@@ -276,6 +282,23 @@ final class ChatsService {
   /// onto a chat that has since been deleted elsewhere is an ordinary thing,
   /// not an error worth a banner.
   Future<ChatDetail?> get(String id) async {
+    // A Hermes session (M7): its transcript is Hermes's, not the database's.
+    if (hermesSessionOf(id) case final sessionId? when _hermes != null) {
+      final hermes = _hermes;
+      final messages = await hermes.transcript(sessionId);
+      return ChatDetail(
+        summary: ChatSummary(
+          id: id,
+          title:
+              await hermes.titleOf(sessionId) ??
+              (messages.isEmpty
+                  ? ''
+                  : messages.first.content.split('\n').first),
+          updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+        ),
+        messages: messages.map(_message).toList(growable: false),
+      );
+    }
     // Never in the database, so never in the list. The transcript lives
     // only in the daemon's memory. Known by membership rather than by the
     // `local:` prefix, which a direct chat awaiting its first sync to Open

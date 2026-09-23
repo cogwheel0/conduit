@@ -130,6 +130,24 @@ final class UiRequestsService implements UiRequestPort {
     return response.choice;
   }
 
+  /// Asks whether a Hermes agent may go on with what it wants to do (M7):
+  /// run a command, write a file. [choices] are the agent's own -- `once`,
+  /// `session`, `always`, `deny` -- and unanswered it is denied.
+  Future<String> askHermesApproval({
+    required String summary,
+    required List<String> choices,
+    Duration? timeout,
+  }) async {
+    final response = await _ask(
+      UiRequestKind.hermesDecision,
+      messageCode: 'hermes.approval',
+      args: <String, String>{'summary': summary},
+      detail: <String, dynamic>{'choices': choices},
+      timeout: timeout,
+    );
+    return choices.contains(response.choice) ? response.choice : 'deny';
+  }
+
   @override
   void notify(UiNoticeLevel level, String message) {
     _events.publish(

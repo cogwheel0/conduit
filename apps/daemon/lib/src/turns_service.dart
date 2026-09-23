@@ -19,6 +19,15 @@ import 'package:conduit_core/features/direct_connections/services/direct_chat_st
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+import 'package:dio/dio.dart' show CancelToken;
+import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/ports/ui_request_port.dart';
@@ -40,11 +49,13 @@ import 'package:uuid/uuid.dart';
 
 import 'event_bus.dart';
 import 'files_service.dart';
+import 'hermes_service.dart';
 import 'settled.dart';
 import 'temporary_chats.dart';
 import 'ui_requests_service.dart';
 
 part 'direct_turns.dart';
+part 'hermes_turns.dart';
 
 /// Implements `turns.*`: sending a message and streaming the answer (M3).
 ///
@@ -68,7 +79,9 @@ final class TurnsService {
     FilesService? files,
     TemporaryChats? temporary,
     UiRequestPort? uiRequests,
+    HermesService? hermes,
   }) : _files = files,
+       _hermes = hermes,
        _uiRequests = uiRequests ?? const NullUiRequestPort(),
        temporary = temporary ?? TemporaryChats() {
     _remaps = _container
@@ -112,6 +125,9 @@ final class TurnsService {
   /// Names the attachments a turn refers to. Optional so a test that only
   /// exercises sending does not have to build one.
   final FilesService? _files;
+
+  /// Hermes sessions' transcripts (M7).
+  final HermesService? _hermes;
 
   static const Uuid _uuid = Uuid();
 
@@ -230,6 +246,11 @@ final class TurnsService {
     // under the id it knows, and relayed back through this app.
     final relayed = await _openWebUiWireModel(requested);
     final model = relayed ?? requested;
+
+    // Hermes Agent: the daemon runs the turn against it (M7).
+    if (relayed == null && await _isHermes(model)) {
+      return _sendHermes(request, model: model, text: text);
+    }
 
     // A model from a direct connection on this computer: the daemon is the
     // client.

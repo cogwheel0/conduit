@@ -36,6 +36,7 @@ import 'system_service.dart';
 import 'turns_service.dart';
 import 'workspace_service.dart';
 import 'terminals_service.dart';
+import 'hermes_service.dart';
 
 /// The loopback server the renderer talks to.
 ///
@@ -84,6 +85,7 @@ class DaemonServer {
   ChannelsService? _channels;
   WorkspaceService? _workspace;
   TerminalsService? _terminals;
+  HermesService? _hermes;
 
   /// The broker the core asks its questions through. Exposed so tests can
   /// ask one and watch it cross the RPC boundary.
@@ -132,7 +134,13 @@ class DaemonServer {
     _auth = AuthService(core.container);
     _settings = SettingsService(core.container);
     final temporary = TemporaryChats();
-    _chats = ChatsService(core.container, events: events, temporary: temporary);
+    _hermes = HermesService(core.container, events: events);
+    _chats = ChatsService(
+      core.container,
+      events: events,
+      temporary: temporary,
+      hermes: _hermes,
+    );
     _files = FilesService(core.container);
     _uiRequests = UiRequestsService(events);
     _turns = TurnsService(
@@ -141,6 +149,7 @@ class DaemonServer {
       files: _files!,
       temporary: temporary,
       uiRequests: _uiRequests,
+      hermes: _hermes,
     );
     _models = ModelsService(core.container, events: events);
     _composer = ComposerService(core.container);
@@ -528,6 +537,7 @@ class DaemonServer {
         channels: _channels,
         workspace: _workspace,
         terminals: _terminals,
+        hermes: _hermes,
         reportNetwork: (online) => _core?.reportNetwork(online: online),
       );
       _sessions[sessionId] = session;
