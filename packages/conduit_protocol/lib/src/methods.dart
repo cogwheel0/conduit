@@ -194,6 +194,9 @@ abstract final class ConduitMethods {
   /// server's tools. Re-asked when the model or the session changes.
   static const String composerOptions = 'composer.options';
 
+  /// Knowledge bases matching what follows a `#` in the composer (WP-3.3).
+  static const String composerKnowledge = 'composer.knowledge';
+
   /// The account's saved prompts, for the composer's `/` menu (WP-3.3).
   static const String promptsList = 'prompts.list';
 

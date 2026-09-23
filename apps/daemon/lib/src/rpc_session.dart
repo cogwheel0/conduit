@@ -771,6 +771,24 @@ class RpcSession {
       },
     );
 
+    registerTypedMethod<KnowledgeQuery, KnowledgeList>(
+      _peer,
+      ConduitMethods.composerKnowledge,
+      decodeParams: KnowledgeQuery.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        final composer = _composer;
+        if (composer == null) {
+          throw const RpcError(
+            code: ConduitErrorCodes.daemonUnavailable,
+            debugMessage: 'the core is not up yet',
+          );
+        }
+        return composer.knowledge(request.query);
+      },
+    );
+
     registerTypedMethodNoParams<PromptList>(
       _peer,
       ConduitMethods.promptsList,

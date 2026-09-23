@@ -1510,6 +1510,9 @@ class _ComposerState extends State<_Composer> {
   int _promptIndex = 0;
   String? _promptsDismissedAt;
 
+  /// Knowledge bases a `#` added to the next message (WP-3.3).
+  final List<KnowledgeSummary> _knowledge = <KnowledgeSummary>[];
+
   /// The model an `@` chose for the next message only (WP-3.3). Open
   /// WebUI's rule: the conversation's selected model is left as it was.
   ModelSummary? _atModel;
@@ -1556,7 +1559,23 @@ class _ComposerState extends State<_Composer> {
     final mentioned = mention == null
         ? const <ModelSummary>[]
         : matchModels(mention.query, models?.models ?? const <ModelSummary>[]);
-    final menuLength = prompts.isNotEmpty ? prompts.length : mentioned.length;
+    // `#knowledge`, when neither of those is open.
+    final hash =
+        prompts.isNotEmpty ||
+            mentioned.isNotEmpty ||
+            _promptsDismissedAt == _text ||
+            _asking != null
+        ? null
+        : knowledgeTriggerIn(_text);
+    final knowledgeHits = hash == null
+        ? const <KnowledgeSummary>[]
+        : context.watch(knowledgeSearchProvider(hash.query)).value?.items ??
+              const <KnowledgeSummary>[];
+    final menuLength = prompts.isNotEmpty
+        ? prompts.length
+        : mentioned.isNotEmpty
+        ? mentioned.length
+        : knowledgeHits.length;
     final highlighted = menuLength == 0
         ? -1
         : _promptIndex.clamp(0, menuLength - 1);
@@ -1608,10 +1627,32 @@ class _ComposerState extends State<_Composer> {
             onHighlight: (index) => setState(() => _promptIndex = index),
           )
         else if (mentioned.isNotEmpty)
-          ModelMenu(
-            models: mentioned,
+          SuggestionMenu(
+            idPrefix: 'model',
+            label: t.desktop.desktopModelMenu,
+            items: <({String key, String title, String? detail})>[
+              for (final model in mentioned)
+                (
+                  key: model.id,
+                  title: model.name,
+                  detail: model.name == model.id ? null : model.id,
+                ),
+            ],
             highlighted: highlighted,
-            onChoose: (model) => _chooseModel(context, model),
+            onChoose: (index) => _chooseModel(context, mentioned[index]),
+            onHighlight: (index) => setState(() => _promptIndex = index),
+          )
+        else if (knowledgeHits.isNotEmpty)
+          SuggestionMenu(
+            idPrefix: 'knowledge',
+            label: t.desktop.desktopKnowledgeMenu,
+            items: <({String key, String title, String? detail})>[
+              for (final hit in knowledgeHits)
+                (key: hit.id, title: hit.name, detail: hit.description),
+            ],
+            highlighted: highlighted,
+            onChoose: (index) =>
+                _chooseKnowledge(context, knowledgeHits[index]),
             onHighlight: (index) => setState(() => _promptIndex = index),
           ),
         if (_atModel case final model?)
@@ -1640,11 +1681,41 @@ class _ComposerState extends State<_Composer> {
               ],
             ),
           ]),
-        if (_attachments.isNotEmpty)
+        if (_attachments.isNotEmpty || _knowledge.isNotEmpty)
           div(
             classes: 'mx-auto mb-2 flex max-w-3xl flex-wrap gap-2',
             attributes: <String, String>{'aria-label': t.app.attachments},
-            [for (final attachment in _attachments) _chip(context, attachment)],
+            [
+              for (final attachment in _attachments) _chip(context, attachment),
+              for (final knowledge in _knowledge)
+                span(
+                  classes:
+                      'flex items-center gap-1 rounded-full border '
+                      'border-border py-0.5 pl-2 pr-1 text-xs',
+                  [
+                    Component.text('# ${knowledge.name}'),
+                    button(
+                      [
+                        span(
+                          attributes: const <String, String>{
+                            'aria-hidden': 'true',
+                          },
+                          [Component.text('×')],
+                        ),
+                      ],
+                      classes: 'rounded-full px-1 hover:bg-accent',
+                      type: ButtonType.button,
+                      attributes: <String, String>{
+                        'aria-label': t.desktop.desktopRemoveAttachment(
+                          name: knowledge.name,
+                        ),
+                      },
+                      onClick: () =>
+                          setState(() => _knowledge.remove(knowledge)),
+                    ),
+                  ],
+                ),
+            ],
           ),
         if (models != null && models.models.isNotEmpty)
           div(classes: 'mx-auto mb-2 flex max-w-3xl items-center gap-2', [
@@ -1739,7 +1810,11 @@ class _ComposerState extends State<_Composer> {
                         down: down,
                       );
                       setState(() => _promptIndex = next);
-                      final prefix = prompts.isNotEmpty ? 'prompt' : 'model';
+                      final prefix = prompts.isNotEmpty
+                          ? 'prompt'
+                          : mentioned.isNotEmpty
+                          ? 'model'
+                          : 'knowledge';
                       Future<void>.microtask(
                         () => context
                             .read(windowCommandsProvider)
@@ -1750,7 +1825,9 @@ class _ComposerState extends State<_Composer> {
                         ? unawaited(
                             _choosePrompt(context, prompts[highlighted]),
                           )
-                        : _chooseModel(context, mentioned[highlighted]),
+                        : mentioned.isNotEmpty
+                        ? _chooseModel(context, mentioned[highlighted])
+                        : _chooseKnowledge(context, knowledgeHits[highlighted]),
                     dismiss: () => setState(() => _promptsDismissedAt = _text),
                     send: () => unawaited(_send(context)),
                   ),
@@ -1947,6 +2024,22 @@ class _ComposerState extends State<_Composer> {
     _upload(port, picked);
   }
 
+  /// Takes the `#name` out of the text and adds the knowledge base to the
+  /// next message, once.
+  void _chooseKnowledge(BuildContext context, KnowledgeSummary knowledge) {
+    final start = knowledgeTriggerIn(_text)?.start ?? _text.length;
+    final text = _text.substring(0, start);
+    setState(() {
+      if (!_knowledge.any((chosen) => chosen.id == knowledge.id)) {
+        _knowledge.add(knowledge);
+      }
+      _text = text;
+    });
+    context.read(windowCommandsProvider)
+      ..setValue('composer', text)
+      ..focus('composer');
+  }
+
   /// Takes the `@name` out of the text and remembers the model for the
   /// next message.
   void _chooseModel(BuildContext context, ModelSummary model) {
@@ -2078,6 +2171,7 @@ class _ComposerState extends State<_Composer> {
           .send(
             text: text,
             model: _atModel?.id,
+            knowledge: List<KnowledgeSummary>.of(_knowledge),
             fileIds: <String>[for (final file in _attachments) ?file.id],
             // Only what the server still offers. A tool removed on the server,
             // or a feature the new model lacks, must not ride along from an
@@ -2107,6 +2201,7 @@ class _ComposerState extends State<_Composer> {
         _attachments.clear();
         // One message only, as in Open WebUI.
         _atModel = null;
+        _knowledge.clear();
       });
       // The field as well as the state. A textarea's value stops tracking
       // its markup the moment the user types into it, so `_text = ''` alone

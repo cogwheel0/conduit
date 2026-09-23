@@ -483,6 +483,12 @@ test.describe('against a real server', () => {
     // and dropped the question from the conversation. Only a round trip
     // through the real server shows the tree is right.
     await idle(page)
+    // The stored answer, not the live one it replaces: only a stored answer
+    // carries its usage. Clicking Regenerate on the live bubble just as the
+    // stored one swaps in can land on an element that is already gone.
+    await expect(
+      transcript.getByRole('group', { name: /response statistics/i }).last(),
+    ).toBeVisible({ timeout: 60_000 })
     await transcript
       .getByRole('button', { name: /^regenerate$/i })
       .last()
@@ -1103,6 +1109,44 @@ test.describe('against a real server', () => {
       await shot(page, '12g-mention')
       await page.getByRole('button', { name: /use the selected model instead/i }).click()
       await expect(page.getByText(/^next answer from /i)).toBeHidden()
+    }
+
+    // 12d''. `#knowledge` (WP-3.3): a knowledge base this run creates,
+    // chosen from the menu into a chip, then taken off again and deleted.
+    // Skipped when the account may not create one.
+    {
+      const { api: kb, auth: kbAuth } = await serverApi(credentials!)
+      const kbName = `Conduit e2e ${process.pid}`
+      const made = await kb.post('/api/v1/knowledge/create', {
+        headers: kbAuth,
+        data: { name: kbName, description: 'Created by a test' },
+      })
+      const kbId = made.ok() ? ((await made.json()) as { id: string }).id : null
+      try {
+        if (kbId !== null) {
+          const composer = page.getByPlaceholder('Ask Conduit')
+          await composer.fill('')
+          await composer.focus()
+          // One word: a space ends the token.
+          await composer.fill('#Conduit')
+          const menu = page.getByRole('listbox', { name: /^knowledge$/i })
+          await expect(menu).toBeVisible({ timeout: 15_000 })
+          await menu.getByRole('option', { name: new RegExp(kbName) }).click()
+          const chip = page.getByText(`# ${kbName}`)
+          await expect(chip).toBeVisible()
+          await expect(composer).toHaveValue('')
+          await shot(page, '12h-knowledge')
+          await page
+            .getByRole('button', { name: new RegExp(`remove ${kbName}`, 'i') })
+            .click()
+          await expect(chip).toBeHidden()
+        }
+      } finally {
+        if (kbId !== null) {
+          await kb.delete(`/api/v1/knowledge/${kbId}/delete`, { headers: kbAuth })
+        }
+        await kb.dispose()
+      }
     }
 
     // 12e. Offline (WP-3.3). The window's own `offline` event, as the

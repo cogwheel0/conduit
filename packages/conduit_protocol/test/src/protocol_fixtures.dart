@@ -186,6 +186,9 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     model: 'gpt-4o',
     text: 'How does the outbox order writes?',
     toolIds: <String>['web_search'],
+    knowledge: <KnowledgeSummary>[
+      KnowledgeSummary(id: 'kb-1', name: 'Handbook'),
+    ],
     webSearch: true,
   ),
   'sendTurnAccepted': const SendTurnAccepted(
@@ -244,6 +247,15 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     label: 'dart.dev',
     url: 'https://dart.dev/overview',
     snippet: 'Dart is a client-optimized language',
+  ),
+  'knowledgeSummary': const KnowledgeSummary(
+    id: 'kb-1',
+    name: 'Handbook',
+    description: 'Team policies',
+  ),
+  'knowledgeQuery': const KnowledgeQuery(query: 'hand'),
+  'knowledgeList': const KnowledgeList(
+    items: <KnowledgeSummary>[KnowledgeSummary(id: 'kb-1', name: 'Handbook')],
   ),
   'promptSummary': const PromptSummary(
     command: '/standup',
@@ -527,6 +539,9 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'chatFile': ChatFileDto.fromJson,
       'chatUsage': ChatUsageDto.fromJson,
       'chatSource': ChatSourceDto.fromJson,
+      'knowledgeSummary': KnowledgeSummary.fromJson,
+      'knowledgeQuery': KnowledgeQuery.fromJson,
+      'knowledgeList': KnowledgeList.fromJson,
       'promptSummary': PromptSummary.fromJson,
       'promptList': PromptList.fromJson,
       'renderPrompt': RenderPrompt.fromJson,

@@ -214,6 +214,7 @@ class _RecordingActions extends ChatActions {
     String? model,
     List<String> fileIds = const <String>[],
     List<String> toolIds = const <String>[],
+    List<KnowledgeSummary> knowledge = const <KnowledgeSummary>[],
     bool webSearch = false,
     bool imageGeneration = false,
   }) async {

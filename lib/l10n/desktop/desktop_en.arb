@@ -504,5 +504,9 @@
   "desktopOverviewHint": "Every branch of this conversation. Choose a message to show its branch.",
   "@desktopOverviewHint": {
     "description": "Explains the conversation map in the desktop controls pane."
+  },
+  "desktopKnowledgeMenu": "Knowledge",
+  "@desktopKnowledgeMenu": {
+    "description": "Accessible name of the list of knowledge bases that opens when typing # in the desktop composer."
   }
 }

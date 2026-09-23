@@ -38,6 +38,12 @@ void main() {
   });
 
   group('mentions', () {
+    test('a # at the start of a word, but not a heading', () {
+      expect(knowledgeTriggerIn('use #hand')?.query, 'hand');
+      // "# " is a markdown heading being typed: the space ends the token.
+      expect(knowledgeTriggerIn('# Title'), isNull);
+    });
+
     test('an @ at the start of a word', () {
       expect(mentionTriggerIn('ask @gpt')?.query, 'gpt');
       expect(mentionTriggerIn('mail me@example.com'), isNull);

@@ -32,3 +32,36 @@ abstract class ComposerOptions with _$ComposerOptions {
   factory ComposerOptions.fromJson(Map<String, dynamic> json) =>
       _$ComposerOptionsFromJson(json);
 }
+
+/// A knowledge base, as the `#` menu lists it (WP-3.3).
+@freezed
+abstract class KnowledgeSummary with _$KnowledgeSummary {
+  const factory KnowledgeSummary({
+    required String id,
+    required String name,
+    String? description,
+  }) = _KnowledgeSummary;
+
+  factory KnowledgeSummary.fromJson(Map<String, dynamic> json) =>
+      _$KnowledgeSummaryFromJson(json);
+}
+
+/// Params for `composer.knowledge`.
+@freezed
+abstract class KnowledgeQuery with _$KnowledgeQuery {
+  const factory KnowledgeQuery({@Default('') String query}) = _KnowledgeQuery;
+
+  factory KnowledgeQuery.fromJson(Map<String, dynamic> json) =>
+      _$KnowledgeQueryFromJson(json);
+}
+
+/// Reply to `composer.knowledge`.
+@freezed
+abstract class KnowledgeList with _$KnowledgeList {
+  const factory KnowledgeList({
+    @Default(<KnowledgeSummary>[]) List<KnowledgeSummary> items,
+  }) = _KnowledgeList;
+
+  factory KnowledgeList.fromJson(Map<String, dynamic> json) =>
+      _$KnowledgeListFromJson(json);
+}

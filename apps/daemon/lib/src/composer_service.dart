@@ -52,6 +52,27 @@ final class ComposerService {
     );
   }
 
+  /// Knowledge bases matching [query], for the `#` menu (WP-3.3).
+  Future<KnowledgeList> knowledge(String query) async {
+    final api = _container.read(apiServiceProvider);
+    if (api == null) return const KnowledgeList();
+    final rows = await api.searchKnowledgeBases(query: query.trim());
+    return KnowledgeList(
+      items: <KnowledgeSummary>[
+        for (final row in rows)
+          if (row['id'] != null)
+            KnowledgeSummary(
+              id: '${row['id']}',
+              name: '${row['name'] ?? row['id']}',
+              description:
+                  (row['description'] as String?)?.trim().isEmpty ?? true
+                  ? null
+                  : row['description'] as String,
+            ),
+      ],
+    );
+  }
+
   /// Waits for a source, and lets it fail. The availability rules have
   /// their own answer for a source that errored, and that answer is the
   /// one to use.

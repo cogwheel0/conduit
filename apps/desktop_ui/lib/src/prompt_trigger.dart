@@ -24,6 +24,9 @@ SlashTrigger? slashTriggerIn(String text) => _triggerIn(text, _slash);
 /// An `@model` being typed at the end of the composer, by the same rules.
 SlashTrigger? mentionTriggerIn(String text) => _triggerIn(text, _at);
 
+/// A `#knowledge` being typed at the end of the composer, likewise.
+SlashTrigger? knowledgeTriggerIn(String text) => _triggerIn(text, _hash);
+
 SlashTrigger? _triggerIn(String text, RegExp pattern) {
   final match = pattern.firstMatch(text);
   if (match == null) return null;
@@ -36,6 +39,7 @@ SlashTrigger? _triggerIn(String text, RegExp pattern) {
 
 final RegExp _slash = RegExp(r'(?:^|\s)(/[^\s/]*)$');
 final RegExp _at = RegExp(r'(?:^|\s)(@[^\s@]*)$');
+final RegExp _hash = RegExp(r'(?:^|\s)(#[^\s#]*)$');
 
 /// The models whose name or id matches what follows the `@`: those that
 /// start with it first.

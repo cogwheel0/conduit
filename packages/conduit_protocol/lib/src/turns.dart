@@ -1,5 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'composer.dart';
+
 part 'turns.freezed.dart';
 part 'turns.g.dart';
 
@@ -20,6 +22,9 @@ abstract class SendTurn with _$SendTurn {
     String? model,
     required String text,
     @Default(<String>[]) List<String> toolIds,
+
+    /// Knowledge bases to draw on, chosen with `#` (WP-3.3).
+    @Default(<KnowledgeSummary>[]) List<KnowledgeSummary> knowledge,
     @Default(false) bool webSearch,
     @Default(false) bool imageGeneration,
     @Default(false) bool codeInterpreter,

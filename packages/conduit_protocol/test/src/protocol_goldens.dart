@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.21.0",
+  "protocolVersion": "1.22.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.21.0",
+  "protocolVersion": "1.22.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -339,6 +339,12 @@ const Map<String, String> protocolGoldens = <String, String>{
   "toolIds": [
     "web_search"
   ],
+  "knowledge": [
+    {
+      "id": "kb-1",
+      "name": "Handbook"
+    }
+  ],
   "webSearch": true,
   "imageGeneration": false,
   "codeInterpreter": false,
@@ -428,6 +434,28 @@ const Map<String, String> protocolGoldens = <String, String>{
   "label": "dart.dev",
   "url": "https://dart.dev/overview",
   "snippet": "Dart is a client-optimized language"
+}''',
+
+  'knowledgeSummary': r'''
+{
+  "id": "kb-1",
+  "name": "Handbook",
+  "description": "Team policies"
+}''',
+
+  'knowledgeQuery': r'''
+{
+  "query": "hand"
+}''',
+
+  'knowledgeList': r'''
+{
+  "items": [
+    {
+      "id": "kb-1",
+      "name": "Handbook"
+    }
+  ]
 }''',
 
   'promptSummary': r'''

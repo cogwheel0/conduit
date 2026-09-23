@@ -70,36 +70,41 @@ class PromptMenu extends StatelessComponent {
   );
 }
 
-/// The `@` menu: which model answers the next message (WP-3.3).
-class ModelMenu extends StatelessComponent {
-  const ModelMenu({
-    required this.models,
+/// A menu over the composer for `@` and `#` (WP-3.3): models, knowledge.
+///
+/// One shape for both, as the `/` menu has: the field keeps focus and the
+/// arrows move the highlight from inside the text.
+class SuggestionMenu extends StatelessComponent {
+  const SuggestionMenu({
+    required this.idPrefix,
+    required this.label,
+    required this.items,
     required this.highlighted,
     required this.onChoose,
     required this.onHighlight,
     super.key,
   });
 
-  final List<ModelSummary> models;
+  /// Rows are `$idPrefix-option-$i`, which the arrows scroll into view.
+  final String idPrefix;
+  final String label;
+  final List<({String key, String title, String? detail})> items;
   final int highlighted;
-  final void Function(ModelSummary model) onChoose;
+  final void Function(int index) onChoose;
   final void Function(int index) onHighlight;
 
   @override
   Component build(BuildContext context) => div(
-    id: 'model-menu',
+    id: '$idPrefix-menu',
     classes:
         'mx-auto mb-2 max-h-64 max-w-3xl overflow-y-auto rounded border '
         'border-border bg-popover p-1 text-popover-foreground shadow',
-    attributes: <String, String>{
-      'role': 'listbox',
-      'aria-label': t.desktop.desktopModelMenu,
-    },
+    attributes: <String, String>{'role': 'listbox', 'aria-label': label},
     [
-      for (var i = 0; i < models.length; i++)
+      for (var i = 0; i < items.length; i++)
         div(
-          key: ValueKey('model-${models[i].id}'),
-          id: 'model-option-$i',
+          key: ValueKey('$idPrefix-${items[i].key}'),
+          id: '$idPrefix-option-$i',
           classes:
               'flex cursor-pointer items-baseline gap-3 rounded px-3 py-1.5 '
               'text-sm ${i == highlighted ? 'bg-accent text-accent-foreground' : ''}',
@@ -108,17 +113,16 @@ class ModelMenu extends StatelessComponent {
             'aria-selected': '${i == highlighted}',
           },
           events: <String, EventCallback>{
-            'click': (_) => onChoose(models[i]),
+            'click': (_) => onChoose(i),
             'mouseenter': (_) => onHighlight(i),
           },
           [
-            span(classes: 'min-w-0 truncate', [Component.text(models[i].name)]),
-            if (models[i].name != models[i].id)
+            span(classes: 'min-w-0 truncate', [Component.text(items[i].title)]),
+            if (items[i].detail case final detail? when detail.isNotEmpty)
               span(
                 classes:
-                    'ml-auto min-w-0 truncate font-mono text-xs '
-                    'text-muted-foreground',
-                [Component.text(models[i].id)],
+                    'ml-auto min-w-0 truncate text-xs text-muted-foreground',
+                [Component.text(detail)],
               ),
           ],
         ),

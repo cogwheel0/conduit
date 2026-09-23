@@ -346,6 +346,25 @@ class RatingOverrides extends Notifier<Map<String, int>> {
       state = <String, int>{...state}..remove(messageId);
 }
 
+/// Knowledge bases matching what follows a `#` (WP-3.3), a moment after
+/// typing stops: each letter is a search on the server.
+final knowledgeSearchProvider = FutureProvider.family<KnowledgeList, String>((
+  ref,
+  query,
+) async {
+  var cancelled = false;
+  ref.onDispose(() => cancelled = true);
+  await Future<void>.delayed(const Duration(milliseconds: 150));
+  if (cancelled) return const KnowledgeList();
+  return ref
+      .read(rpcClientProvider)
+      .call(
+        ConduitMethods.composerKnowledge,
+        params: KnowledgeQuery(query: query).toJson(),
+        decode: KnowledgeList.fromJson,
+      );
+});
+
 /// The account's saved prompts, for the composer's `/` menu (WP-3.3).
 ///
 /// Fetched when the menu first opens rather than at startup: most messages
@@ -626,6 +645,7 @@ class ChatActions {
     String? model,
     List<String> fileIds = const <String>[],
     List<String> toolIds = const <String>[],
+    List<KnowledgeSummary> knowledge = const <KnowledgeSummary>[],
     bool webSearch = false,
     bool imageGeneration = false,
   }) async {
@@ -638,6 +658,7 @@ class ChatActions {
         text: text,
         fileIds: fileIds,
         toolIds: toolIds,
+        knowledge: knowledge,
         webSearch: webSearch,
         imageGeneration: imageGeneration,
         temporary:

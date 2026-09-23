@@ -232,9 +232,21 @@ final class TurnsService {
     // server needs none of that here, because the daemon keeps the
     // transcript itself.
     final isTemporary = TemporaryChats.isTemporary(resolvedChatId);
-    final attachments = request.fileIds.isEmpty
-        ? null
-        : _files?.attachmentsFor(request.fileIds);
+    // Uploaded files, then knowledge bases chosen with `#` -- which Open
+    // WebUI's client sends in the same list, typed `collection`.
+    final descriptors = <Map<String, dynamic>>[
+      ...?(request.fileIds.isEmpty
+          ? null
+          : _files?.attachmentsFor(request.fileIds)),
+      for (final knowledge in request.knowledge)
+        <String, dynamic>{
+          'type': 'collection',
+          'id': knowledge.id,
+          'name': knowledge.name,
+          'description': ?knowledge.description,
+        },
+    ];
+    final attachments = descriptors.isEmpty ? null : descriptors;
     Future<ChatCompletionSession> dispatch(
       String? sessionId,
     ) => api.sendMessageSession(
