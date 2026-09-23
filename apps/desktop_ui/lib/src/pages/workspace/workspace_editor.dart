@@ -511,6 +511,18 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
     _say(t.app.workspaceSkillImportMarkdownLoaded);
   }
 
+  Future<void> _pickImage(BuildContext context) async {
+    final String? dataUrl;
+    try {
+      dataUrl = await context.read(filePickerProvider).pickImageDataUrl();
+    } on Object {
+      _say(t.app.workspaceModelImageFailed, error: true);
+      return;
+    }
+    if (dataUrl == null || !mounted) return;
+    _update(_draft.copyWith(model: _draft.model!.copyWith(imageUrl: dataUrl)));
+  }
+
   /// `code-review_guidelines` as `Code Review Guidelines`.
   static String _titleCase(String name) => name
       .replaceAll(RegExp('[-_]'), ' ')
@@ -880,10 +892,34 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
             set(m.copyWith(tags: splitList(value)));
           },
         ),
-        if (m.imageUrl != null)
-          p(classes: 'text-xs text-muted-foreground', [
-            Component.text(t.desktop.desktopWorkspaceProfileImageKept),
-          ]),
+        div(classes: 'flex items-center gap-3', [
+          // A data URL is the image itself; a server path would need the
+          // server's auth, so only the former is previewed.
+          if (m.imageUrl case final url? when url.startsWith('data:image/'))
+            img(
+              src: url,
+              alt: t.app.workspaceModelProfileImage,
+              classes: 'size-12 rounded-full border border-border object-cover',
+            )
+          else
+            span(
+              classes:
+                  'flex size-12 items-center justify-center rounded-full '
+                  'border border-border text-xs text-muted-foreground',
+              [Component.text(t.app.workspaceModelProfileImage)],
+            ),
+          if (!disabled) ...[
+            actionButton(
+              t.app.workspaceModelChangeImage,
+              onClick: () => unawaited(_pickImage(context)),
+            ),
+            if ((m.imageUrl ?? '').isNotEmpty)
+              actionButton(
+                t.app.workspaceModelRemoveImage,
+                onClick: () => set(m.copyWith(imageUrl: '')),
+              ),
+          ],
+        ]),
         checkboxField(
           id: 'model-active',
           text: t.desktop.desktopWorkspaceActive,

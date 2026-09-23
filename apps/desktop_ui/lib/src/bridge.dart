@@ -167,6 +167,62 @@ final class BrowserFilePicker implements FilePickerPort {
     element.click();
     return completer.future;
   }
+
+  @override
+  Future<String?> pickImageDataUrl({int size = 250}) {
+    final element = web.document.createElement('input') as web.HTMLInputElement
+      ..type = 'file'
+      ..accept = 'image/*';
+    final completer = Completer<String?>();
+    element.onchange = (web.Event _) {
+      final file = element.files?.item(0);
+      if (file == null) {
+        if (!completer.isCompleted) completer.complete(null);
+        return;
+      }
+      final url = web.URL.createObjectURL(file);
+      final image = web.HTMLImageElement();
+      image.onload = (web.Event _) {
+        // Covering the square, cropped to its middle: a model's picture
+        // is shown in a circle, which a letterboxed image would not fill.
+        final width = image.naturalWidth;
+        final height = image.naturalHeight;
+        final scale = [
+          size / (width == 0 ? 1 : width),
+          size / (height == 0 ? 1 : height),
+        ].reduce((a, b) => a > b ? a : b);
+        final canvas =
+            web.document.createElement('canvas') as web.HTMLCanvasElement
+              ..width = size
+              ..height = size;
+        final context =
+            canvas.getContext('2d')! as web.CanvasRenderingContext2D;
+        final drawnWidth = width * scale;
+        final drawnHeight = height * scale;
+        context.drawImage(
+          image,
+          (size - drawnWidth) / 2,
+          (size - drawnHeight) / 2,
+          drawnWidth,
+          drawnHeight,
+        );
+        web.URL.revokeObjectURL(url);
+        if (!completer.isCompleted) {
+          completer.complete(canvas.toDataURL('image/png'));
+        }
+      }.toJS;
+      image.onerror = (web.Event _) {
+        web.URL.revokeObjectURL(url);
+        if (!completer.isCompleted) completer.complete(null);
+      }.toJS;
+      image.src = url;
+    }.toJS;
+    element.oncancel = (web.Event _) {
+      if (!completer.isCompleted) completer.complete(null);
+    }.toJS;
+    element.click();
+    return completer.future;
+  }
 }
 
 /// [FileSaverPort] as a download: a `Blob` behind a detached `<a download>`,

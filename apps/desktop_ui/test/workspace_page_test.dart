@@ -231,6 +231,10 @@ class _Picker implements FilePickerPort {
           content: '---\nname: code-review_guidelines\ndescription: "Reviews"\n---\nCheck the diff.',
         )
       : (name: 'prompts.json', content: '[{"command": "hi"}]');
+
+  @override
+  Future<String?> pickImageDataUrl({int size = 250}) async =>
+      'data:image/png;base64,iVBORw0KGgo=';
 }
 
 void main() {
@@ -673,6 +677,21 @@ void main() {
     );
     expect(find.text('vision'), findsOneComponent);
     expect(find.textContaining('"temperature": 0.2'), findsOneComponent);
+
+    // A new image, scaled by the picker, saved with the model.
+    await tester.click(buttonWith(t.app.workspaceModelChangeImage));
+    await settle();
+    expect(find.tag('img'), findsOneComponent);
+    await tester.click(
+      find.byComponentPredicate(
+        (c) => c is DomComponent && c.id == 'workspace-save',
+      ),
+    );
+    await settle();
+    expect(
+      actions.saves.single.$1.model!.imageUrl,
+      startsWith('data:image/png;base64,'),
+    );
   }, url: '/workspace/models/helper');
 
   testComponents('a tool opens its valves from their schema', (tester) async {

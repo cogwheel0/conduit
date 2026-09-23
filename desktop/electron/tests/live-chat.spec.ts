@@ -1833,7 +1833,59 @@ test.describe('against a real server', () => {
           item.setSavePath(`${dir}/${item.getFilename()}`)
         })
       }, downloads)
+      const modelId = `live-e2e-model-${stamp}`
+      // A 2x2 PNG for the model's picture; the app scales it on a canvas.
+      const imagePath = join(tmpdir(), `conduit-model-${stamp}.png`)
+      writeFileSync(
+        imagePath,
+        Buffer.from(
+          'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGM4YWMDRAwQCgAlPgUBdJmUYAAAAABJRU5ErkJggg==',
+          'base64',
+        ),
+      )
       try {
+        // A model over a base, with a system prompt and a picture.
+        await page.locator('#workspace-create').click()
+        await expect.poll(pathname).toBe('/workspace/models/new')
+        await page.locator('#model-name').fill(`Live e2e model ${stamp}`)
+        await expect(page.locator('#model-id')).toHaveValue(modelId)
+        await expect(page.locator('#model-base option')).not.toHaveCount(1, { timeout: 30_000 })
+        await page.locator('#model-base').selectOption({ index: 1 })
+        await page.locator('#model-system').fill('Answer in one word.')
+        const imageChooser = page.waitForEvent('filechooser')
+        await page.getByRole('button', { name: /^change image$/i }).click()
+        await (await imageChooser).setFiles(imagePath)
+        await expect(page.getByRole('img', { name: /^profile image$/i })).toBeVisible({
+          timeout: 30_000,
+        })
+        await page.locator('#workspace-save').click()
+        await expect
+          .poll(pathname, { timeout: 30_000 })
+          .toBe(`/workspace/models/${modelId}`)
+        {
+          const { api, auth } = await serverApi(credentials!)
+          try {
+            const model = (await (
+              await api.get(`/api/v1/models/model?id=${encodeURIComponent(modelId)}`, {
+                headers: auth,
+              })
+            ).json()) as {
+              base_model_id?: string
+              params?: { system?: string }
+              meta?: { profile_image_url?: string }
+            }
+            expect(model.base_model_id).toBeTruthy()
+            expect(model.params?.system).toBe('Answer in one word.')
+            expect(model.meta?.profile_image_url ?? '').toMatch(/^data:image\/png;base64,/)
+          } finally {
+            await api.dispose()
+          }
+        }
+        await shot(page, '20a-model')
+        await page.locator('#workspace-delete').click()
+        await page.getByRole('alertdialog').getByRole('button', { name: /^delete$/i }).click()
+        await expect.poll(pathname, { timeout: 30_000 }).toBe('/workspace/models')
+
         await sections.getByRole('button', { name: /^prompts$/i }).click()
         await expect.poll(pathname).toBe('/workspace/prompts')
         await page.locator('#workspace-create').click()
@@ -1952,9 +2004,13 @@ test.describe('against a real server', () => {
         for (const file of Array.isArray(uploaded) ? uploaded : []) {
           await api.delete(`/api/v1/files/${file.id}`, { headers: auth }).catch(() => undefined)
         }
+        await api
+          .post('/api/v1/models/model/delete', { headers: auth, data: { id: modelId } })
+          .catch(() => undefined)
         await api.dispose()
         rmSync(downloads, { recursive: true, force: true })
         rmSync(knowledgeFile, { force: true })
+        rmSync(imagePath, { force: true })
       }
     } finally {
       provider.close()

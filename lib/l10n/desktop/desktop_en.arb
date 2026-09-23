@@ -613,10 +613,6 @@
   "@desktopWorkspaceValvesUserHint": {
     "description": "Explains user valves in the tool editor."
   },
-  "desktopWorkspaceProfileImageKept": "The profile image is kept as it is; change it in the web client.",
-  "@desktopWorkspaceProfileImageKept": {
-    "description": "Model editor note: the desktop does not edit model images yet."
-  },
   "desktopWorkspaceDefaultFeaturesHint": "Features switched on in a new chat with this model, e.g. web_search, code_interpreter.",
   "@desktopWorkspaceDefaultFeaturesHint": {
     "description": "Hint under the default features field of the model editor."

@@ -19,6 +19,12 @@ abstract interface class FilePickerPort {
   /// guarantee -- the picker will let a determined user choose anything, so
   /// the caller still has to cope with contents that are not what it wanted.
   Future<PickedTextFile?> pickText({required String accept});
+
+  /// Opens the OS picker for an image and returns it scaled to cover
+  /// [size] pixels square, cropped to the middle, as a PNG `data:` URL, or null if cancelled or
+  /// not an image. A model's profile image is stored that way (M6), and
+  /// Open WebUI's own editor scales it to the same 250 pixels.
+  Future<String?> pickImageDataUrl({int size = 250});
 }
 
 /// Returns nothing, and says why if asked.
@@ -30,6 +36,10 @@ final class UnavailableFilePicker implements FilePickerPort {
 
   @override
   Future<PickedTextFile?> pickText({required String accept}) async =>
+      throw UnsupportedError('file picking needs a browser context');
+
+  @override
+  Future<String?> pickImageDataUrl({int size = 250}) async =>
       throw UnsupportedError('file picking needs a browser context');
 }
 
