@@ -408,7 +408,9 @@ test.describe('against a real server', () => {
       })
       .toBe('/onboarding')
 
+    // First the choice of backend; this spec is about a server.
     await shot(page, '01-onboarding')
+    await page.getByRole('button', { name: /^open webui/i }).click()
     await page.getByLabel(/server address/i).fill(url)
     await page.getByRole('button', { name: /^connect$/i }).click()
 

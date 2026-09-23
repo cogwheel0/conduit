@@ -2,6 +2,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 
 import '../external_sign_in.dart';
+import 'direct_providers.dart';
 import 'rpc_client.dart';
 import 'rpc_providers.dart';
 
@@ -55,12 +56,32 @@ final authStatusProvider = FutureProvider<AuthSnapshot>((ref) async {
 /// Three states, not two: while either query is in flight the answer is
 /// unknown, and rendering onboarding during that window is what makes a
 /// signed-in user's app flash a setup screen on every launch.
+/// Whether the app is used with direct connections and no server (M4):
+/// the welcome screen's "Connect directly", with a connection that works.
+/// Such a window neither onboards nor signs in.
+final directOnlyProvider = Provider<AsyncValue<bool>>((ref) {
+  final servers = ref.watch(serverListProvider);
+  final direct = ref.watch(directConnectionsProvider);
+  if (servers.isLoading || direct.isLoading) {
+    return const AsyncValue<bool>.loading();
+  }
+  final list = direct.value;
+  return AsyncValue<bool>.data(
+    servers.value?.activeServerId == null &&
+        (list?.preferred ?? false) &&
+        (list?.usable ?? false),
+  );
+});
+
 final needsOnboardingProvider = Provider<AsyncValue<bool>>((ref) {
   final servers = ref.watch(serverListProvider);
   final auth = ref.watch(authStatusProvider);
-  if (servers.isLoading || auth.isLoading) {
+  final directOnly = ref.watch(directOnlyProvider);
+  if (servers.isLoading || auth.isLoading || directOnly.isLoading) {
     return const AsyncValue<bool>.loading();
   }
+  // Set up with direct connections and no server: nothing to onboard.
+  if (directOnly.value == true) return const AsyncValue<bool>.data(false);
   return servers.when(
     loading: () => const AsyncValue<bool>.loading(),
     error: AsyncValue<bool>.error,

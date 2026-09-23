@@ -34,6 +34,12 @@ class DirectActions {
     DirectEnable(id: id, enabled: enabled).toJson(),
   );
 
+  /// The welcome screen's choice: direct connections, or a server.
+  Future<void> setPreferred({required bool preferred}) => _mutate(
+    ConduitMethods.directSetPreferred,
+    DirectPreferred(preferred: preferred).toJson(),
+  );
+
   Future<void> setHistory({required bool localOnly}) => _mutate(
     ConduitMethods.directSetHistory,
     DirectHistory(localOnly: localOnly).toJson(),

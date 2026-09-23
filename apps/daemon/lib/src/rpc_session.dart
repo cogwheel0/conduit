@@ -862,6 +862,17 @@ class RpcSession {
       },
     );
 
+    registerTypedMethod<DirectPreferred, DirectConnectionList>(
+      _peer,
+      ConduitMethods.directSetPreferred,
+      decodeParams: DirectPreferred.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireDirect().setPreferred(preferred: request.preferred);
+      },
+    );
+
     registerTypedMethod<DirectRef, OllamaModelList>(
       _peer,
       ConduitMethods.directOllamaModels,

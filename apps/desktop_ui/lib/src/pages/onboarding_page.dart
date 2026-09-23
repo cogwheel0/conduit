@@ -10,10 +10,18 @@ import '../file_picker.dart';
 import '../l10n/strings.g.dart';
 import '../rpc/rpc_providers.dart';
 import '../rpc/session_providers.dart';
+import '../rpc/direct_providers.dart';
 import '../widgets/form_field.dart';
+import 'direct_connections_tab.dart';
 
-/// Server setup: the first thing a fresh install shows (WP-2.2).
+/// How the app connects: the first thing a fresh install shows.
 ///
+/// A choice first (M4), as on mobile: an Open WebUI server, or direct
+/// connections to model APIs with no server at all. Hermes and Apple
+/// Intelligence join the list when they are built (M7, M8) -- an entry that
+/// leads nowhere is worse than no entry.
+///
+/// Server setup (WP-2.2):
 /// Adds a server and connects to it in one gesture, because from the user's
 /// side those are one act. They are two RPCs because `servers.add` must not
 /// be destructive -- `servers.connect` supersedes every other configured
@@ -25,7 +33,11 @@ class OnboardingPage extends StatefulComponent {
   State<OnboardingPage> createState() => _OnboardingPageState();
 }
 
+/// Where the welcome screen is.
+enum _Step { choose, server, direct }
+
 class _OnboardingPageState extends State<OnboardingPage> {
+  _Step _step = _Step.choose;
   String _name = '';
   String _url = '';
   bool _allowSelfSigned = false;
@@ -44,12 +56,120 @@ class _OnboardingPageState extends State<OnboardingPage> {
   String? _headerError;
 
   @override
-  Component build(BuildContext context) {
+  Component build(BuildContext context) => switch (_step) {
+    _Step.choose => _chooser(context),
+    _Step.server => _serverForm(context),
+    _Step.direct => _direct(context),
+  };
+
+  Component _chooser(BuildContext context) => div(
+    classes:
+        'mx-auto flex min-h-screen w-full max-w-lg flex-col justify-center '
+        'gap-6 px-8 text-foreground',
+    [
+      header(classes: 'space-y-2', [
+        h1(classes: 'text-2xl font-semibold', [
+          Component.text(t.app.backendChooserWelcome),
+        ]),
+        p(classes: 'text-sm text-muted-foreground', [
+          Component.text(t.app.backendChooserPrompt),
+        ]),
+      ]),
+      _choice(
+        section: t.app.backendChooserSelfHostedSectionTitle,
+        title: t.app.backendChooserOpenWebUITitle,
+        subtitle: t.app.backendChooserOpenWebUISubtitle,
+        onChoose: () => _choose(context, _Step.server),
+      ),
+      _choice(
+        section: t.app.backendChooserModelApisSectionTitle,
+        title: t.app.backendChooserDirectTitle,
+        subtitle: t.app.backendChooserDirectSubtitle,
+        onChoose: () => _choose(context, _Step.direct),
+      ),
+      button(
+        [Component.text(t.app.skipServerSetupTryDemo)],
+        classes:
+            'self-start text-sm text-muted-foreground underline '
+            'underline-offset-4 disabled:opacity-60',
+        type: ButtonType.button,
+        disabled: _busy,
+        onClick: () => unawaited(_enterDemo(context)),
+      ),
+    ],
+  );
+
+  Component _choice({
+    required String section,
+    required String title,
+    required String subtitle,
+    required void Function() onChoose,
+  }) => div(classes: 'space-y-2', [
+    h2(classes: 'text-xs font-medium uppercase text-muted-foreground', [
+      Component.text(section),
+    ]),
+    button(
+      [
+        span(classes: 'block text-sm font-medium', [Component.text(title)]),
+        span(classes: 'block text-xs text-muted-foreground', [
+          Component.text(subtitle),
+        ]),
+      ],
+      classes:
+          'w-full rounded border border-border bg-card p-4 text-left '
+          'hover:bg-accent disabled:opacity-60',
+      type: ButtonType.button,
+      disabled: _busy,
+      onClick: onChoose,
+    ),
+  ]);
+
+  /// Remembers the choice, which is what lets a window with a working
+  /// direct connection skip server setup from then on.
+  void _choose(BuildContext context, _Step step) {
+    setState(() => _step = step);
+    unawaited(
+      context
+          .read(directActionsProvider)
+          .setPreferred(preferred: step == _Step.direct)
+          .catchError((Object _) {}),
+    );
+  }
+
+  Component _back(BuildContext context) => button(
+    [Component.text('← ${t.app.backendChooserWelcome}')],
+    classes:
+        'self-start text-sm text-muted-foreground hover:text-foreground '
+        'disabled:opacity-60',
+    type: ButtonType.button,
+    disabled: _busy,
+    onClick: () => setState(() => _step = _Step.choose),
+  );
+
+  /// Direct connections, set up in place. Once one works the session gate
+  /// takes the window to the chat on its own.
+  Component _direct(BuildContext context) => div(
+    classes:
+        'mx-auto flex min-h-screen w-full max-w-2xl flex-col justify-center '
+        'gap-6 px-8 py-8 text-foreground',
+    [
+      _back(context),
+      header(classes: 'space-y-2', [
+        h1(classes: 'text-2xl font-semibold', [
+          Component.text(t.app.backendChooserDirectTitle),
+        ]),
+      ]),
+      const DirectConnectionsTab(),
+    ],
+  );
+
+  Component _serverForm(BuildContext context) {
     return div(
       classes:
           'mx-auto flex min-h-screen w-full max-w-lg flex-col justify-center '
           'gap-6 px-8 text-foreground',
       [
+        _back(context),
         header(classes: 'space-y-2', [
           h1(classes: 'text-2xl font-semibold', [
             Component.text(t.app.connectToServer),

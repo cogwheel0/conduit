@@ -75,6 +75,14 @@ abstract class DirectConnectionList with _$DirectConnectionList {
     /// The signed-in server lets its users keep direct connections in their
     /// account, so the settings offer a section for them.
     @Default(false) bool openWebUiAvailable,
+
+    /// The app was set up to use direct connections rather than an Open
+    /// WebUI server (the welcome screen's choice).
+    @Default(false) bool preferred,
+
+    /// At least one connection on this computer is on and complete, so the
+    /// app can be used with no server at all.
+    @Default(false) bool usable,
   }) = _DirectConnectionList;
 
   factory DirectConnectionList.fromJson(Map<String, dynamic> json) =>
@@ -211,4 +219,13 @@ abstract class OllamaModelAction with _$OllamaModelAction {
 
   factory OllamaModelAction.fromJson(Map<String, dynamic> json) =>
       _$OllamaModelActionFromJson(json);
+}
+
+/// Params for `direct.setPreferred`.
+@freezed
+abstract class DirectPreferred with _$DirectPreferred {
+  const factory DirectPreferred({required bool preferred}) = _DirectPreferred;
+
+  factory DirectPreferred.fromJson(Map<String, dynamic> json) =>
+      _$DirectPreferredFromJson(json);
 }

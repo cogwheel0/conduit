@@ -5,6 +5,7 @@ import 'package:conduit_core/features/direct_connections/models/ollama_thinking.
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -46,6 +47,14 @@ final class DirectService {
           DirectHistoryPolicy.localOnly,
       openWebUiAvailable: _container.read(
         openWebUiDirectConnectionsAvailableProvider,
+      ),
+      preferred:
+          _container.read(preferredBackendProvider) == PreferredBackend.direct,
+      usable: profiles.any(
+        (profile) =>
+            profile.isUsable &&
+            (profile.adapterKey == kOpenAiCompatibleAdapterKey ||
+                profile.adapterKey == kOllamaAdapterKey),
       ),
     );
   }
@@ -228,6 +237,15 @@ final class DirectService {
       modelCount: probe.modelCount,
       message: probe.message,
     );
+  }
+
+  /// The welcome screen's choice: direct connections as the way the app
+  /// is used, or back to a server.
+  Future<DirectConnectionList> setPreferred({required bool preferred}) async {
+    await _container
+        .read(preferredBackendProvider.notifier)
+        .set(preferred ? PreferredBackend.direct : PreferredBackend.owui);
+    return list();
   }
 
   Future<DirectConnectionList> setHistory({required bool localOnly}) async {

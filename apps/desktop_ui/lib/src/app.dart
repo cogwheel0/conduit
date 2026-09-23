@@ -126,6 +126,7 @@ class _SessionGate extends StatelessComponent {
       location: RouteState.of(context).location,
       needsOnboarding: context.watch(needsOnboardingProvider),
       auth: context.watch(authStatusProvider),
+      directOnly: context.watch(directOnlyProvider),
     );
     if (target != null) {
       // Not during build: navigating synchronously here would mutate the
@@ -164,6 +165,7 @@ String? _sessionRedirect(BuildContext context, String location) =>
       location: location,
       needsOnboarding: context.watch(needsOnboardingProvider),
       auth: context.watch(authStatusProvider),
+      directOnly: context.watch(directOnlyProvider),
     );
 
 /// The routing decision, as a pure function of what is currently known.
@@ -188,6 +190,7 @@ String? sessionRedirectFor({
   required String location,
   required AsyncValue<bool> needsOnboarding,
   required AsyncValue<AuthSnapshot> auth,
+  AsyncValue<bool> directOnly = const AsyncValue<bool>.data(false),
 }) {
   if (location.startsWith('/diagnostics') || location == '/core') return null;
   if (needsOnboarding.isLoading || needsOnboarding.hasError) return null;
@@ -196,6 +199,8 @@ String? sessionRedirectFor({
     return location == '/onboarding' ? null : '/onboarding';
   }
   if (location == '/onboarding') return '/';
+  // Direct connections and no server: there is no account to sign in to.
+  if (directOnly.value == true) return location == '/sign-in' ? '/' : null;
   if (location.startsWith('/settings')) return null;
 
   final snapshot = auth.value;

@@ -26,13 +26,36 @@ String? redirect({
   AsyncValue<AuthSnapshot> auth = const AsyncValue<AuthSnapshot>.data(
     _signedIn,
   ),
+  bool directOnly = false,
 }) => sessionRedirectFor(
   location: location,
   needsOnboarding: needsOnboarding,
   auth: auth,
+  directOnly: AsyncValue<bool>.data(directOnly),
 );
 
 void main() {
+  group('direct connections and no server (M4)', () {
+    const signedOut = AsyncValue<AuthSnapshot>.data(
+      AuthSnapshot(phase: AuthPhase.unauthenticated),
+    );
+
+    test('the chat is reachable without signing in', () {
+      expect(redirect(auth: signedOut, directOnly: true), isNull);
+    });
+
+    test('sign-in has nothing to offer, so it goes to the chat', () {
+      expect(
+        redirect(location: '/sign-in', auth: signedOut, directOnly: true),
+        '/',
+      );
+    });
+
+    test('without it, a signed-out window still signs in', () {
+      expect(redirect(auth: signedOut), '/sign-in');
+    });
+  });
+
   group('never redirects on an unknown state', () {
     test('while onboarding is still loading', () {
       expect(

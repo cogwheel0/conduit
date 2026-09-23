@@ -227,6 +227,10 @@ abstract final class ConduitMethods {
   /// Where direct chats are kept: this computer only, or mirrored.
   static const String directSetHistory = 'direct.setHistory';
 
+  /// Makes direct connections the way the app is used, or stops: the
+  /// welcome screen's choice. With one usable, no server is needed.
+  static const String directSetPreferred = 'direct.setPreferred';
+
   /// An Ollama connection's models, with whether each is loaded and its
   /// keep-alive or thinking setting.
   static const String directOllamaModels = 'direct.ollamaModels';

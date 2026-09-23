@@ -3,6 +3,7 @@ library;
 
 import 'package:conduit_desktop_ui/src/external_sign_in.dart';
 import 'package:conduit_desktop_ui/src/rpc/rpc_client.dart';
+import 'package:conduit_desktop_ui/src/rpc/direct_providers.dart';
 import 'package:conduit_desktop_ui/src/rpc/rpc_providers.dart';
 import 'package:conduit_desktop_ui/src/rpc/session_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -28,7 +29,13 @@ class _FakeRpcClient implements RpcClient {
     required T Function(Map<String, dynamic> json) decode,
   }) async {
     calls.add((method: method, params: params));
-    final responder = responses[method];
+    // Every window asks for the direct connections, which decide whether a
+    // setup with no server is a setup at all (M4). None, unless a test says.
+    final responder =
+        responses[method] ??
+        (method == ConduitMethods.directList
+            ? () => const DirectConnectionList()
+            : null);
     if (responder == null) {
       throw StateError('no fake response for $method');
     }
@@ -118,6 +125,7 @@ void main() {
       );
       await container.read(serverListProvider.future);
       await container.read(authStatusProvider.future);
+      await container.read(directConnectionsProvider.future);
 
       expect(container.read(needsOnboardingProvider).value, isTrue);
     });
@@ -131,6 +139,7 @@ void main() {
       );
       await container.read(serverListProvider.future);
       await container.read(authStatusProvider.future);
+      await container.read(directConnectionsProvider.future);
 
       expect(container.read(needsOnboardingProvider).value, isFalse);
     });
@@ -147,10 +156,44 @@ void main() {
       );
       await container.read(serverListProvider.future);
       await container.read(authStatusProvider.future);
+      await container.read(directConnectionsProvider.future);
 
       // No server configured, and still not onboarding: the demo path runs
       // against canned data with no server at all.
       expect(container.read(needsOnboardingProvider).value, isFalse);
+    });
+
+    test('direct connections and no server are a setup (M4)', () async {
+      final container = _container(
+        _FakeRpcClient(<String, Object Function()>{
+          ConduitMethods.serversList: () => _emptyList,
+          ConduitMethods.authStatus: () => _signedOut,
+          ConduitMethods.directList: () =>
+              const DirectConnectionList(preferred: true, usable: true),
+        }),
+      );
+      await container.read(serverListProvider.future);
+      await container.read(authStatusProvider.future);
+      await container.read(directConnectionsProvider.future);
+
+      expect(container.read(directOnlyProvider).value, isTrue);
+      expect(container.read(needsOnboardingProvider).value, isFalse);
+    });
+
+    test('chosen but with nothing that works yet, it is still setup', () async {
+      final container = _container(
+        _FakeRpcClient(<String, Object Function()>{
+          ConduitMethods.serversList: () => _emptyList,
+          ConduitMethods.authStatus: () => _signedOut,
+          ConduitMethods.directList: () =>
+              const DirectConnectionList(preferred: true),
+        }),
+      );
+      await container.read(serverListProvider.future);
+      await container.read(authStatusProvider.future);
+      await container.read(directConnectionsProvider.future);
+
+      expect(container.read(needsOnboardingProvider).value, isTrue);
     });
   });
 

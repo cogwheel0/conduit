@@ -283,7 +283,10 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     ],
     localHistory: true,
     openWebUiAvailable: true,
+    preferred: true,
+    usable: true,
   ),
+  'directPreferred': const DirectPreferred(preferred: true),
   'directConnectionEdit': const DirectConnectionEdit(
     name: 'Azure',
     kind: DirectKind.openai,
@@ -708,6 +711,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'directRef': DirectRef.fromJson,
       'directEnable': DirectEnable.fromJson,
       'directHistory': DirectHistory.fromJson,
+      'directPreferred': DirectPreferred.fromJson,
       'ollamaModelStatus': OllamaModelStatus.fromJson,
       'ollamaModelList': OllamaModelList.fromJson,
       'ollamaModelAction': OllamaModelAction.fromJson,
