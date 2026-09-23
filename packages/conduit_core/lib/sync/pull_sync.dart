@@ -535,7 +535,13 @@ class PullSync {
     if (resp == null) return null;
     final id = resp['id'] is String ? resp['id'] as String : chatId;
     return _locks.runExclusive(id, () async {
-      await _upsertServerChatUnlockedReturningPush(resp, listLastReadAt: null);
+      // Asked for by name, so what the server says now wins over a same-
+      // second copy stored a moment ago (see `refreshWhenClean`).
+      await _upsertServerChatUnlockedReturningPush(
+        resp,
+        listLastReadAt: null,
+        refreshWhenClean: true,
+      );
       final chat = await _db.chatsDao.getChat(id);
       if (chat == null) return null;
       final messages = await _db.messagesDao.getForChat(id);
@@ -575,6 +581,7 @@ class PullSync {
     Map<String, dynamic> resp, {
     required int? listLastReadAt,
     bool? hasPendingCreateHashes,
+    bool refreshWhenClean = false,
   }) async {
     final id = resp['id'] as String;
     final createdAt = _asEpochSeconds(resp['created_at']) ?? 0;
@@ -614,6 +621,7 @@ class PullSync {
           ? meta
           : (meta is Map ? Map<String, dynamic>.from(meta) : const {}),
       listLastReadAt: listLastReadAt,
+      refreshWhenClean: refreshWhenClean,
     );
 
     // REQ 4: a merge that retained local-dirty content diverges from the

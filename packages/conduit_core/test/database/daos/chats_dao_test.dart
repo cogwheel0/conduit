@@ -795,6 +795,64 @@ void main() {
     final after = await db.chatsDao.getChat(rows.chat.id);
     check(after!.meta).equals(chat.meta);
   });
+
+  test(
+    'an explicit pull applies a same-second change to a clean row',
+    () async {
+      // Open WebUI's timestamps are whole seconds. A fast model writes its
+      // placeholder and its answer in the same one; a pull between them
+      // stored the placeholder, and the equal timestamp then made every
+      // later pull a no-op.
+      final rows = rowsFromFixture(
+        loadChatBlobFixtures().firstWhere(
+          (fixture) => rowsFromFixture(fixture).messages.isNotEmpty,
+        ),
+      );
+      await db.chatsDao.mergeServerChat(server: rows);
+      final first = rows.messages.first;
+      final answered = ChatRows(
+        chat: rows.chat,
+        messages: <MessageRowData>[
+          MessageRowData(
+            id: first.id,
+            chatId: first.chatId,
+            parentId: first.parentId,
+            role: first.role,
+            content: 'the finished answer',
+            model: first.model,
+            createdAt: first.createdAt,
+            orderIndex: first.orderIndex,
+            payload: first.payload,
+          ),
+          ...rows.messages.skip(1),
+        ],
+        unmappableMessages: rows.unmappableMessages,
+        unmappableMessageOrder: rows.unmappableMessageOrder,
+        blobHadTitle: rows.blobHadTitle,
+        blobTitleValue: rows.blobTitleValue,
+        blobHadHistory: rows.blobHadHistory,
+        historyHadMessages: rows.historyHadMessages,
+        historyHadCurrentId: rows.historyHadCurrentId,
+        historyExtra: rows.historyExtra,
+      );
+
+      Future<String> stored() async =>
+          (await db.messagesDao.getForChat(rows.chat.id))
+              .firstWhere((m) => m.id == first.id)
+              .content;
+
+      // A background cycle compares timestamps and leaves it.
+      await db.chatsDao.mergeServerChat(server: answered);
+      check(await stored()).equals(first.content);
+
+      // A pull asked for by name takes it.
+      await db.chatsDao.mergeServerChat(
+        server: answered,
+        refreshWhenClean: true,
+      );
+      check(await stored()).equals('the finished answer');
+    },
+  );
 }
 
 /// Records every SELECT statement that reaches the executor.

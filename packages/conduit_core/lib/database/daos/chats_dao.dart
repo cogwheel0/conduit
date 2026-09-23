@@ -314,6 +314,16 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     String? userId,
     Map<String, dynamic> meta = const {},
     int? listLastReadAt,
+
+    /// Apply the server's copy to a clean row even when its `updated_at`
+    /// matches the base. For explicit single-chat pulls, made right after a
+    /// change: Open WebUI's timestamps are whole seconds, and a model that
+    /// answers in under one writes its placeholder and its final answer in
+    /// the same second. A pull between the two stored the placeholder, and
+    /// the equal timestamp then made every later pull a no-op -- the answer
+    /// never arrived. Background cycles leave this off: comparing
+    /// timestamps is what keeps them cheap.
+    bool refreshWhenClean = false,
   }) {
     final serverChat = server.chat;
     return transaction(() async {
@@ -411,6 +421,26 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         dirtyMessageIds: dirtyMessageIds,
       );
 
+      if (refreshWhenClean &&
+          result.outcome == MergeOutcome.noRemoteChange &&
+          !existing.dirty &&
+          dirtyMessageIds.isEmpty) {
+        await _writeChatRows(
+          rows: server,
+          shareId: shareId,
+          userId: userId,
+          meta: meta.isEmpty ? _decodeMeta(existing.meta) : meta,
+          listLastReadAt: listLastReadAt,
+          existingLastReadAt: existing.lastReadAt,
+          serverUpdatedAt: base,
+          chatDirty: false,
+        );
+        return const ChatMergeWriteResult(
+          outcome: MergeOutcome.fastForward,
+          mustPush: false,
+        );
+      }
+
       switch (result.outcome) {
         case MergeOutcome.noRemoteChange:
           // Rows untouched; only re-assert push below when needed. Except
@@ -466,6 +496,15 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           );
       }
     });
+  }
+
+  static Map<String, dynamic> _decodeMeta(String stored) {
+    try {
+      final decoded = jsonDecode(stored);
+      return decoded is Map<String, dynamic> ? decoded : const {};
+    } on FormatException {
+      return const {};
+    }
   }
 
   /// Caller is inside [mergeServerChat]'s transaction. Writes the server's

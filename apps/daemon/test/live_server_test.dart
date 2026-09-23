@@ -457,6 +457,75 @@ void main() {
             .deleteFeedback(first!);
       }, timeout: const Timeout(Duration(minutes: 3)));
 
+      test('a fast answer arrives while windows keep reading', () async {
+        // Regression: Open WebUI stamps changes to the second, and
+        // gemma3:1b answers in less than one. A pull between the
+        // placeholder and the answer stored the placeholder, the equal
+        // timestamp made every later pull a no-op, and the answer never
+        // reached the transcript -- about half the time, and only with a
+        // window refetching alongside, which is what this loop is.
+        final events = EventBus();
+        final turns = TurnsService(runtime.container, events);
+        addTearDown(turns.dispose);
+        final chats = ChatsService(runtime.container, events: events);
+        final accepted = await turns.send(
+          const SendTurn(
+            model: 'gemma3:1b',
+            text: 'Reply with exactly the word: pong',
+          ),
+        );
+        created.add(accepted.chatId);
+        var stop = false;
+        // What the renderer does: refetch on every chats.changed, and list.
+        final hammer = () async {
+          while (!stop) {
+            await chats.get(accepted.chatId);
+            await chats.list();
+            await Future<void>.delayed(const Duration(milliseconds: 150));
+          }
+        }();
+        await _waitFor(
+          () async =>
+              (await chats.get(accepted.chatId))?.messages.any(
+                (m) =>
+                    m.id == accepted.assistantMessageId && m.content.isNotEmpty,
+              ) ??
+              false,
+          seconds: 60,
+        );
+        final again = await turns.regenerate(
+          RegenerateTurn(
+            chatId: accepted.chatId,
+            messageId: accepted.assistantMessageId,
+          ),
+        );
+        await _waitFor(
+          () async =>
+              (await chats.get(accepted.chatId))?.messages.any(
+                (m) => m.id == again.assistantMessageId && m.content.isNotEmpty,
+              ) ??
+              false,
+          seconds: 40,
+        );
+        final ok =
+            (await chats.get(accepted.chatId))?.messages.any(
+              (m) => m.id == again.assistantMessageId && m.content.isNotEmpty,
+            ) ??
+            false;
+        stop = true;
+        await hammer;
+        final raw = await runtime.container
+            .read(apiServiceProvider)!
+            .getChatRaw(accepted.chatId);
+        final history = (raw?['chat'] as Map?)?['history'] as Map?;
+        final local = await chats.get(accepted.chatId);
+        printOnFailure(
+          'server.currentId=${history?['currentId']} '
+          'new=${again.assistantMessageId} local=${local?.messages.map((m) => '${m.role}:${m.id}:${m.content.length}').join(', ')}',
+        );
+        expect(ok, isTrue);
+      }, timeout: const Timeout(Duration(minutes: 3)));
+
       test('regenerates an answer as a branch, not an overwrite', () async {
         final events = EventBus();
         final turns = TurnsService(runtime.container, events);
