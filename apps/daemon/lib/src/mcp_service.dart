@@ -1,9 +1,12 @@
+import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_mcp_content.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_mcp_client.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_mcp_oauth.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_mcp_server_store.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
+import 'package:mcp_dart/mcp_dart.dart' as mcp;
 import 'package:riverpod/riverpod.dart';
 import 'package:uuid/uuid.dart';
 
@@ -138,6 +141,131 @@ final class McpService {
       await servers.revokeAllRememberedApprovals(server);
     }
     return list();
+  }
+
+  /// What each server offered when the content sheet last asked, so a
+  /// prompt or resource is fetched as the summary the user chose -- the
+  /// core checks it has not changed since.
+  final Map<String, DirectMcpContentInventory> _inventories =
+      <String, DirectMcpContentInventory>{};
+
+  Future<McpContent> content(String id) async {
+    final server = await _enabled(id);
+    final inventory = await _contentCall(
+      () => _container.read(directMcpContentInventoryLoaderProvider)(server),
+    );
+    _inventories[id] = inventory;
+    return McpContent(
+      serverId: id,
+      serverName: inventory.serverName,
+      prompts: <McpPromptSummary>[
+        for (final prompt in inventory.prompts)
+          McpPromptSummary(
+            name: prompt.name,
+            displayName: prompt.displayName,
+            description: prompt.description,
+            arguments: <McpPromptArgument>[
+              for (final argument in prompt.arguments)
+                McpPromptArgument(
+                  name: argument.name,
+                  label: argument.label,
+                  description: argument.description,
+                  required: argument.required,
+                ),
+            ],
+          ),
+      ],
+      resources: <McpResourceSummary>[
+        for (final resource in inventory.resources)
+          McpResourceSummary(
+            uri: resource.uri,
+            displayName: resource.displayName,
+            description: resource.description,
+            mimeType: resource.mimeType,
+          ),
+      ],
+    );
+  }
+
+  Future<McpContentPreview> getPrompt(McpGetPrompt request) async {
+    final server = await _enabled(request.serverId);
+    final prompt = _inventories[request.serverId]?.prompts
+        .where((candidate) => candidate.name == request.name)
+        .firstOrNull;
+    if (prompt == null) throw _changed;
+    final preview = await _contentCall(
+      () => _container.read(directMcpPromptPreviewLoaderProvider)(
+        server,
+        prompt,
+        request.arguments,
+        mcp.BasicAbortController().signal,
+      ),
+    );
+    return McpContentPreview(
+      messages: <McpPromptMessage>[
+        for (final message in preview.messages)
+          McpPromptMessage(role: message.role, text: message.text),
+      ],
+    );
+  }
+
+  Future<McpContentPreview> readResource(McpReadResource request) async {
+    final server = await _enabled(request.serverId);
+    final resource = _inventories[request.serverId]?.resources
+        .where((candidate) => candidate.uri == request.uri)
+        .firstOrNull;
+    if (resource == null) throw _changed;
+    final preview = await _contentCall(
+      () => _container.read(directMcpResourcePreviewLoaderProvider)(
+        server,
+        resource,
+        mcp.BasicAbortController().signal,
+      ),
+    );
+    return McpContentPreview(
+      messages: <McpPromptMessage>[
+        McpPromptMessage(role: '', text: preview.text),
+      ],
+    );
+  }
+
+  static const RpcError _changed = RpcError(
+    code: ConduitErrorCodes.invalidParams,
+    args: <String, String>{'reason': 'changed'},
+    debugMessage: 'that item is no longer offered; refresh the list',
+  );
+
+  /// Runs a content request, with the core's failure reasons as the
+  /// protocol's.
+  static Future<T> _contentCall<T>(Future<T> Function() call) async {
+    try {
+      return await call();
+    } on DirectProviderException catch (error) {
+      final reason = switch (error.reason) {
+        DirectProviderFailureReason.changed => 'changed',
+        DirectProviderFailureReason.unsupported => 'unsupported',
+        DirectProviderFailureReason.tooLarge => 'tooLarge',
+        null => null,
+      };
+      throw RpcError(
+        code: reason == null
+            ? ConduitErrorCodes.connectionFailed
+            : ConduitErrorCodes.invalidParams,
+        args: <String, String>{'reason': ?reason},
+        debugMessage: error.message,
+      );
+    }
+  }
+
+  Future<DirectMcpServer> _enabled(String id) async {
+    final server = (await _existing(id))!;
+    if (!server.enabled) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'MCP server $id is turned off',
+      );
+    }
+    return server;
   }
 
   Future<List<DirectMcpServer>> _servers() =>

@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.28.0",
+  "protocolVersion": "1.29.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.28.0",
+  "protocolVersion": "1.29.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -610,6 +610,93 @@ const Map<String, String> protocolGoldens = <String, String>{
   'openUrl': r'''
 {
   "url": "https://auth.example.com/authorize?x=1"
+}''',
+
+  'mcpPromptArgument': r'''
+{
+  "name": "topic",
+  "label": "Topic",
+  "description": "",
+  "required": true
+}''',
+
+  'mcpPromptSummary': r'''
+{
+  "name": "summarize",
+  "displayName": "Summarize",
+  "description": "Summarizes a topic.",
+  "arguments": [
+    {
+      "name": "topic",
+      "label": "Topic",
+      "description": "",
+      "required": true
+    }
+  ]
+}''',
+
+  'mcpResourceSummary': r'''
+{
+  "uri": "file:///notes/today.md",
+  "displayName": "Today",
+  "description": "",
+  "mimeType": "text/markdown"
+}''',
+
+  'mcpContent': r'''
+{
+  "serverId": "mcp-1",
+  "serverName": "Docs",
+  "prompts": [
+    {
+      "name": "summarize",
+      "displayName": "Summarize",
+      "description": "",
+      "arguments": []
+    }
+  ],
+  "resources": [
+    {
+      "uri": "file:///a.txt",
+      "displayName": "a.txt",
+      "description": ""
+    }
+  ]
+}''',
+
+  'mcpGetPrompt': r'''
+{
+  "serverId": "mcp-1",
+  "name": "summarize",
+  "arguments": {
+    "topic": "llamas"
+  }
+}''',
+
+  'mcpReadResource': r'''
+{
+  "serverId": "mcp-1",
+  "uri": "file:///a.txt"
+}''',
+
+  'mcpPromptMessage': r'''
+{
+  "role": "user",
+  "text": "Hi"
+}''',
+
+  'mcpContentPreview': r'''
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "Summarize llamas."
+    },
+    {
+      "role": "assistant",
+      "text": "Sure."
+    }
+  ]
 }''',
 
   'knowledgeSummary': r'''

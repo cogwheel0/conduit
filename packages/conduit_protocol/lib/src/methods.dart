@@ -260,6 +260,16 @@ abstract final class ConduitMethods {
   /// Forgets remembered tool approvals.
   static const String mcpForgetApproval = 'mcp.forgetApproval';
 
+  /// The prompts and resources one server offers, for the content sheet.
+  static const String mcpContent = 'mcp.content';
+
+  /// Renders one of a server's prompts with its arguments, to preview and
+  /// insert.
+  static const String mcpGetPrompt = 'mcp.getPrompt';
+
+  /// Reads one of a server's resources, to preview and insert.
+  static const String mcpReadResource = 'mcp.readResource';
+
   // ---------------------------------------------------------------------
   // turns.* -- sending and stopping generation (M3).
   // ---------------------------------------------------------------------

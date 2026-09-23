@@ -331,6 +331,50 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   'mcpEnable': const McpEnable(id: 'mcp-1', enabled: false),
   'mcpForgetApproval': const McpForgetApproval(serverId: 'mcp-1'),
   'openUrl': const OpenUrl(url: 'https://auth.example.com/authorize?x=1'),
+  'mcpPromptArgument': const McpPromptArgument(
+    name: 'topic',
+    label: 'Topic',
+    required: true,
+  ),
+  'mcpPromptSummary': const McpPromptSummary(
+    name: 'summarize',
+    displayName: 'Summarize',
+    description: 'Summarizes a topic.',
+    arguments: <McpPromptArgument>[
+      McpPromptArgument(name: 'topic', label: 'Topic', required: true),
+    ],
+  ),
+  'mcpResourceSummary': const McpResourceSummary(
+    uri: 'file:///notes/today.md',
+    displayName: 'Today',
+    mimeType: 'text/markdown',
+  ),
+  'mcpContent': const McpContent(
+    serverId: 'mcp-1',
+    serverName: 'Docs',
+    prompts: <McpPromptSummary>[
+      McpPromptSummary(name: 'summarize', displayName: 'Summarize'),
+    ],
+    resources: <McpResourceSummary>[
+      McpResourceSummary(uri: 'file:///a.txt', displayName: 'a.txt'),
+    ],
+  ),
+  'mcpGetPrompt': const McpGetPrompt(
+    serverId: 'mcp-1',
+    name: 'summarize',
+    arguments: <String, String>{'topic': 'llamas'},
+  ),
+  'mcpReadResource': const McpReadResource(
+    serverId: 'mcp-1',
+    uri: 'file:///a.txt',
+  ),
+  'mcpPromptMessage': const McpPromptMessage(role: 'user', text: 'Hi'),
+  'mcpContentPreview': const McpContentPreview(
+    messages: <McpPromptMessage>[
+      McpPromptMessage(role: 'user', text: 'Summarize llamas.'),
+      McpPromptMessage(role: 'assistant', text: 'Sure.'),
+    ],
+  ),
   'knowledgeSummary': const KnowledgeSummary(
     id: 'kb-1',
     name: 'Handbook',
@@ -372,9 +416,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   'composerOptions': const ComposerOptions(
     webSearch: true,
     tools: <ToolSummary>[ToolSummary(id: 'weather', name: 'Weather')],
-    mcpTools: <ToolSummary>[
-      ToolSummary(id: 'local_mcp:mcp-1', name: 'Docs'),
-    ],
+    mcpTools: <ToolSummary>[ToolSummary(id: 'local_mcp:mcp-1', name: 'Docs')],
   ),
   'syncState': const SyncState(running: true, progress: 0.4, online: false),
   'chatsChanged': const ChatsChanged(chatId: 'chat-7c1f0b2a'),
@@ -645,6 +687,14 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'mcpEnable': McpEnable.fromJson,
       'mcpForgetApproval': McpForgetApproval.fromJson,
       'openUrl': OpenUrl.fromJson,
+      'mcpPromptArgument': McpPromptArgument.fromJson,
+      'mcpPromptSummary': McpPromptSummary.fromJson,
+      'mcpResourceSummary': McpResourceSummary.fromJson,
+      'mcpContent': McpContent.fromJson,
+      'mcpGetPrompt': McpGetPrompt.fromJson,
+      'mcpReadResource': McpReadResource.fromJson,
+      'mcpPromptMessage': McpPromptMessage.fromJson,
+      'mcpContentPreview': McpContentPreview.fromJson,
       'knowledgeSummary': KnowledgeSummary.fromJson,
       'knowledgeQuery': KnowledgeQuery.fromJson,
       'knowledgeList': KnowledgeList.fromJson,

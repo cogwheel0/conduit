@@ -961,6 +961,39 @@ class RpcSession {
       },
     );
 
+    registerTypedMethod<McpRef, McpContent>(
+      _peer,
+      ConduitMethods.mcpContent,
+      decodeParams: McpRef.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (ref) {
+        _requireHandshake();
+        return _requireMcp().content(ref.id);
+      },
+    );
+
+    registerTypedMethod<McpGetPrompt, McpContentPreview>(
+      _peer,
+      ConduitMethods.mcpGetPrompt,
+      decodeParams: McpGetPrompt.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireMcp().getPrompt(request);
+      },
+    );
+
+    registerTypedMethod<McpReadResource, McpContentPreview>(
+      _peer,
+      ConduitMethods.mcpReadResource,
+      decodeParams: McpReadResource.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireMcp().readResource(request);
+      },
+    );
+
     registerTypedMethodNoParams<PromptList>(
       _peer,
       ConduitMethods.promptsList,

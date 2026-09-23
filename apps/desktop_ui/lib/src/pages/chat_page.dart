@@ -20,6 +20,7 @@ import '../widgets/context_menu.dart';
 import '../widgets/controls_pane.dart';
 import '../widgets/folder_page.dart';
 import '../widgets/markdown_view.dart';
+import '../widgets/mcp_content_sheet.dart';
 import '../widgets/message_files.dart';
 import '../widgets/prompt_menu.dart';
 import '../widgets/selection_bar.dart';
@@ -1508,6 +1509,9 @@ class _ComposerState extends State<_Composer> {
   final Set<String> _toolIds = <String>{};
   bool _toolsOpen = false;
 
+  /// The MCP content sheet (M4), for a direct model with MCP servers.
+  bool _contentOpen = false;
+
   /// Counted rather than a flag: `dragleave` fires every time the pointer
   /// crosses into a child, so a flag flickered off over the text field.
   int _dragDepth = 0;
@@ -1908,11 +1912,14 @@ class _ComposerState extends State<_Composer> {
   /// models, the app's MCP servers for a direct connection's (M4).
   List<ToolSummary> _toolsOffered(ComposerOptions? options) {
     if (options == null) return const <ToolSummary>[];
+    return _answeredDirectly ? options.mcpTools : options.tools;
+  }
+
+  /// Whether the next answer comes from a direct connection's model.
+  bool get _answeredDirectly {
     final answering =
         _atModel?.id ?? context.read(modelListProvider).value?.selectedId;
-    return answering != null && answering.startsWith('direct:')
-        ? options.mcpTools
-        : options.tools;
+    return answering != null && answering.startsWith('direct:');
   }
 
   Component _features(ComposerOptions options) {
@@ -1963,7 +1970,36 @@ class _ComposerState extends State<_Composer> {
             },
             onClick: () => setState(() => _toolsOpen = !_toolsOpen),
           ),
+        // Prompts and resources from the same servers, as text to send.
+        if (_answeredDirectly && options.mcpTools.isNotEmpty)
+          button(
+            [Component.text(t.app.directMcpContentAction)],
+            classes:
+                'rounded-full border px-3 py-1 text-xs '
+                '${_contentOpen ? 'border-primary text-foreground' : 'border-border text-muted-foreground'} '
+                'hover:bg-accent',
+            type: ButtonType.button,
+            attributes: <String, String>{
+              'aria-expanded': _contentOpen ? 'true' : 'false',
+            },
+            onClick: () => setState(() => _contentOpen = !_contentOpen),
+          ),
       ]),
+      if (_contentOpen && _answeredDirectly && options.mcpTools.isNotEmpty)
+        McpContentSheet(
+          servers: options.mcpTools,
+          draft: _text,
+          onClose: () => setState(() => _contentOpen = false),
+          onInsert: (text) {
+            setState(() {
+              _text = text;
+              _contentOpen = false;
+            });
+            context.read(windowCommandsProvider)
+              ..setValue('composer', text)
+              ..focus('composer');
+          },
+        ),
       if (_toolsOpen && _toolsOffered(options).isNotEmpty)
         div(
           id: 'composer-tools',

@@ -94,6 +94,37 @@ void main() {
     );
   });
 
+  test('offers prompts and resources to insert', () async {
+    final id = (await mcp.list()).servers.single.id;
+    final content = await mcp.content(id);
+    expect(content.prompts.single.name, 'summarize');
+    expect(content.prompts.single.arguments.single.required, isTrue);
+    expect(content.resources.single.uri, 'file:///notes/today.md');
+
+    final prompt = await mcp.getPrompt(
+      McpGetPrompt(
+        serverId: id,
+        name: 'summarize',
+        arguments: const <String, String>{'topic': 'llamas'},
+      ),
+    );
+    expect(prompt.messages.single.role, 'user');
+    expect(prompt.messages.single.text, 'Summarize llamas.');
+
+    final resource = await mcp.readResource(
+      McpReadResource(serverId: id, uri: 'file:///notes/today.md'),
+    );
+    expect(resource.messages.single.text, contains('Water the plants.'));
+
+    // Something the list never offered is refused as changed.
+    expect(
+      mcp.readResource(McpReadResource(serverId: id, uri: 'file:///x')),
+      throwsA(
+        isA<RpcError>().having((e) => e.args['reason'], 'reason', 'changed'),
+      ),
+    );
+  });
+
   test('turns off, and is removed', () async {
     final id = (await mcp.list()).servers.single.id;
     expect((await mcp.setEnabled(id, false)).servers.single.enabled, isFalse);

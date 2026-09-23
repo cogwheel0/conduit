@@ -140,3 +140,110 @@ abstract class OpenUrl with _$OpenUrl {
   factory OpenUrl.fromJson(Map<String, dynamic> json) =>
       _$OpenUrlFromJson(json);
 }
+
+/// One argument an MCP prompt takes.
+@freezed
+abstract class McpPromptArgument with _$McpPromptArgument {
+  const factory McpPromptArgument({
+    required String name,
+    required String label,
+    @Default('') String description,
+    @Default(false) bool required,
+  }) = _McpPromptArgument;
+
+  factory McpPromptArgument.fromJson(Map<String, dynamic> json) =>
+      _$McpPromptArgumentFromJson(json);
+}
+
+/// A prompt an MCP server offers, for the content sheet.
+@freezed
+abstract class McpPromptSummary with _$McpPromptSummary {
+  const factory McpPromptSummary({
+    required String name,
+    required String displayName,
+    @Default('') String description,
+    @Default(<McpPromptArgument>[]) List<McpPromptArgument> arguments,
+  }) = _McpPromptSummary;
+
+  factory McpPromptSummary.fromJson(Map<String, dynamic> json) =>
+      _$McpPromptSummaryFromJson(json);
+}
+
+/// A resource an MCP server offers, for the content sheet.
+@freezed
+abstract class McpResourceSummary with _$McpResourceSummary {
+  const factory McpResourceSummary({
+    required String uri,
+    required String displayName,
+    @Default('') String description,
+    String? mimeType,
+  }) = _McpResourceSummary;
+
+  factory McpResourceSummary.fromJson(Map<String, dynamic> json) =>
+      _$McpResourceSummaryFromJson(json);
+}
+
+/// Reply to `mcp.content`: what one server offers to insert.
+@freezed
+abstract class McpContent with _$McpContent {
+  const factory McpContent({
+    required String serverId,
+    required String serverName,
+    @Default(<McpPromptSummary>[]) List<McpPromptSummary> prompts,
+    @Default(<McpResourceSummary>[]) List<McpResourceSummary> resources,
+  }) = _McpContent;
+
+  factory McpContent.fromJson(Map<String, dynamic> json) =>
+      _$McpContentFromJson(json);
+}
+
+/// Params for `mcp.getPrompt`.
+@freezed
+abstract class McpGetPrompt with _$McpGetPrompt {
+  const factory McpGetPrompt({
+    required String serverId,
+    required String name,
+    @Default(<String, String>{}) Map<String, String> arguments,
+  }) = _McpGetPrompt;
+
+  factory McpGetPrompt.fromJson(Map<String, dynamic> json) =>
+      _$McpGetPromptFromJson(json);
+}
+
+/// Params for `mcp.readResource`.
+@freezed
+abstract class McpReadResource with _$McpReadResource {
+  const factory McpReadResource({
+    required String serverId,
+    required String uri,
+  }) = _McpReadResource;
+
+  factory McpReadResource.fromJson(Map<String, dynamic> json) =>
+      _$McpReadResourceFromJson(json);
+}
+
+/// One message of a rendered prompt.
+@freezed
+abstract class McpPromptMessage with _$McpPromptMessage {
+  const factory McpPromptMessage({required String role, required String text}) =
+      _McpPromptMessage;
+
+  factory McpPromptMessage.fromJson(Map<String, dynamic> json) =>
+      _$McpPromptMessageFromJson(json);
+}
+
+/// Reply to `mcp.getPrompt` and `mcp.readResource`: text to preview and
+/// insert. A resource is one message with no role.
+///
+/// Failures arrive as `invalidParams` with `args.reason` one of `changed`
+/// (refresh and choose again), `unsupported` (binary, not text) or
+/// `tooLarge`.
+@freezed
+abstract class McpContentPreview with _$McpContentPreview {
+  const factory McpContentPreview({
+    @Default(<McpPromptMessage>[]) List<McpPromptMessage> messages,
+  }) = _McpContentPreview;
+
+  factory McpContentPreview.fromJson(Map<String, dynamic> json) =>
+      _$McpContentPreviewFromJson(json);
+}

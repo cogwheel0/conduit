@@ -52,6 +52,11 @@ final class McpFixture {
           supportedVersions: [mcp.stableProtocolVersion],
           capabilities: mcp.ServerCapabilities(
             tools: mcp.ServerCapabilitiesTools(listChanged: false),
+            prompts: mcp.ServerCapabilitiesPrompts(listChanged: false),
+            resources: mcp.ServerCapabilitiesResources(
+              listChanged: false,
+              subscribe: false,
+            ),
           ),
           serverInfo: mcp.Implementation(name: 'fixture', version: '1.0.0'),
           ttlMs: 0,
@@ -83,6 +88,69 @@ final class McpFixture {
             {'type': 'text', 'text': '${arguments['value']}'},
           ],
           'isError': false,
+        };
+      case mcp.Method.promptsList:
+        result = <String, dynamic>{
+          'prompts': [
+            {
+              'name': 'summarize',
+              'description': 'Summarizes a topic.',
+              'arguments': [
+                {
+                  'name': 'topic',
+                  'description': 'What to sum up',
+                  'required': true,
+                },
+              ],
+            },
+          ],
+          'ttlMs': 0,
+          'cacheScope': mcp.CacheScope.private,
+        };
+      case mcp.Method.promptsGet:
+        final params = body['params'] as Map<String, dynamic>;
+        final arguments = params['arguments'] as Map<String, dynamic>? ?? {};
+        result = <String, dynamic>{
+          'messages': [
+            {
+              'role': 'user',
+              'content': {
+                'type': 'text',
+                'text': 'Summarize ${arguments['topic']}.',
+              },
+            },
+          ],
+        };
+      case mcp.Method.resourcesList:
+        result = <String, dynamic>{
+          'resources': [
+            {
+              'uri': 'file:///notes/today.md',
+              'name': 'today.md',
+              'mimeType': 'text/markdown',
+            },
+          ],
+          'ttlMs': 0,
+          'cacheScope': mcp.CacheScope.private,
+        };
+      case mcp.Method.resourcesTemplatesList:
+        result = <String, dynamic>{
+          'resourceTemplates': <Object>[],
+          'ttlMs': 0,
+          'cacheScope': mcp.CacheScope.private,
+        };
+      case mcp.Method.resourcesRead:
+        final params = body['params'] as Map<String, dynamic>;
+        result = <String, dynamic>{
+          'contents': [
+            {
+              'uri': params['uri'],
+              'mimeType': 'text/markdown',
+              'text': '# Today\nWater the plants.',
+            },
+          ],
+          'ttlMs': 0,
+          'cacheScope': mcp.CacheScope.private,
         };
       default:
         request.response.statusCode = HttpStatus.badRequest;

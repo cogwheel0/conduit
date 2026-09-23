@@ -1,6 +1,7 @@
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 
+import 'chat_providers.dart';
 import 'rpc_providers.dart';
 
 /// The MCP servers, secrets reported only as present (M4).
@@ -13,7 +14,8 @@ final mcpServersProvider = FutureProvider<McpServerList>((ref) async {
 
 final mcpActionsProvider = Provider<McpActions>(McpActions.new);
 
-/// Every change answers with the list, which replaces the cached one.
+/// Every change answers with the list, and changes what the composer offers,
+/// so both are refetched.
 class McpActions {
   McpActions(this._ref);
 
@@ -52,6 +54,31 @@ class McpActions {
         McpForgetApproval(serverId: serverId, digest: digest).toJson(),
       );
 
+  /// What one server offers to insert: its prompts and resources.
+  Future<McpContent> content(String serverId) => _ref
+      .read(rpcClientProvider)
+      .call(
+        ConduitMethods.mcpContent,
+        params: McpRef(id: serverId).toJson(),
+        decode: McpContent.fromJson,
+      );
+
+  Future<McpContentPreview> getPrompt(McpGetPrompt request) => _ref
+      .read(rpcClientProvider)
+      .call(
+        ConduitMethods.mcpGetPrompt,
+        params: request.toJson(),
+        decode: McpContentPreview.fromJson,
+      );
+
+  Future<McpContentPreview> readResource(McpReadResource request) => _ref
+      .read(rpcClientProvider)
+      .call(
+        ConduitMethods.mcpReadResource,
+        params: request.toJson(),
+        decode: McpContentPreview.fromJson,
+      );
+
   Future<McpTestResult> test(McpServerEdit edit) => _ref
       .read(rpcClientProvider)
       .call(
@@ -67,7 +94,10 @@ class McpActions {
     final list = await _ref
         .read(rpcClientProvider)
         .call(method, params: params, decode: McpServerList.fromJson);
-    _ref.invalidate(mcpServersProvider);
+    // The composer offers the enabled servers as tools.
+    _ref
+      ..invalidate(mcpServersProvider)
+      ..invalidate(composerOptionsProvider);
     return list;
   }
 }

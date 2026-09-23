@@ -240,7 +240,11 @@ async function fakeMcpServer(): Promise<{ endpoint: string; calls: number; close
       case 'server/discover':
         result = {
           supportedVersions: ['2026-07-28'],
-          capabilities: { tools: { listChanged: false } },
+          capabilities: {
+            tools: { listChanged: false },
+            prompts: { listChanged: false },
+            resources: { listChanged: false, subscribe: false },
+          },
           ttlMs: 0,
           cacheScope: 'private',
           _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'fixture', version: '1.0.0' } },
@@ -254,6 +258,28 @@ async function fakeMcpServer(): Promise<{ endpoint: string; calls: number; close
               description: 'Returns its value.',
               inputSchema: { type: 'object', properties: { value: { type: 'string' } } },
             },
+          ],
+          ttlMs: 0,
+          cacheScope: 'private',
+        }
+        break
+      case 'prompts/list':
+        result = { prompts: [], ttlMs: 0, cacheScope: 'private' }
+        break
+      case 'resources/list':
+        result = {
+          resources: [{ uri: 'file:///notes/today.md', name: 'today.md', mimeType: 'text/markdown' }],
+          ttlMs: 0,
+          cacheScope: 'private',
+        }
+        break
+      case 'resources/templates/list':
+        result = { resourceTemplates: [], ttlMs: 0, cacheScope: 'private' }
+        break
+      case 'resources/read':
+        result = {
+          contents: [
+            { uri: body.params?.uri, mimeType: 'text/markdown', text: '# Today\nWater the plants.' },
           ],
           ttlMs: 0,
           cacheScope: 'private',
@@ -1520,7 +1546,14 @@ test.describe('against a real server', () => {
         )
         .toBeTruthy()
       await page.locator('#model').selectOption(fakeValue!)
-      await page.getByRole('button', { name: /^tools/i }).click()
+      // The chips re-render for a direct model -- its MCP content joins
+      // them -- so wait for that before clicking one of them.
+      await expect(page.getByRole('button', { name: /^mcp content$/i })).toBeVisible()
+      // Open unless an earlier step left it open.
+      const toolsButton = page.getByRole('button', { name: /^tools/i })
+      if ((await toolsButton.getAttribute('aria-expanded')) !== 'true') {
+        await toolsButton.click()
+      }
       await page.getByLabel(/^fixture$/i).check()
       const toolComposer = page.getByPlaceholder('Ask Conduit')
       await toolComposer.fill('Echo hi, please')
@@ -1535,6 +1568,18 @@ test.describe('against a real server', () => {
       await expect(transcript).toContainText('echoed: hi', { timeout: 60_000 })
       expect(mcpServer.calls).toBe(1)
       await shot(page, '16d-mcp-answer')
+
+      // The same server's resources, inserted into the draft as text.
+      await page.getByRole('button', { name: /^mcp content$/i }).click()
+      const sheet = page.getByRole('dialog', { name: /mcp content/i })
+      await sheet.getByRole('button', { name: /today\.md/ }).click()
+      await sheet.getByRole('button', { name: /^preview$/i }).click()
+      await expect(sheet).toContainText('Water the plants.', { timeout: 30_000 })
+      await shot(page, '16e-mcp-content')
+      await sheet.getByRole('button', { name: /^insert$/i }).click()
+      await expect(sheet).toBeHidden()
+      await expect(toolComposer).toHaveValue(/Water the plants\./)
+      await toolComposer.fill('')
     } finally {
       provider.close()
       mcpServer.close()
