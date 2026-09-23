@@ -4,7 +4,7 @@ PackageVersion: 0.1.0
 PackageLocale: en-US
 Publisher: cogwheel
 PackageName: Conduit
-License: AGPL-3.0-or-later
+License: GPL-3.0-only
 ShortDescription: Desktop client for Open WebUI and Hermes Agent
 PackageUrl: https://github.com/cogwheel0/conduit
 Installers:

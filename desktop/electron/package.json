@@ -3,7 +3,7 @@
   "productName": "Conduit",
   "version": "0.1.0",
   "description": "Conduit desktop client — Electron shell around the conduitd sidecar and the Jaspr renderer.",
-  "license": "AGPL-3.0-or-later",
+  "license": "GPL-3.0-only",
   "private": true,
   "main": "out/main.js",
   "scripts": {
