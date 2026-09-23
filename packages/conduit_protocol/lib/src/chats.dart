@@ -222,6 +222,54 @@ abstract class ChatDetail with _$ChatDetail {
       _$ChatDetailFromJson(json);
 }
 
+/// One message in a conversation's tree, for the overview (WP-3.4).
+@freezed
+abstract class ChatTreeNode with _$ChatTreeNode {
+  const factory ChatTreeNode({
+    required String id,
+    String? parentId,
+    required String role,
+
+    /// The start of the message, on one line.
+    required String preview,
+    required int timestampMs,
+    String? model,
+  }) = _ChatTreeNode;
+
+  factory ChatTreeNode.fromJson(Map<String, dynamic> json) =>
+      _$ChatTreeNodeFromJson(json);
+}
+
+/// Reply to `chats.tree`: every message, on every branch.
+///
+/// The transcript shows one path through this; the rest are edits and
+/// regenerations the user moved away from, which only the overview reaches.
+@freezed
+abstract class ChatTree with _$ChatTree {
+  const factory ChatTree({
+    required String chatId,
+    @Default(<ChatTreeNode>[]) List<ChatTreeNode> nodes,
+
+    /// The last message of the path the transcript shows.
+    String? currentId,
+  }) = _ChatTree;
+
+  factory ChatTree.fromJson(Map<String, dynamic> json) =>
+      _$ChatTreeFromJson(json);
+}
+
+/// Params for `chats.setCurrent`: show the branch through [messageId].
+@freezed
+abstract class ChatCurrent with _$ChatCurrent {
+  const factory ChatCurrent({
+    required String chatId,
+    required String messageId,
+  }) = _ChatCurrent;
+
+  factory ChatCurrent.fromJson(Map<String, dynamic> json) =>
+      _$ChatCurrentFromJson(json);
+}
+
 /// Params for `chats.folder` (WP-3.1).
 @freezed
 abstract class FolderRef with _$FolderRef {

@@ -516,6 +516,94 @@ final class ChatsService {
     return BulkChatsResult(list: await _refresh(), failed: failed);
   }
 
+  /// Every message on every branch, for the overview (WP-3.4), from the
+  /// local copy -- which keeps the whole tree, not just the path shown.
+  Future<ChatTree> tree(String chatId) async {
+    final database = _container.read(appDatabaseProvider);
+    if (database == null) return ChatTree(chatId: chatId);
+    final chat = await database.chatsDao.getChat(chatId);
+    final rows = await database.messagesDao.getForChat(chatId);
+    return ChatTree(
+      chatId: chatId,
+      currentId: chat?.currentMessageId,
+      nodes: <ChatTreeNode>[
+        for (final row in rows)
+          ChatTreeNode(
+            id: row.id,
+            parentId: row.parentId,
+            role: row.role,
+            preview: _preview(row.content),
+            // Stored as Open WebUI sends it, in seconds.
+            timestampMs: row.createdAt * 1000,
+            model: row.model,
+          ),
+      ],
+    );
+  }
+
+  /// Shows the branch through [ChatCurrent.messageId] (WP-3.4).
+  ///
+  /// Follows the newest reply down from there to the end of the branch --
+  /// choosing an old question should show where that line of conversation
+  /// ended up, not stop halfway -- and makes that the chat's current
+  /// message on the server, as Open WebUI's own client does. The flat
+  /// message list older clients read is rewritten to match.
+  Future<ChatDetail?> setCurrent(ChatCurrent request) async {
+    final raw = await _api.getChatRaw(request.chatId);
+    final chat = raw?['chat'];
+    final history = chat is Map ? chat['history'] : null;
+    final messages = history is Map ? history['messages'] : null;
+    if (chat is! Map || history is! Map || messages is! Map) {
+      throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        debugMessage: 'no chat ${request.chatId}',
+      );
+    }
+    if (messages[request.messageId] is! Map) {
+      throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        debugMessage: 'no message ${request.messageId}',
+      );
+    }
+
+    var leaf = request.messageId;
+    final seen = <String>{};
+    while (seen.add(leaf)) {
+      final children = (messages[leaf] as Map)['childrenIds'];
+      final next = children is List
+          ? children.map((id) => '$id').where(messages.containsKey).lastOrNull
+          : null;
+      if (next == null) break;
+      leaf = next;
+    }
+
+    final path = <Object?>[];
+    String? id = leaf;
+    final walked = <String>{};
+    while (id != null && walked.add(id) && messages[id] is Map) {
+      final message = messages[id] as Map;
+      path.insert(0, message);
+      id = message['parentId']?.toString();
+    }
+
+    final updated = Map<String, dynamic>.from(chat)
+      ..['history'] = (Map<String, dynamic>.from(history)..['currentId'] = leaf)
+      ..['messages'] = path;
+    await _api.updateChatRaw(request.chatId, updated);
+    await _afterEnvelopeChange(request.chatId);
+    return get(request.chatId);
+  }
+
+  /// A message on one line, without its reasoning and tool-call markup,
+  /// short enough to read at a glance.
+  static String _preview(String content) {
+    final text = content
+        .replaceAll(RegExp(r'<details[\s\S]*?</details>'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    return text.length <= 80 ? text : '${text.substring(0, 79)}…';
+  }
+
   /// Every conversation in a folder, for its page (WP-3.1). From the
   /// database, so older conversations the sidebar has not paged in are
   /// there too.

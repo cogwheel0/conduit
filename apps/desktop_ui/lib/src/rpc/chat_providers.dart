@@ -249,6 +249,20 @@ class Lightbox extends Notifier<({String src, String name})?> {
   void close() => state = null;
 }
 
+/// Every branch of the open conversation, for the overview (WP-3.4).
+final chatTreeProvider = FutureProvider<ChatTree?>((ref) async {
+  final chatId = ref.watch(selectedChatIdProvider);
+  if (chatId == null || isTemporaryChatId(chatId)) return null;
+  ref.watch(_chatsChangedProvider);
+  return ref
+      .read(rpcClientProvider)
+      .call(
+        ConduitMethods.chatsTree,
+        params: ChatRef(id: chatId).toJson(),
+        decode: ChatTree.fromJson,
+      );
+});
+
 /// The folder whose page is open in place of a transcript (WP-3.1).
 final openFolderProvider = NotifierProvider<OpenFolder, String?>(
   OpenFolder.new,
@@ -699,6 +713,20 @@ class ChatActions {
     }
     _ref.invalidate(chatListProvider);
     return result.failed;
+  }
+
+  /// Shows the branch through [messageId] (WP-3.4).
+  Future<void> setCurrent(String chatId, String messageId) async {
+    await _client.call(
+      ConduitMethods.chatsSetCurrent,
+      params: ChatCurrent(chatId: chatId, messageId: messageId).toJson(),
+      decode: (json) => json,
+    );
+    // The versions shown under each answer were chosen on the old branch.
+    _ref.invalidate(answerVersionProvider);
+    _ref
+      ..invalidate(chatDetailProvider)
+      ..invalidate(chatTreeProvider);
   }
 
   /// Sets a conversation's own system prompt; empty clears it (WP-3.4).

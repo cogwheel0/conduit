@@ -605,6 +605,29 @@ class RpcSession {
       },
     );
 
+    registerTypedMethod<ChatRef, ChatTree>(
+      _peer,
+      ConduitMethods.chatsTree,
+      decodeParams: ChatRef.fromJson,
+      encodeResult: (result) => result.toJson(),
+      handler: (request) {
+        _requireHandshake();
+        return _requireChats().tree(request.id);
+      },
+    );
+
+    registerTypedMethod<ChatCurrent, Map<String, dynamic>>(
+      _peer,
+      ConduitMethods.chatsSetCurrent,
+      decodeParams: ChatCurrent.fromJson,
+      encodeResult: (result) => result,
+      handler: (request) async {
+        _requireHandshake();
+        final detail = await _requireChats().setCurrent(request);
+        return <String, dynamic>{'chat': detail?.toJson()};
+      },
+    );
+
     registerTypedMethod<FolderRef, FolderContents>(
       _peer,
       ConduitMethods.chatsFolder,

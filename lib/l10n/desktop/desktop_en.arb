@@ -496,5 +496,13 @@
   "@desktopToggleFolder": {
     "description": "Accessible name of the small arrow beside a folder in the desktop sidebar.",
     "placeholders": { "name": { "type": "String", "example": "Work" } }
+  },
+  "desktopOverview": "Overview",
+  "@desktopOverview": {
+    "description": "Heading of the map of every branch of a conversation, in the desktop controls pane."
+  },
+  "desktopOverviewHint": "Every branch of this conversation. Choose a message to show its branch.",
+  "@desktopOverviewHint": {
+    "description": "Explains the conversation map in the desktop controls pane."
   }
 }

@@ -802,6 +802,30 @@ void main() {
           (chat?['history'] as Map?)?['currentId'],
           edited.assistantMessageId,
         );
+
+        // The overview sees both branches, and can go back to the first
+        // (WP-3.4): its question and answer become the transcript again.
+        final chats = ChatsService(runtime.container, events: events);
+        final tree = await chats.tree(accepted.chatId);
+        expect(
+          tree.nodes.map((n) => n.id),
+          containsAll(<String>[accepted.userMessageId, edited.userMessageId]),
+        );
+        final back = await chats.setCurrent(
+          ChatCurrent(
+            chatId: accepted.chatId,
+            messageId: accepted.userMessageId,
+          ),
+        );
+        expect(
+          back?.messages.where((m) => m.role == 'user').map((m) => m.content),
+          <String>['Say the word: gamma'],
+        );
+        final reread = await api.getChatRaw(accepted.chatId);
+        expect(
+          ((reread?['chat'] as Map?)?['history'] as Map?)?['currentId'],
+          accepted.assistantMessageId,
+        );
       }, timeout: const Timeout(Duration(minutes: 5)));
 
       test(

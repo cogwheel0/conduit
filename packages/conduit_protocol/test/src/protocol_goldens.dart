@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.20.0",
+  "protocolVersion": "1.21.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.20.0",
+  "protocolVersion": "1.21.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -580,6 +580,36 @@ const Map<String, String> protocolGoldens = <String, String>{
   "failed": [
     "chat-2"
   ]
+}''',
+
+  'chatTreeNode': r'''
+{
+  "id": "msg-2",
+  "parentId": "msg-1",
+  "role": "assistant",
+  "preview": "Oldest first.",
+  "timestampMs": 1758412800000,
+  "model": "gpt-4o"
+}''',
+
+  'chatTree': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "nodes": [
+    {
+      "id": "msg-1",
+      "role": "user",
+      "preview": "Hi",
+      "timestampMs": 1
+    }
+  ],
+  "currentId": "msg-1"
+}''',
+
+  'chatCurrent': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "messageId": "msg-2"
 }''',
 
   'folderRef': r'''

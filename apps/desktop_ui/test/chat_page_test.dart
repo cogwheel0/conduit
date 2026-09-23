@@ -905,6 +905,46 @@ void main() {
     });
   });
 
+  testComponents('an answer stored as a version is not drawn again', (
+    tester,
+  ) async {
+    // The overview moved the branch: the answer that just streamed is now
+    // a version of the one shown, not a message of its own.
+    tester.pumpComponent(
+      _scoped(
+        detail: const ChatDetail(
+          summary: ChatSummary(id: 'chat-1', title: 'T', updatedAtMs: 1),
+          messages: <ChatMessageDto>[
+            ChatMessageDto(id: 'q', role: 'user', content: 'Q', timestampMs: 1),
+            ChatMessageDto(
+              id: 'a1',
+              role: 'assistant',
+              content: 'Older',
+              timestampMs: 2,
+              versions: <ChatMessageVersionDto>[
+                ChatMessageVersionDto(
+                  id: 'a2',
+                  content: 'Newer',
+                  timestampMs: 3,
+                ),
+              ],
+            ),
+          ],
+        ),
+        selected: 'chat-1',
+        live: const LiveTurn(
+          chatId: 'chat-1',
+          messageId: 'a2',
+          text: 'Newer',
+          settled: true,
+        ),
+      ),
+    );
+    await pumpEventQueue();
+    expect(find.text('Newer'), findsNothing);
+    expect(find.text('Older'), findsComponents);
+  });
+
   testComponents('a finished turn gives the send button back', (tester) async {
     // The provider keeps the last turn until a new one replaces it, which
     // is what holds a completed answer on screen while the sync catches

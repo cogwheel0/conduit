@@ -317,6 +317,22 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     list: ChatList(),
     failed: <String>['chat-2'],
   ),
+  'chatTreeNode': const ChatTreeNode(
+    id: 'msg-2',
+    parentId: 'msg-1',
+    role: 'assistant',
+    preview: 'Oldest first.',
+    timestampMs: 1758412800000,
+    model: 'gpt-4o',
+  ),
+  'chatTree': const ChatTree(
+    chatId: 'chat-7c1f0b2a',
+    nodes: <ChatTreeNode>[
+      ChatTreeNode(id: 'msg-1', role: 'user', preview: 'Hi', timestampMs: 1),
+    ],
+    currentId: 'msg-1',
+  ),
+  'chatCurrent': const ChatCurrent(chatId: 'chat-7c1f0b2a', messageId: 'msg-2'),
   'folderRef': const FolderRef(folderId: 'folder-1'),
   'folderContents': const FolderContents(
     folder: FolderSummary(id: 'folder-1', name: 'Work'),
@@ -528,6 +544,9 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'chatSystemPrompt': ChatSystemPrompt.fromJson,
       'bulkChats': BulkChats.fromJson,
       'bulkChatsResult': BulkChatsResult.fromJson,
+      'chatTreeNode': ChatTreeNode.fromJson,
+      'chatTree': ChatTree.fromJson,
+      'chatCurrent': ChatCurrent.fromJson,
       'folderRef': FolderRef.fromJson,
       'folderContents': FolderContents.fromJson,
       'moveChat': MoveChat.fromJson,

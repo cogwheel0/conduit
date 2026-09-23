@@ -133,6 +133,13 @@ abstract final class ConduitMethods {
   /// Every conversation in one folder, for its page (WP-3.1).
   static const String chatsFolder = 'chats.folder';
 
+  /// Every message on every branch, for the overview map (WP-3.4).
+  static const String chatsTree = 'chats.tree';
+
+  /// Makes the branch through a message the one the transcript shows, on
+  /// the server, as Open WebUI's client does when switching branches.
+  static const String chatsSetCurrent = 'chats.setCurrent';
+
   /// Sets or clears a conversation's own system prompt (WP-3.4).
   static const String chatsSetSystemPrompt = 'chats.setSystemPrompt';
 

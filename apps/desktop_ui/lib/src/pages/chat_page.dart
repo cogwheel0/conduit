@@ -793,7 +793,18 @@ class _Transcript extends StatelessComponent {
     final persistedLive = live == null
         ? null
         : persisted.where((m) => m.id == live.messageId).firstOrNull;
-    final persistedLiveHasText = (persistedLive?.content ?? '').isNotEmpty;
+    // Stored as another answer's version counts too. Switching branches in
+    // the overview can move the answer that just streamed off the path
+    // shown, and the overlay then drew it a second time below the answer
+    // that now carries it as a version.
+    final persistedLiveHasText =
+        (persistedLive?.content ?? '').isNotEmpty ||
+        (live != null &&
+            persisted.any(
+              (m) => m.versions.any(
+                (v) => v.id == live.messageId && v.content.isNotEmpty,
+              ),
+            ));
 
     // Read once here rather than in every block: the port is the page's
     // dependency, not the markdown renderer's, and threading the callback

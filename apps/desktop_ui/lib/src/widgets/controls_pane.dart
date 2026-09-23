@@ -6,6 +6,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 
 import '../l10n/strings.g.dart';
 import '../rpc/chat_providers.dart';
+import 'conversation_map.dart';
 import 'form_field.dart';
 
 /// Beside the transcript: this conversation's own settings (WP-3.4).
@@ -100,6 +101,11 @@ class _ControlsPaneState extends State<ControlsPane> {
             [Component.text(status)],
           ),
       ]),
+      if (context.watch(chatTreeProvider).value case final tree?
+          when tree.nodes.isNotEmpty)
+        div(classes: 'mt-2 border-t border-border pt-3', [
+          ConversationMap(tree: tree),
+        ]),
     ],
   );
 

@@ -718,6 +718,29 @@ test.describe('against a real server', () => {
     await promptField.fill('')
     await controls.getByRole('button', { name: /^save$/i }).click()
     await expect(controls.getByText(/^saved$/i)).toBeVisible({ timeout: 30_000 })
+
+    // The overview (WP-3.4): both answers the regeneration left, one
+    // current. Switching to the other and back goes through the server.
+    {
+      const overview = controls.getByRole('region', { name: /^overview$/i })
+      const answers = overview.getByRole('button', { name: /^pong/i })
+      await expect(answers).toHaveCount(2, { timeout: 30_000 })
+      // By position, which the tree keeps stable: a locator that means
+      // "the one not current" would follow the highlight around.
+      const firstIsCurrent =
+        (await answers.nth(0).getAttribute('aria-current')) === 'true'
+      const older = answers.nth(firstIsCurrent ? 1 : 0)
+      const newer = answers.nth(firstIsCurrent ? 0 : 1)
+      await older.click()
+      await expect(older).toHaveAttribute('aria-current', 'true', {
+        timeout: 30_000,
+      })
+      await shot(page, '08j-overview')
+      await newer.click()
+      await expect(newer).toHaveAttribute('aria-current', 'true', {
+        timeout: 30_000,
+      })
+    }
     await controls.getByRole('button', { name: /^close$/i }).click()
     await expect(controls).toBeHidden()
 
