@@ -2037,6 +2037,20 @@ final class DirectModelDiscoveryState {
     this.isRefreshing = false,
   }) : errorsByProfile = Map.unmodifiable(errorsByProfile);
 
+  /// Test seam mirroring the live controller's settled republication, which
+  /// reuses the existing models list when the identities did not change.
+  /// The public constructor always re-wraps [models] in a fresh list.
+  @visibleForTesting
+  factory DirectModelDiscoveryState.stableModels({
+    required List<model.Model> models,
+    Map<String, String> errorsByProfile = const {},
+    bool isRefreshing = false,
+  }) => DirectModelDiscoveryState._withStableModels(
+        models: models,
+        errorsByProfile: errorsByProfile,
+        isRefreshing: isRefreshing,
+      );
+
   final List<model.Model> models;
   final Map<String, String> errorsByProfile;
   final bool isRefreshing;

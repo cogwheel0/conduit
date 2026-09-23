@@ -1804,15 +1804,26 @@ class Models extends _$Models {
         );
       }
     }
-    final directModels = ref.watch(
+    final directDiscoverySnapshot = ref.watch(
       directModelDiscoveryProvider.select((value) {
         final models = value.value?.models;
         // Keep loading -> empty discovery transitions referentially stable.
         // Otherwise an empty, newly wrapped list can cancel a concurrent
         // modelsProvider rebuild and leave callers awaiting its old future.
-        return models == null || models.isEmpty ? const <Model>[] : models;
+        final snapshot = value.asData?.value;
+        return (
+          models: models == null || models.isEmpty ? const <Model>[] : models,
+          // A settled pass can republish the exact same models list (the live
+          // controller reuses stable lists) — the settled flip alone must
+          // invalidate this provider so a configured default missing from the
+          // list gets one last chance to fall back instead of waiting forever.
+          settled: snapshot != null && !snapshot.isRefreshing,
+        );
       }),
     );
+    final directModels = directDiscoverySnapshot.models.isEmpty
+        ? const <Model>[]
+        : directDiscoverySnapshot.models;
     // Initial discovery loading is reconciliation context, not a model-list
     // dependency. Watching it would turn loading -> empty into an otherwise
     // spurious rebuild and could cancel a concurrent Hermes/auth rebuild.
@@ -2119,6 +2130,7 @@ class Models extends _$Models {
             currentSelected != null && ref.read(isManualModelSelectionProvider)
             ? null
             : _configuredDefaultModelId(ref),
+        discoverySettled: _directDiscoverySettled(ref),
       );
       if (identical(currentSelected, replacement)) return models;
 
@@ -2576,6 +2588,7 @@ class SelectedModel extends _$SelectedModel {
             current != null && ref.read(isManualModelSelectionProvider)
             ? null
             : _configuredDefaultModelId(ref),
+        discoverySettled: _directDiscoverySettled(ref),
       ),
     );
   }
@@ -4791,6 +4804,7 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
         current: currentSelected,
         preferredBackend: preferredBackend,
         preferredModelId: configuredDefaultId,
+        discoverySettled: !discovery.isRefreshing,
       );
     } else {
       final models = await ref.read(modelsProvider.future);
@@ -4802,6 +4816,7 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
         current: currentSelected,
         preferredBackend: preferredBackend,
         preferredModelId: configuredDefaultId,
+        discoverySettled: _directDiscoverySettled(ref),
       );
     }
     // Provider initialization may not synchronously mutate another provider.
@@ -5217,6 +5232,7 @@ Model? _accountlessSelection({
   required Model? current,
   required PreferredBackend preferredBackend,
   String? preferredModelId,
+  bool discoverySettled = false,
 }) {
   final available = models.toList(growable: false);
 
@@ -5239,18 +5255,35 @@ Model? _accountlessSelection({
     return currentMatch;
   }
 
-  // A configured default that is not (yet) in the list must not be silently
-  // replaced by an arbitrary model: discovery listeners re-run this decision
-  // once the list settles, so return null and wait. Substituting the first
-  // model here is what made a cold start land on a "random" model.
-  if (preferredModelId != null && preferredModelId.isNotEmpty) return null;
-
-  return _modelForPreferredBackend(available, preferredBackend) ??
+  Model? backendFallback() =>
+      _modelForPreferredBackend(available, preferredBackend) ??
       switch (preferredBackend) {
-        PreferredBackend.owui ||
-        PreferredBackend.unset => available.firstOrNull,
+        PreferredBackend.owui || PreferredBackend.unset => available.firstOrNull,
         PreferredBackend.direct || PreferredBackend.hermes => null,
       };
+
+  // A configured default that is not (yet) in the list must not be silently
+  // replaced by an arbitrary model while discovery may still publish more
+  // models: a cold start's first (cached) list is partial, and substituting
+  // from it is what made a cold start land on a "random" model. Once
+  // discovery has settled, waiting cannot resolve a default that was deleted,
+  // renamed, or removed server-side, so fall back to a usable model rather
+  // than leaving the user without a selection indefinitely.
+  if (preferredModelId != null && preferredModelId.isNotEmpty) {
+    return discoverySettled ? backendFallback() : null;
+  }
+
+  return backendFallback();
+}
+
+/// Whether the direct-model discovery list is a settled (complete) discovery
+/// pass rather than a cached cold-start list or one still being refreshed.
+/// Only a settled list may stand in for a configured default that never
+/// appeared; a partial list must keep waiting for the missing default.
+bool _directDiscoverySettled(Ref ref) {
+  final discovery = ref.read(directModelDiscoveryProvider);
+  final state = discovery.asData?.value;
+  return state != null && !state.isRefreshing;
 }
 
 bool _matchesPreferredBackend(Model model, PreferredBackend preferredBackend) =>

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/providers/backend_mode_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/optimized_storage_service.dart';
 import 'package:conduit/core/services/settings_service.dart';
@@ -28,6 +29,27 @@ final class _PendingDiscovery extends DirectModelDiscoveryController {
 
   @override
   Future<DirectModelDiscoveryState> build() => completer.future;
+}
+
+/// Publishes each scripted state on refresh(), mimicking how the live
+/// controller republishes a settled list without an intervening loading gap.
+final class _RefreshableScriptedDiscovery extends DirectModelDiscoveryController {
+  _RefreshableScriptedDiscovery(this.states);
+
+  final List<DirectModelDiscoveryState> states;
+  int _index = 0;
+
+  @override
+  Future<DirectModelDiscoveryState> build() async =>
+      states[_index.clamp(0, states.length - 1)];
+
+  @override
+  Future<void> refresh() async {
+    if (_index + 1 < states.length) {
+      _index++;
+      state = AsyncValue.data(states[_index]);
+    }
+  }
 }
 
 final class _Storage extends Fake implements OptimizedStorageService {
@@ -109,6 +131,15 @@ final class _FixedHermesConfig extends HermesConfigController {
 
   @override
   HermesConfig build() => config;
+}
+
+final class _FixedPreferredBackend extends PreferredBackendController {
+  _FixedPreferredBackend(this.backend);
+
+  final PreferredBackend backend;
+
+  @override
+  PreferredBackend build() => backend;
 }
 
 final class _FixedAppSettings extends AppSettingsNotifier {
@@ -214,6 +245,7 @@ void main() {
 
     fixture.discovery.complete(DirectModelDiscoveryState());
     await Future<void>.delayed(Duration.zero);
+    await fixture.container.read(modelsProvider.future);
     await Future<void>.delayed(Duration.zero);
 
     expect(fixture.container.read(selectedModelProvider), isNull);
@@ -272,7 +304,7 @@ void main() {
     expect(container.read(isManualModelSelectionProvider), isFalse);
   });
 
-  test('missing configured default is awaited, not substituted', () async {
+  test('partial discovery list still waits for a missing configured default', () async {
     final profile = DirectConnectionProfile(
       id: 'profile',
       name: 'Provider',
@@ -300,6 +332,9 @@ void main() {
         hermesConfigProvider.overrideWith(
           () => _FixedHermesConfig(const HermesConfig()),
         ),
+        preferredBackendProvider.overrideWith(
+          () => _FixedPreferredBackend(PreferredBackend.direct),
+        ),
         appSettingsProvider.overrideWith(
           () => _FixedAppSettings(
             AppSettings(defaultModel: missing.id),
@@ -310,14 +345,142 @@ void main() {
     addTearDown(container.dispose);
 
     await container.read(modelsProvider.future);
-    // Discovery settles with only the non-preferred model available.
-    discovery.complete(DirectModelDiscoveryState(models: [other]));
+    // A cold start's first publication is the partial cached list; a
+    // default absent from it must not be substituted (the random-model bug).
+    discovery.complete(
+      DirectModelDiscoveryState(models: [other], isRefreshing: true),
+    );
     await Future<void>.delayed(Duration.zero);
     await Future<void>.delayed(Duration.zero);
 
     // Substituting the arbitrary available model (the old behavior) is what
     // made cold starts land on a "random" model; the reconcile must wait.
     expect(container.read(selectedModelProvider), isNull);
+    expect(container.read(isManualModelSelectionProvider), isFalse);
+  });
+
+  test('settled discovery missing the configured default falls back', () async {
+    final profile = DirectConnectionProfile(
+      id: 'profile',
+      name: 'Provider',
+      adapterKey: kOllamaAdapterKey,
+      baseUrl: 'http://localhost:11434',
+    );
+    final registry = DirectModelRegistry();
+    final minted = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'other-model'),
+      DirectRemoteModel(id: 'missing-model'),
+    ]);
+    final other = minted.first;
+    final missing = minted.last;
+    expect(registry.resolve(other), isNotNull);
+    final discovery = Completer<DirectModelDiscoveryState>();
+    final container = ProviderContainer(
+      overrides: [
+        reviewerModeProvider.overrideWithValue(false),
+        isAuthenticatedProvider2.overrideWithValue(false),
+        optimizedStorageServiceProvider.overrideWithValue(_Storage()),
+        directModelRegistryProvider.overrideWithValue(registry),
+        directModelDiscoveryProvider.overrideWith(
+          () => _PendingDiscovery(discovery),
+        ),
+        hermesConfigProvider.overrideWith(
+          () => _FixedHermesConfig(const HermesConfig()),
+        ),
+        preferredBackendProvider.overrideWith(
+          () => _FixedPreferredBackend(PreferredBackend.direct),
+        ),
+        appSettingsProvider.overrideWith(
+          () => _FixedAppSettings(
+            AppSettings(defaultModel: missing.id),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(modelsProvider.future);
+    // Discovery settles without the configured default: it was deleted or
+    // renamed server-side, so waiting cannot resolve it. Reconciliation must
+    // land on a usable model of the preferred backend instead of stalling.
+    discovery.complete(DirectModelDiscoveryState(models: [other]));
+    await Future<void>.delayed(Duration.zero);
+    // The settled publication invalidates modelsProvider; re-read so the
+    // reconciliation against the settled list actually runs.
+    final settledModels = await container.read(modelsProvider.future);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(settledModels.map((model) => model.id), contains(other.id));
+    expect(container.read(selectedModelProvider)?.id, other.id);
+    expect(container.read(isManualModelSelectionProvider), isFalse);
+  });
+
+  test('settled republication of an unchanged list retriggers the fallback', () async {
+    final profile = DirectConnectionProfile(
+      id: 'profile',
+      name: 'Provider',
+      adapterKey: kOllamaAdapterKey,
+      baseUrl: 'http://localhost:11434',
+    );
+    final registry = DirectModelRegistry();
+    final minted = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'other-model'),
+      DirectRemoteModel(id: 'missing-model'),
+    ]);
+    final other = minted.first;
+    final missing = minted.last;
+    // One list instance shared by both publications, mirroring the live
+    // controller's stable-list republication of an unchanged discovery pass.
+    final unchangedModels = [other];
+    final container = ProviderContainer(
+      overrides: [
+        reviewerModeProvider.overrideWithValue(false),
+        isAuthenticatedProvider2.overrideWithValue(false),
+        optimizedStorageServiceProvider.overrideWithValue(_Storage()),
+        directModelRegistryProvider.overrideWithValue(registry),
+        directModelDiscoveryProvider.overrideWith(
+          () => _RefreshableScriptedDiscovery([
+            DirectModelDiscoveryState.stableModels(
+              models: unchangedModels,
+              isRefreshing: true,
+            ),
+            DirectModelDiscoveryState.stableModels(models: unchangedModels),
+          ]),
+        ),
+        hermesConfigProvider.overrideWith(
+          () => _FixedHermesConfig(const HermesConfig()),
+        ),
+        preferredBackendProvider.overrideWith(
+          () => _FixedPreferredBackend(PreferredBackend.direct),
+        ),
+        appSettingsProvider.overrideWith(
+          () => _FixedAppSettings(AppSettings(defaultModel: missing.id)),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    // Let the scripted controller's first publication resolve before
+    // modelsProvider builds, so the publication cannot land mid-build and
+    // discard the first build's future (Riverpod restarts builds whose
+    // dependencies change mid-flight).
+    await container.read(directModelDiscoveryProvider.future);
+    await container.read(modelsProvider.future);
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    // The partial (cached) list still waits for the configured default.
+    expect(container.read(selectedModelProvider), isNull);
+
+    // The live pass republishes the same models list settled: a default
+    // deleted server-side can never reappear, so the settle — invisible to a
+    // models-identity-only comparison — must retrigger reconciliation and
+    // land on a usable model instead of waiting forever.
+    await container.read(directModelDiscoveryProvider.notifier).refresh();
+    await container.read(modelsProvider.future);
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(container.read(selectedModelProvider)?.id, other.id);
     expect(container.read(isManualModelSelectionProvider), isFalse);
   });
 
@@ -341,6 +504,7 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       fixture.discovery.complete(DirectModelDiscoveryState());
       await Future<void>.delayed(Duration.zero);
+      await fixture.container.read(modelsProvider.future);
       await Future<void>.delayed(Duration.zero);
     } finally {
       debugPrint = previousDebugPrint;
