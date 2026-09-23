@@ -453,6 +453,30 @@ void main() {
     expect(find.text(t.desktop.desktopSyncing), findsNComponents(2));
   });
 
+  test('only conversations on the server can be shared', () {
+    expect(isShareableChatId('4f1c-server-id'), isTrue);
+    expect(isShareableChatId('local:hermes_s1'), isFalse);
+    expect(isShareableChatId('local:pending-direct'), isFalse);
+    expect(isShareableChatId('direct-local:abc'), isFalse);
+  });
+
+  testComponents('a Hermes session offers no share link', (tester) async {
+    tester.pumpComponent(
+      _scoped(
+        detail: const ChatDetail(
+          summary: ChatSummary(
+            id: 'local:hermes_s1',
+            title: 'Trip plans',
+            updatedAtMs: 1,
+          ),
+        ),
+        selected: 'local:hermes_s1',
+      ),
+    );
+    await pumpEventQueue();
+    expect(find.text(t.app.shareChat), findsNothing);
+  });
+
   group('voice', () {
     late RecordingVoice port;
 

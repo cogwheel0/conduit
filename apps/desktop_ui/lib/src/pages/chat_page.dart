@@ -688,10 +688,12 @@ class _ChatRowState extends State<_ChatRow> {
                   _draftTitle = chat.title;
                 }),
               ),
-              ContextMenuItem(
-                t.app.shareChat,
-                () => context.read(shareDialogProvider.notifier).open(chat.id),
-              ),
+              if (isShareableChatId(chat.id))
+                ContextMenuItem(
+                  t.app.shareChat,
+                  () =>
+                      context.read(shareDialogProvider.notifier).open(chat.id),
+                ),
               // Every folder, as drag-and-drop offers them -- for the same
               // move without a mouse held down across the sidebar.
               for (final folder
@@ -1005,15 +1007,16 @@ class _Transcript extends StatelessComponent {
           if (selected != null &&
               !temporaryIds.contains(selected) &&
               !isLocalOnlyChatId(selected)) ...[
-            button(
-              [Component.text(t.app.shareChat)],
-              classes:
-                  'ml-auto shrink-0 rounded px-2 py-1 text-xs font-normal '
-                  'text-muted-foreground hover:bg-accent',
-              type: ButtonType.button,
-              onClick: () =>
-                  context.read(shareDialogProvider.notifier).open(selected),
-            ),
+            if (isShareableChatId(selected))
+              button(
+                [Component.text(t.app.shareChat)],
+                classes:
+                    'ml-auto shrink-0 rounded px-2 py-1 text-xs font-normal '
+                    'text-muted-foreground hover:bg-accent',
+                type: ButtonType.button,
+                onClick: () =>
+                    context.read(shareDialogProvider.notifier).open(selected),
+              ),
             button(
               [Component.text(t.desktop.desktopControls)],
               classes:

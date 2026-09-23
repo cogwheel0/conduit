@@ -1121,6 +1121,13 @@ class TemporaryChat extends Notifier<bool> {
 bool isLocalOnlyChatId(String? chatId) =>
     chatId != null && chatId.startsWith('direct-local:');
 
+/// Whether [chatId] names a conversation on the server, which is what a
+/// share link points at. Not one kept on this computer, not a Hermes
+/// session (`local:hermes_…`), and not a direct chat still waiting for its
+/// first sync (`local:…`).
+bool isShareableChatId(String chatId) =>
+    !isLocalOnlyChatId(chatId) && !chatId.startsWith('local:');
+
 /// The temporary conversations this window started.
 ///
 /// Known by membership, not by the `local:` prefix they carry: a direct
