@@ -39,6 +39,11 @@ final windowCommandsProvider = Provider<WindowCommandsPort>(
   (ref) => RecordingWindowCommands(),
 );
 
+/// The window's network events, overridden in `main.dart`.
+final networkEventsProvider = Provider<NetworkEventsPort>(
+  (ref) => const SteadyNetwork(),
+);
+
 /// The document keydown listener, overridden in `main.dart`.
 final shortcutBindingProvider = Provider<ShortcutBindingPort>(
   (ref) => NoShortcutBinding(),

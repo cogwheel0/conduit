@@ -416,6 +416,12 @@ abstract class SyncState with _$SyncState {
 
     /// The last cycle's failure, as the engine reported it.
     String? lastError,
+
+    /// False when this computer has no network at all (WP-3.3). Narrow on
+    /// purpose: "an interface exists" is all the daemon can know without
+    /// asking the server, and a server that will not answer is what
+    /// [lastError] is for.
+    @Default(true) bool online,
   }) = _SyncState;
 
   factory SyncState.fromJson(Map<String, dynamic> json) =>

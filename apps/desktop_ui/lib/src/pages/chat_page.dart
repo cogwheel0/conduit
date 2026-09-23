@@ -821,6 +821,16 @@ class _Transcript extends StatelessComponent {
             ),
         ],
       ),
+      // Under the header rather than over the composer: it describes the
+      // whole window, and the composer says the rest by pausing Send.
+      if (context.watch(onlineProvider).value == false)
+        div(
+          classes:
+              'shrink-0 border-b border-border bg-muted px-6 py-2 text-xs '
+              'text-muted-foreground',
+          attributes: const <String, String>{'role': 'status'},
+          [Component.text(t.desktop.desktopOffline)],
+        ),
       if (context.watch(shareDialogProvider) case final shareId?)
         ShareDialog(
           key: ValueKey('share-$shareId'),
@@ -1615,7 +1625,9 @@ class _ComposerState extends State<_Composer> {
                   // An attachment still climbing is not a reason to grey the
                   // button out -- the user would watch it and wonder. The
                   // send waits for the upload instead, and says so.
-                  enabled: _text.trim().isNotEmpty || _attachments.isNotEmpty,
+                  enabled:
+                      (_text.trim().isNotEmpty || _attachments.isNotEmpty) &&
+                      context.watch(onlineProvider).value != false,
                   fullWidth: false,
                 ),
             ]),
@@ -1885,6 +1897,8 @@ class _ComposerState extends State<_Composer> {
     // A message may be attachments alone -- "look at this" with a file is a
     // complete thought -- but it may not be nothing.
     if ((text.isEmpty && _attachments.isEmpty) || _busy) return;
+    // Enter as well as the button: the banner already says why.
+    if (context.read(onlineProvider).value == false) return;
     if (_attachments.any((file) => !file.ready && !file.failed)) {
       setState(() => _error = t.desktop.desktopAttachmentsUploading);
       return;

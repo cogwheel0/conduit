@@ -356,6 +356,7 @@ class DaemonServer {
         uiRequests: _uiRequests,
         composer: _composer,
         prompts: _prompts,
+        reportNetwork: (online) => _core?.reportNetwork(online: online),
       );
       _sessions[sessionId] = session;
       _log.debug('session $sessionId opened (subprotocol: $subprotocol)');
@@ -407,6 +408,7 @@ class DaemonServer {
     await _turns?.dispose();
     _turns = null;
     _models = null;
+    _chats?.dispose();
     _chats = null;
     if (!_stopped.isCompleted) _stopped.complete();
   }

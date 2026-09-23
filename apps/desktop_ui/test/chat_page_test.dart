@@ -71,8 +71,10 @@ Component _scoped({
   ComposerOptions? composer,
   Capabilities? capabilities,
   Set<String>? chosen,
+  bool online = true,
 }) => ProviderScope(
   overrides: [
+    onlineProvider.overrideWith((ref) => Stream<bool>.value(online)),
     if (chosen != null)
       chatSelectionProvider.overrideWith(() => _Chosen(chosen)),
     if (capabilities != null)
@@ -764,6 +766,14 @@ void main() {
     // instead. The form's submit handler calls `preventDefault`, which
     // throws on the VM -- `universal_web` stubs every real DOM call -- so
     // the one thing a component test cannot do here is submit a form.
+  });
+
+  testComponents('offline says so and pauses Send', (tester) async {
+    tester.pumpComponent(
+      _scoped(detail: _detail, selected: 'chat-1', online: false),
+    );
+    await pumpEventQueue();
+    expect(find.text(t.desktop.desktopOffline), findsOneComponent);
   });
 
   group('selection', () {

@@ -105,3 +105,23 @@ final class NoShortcutBinding implements ShortcutBindingPort {
   @override
   void dispose() => handler = null;
 }
+
+/// The window's `online` and `offline` events (WP-3.3).
+///
+/// A port for the same reason as the others: `window` is not there on the
+/// VM. [online] is `navigator.onLine` at the time of asking.
+abstract interface class NetworkEventsPort {
+  bool get online;
+  Stream<bool> get changes;
+}
+
+/// Always online, and never says otherwise. The default outside a browser.
+final class SteadyNetwork implements NetworkEventsPort {
+  const SteadyNetwork();
+
+  @override
+  bool get online => true;
+
+  @override
+  Stream<bool> get changes => const Stream<bool>.empty();
+}

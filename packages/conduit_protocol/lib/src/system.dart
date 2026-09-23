@@ -131,3 +131,12 @@ abstract class UiResponse with _$UiResponse {
   factory UiResponse.fromJson(Map<String, dynamic> json) =>
       _$UiResponseFromJson(json);
 }
+
+/// Params for `system.network`.
+@freezed
+abstract class NetworkReport with _$NetworkReport {
+  const factory NetworkReport({required bool online}) = _NetworkReport;
+
+  factory NetworkReport.fromJson(Map<String, dynamic> json) =>
+      _$NetworkReportFromJson(json);
+}

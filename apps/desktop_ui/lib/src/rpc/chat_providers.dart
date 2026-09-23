@@ -127,6 +127,48 @@ final paletteResultsProvider = FutureProvider<ChatSearchResults?>((ref) async {
       );
 });
 
+/// Whether sending can work: the window's network and the daemon's agree
+/// that there is one (WP-3.3).
+///
+/// The window hears `offline` at once; the daemon polls, and also covers
+/// the case the window cannot see. Either saying "no network" is enough.
+/// Each change the window hears is passed on, so the daemon -- and through
+/// it every other window -- learns without waiting for its next poll.
+final onlineProvider = StreamProvider<bool>((ref) {
+  final network = ref.watch(networkEventsProvider);
+  final client = ref.watch(rpcClientProvider);
+  final controller = StreamController<bool>();
+  var window = network.online;
+  var daemon = ref.read(syncStateProvider).value?.online ?? true;
+  void emit() => controller.add(window && daemon);
+
+  final windowChanges = network.changes.listen((online) {
+    window = online;
+    emit();
+    unawaited(
+      client
+          .call(
+            ConduitMethods.systemNetwork,
+            params: NetworkReport(online: online).toJson(),
+            decode: (json) => json,
+          )
+          .then<void>((_) {}, onError: (Object _) {}),
+    );
+  });
+  ref.listen(syncStateProvider, (_, next) {
+    final online = next.value?.online;
+    if (online == null || online == daemon) return;
+    daemon = online;
+    emit();
+  });
+  emit();
+  ref.onDispose(() {
+    windowChanges.cancel();
+    controller.close();
+  });
+  return controller.stream;
+});
+
 /// The conversations chosen in the sidebar's selection mode (WP-3.8).
 ///
 /// Null outside the mode. A mode, not modifier-clicks alone: a click on a

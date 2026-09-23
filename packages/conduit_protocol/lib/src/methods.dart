@@ -30,6 +30,11 @@ abstract final class ConduitMethods {
   /// Zip the rotating logs plus a redacted config snapshot and return a path.
   static const String systemExportDiagnostics = 'system.exportDiagnostics';
 
+  /// The window's view of the network: the browser's `online` and
+  /// `offline` events, which arrive at once where the daemon can only poll
+  /// (WP-3.3).
+  static const String systemNetwork = 'system.network';
+
   /// Replace this client's event interest set.
   static const String eventsSubscribe = 'events.subscribe';
 

@@ -45,6 +45,7 @@ Future<void> main() async {
       themeApplierProvider.overrideWithValue(const DocumentThemeApplier()),
       filePickerProvider.overrideWithValue(const BrowserFilePicker()),
       windowCommandsProvider.overrideWithValue(DocumentWindowCommands()),
+      networkEventsProvider.overrideWithValue(WindowNetworkEvents()),
       // `platform` is the shell's own report, not a user-agent guess: the
       // difference decides whether the accelerator is Cmd or Ctrl, and
       // binding the wrong one makes every shortcut in the app dead.

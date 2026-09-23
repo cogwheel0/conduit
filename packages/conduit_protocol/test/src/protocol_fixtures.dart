@@ -272,7 +272,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     webSearch: true,
     tools: <ToolSummary>[ToolSummary(id: 'weather', name: 'Weather')],
   ),
-  'syncState': const SyncState(running: true, progress: 0.4),
+  'syncState': const SyncState(running: true, progress: 0.4, online: false),
   'chatsChanged': const ChatsChanged(chatId: 'chat-7c1f0b2a'),
   'editTurn': const EditTurn(
     chatId: 'chat-7c1f0b2a',
@@ -297,6 +297,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     size: 182_344,
     contentType: 'application/pdf',
   ),
+  'networkReport': const NetworkReport(online: false),
   'bulkChats': const BulkChats(
     chatIds: <String>['chat-1', 'chat-2'],
     action: BulkChatAction.move,
@@ -505,6 +506,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'folderSummary': FolderSummary.fromJson,
       'archivedVisibility': ArchivedVisibility.fromJson,
       'uploadedFile': UploadedFile.fromJson,
+      'networkReport': NetworkReport.fromJson,
       'bulkChats': BulkChats.fromJson,
       'bulkChatsResult': BulkChatsResult.fromJson,
       'moveChat': MoveChat.fromJson,

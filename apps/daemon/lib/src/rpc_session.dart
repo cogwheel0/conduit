@@ -38,7 +38,9 @@ class RpcSession {
     UiRequestsService? uiRequests,
     ComposerService? composer,
     PromptsService? prompts,
+    void Function(bool online)? reportNetwork,
   }) : _events = events,
+       _reportNetwork = reportNetwork,
        _composer = composer,
        _prompts = prompts,
        _uiRequests = uiRequests,
@@ -83,6 +85,10 @@ class RpcSession {
   final UiRequestsService? _uiRequests;
   final ComposerService? _composer;
   final PromptsService? _prompts;
+
+  /// Where a window's `online`/`offline` events go: the connectivity port,
+  /// which then tells every window. Null before the core is up.
+  final void Function(bool online)? _reportNetwork;
 
   Future<void> listen() => _peer.listen();
 
@@ -167,6 +173,18 @@ class RpcSession {
       handler: () {
         _requireHandshake();
         return _system.exportDiagnostics();
+      },
+    );
+
+    registerTypedMethod<NetworkReport, Map<String, dynamic>>(
+      _peer,
+      ConduitMethods.systemNetwork,
+      decodeParams: NetworkReport.fromJson,
+      encodeResult: (result) => result,
+      handler: (report) {
+        _requireHandshake();
+        _reportNetwork?.call(report.online);
+        return <String, dynamic>{'ok': true};
       },
     );
 

@@ -50,6 +50,10 @@ final class CoreRuntime {
   final ProviderContainer container;
   final DaemonDirectories directories;
   final DaemonConnectivity _connectivity;
+
+  /// Takes a window's view of the network, which arrives as an event where
+  /// the port can only poll.
+  void reportNetwork({required bool online}) => _connectivity.report(online);
   final List<Box<dynamic>> _boxes;
 
   /// Brings the core up: storage first, then the container.

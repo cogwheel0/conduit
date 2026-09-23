@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:jaspr/jaspr.dart' show EventCallback;
 // `universal_web` rather than `package:web`, and not interchangeably: it is
 // the mirror Jaspr's own `EventCallback` is typed against, and it compiles
@@ -339,3 +341,25 @@ EventCallback onDrop(void Function() dropped) => (web.Event event) {
   event.preventDefault();
   dropped();
 };
+
+/// [NetworkEventsPort] against the real window.
+final class WindowNetworkEvents implements NetworkEventsPort {
+  WindowNetworkEvents() {
+    web.window.addEventListener(
+      'online',
+      ((web.Event _) => _changes.add(true)).toJS,
+    );
+    web.window.addEventListener(
+      'offline',
+      ((web.Event _) => _changes.add(false)).toJS,
+    );
+  }
+
+  final StreamController<bool> _changes = StreamController<bool>.broadcast();
+
+  @override
+  bool get online => web.window.navigator.onLine;
+
+  @override
+  Stream<bool> get changes => _changes.stream;
+}

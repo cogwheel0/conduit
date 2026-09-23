@@ -4,6 +4,8 @@ import 'package:conduit_core/models/chat_message.dart' as core;
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/host_ports.dart'
+    show connectivityPortProvider;
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/conversation_parsing.dart'
     show kMessageRatingMetadataKey;
@@ -37,18 +39,42 @@ final class ChatsService {
     if (events != null) {
       _announceListChanges();
       _announceSync();
+      _announceConnectivity();
     }
   }
+
+  /// Whether this computer has a network at all, as the port last said.
+  bool _online = true;
 
   /// The sync engine's state, as the protocol carries it.
   SyncState syncState() => _describe(_container.read(syncEngineProvider));
 
-  static SyncState _describe(SyncStatus status) => SyncState(
+  SyncState _describe(SyncStatus status) => SyncState(
     running: status.phase == SyncPhase.running,
     progress: status.progress,
     everCompleted: status.lastSuccessUpdatedAtWatermark != null,
     lastError: status.lastError,
+    online: _online,
   );
+
+  /// Republishes `sync.status` when the network comes or goes (WP-3.3), so
+  /// a window can say it is offline rather than letting a send fail.
+  void _announceConnectivity() {
+    final port = _container.read(connectivityPortProvider);
+    void apply(bool online) {
+      if (online == _online) return;
+      _online = online;
+      _events?.publish(ConduitEvents.syncStatus, payload: syncState().toJson());
+    }
+
+    unawaited(port.hasNetworkInterface().then(apply, onError: (Object _) {}));
+    _connectivity = port.onChanged.listen(apply);
+  }
+
+  StreamSubscription<bool>? _connectivity;
+
+  /// Stops listening to the network port.
+  void dispose() => unawaited(_connectivity?.cancel());
 
   /// Publishes `sync.status` when a cycle starts or ends, and on progress
   /// in steps a person would notice.

@@ -441,5 +441,9 @@
   "@desktopBulkFailed": {
     "description": "Shown after a bulk action in the desktop sidebar when some conversations could not be archived, moved or deleted.",
     "placeholders": { "count": { "type": "int", "example": "1" } }
+  },
+  "desktopOffline": "You're offline. Your conversations are still here; sending waits until you're connected again.",
+  "@desktopOffline": {
+    "description": "Banner over the desktop conversation when the computer has no network. The Send button is paused until it returns."
   }
 }

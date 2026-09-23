@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.16.0",
+  "protocolVersion": "1.17.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.16.0",
+  "protocolVersion": "1.17.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -494,7 +494,8 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "running": true,
   "progress": 0.4,
-  "everCompleted": false
+  "everCompleted": false,
+  "online": false
 }''',
 
   'chatsChanged': r'''
@@ -536,6 +537,11 @@ const Map<String, String> protocolGoldens = <String, String>{
   "name": "notes.pdf",
   "size": 182344,
   "contentType": "application/pdf"
+}''',
+
+  'networkReport': r'''
+{
+  "online": false
 }''',
 
   'bulkChats': r'''

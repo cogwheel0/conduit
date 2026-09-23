@@ -971,6 +971,20 @@ test.describe('against a real server', () => {
       await api.dispose()
     }
 
+    // 12e. Offline (WP-3.3). The window's own `offline` event, as the
+    // browser fires it when the network goes: the banner appears, Send
+    // pauses, and both come back with `online`.
+    await page.getByPlaceholder('Ask Conduit').fill('Held until online')
+    await page.evaluate(() => window.dispatchEvent(new Event('offline')))
+    const offline = page.getByText(/you're offline/i)
+    await expect(offline).toBeVisible()
+    await expect(page.getByRole('button', { name: /^send$/i })).toBeDisabled()
+    await shot(page, '12f-offline')
+    await page.evaluate(() => window.dispatchEvent(new Event('online')))
+    await expect(offline).toBeHidden()
+    await expect(page.getByRole('button', { name: /^send$/i })).toBeEnabled()
+    await page.getByPlaceholder('Ask Conduit').fill('')
+
     // 13. Delete the conversation this run created, through the UI.
     //
     // Two reasons. It exercises delete and its confirmation against a real
