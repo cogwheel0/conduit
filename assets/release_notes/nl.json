@@ -109,6 +109,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.7",
+      "title": "Nieuw",
+      "intro": "Hoi! Apple Private Cloud Compute staat in de modellijst en antwoordt. Op de iPhone kun je met Onderbreken de assistent onderbreken terwijl die praat. Open WebUI 0.11.4 werkt, en als je de systeemprompt of het standaardmodel wist, is de opgeslagen waarde weg. Systeemlijsten crashen niet meer, het zwarte blok naast de microfoon is weg, en een afgerond antwoord lijkt na verversen niet meer alsof het nog streamt.",
+      "bullets": [
+        {
+          "text": "Apple Private Cloud Compute: staat in de modellijst en antwoordt. Apple On-Device en Private Cloud Compute gebruiken het symbool van Apple.",
+          "icon": "direct"
+        },
+        {
+          "text": "Onderbreken: het spraakscherm op de iPhone heeft de schakelaar. De assistent blijft luisteren terwijl die praat, en je kunt hem onderbreken. Een optie kiezen in een systeemlijst crasht de app niet meer. Het zwarte blok naast de microfoon is weg als de rij past. Een afgerond antwoord blijft afgerond na verversen, en Stop met genereren blijft weg.",
+          "icon": "polish"
+        },
+        {
+          "text": "Open WebUI 0.11.4: geen compatibiliteitswaarschuwing. Als je de systeemprompt of het standaardmodel wist, is de opgeslagen waarde weg.",
+          "icon": "direct"
+        }
+      ]
     }
   ]
 }

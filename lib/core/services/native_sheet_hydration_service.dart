@@ -30,6 +30,7 @@ import 'package:conduit_core/utils/model_sort_utils.dart';
 
 import '../utils/native_sheet_utils.dart';
 import 'native_sheet_avatar_bytes_hydrator.dart';
+import 'native_symbol_image_service.dart';
 import 'native_sheet_bridge.dart';
 import '../../shared/services/navigation_service.dart';
 
@@ -220,6 +221,18 @@ class NativeSheetHydrationService {
             );
           }
           final avatarUrl = resolveModelIconUrlForModel(api, model);
+          // A system symbol is UIKit's to draw, so hand the native sheet the
+          // symbol name instead of an image reference it cannot fetch.
+          final symbolName = nativeSymbolNameFromUrl(avatarUrl);
+          if (symbolName != null) {
+            return NativeSheetModelOption(
+              id: model.id,
+              name: model.name,
+              subtitle: model.description,
+              sfSymbol: symbolName,
+              tags: model.modelTags,
+            );
+          }
           final avatarHeaders = avatarUrl == null
               ? const <String, String>{}
               : buildImageHeadersForUrlFromContainer(container, avatarUrl) ??

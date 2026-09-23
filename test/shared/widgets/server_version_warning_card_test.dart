@@ -71,7 +71,7 @@ void main() {
       await tester.pumpWidget(
         _buildCard(
           authState: AuthNavigationState.authenticated,
-          config: const BackendConfig(version: '0.11.4', serverId: 'A'),
+          config: const BackendConfig(version: '0.11.5', serverId: 'A'),
         ),
       );
       await tester.pump();
@@ -80,21 +80,21 @@ void main() {
         find.byKey(const ValueKey('server-version-warning-card')).evaluate(),
       ).length.equals(1);
       check(find.text('Server not supported').evaluate()).length.equals(1);
+      check(find.textContaining('0.11.5').evaluate()).length.equals(1);
       check(find.textContaining('0.11.4').evaluate()).length.equals(1);
-      check(find.textContaining('0.11.3').evaluate()).length.equals(1);
     });
 
     testWidgets('disables text decoration on Android', (tester) async {
       await tester.pumpWidget(
         _buildCard(
           authState: AuthNavigationState.authenticated,
-          config: const BackendConfig(version: '0.11.4', serverId: 'A'),
+          config: const BackendConfig(version: '0.11.5', serverId: 'A'),
         ),
       );
       await tester.pump();
 
       final title = tester.widget<Text>(find.text('Server not supported'));
-      final message = tester.widget<Text>(find.textContaining('0.11.4'));
+      final message = tester.widget<Text>(find.textContaining('0.11.5'));
       check(title.style?.decoration).equals(TextDecoration.none);
       check(message.style?.decoration).equals(TextDecoration.none);
     });
@@ -108,7 +108,7 @@ void main() {
       await tester.pumpWidget(
         _buildCard(
           authState: AuthNavigationState.authenticated,
-          config: const BackendConfig(version: '0.11.4', serverId: 'A'),
+          config: const BackendConfig(version: '0.11.5', serverId: 'A'),
           body: MediaQuery(
             data: const MediaQueryData(
               size: Size(390, 420),
@@ -153,7 +153,7 @@ void main() {
       await tester.pumpWidget(
         _buildCard(
           authState: AuthNavigationState.authenticated,
-          config: const BackendConfig(version: '0.11.4', serverId: 'A'),
+          config: const BackendConfig(version: '0.11.5', serverId: 'A'),
           body: debugBuildChatEmptyStateViewportForTesting(
             padding: const EdgeInsets.symmetric(vertical: 100, horizontal: 24),
             children: const [
@@ -192,7 +192,7 @@ void main() {
       await tester.pumpWidget(
         _buildCard(
           authState: AuthNavigationState.authenticated,
-          config: const BackendConfig(version: '0.11.4', serverId: 'B'),
+          config: const BackendConfig(version: '0.11.5', serverId: 'B'),
         ),
       );
       await tester.pump();
@@ -206,7 +206,7 @@ void main() {
       await tester.pumpWidget(
         _buildCard(
           authState: AuthNavigationState.needsLogin,
-          config: const BackendConfig(version: '0.11.4', serverId: 'A'),
+          config: const BackendConfig(version: '0.11.5', serverId: 'A'),
         ),
       );
       await tester.pump();
@@ -220,7 +220,7 @@ void main() {
       await tester.pumpWidget(
         _buildCard(
           authState: AuthNavigationState.authenticated,
-          config: const BackendConfig(version: '0.11.4', serverId: 'A'),
+          config: const BackendConfig(version: '0.11.5', serverId: 'A'),
         ),
       );
       await tester.pump();
@@ -237,14 +237,14 @@ void main() {
             PreferenceKeys.serverVersionWarningDismissed,
           ),
         ),
-      ).deepEquals({'A|0.11.4'});
+      ).deepEquals({'A|0.11.5'});
     });
 
     testWidgets('dismissing a second server keeps the first dismissal', (
       tester,
     ) async {
       await _seedPreferences({
-        PreferenceKeys.serverVersionWarningDismissed: '["A|0.11.4"]',
+        PreferenceKeys.serverVersionWarningDismissed: '["A|0.11.5"]',
       });
 
       await tester.pumpWidget(
@@ -264,20 +264,20 @@ void main() {
             PreferenceKeys.serverVersionWarningDismissed,
           ),
         ),
-      ).deepEquals({'A|0.11.4', 'B|0.11.6'});
+      ).deepEquals({'A|0.11.5', 'B|0.11.6'});
     });
 
     testWidgets('a bare legacy token still counts as dismissed', (
       tester,
     ) async {
       await _seedPreferences({
-        PreferenceKeys.serverVersionWarningDismissed: 'A|0.11.4',
+        PreferenceKeys.serverVersionWarningDismissed: 'A|0.11.5',
       });
 
       await tester.pumpWidget(
         _buildCard(
           authState: AuthNavigationState.authenticated,
-          config: const BackendConfig(version: '0.11.4', serverId: 'A'),
+          config: const BackendConfig(version: '0.11.5', serverId: 'A'),
         ),
       );
       await tester.pump();
@@ -289,23 +289,7 @@ void main() {
       tester,
     ) async {
       await _seedPreferences({
-        PreferenceKeys.serverVersionWarningDismissed: '["A|0.11.4"]',
-      });
-
-      await tester.pumpWidget(
-        _buildCard(
-          authState: AuthNavigationState.authenticated,
-          config: const BackendConfig(version: '0.11.4', serverId: 'A'),
-        ),
-      );
-      await tester.pump();
-
-      check(find.byKey(serverVersionWarningCardKey).evaluate()).isEmpty();
-    });
-
-    testWidgets('shows again for a different server version', (tester) async {
-      await _seedPreferences({
-        PreferenceKeys.serverVersionWarningDismissed: '["A|0.11.4"]',
+        PreferenceKeys.serverVersionWarningDismissed: '["A|0.11.5"]',
       });
 
       await tester.pumpWidget(
@@ -316,9 +300,25 @@ void main() {
       );
       await tester.pump();
 
+      check(find.byKey(serverVersionWarningCardKey).evaluate()).isEmpty();
+    });
+
+    testWidgets('shows again for a different server version', (tester) async {
+      await _seedPreferences({
+        PreferenceKeys.serverVersionWarningDismissed: '["A|0.11.5"]',
+      });
+
+      await tester.pumpWidget(
+        _buildCard(
+          authState: AuthNavigationState.authenticated,
+          config: const BackendConfig(version: '0.11.6', serverId: 'A'),
+        ),
+      );
+      await tester.pump();
+
       check(find.byKey(serverVersionWarningCardKey).evaluate()).length
           .equals(1);
-      check(find.textContaining('0.11.5').evaluate()).length.equals(1);
+      check(find.textContaining('0.11.6').evaluate()).length.equals(1);
     });
   });
 }

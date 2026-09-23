@@ -109,6 +109,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.7",
+      "title": "Novinky",
+      "intro": "Ahoj! Apple Private Cloud Compute je v seznamu modelů a odpovídá. Na iPhonu můžeš asistentovi skočit do řeči, když mluví. Open WebUI 0.11.4 funguje, a když smažeš systémový prompt nebo výchozí model, zmizí uložená hodnota. Systémové seznamy už aplikaci neshodí, černý blok vedle mikrofonu je pryč a hotová odpověď se po obnovení nevrací, jako by pořád streamovala.",
+      "bullets": [
+        {
+          "text": "Apple Private Cloud Compute: je v seznamu modelů a odpovídá. Apple On-Device a Private Cloud Compute používají symbol Applu.",
+          "icon": "direct"
+        },
+        {
+          "text": "Skákat do řeči: hlasové nastavení na iPhonu ten přepínač má. Asistent dál poslouchá, když mluví, a můžeš ho přerušit. Výběr možnosti v systémovém seznamu už aplikaci neshodí. Černý blok vedle mikrofonu zmizí, když se řádek vejde. Hotová odpověď zůstane hotová i po obnovení a Zastavit generování zůstane pryč.",
+          "icon": "polish"
+        },
+        {
+          "text": "Open WebUI 0.11.4: bez varování o kompatibilitě. Když smažeš systémový prompt nebo výchozí model, zmizí uložená hodnota.",
+          "icon": "direct"
+        }
+      ]
     }
   ]
 }

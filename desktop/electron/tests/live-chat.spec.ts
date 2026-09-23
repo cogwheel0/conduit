@@ -255,8 +255,16 @@ test.describe('against a real server', () => {
     // The sections come back. Not "the same number of rows as before": the
     // list keeps growing while the first sync lands, so that count is not
     // expected to hold.
+    // Any date heading. Which ones exist depends on when the account was
+    // last used; "Today" in particular is absent until this run sends
+    // something, which it has not yet.
     await expect(
-      page.locator('nav[aria-label]').getByRole('heading', { name: /^today$/i }),
+      page
+        .locator('nav[aria-label]')
+        .getByRole('heading', {
+          name: /^(today|yesterday|previous \d+ days|older)$/i,
+        })
+        .first(),
     ).toBeVisible({ timeout: 30_000 })
 
     const transcript = page.getByRole('log')

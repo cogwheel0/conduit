@@ -11,5 +11,13 @@ CONDUIT_PCC_SDK_FLAG_250000 = CONDUIT_NO_PCC_SDK
 CONDUIT_PCC_SDK_FLAG_260000 = CONDUIT_NO_PCC_SDK
 CONDUIT_PCC_SDK_FLAG = $(CONDUIT_PCC_SDK_FLAG_$(SDK_VERSION_MAJOR):default=CONDUIT_PCC_SDK)
 
-SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphoneos*] = $(inherited) $(CONDUIT_PCC_SDK_FLAG)
-SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphonesimulator*] = $(inherited) $(CONDUIT_PCC_SDK_FLAG)
+// Private Cloud Compute also needs com.apple.developer.private-cloud-compute,
+// which Apple grants on request and which Runner.entitlements now claims.
+// FoundationModels does not report a missing entitlement through
+// `availability`; it traps on the first request, so the bridge keeps the model
+// unsupported whenever this flag is empty. Clear it if the signing identity
+// ever loses the grant, otherwise the app dies when a request starts.
+CONDUIT_PCC_ENTITLEMENT_FLAG = CONDUIT_PCC_ENTITLEMENT
+
+SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphoneos*] = $(inherited) $(CONDUIT_PCC_SDK_FLAG) $(CONDUIT_PCC_ENTITLEMENT_FLAG)
+SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphonesimulator*] = $(inherited) $(CONDUIT_PCC_SDK_FLAG) $(CONDUIT_PCC_ENTITLEMENT_FLAG)

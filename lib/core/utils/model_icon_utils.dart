@@ -1,6 +1,9 @@
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/services/api_service.dart';
-import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+
+import '../services/native_symbol_image_service.dart';
 
 /// Extracts the profile image URL from a model's metadata.
 ///
@@ -148,6 +151,11 @@ String? resolveModelIconUrl(ApiService? api, String? rawUrl) {
 String? resolveModelIconUrlForModel(ApiService? api, Model? model) {
   if (model == null) return null;
   if (isHermesModel(model)) return 'asset:$kHermesModelAvatarAsset';
+  // Apple's Foundation Models carry Apple's own mark. Provenance comes from the
+  // local binding, never from a server-supplied id or metadata field.
+  if (isAppleFoundationModel(model)) {
+    return '$kNativeSymbolUrlScheme$kAppleIntelligenceSymbol';
+  }
 
   // Check for legacy profile_image_url in metadata
   final legacyUrl = deriveModelIcon(model);

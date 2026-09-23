@@ -298,7 +298,6 @@ class ModelListTile extends StatelessWidget {
                       ConstrainedBox(
                         constraints: const BoxConstraints(minHeight: 22),
                         child: HorizontalOverflowFade(
-                          color: rowSurface,
                           child: HorizontalScrollGestureBoundary(
                             child: SingleChildScrollView(
                               scrollDirection: Axis.horizontal,

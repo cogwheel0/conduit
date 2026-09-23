@@ -58,7 +58,10 @@ mixin _UserSettingsApi on _ApiServiceBase {
       final trimmed = _normalizeNullableString(systemPrompt);
 
       if (trimmed == null || trimmed.isEmpty) {
-        ui.remove('system');
+        // Open WebUI >= 0.11.4 patches `ui` per key: an omitted key keeps its
+        // old value and only an explicit null resets it. Older servers store
+        // the null literally, which the reader already treats as unset.
+        ui['system'] = null;
       } else {
         ui['system'] = trimmed;
       }

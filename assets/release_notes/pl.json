@@ -109,6 +109,25 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.7",
+      "title": "Co nowego",
+      "intro": "Cześć! Apple Private Cloud Compute jest na liście modeli i odpowiada. Na iPhonie Przerywanie pozwala przerwać asystentowi, gdy mówi. Open WebUI 0.11.4 działa, a wyczyszczenie promptu systemowego albo domyślnego modelu kasuje zapisaną wartość. Listy systemowe już nie wywalają aplikacji, czarny blok obok mikrofonu zniknął, a skończona odpowiedź po odświeżeniu nie wraca jakby nadal się pisała.",
+      "bullets": [
+        {
+          "text": "Apple Private Cloud Compute: jest na liście modeli i odpowiada. Apple On-Device i Private Cloud Compute używają symbolu Apple.",
+          "icon": "direct"
+        },
+        {
+          "text": "Przerywanie: ustawienia głosu na iPhonie mają ten przełącznik. Asystent słucha dalej, gdy mówi, i możesz mu przerwać. Wybranie opcji na liście systemowej nie wywala już aplikacji. Czarny blok obok mikrofonu znika, gdy wiersz się mieści. Skończona odpowiedź zostaje skończona po odświeżeniu, a Zatrzymaj generowanie zostaje wyłączone.",
+          "icon": "polish"
+        },
+        {
+          "text": "Open WebUI 0.11.4: bez ostrzeżenia o zgodności. Wyczyszczenie promptu systemowego albo domyślnego modelu kasuje zapisaną wartość.",
+          "icon": "direct"
+        }
+      ]
     }
   ]
 }
