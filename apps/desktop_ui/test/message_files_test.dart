@@ -69,4 +69,16 @@ void main() {
     );
     expect(container.read(lightboxProvider)?.src, 'data:image/png;base64,AAAA');
   });
+
+  testComponents('audio plays where it is', (tester) async {
+    tester.pumpComponent(
+      scoped(
+        const MessageFiles(<ChatFileDto>[
+          ChatFileDto(id: 'a1', name: 'memo.m4a', contentType: 'audio/mp4'),
+        ]),
+      ),
+    );
+    await pumpEventQueue();
+    expect(find.tag('audio'), findsOneComponent);
+  });
 }

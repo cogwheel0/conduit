@@ -54,6 +54,21 @@ class MessageFiles extends StatelessComponent {
                   .read(lightboxProvider.notifier)
                   .show(srcOf(file)!, file.name),
             )
+          // Played where it is: the same daemon route, and the browser's own
+          // controls, which are keyboard-operable as they come.
+          else if (_media(file) case final kind? when srcOf(file) != null)
+            Component.element(
+              tag: kind,
+              classes: kind == 'video'
+                  ? 'max-h-64 max-w-full rounded border border-border'
+                  : 'max-w-full',
+              attributes: <String, String>{
+                'src': srcOf(file)!,
+                'controls': '',
+                'preload': 'metadata',
+                'aria-label': file.name,
+              },
+            )
           else
             span(
               classes:
@@ -64,6 +79,14 @@ class MessageFiles extends StatelessComponent {
       ],
     );
   }
+}
+
+/// `audio` or `video` when [file] is one, going by its type.
+String? _media(ChatFileDto file) {
+  final type = file.contentType ?? '';
+  if (type.startsWith('audio/')) return 'audio';
+  if (type.startsWith('video/')) return 'video';
+  return null;
 }
 
 /// An image, full size over the window (WP-3.2). A click anywhere or Esc
