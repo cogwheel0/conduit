@@ -83,6 +83,24 @@ abstract class RegenerateTurn with _$RegenerateTurn {
       _$RegenerateTurnFromJson(json);
 }
 
+/// Params for `turns.rate` (WP-3.8): a thumb up or down on an answer.
+@freezed
+abstract class RateTurn with _$RateTurn {
+  const factory RateTurn({
+    required String chatId,
+
+    /// The assistant message being rated.
+    required String messageId,
+
+    /// 1 for up, -1 for down. Open WebUI has no "unrate"; a rating is
+    /// changed, not removed.
+    required int rating,
+  }) = _RateTurn;
+
+  factory RateTurn.fromJson(Map<String, dynamic> json) =>
+      _$RateTurnFromJson(json);
+}
+
 /// Params for `turns.edit` (WP-3.2).
 ///
 /// Sends a replacement for one of the user's messages and answers it. On

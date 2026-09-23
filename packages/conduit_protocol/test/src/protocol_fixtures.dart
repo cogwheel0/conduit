@@ -297,6 +297,11 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     size: 182_344,
     contentType: 'application/pdf',
   ),
+  'rateTurn': const RateTurn(
+    chatId: 'chat-7c1f0b2a',
+    messageId: 'msg-2f9d4c17',
+    rating: -1,
+  ),
   'regenerateTurn': const RegenerateTurn(
     chatId: 'chat-7c1f0b2a',
     messageId: 'msg-2f9d4c17',
@@ -333,6 +338,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
       ChatSourceDto(label: 'Sync design notes', url: 'https://example.com/sync'),
     ],
     usage: ChatUsageDto(generationTokens: 7, totalSeconds: 0.5),
+    rating: 1,
   ),
   'chatDetail': const ChatDetail(
     summary: ChatSummary(
@@ -481,6 +487,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'folderSummary': FolderSummary.fromJson,
       'archivedVisibility': ArchivedVisibility.fromJson,
       'uploadedFile': UploadedFile.fromJson,
+      'rateTurn': RateTurn.fromJson,
       'regenerateTurn': RegenerateTurn.fromJson,
       'chatSummary': ChatSummary.fromJson,
       'chatList': ChatList.fromJson,

@@ -5,6 +5,7 @@ import 'package:conduit_desktop_ui/src/l10n/strings.g.dart';
 import 'package:conduit_desktop_ui/src/pages/chat_page.dart';
 import 'package:conduit_desktop_ui/src/rpc/chat_providers.dart';
 import 'package:conduit_desktop_ui/src/rpc/rpc_providers.dart';
+import 'package:conduit_desktop_ui/src/rpc/session_providers.dart';
 import 'package:conduit_desktop_ui/src/attachments.dart';
 import 'package:conduit_desktop_ui/src/window_commands.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -68,8 +69,11 @@ Component _scoped({
   RecordingAttachments? attachments,
   ModelList? models,
   ComposerOptions? composer,
+  Capabilities? capabilities,
 }) => ProviderScope(
   overrides: [
+    if (capabilities != null)
+      serverCapabilitiesProvider.overrideWithValue(capabilities),
     if (composer != null)
       composerOptionsProvider.overrideWith((ref) async => composer),
     if (models != null) modelListProvider.overrideWith((ref) async => models),
@@ -155,6 +159,13 @@ class _RecordingActions extends ChatActions {
 
   @override
   Future<void> loadMore() async => calls.add('loadMore');
+
+  @override
+  Future<void> rate({
+    required String chatId,
+    required String messageId,
+    required int rating,
+  }) async => calls.add('rate($messageId,$rating)');
 
   @override
   Future<SendTurnAccepted> edit({
@@ -732,6 +743,57 @@ void main() {
     // instead. The form's submit handler calls `preventDefault`, which
     // throws on the VM -- `universal_web` stubs every real DOM call -- so
     // the one thing a component test cannot do here is submit a form.
+  });
+
+  group('rating', () {
+    testComponents('thumbs appear on answers only when the server rates', (
+      tester,
+    ) async {
+      tester.pumpComponent(_scoped(detail: _detail, selected: 'chat-1'));
+      await pumpEventQueue();
+      expect(_byLabel(t.desktop.desktopGoodResponse), findsNothing);
+    });
+
+    testComponents('rating an answer sends it', (tester) async {
+      late _RecordingActions actions;
+      tester.pumpComponent(
+        _scoped(
+          detail: _detail,
+          selected: 'chat-1',
+          capabilities: const Capabilities(messageRating: true),
+          onActions: (recording) => actions = recording,
+        ),
+      );
+      await pumpEventQueue();
+      // One pair, under the answer and not the question.
+      expect(_byLabel(t.desktop.desktopGoodResponse), findsOneComponent);
+      await tester.click(_byLabel(t.desktop.desktopBadResponse));
+      await pumpEventQueue();
+      expect(actions.calls, contains('rate(m2,-1)'));
+    });
+
+    testComponents('a stored rating shows as pressed', (tester) async {
+      tester.pumpComponent(
+        _scoped(
+          detail: const ChatDetail(
+            summary: ChatSummary(id: 'chat-1', title: 'T', updatedAtMs: 1),
+            messages: <ChatMessageDto>[
+              ChatMessageDto(
+                id: 'm2',
+                role: 'assistant',
+                content: 'Yes.',
+                timestampMs: 2,
+                rating: 1,
+              ),
+            ],
+          ),
+          selected: 'chat-1',
+          capabilities: const Capabilities(messageRating: true),
+        ),
+      );
+      await pumpEventQueue();
+      expect(byAttribute('aria-pressed', 'true'), findsOneComponent);
+    });
   });
 
   testComponents('a finished turn gives the send button back', (tester) async {

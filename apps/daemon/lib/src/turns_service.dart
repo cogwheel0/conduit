@@ -6,6 +6,7 @@ import 'package:conduit_core/ports/ui_request_port.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/chat_completion_transport.dart';
+import 'package:conduit_core/services/message_rating.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/services/streaming_helper.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
@@ -516,6 +517,40 @@ final class TurnsService {
       userMessageId: userMessageId,
       assistantMessageId: completion.messageId,
     );
+  }
+
+  /// Rates an answer up or down (WP-3.8).
+  ///
+  /// The core's `MessageRating` does what Open WebUI's client does; this
+  /// only refuses what cannot be rated and tells the windows afterwards, so
+  /// the thumb comes back from the stored copy like everything else does.
+  Future<void> rate(RateTurn request) async {
+    if (request.rating != 1 && request.rating != -1) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'a rating is 1 or -1',
+      );
+    }
+    if (TemporaryChats.isTemporary(request.chatId)) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'a temporary chat is not stored, so it cannot be rated',
+      );
+    }
+    try {
+      await MessageRating(_requireApi()).rate(
+        chatId: request.chatId,
+        messageId: request.messageId,
+        rating: request.rating,
+      );
+    } on StateError catch (error) {
+      throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        debugMessage: error.message,
+      );
+    } finally {
+      unawaited(_announceWhenSynced(request.chatId));
+    }
   }
 
   /// Stops generation, keeping what has arrived.

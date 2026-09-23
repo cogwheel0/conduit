@@ -226,7 +226,8 @@ final class ServersService {
     // Browser speech synthesis, available wherever the renderer runs.
     deviceTts: true,
     branchNavigation: true,
-    messageRating: true,
+    // Open WebUI's own client treats an unset flag as on.
+    messageRating: config.enableMessageRating ?? true,
     tags: true,
     bulkSelection: true,
   );

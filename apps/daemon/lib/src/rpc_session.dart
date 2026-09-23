@@ -610,6 +610,18 @@ class RpcSession {
       },
     );
 
+    registerTypedMethod<RateTurn, Map<String, dynamic>>(
+      _peer,
+      ConduitMethods.turnsRate,
+      decodeParams: RateTurn.fromJson,
+      encodeResult: (result) => result,
+      handler: (request) async {
+        _requireHandshake();
+        await _requireTurns().rate(request);
+        return <String, dynamic>{'rated': true};
+      },
+    );
+
     registerTypedMethod<StopTurn, Map<String, dynamic>>(
       _peer,
       ConduitMethods.turnsStop,

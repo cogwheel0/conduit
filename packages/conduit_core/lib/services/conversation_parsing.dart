@@ -508,8 +508,26 @@ Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
     metadata['modelName'] = modelName;
   }
 
+  // The user's thumbs up (1) or down (-1), and the evaluation record it was
+  // filed under. Open WebUI keeps both on the message, so a rating made in
+  // its web client shows here, and one made here updates the same record.
+  final annotation = historyMsg?['annotation'] ?? msgData['annotation'];
+  if (annotation is Map && annotation['rating'] is num) {
+    metadata[kMessageRatingMetadataKey] = (annotation['rating'] as num).toInt();
+  }
+  final feedbackId = historyMsg?['feedbackId'] ?? msgData['feedbackId'];
+  if (feedbackId is String && feedbackId.isNotEmpty) {
+    metadata[kMessageFeedbackIdMetadataKey] = feedbackId;
+  }
+
   return metadata.isEmpty ? null : metadata;
 }
+
+/// Where a message's rating lives in its metadata: 1, -1, or absent.
+const String kMessageRatingMetadataKey = 'rating';
+
+/// The Open WebUI evaluation record a message's rating was filed under.
+const String kMessageFeedbackIdMetadataKey = 'feedbackId';
 
 String? _extractOpenWebUiModelName(
   Map<String, dynamic> msgData,

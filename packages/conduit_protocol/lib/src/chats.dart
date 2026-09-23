@@ -112,6 +112,9 @@ abstract class ChatMessageDto with _$ChatMessageDto {
 
     /// Tokens and timing, when the provider reported them (WP-3.2).
     ChatUsageDto? usage,
+
+    /// The user's thumb: 1 up, -1 down, null unrated (WP-3.8).
+    int? rating,
   }) = _ChatMessageDto;
 
   factory ChatMessageDto.fromJson(Map<String, dynamic> json) =>

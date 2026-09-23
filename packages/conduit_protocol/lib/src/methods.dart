@@ -191,6 +191,11 @@ abstract final class ConduitMethods {
   /// a new branch.
   static const String turnsEdit = 'turns.edit';
 
+  /// Rates an answer, up or down, as Open WebUI's own client does: an
+  /// evaluation record plus the thumb on the message. Gated on
+  /// `capabilities.messageRating`.
+  static const String turnsRate = 'turns.rate';
+
   // ---------------------------------------------------------------------
   // settings.* -- app preferences implemented in WP-2.4. The server-side
   // user settings in this namespace arrive with M9.

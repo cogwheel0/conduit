@@ -12,6 +12,7 @@ import '../prompt_trigger.dart';
 import '../l10n/strings.g.dart';
 import '../rpc/chat_providers.dart';
 import '../rpc/rpc_providers.dart';
+import '../rpc/session_providers.dart';
 import '../sidebar_model.dart';
 import '../widgets/form_field.dart';
 import '../widgets/markdown_view.dart';
@@ -594,6 +595,12 @@ class _Transcript extends StatelessComponent {
     void copyCode(String source) => unawaited(commands.copy(source));
     final versions = context.watch(answerVersionProvider);
     final editing = context.watch(editingMessageProvider);
+    final ratings = context.watch(ratingOverridesProvider);
+    final canRate =
+        context.watch(serverCapabilitiesProvider).messageRating &&
+        selected != null &&
+        !isTemporaryChatId(selected) &&
+        (live == null || live.settled);
 
     // After the frame this build produces, not during it: the pane has to
     // have grown before there is anything new to scroll to. Every build,
@@ -698,6 +705,27 @@ class _Transcript extends StatelessComponent {
                               versions[message.id],
                             ),
                             usage: _shownUsage(message, versions[message.id]),
+                            // Only on the answer the server says is current:
+                            // an older version's rating is not in the
+                            // stored copy, so its thumb would be a guess.
+                            rating: ratings[message.id] ?? message.rating,
+                            onRate:
+                                message.role == 'assistant' &&
+                                    canRate &&
+                                    (versions[message.id] == null ||
+                                        versions[message.id] ==
+                                            message.versions.length)
+                                ? (rating) => unawaited(
+                                    context
+                                        .read(chatActionsProvider)
+                                        .rate(
+                                          chatId: selected,
+                                          messageId: message.id,
+                                          rating: rating,
+                                        )
+                                        .catchError((Object _) {}),
+                                  )
+                                : null,
                             onCopyCode: copyCode,
                             // Per version, so flicking between answers does not
                             // reuse a formula frame drawn for a different one.
@@ -843,6 +871,8 @@ class _Transcript extends StatelessComponent {
     String? failure,
     List<ChatSourceDto> sources = const <ChatSourceDto>[],
     ChatUsageDto? usage,
+    int? rating,
+    void Function(int rating)? onRate,
   }) {
     final isUser = role == 'user';
     final failed = failure != null;
@@ -896,6 +926,7 @@ class _Transcript extends StatelessComponent {
         if (onCopy != null ||
             onRegenerate != null ||
             onEdit != null ||
+            onRate != null ||
             versionNav != null)
           div(classes: 'flex items-center gap-1', [
             // Always visible, unlike the actions beside it. That there
@@ -913,6 +944,28 @@ class _Transcript extends StatelessComponent {
                 if (onEdit case final edit?) _messageAction(t.app.edit, edit),
               ],
             ),
+            // After the other actions, and visible once used: a thumb that
+            // hides again until hovered leaves the user unsure it stuck.
+            if (onRate case final rate?)
+              div(
+                classes:
+                    'flex gap-0.5 '
+                    '${rating == null ? 'opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100' : ''}',
+                [
+                  _rateButton(
+                    t.desktop.desktopGoodResponse,
+                    '\u{1F44D}',
+                    pressed: rating == 1,
+                    onClick: () => rate(1),
+                  ),
+                  _rateButton(
+                    t.desktop.desktopBadResponse,
+                    '\u{1F44E}',
+                    pressed: rating == -1,
+                    onClick: () => rate(-1),
+                  ),
+                ],
+              ),
           ]),
       ],
     );
@@ -990,6 +1043,30 @@ class _Transcript extends StatelessComponent {
       ],
     );
   }
+
+  Component _rateButton(
+    String label,
+    String glyph, {
+    required bool pressed,
+    required void Function() onClick,
+  }) => button(
+    [
+      span(
+        attributes: const <String, String>{'aria-hidden': 'true'},
+        [Component.text(glyph)],
+      ),
+    ],
+    classes:
+        'rounded px-1 py-0.5 text-xs '
+        '${pressed ? 'bg-accent' : 'opacity-60 hover:bg-accent hover:opacity-100'}',
+    type: ButtonType.button,
+    attributes: <String, String>{
+      'aria-label': label,
+      'title': label,
+      'aria-pressed': '$pressed',
+    },
+    onClick: onClick,
+  );
 
   Component _messageAction(String label, void Function() onClick) => button(
     [Component.text(label)],

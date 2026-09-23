@@ -116,6 +116,20 @@ async function openChatLeadsSidebar(page: Page): Promise<void> {
   ).toHaveAttribute('aria-current', 'true', { timeout: 15_000 })
 }
 
+/**
+ * The server's own API, signed in, for setting up and tearing down what a
+ * step needs -- a prompt to pick, an evaluation to delete. Never for the
+ * thing under test, which goes through the app.
+ */
+async function serverApi(credentials: Credentials) {
+  const api = await http.newContext({ baseURL: credentials.url })
+  const signIn = await api.post('/api/v1/auths/signin', {
+    data: { email: credentials.email, password: credentials.password },
+  })
+  const { token } = (await signIn.json()) as { token: string }
+  return { api, auth: { authorization: `Bearer ${token}` } }
+}
+
 async function shot(page: Page, name: string): Promise<void> {
   mkdirSync(shotDir, { recursive: true })
   await page.screenshot({ path: join(shotDir, `${name}.png`) })
@@ -457,6 +471,52 @@ test.describe('against a real server', () => {
     await expect(transcript.getByText(/^1\/2$/)).toBeVisible()
     await shot(page, '08b-branches')
 
+    // 8b'. Rate the current answer (WP-3.8). A real evaluation is filed on
+    // the server, so the step notes which already existed and deletes only
+    // the one it made.
+    await transcript
+      .getByRole('button', { name: /next answer/i })
+      .last()
+      .click()
+    await expect(transcript.getByText(/^2\/2$/)).toBeVisible()
+    {
+      const { api: evals, auth: evalAuth } = await serverApi(credentials!)
+      const listFeedback = async () => {
+        const res = await evals.get('/api/v1/evaluations/feedbacks/user', {
+          headers: evalAuth,
+        })
+        const body = (await res.json()) as
+          | { id: string }[]
+          | { items?: { id: string }[] }
+        return Array.isArray(body) ? body : (body.items ?? [])
+      }
+      const existing = new Set((await listFeedback()).map((f) => f.id))
+      const made = async () =>
+        (await listFeedback()).filter((f) => !existing.has(f.id))
+      try {
+        const good = transcript
+          .getByRole('button', { name: /good response/i })
+          .last()
+        await good.click()
+        await expect(good).toHaveAttribute('aria-pressed', 'true')
+        await expect
+          .poll(async () => (await made()).length, { timeout: 30_000 })
+          .toBe(1)
+        // Still pressed once the stored copy is back, not only while the
+        // window remembers the click.
+        await idle(page)
+        await expect(good).toHaveAttribute('aria-pressed', 'true')
+        await shot(page, '08bb-rated')
+      } finally {
+        for (const feedback of await made()) {
+          await evals.delete(`/api/v1/evaluations/feedback/${feedback.id}`, {
+            headers: evalAuth,
+          })
+        }
+        await evals.dispose()
+      }
+    }
+
     // 8c. Edit the question in place (WP-3.2). The conversation should read
     // as the edited question and a new answer, with the original gone from
     // view but kept on the server as the branch it was.
@@ -691,12 +751,7 @@ test.describe('against a real server', () => {
     // run through the server's API and deleted again afterwards, since an
     // account need not have any -- and the one this runs against has none.
     // Skipped when the account may not create prompts.
-    const api = await http.newContext({ baseURL: url })
-    const signIn = await api.post('/api/v1/auths/signin', {
-      data: { email, password },
-    })
-    const { token } = (await signIn.json()) as { token: string }
-    const auth = { authorization: `Bearer ${token}` }
+    const { api, auth } = await serverApi(credentials!)
     const command = `conduit-e2e-${process.pid}`
     const created = await api.post('/api/v1/prompts/create', {
       headers: auth,

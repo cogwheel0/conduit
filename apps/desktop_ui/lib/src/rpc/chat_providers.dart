@@ -127,6 +127,24 @@ final paletteResultsProvider = FutureProvider<ChatSearchResults?>((ref) async {
       );
 });
 
+/// Ratings given in this window that the stored copy may not show yet.
+///
+/// A thumb that waits for a round trip and a sync before lighting up reads
+/// as a button that did not work.
+final ratingOverridesProvider =
+    NotifierProvider<RatingOverrides, Map<String, int>>(RatingOverrides.new);
+
+class RatingOverrides extends Notifier<Map<String, int>> {
+  @override
+  Map<String, int> build() => const <String, int>{};
+
+  void set(String messageId, int rating) =>
+      state = <String, int>{...state, messageId: rating};
+
+  void clear(String messageId) =>
+      state = <String, int>{...state}..remove(messageId);
+}
+
 /// The account's saved prompts, for the composer's `/` menu (WP-3.3).
 ///
 /// Fetched when the menu first opens rather than at startup: most messages
@@ -466,6 +484,33 @@ class ChatActions {
     ).toJson(),
     decode: SendTurnAccepted.fromJson,
   );
+
+  /// Rates an answer: 1 up, -1 down (WP-3.8).
+  ///
+  /// Shown at once through [ratingOverridesProvider] and confirmed when the
+  /// stored copy comes back with it. A refusal takes the thumb back off.
+  Future<void> rate({
+    required String chatId,
+    required String messageId,
+    required int rating,
+  }) async {
+    final overrides = _ref.read(ratingOverridesProvider.notifier)
+      ..set(messageId, rating);
+    try {
+      await _client.call(
+        ConduitMethods.turnsRate,
+        params: RateTurn(
+          chatId: chatId,
+          messageId: messageId,
+          rating: rating,
+        ).toJson(),
+        decode: (json) => json,
+      );
+    } on Object {
+      overrides.clear(messageId);
+      rethrow;
+    }
+  }
 
   /// A saved prompt's text, or the fields it needs filled in first.
   Future<RenderedPrompt> renderPrompt(RenderPrompt request) => _client.call(

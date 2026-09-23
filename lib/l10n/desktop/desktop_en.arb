@@ -375,5 +375,13 @@
   "@desktopSourcesCount": {
     "description": "Label of the collapsible list of sources under an answer in the desktop app.",
     "placeholders": { "count": { "type": "int", "example": "3" } }
+  },
+  "desktopGoodResponse": "Good response",
+  "@desktopGoodResponse": {
+    "description": "Thumbs-up button under an answer in the desktop app. Rates the answer as good."
+  },
+  "desktopBadResponse": "Bad response",
+  "@desktopBadResponse": {
+    "description": "Thumbs-down button under an answer in the desktop app. Rates the answer as bad."
   }
 }

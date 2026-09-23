@@ -5,6 +5,8 @@ import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/conversation_parsing.dart'
+    show kMessageRatingMetadataKey;
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/utils/source_reference_helper.dart';
@@ -448,6 +450,10 @@ final class ChatsService {
     ],
     sources: _sources(message.sources),
     usage: _usage(message.usage),
+    rating: switch (message.metadata?[kMessageRatingMetadataKey]) {
+      final int rating => rating,
+      _ => null,
+    },
   );
 
   /// The core's reading of whatever shape the provider reported in; null

@@ -365,6 +365,58 @@ void main() {
         );
       }, timeout: const Timeout(Duration(minutes: 2)));
 
+      test('rates an answer, and re-rating updates the same record', () async {
+        final events = EventBus();
+        final turns = TurnsService(runtime.container, events);
+        addTearDown(turns.dispose);
+
+        final accepted = await turns.send(
+          const SendTurn(model: 'gemma3:1b', text: 'Say the word: gamma'),
+        );
+        created.add(accepted.chatId);
+        await _waitFor(
+          () async => (await _messagesOf(
+            runtime,
+            accepted.chatId,
+          )).any((m) => m.id == accepted.assistantMessageId),
+          seconds: 90,
+        );
+
+        final chats = ChatsService(runtime.container);
+        Future<ChatMessageDto?> answer() async =>
+            (await chats.get(accepted.chatId))?.messages
+                .where((m) => m.id == accepted.assistantMessageId)
+                .firstOrNull;
+
+        await turns.rate(
+          RateTurn(
+            chatId: accepted.chatId,
+            messageId: accepted.assistantMessageId,
+            rating: 1,
+          ),
+        );
+        await _waitFor(() async => (await answer())?.rating == 1, seconds: 30);
+        final first = await _feedbackIdOf(runtime, accepted);
+        expect(first, isNotNull);
+
+        await turns.rate(
+          RateTurn(
+            chatId: accepted.chatId,
+            messageId: accepted.assistantMessageId,
+            rating: -1,
+          ),
+        );
+        await _waitFor(() async => (await answer())?.rating == -1, seconds: 30);
+        // The same evaluation, changed, rather than a second one filed.
+        expect(await _feedbackIdOf(runtime, accepted), first);
+
+        // Leave nothing behind: the chat is deleted by the suite, and the
+        // evaluation would otherwise outlive it.
+        await runtime.container
+            .read(apiServiceProvider)!
+            .deleteFeedback(first!);
+      }, timeout: const Timeout(Duration(minutes: 3)));
+
       test('regenerates an answer as a branch, not an overwrite', () async {
         final events = EventBus();
         final turns = TurnsService(runtime.container, events);
@@ -707,6 +759,20 @@ Future<void> _waitFor(
 ///
 /// Deliberately the same path `chats.get` takes, so a test that says "the
 /// message is there" means the app would show it.
+/// The evaluation id Open WebUI recorded on the answer, read from the
+/// server rather than the local copy.
+Future<String?> _feedbackIdOf(
+  CoreRuntime runtime,
+  SendTurnAccepted accepted,
+) async {
+  final raw = await runtime.container
+      .read(apiServiceProvider)!
+      .getChatRaw(accepted.chatId);
+  final messages = ((raw?['chat'] as Map?)?['history'] as Map?)?['messages'];
+  final answer = (messages as Map?)?[accepted.assistantMessageId];
+  return (answer as Map?)?['feedbackId'] as String?;
+}
+
 Future<List<ChatMessage>> _messagesOf(
   CoreRuntime runtime,
   String chatId,

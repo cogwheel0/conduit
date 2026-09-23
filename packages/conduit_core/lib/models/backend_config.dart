@@ -114,6 +114,7 @@ class BackendConfig {
     this.enableWebsocket,
     this.enableWebSearch,
     this.enableDirectConnections,
+    this.enableMessageRating,
     this.enableAudioInput,
     this.enableAudioOutput,
     this.sttProvider,
@@ -149,6 +150,10 @@ class BackendConfig {
 
   /// Mirrors `features.enable_direct_connections` from OpenWebUI.
   final bool? enableDirectConnections;
+
+  /// Mirrors `features.enable_message_rating`. Null means the server did not
+  /// say, which Open WebUI's own client reads as enabled.
+  final bool? enableMessageRating;
 
   final bool? enableAudioInput;
   final bool? enableAudioOutput;
@@ -186,6 +191,7 @@ class BackendConfig {
     bool? enableWebsocket,
     bool? enableWebSearch,
     bool? enableDirectConnections,
+    bool? enableMessageRating,
     bool? enableAudioInput,
     bool? enableAudioOutput,
     String? sttProvider,
@@ -208,6 +214,7 @@ class BackendConfig {
       enableWebSearch: enableWebSearch ?? this.enableWebSearch,
       enableDirectConnections:
           enableDirectConnections ?? this.enableDirectConnections,
+      enableMessageRating: enableMessageRating ?? this.enableMessageRating,
       enableAudioInput: enableAudioInput ?? this.enableAudioInput,
       enableAudioOutput: enableAudioOutput ?? this.enableAudioOutput,
       sttProvider: sttProvider ?? this.sttProvider,
@@ -251,6 +258,7 @@ class BackendConfig {
       'enable_websocket': enableWebsocket,
       'enable_web_search': enableWebSearch,
       'enable_direct_connections': enableDirectConnections,
+      'enable_message_rating': enableMessageRating,
       'enable_audio_input': enableAudioInput,
       'enable_audio_output': enableAudioOutput,
       'stt_provider': sttProvider,
@@ -274,6 +282,7 @@ class BackendConfig {
     bool? enableWebsocket;
     bool? enableWebSearch;
     bool? enableDirectConnections;
+    bool? enableMessageRating;
     bool? enableAudioInput;
     bool? enableAudioOutput;
     String? sttProvider;
@@ -311,6 +320,10 @@ class BackendConfig {
     final directConnectionsValue = json['enable_direct_connections'];
     if (directConnectionsValue is bool) {
       enableDirectConnections = directConnectionsValue;
+    }
+    final messageRatingValue = json['enable_message_rating'];
+    if (messageRatingValue is bool) {
+      enableMessageRating = messageRatingValue;
     }
 
     final audioIn = json['enable_audio_input'];
@@ -390,6 +403,10 @@ class BackendConfig {
       if (nestedDirectConnections is bool && enableDirectConnections == null) {
         enableDirectConnections = nestedDirectConnections;
       }
+      final nestedMessageRating = features['enable_message_rating'];
+      if (nestedMessageRating is bool && enableMessageRating == null) {
+        enableMessageRating = nestedMessageRating;
+      }
       final nestedAudioIn = features['enable_audio_input'];
       if (nestedAudioIn is bool && enableAudioInput == null) {
         enableAudioInput = nestedAudioIn;
@@ -461,6 +478,7 @@ class BackendConfig {
       enableWebsocket: enableWebsocket,
       enableWebSearch: enableWebSearch,
       enableDirectConnections: enableDirectConnections,
+      enableMessageRating: enableMessageRating,
       enableAudioInput: enableAudioInput,
       enableAudioOutput: enableAudioOutput,
       sttProvider: sttProvider,

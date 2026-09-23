@@ -80,6 +80,7 @@ part 'api_service_chat_completions.dart';
 part 'api_service_chat_lists.dart';
 part 'api_service_chats.dart';
 part 'api_service_chats_raw.dart';
+part 'api_service_evaluations.dart';
 part 'api_service_files.dart';
 part 'api_service_folders_tags.dart';
 part 'api_service_health.dart';
@@ -323,7 +324,8 @@ class ApiService extends _ApiServiceBase
         _ChannelsApi,
         _NotesApi,
         _UserSettingsApi,
-        _MediaRetrievalApi {
+        _MediaRetrievalApi,
+        _EvaluationsApi {
   ApiService({
     required super.serverConfig,
     required super.workerManager,

@@ -1355,27 +1355,24 @@ void main() {
     group('resolves the streaming flag against the completion marker', () {
       Map<String, dynamic> parseAssistant(Map<String, dynamic> message) =>
           (parseFullConversation({
-                'id': 'conv-1',
-                'chat': {
-                  'messages': [
-                    {
-                      'id': 'answer',
-                      'role': 'assistant',
-                      'content': 'The sample result is ready.',
-                      'timestamp': 1700000000,
-                      ...message,
+                    'id': 'conv-1',
+                    'chat': {
+                      'messages': [
+                        {
+                          'id': 'answer',
+                          'role': 'assistant',
+                          'content': 'The sample result is ready.',
+                          'timestamp': 1700000000,
+                          ...message,
+                        },
+                      ],
                     },
-                  ],
-                },
-              })['messages']
-              as List<Map<String, dynamic>>)
+                  })['messages']
+                  as List<Map<String, dynamic>>)
               .single;
 
       test('a completed reply stays idle (issue #744)', () {
-        final message = parseAssistant({
-          'done': true,
-          'isStreaming': true,
-        });
+        final message = parseAssistant({'done': true, 'isStreaming': true});
 
         check(message['isStreaming']).equals(false);
       });
@@ -1450,10 +1447,7 @@ void main() {
       });
 
       test('an unfinished reply keeps streaming', () {
-        final message = parseAssistant({
-          'done': false,
-          'isStreaming': true,
-        });
+        final message = parseAssistant({'done': false, 'isStreaming': true});
 
         check(message['isStreaming']).equals(true);
       });
@@ -1642,5 +1636,29 @@ void main() {
         ),
       ).equals(rendered);
     });
+  });
+
+  test('a rating and its evaluation id survive into metadata', () {
+    // WP-3.8: a thumb given in Open WebUI's web client shows here, and one
+    // given here updates the same evaluation instead of filing another.
+    final conversation = parseFullConversationModel({
+      'id': 'conv-1',
+      'chat': {
+        'messages': [
+          {
+            'id': 'a1',
+            'role': 'assistant',
+            'content': 'Answer',
+            'done': true,
+            'annotation': {'rating': -1, 'reason': 'wrong'},
+            'feedbackId': 'fb-7',
+            'timestamp': 1700000000,
+          },
+        ],
+      },
+    });
+    final metadata = conversation.messages.single.metadata!;
+    check(metadata[kMessageRatingMetadataKey]).equals(-1);
+    check(metadata[kMessageFeedbackIdMetadataKey]).equals('fb-7');
   });
 }
