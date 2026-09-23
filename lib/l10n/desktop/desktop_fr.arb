@@ -427,5 +427,17 @@
   "desktopEarlier": "Plus ancien",
   "desktopChatRunning": "Réponse en cours",
   "desktopChatUnread": "Nouvelle réponse",
-  "desktopChatFailed": "Échec de la réponse"
+  "desktopChatFailed": "Échec de la réponse",
+  "desktopShell": "Shell",
+  "desktopSources": "Sources",
+  "desktopNoSources": "Aucune source citée dans cette conversation pour l’instant.",
+  "desktopClosePane": "Fermer le panneau latéral",
+  "desktopNoPreview": "Rien à prévisualiser pour l’instant. Quand une réponse écrit une page web, elle s’affiche ici.",
+  "desktopPreviewPosition": "{index} sur {count}",
+  "desktopPreviousPreview": "Page précédente",
+  "desktopNextPreview": "Page suivante",
+  "desktopOpenShell": "Ouvrir le shell",
+  "desktopCloseShell": "Fermer le shell",
+  "desktopResizeShell": "Redimensionner le shell",
+  "desktopAllNotes": "Toutes les notes"
 }

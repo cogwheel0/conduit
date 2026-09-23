@@ -427,5 +427,17 @@
   "desktopEarlier": "Ранее",
   "desktopChatRunning": "Отвечает",
   "desktopChatUnread": "Новый ответ",
-  "desktopChatFailed": "Ошибка ответа"
+  "desktopChatFailed": "Ошибка ответа",
+  "desktopShell": "Оболочка",
+  "desktopSources": "Источники",
+  "desktopNoSources": "В этом разговоре пока нет цитируемых источников.",
+  "desktopClosePane": "Закрыть дополнительную панель",
+  "desktopNoPreview": "Пока нечего показать. Когда ответ создаст веб-страницу, она появится здесь.",
+  "desktopPreviewPosition": "{index} из {count}",
+  "desktopPreviousPreview": "Предыдущая страница",
+  "desktopNextPreview": "Следующая страница",
+  "desktopOpenShell": "Открыть оболочку",
+  "desktopCloseShell": "Закрыть оболочку",
+  "desktopResizeShell": "Изменить размер оболочки",
+  "desktopAllNotes": "Все заметки"
 }

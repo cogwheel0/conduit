@@ -59,12 +59,29 @@ class TerminalPage extends StatelessComponent {
   }
 }
 
+/// Which parts of the terminal a [TerminalWorkspace] draws.
+enum TerminalLayout {
+  /// The terminal page: files and ports beside the shell.
+  page,
+
+  /// Files and ports alone: the chat's side pane.
+  files,
+
+  /// The shell alone: the frame under a conversation.
+  console,
+}
+
 /// The page once there are servers. Attaches to the selected one and
 /// keeps a shell open on it.
 class TerminalWorkspace extends StatefulComponent {
-  const TerminalWorkspace({required this.servers, super.key});
+  const TerminalWorkspace({
+    required this.servers,
+    this.layout = TerminalLayout.page,
+    super.key,
+  });
 
   final TerminalServers servers;
+  final TerminalLayout layout;
 
   @override
   State<TerminalWorkspace> createState() => _TerminalWorkspaceState();
@@ -129,7 +146,7 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
       setState(() => _attached = attached);
       if (!attached.supported) {
         _say(t.app.terminalFeatureDisabled, error: true);
-      } else {
+      } else if (component.layout != TerminalLayout.files) {
         // After this frame, so the host element exists to draw into.
         Future<void>.delayed(Duration.zero, _connect);
       }
@@ -296,9 +313,10 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
       _started = true;
       Future<void>.delayed(Duration.zero, _attach);
     }
-    return div(classes: 'flex min-h-0 flex-1', [
-      if (!_fullscreen) _sidePanel(context),
-      _console(context),
+    final layout = component.layout;
+    return div(classes: 'flex min-h-0 min-w-0 flex-1', [
+      if (!_fullscreen && layout != TerminalLayout.console) _sidePanel(context),
+      if (layout != TerminalLayout.files) _console(context),
       if (_preview case final preview?) _previewModal(context, preview),
     ]);
   }
@@ -306,23 +324,27 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
   Component _sidePanel(BuildContext context) {
     final servers = component.servers.servers;
     final listing = _listing;
+    final alone = component.layout == TerminalLayout.files;
     return nav(
-      classes:
-          'flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-r '
-          'border-border bg-card p-3',
+      classes: alone
+          ? 'flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3'
+          : 'flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-r '
+                'border-border bg-surface p-3',
       attributes: <String, String>{'aria-label': t.app.terminal},
       [
-        div(classes: 'flex items-center gap-2', [
-          Link(
-            to: '/',
-            classes: 'rounded-lg px-2 py-1 text-ui-base hover:bg-hover',
-            attributes: <String, String>{'aria-label': t.app.back},
-            child: Component.text('←'),
-          ),
-          h1(classes: 'flex-1 text-ui-base font-semibold', [
-            Component.text(t.app.terminal),
+        // In the side pane the tab already says where this is.
+        if (!alone)
+          div(classes: 'flex items-center gap-2', [
+            Link(
+              to: '/',
+              classes: 'rounded-lg px-2 py-1 text-ui-base hover:bg-hover',
+              attributes: <String, String>{'aria-label': t.app.back},
+              child: Component.text('←'),
+            ),
+            h1(classes: 'flex-1 text-ui-base font-semibold', [
+              Component.text(t.app.terminal),
+            ]),
           ]),
-        ]),
         if (servers.length > 1)
           select(
             [
@@ -559,11 +581,17 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
     final live =
         _link == TerminalLinkState.connected ||
         _link == TerminalLinkState.connecting;
-    return main_(
+    final framed = component.layout == TerminalLayout.console;
+    return Component.element(
+      // Under a conversation it is a region of the page, not its main part.
+      tag: framed ? 'section' : 'main',
+      attributes: <String, String>{
+        if (framed) 'aria-label': t.desktop.desktopShell,
+      },
       classes: _fullscreen
           ? 'fixed inset-0 z-40 flex flex-col bg-panel p-2'
-          : 'flex min-w-0 flex-1 flex-col p-3',
-      [
+          : 'flex min-w-0 flex-1 flex-col ${framed ? 'p-2' : 'p-3'}',
+      children: [
         div(classes: 'mb-2 flex flex-wrap items-center gap-2', [
           span(
             classes: 'flex-1 text-ui-sm text-foreground-subtle',

@@ -427,5 +427,17 @@
   "desktopEarlier": "Wcześniej",
   "desktopChatRunning": "Odpowiada",
   "desktopChatUnread": "Nowa odpowiedź",
-  "desktopChatFailed": "Odpowiedź nieudana"
+  "desktopChatFailed": "Odpowiedź nieudana",
+  "desktopShell": "Powłoka",
+  "desktopSources": "Źródła",
+  "desktopNoSources": "W tej rozmowie nie zacytowano jeszcze żadnych źródeł.",
+  "desktopClosePane": "Zamknij panel boczny",
+  "desktopNoPreview": "Nie ma jeszcze nic do podglądu. Gdy odpowiedź napisze stronę internetową, pojawi się tutaj.",
+  "desktopPreviewPosition": "{index} z {count}",
+  "desktopPreviousPreview": "Poprzednia strona",
+  "desktopNextPreview": "Następna strona",
+  "desktopOpenShell": "Otwórz powłokę",
+  "desktopCloseShell": "Zamknij powłokę",
+  "desktopResizeShell": "Zmień rozmiar powłoki",
+  "desktopAllNotes": "Wszystkie notatki"
 }

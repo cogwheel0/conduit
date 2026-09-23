@@ -427,5 +427,17 @@
   "desktopEarlier": "それ以前",
   "desktopChatRunning": "回答中",
   "desktopChatUnread": "新しい回答",
-  "desktopChatFailed": "回答に失敗しました"
+  "desktopChatFailed": "回答に失敗しました",
+  "desktopShell": "シェル",
+  "desktopSources": "ソース",
+  "desktopNoSources": "この会話ではまだソースが引用されていません。",
+  "desktopClosePane": "サイドパネルを閉じる",
+  "desktopNoPreview": "プレビューするものはまだありません。回答がウェブページを書くと、ここに表示されます。",
+  "desktopPreviewPosition": "{index} / {count}",
+  "desktopPreviousPreview": "前のページ",
+  "desktopNextPreview": "次のページ",
+  "desktopOpenShell": "シェルを開く",
+  "desktopCloseShell": "シェルを閉じる",
+  "desktopResizeShell": "シェルのサイズを変更",
+  "desktopAllNotes": "すべてのノート"
 }

@@ -427,5 +427,17 @@
   "desktopEarlier": "更早",
   "desktopChatRunning": "正在回答",
   "desktopChatUnread": "新回答",
-  "desktopChatFailed": "回答失败"
+  "desktopChatFailed": "回答失败",
+  "desktopShell": "Shell",
+  "desktopSources": "来源",
+  "desktopNoSources": "此对话中尚未引用任何来源。",
+  "desktopClosePane": "关闭侧面板",
+  "desktopNoPreview": "暂无可预览的内容。当回答编写网页时，会显示在这里。",
+  "desktopPreviewPosition": "第 {index} 个，共 {count} 个",
+  "desktopPreviousPreview": "上一页",
+  "desktopNextPreview": "下一页",
+  "desktopOpenShell": "打开 Shell",
+  "desktopCloseShell": "关闭 Shell",
+  "desktopResizeShell": "调整 Shell 大小",
+  "desktopAllNotes": "所有笔记"
 }

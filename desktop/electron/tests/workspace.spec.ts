@@ -84,6 +84,61 @@ test('the sidebar resizes, stays that size, and hides', async () => {
   }
 })
 
+test('the side pane: tabs, a preview, and the tab kept', async () => {
+  const fake = await fakeProvider('Here is a page.\n\n```html\n<h1>Hello page</h1>\n```\n')
+  try {
+    const page = await app.firstWindow()
+    await expect
+      .poll(() => page.evaluate(() => location.pathname).catch(() => ''), { timeout: 30_000 })
+      .toBe('/onboarding')
+    await page.getByRole('button', { name: /^connect directly/i }).click()
+    await page.getByRole('button', { name: /^connect provider$/i }).click()
+    const editor = page.getByRole('group', { name: /connection details/i })
+    await editor.getByLabel(/^connection name$/i).fill('Echo')
+    await editor.getByLabel(/^base url$/i).fill(fake.baseUrl)
+    await editor.getByLabel(/model ids/i).fill('echo-model')
+    await editor.getByRole('button', { name: /^save$/i }).click()
+    const composer = page.getByPlaceholder('Ask Conduit')
+    await composer.fill('Write me a page')
+    await composer.press('Enter')
+    await expect(page.getByRole('log')).toContainText('Here is a page', { timeout: 30_000 })
+
+    // Opened from the conversation's header, beside it. A direct chat is
+    // kept on this computer, so it has no server-side controls to show.
+    await page.getByRole('button', { name: /^side pane$/i }).click()
+    const tabs = page.getByRole('tablist', { name: /side pane/i })
+    await expect(tabs).toBeVisible()
+    await expect(tabs.getByRole('tab', { name: /^controls$/i })).toHaveCount(0)
+
+    // Arrow keys move between tabs, and the panel follows.
+    await tabs.getByRole('tab', { selected: true }).focus()
+    await page.keyboard.press('Home')
+    await page.keyboard.press('End')
+    const preview = tabs.getByRole('tab', { name: /^preview$/i })
+    await expect(preview).toHaveAttribute('aria-selected', 'true')
+    await expect(preview).toBeFocused()
+    const frame = page.getByRole('tabpanel').locator('iframe')
+    await expect(frame).toHaveAttribute('sandbox', '')
+    await expect(frame.contentFrame().getByRole('heading', { name: 'Hello page' })).toBeVisible()
+
+    // The window keeps the tab.
+    await page.reload()
+    await page
+      .getByRole('navigation', { name: /conversations/i })
+      .getByRole('button', { name: /^write me a page$/i })
+      .click({ timeout: 30_000 })
+    await expect(page.getByRole('log')).toContainText('Here is a page', { timeout: 30_000 })
+    await page.getByRole('button', { name: /^side pane$/i }).click()
+    await expect(
+      page.getByRole('tablist', { name: /side pane/i }).getByRole('tab', { selected: true }),
+    ).toHaveText(/preview/i)
+    await page.getByRole('button', { name: /close the side pane/i }).click()
+    await expect(page.getByRole('tablist', { name: /side pane/i })).toBeHidden()
+  } finally {
+    fake.close()
+  }
+})
+
 test('the drawn window controls reach the window', async () => {
   test.skip(process.platform === 'darwin', 'macOS keeps its own traffic lights')
   const page = await app.firstWindow()

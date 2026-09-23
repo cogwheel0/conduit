@@ -70,6 +70,10 @@ test('every screen, light and dark', async () => {
     await composer.press('Enter')
     await expect(page.getByRole('log')).toContainText('An answer', { timeout: 30_000 })
     await shoot(page, '04-chat-answer')
+    await page.getByRole('button', { name: /^side pane$/i }).click()
+    await expect(page.getByRole('tablist', { name: /side pane/i })).toBeVisible()
+    await shoot(page, '05-side-pane')
+    await page.getByRole('button', { name: /close the side pane/i }).click()
 
     const tabs = ['appearance', 'audio', 'keyboard', 'desktop', 'connections', 'direct', 'mcp', 'hermes', 'data', 'about']
     for (const [index, tab] of tabs.entries()) {

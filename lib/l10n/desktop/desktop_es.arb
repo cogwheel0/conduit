@@ -427,5 +427,17 @@
   "desktopEarlier": "Anteriores",
   "desktopChatRunning": "Respondiendo",
   "desktopChatUnread": "Nueva respuesta",
-  "desktopChatFailed": "Error en la respuesta"
+  "desktopChatFailed": "Error en la respuesta",
+  "desktopShell": "Shell",
+  "desktopSources": "Fuentes",
+  "desktopNoSources": "Aún no se han citado fuentes en esta conversación.",
+  "desktopClosePane": "Cerrar el panel lateral",
+  "desktopNoPreview": "Aún no hay nada que previsualizar. Cuando una respuesta escriba una página web, aparecerá aquí.",
+  "desktopPreviewPosition": "{index} de {count}",
+  "desktopPreviousPreview": "Página anterior",
+  "desktopNextPreview": "Página siguiente",
+  "desktopOpenShell": "Abrir el shell",
+  "desktopCloseShell": "Cerrar el shell",
+  "desktopResizeShell": "Cambiar el tamaño del shell",
+  "desktopAllNotes": "Todas las notas"
 }

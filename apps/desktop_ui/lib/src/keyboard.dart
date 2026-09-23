@@ -178,7 +178,7 @@ final class DocumentWindowCommands implements WindowCommandsPort {
 
   @override
   void trackPointer({
-    required void Function(double x) onMove,
+    required void Function(double x, double y) onMove,
     void Function()? onEnd,
     String cursor = 'col-resize',
   }) {
@@ -187,7 +187,10 @@ final class DocumentWindowCommands implements WindowCommandsPort {
     body?.style.userSelect = 'none';
     late final JSFunction move;
     late final JSFunction up;
-    move = ((web.PointerEvent event) => onMove(event.clientX.toDouble())).toJS;
+    move = ((web.PointerEvent event) => onMove(
+      event.clientX.toDouble(),
+      event.clientY.toDouble(),
+    )).toJS;
     up = ((web.PointerEvent _) {
       web.document.removeEventListener('pointermove', move);
       web.document.removeEventListener('pointerup', up);
@@ -334,16 +337,23 @@ EventCallback tabKeys(void Function(int step) move) => (web.Event event) {
 double pointerX(web.Event event) =>
     (event as web.MouseEvent).clientX.toDouble();
 
-/// Arrow keys on a resize handle: Left and Right move it by [step] pixels,
-/// ten times that with Shift.
+/// The pointer's y in viewport pixels, from a pointer or mouse event.
+double pointerY(web.Event event) =>
+    (event as web.MouseEvent).clientY.toDouble();
+
+/// Arrow keys on a resize handle: Left and Right (Up and Down when it is
+/// [horizontal]) move it by [step] pixels, ten times that with Shift.
 EventCallback resizeKeys(
   void Function(double delta) move, {
   double step = 16,
+  bool horizontal = false,
 }) => (web.Event event) {
   final key = event as web.KeyboardEvent;
   final sign = switch (key.key) {
-    'ArrowRight' => 1,
-    'ArrowLeft' => -1,
+    'ArrowRight' when !horizontal => 1,
+    'ArrowLeft' when !horizontal => -1,
+    'ArrowDown' when horizontal => 1,
+    'ArrowUp' when horizontal => -1,
     _ => 0,
   };
   if (sign == 0) return;

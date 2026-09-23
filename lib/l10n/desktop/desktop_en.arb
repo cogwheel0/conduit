@@ -914,5 +914,61 @@
   "desktopChatFailed": "Answer failed",
   "@desktopChatFailed": {
     "description": "Screen-reader text for the sidebar status dot when an answer failed in a conversation the user is not looking at."
+  },
+  "desktopShell": "Shell",
+  "@desktopShell": {
+    "description": "Name of the frame under the conversation that holds a terminal shell on the account's terminal server."
+  },
+  "desktopSources": "Sources",
+  "@desktopSources": {
+    "description": "Heading in the side pane for every source cited in the conversation."
+  },
+  "desktopNoSources": "No sources cited in this conversation yet.",
+  "@desktopNoSources": {
+    "description": "Shown under Sources when no answer in the conversation cites anything."
+  },
+  "desktopClosePane": "Close the side pane",
+  "@desktopClosePane": {
+    "description": "Accessible name and tooltip of the button that closes the side pane."
+  },
+  "desktopNoPreview": "Nothing to preview yet. When an answer writes a web page, it shows here.",
+  "@desktopNoPreview": {
+    "description": "Empty state of the Preview tab."
+  },
+  "desktopPreviewPosition": "{index} of {count}",
+  "@desktopPreviewPosition": {
+    "description": "Which of several previewable pages is shown, e.g. '2 of 3'.",
+    "placeholders": {
+      "index": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopPreviousPreview": "Previous page",
+  "@desktopPreviousPreview": {
+    "description": "Button showing the previous previewable page in the Preview tab."
+  },
+  "desktopNextPreview": "Next page",
+  "@desktopNextPreview": {
+    "description": "Button showing the next previewable page in the Preview tab."
+  },
+  "desktopOpenShell": "Open the shell",
+  "@desktopOpenShell": {
+    "description": "Button in the side pane's Terminal tab that opens a shell in a frame under the conversation."
+  },
+  "desktopCloseShell": "Close the shell",
+  "@desktopCloseShell": {
+    "description": "Button that closes the shell frame under the conversation."
+  },
+  "desktopResizeShell": "Resize the shell",
+  "@desktopResizeShell": {
+    "description": "Accessible name of the draggable divider between the conversation and the shell under it; arrow keys also resize."
+  },
+  "desktopAllNotes": "All notes",
+  "@desktopAllNotes": {
+    "description": "Button in the side pane's Notes tab that goes back from a note to the list of notes."
   }
 }

@@ -20,7 +20,6 @@ import '../rpc/voice_providers.dart';
 import '../voice.dart';
 import '../widgets/form_field.dart';
 import '../widgets/chat_tags.dart';
-import '../widgets/controls_pane.dart';
 import '../widgets/desktop_integration.dart' show composerPrefillProvider;
 import '../widgets/folder_page.dart';
 import '../widgets/markdown_view.dart';
@@ -28,12 +27,14 @@ import '../widgets/mcp_content_sheet.dart';
 import '../widgets/message_files.dart';
 import '../widgets/prompt_menu.dart';
 import '../widgets/share_dialog.dart';
+import '../widgets/side_pane.dart';
 import '../widgets/sources_list.dart';
 import '../widgets/usage_details.dart';
 import '../widgets/ui.dart';
 import '../widgets/voice_controls.dart';
 import '../widgets/workspace_frame.dart';
-import 'terminal_page.dart' show terminalOffered;
+import 'terminal_page.dart'
+    show TerminalLayout, TerminalWorkspace, terminalOffered;
 
 /// The chat vertical: the conversation frame -- header, transcript,
 /// composer -- and the side pane's frame beside it (M3; the frames are
@@ -45,21 +46,76 @@ class ChatPage extends StatelessComponent {
   Component build(BuildContext context) {
     final selected = context.watch(selectedChatIdProvider);
     final temporaryIds = context.watch(temporaryChatIdsProvider);
-    final showControls =
-        context.watch(controlsOpenProvider) &&
+    // The pane is for any open conversation; its Controls tab only for
+    // one the server keeps, since that is where the settings are saved.
+    final showPane = context.watch(controlsOpenProvider) && selected != null;
+    final serverChat =
         selected != null &&
         !temporaryIds.contains(selected) &&
         !isLocalOnlyChatId(selected);
-    final detail = showControls
-        ? context.watch(chatDetailProvider).value
-        : null;
+    final detail = showPane ? context.watch(chatDetailProvider).value : null;
     final lightbox = context.watch(lightboxProvider);
     final folderOpen = context.watch(openFolderProvider) != null;
     final layout = context.watch(workspaceLayoutProvider);
-    final sidePane = showControls && detail != null && !folderOpen;
+    final sidePane = showPane && detail != null && !folderOpen;
+    final terminals = context.watch(terminalServersProvider).value;
+    final shell =
+        context.watch(shellOpenProvider) &&
+        !folderOpen &&
+        terminals != null &&
+        terminalOffered(terminals);
     return div(classes: 'flex min-h-0 min-w-0 flex-1', [
-      div(classes: '$frameClasses flex-1', [
-        if (folderOpen) const FolderPage() else const _Transcript(),
+      div(classes: 'flex min-h-0 min-w-0 flex-1 flex-col', [
+        div(classes: '$frameClasses flex-1', [
+          if (folderOpen) const FolderPage() else const _Transcript(),
+        ]),
+        // The shell, in a frame of its own under the conversation.
+        if (shell) ...[
+          ResizeHandle(
+            id: 'resize-shell',
+            label: t.desktop.desktopResizeShell,
+            value: layout.shellHeight,
+            min: WorkspaceLayout.shellHeights.min,
+            max: WorkspaceLayout.shellHeights.max,
+            horizontal: true,
+            onResize: context
+                .read(workspaceLayoutProvider.notifier)
+                .setShellHeight,
+          ),
+          div(
+            classes: '$frameClasses shrink-0',
+            styles: Styles(
+              raw: <String, String>{'height': '${layout.shellHeight}px'},
+            ),
+            [
+              div(
+                classes:
+                    'flex h-8 shrink-0 items-center gap-2 border-b '
+                    'border-border bg-header pr-1 pl-3 text-ui-sm '
+                    'text-foreground-subtle',
+                [
+                  icon(LucideIcon.squareTerminal, classes: 'size-3.5'),
+                  span(classes: 'flex-1', [
+                    Component.text(t.desktop.desktopShell),
+                  ]),
+                  iconButton(
+                    id: 'close-shell',
+                    glyph: LucideIcon.x,
+                    label: t.desktop.desktopCloseShell,
+                    tooltip: TooltipSide.left,
+                    onClick: () => context
+                        .read(shellOpenProvider.notifier)
+                        .set(open: false),
+                  ),
+                ],
+              ),
+              TerminalWorkspace(
+                servers: terminals,
+                layout: TerminalLayout.console,
+              ),
+            ],
+          ),
+        ],
       ]),
       if (lightbox != null)
         LightboxOverlay(
@@ -84,15 +140,7 @@ class ChatPage extends StatelessComponent {
           styles: Styles(
             raw: <String, String>{'width': '${layout.sidePaneWidth}px'},
           ),
-          [
-            // Keyed on the conversation, so switching chats reseeds the
-            // field instead of carrying one chat's draft into the next.
-            ControlsPane(
-              key: ValueKey('controls-$selected'),
-              chatId: selected,
-              systemPrompt: detail.systemPrompt,
-            ),
-          ],
+          [SidePane(chatId: selected, detail: detail, controls: serverChat)],
         ),
       ],
     ]);
@@ -237,11 +285,11 @@ class _Transcript extends StatelessComponent {
               onFilter: (name) =>
                   context.read(searchQueryProvider.notifier).set('tag:$name'),
             ),
-          if (selected != null &&
-              !temporaryIds.contains(selected) &&
-              !isLocalOnlyChatId(selected)) ...[
+          if (selected != null) ...[
             div(classes: 'min-w-0 flex-1', const []),
-            if (isShareableChatId(selected))
+            if (!temporaryIds.contains(selected) &&
+                !isLocalOnlyChatId(selected) &&
+                isShareableChatId(selected))
               iconButton(
                 id: 'share-chat',
                 glyph: LucideIcon.share2,
@@ -253,7 +301,7 @@ class _Transcript extends StatelessComponent {
             iconButton(
               id: 'toggle-side-pane',
               glyph: LucideIcon.panelRight,
-              label: t.desktop.desktopControls,
+              label: t.desktop.desktopSidePane,
               pressed: context.watch(controlsOpenProvider),
               tooltip: TooltipSide.left,
               onClick: () =>

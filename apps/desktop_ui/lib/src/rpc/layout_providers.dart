@@ -6,6 +6,9 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import '../shortcuts.dart';
 import 'rpc_providers.dart';
 
+/// The side pane's tabs (docs/desktop/REDESIGN.md), in order.
+enum SidePaneTab { controls, terminal, notes, preview }
+
 /// The workspace's frames: whether the sidebar shows, and how wide it and
 /// the side pane are (docs/desktop/REDESIGN.md).
 ///
@@ -16,6 +19,8 @@ class WorkspaceLayout {
     this.sidebarOpen = true,
     this.sidebarWidth = defaultSidebarWidth,
     this.sidePaneWidth = defaultSidePaneWidth,
+    this.sidePaneTab = SidePaneTab.controls,
+    this.shellHeight = defaultShellHeight,
   });
 
   factory WorkspaceLayout.fromJson(Map<String, dynamic> json) =>
@@ -23,31 +28,57 @@ class WorkspaceLayout {
         sidebarOpen: json['sidebarOpen'] != false,
         sidebarWidth: _width(json['sidebarWidth'], sidebarWidths),
         sidePaneWidth: _width(json['sidePaneWidth'], sidePaneWidths),
+        sidePaneTab:
+            SidePaneTab.values
+                .where((tab) => tab.name == json['sidePaneTab'])
+                .firstOrNull ??
+            SidePaneTab.controls,
+        shellHeight: switch (json['shellHeight']) {
+          final num height when !height.isNaN => height.toDouble().clamp(
+            shellHeights.min,
+            shellHeights.max,
+          ),
+          _ => defaultShellHeight,
+        },
       );
 
   static const double defaultSidebarWidth = 264;
   static const double defaultSidePaneWidth = 360;
   static const ({double min, double max}) sidebarWidths = (min: 200, max: 440);
   static const ({double min, double max}) sidePaneWidths = (min: 280, max: 640);
+  static const double defaultShellHeight = 260;
+  static const ({double min, double max}) shellHeights = (min: 120, max: 640);
 
   final bool sidebarOpen;
   final double sidebarWidth;
   final double sidePaneWidth;
 
+  /// The side pane's tab, as it was last left.
+  final SidePaneTab sidePaneTab;
+
+  /// The height of the shell frame under a conversation.
+  final double shellHeight;
+
   WorkspaceLayout copyWith({
     bool? sidebarOpen,
     double? sidebarWidth,
     double? sidePaneWidth,
+    SidePaneTab? sidePaneTab,
+    double? shellHeight,
   }) => WorkspaceLayout(
     sidebarOpen: sidebarOpen ?? this.sidebarOpen,
     sidebarWidth: sidebarWidth ?? this.sidebarWidth,
     sidePaneWidth: sidePaneWidth ?? this.sidePaneWidth,
+    sidePaneTab: sidePaneTab ?? this.sidePaneTab,
+    shellHeight: shellHeight ?? this.shellHeight,
   );
 
   Map<String, Object> toJson() => <String, Object>{
     'sidebarOpen': sidebarOpen,
     'sidebarWidth': sidebarWidth,
     'sidePaneWidth': sidePaneWidth,
+    'sidePaneTab': sidePaneTab.name,
+    'shellHeight': shellHeight,
   };
 
   static double _width(Object? raw, ({double min, double max}) bounds) {
@@ -99,6 +130,17 @@ class WorkspaceLayoutNotifier extends Notifier<WorkspaceLayout> {
       sidePaneWidth: width.clamp(
         WorkspaceLayout.sidePaneWidths.min,
         WorkspaceLayout.sidePaneWidths.max,
+      ),
+    ),
+  );
+
+  void showTab(SidePaneTab tab) => _set(state.copyWith(sidePaneTab: tab));
+
+  void setShellHeight(double height) => _set(
+    state.copyWith(
+      shellHeight: height.clamp(
+        WorkspaceLayout.shellHeights.min,
+        WorkspaceLayout.shellHeights.max,
       ),
     ),
   );
@@ -168,4 +210,25 @@ class RevealedChat extends Notifier<String?> {
   String? build() => null;
 
   void set(String? id) => state = id;
+}
+
+/// Whether the shell frame is open under the conversation. Not kept: a
+/// shell is a live connection, and a new window should not open one.
+final shellOpenProvider = NotifierProvider<ShellOpen, bool>(ShellOpen.new);
+
+class ShellOpen extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void set({required bool open}) => state = open;
+}
+
+/// The note open in the side pane's Notes tab, if one is.
+final paneNoteProvider = NotifierProvider<PaneNote, String?>(PaneNote.new);
+
+class PaneNote extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  void open(String? id) => state = id;
 }

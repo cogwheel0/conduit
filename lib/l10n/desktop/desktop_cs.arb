@@ -427,5 +427,17 @@
   "desktopEarlier": "Dříve",
   "desktopChatRunning": "Odpovídá",
   "desktopChatUnread": "Nová odpověď",
-  "desktopChatFailed": "Odpověď selhala"
+  "desktopChatFailed": "Odpověď selhala",
+  "desktopShell": "Shell",
+  "desktopSources": "Zdroje",
+  "desktopNoSources": "V této konverzaci zatím nejsou citovány žádné zdroje.",
+  "desktopClosePane": "Zavřít vedlejší panel",
+  "desktopNoPreview": "Zatím není co zobrazit v náhledu. Když odpověď napíše webovou stránku, zobrazí se zde.",
+  "desktopPreviewPosition": "{index} z {count}",
+  "desktopPreviousPreview": "Předchozí stránka",
+  "desktopNextPreview": "Další stránka",
+  "desktopOpenShell": "Otevřít shell",
+  "desktopCloseShell": "Zavřít shell",
+  "desktopResizeShell": "Změnit velikost shellu",
+  "desktopAllNotes": "Všechny poznámky"
 }

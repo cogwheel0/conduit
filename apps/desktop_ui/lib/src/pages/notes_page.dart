@@ -36,7 +36,7 @@ class NotesPage extends StatelessComponent {
           if (id == null)
             const _NoNote()
           else
-            _NoteEditorPane(key: ValueKey('note-$id'), id: id),
+            NoteEditorPane(key: ValueKey('note-$id'), id: id),
         ]),
       ],
     );
@@ -180,18 +180,31 @@ class _NoNote extends StatelessComponent {
 }
 
 /// One note: its title, pin and delete, and the editor.
-class _NoteEditorPane extends StatefulComponent {
-  const _NoteEditorPane({required this.id, super.key});
+/// One note, open for editing: on the notes page, and in the chat's side
+/// pane, where it is [compact].
+class NoteEditorPane extends StatefulComponent {
+  const NoteEditorPane({
+    required this.id,
+    this.compact = false,
+    this.onDeleted,
+    super.key,
+  });
 
   final String id;
 
+  /// Narrow: less padding, and the actions wrap under the title.
+  final bool compact;
+
+  /// What deleting the note leads to; the notes page by default.
+  final void Function()? onDeleted;
+
   @override
-  State<_NoteEditorPane> createState() => _NoteEditorPaneState();
+  State<NoteEditorPane> createState() => _NoteEditorPaneState();
 }
 
 enum _SaveState { idle, saving, saved, failed }
 
-class _NoteEditorPaneState extends State<_NoteEditorPane> {
+class _NoteEditorPaneState extends State<NoteEditorPane> {
   /// Long enough to not save on every keystroke, short enough that closing
   /// the window straight after typing rarely finds anything unsaved -- and
   /// leaving the note saves what is pending anyway.
@@ -515,115 +528,133 @@ class _NoteEditorPaneState extends State<_NoteEditorPane> {
         Component.text(t.app.noteNotFound),
       ]);
     }
-    return div(classes: 'flex min-h-0 flex-1 flex-col gap-3 p-6', [
-      div(classes: 'flex items-center gap-2', [
-        input(
-          id: 'note-title',
-          classes:
-              'min-w-0 flex-1 bg-transparent text-xl font-semibold '
-              'outline-none placeholder:text-muted-foreground',
-          type: InputType.text,
-          value: _title,
-          attributes: <String, String>{
-            'placeholder': t.app.untitled,
-            'aria-label': t.app.untitled,
-          },
-          onInput: (value) {
-            _title = '$value';
-            _titleChanged = true;
-            _scheduleSave();
-          },
-        ),
-        span(
-          classes: 'text-ui-sm text-foreground-subtle',
-          attributes: const <String, String>{'role': 'status'},
-          [
-            Component.text(switch (_state) {
-              _SaveState.saving => t.app.saving,
-              _SaveState.saved => t.app.saved,
-              _SaveState.failed => t.desktop.desktopNoteSaveFailed,
-              _SaveState.idle => '',
-            }),
-          ],
-        ),
-        button(
-          [Component.text(t.app.generateTitle)],
-          classes: 'rounded-lg px-2.5 py-1 text-ui-sm hover:bg-hover disabled:opacity-50',
-          type: ButtonType.button,
-          disabled: _asking,
-          onClick: () => unawaited(_generateTitle()),
-        ),
-        button(
-          [Component.text(t.app.enhanceNote)],
-          classes: 'rounded-lg px-2.5 py-1 text-ui-sm hover:bg-hover disabled:opacity-50',
-          type: ButtonType.button,
-          disabled: _asking,
-          onClick: () => unawaited(_enhance()),
-        ),
-        button(
-          [Component.text(_pinned ? t.app.unpin : t.app.pin)],
-          classes: 'rounded-lg px-2.5 py-1 text-ui-sm hover:bg-hover',
-          type: ButtonType.button,
-          attributes: <String, String>{'aria-pressed': '$_pinned'},
-          onClick: () async {
-            final pinned = !_pinned;
-            setState(() => _pinned = pinned);
-            await context
-                .read(noteActionsProvider)
-                .setPinned(component.id, pinned: pinned);
-          },
-        ),
-        button(
-          [Component.text(t.app.delete)],
-          classes:
-              'rounded-lg px-2.5 py-1 text-ui-sm text-destructive '
-              'hover:bg-destructive/10',
-          type: ButtonType.button,
-          onClick: () => setState(() => _confirmingDelete = true),
-        ),
-      ]),
-      _attachmentsRow(context),
-      if (_notice case final notice?)
-        p(
-          classes: 'text-ui-sm text-foreground-subtle',
-          attributes: const <String, String>{'role': 'status'},
-          [Component.text(notice)],
-        ),
-      if (_confirmingDelete)
+    final compact = component.compact;
+    return div(
+      classes:
+          'flex min-h-0 flex-1 flex-col '
+          '${compact ? 'gap-2 p-3' : 'gap-3 p-6'}',
+      [
+        div(classes: 'flex flex-wrap items-center gap-2', [
+          input(
+            id: 'note-title',
+            classes:
+                'min-w-0 flex-1 bg-transparent font-semibold outline-none '
+                'placeholder:text-foreground-subtlest '
+                '${compact ? 'basis-full text-ui-lg' : 'text-ui-xl'}',
+            type: InputType.text,
+            value: _title,
+            attributes: <String, String>{
+              'placeholder': t.app.untitled,
+              'aria-label': t.app.untitled,
+            },
+            onInput: (value) {
+              _title = '$value';
+              _titleChanged = true;
+              _scheduleSave();
+            },
+          ),
+          span(
+            classes: 'text-ui-sm text-foreground-subtle',
+            attributes: const <String, String>{'role': 'status'},
+            [
+              Component.text(switch (_state) {
+                _SaveState.saving => t.app.saving,
+                _SaveState.saved => t.app.saved,
+                _SaveState.failed => t.desktop.desktopNoteSaveFailed,
+                _SaveState.idle => '',
+              }),
+            ],
+          ),
+          button(
+            [Component.text(t.app.generateTitle)],
+            classes: 'rounded-lg px-2.5 py-1 text-ui-sm hover:bg-hover disabled:opacity-50',
+            type: ButtonType.button,
+            disabled: _asking,
+            onClick: () => unawaited(_generateTitle()),
+          ),
+          button(
+            [Component.text(t.app.enhanceNote)],
+            classes: 'rounded-lg px-2.5 py-1 text-ui-sm hover:bg-hover disabled:opacity-50',
+            type: ButtonType.button,
+            disabled: _asking,
+            onClick: () => unawaited(_enhance()),
+          ),
+          button(
+            [Component.text(_pinned ? t.app.unpin : t.app.pin)],
+            classes: 'rounded-lg px-2.5 py-1 text-ui-sm hover:bg-hover',
+            type: ButtonType.button,
+            attributes: <String, String>{'aria-pressed': '$_pinned'},
+            onClick: () async {
+              final pinned = !_pinned;
+              setState(() => _pinned = pinned);
+              await context
+                  .read(noteActionsProvider)
+                  .setPinned(component.id, pinned: pinned);
+            },
+          ),
+          button(
+            [Component.text(t.app.delete)],
+            classes:
+                'rounded-lg px-2.5 py-1 text-ui-sm text-destructive '
+                'hover:bg-destructive/10',
+            type: ButtonType.button,
+            onClick: () => setState(() => _confirmingDelete = true),
+          ),
+        ]),
+        _attachmentsRow(context),
+        if (_notice case final notice?)
+          p(
+            classes: 'text-ui-sm text-foreground-subtle',
+            attributes: const <String, String>{'role': 'status'},
+            [Component.text(notice)],
+          ),
+        if (_confirmingDelete)
+          div(
+            classes:
+                'space-y-2 rounded-lg border border-destructive/40 '
+                'bg-destructive/10 p-3 text-ui-base',
+            attributes: const <String, String>{'role': 'alertdialog'},
+            [
+              p([Component.text(t.app.deleteNoteTitle)]),
+              div(classes: 'flex gap-2', [
+                button(
+                  [Component.text(t.app.delete)],
+                  classes:
+                      'rounded-lg bg-destructive px-2.5 py-1 text-ui-sm '
+                      'text-destructive-foreground',
+                  type: ButtonType.button,
+                  onClick: () async {
+                    final router = Router.of(context);
+                    final deleted = component.onDeleted;
+                    _saveTimer?.cancel();
+                    _pendingOps = null;
+                    _titleChanged = false;
+                    await context
+                        .read(noteActionsProvider)
+                        .delete(component.id);
+                    if (deleted != null) {
+                      deleted();
+                    } else {
+                      router.replace('/notes');
+                    }
+                  },
+                ),
+                button(
+                  [Component.text(t.app.cancel)],
+                  classes: 'rounded-lg px-2.5 py-1 text-ui-sm hover:bg-hover',
+                  type: ButtonType.button,
+                  onClick: () => setState(() => _confirmingDelete = false),
+                ),
+              ]),
+            ],
+          ),
+        // Quill's; the page renders nothing inside it.
         div(
-          classes:
-              'space-y-2 rounded-lg border border-destructive/40 '
-              'bg-destructive/10 p-3 text-ui-base',
-          attributes: const <String, String>{'role': 'alertdialog'},
-          [
-            p([Component.text(t.app.deleteNoteTitle)]),
-            div(classes: 'flex gap-2', [
-              button(
-                [Component.text(t.app.delete)],
-                classes:
-                    'rounded-lg bg-destructive px-2.5 py-1 text-ui-sm '
-                    'text-destructive-foreground',
-                type: ButtonType.button,
-                onClick: () async {
-                  final router = Router.of(context);
-                  _saveTimer?.cancel();
-                  _pendingOps = null;
-                  _titleChanged = false;
-                  await context.read(noteActionsProvider).delete(component.id);
-                  router.replace('/notes');
-                },
-              ),
-              button(
-                [Component.text(t.app.cancel)],
-                classes: 'rounded-lg px-2.5 py-1 text-ui-sm hover:bg-hover',
-                type: ButtonType.button,
-                onClick: () => setState(() => _confirmingDelete = false),
-              ),
-            ]),
-          ],
+          id: _hostId,
+          classes: 'note-editor flex min-h-0 flex-1 flex-col',
+          [],
         ),
-      // Quill's; the page renders nothing inside it.
-      div(id: _hostId, classes: 'note-editor flex min-h-0 flex-1 flex-col', []),
-    ]);
+      ],
+    );
   }
 }

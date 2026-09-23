@@ -1096,7 +1096,7 @@ test.describe('against a real server', () => {
 
     // 8h. The controls pane (WP-3.4): this conversation's own system
     // prompt, saved to the server and read back, then cleared again.
-    await page.locator('header').getByRole('button', { name: /^controls$/i }).click()
+    await page.locator('header').getByRole('button', { name: /^side pane$/i }).click()
     const controls = page.getByRole('complementary', { name: /controls/i })
     await expect(controls).toBeVisible()
     const promptField = controls.getByLabel(/system prompt/i)
@@ -1131,7 +1131,8 @@ test.describe('against a real server', () => {
         timeout: 30_000,
       })
     }
-    await controls.getByRole('button', { name: /^close$/i }).click()
+    // Closed from the side pane's tab bar, which holds the controls.
+    await page.getByRole('button', { name: /^close the side pane$/i }).click()
     await expect(controls).toBeHidden()
 
     // 8c. Edit the question in place (WP-3.2). The conversation should read
@@ -2316,6 +2317,35 @@ test.describe('against a real server', () => {
           }
         }
         await shot(page, '21c-composer-terminal')
+
+        // The same terminal beside a conversation (the redesign's side
+        // pane): its files in the Terminal tab, and the shell in a frame
+        // under the conversation.
+        await page
+          .getByRole('navigation', { name: /conversations/i })
+          .locator('li button:not([aria-label])')
+          .first()
+          .click()
+        await page.locator('header').getByRole('button', { name: /^side pane$/i }).click()
+        const paneTabs = page.getByRole('tablist', { name: /side pane/i })
+        await paneTabs.getByRole('tab', { name: /^terminal$/i }).click()
+        const paneFiles = page.getByRole('tabpanel').getByRole('navigation', { name: /^terminal$/i })
+        await expect(paneFiles.getByRole('button', { name: '📄 answer.txt', exact: true })).toBeVisible({
+          timeout: 30_000,
+        })
+        await page.getByRole('button', { name: /^open the shell$/i }).click()
+        const frameShell = page.getByRole('region', { name: /^shell$/i }).locator('#terminal-host')
+        await expect(frameShell).toBeVisible({ timeout: 30_000 })
+        await expect(async () => {
+          await frameShell.click()
+          await page.keyboard.type('echo framed-$((6*7))\r')
+          await expect(frameShell.locator('.xterm-rows')).toContainText('framed-42', { timeout: 5_000 })
+        }).toPass({ timeout: 30_000 })
+        await shot(page, '21d-side-pane-terminal')
+        await page.getByRole('button', { name: /^close the shell$/i }).first().click()
+        await expect(page.getByRole('region', { name: /^shell$/i })).toBeHidden()
+        await paneTabs.getByRole('tab', { name: /^controls$/i }).click()
+        await page.getByRole('button', { name: /^close the side pane$/i }).click()
       } finally {
         await terminalSettings((servers) => servers.filter((s) => s.url !== terminal.url)).catch(
           () => undefined,

@@ -427,5 +427,17 @@
   "desktopEarlier": "이전",
   "desktopChatRunning": "답변 중",
   "desktopChatUnread": "새 답변",
-  "desktopChatFailed": "답변 실패"
+  "desktopChatFailed": "답변 실패",
+  "desktopShell": "셸",
+  "desktopSources": "출처",
+  "desktopNoSources": "이 대화에서 아직 인용된 출처가 없습니다.",
+  "desktopClosePane": "사이드 패널 닫기",
+  "desktopNoPreview": "아직 미리 볼 내용이 없습니다. 답변이 웹 페이지를 작성하면 여기에 표시됩니다.",
+  "desktopPreviewPosition": "{index}/{count}",
+  "desktopPreviousPreview": "이전 페이지",
+  "desktopNextPreview": "다음 페이지",
+  "desktopOpenShell": "셸 열기",
+  "desktopCloseShell": "셸 닫기",
+  "desktopResizeShell": "셸 크기 조정",
+  "desktopAllNotes": "모든 노트"
 }

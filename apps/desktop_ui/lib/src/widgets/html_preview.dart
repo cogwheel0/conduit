@@ -19,9 +19,13 @@ import '../l10n/strings.g.dart';
 /// Opt-in as well: the frame is only created once the user asks for it, so
 /// merely receiving a reply never renders anything but text.
 class HtmlPreview extends StatefulComponent {
-  const HtmlPreview({required this.html, super.key});
+  const HtmlPreview({required this.html, this.fill = false, super.key});
 
   final String html;
+
+  /// Shown at once and filling its parent: the side pane's Preview tab,
+  /// where choosing the tab is the asking.
+  final bool fill;
 
   @override
   State<HtmlPreview> createState() => _HtmlPreviewState();
@@ -31,7 +35,28 @@ class _HtmlPreviewState extends State<HtmlPreview> {
   bool _showing = false;
 
   @override
-  Component build(BuildContext context) => div(classes: 'mt-2', [
+  Component build(BuildContext context) {
+    if (component.fill) return _frame('min-h-0 w-full flex-1 bg-white');
+    return _inline();
+  }
+
+  Component _frame(String classes) => Component.element(
+    tag: 'iframe',
+    classes: classes,
+    attributes: <String, String>{
+      // Empty, not absent. An absent `sandbox` is no sandbox at all; an
+      // empty one is every restriction.
+      'sandbox': '',
+      'srcdoc': component.html,
+      'title': t.desktop.desktopPreview,
+      // Nothing in the frame may reach the network, and a referrer would
+      // leak which conversation is open.
+      'referrerpolicy': 'no-referrer',
+      'loading': 'lazy',
+    },
+  );
+
+  Component _inline() => div(classes: 'mt-2', [
     button(
       [
         Component.text(
@@ -48,20 +73,6 @@ class _HtmlPreviewState extends State<HtmlPreview> {
       onClick: () => setState(() => _showing = !_showing),
     ),
     if (_showing)
-      Component.element(
-        tag: 'iframe',
-        classes: 'mt-2 h-64 w-full rounded-lg border border-border bg-white',
-        attributes: <String, String>{
-          // Empty, not absent. An absent `sandbox` is no sandbox at all;
-          // an empty one is every restriction.
-          'sandbox': '',
-          'srcdoc': component.html,
-          'title': t.desktop.desktopPreview,
-          // Nothing in the frame may reach the network, and a referrer
-          // would leak which conversation is open.
-          'referrerpolicy': 'no-referrer',
-          'loading': 'lazy',
-        },
-      ),
+      _frame('mt-2 h-64 w-full rounded-lg border border-border bg-white'),
   ]);
 }

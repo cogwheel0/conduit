@@ -427,5 +427,17 @@
   "desktopEarlier": "Eerder",
   "desktopChatRunning": "Bezig met antwoorden",
   "desktopChatUnread": "Nieuw antwoord",
-  "desktopChatFailed": "Antwoord mislukt"
+  "desktopChatFailed": "Antwoord mislukt",
+  "desktopShell": "Shell",
+  "desktopSources": "Bronnen",
+  "desktopNoSources": "Nog geen bronnen geciteerd in dit gesprek.",
+  "desktopClosePane": "Zijpaneel sluiten",
+  "desktopNoPreview": "Nog niets om te bekijken. Als een antwoord een webpagina schrijft, verschijnt die hier.",
+  "desktopPreviewPosition": "{index} van {count}",
+  "desktopPreviousPreview": "Vorige pagina",
+  "desktopNextPreview": "Volgende pagina",
+  "desktopOpenShell": "Shell openen",
+  "desktopCloseShell": "Shell sluiten",
+  "desktopResizeShell": "Formaat van shell wijzigen",
+  "desktopAllNotes": "Alle notities"
 }

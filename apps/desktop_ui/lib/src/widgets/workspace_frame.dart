@@ -69,6 +69,7 @@ class ResizeHandle extends StatefulComponent {
     required this.max,
     required this.onResize,
     this.growsLeft = true,
+    this.horizontal = false,
     super.key,
   });
 
@@ -86,6 +87,10 @@ class ResizeHandle extends StatefulComponent {
   /// left.
   final bool growsLeft;
 
+  /// Between frames stacked one above the other: it moves up and down, and
+  /// the frame it resizes is below it.
+  final bool horizontal;
+
   @override
   State<ResizeHandle> createState() => _ResizeHandleState();
 }
@@ -95,15 +100,17 @@ class _ResizeHandleState extends State<ResizeHandle> {
 
   @override
   Component build(BuildContext context) {
-    final sign = component.growsLeft ? 1 : -1;
+    final horizontal = component.horizontal;
+    // A horizontal handle resizes the frame below it, which grows upward.
+    final sign = horizontal ? -1 : (component.growsLeft ? 1 : -1);
     return div(
       id: component.id,
       classes:
-          'group relative w-1 shrink-0 cursor-col-resize outline-none '
-          'focus-visible:outline-none',
+          'group relative shrink-0 outline-none focus-visible:outline-none '
+          '${horizontal ? 'h-1 cursor-row-resize' : 'w-1 cursor-col-resize'}',
       attributes: <String, String>{
         'role': 'separator',
-        'aria-orientation': 'vertical',
+        'aria-orientation': horizontal ? 'horizontal' : 'vertical',
         'aria-label': component.label,
         'aria-valuenow': '${component.value.round()}',
         'aria-valuemin': '${component.min.round()}',
@@ -113,14 +120,16 @@ class _ResizeHandleState extends State<ResizeHandle> {
       events: <String, EventCallback>{
         'pointerdown': (event) {
           event.preventDefault();
-          final startX = pointerX(event);
-          final startWidth = component.value;
+          final start = horizontal ? pointerY(event) : pointerX(event);
+          final startSize = component.value;
           setState(() => _dragging = true);
           context
               .read(windowCommandsProvider)
               .trackPointer(
-                onMove: (x) =>
-                    component.onResize(startWidth + sign * (x - startX)),
+                cursor: horizontal ? 'row-resize' : 'col-resize',
+                onMove: (x, y) => component.onResize(
+                  startSize + sign * ((horizontal ? y : x) - start),
+                ),
                 onEnd: () {
                   if (mounted) setState(() => _dragging = false);
                 },
@@ -128,14 +137,15 @@ class _ResizeHandleState extends State<ResizeHandle> {
         },
         'keydown': resizeKeys(
           (delta) => component.onResize(component.value + sign * delta),
+          horizontal: horizontal,
         ),
       },
       [
         // The line, inset from the frames' rounded ends.
         span(
           classes:
-              'pointer-events-none absolute inset-y-2 left-[1px] w-0.5 '
-              'rounded-full transition-colors '
+              'pointer-events-none absolute rounded-full transition-colors '
+              '${horizontal ? 'inset-x-2 top-[1px] h-0.5' : 'inset-y-2 left-[1px] w-0.5'} '
               '${_dragging ? 'bg-foreground-subtlest' : 'bg-transparent group-hover:bg-foreground-subtlest/50 group-focus-visible:bg-foreground-subtlest'}',
           const [],
         ),

@@ -64,10 +64,10 @@ abstract interface class WindowCommandsPort {
   void store(String key, String value);
 
   /// Follows the pointer until it is released, for a drag that started on
-  /// an element: [onMove] gets its x in viewport pixels. The page shows
-  /// [cursor] and selects no text meanwhile.
+  /// an element: [onMove] gets where it is in viewport pixels. The page
+  /// shows [cursor] and selects no text meanwhile.
   void trackPointer({
-    required void Function(double x) onMove,
+    required void Function(double x, double y) onMove,
     void Function()? onEnd,
     String cursor = 'col-resize',
   });
@@ -138,11 +138,11 @@ final class RecordingWindowCommands implements WindowCommandsPort {
   void store(String key, String value) => storage[key] = value;
 
   /// The drag in progress, for a test to move and release.
-  ({void Function(double x) onMove, void Function()? onEnd})? drag;
+  ({void Function(double x, double y) onMove, void Function()? onEnd})? drag;
 
   @override
   void trackPointer({
-    required void Function(double x) onMove,
+    required void Function(double x, double y) onMove,
     void Function()? onEnd,
     String cursor = 'col-resize',
   }) => drag = (onMove: onMove, onEnd: onEnd);
