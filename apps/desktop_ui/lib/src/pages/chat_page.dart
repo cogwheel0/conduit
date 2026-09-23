@@ -25,6 +25,7 @@ import '../widgets/form_field.dart';
 import '../widgets/chat_tags.dart';
 import '../widgets/context_menu.dart';
 import '../widgets/controls_pane.dart';
+import '../widgets/desktop_integration.dart' show composerPrefillProvider;
 import '../widgets/folder_page.dart';
 import '../widgets/markdown_view.dart';
 import '../widgets/mcp_content_sheet.dart';
@@ -1753,6 +1754,19 @@ class _ComposerState extends State<_Composer> {
     final highlighted = menuLength == 0
         ? -1
         : _promptIndex.clamp(0, menuLength - 1);
+
+    // A `conduit://new?q=` link, or a quick ask continued here (M9).
+    if (context.watch(composerPrefillProvider) != null) {
+      Future<void>.microtask(() {
+        if (!mounted) return;
+        final text = context.read(composerPrefillProvider.notifier).take();
+        if (text == null) return;
+        setState(() => _text = text);
+        context.read(windowCommandsProvider)
+          ..setValue('composer', text)
+          ..focus('composer');
+      });
+    }
 
     // Voice needs the server to transcribe (M8); on a system with the
     // Apple helper that will change (WP-8.4).

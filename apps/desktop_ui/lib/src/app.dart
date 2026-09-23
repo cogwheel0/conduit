@@ -12,11 +12,14 @@ import 'pages/notes_page.dart';
 import 'pages/terminal_page.dart';
 import 'pages/workspace/workspace_page.dart';
 import 'pages/onboarding_page.dart';
+import 'pages/quick_ask_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/sign_in_page.dart';
 import 'pages/status_page.dart';
 import 'l10n/strings.g.dart';
+import 'rpc/rpc_providers.dart';
 import 'rpc/session_providers.dart';
+import 'widgets/desktop_integration.dart';
 import 'widgets/keyboard_layer.dart';
 import 'widgets/ui_request_card.dart';
 import 'widgets/server_issue_banner.dart';
@@ -34,6 +37,11 @@ class ConduitDesktopApp extends StatelessComponent {
 
   @override
   Component build(BuildContext context) {
+    // The quick-ask panel (WP-9.1) is its own small window, not a route of
+    // this one: no sidebar, no session redirects.
+    if (context.read(shellBridgeProvider).windowKind == WindowKind.quickAsk) {
+      return const QuickAskPage();
+    }
     return Router(
       redirect: (context, state) {
         // A reload, a restored session or a hand-typed URL can land on the
@@ -306,6 +314,7 @@ class _Shell extends StatelessComponent {
       const ServerIssueBanner(),
       const _SessionGate(),
       const KeyboardLayer(),
+      const DesktopIntegration(),
       // Above every route: a tool waiting for approval holds up its reply
       // wherever the person happens to be looking.
       const UiRequestCard(),

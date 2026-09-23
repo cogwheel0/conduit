@@ -6,6 +6,7 @@ import 'dart:js_interop';
 
 import 'package:web/web.dart' as web;
 
+import 'desktop_shell.dart';
 import 'external_sign_in.dart';
 import 'file_picker.dart';
 import 'file_saver.dart';
@@ -29,6 +30,11 @@ extension type _PreloadBridge._(JSObject _) implements JSObject {
   external String? get platform;
   external String? get windowKind;
   external JSPromise<JSObject>? openAuthWindow(JSObject request);
+  external JSPromise<JSAny?>? shellSettings(JSAny? patch);
+  external JSPromise<JSBoolean>? notify(JSAny request);
+  external void onOpen(JSFunction callback);
+  external void openInMain(JSAny request);
+  external void hideWindow();
 }
 
 /// The request object literal the preload bridge expects.
@@ -287,4 +293,64 @@ ShellBridge? resolveShellBridge() {
     );
   }
   return null;
+}
+
+/// [DesktopShellPort] over the preload bridge (M9). Requests cross as
+/// plain JSON objects, which the main process checks again.
+final class ElectronDesktopShell implements DesktopShellPort {
+  const ElectronDesktopShell();
+
+  _PreloadBridge get _bridge => _preloadBridge!;
+
+  @override
+  bool get available => _preloadBridge != null;
+
+  @override
+  bool get focused => web.document.hasFocus();
+
+  @override
+  Future<ShellSettings> settings([Map<String, Object?>? patch]) async {
+    final result = await _bridge.shellSettings(patch?.jsify())?.toDart;
+    final json = result?.dartify();
+    return ShellSettings.fromJson(
+      json is Map ? json.cast<String, dynamic>() : const <String, dynamic>{},
+    );
+  }
+
+  @override
+  Future<bool> notify({
+    required String title,
+    String body = '',
+    OpenRequest? open,
+  }) async {
+    final shown = await _bridge
+        .notify(
+          <String, Object?>{
+            'title': title,
+            'body': body,
+            'open': ?open?.toJson(),
+          }.jsify()!,
+        )
+        ?.toDart;
+    return shown?.toDart ?? false;
+  }
+
+  @override
+  void onOpen(void Function(OpenRequest request) handler) {
+    _bridge.onOpen(
+      ((JSAny? raw) {
+        final json = raw.dartify();
+        if (json is! Map) return;
+        final request = OpenRequest.fromJson(json.cast<String, dynamic>());
+        if (request != null) handler(request);
+      }).toJS,
+    );
+  }
+
+  @override
+  void openInMain(OpenRequest request) =>
+      _bridge.openInMain(request.toJson().jsify()!);
+
+  @override
+  void hideWindow() => _bridge.hideWindow();
 }

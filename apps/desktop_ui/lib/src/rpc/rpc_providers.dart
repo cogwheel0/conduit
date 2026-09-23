@@ -1,6 +1,7 @@
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 
+import '../desktop_shell.dart';
 import '../external_sign_in.dart';
 import '../file_picker.dart';
 import '../file_saver.dart';
@@ -58,6 +59,12 @@ final shortcutBindingProvider = Provider<ShortcutBindingPort>(
 /// Picks and uploads attachments, overridden in `main.dart`.
 final attachmentsProvider = Provider<AttachmentPort>(
   (ref) => RecordingAttachments(),
+);
+
+/// The desktop around the window (M9), overridden in `main.dart` under
+/// Electron.
+final desktopShellProvider = Provider<DesktopShellPort>(
+  (ref) => RecordingDesktopShell(),
 );
 
 /// The render sandbox, overridden in `main.dart`.

@@ -153,4 +153,65 @@ After.
       expect(lastCodeBlock('Just prose, with `inline code`.'), isNull);
     });
   });
+
+  group('rebinding (WP-9.4)', () {
+    test('a stroke is stored and read back as written', () {
+      const stroke = KeyStroke('o', primary: true, shift: true);
+      expect(encodeStroke(stroke), 'mod+shift+o');
+      expect(decodeStroke('mod+shift+o'), stroke);
+      expect(decodeStroke('alt++'), const KeyStroke('+', alt: true));
+      expect(decodeStroke('hyper+o'), isNull);
+      expect(decodeStroke(''), isNull);
+    });
+
+    test('an override replaces one default, and keeps the rest', () {
+      final table = applyShortcutOverrides(<String, String>{
+        'newChat': 'mod+n',
+        'openPalette': 'nonsense+k',
+      });
+      expect(
+        table.firstWhere((s) => s.action == ShortcutAction.newChat).stroke,
+        const KeyStroke('n', primary: true),
+      );
+      expect(
+        table.firstWhere((s) => s.action == ShortcutAction.openPalette),
+        defaultShortcuts.firstWhere(
+          (s) => s.action == ShortcutAction.openPalette,
+        ),
+      );
+      expect(table, hasLength(defaultShortcuts.length));
+    });
+
+    test('a bare key does not fire while typing', () {
+      final table = applyShortcutOverrides(<String, String>{'newChat': 'n'});
+      expect(
+        resolveShortcut(const KeyStroke('n'), typing: true, table: table),
+        isNull,
+      );
+      expect(
+        resolveShortcut(const KeyStroke('n'), typing: false, table: table),
+        ShortcutAction.newChat,
+      );
+    });
+
+    test('a key another command has is a conflict', () {
+      expect(
+        shortcutConflict(
+          defaultShortcuts,
+          ShortcutAction.newChat,
+          const KeyStroke('k', primary: true),
+        ),
+        ShortcutAction.openPalette,
+      );
+      expect(
+        shortcutConflict(
+          defaultShortcuts,
+          ShortcutAction.openPalette,
+          const KeyStroke('k', primary: true),
+        ),
+        isNull,
+        reason: 'its own key is no conflict',
+      );
+    });
+  });
 }

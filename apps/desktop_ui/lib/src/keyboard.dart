@@ -24,7 +24,10 @@ final class ShortcutDispatcher implements ShortcutBindingPort {
   ShortcutDispatcher({required this.isMac, this.table = defaultShortcuts});
 
   final bool isMac;
-  final List<Shortcut> table;
+  List<Shortcut> table;
+
+  @override
+  void rebind(List<Shortcut> table) => this.table = table;
 
   void Function(ShortcutAction action)? _onAction;
   web.EventListener? _listener;
@@ -369,3 +372,26 @@ final class WindowNetworkEvents implements NetworkEventsPort {
   @override
   Stream<bool> get changes => _changes.stream;
 }
+
+/// Records one key combination into [onStroke] (WP-9.4): a modifier alone
+/// is still being held, and Esc means "never mind". The event stops here,
+/// so recording a key never also does what it did before.
+EventCallback captureStroke({
+  required bool isMac,
+  required void Function(KeyStroke stroke) onStroke,
+  required void Function() cancel,
+}) => (web.Event event) {
+  final key = event as web.KeyboardEvent;
+  if (key.isComposing || key.keyCode == 229) return;
+  event
+    ..preventDefault()
+    ..stopPropagation();
+  final name = key.key.toLowerCase();
+  if (const {'shift', 'control', 'alt', 'meta', 'os'}.contains(name)) return;
+  if (name == 'escape' && !key.shiftKey && !key.ctrlKey && !key.metaKey) {
+    cancel();
+    return;
+  }
+  final stroke = strokeFrom(key, isMac: isMac);
+  if (stroke != null) onStroke(stroke);
+};

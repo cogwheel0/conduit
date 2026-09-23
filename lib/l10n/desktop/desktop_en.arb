@@ -678,5 +678,74 @@
     "placeholders": {
       "text": {}
     }
+  },
+  "desktopSettingsDesktopTab": "Desktop",
+  "@desktopSettingsDesktopTab": {
+    "description": "Settings tab for how the app lives on the desktop: tray, login, quick ask, notifications."
+  },
+  "desktopCloseToTray": "Keep running when the window is closed",
+  "@desktopCloseToTray": {
+    "description": "Checkbox: closing the window leaves Conduit in the system tray."
+  },
+  "desktopCloseToTrayDescription": "Conduit stays in the tray, so notifications and quick ask keep working.",
+  "@desktopCloseToTrayDescription": {
+    "description": "Help under the close-to-tray checkbox."
+  },
+  "desktopLaunchAtLogin": "Open at login",
+  "@desktopLaunchAtLogin": {
+    "description": "Checkbox: start Conduit when the user signs in to the computer."
+  },
+  "desktopLaunchAtLoginDescription": "Starts in the tray when you sign in. Installed builds only.",
+  "@desktopLaunchAtLoginDescription": {
+    "description": "Help under the open-at-login checkbox."
+  },
+  "desktopQuickAskTitle": "Quick ask",
+  "@desktopQuickAskTitle": {
+    "description": "Name of the small floating window for a fast question, and its settings section."
+  },
+  "desktopQuickAskEnabled": "Open quick ask with a shortcut from anywhere",
+  "@desktopQuickAskEnabled": {
+    "description": "Checkbox: register the global quick-ask shortcut."
+  },
+  "desktopQuickAskShortcut": "Shortcut",
+  "@desktopQuickAskShortcut": {
+    "description": "Label of the quick-ask shortcut field, e.g. CommandOrControl+Shift+Space."
+  },
+  "desktopQuickAskShortcutInvalid": "Use one or more modifiers and a key, like CommandOrControl+Shift+Space.",
+  "@desktopQuickAskShortcutInvalid": {
+    "description": "Error under a quick-ask shortcut that is not valid."
+  },
+  "desktopQuickAskShortcutTaken": "Another app is using this shortcut. Choose a different one.",
+  "@desktopQuickAskShortcutTaken": {
+    "description": "Shown when the OS refused to register the quick-ask shortcut."
+  },
+  "desktopQuickAskNeedsSetup": "Open Conduit to finish setting it up first.",
+  "@desktopQuickAskNeedsSetup": {
+    "description": "Quick-ask window, when there is no server or model to ask yet."
+  },
+  "desktopNotificationsSection": "Notifications",
+  "@desktopNotificationsSection": {
+    "description": "Settings section heading for OS notifications."
+  },
+  "desktopShortcutPressKeys": "Press the new keys, or Esc to cancel",
+  "@desktopShortcutPressKeys": {
+    "description": "Placeholder of the field that records a new keyboard shortcut."
+  },
+  "desktopShortcutChange": "Change",
+  "@desktopShortcutChange": {
+    "description": "Button that starts recording a new key for a shortcut."
+  },
+  "desktopShortcutReset": "Reset",
+  "@desktopShortcutReset": {
+    "description": "Button that puts one shortcut back to its default key."
+  },
+  "desktopShortcutResetAll": "Reset all shortcuts",
+  "@desktopShortcutResetAll": {
+    "description": "Button that puts every shortcut back to its default key."
+  },
+  "desktopShortcutChangeLabel": "Change the shortcut for {command}",
+  "@desktopShortcutChangeLabel": {
+    "description": "Accessible name of a shortcut's Change button.",
+    "placeholders": { "command": { "type": "String" } }
   }
 }

@@ -42,10 +42,12 @@ Future<void> main() async {
       shellBridgeProvider.overrideWithValue(bridge),
       // Only when there is a shell to open a window. The dev browser keeps
       // the unavailable default, which says so rather than doing nothing.
-      if (bridge.isElectron)
+      if (bridge.isElectron) ...[
         externalSignInProvider.overrideWithValue(
           const ElectronExternalSignIn(),
         ),
+        desktopShellProvider.overrideWithValue(const ElectronDesktopShell()),
+      ],
       // Not gated on the shell: the palette applies in the dev browser too,
       // and looking right there is most of what makes it worth developing in.
       themeApplierProvider.overrideWithValue(const DocumentThemeApplier()),

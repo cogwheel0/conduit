@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, session, shell } from 'electron'
+import { autoUpdater } from 'electron-updater'
 import { join, resolve } from 'node:path'
 import { APP_ORIGIN, registerAppScheme, serveAppScheme } from './app-protocol.js'
 import {
@@ -9,7 +10,10 @@ import {
   type AuthWindowResult,
 } from './auth-window.js'
 import { DaemonSupervisor, resolveDaemonPath } from './daemon.js'
+import { DEEP_LINK_SCHEME, deepLinkInArgs, parseDeepLink } from './deep-link.js'
+import { DesktopShell } from './desktop-shell.js'
 import { loadOrCreateSecrets, type CoreSecrets } from './secrets.js'
+import { ShellSettingsStore } from './shell-settings.js'
 import { WindowStateStore } from './window-state.js'
 
 /**
@@ -30,6 +34,13 @@ const webRoot = app.isPackaged
 let supervisor: DaemonSupervisor | null = null
 let secrets: CoreSecrets | null = null
 let windowState: WindowStateStore | null = null
+let desktop: DesktopShell | null = null
+
+/** Started by the session at login: into the tray, no window yet. */
+const startHidden = process.argv.includes('--hidden')
+
+/** A `conduit://` link given before the app was ready to open it. */
+let launchLink: string | null = deepLinkInArgs(process.argv)
 
 /**
  * Only one copy of the app may own the user's data directory: two daemons
@@ -38,12 +49,24 @@ let windowState: WindowStateStore | null = null
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
-    const [existing] = BrowserWindow.getAllWindows()
-    if (existing !== undefined) {
-      if (existing.isMinimized()) existing.restore()
-      existing.focus()
+  // A second launch is the user asking for this one -- with a link, on
+  // Windows and Linux, as the link's arguments.
+  app.on('second-instance', (_event, argv) => {
+    const link = deepLinkInArgs(argv)
+    const request = link === null ? null : parseDeepLink(link)
+    if (desktop === null) {
+      launchLink = link ?? launchLink
+      return
     }
+    if (request !== null) desktop.open(request)
+    else desktop.showMain()
+  })
+  // macOS hands links over as an event, possibly before `ready`.
+  app.on('open-url', (event, url) => {
+    event.preventDefault()
+    const request = parseDeepLink(url)
+    if (desktop === null) launchLink = url
+    else if (request !== null) desktop.open(request)
   })
 
   app.whenReady().then(main).catch((error: unknown) => {
@@ -65,6 +88,10 @@ async function main(): Promise<void> {
         'Install gnome-keyring or kwallet for full protection at rest.',
     )
   }
+
+  // Only an installed app registers the scheme: a development build would
+  // point the whole system's `conduit://` at a bare Electron binary.
+  if (app.isPackaged) app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME)
 
   serveAppScheme(webRoot)
   installPermissionPolicy()
@@ -105,24 +132,65 @@ async function main(): Promise<void> {
   })
 
   const port = await firstReady
-  createMainWindow(port)
+  desktop = new DesktopShell(
+    new ShellSettingsStore(userDataDir),
+    (kind) => createWindow(kind, supervisor?.port ?? port),
+    app.isPackaged ? join(process.resourcesPath, 'icon.png') : join(repoRoot, 'assets', 'icons', 'icon.png'),
+  )
+  desktop.install()
+  // For the end-to-end tests, which cannot press a global shortcut or
+  // click a tray icon. Main-process only; no page can reach it.
+  ;(globalThis as { conduitDesktop?: DesktopShell }).conduitDesktop = desktop
+  if (!(startHidden && desktop.keepsRunning)) createWindow('main', port)
+  const link = launchLink === null ? null : parseDeepLink(launchLink)
+  launchLink = null
+  if (link !== null) desktop.open(link)
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0 && supervisor?.port != null) {
-      createMainWindow(supervisor.port)
-    }
+    desktop?.showMain()
   })
+
+  checkForUpdates()
 }
 
-function createMainWindow(port: number): BrowserWindow {
-  const state = windowState!.boundsFor('main')
+/**
+ * Updates from the GitHub release this build came from (WP-9.5): checked
+ * at start and every six hours, downloaded in the background, and applied
+ * on the next quit, with the OS's own notification when one is ready.
+ * Installed builds only; `CONDUIT_NO_UPDATES` turns it off (tests, and
+ * package managers that update the app themselves).
+ */
+function checkForUpdates(): void {
+  if (!app.isPackaged || process.env.CONDUIT_NO_UPDATES !== undefined) return
+  // Until the desktop joins the `v*` releases (WP-10.6) every build of it
+  // is a `desktop-v*` prerelease, so that is where updates are. A newer
+  // mobile release in the same repository has no desktop files; the check
+  // then fails, is logged, and the next one tries again.
+  autoUpdater.allowPrerelease = true
+  const check = (): void => {
+    autoUpdater.checkForUpdatesAndNotify().catch((error: unknown) => {
+      console.warn('update check failed', error)
+    })
+  }
+  check()
+  setInterval(check, 6 * 60 * 60 * 1000).unref()
+}
+
+function createWindow(kind: 'main' | 'quickAsk', port: number): BrowserWindow {
+  const state = windowState!.boundsFor(kind)
+  const quickAsk = kind === 'quickAsk'
   const window = new BrowserWindow({
     ...state.bounds,
-    minWidth: 720,
-    minHeight: 480,
+    minWidth: quickAsk ? 480 : 720,
+    minHeight: quickAsk ? 200 : 480,
     show: false,
     backgroundColor: '#000000',
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    titleBarStyle: process.platform === 'darwin' && !quickAsk ? 'hiddenInset' : 'default',
+    // The quick-ask panel floats over whatever the user was doing, and
+    // is not a window to switch to.
+    ...(quickAsk
+      ? { frame: false, alwaysOnTop: true, skipTaskbar: true, fullscreenable: false }
+      : {}),
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -135,17 +203,22 @@ function createMainWindow(port: number): BrowserWindow {
       additionalArguments: [
         `--conduit-rpc-port=${port}`,
         `--conduit-token=${secrets!.sessionToken}`,
-        '--conduit-window-kind=main',
+        `--conduit-window-kind=${kind}`,
         `--conduit-app-version=${app.getVersion()}`,
       ],
     },
   })
 
-  if (state.maximized) window.maximize()
-  windowState!.track('main', window)
-
-  // Avoids the white flash between window creation and first paint.
-  window.once('ready-to-show', () => window.show())
+  if (state.maximized && !quickAsk) window.maximize()
+  windowState!.track(kind, window)
+  if (quickAsk) {
+    // Out of the way as soon as the user looks elsewhere.
+    window.on('blur', () => window.hide())
+  } else {
+    desktop?.manage(window)
+    // Avoids the white flash between window creation and first paint.
+    window.once('ready-to-show', () => window.show())
+  }
   // The clean path, not /index.html: the renderer's router matches on
   // pathname, and deep links (conduit://chat/<id>) will push paths in the
   // same shape.
@@ -347,9 +420,9 @@ function hardenNavigation(): void {
 }
 
 app.on('window-all-closed', () => {
-  // M0 quits with the last window. WP-9.2 makes this conditional on the
-  // close-to-tray setting, which is the whole point of the daemon outliving
-  // the window.
+  // With close-to-tray the app, and the daemon with it, outlive the
+  // window: that is the point of the setting.
+  if (desktop?.keepsRunning) return
   if (process.platform !== 'darwin') app.quit()
 })
 

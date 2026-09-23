@@ -101,6 +101,9 @@ final class RecordingWindowCommands implements WindowCommandsPort {
 /// window.
 abstract interface class ShortcutBindingPort {
   void install(void Function(ShortcutAction action) onAction);
+
+  /// Matches keys against [table] from now on (WP-9.4).
+  void rebind(List<Shortcut> table);
   void dispose();
 }
 
@@ -108,9 +111,14 @@ abstract interface class ShortcutBindingPort {
 final class NoShortcutBinding implements ShortcutBindingPort {
   void Function(ShortcutAction action)? handler;
 
+  List<Shortcut> table = defaultShortcuts;
+
   @override
   void install(void Function(ShortcutAction action) onAction) =>
       handler = onAction;
+
+  @override
+  void rebind(List<Shortcut> table) => this.table = table;
 
   @override
   void dispose() => handler = null;

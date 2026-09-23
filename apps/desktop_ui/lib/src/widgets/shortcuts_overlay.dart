@@ -61,7 +61,7 @@ class ShortcutsOverlay extends StatelessComponent {
             for (final shortcut in table) ...<Component>[
               div(classes: 'flex items-baseline justify-between gap-4', [
                 dt(classes: 'text-sm', [
-                  Component.text(_describe(shortcut.action)),
+                  Component.text(shortcutLabel(shortcut.action)),
                 ]),
                 dd(
                   classes:
@@ -80,24 +80,22 @@ class ShortcutsOverlay extends StatelessComponent {
       ),
     ],
   );
-
-  /// Reuses the label the matching control already carries, so the overlay
-  /// and the button it stands in for say the same words.
-  String _describe(ShortcutAction action) => switch (action) {
-    ShortcutAction.newChat => t.app.newChat,
-    ShortcutAction.openPalette => t.desktop.desktopShortcutOpenPalette,
-    ShortcutAction.focusComposer => t.desktop.desktopShortcutFocusComposer,
-    ShortcutAction.focusModelPicker =>
-      t.desktop.desktopShortcutFocusModelPicker,
-    ShortcutAction.stopGenerating => t.app.stopGenerating,
-    ShortcutAction.openSettings => t.desktop.desktopSettingsTitle,
-    ShortcutAction.showShortcuts => t.desktop.desktopShortcutShowShortcuts,
-    ShortcutAction.copyLastResponse =>
-      t.desktop.desktopShortcutCopyLastResponse,
-    ShortcutAction.copyLastCodeBlock =>
-      t.desktop.desktopShortcutCopyLastCodeBlock,
-    ShortcutAction.allowRequest => t.desktop.desktopShortcutAllowRequest,
-    ShortcutAction.denyRequest => t.desktop.desktopShortcutDenyRequest,
-    ShortcutAction.dictate => t.desktop.desktopShortcutDictate,
-  };
 }
+
+/// Reuses the label the matching control already carries, so the overlay
+/// and the button it stands in for say the same words.
+String shortcutLabel(ShortcutAction action) => switch (action) {
+  ShortcutAction.newChat => t.app.newChat,
+  ShortcutAction.openPalette => t.desktop.desktopShortcutOpenPalette,
+  ShortcutAction.focusComposer => t.desktop.desktopShortcutFocusComposer,
+  ShortcutAction.focusModelPicker => t.desktop.desktopShortcutFocusModelPicker,
+  ShortcutAction.stopGenerating => t.app.stopGenerating,
+  ShortcutAction.openSettings => t.desktop.desktopSettingsTitle,
+  ShortcutAction.showShortcuts => t.desktop.desktopShortcutShowShortcuts,
+  ShortcutAction.copyLastResponse => t.desktop.desktopShortcutCopyLastResponse,
+  ShortcutAction.copyLastCodeBlock =>
+    t.desktop.desktopShortcutCopyLastCodeBlock,
+  ShortcutAction.allowRequest => t.desktop.desktopShortcutAllowRequest,
+  ShortcutAction.denyRequest => t.desktop.desktopShortcutDenyRequest,
+  ShortcutAction.dictate => t.desktop.desktopShortcutDictate,
+};

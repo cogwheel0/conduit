@@ -14,6 +14,7 @@ import '../rpc/ui_request_providers.dart';
 import '../shortcuts.dart';
 import '../voice.dart';
 import 'command_palette.dart';
+import 'desktop_integration.dart';
 import 'shortcuts_overlay.dart';
 
 /// Binds the shortcut table to the running window (WP-3.7).
@@ -36,6 +37,7 @@ class _KeyboardLayerState extends State<KeyboardLayer> {
   String? _notice;
   Timer? _noticeTimer;
   ProviderSubscription<String?>? _lastReply;
+  ProviderSubscription<List<Shortcut>>? _table;
 
   @override
   void initState() {
@@ -54,13 +56,22 @@ class _KeyboardLayerState extends State<KeyboardLayer> {
       context,
       listen: false,
     ).listen(lastReplyProvider, (_, _) {});
-    context.read(shortcutBindingProvider).install(_dispatch);
+    final container = ProviderScope.containerOf(context, listen: false);
+    context.read(shortcutBindingProvider)
+      ..install(_dispatch)
+      ..rebind(container.read(shortcutTableProvider));
+    // The user's own keys (WP-9.4), as they change.
+    _table = container.listen<List<Shortcut>>(
+      shortcutTableProvider,
+      (_, shortcuts) => context.read(shortcutBindingProvider).rebind(shortcuts),
+    );
   }
 
   @override
   void dispose() {
     _noticeTimer?.cancel();
     _lastReply?.close();
+    _table?.close();
     context.read(shortcutBindingProvider).dispose();
     super.dispose();
   }
@@ -79,6 +90,7 @@ class _KeyboardLayerState extends State<KeyboardLayer> {
       if (_showShortcuts)
         ShortcutsOverlay(
           isMac: isMac,
+          table: context.read(shortcutTableProvider),
           onClose: () => setState(() => _showShortcuts = false),
         ),
       if (_notice case final message?)

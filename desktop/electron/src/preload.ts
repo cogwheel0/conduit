@@ -9,6 +9,9 @@ import { contextBridge, ipcRenderer } from 'electron'
  * executing, including model output. It stayed data-only through M0 for that
  * reason, and [openAuthWindow] is the first exception — see
  * `registerAuthWindowChannel` in main for why that one is safe to grant.
+ * The M9 additions are bounded the same way: the main process checks
+ * every argument, and the worst any of them does is show a notification,
+ * open a chat, or change a shell setting the user can see and change back.
  */
 export interface ConduitBridge {
   /** Loopback port `conduitd` bound, or 0 before it reports ready. */
@@ -28,6 +31,28 @@ export interface ConduitBridge {
    * halfway through cannot leave a half-authenticated state.
    */
   openAuthWindow(request: AuthWindowRequest): Promise<AuthWindowResult>
+
+  /**
+   * The shell's own settings (M9), changed by [patch] when given. The main
+   * process keeps only known keys of the right type.
+   */
+  shellSettings(patch?: Record<string, unknown>): Promise<Record<string, unknown>>
+
+  /** An OS notification; clicking it opens [open] in the main window. */
+  notify(request: { title: string; body?: string; open?: unknown }): Promise<boolean>
+
+  /**
+   * Hears what the window is asked to open -- a `conduit://` link, a
+   * notification, the tray -- and says it is ready, so links that came
+   * first arrive now.
+   */
+  onOpen(callback: (request: unknown) => void): void
+
+  /** From the quick-ask panel: continue in the main window. */
+  openInMain(request: unknown): void
+
+  /** Hides this window (the quick-ask panel's Escape). */
+  hideWindow(): void
 }
 
 export interface AuthWindowRequest {
@@ -65,6 +90,17 @@ const bridge: ConduitBridge = {
     ipcRenderer.invoke('conduit:auth-window', request) as Promise<
       AuthWindowResult
     >,
+  shellSettings: (patch) =>
+    ipcRenderer.invoke('conduit:shell-settings', patch ?? null) as Promise<
+      Record<string, unknown>
+    >,
+  notify: (request) => ipcRenderer.invoke('conduit:notify', request) as Promise<boolean>,
+  onOpen: (callback) => {
+    ipcRenderer.on('conduit:open', (_event, request: unknown) => callback(request))
+    ipcRenderer.send('conduit:open-ready')
+  },
+  openInMain: (request) => ipcRenderer.send('conduit:open-in-main', request),
+  hideWindow: () => ipcRenderer.send('conduit:hide-window'),
 }
 
 contextBridge.exposeInMainWorld('conduit', bridge)

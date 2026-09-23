@@ -240,3 +240,63 @@ String? lastCodeBlock(String markdown) {
   }
   return last;
 }
+
+/// [stroke] as stored, e.g. `mod+shift+o` (WP-9.4).
+String encodeStroke(KeyStroke stroke) => <String>[
+  if (stroke.primary) 'mod',
+  if (stroke.shift) 'shift',
+  if (stroke.alt) 'alt',
+  stroke.key,
+].join('+');
+
+/// The inverse of [encodeStroke]; null for anything it did not write.
+KeyStroke? decodeStroke(String encoded) {
+  // The key itself may be `+`, which ends the string after its separator.
+  final plus = encoded.endsWith('++');
+  final parts = (plus ? encoded.substring(0, encoded.length - 2) : encoded)
+      .split('+')
+      .where((part) => part.isNotEmpty)
+      .toList();
+  final key = plus ? '+' : (parts.isEmpty ? '' : parts.removeLast());
+  if (key.isEmpty || key.length > 12) return null;
+  final modifiers = parts.toSet();
+  if (!modifiers.every(const {'mod', 'shift', 'alt'}.contains)) return null;
+  return KeyStroke(
+    key,
+    primary: modifiers.contains('mod'),
+    shift: modifiers.contains('shift'),
+    alt: modifiers.contains('alt'),
+  );
+}
+
+/// [defaultShortcuts] with the user's own keys, by action name, in place
+/// of the defaults. An override that cannot be read keeps the default.
+List<Shortcut> applyShortcutOverrides(Map<String, String> overrides) =>
+    <Shortcut>[
+      for (final shortcut in defaultShortcuts)
+        switch (overrides[shortcut.action.name]) {
+          final String encoded? when decodeStroke(encoded) != null => Shortcut(
+            shortcut.action,
+            decodeStroke(encoded)!,
+            // A chord keeps working while typing; a bare key must not, or it
+            // would eat that letter out of every message.
+            whileTyping:
+                decodeStroke(encoded)!.primary || decodeStroke(encoded)!.alt,
+          ),
+          _ => shortcut,
+        },
+    ];
+
+/// The action in [table] other than [action] that [stroke] already fires.
+ShortcutAction? shortcutConflict(
+  List<Shortcut> table,
+  ShortcutAction action,
+  KeyStroke stroke,
+) {
+  for (final shortcut in table) {
+    if (shortcut.action != action && shortcut.stroke == stroke) {
+      return shortcut.action;
+    }
+  }
+  return null;
+}
