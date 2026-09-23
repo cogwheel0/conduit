@@ -556,6 +556,12 @@ void main() {
               false,
           seconds: 60,
         );
+        // And the turn over, as the window waits for before it offers
+        // Regenerate: a pull can store the answer before the stream ends.
+        await _waitFor(
+          () => !turns.activeChatIds.contains(accepted.chatId),
+          seconds: 30,
+        );
         final again = await turns.regenerate(
           RegenerateTurn(
             chatId: accepted.chatId,
