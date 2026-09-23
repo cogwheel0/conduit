@@ -109,6 +109,50 @@ SidebarModel buildSidebar(ChatList list, {required DateTime now}) {
   );
 }
 
+/// The folders, outermost first, that hold [chatId] in [roots], or null
+/// when it is in none of them.
+List<String>? folderPathTo(String chatId, List<FolderNode> roots) {
+  for (final node in roots) {
+    if (node.chats.any((chat) => chat.id == chatId)) {
+      return <String>[node.folder.id];
+    }
+    if (folderPathTo(chatId, node.children) case final inner?) {
+      return <String>[node.folder.id, ...inner];
+    }
+  }
+  return null;
+}
+
+/// The desktop sidebar's coarser time groups (docs/desktop/REDESIGN.md).
+enum RecentGroup { today, yesterday, earlier }
+
+/// [recent] regrouped as Today, Yesterday and Earlier: the three older
+/// buckets become one, newest first as they were.
+List<({RecentGroup group, List<ChatSummary> chats})> groupRecent(
+  List<({DateBucket bucket, List<ChatSummary> chats})> recent,
+) {
+  final today = <ChatSummary>[];
+  final yesterday = <ChatSummary>[];
+  final earlier = <ChatSummary>[];
+  for (final entry in recent) {
+    switch (entry.bucket) {
+      case DateBucket.today:
+        today.addAll(entry.chats);
+      case DateBucket.yesterday:
+        yesterday.addAll(entry.chats);
+      case DateBucket.previous7Days ||
+          DateBucket.previous30Days ||
+          DateBucket.older:
+        earlier.addAll(entry.chats);
+    }
+  }
+  return <({RecentGroup group, List<ChatSummary> chats})>[
+    if (today.isNotEmpty) (group: RecentGroup.today, chats: today),
+    if (yesterday.isNotEmpty) (group: RecentGroup.yesterday, chats: yesterday),
+    if (earlier.isNotEmpty) (group: RecentGroup.earlier, chats: earlier),
+  ];
+}
+
 /// Which bucket a timestamp belongs to, measured in *calendar days*.
 ///
 /// Not in elapsed hours: a chat from 23:50 last night is "Yesterday" at

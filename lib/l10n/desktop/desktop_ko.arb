@@ -412,5 +412,20 @@
   "themePaletteZaiDescription": "단색의 차분하고 촘촘한 테마",
   "desktopUiFontSize": "텍스트 크기",
   "desktopUiFontSizeValue": "{size} px",
-  "desktopUiFontSizeHint": "코드, 차이점(diff), 터미널은 각자의 크기를 유지합니다."
+  "desktopUiFontSizeHint": "코드, 차이점(diff), 터미널은 각자의 크기를 유지합니다.",
+  "desktopSidebar": "사이드바",
+  "desktopSidePane": "사이드 패널",
+  "desktopShortcutToggleSidebar": "사이드바 표시 또는 숨기기",
+  "desktopShortcutToggleSidePane": "사이드 패널 표시 또는 숨기기",
+  "desktopSearch": "검색",
+  "desktopMinimizeWindow": "최소화",
+  "desktopMaximizeWindow": "최대화",
+  "desktopRestoreWindow": "이전 크기로 복원",
+  "desktopCloseWindow": "닫기",
+  "desktopResizeSidebar": "사이드바 크기 조정",
+  "desktopResizeSidePane": "사이드 패널 크기 조정",
+  "desktopEarlier": "이전",
+  "desktopChatRunning": "답변 중",
+  "desktopChatUnread": "새 답변",
+  "desktopChatFailed": "답변 실패"
 }

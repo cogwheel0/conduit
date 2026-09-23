@@ -1026,6 +1026,13 @@ class ExpandedFolders extends Notifier<Set<String>?> {
     };
   }
 
+  /// Opens every folder in [ids], leaving the rest as they are.
+  void reveal(Iterable<String> ids) {
+    final current = state ?? const <String>{};
+    if (ids.every(current.contains)) return;
+    state = <String>{...current, ...ids};
+  }
+
   void toggle(String id) {
     final current = state ?? const <String>{};
     state = current.contains(id)

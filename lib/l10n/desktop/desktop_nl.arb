@@ -412,5 +412,20 @@
   "themePaletteZaiDescription": "Monochroom, rustig en compact",
   "desktopUiFontSize": "Tekstgrootte",
   "desktopUiFontSizeValue": "{size} px",
-  "desktopUiFontSizeHint": "Code, diffs en de terminal behouden hun eigen grootte."
+  "desktopUiFontSizeHint": "Code, diffs en de terminal behouden hun eigen grootte.",
+  "desktopSidebar": "Zijbalk",
+  "desktopSidePane": "Zijpaneel",
+  "desktopShortcutToggleSidebar": "Zijbalk tonen of verbergen",
+  "desktopShortcutToggleSidePane": "Zijpaneel tonen of verbergen",
+  "desktopSearch": "Zoeken",
+  "desktopMinimizeWindow": "Minimaliseren",
+  "desktopMaximizeWindow": "Maximaliseren",
+  "desktopRestoreWindow": "Vorige grootte",
+  "desktopCloseWindow": "Sluiten",
+  "desktopResizeSidebar": "Formaat van zijbalk wijzigen",
+  "desktopResizeSidePane": "Formaat van zijpaneel wijzigen",
+  "desktopEarlier": "Eerder",
+  "desktopChatRunning": "Bezig met antwoorden",
+  "desktopChatUnread": "Nieuw antwoord",
+  "desktopChatFailed": "Antwoord mislukt"
 }

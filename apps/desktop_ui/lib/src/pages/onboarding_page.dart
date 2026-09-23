@@ -68,7 +68,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
 
   Component _chooser(BuildContext context) => div(
     classes:
-        'mx-auto flex min-h-screen w-full max-w-lg flex-col justify-center '
+        'mx-auto flex min-h-full w-full max-w-lg flex-col justify-center '
         'gap-6 px-8 text-foreground',
     [
       header(classes: 'space-y-2', [
@@ -162,7 +162,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
   /// takes the window to the chat on its own.
   Component _direct(BuildContext context) => div(
     classes:
-        'mx-auto flex min-h-screen w-full max-w-2xl flex-col justify-center '
+        'mx-auto flex min-h-full w-full max-w-2xl flex-col justify-center '
         'gap-6 px-8 py-8 text-foreground',
     [
       _back(context),
@@ -181,7 +181,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
     final saved = context.watch(hermesSettingsProvider).value;
     return div(
       classes:
-          'mx-auto flex min-h-screen w-full max-w-lg flex-col justify-center '
+          'mx-auto flex min-h-full w-full max-w-lg flex-col justify-center '
           'gap-6 px-8 py-8 text-foreground',
       [
         _back(context),
@@ -208,7 +208,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
   Component _serverForm(BuildContext context) {
     return div(
       classes:
-          'mx-auto flex min-h-screen w-full max-w-lg flex-col justify-center '
+          'mx-auto flex min-h-full w-full max-w-lg flex-col justify-center '
           'gap-6 px-8 text-foreground',
       [
         _back(context),

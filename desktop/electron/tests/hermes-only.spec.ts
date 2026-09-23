@@ -234,7 +234,7 @@ test('talks to Hermes Agent with no server, approvals and all', async () => {
     await card.getByRole('button', { name: /^allow once$/i }).click()
     await expect(transcript).toContainText('Approved and done.', { timeout: 30_000 })
     // Listed under the chat list, which has none of its own to show.
-    const recent = page.getByRole('region', { name: /^conversations$/i })
+    const recent = page.getByRole('region', { name: /^hermes agent$/i })
     await expect(recent.getByRole('button', { name: /^hello hermes$/i })).toBeVisible({
       timeout: 30_000,
     })

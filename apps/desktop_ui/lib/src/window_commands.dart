@@ -55,6 +55,22 @@ abstract interface class WindowCommandsPort {
   /// to be worth drawing, now and as that changes (WP-10.1). Returns what
   /// stops it.
   void Function() observeNearView(String id, void Function(bool near) onChange);
+
+  /// A value this window kept, by [key], across launches: layout choices
+  /// that belong to the window rather than the account.
+  String? stored(String key);
+
+  /// Keeps [value] under [key] for [stored].
+  void store(String key, String value);
+
+  /// Follows the pointer until it is released, for a drag that started on
+  /// an element: [onMove] gets its x in viewport pixels. The page shows
+  /// [cursor] and selects no text meanwhile.
+  void trackPointer({
+    required void Function(double x) onMove,
+    void Function()? onEnd,
+    String cursor = 'col-resize',
+  });
 }
 
 /// Records what it was asked to do. The default outside a browser.
@@ -112,6 +128,24 @@ final class RecordingWindowCommands implements WindowCommandsPort {
 
   final List<({String id, String text})> values =
       <({String id, String text})>[];
+
+  final Map<String, String> storage = <String, String>{};
+
+  @override
+  String? stored(String key) => storage[key];
+
+  @override
+  void store(String key, String value) => storage[key] = value;
+
+  /// The drag in progress, for a test to move and release.
+  ({void Function(double x) onMove, void Function()? onEnd})? drag;
+
+  @override
+  void trackPointer({
+    required void Function(double x) onMove,
+    void Function()? onEnd,
+    String cursor = 'col-resize',
+  }) => drag = (onMove: onMove, onEnd: onEnd);
 }
 
 /// Installs the document-level keydown listener.

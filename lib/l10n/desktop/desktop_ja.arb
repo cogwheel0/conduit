@@ -412,5 +412,20 @@
   "themePaletteZaiDescription": "モノクロで、落ち着いた高密度なデザイン",
   "desktopUiFontSize": "文字サイズ",
   "desktopUiFontSizeValue": "{size} px",
-  "desktopUiFontSizeHint": "コード、差分、ターミナルはそれぞれ独自のサイズを保ちます。"
+  "desktopUiFontSizeHint": "コード、差分、ターミナルはそれぞれ独自のサイズを保ちます。",
+  "desktopSidebar": "サイドバー",
+  "desktopSidePane": "サイドパネル",
+  "desktopShortcutToggleSidebar": "サイドバーを表示または非表示",
+  "desktopShortcutToggleSidePane": "サイドパネルを表示または非表示",
+  "desktopSearch": "検索",
+  "desktopMinimizeWindow": "最小化",
+  "desktopMaximizeWindow": "最大化",
+  "desktopRestoreWindow": "元に戻す (縮小)",
+  "desktopCloseWindow": "閉じる",
+  "desktopResizeSidebar": "サイドバーのサイズを変更",
+  "desktopResizeSidePane": "サイドパネルのサイズを変更",
+  "desktopEarlier": "それ以前",
+  "desktopChatRunning": "回答中",
+  "desktopChatUnread": "新しい回答",
+  "desktopChatFailed": "回答に失敗しました"
 }

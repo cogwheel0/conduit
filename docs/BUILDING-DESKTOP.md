@@ -123,6 +123,12 @@ The last four are wrapped by `npm run build` and `npm run dev` in
 `desktop/electron`; the ordering matters, because `theme.css` must exist before
 Tailwind runs and both must exist before Electron loads `index.html`.
 
+One source file is generated and **is** checked in: the Lucide icons,
+`apps/desktop_ui/lib/src/widgets/lucide_icons.dart`. To use another icon,
+add its name to `ICONS` in `desktop/electron/scripts/vendor-lucide.mjs` and
+run `node scripts/vendor-lucide.mjs` in `desktop/electron`; it reads the
+pinned `lucide-static` devDependency and copies the licence notices in.
+
 A pub workspace means **one** `flutter pub get` at the repo root resolves every
 package into a single `pubspec.lock`. Running `dart pub get` inside a member
 works too and resolves to that same lockfile.

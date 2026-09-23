@@ -1003,12 +1003,13 @@ test.describe('against a real server', () => {
     const foldersSection = page
       .locator('nav[aria-label] section')
       .filter({ has: page.getByRole('heading', { name: /^folders$/i }) })
-    // A folder row is two buttons: the arrow (labelled) and the name.
+    // A folder row is two buttons: the arrow (labelled) and the name. The
+    // section's list sits in the body its heading folds.
     const folderRows = foldersSection.locator(
-      ':scope > ul > li > div > button:not([aria-label])',
+      ':scope > div > ul > li > div > button:not([aria-label])',
     )
     const folderToggles = foldersSection.locator(
-      ':scope > ul > li > div > button[aria-label]',
+      ':scope > div > ul > li > div > button[aria-label]',
     )
     // Loud rather than skipped: a heading with no rows found is the
     // locator being wrong, which once skipped this whole step silently.
@@ -1028,7 +1029,7 @@ test.describe('against a real server', () => {
       const folderItem = page
         .locator('nav[aria-label] section')
         .filter({ has: page.getByRole('heading', { name: /^folders$/i }) })
-        .locator(':scope > ul > li')
+        .locator(':scope > div > ul > li')
         .first()
       if ((await folderToggles.first().getAttribute('aria-expanded')) !== 'true') {
         await folderToggles.first().click()
@@ -1888,7 +1889,9 @@ test.describe('against a real server', () => {
         } finally {
           await api.dispose()
         }
-        await page.getByRole('button', { name: /^delete$/i }).first().click()
+        // Within the note, never the page: the sidebar beside it has a
+        // Delete on every conversation.
+        await page.getByRole('main').getByRole('button', { name: /^delete$/i }).first().click()
         await page
           .getByRole('alertdialog')
           .getByRole('button', { name: /^delete$/i })

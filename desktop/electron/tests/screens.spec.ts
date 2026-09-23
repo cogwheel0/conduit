@@ -47,6 +47,11 @@ test('every screen, light and dark', async () => {
     await expect
       .poll(() => page.evaluate(() => location.pathname).catch(() => ''), { timeout: 30_000 })
       .toBe('/onboarding')
+    // The stored preferences reach the window as it opens, not only once
+    // Settings does; a new install's are Zai's.
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.getAttribute('data-palette')))
+      .toBe('zai')
     await shoot(page, '01-onboarding')
 
     await page.getByRole('button', { name: /^connect directly/i }).click()

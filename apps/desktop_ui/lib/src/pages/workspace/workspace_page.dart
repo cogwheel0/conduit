@@ -45,34 +45,37 @@ class WorkspaceScreen extends StatelessComponent {
         () => go(context, sectionPath(sections.first), replace: true),
       );
     }
-    return div(classes: 'flex h-screen min-h-0 bg-background text-foreground', [
-      _SectionNav(sections: sections, current: kind),
-      main_(classes: 'flex min-w-0 flex-1 flex-col overflow-y-auto', [
-        if (access.isLoading && access.value == null)
-          _centered(t.app.loadingShort)
-        else if (access.hasError && access.value == null)
-          _centered(t.app.workspaceLoadFailed)
-        else if (sections.isEmpty)
-          _centered(t.desktop.desktopWorkspaceNoSections)
-        else if (kind == null)
-          _centered(t.app.loadingShort)
-        else if (!sections.contains(kind))
-          _centered(t.app.workspaceDenied)
-        else if (id == null && !create)
-          WorkspaceList(
-            key: ValueKey('list-${kind.name}'),
-            kind: kind,
-            access: sectionAccess(access.value!, kind),
-          )
-        else
-          WorkspaceEditor(
-            key: ValueKey('editor-${kind.name}-${id ?? 'new'}'),
-            kind: kind,
-            id: id,
-            access: access.value!,
-          ),
-      ]),
-    ]);
+    return div(
+      classes: 'flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-panel text-foreground',
+      [
+        _SectionNav(sections: sections, current: kind),
+        main_(classes: 'flex min-w-0 flex-1 flex-col overflow-y-auto', [
+          if (access.isLoading && access.value == null)
+            _centered(t.app.loadingShort)
+          else if (access.hasError && access.value == null)
+            _centered(t.app.workspaceLoadFailed)
+          else if (sections.isEmpty)
+            _centered(t.desktop.desktopWorkspaceNoSections)
+          else if (kind == null)
+            _centered(t.app.loadingShort)
+          else if (!sections.contains(kind))
+            _centered(t.app.workspaceDenied)
+          else if (id == null && !create)
+            WorkspaceList(
+              key: ValueKey('list-${kind.name}'),
+              kind: kind,
+              access: sectionAccess(access.value!, kind),
+            )
+          else
+            WorkspaceEditor(
+              key: ValueKey('editor-${kind.name}-${id ?? 'new'}'),
+              kind: kind,
+              id: id,
+              access: access.value!,
+            ),
+        ]),
+      ],
+    );
   }
 
   Component _centered(String text) => div(

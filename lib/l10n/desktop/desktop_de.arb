@@ -412,5 +412,20 @@
   "themePaletteZaiDescription": "Monochrom, ruhig und kompakt",
   "desktopUiFontSize": "Textgröße",
   "desktopUiFontSizeValue": "{size} px",
-  "desktopUiFontSizeHint": "Code, Diffs und das Terminal behalten ihre eigenen Größen."
+  "desktopUiFontSizeHint": "Code, Diffs und das Terminal behalten ihre eigenen Größen.",
+  "desktopSidebar": "Seitenleiste",
+  "desktopSidePane": "Seitenbereich",
+  "desktopShortcutToggleSidebar": "Seitenleiste ein- oder ausblenden",
+  "desktopShortcutToggleSidePane": "Seitenbereich ein- oder ausblenden",
+  "desktopSearch": "Suchen",
+  "desktopMinimizeWindow": "Minimieren",
+  "desktopMaximizeWindow": "Maximieren",
+  "desktopRestoreWindow": "Wiederherstellen",
+  "desktopCloseWindow": "Schließen",
+  "desktopResizeSidebar": "Größe der Seitenleiste ändern",
+  "desktopResizeSidePane": "Größe des Seitenbereichs ändern",
+  "desktopEarlier": "Früher",
+  "desktopChatRunning": "Antwortet",
+  "desktopChatUnread": "Neue Antwort",
+  "desktopChatFailed": "Antwort fehlgeschlagen"
 }

@@ -9,6 +9,7 @@ import 'package:jaspr_router/jaspr_router.dart';
 import '../l10n/strings.g.dart';
 import '../palette.dart';
 import '../rpc/chat_providers.dart';
+import '../rpc/layout_providers.dart';
 import '../rpc/rpc_providers.dart';
 import '../rpc/ui_request_providers.dart';
 import '../shortcuts.dart';
@@ -38,6 +39,7 @@ class _KeyboardLayerState extends State<KeyboardLayer> {
   Timer? _noticeTimer;
   ProviderSubscription<String?>? _lastReply;
   ProviderSubscription<List<Shortcut>>? _table;
+  StreamSubscription<ShortcutAction>? _requests;
 
   @override
   void initState() {
@@ -65,6 +67,11 @@ class _KeyboardLayerState extends State<KeyboardLayer> {
       shortcutTableProvider,
       (_, shortcuts) => context.read(shortcutBindingProvider).rebind(shortcuts),
     );
+    // The same actions, asked for by a control: the title bar's search.
+    _requests = container
+        .read(shortcutRequestsProvider)
+        .stream
+        .listen(_dispatch);
   }
 
   @override
@@ -72,6 +79,7 @@ class _KeyboardLayerState extends State<KeyboardLayer> {
     _noticeTimer?.cancel();
     _lastReply?.close();
     _table?.close();
+    unawaited(_requests?.cancel());
     context.read(shortcutBindingProvider).dispose();
     super.dispose();
   }
@@ -166,6 +174,10 @@ class _KeyboardLayerState extends State<KeyboardLayer> {
       case ShortcutAction.copyLastCodeBlock:
         final reply = _lastReply?.read();
         unawaited(_copy(reply == null ? null : lastCodeBlock(reply)));
+      case ShortcutAction.toggleSidebar:
+        context.read(workspaceLayoutProvider.notifier).toggleSidebar();
+      case ShortcutAction.toggleSidePane:
+        context.read(controlsOpenProvider.notifier).toggle();
     }
   }
 

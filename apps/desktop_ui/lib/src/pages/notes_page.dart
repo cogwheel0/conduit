@@ -28,15 +28,18 @@ class NotesPage extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     final id = noteId;
-    return div(classes: 'flex h-screen min-h-0 bg-background text-foreground', [
-      _NoteList(openId: id),
-      main_(classes: 'flex min-w-0 flex-1 flex-col', [
-        if (id == null)
-          const _NoNote()
-        else
-          _NoteEditorPane(key: ValueKey('note-$id'), id: id),
-      ]),
-    ]);
+    return div(
+      classes: 'flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-panel text-foreground',
+      [
+        _NoteList(openId: id),
+        main_(classes: 'flex min-w-0 flex-1 flex-col', [
+          if (id == null)
+            const _NoNote()
+          else
+            _NoteEditorPane(key: ValueKey('note-$id'), id: id),
+        ]),
+      ],
+    );
   }
 }
 

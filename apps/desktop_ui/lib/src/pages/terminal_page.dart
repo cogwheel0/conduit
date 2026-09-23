@@ -29,27 +29,33 @@ class TerminalPage extends StatelessComponent {
   Component build(BuildContext context) {
     final servers = context.watch(terminalServersProvider);
     final value = servers.value;
-    return div(classes: 'flex h-screen min-h-0 bg-background text-foreground', [
-      if (value == null)
-        div(classes: 'flex flex-1 items-center justify-center', [
-          statusLine(
-            servers.hasError
-                ? t.app.terminalFailedToConnect
-                : t.app.loadingShort,
-          ),
-        ])
-      else if (value.servers.isEmpty)
-        div(classes: 'flex flex-1 flex-col items-center justify-center gap-3', [
-          statusLine(t.app.terminalNoServersConfigured),
-          Link(
-            to: '/',
-            classes: 'text-ui-sm text-muted-foreground hover:underline',
-            child: Component.text('← ${t.app.back}'),
-          ),
-        ])
-      else
-        TerminalWorkspace(servers: value),
-    ]);
+    return div(
+      classes: 'flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-panel text-foreground',
+      [
+        if (value == null)
+          div(classes: 'flex flex-1 items-center justify-center', [
+            statusLine(
+              servers.hasError
+                  ? t.app.terminalFailedToConnect
+                  : t.app.loadingShort,
+            ),
+          ])
+        else if (value.servers.isEmpty)
+          div(
+            classes: 'flex flex-1 flex-col items-center justify-center gap-3',
+            [
+              statusLine(t.app.terminalNoServersConfigured),
+              Link(
+                to: '/',
+                classes: 'text-ui-sm text-muted-foreground hover:underline',
+                child: Component.text('← ${t.app.back}'),
+              ),
+            ],
+          )
+        else
+          TerminalWorkspace(servers: value),
+      ],
+    );
   }
 }
 

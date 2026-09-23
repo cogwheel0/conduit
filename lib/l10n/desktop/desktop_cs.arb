@@ -412,5 +412,20 @@
   "themePaletteZaiDescription": "Monochromatický, klidný a hutný",
   "desktopUiFontSize": "Velikost textu",
   "desktopUiFontSizeValue": "{size} px",
-  "desktopUiFontSizeHint": "Kód, rozdíly a terminál si ponechávají vlastní velikosti."
+  "desktopUiFontSizeHint": "Kód, rozdíly a terminál si ponechávají vlastní velikosti.",
+  "desktopSidebar": "Postranní panel",
+  "desktopSidePane": "Vedlejší panel",
+  "desktopShortcutToggleSidebar": "Zobrazit nebo skrýt postranní panel",
+  "desktopShortcutToggleSidePane": "Zobrazit nebo skrýt vedlejší panel",
+  "desktopSearch": "Hledat",
+  "desktopMinimizeWindow": "Minimalizovat",
+  "desktopMaximizeWindow": "Maximalizovat",
+  "desktopRestoreWindow": "Obnovit z maximalizace",
+  "desktopCloseWindow": "Zavřít",
+  "desktopResizeSidebar": "Změnit velikost postranního panelu",
+  "desktopResizeSidePane": "Změnit velikost vedlejšího panelu",
+  "desktopEarlier": "Dříve",
+  "desktopChatRunning": "Odpovídá",
+  "desktopChatUnread": "Nová odpověď",
+  "desktopChatFailed": "Odpověď selhala"
 }

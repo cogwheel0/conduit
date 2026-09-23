@@ -49,9 +49,7 @@ class _ControlsPaneState extends State<ControlsPane> {
 
   @override
   Component build(BuildContext context) => aside(
-    classes:
-        'flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-l '
-        'border-border bg-background p-4',
+    classes: 'flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4',
     attributes: <String, String>{'aria-label': t.desktop.desktopControls},
     [
       div(classes: 'flex items-center justify-between', [

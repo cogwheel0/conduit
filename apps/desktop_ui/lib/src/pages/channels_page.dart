@@ -29,22 +29,25 @@ class ChannelsPage extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     final id = channelId;
-    return div(classes: 'flex h-screen min-h-0 bg-background text-foreground', [
-      _ChannelList(openId: id),
-      if (id == null)
-        main_(classes: 'flex min-w-0 flex-1', [
-          div(classes: 'm-auto max-w-sm space-y-2 p-8 text-center', [
-            p(classes: 'text-ui-base font-medium', [
-              Component.text(t.app.sidebarChannelsTab),
+    return div(
+      classes: 'flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-panel text-foreground',
+      [
+        _ChannelList(openId: id),
+        if (id == null)
+          main_(classes: 'flex min-w-0 flex-1', [
+            div(classes: 'm-auto max-w-sm space-y-2 p-8 text-center', [
+              p(classes: 'text-ui-base font-medium', [
+                Component.text(t.app.sidebarChannelsTab),
+              ]),
+              p(classes: 'text-ui-base text-muted-foreground', [
+                Component.text(t.app.channelEmptyHint),
+              ]),
             ]),
-            p(classes: 'text-ui-base text-muted-foreground', [
-              Component.text(t.app.channelEmptyHint),
-            ]),
-          ]),
-        ])
-      else
-        _ChannelView(key: ValueKey('channel-$id'), channelId: id),
-    ]);
+          ])
+        else
+          _ChannelView(key: ValueKey('channel-$id'), channelId: id),
+      ],
+    );
   }
 }
 

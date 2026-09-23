@@ -51,7 +51,7 @@ class _SignInPageState extends State<SignInPage> {
 
     return div(
       classes:
-          'mx-auto flex min-h-screen w-full max-w-lg flex-col justify-center '
+          'mx-auto flex min-h-full w-full max-w-lg flex-col justify-center '
           'gap-6 px-8 text-foreground',
       [
         header(classes: 'space-y-2', [

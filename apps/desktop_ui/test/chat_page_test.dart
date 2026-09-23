@@ -5,12 +5,14 @@ import 'dart:async';
 
 import 'package:conduit_desktop_ui/src/l10n/strings.g.dart';
 import 'package:conduit_desktop_ui/src/pages/chat_page.dart';
+import 'package:conduit_desktop_ui/src/rpc/activity_providers.dart';
 import 'package:conduit_desktop_ui/src/rpc/chat_providers.dart';
 import 'package:conduit_desktop_ui/src/rpc/rpc_providers.dart';
 import 'package:conduit_desktop_ui/src/rpc/session_providers.dart';
 import 'package:conduit_desktop_ui/src/attachments.dart';
 import 'package:conduit_desktop_ui/src/rpc/voice_providers.dart';
 import 'package:conduit_desktop_ui/src/voice_port.dart';
+import 'package:conduit_desktop_ui/src/widgets/sidebar.dart';
 import 'package:conduit_desktop_ui/src/window_commands.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:jaspr/dom.dart';
@@ -77,8 +79,10 @@ Component _scoped({
   Set<String>? chosen,
   bool online = true,
   Set<String> temporaryIds = const <String>{},
+  Map<String, ChatActivity> activity = const <String, ChatActivity>{},
 }) => ProviderScope(
   overrides: [
+    chatActivityProvider.overrideWith(() => _Activity(activity)),
     temporaryChatIdsProvider.overrideWith(() => _Temporary(temporaryIds)),
     onlineProvider.overrideWith((ref) => Stream<bool>.value(online)),
     if (chosen != null)
@@ -103,8 +107,18 @@ Component _scoped({
         return recording;
       }),
   ],
-  child: const ChatPage(),
+  // The sidebar is the workspace's, beside the page, as the shell draws it.
+  child: div([const Sidebar(), const ChatPage()]),
 );
+
+class _Activity extends ChatActivityNotifier {
+  _Activity(this._initial);
+
+  final Map<String, ChatActivity> _initial;
+
+  @override
+  Map<String, ChatActivity> build() => _initial;
+}
 
 class _Chosen extends ChatSelection {
   _Chosen(this._initial);
@@ -531,6 +545,126 @@ void main() {
     expect(commands.observed, hasLength(48));
     // Far below the 1.9 s every row took to build.
     expect(elapsed, lessThan(1200));
+  });
+
+  testComponents('the open conversation is drawn however far down it is', (
+    tester,
+  ) async {
+    final big = ChatList(
+      chats: <ChatSummary>[
+        for (var i = 0; i < 1000; i++)
+          ChatSummary(
+            id: 'c$i',
+            title: 'Chat $i',
+            updatedAtMs: DateTime.now().millisecondsSinceEpoch - i * 1000,
+          ),
+      ],
+    );
+    final commands = RecordingWindowCommands()..near = false;
+    tester.pumpComponent(
+      _scoped(chats: big, commands: commands, selected: 'c750'),
+    );
+    await pumpEventQueue();
+    // Its neighbour shares the chunk; the header carries the title as well.
+    expect(find.text('Chat 751'), findsOneComponent);
+    expect(find.text('Chat 650'), findsNothing, reason: 'another chunk');
+  });
+
+  test('an open conversation past the loaded pages joins the list by date', () {
+    const old = ChatSummary(
+      id: 'old',
+      title: 'Old',
+      updatedAtMs: 1758312800001,
+    );
+    final list = withOpenChat(_chats, old);
+    expect(list.chats.map((c) => c.id), <String>['chat-1', 'old', 'chat-2']);
+    // Already there, or nothing open: unchanged.
+    expect(withOpenChat(list, old), same(list));
+    expect(withOpenChat(_chats, null), same(_chats));
+  });
+
+  testComponents('the open conversation shows as open even unpaged', (
+    tester,
+  ) async {
+    tester.pumpComponent(
+      _scoped(
+        selected: 'far',
+        detail: const ChatDetail(
+          summary: ChatSummary(
+            id: 'far',
+            title: 'Years ago',
+            updatedAtMs: 1000,
+          ),
+        ),
+      ),
+    );
+    await pumpEventQueue();
+    expect(
+      find.byComponentPredicate(
+        (component) =>
+            component is button &&
+            component.attributes?['aria-current'] == 'true',
+      ),
+      findsOneComponent,
+    );
+  });
+
+  testComponents('a temporary conversation stays out of the sidebar', (
+    tester,
+  ) async {
+    tester.pumpComponent(
+      _scoped(
+        selected: 'temp',
+        temporaryIds: const <String>{'temp'},
+        detail: const ChatDetail(
+          summary: ChatSummary(
+            id: 'temp',
+            title: 'Off the record',
+            updatedAtMs: 1,
+          ),
+        ),
+      ),
+    );
+    await pumpEventQueue();
+    expect(
+      find.byComponentPredicate(
+        (component) =>
+            component is button &&
+            component.attributes?['aria-current'] == 'true',
+      ),
+      findsNothing,
+    );
+  });
+
+  testComponents('opening a conversation in a folded folder unfolds it', (
+    tester,
+  ) async {
+    const list = ChatList(
+      chats: <ChatSummary>[
+        ChatSummary(
+          id: 'deep',
+          title: 'Filed deep',
+          updatedAtMs: 1,
+          folderId: 'inner',
+        ),
+      ],
+      folders: <FolderSummary>[
+        FolderSummary(id: 'outer', name: 'Outer'),
+        FolderSummary(id: 'inner', name: 'Inner', parentId: 'outer'),
+      ],
+    );
+    tester.pumpComponent(_scoped(chats: list, selected: 'deep'));
+    await pumpEventQueue();
+    await pumpEventQueue();
+    expect(find.text('Filed deep'), findsNComponents(2));
+    expect(
+      find.byComponentPredicate(
+        (component) =>
+            component is button &&
+            component.attributes?['aria-current'] == 'true',
+      ),
+      findsOneComponent,
+    );
   });
 
   group('voice', () {
@@ -1776,6 +1910,53 @@ void main() {
     // placeholder, which the daemon rejects with `resource.conflict`.
     expect(find.text(t.app.stopGenerating), findsOneComponent);
     expect(find.text(t.app.send), findsNothing);
+  });
+
+  group('redesigned sidebar', () {
+    testComponents('a status dot says what happened, in words too', (
+      tester,
+    ) async {
+      tester.pumpComponent(
+        _scoped(
+          activity: const <String, ChatActivity>{'chat-2': ChatActivity.unread},
+        ),
+      );
+      await pumpEventQueue();
+      expect(find.text(t.desktop.desktopChatUnread), findsOneComponent);
+      expect(find.text(t.desktop.desktopChatRunning), findsNothing);
+    });
+
+    testComponents('older conversations are grouped as Earlier', (
+      tester,
+    ) async {
+      tester.pumpComponent(_scoped());
+      await pumpEventQueue();
+      expect(find.text(t.desktop.desktopEarlier), findsOneComponent);
+    });
+
+    testComponents('a section folds shut, and says so', (tester) async {
+      Finder body({required bool hidden}) => find.byComponentPredicate(
+        (component) =>
+            component is div &&
+            component.id == 'section-body-pinned' &&
+            (component.classes == 'hidden') == hidden,
+      );
+      Finder toggle({required bool expanded}) => find.byComponentPredicate(
+        (component) =>
+            component is button &&
+            component.id == 'section-pinned' &&
+            component.attributes?['aria-expanded'] == '$expanded',
+      );
+      tester.pumpComponent(_scoped());
+      await pumpEventQueue();
+      expect(toggle(expanded: true), findsOneComponent);
+      expect(body(hidden: false), findsOneComponent);
+
+      await tester.click(toggle(expanded: true));
+      await pumpEventQueue();
+      expect(toggle(expanded: false), findsOneComponent);
+      expect(body(hidden: true), findsOneComponent);
+    });
   });
 }
 

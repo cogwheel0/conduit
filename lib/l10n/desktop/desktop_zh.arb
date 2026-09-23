@@ -412,5 +412,20 @@
   "themePaletteZaiDescription": "单色、沉稳而紧凑",
   "desktopUiFontSize": "文字大小",
   "desktopUiFontSizeValue": "{size} px",
-  "desktopUiFontSizeHint": "代码、差异对比和终端保持各自的字号。"
+  "desktopUiFontSizeHint": "代码、差异对比和终端保持各自的字号。",
+  "desktopSidebar": "侧边栏",
+  "desktopSidePane": "侧面板",
+  "desktopShortcutToggleSidebar": "显示或隐藏侧边栏",
+  "desktopShortcutToggleSidePane": "显示或隐藏侧面板",
+  "desktopSearch": "搜索",
+  "desktopMinimizeWindow": "最小化",
+  "desktopMaximizeWindow": "最大化",
+  "desktopRestoreWindow": "向下还原",
+  "desktopCloseWindow": "关闭",
+  "desktopResizeSidebar": "调整侧边栏大小",
+  "desktopResizeSidePane": "调整侧面板大小",
+  "desktopEarlier": "更早",
+  "desktopChatRunning": "正在回答",
+  "desktopChatUnread": "新回答",
+  "desktopChatFailed": "回答失败"
 }

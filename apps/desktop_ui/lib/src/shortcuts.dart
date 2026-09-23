@@ -22,6 +22,8 @@ enum ShortcutAction {
   allowRequest,
   denyRequest,
   dictate,
+  toggleSidebar,
+  toggleSidePane,
 }
 
 /// A chord, as the user would describe it.
@@ -150,6 +152,18 @@ const List<Shortcut> defaultShortcuts = <Shortcut>[
   Shortcut(
     ShortcutAction.dictate,
     KeyStroke('l', primary: true, shift: true),
+    whileTyping: true,
+  ),
+  // The workspace frames (docs/desktop/REDESIGN.md): Open WebUI's sidebar
+  // chord, and VS Code's for the pane on the other side.
+  Shortcut(
+    ShortcutAction.toggleSidebar,
+    KeyStroke('s', primary: true, shift: true),
+    whileTyping: true,
+  ),
+  Shortcut(
+    ShortcutAction.toggleSidePane,
+    KeyStroke('b', primary: true, alt: true),
     whileTyping: true,
   ),
 ];

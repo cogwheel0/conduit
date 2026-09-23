@@ -36,6 +36,8 @@ extension type _PreloadBridge._(JSObject _) implements JSObject {
   external void onOpen(JSFunction callback);
   external void openInMain(JSAny request);
   external void hideWindow();
+  external void windowControl(String action);
+  external void onWindowState(JSFunction callback);
 }
 
 /// The request object literal the preload bridge expects.
@@ -364,4 +366,19 @@ final class ElectronDesktopShell implements DesktopShellPort {
 
   @override
   void hideWindow() => _bridge.hideWindow();
+
+  @override
+  void windowControl(WindowControl control) =>
+      _bridge.windowControl(control.name);
+
+  @override
+  void onWindowState(void Function(WindowFrameState state) handler) {
+    _bridge.onWindowState(
+      ((JSAny? raw) {
+        final json = raw.dartify();
+        if (json is! Map) return;
+        handler(WindowFrameState.fromJson(json.cast<String, dynamic>()));
+      }).toJS,
+    );
+  }
 }

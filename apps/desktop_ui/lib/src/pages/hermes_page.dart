@@ -21,34 +21,40 @@ class HermesPage extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     final settings = context.watch(hermesSettingsProvider).value;
-    return div(classes: 'flex h-screen min-h-0 bg-background text-foreground', [
-      main_(classes: 'mx-auto w-full max-w-3xl space-y-6 overflow-y-auto p-6', [
-        div(classes: 'flex items-center gap-2', [
-          Link(
-            to: '/',
-            classes: 'rounded px-2 py-1 text-ui-base hover:bg-accent',
-            attributes: <String, String>{'aria-label': t.app.back},
-            child: Component.text('←'),
-          ),
-          h1(classes: 'flex-1 text-ui-xl font-semibold', [
-            Component.text(t.app.hermesAgentSettingsTitle),
-          ]),
-          a(
-            href: '/settings/hermes',
-            classes: 'text-ui-sm text-muted-foreground hover:underline',
-            [Component.text(t.desktop.desktopSettingsTitle)],
-          ),
-        ]),
-        if (settings == null)
-          statusLine(t.app.loadingShort)
-        else if (!settings.usable)
-          statusLine(t.app.hermesEnableSubtitle)
-        else ...[
-          const _Sessions(),
-          const _Jobs(),
-        ],
-      ]),
-    ]);
+    return div(
+      classes: 'flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-panel text-foreground',
+      [
+        main_(
+          classes: 'mx-auto w-full max-w-3xl space-y-6 overflow-y-auto p-6',
+          [
+            div(classes: 'flex items-center gap-2', [
+              Link(
+                to: '/',
+                classes: 'rounded px-2 py-1 text-ui-base hover:bg-accent',
+                attributes: <String, String>{'aria-label': t.app.back},
+                child: Component.text('←'),
+              ),
+              h1(classes: 'flex-1 text-ui-xl font-semibold', [
+                Component.text(t.app.hermesAgentSettingsTitle),
+              ]),
+              a(
+                href: '/settings/hermes',
+                classes: 'text-ui-sm text-muted-foreground hover:underline',
+                [Component.text(t.desktop.desktopSettingsTitle)],
+              ),
+            ]),
+            if (settings == null)
+              statusLine(t.app.loadingShort)
+            else if (!settings.usable)
+              statusLine(t.app.hermesEnableSubtitle)
+            else ...[
+              const _Sessions(),
+              const _Jobs(),
+            ],
+          ],
+        ),
+      ],
+    );
   }
 }
 

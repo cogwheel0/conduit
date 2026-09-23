@@ -854,5 +854,65 @@
   "desktopUiFontSizeHint": "Code, diffs and the terminal keep their own sizes.",
   "@desktopUiFontSizeHint": {
     "description": "Explains what the text-size slider does not change."
+  },
+  "desktopSidebar": "Sidebar",
+  "@desktopSidebar": {
+    "description": "Accessible name and tooltip of the title-bar button that shows or hides the conversation sidebar (a toggle)."
+  },
+  "desktopSidePane": "Side pane",
+  "@desktopSidePane": {
+    "description": "Accessible name and tooltip of the button that shows or hides the pane beside the conversation (controls, files, notes, previews). A toggle."
+  },
+  "desktopShortcutToggleSidebar": "Show or hide the sidebar",
+  "@desktopShortcutToggleSidebar": {
+    "description": "Keyboard shortcut list entry."
+  },
+  "desktopShortcutToggleSidePane": "Show or hide the side pane",
+  "@desktopShortcutToggleSidePane": {
+    "description": "Keyboard shortcut list entry."
+  },
+  "desktopSearch": "Search",
+  "@desktopSearch": {
+    "description": "Title-bar button that opens the command palette, which searches conversations and commands."
+  },
+  "desktopMinimizeWindow": "Minimize",
+  "@desktopMinimizeWindow": {
+    "description": "Window control button (Windows and Linux)."
+  },
+  "desktopMaximizeWindow": "Maximize",
+  "@desktopMaximizeWindow": {
+    "description": "Window control button (Windows and Linux)."
+  },
+  "desktopRestoreWindow": "Restore",
+  "@desktopRestoreWindow": {
+    "description": "Window control button shown instead of Maximize when the window is maximized."
+  },
+  "desktopCloseWindow": "Close",
+  "@desktopCloseWindow": {
+    "description": "Window control button that closes the window (Windows and Linux)."
+  },
+  "desktopResizeSidebar": "Resize the sidebar",
+  "@desktopResizeSidebar": {
+    "description": "Accessible name of the draggable divider between the sidebar and the conversation; arrow keys also resize."
+  },
+  "desktopResizeSidePane": "Resize the side pane",
+  "@desktopResizeSidePane": {
+    "description": "Accessible name of the draggable divider between the conversation and the side pane."
+  },
+  "desktopEarlier": "Earlier",
+  "@desktopEarlier": {
+    "description": "Sidebar group heading for conversations older than yesterday (after Today and Yesterday)."
+  },
+  "desktopChatRunning": "Answering",
+  "@desktopChatRunning": {
+    "description": "Screen-reader text for the sidebar status dot while an answer is being written in that conversation."
+  },
+  "desktopChatUnread": "New answer",
+  "@desktopChatUnread": {
+    "description": "Screen-reader text for the sidebar status dot when an answer finished in a conversation the user is not looking at."
+  },
+  "desktopChatFailed": "Answer failed",
+  "@desktopChatFailed": {
+    "description": "Screen-reader text for the sidebar status dot when an answer failed in a conversation the user is not looking at."
   }
 }

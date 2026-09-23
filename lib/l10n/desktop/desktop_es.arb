@@ -412,5 +412,20 @@
   "themePaletteZaiDescription": "Monocromo, sereno y denso",
   "desktopUiFontSize": "Tamaño del texto",
   "desktopUiFontSizeValue": "{size} px",
-  "desktopUiFontSizeHint": "El código, los diffs y el terminal mantienen sus propios tamaños."
+  "desktopUiFontSizeHint": "El código, los diffs y el terminal mantienen sus propios tamaños.",
+  "desktopSidebar": "Barra lateral",
+  "desktopSidePane": "Panel lateral",
+  "desktopShortcutToggleSidebar": "Mostrar u ocultar la barra lateral",
+  "desktopShortcutToggleSidePane": "Mostrar u ocultar el panel lateral",
+  "desktopSearch": "Buscar",
+  "desktopMinimizeWindow": "Minimizar",
+  "desktopMaximizeWindow": "Maximizar",
+  "desktopRestoreWindow": "Restaurar",
+  "desktopCloseWindow": "Cerrar",
+  "desktopResizeSidebar": "Cambiar el tamaño de la barra lateral",
+  "desktopResizeSidePane": "Cambiar el tamaño del panel lateral",
+  "desktopEarlier": "Anteriores",
+  "desktopChatRunning": "Respondiendo",
+  "desktopChatUnread": "Nueva respuesta",
+  "desktopChatFailed": "Error en la respuesta"
 }

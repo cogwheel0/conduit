@@ -79,6 +79,17 @@ body {
   outline-offset: 2px;
 }
 
+/* The drawn title bar (widgets/title_bar.dart) moves the window; its
+ * controls must not, or they could not be clicked. */
+.app-drag {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.app-drag :is(button, a, input, select, textarea, [role="button"], [tabindex]) {
+  -webkit-app-region: no-drag;
+}
+
 /* Tooltips (widgets/ui.dart `tooltipAttributes`). A pseudo-element, so it
  * costs no DOM and no JavaScript, and it is not in the accessibility tree --
  * the control's own label is the name. It shows on hover after a beat, and

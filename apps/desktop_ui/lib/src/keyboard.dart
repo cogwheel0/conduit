@@ -159,6 +159,49 @@ final class DocumentWindowCommands implements WindowCommandsPort {
   }
 
   @override
+  String? stored(String key) {
+    try {
+      return web.window.localStorage.getItem(key);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  void store(String key, String value) {
+    try {
+      web.window.localStorage.setItem(key, value);
+    } catch (_) {
+      // Storage full or refused: the layout is only a convenience.
+    }
+  }
+
+  @override
+  void trackPointer({
+    required void Function(double x) onMove,
+    void Function()? onEnd,
+    String cursor = 'col-resize',
+  }) {
+    final body = web.document.body;
+    body?.style.cursor = cursor;
+    body?.style.userSelect = 'none';
+    late final JSFunction move;
+    late final JSFunction up;
+    move = ((web.PointerEvent event) => onMove(event.clientX.toDouble())).toJS;
+    up = ((web.PointerEvent _) {
+      web.document.removeEventListener('pointermove', move);
+      web.document.removeEventListener('pointerup', up);
+      web.document.removeEventListener('pointercancel', up);
+      body?.style.cursor = '';
+      body?.style.userSelect = '';
+      onEnd?.call();
+    }).toJS;
+    web.document.addEventListener('pointermove', move);
+    web.document.addEventListener('pointerup', up);
+    web.document.addEventListener('pointercancel', up);
+  }
+
+  @override
   void reveal(String id) {
     web.document
         .getElementById(id)
@@ -285,6 +328,27 @@ EventCallback tabKeys(void Function(int step) move) => (web.Event event) {
   if (step == 0) return;
   event.preventDefault();
   move(step);
+};
+
+/// The pointer's x in viewport pixels, from a pointer or mouse event.
+double pointerX(web.Event event) =>
+    (event as web.MouseEvent).clientX.toDouble();
+
+/// Arrow keys on a resize handle: Left and Right move it by [step] pixels,
+/// ten times that with Shift.
+EventCallback resizeKeys(
+  void Function(double delta) move, {
+  double step = 16,
+}) => (web.Event event) {
+  final key = event as web.KeyboardEvent;
+  final sign = switch (key.key) {
+    'ArrowRight' => 1,
+    'ArrowLeft' => -1,
+    _ => 0,
+  };
+  if (sign == 0) return;
+  event.preventDefault();
+  move(sign * step * (key.shiftKey ? 10 : 1));
 };
 
 /// The composer's keys, with the `/` menu open or not (WP-3.3).

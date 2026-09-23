@@ -98,4 +98,6 @@ String shortcutLabel(ShortcutAction action) => switch (action) {
   ShortcutAction.allowRequest => t.desktop.desktopShortcutAllowRequest,
   ShortcutAction.denyRequest => t.desktop.desktopShortcutDenyRequest,
   ShortcutAction.dictate => t.desktop.desktopShortcutDictate,
+  ShortcutAction.toggleSidebar => t.desktop.desktopShortcutToggleSidebar,
+  ShortcutAction.toggleSidePane => t.desktop.desktopShortcutToggleSidePane,
 };

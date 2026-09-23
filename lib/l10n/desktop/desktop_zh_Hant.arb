@@ -412,5 +412,20 @@
   "themePaletteZaiDescription": "單色、沉穩而緊湊",
   "desktopUiFontSize": "文字大小",
   "desktopUiFontSizeValue": "{size} px",
-  "desktopUiFontSizeHint": "程式碼、差異比對和終端機保持各自的字級。"
+  "desktopUiFontSizeHint": "程式碼、差異比對和終端機保持各自的字級。",
+  "desktopSidebar": "側邊欄",
+  "desktopSidePane": "側面板",
+  "desktopShortcutToggleSidebar": "顯示或隱藏側邊欄",
+  "desktopShortcutToggleSidePane": "顯示或隱藏側面板",
+  "desktopSearch": "搜尋",
+  "desktopMinimizeWindow": "最小化",
+  "desktopMaximizeWindow": "最大化",
+  "desktopRestoreWindow": "向下還原",
+  "desktopCloseWindow": "關閉",
+  "desktopResizeSidebar": "調整側邊欄大小",
+  "desktopResizeSidePane": "調整側面板大小",
+  "desktopEarlier": "更早",
+  "desktopChatRunning": "正在回答",
+  "desktopChatUnread": "新回答",
+  "desktopChatFailed": "回答失敗"
 }

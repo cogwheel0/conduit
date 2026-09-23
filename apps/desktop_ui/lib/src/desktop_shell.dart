@@ -154,6 +154,46 @@ abstract interface class DesktopShellPort {
 
   /// Whether this window has the user's attention.
   bool get focused;
+
+  /// A drawn window control: minimize, maximize or restore, close.
+  void windowControl(WindowControl control);
+
+  /// Hears the window's frame state now and whenever it changes. Called
+  /// once, by the title bar.
+  void onWindowState(void Function(WindowFrameState state) handler);
+}
+
+/// What the drawn window controls do.
+enum WindowControl { minimize, toggleMaximize, close }
+
+/// What the title bar needs to know about its window.
+class WindowFrameState {
+  const WindowFrameState({
+    this.maximized = false,
+    this.fullscreen = false,
+    this.focused = true,
+  });
+
+  factory WindowFrameState.fromJson(Map<String, dynamic> json) =>
+      WindowFrameState(
+        maximized: json['maximized'] == true,
+        fullscreen: json['fullscreen'] == true,
+        focused: json['focused'] != false,
+      );
+
+  final bool maximized;
+  final bool fullscreen;
+  final bool focused;
+
+  @override
+  bool operator ==(Object other) =>
+      other is WindowFrameState &&
+      other.maximized == maximized &&
+      other.fullscreen == fullscreen &&
+      other.focused == focused;
+
+  @override
+  int get hashCode => Object.hash(maximized, fullscreen, focused);
 }
 
 /// Records what it was asked. The default outside Electron.
@@ -216,4 +256,16 @@ final class RecordingDesktopShell implements DesktopShellPort {
 
   @override
   void hideWindow() => hidden++;
+
+  final List<WindowControl> controls = <WindowControl>[];
+  void Function(WindowFrameState state)? stateHandler;
+
+  @override
+  void windowControl(WindowControl control) => controls.add(control);
+
+  @override
+  void onWindowState(void Function(WindowFrameState state) handler) {
+    stateHandler = handler;
+    handler(const WindowFrameState());
+  }
 }

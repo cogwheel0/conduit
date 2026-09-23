@@ -15,6 +15,7 @@ import { DesktopShell } from './desktop-shell.js'
 import { filesInArgs, uploadFiles } from './open-files.js'
 import { loadOrCreateSecrets, type CoreSecrets } from './secrets.js'
 import { ShellSettingsStore } from './shell-settings.js'
+import { frameOptions, registerWindowFrameChannel, reportFrameState } from './window-frame.js'
 import { WindowStateStore } from './window-state.js'
 
 /**
@@ -129,6 +130,7 @@ async function main(): Promise<void> {
   installAuthHeaderInjection()
   hardenNavigation()
   registerAuthWindowChannel()
+  registerWindowFrameChannel(APP_ORIGIN)
 
   supervisor = new DaemonSupervisor(
     resolveDaemonPath({
@@ -219,12 +221,11 @@ function createWindow(kind: 'main' | 'quickAsk', port: number): BrowserWindow {
     minHeight: quickAsk ? 200 : 480,
     show: false,
     backgroundColor: '#000000',
-    titleBarStyle: process.platform === 'darwin' && !quickAsk ? 'hiddenInset' : 'default',
+    // The renderer draws the title bar (window-frame.ts).
+    ...frameOptions(process.platform, kind),
     // The quick-ask panel floats over whatever the user was doing, and
     // is not a window to switch to.
-    ...(quickAsk
-      ? { frame: false, alwaysOnTop: true, skipTaskbar: true, fullscreenable: false }
-      : {}),
+    ...(quickAsk ? { alwaysOnTop: true, skipTaskbar: true, fullscreenable: false } : {}),
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -250,6 +251,7 @@ function createWindow(kind: 'main' | 'quickAsk', port: number): BrowserWindow {
     window.on('blur', () => window.hide())
   } else {
     desktop?.manage(window)
+    reportFrameState(window)
     // Avoids the white flash between window creation and first paint.
     window.once('ready-to-show', () => window.show())
   }

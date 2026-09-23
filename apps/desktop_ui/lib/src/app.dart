@@ -19,11 +19,14 @@ import 'pages/status_page.dart';
 import 'l10n/strings.g.dart';
 import 'rpc/rpc_providers.dart';
 import 'rpc/session_providers.dart';
+import 'rpc/settings_providers.dart';
 import 'widgets/desktop_integration.dart';
 import 'widgets/keyboard_layer.dart';
 import 'widgets/release_banner.dart';
 import 'widgets/ui_request_card.dart';
 import 'widgets/server_issue_banner.dart';
+import 'widgets/title_bar.dart';
+import 'widgets/workspace_frame.dart';
 
 /// The desktop app shell and its routes.
 ///
@@ -41,8 +44,12 @@ class ConduitDesktopApp extends StatelessComponent {
     // The quick-ask panel (WP-9.1) is its own small window, not a route of
     // this one: no sidebar, no session redirects.
     if (context.read(shellBridgeProvider).windowKind == WindowKind.quickAsk) {
-      return const QuickAskPage();
+      return const Component.fragment([_PreferencesApplier(), QuickAskPage()]);
     }
+    return Component.fragment([const _PreferencesApplier(), _router()]);
+  }
+
+  Router _router() {
     return Router(
       redirect: (context, state) {
         // A reload, a restored session or a hand-typed URL can land on the
@@ -177,6 +184,22 @@ class ConduitDesktopApp extends StatelessComponent {
   }
 }
 
+/// Loads the stored palette, mode and text size as the window opens.
+///
+/// Reading the preferences is what applies them (settings_providers.dart),
+/// and nothing else reads them before Settings opens -- so without this a
+/// chosen palette was lost on every launch until Settings was visited. Its
+/// own component, so a preference change rebuilds nothing else.
+class _PreferencesApplier extends StatelessComponent {
+  const _PreferencesApplier();
+
+  @override
+  Component build(BuildContext context) {
+    context.watch(appPreferencesProvider);
+    return const Component.fragment([]);
+  }
+}
+
 /// Navigates when the session state settles.
 ///
 /// [sessionRedirectFor] is also wired into the router's `redirect`, which
@@ -239,6 +262,18 @@ bool showsFloatingSettingsLink(String location) =>
     !location.startsWith('/terminal') &&
     !location.startsWith('/hermes');
 
+/// Whether [location] is drawn in the workspace -- the sidebar and frames
+/// (docs/desktop/REDESIGN.md) -- rather than alone on the window, as
+/// onboarding, sign-in and diagnostics are.
+bool hasWorkspace(String location) =>
+    location == '/' ||
+    location == '/index.html' ||
+    location.startsWith('/notes') ||
+    location.startsWith('/channels') ||
+    location.startsWith('/workspace') ||
+    location.startsWith('/terminal') ||
+    location.startsWith('/hermes');
+
 /// Sends a window to onboarding or sign-in when it has no session.
 String? _sessionRedirect(BuildContext context, String location) =>
     sessionRedirectFor(
@@ -298,10 +333,10 @@ String? sessionRedirectFor({
   return location == '/sign-in' ? null : '/sign-in';
 }
 
-/// The persistent chrome every route renders inside.
+/// The persistent chrome every route renders inside: the title bar, then
+/// the workspace or, for a route without one, the route alone.
 ///
-/// In M3 this grows the sidebar, model picker and controls pane; keeping it a
-/// [ShellRoute] from the start means those never remount on navigation.
+/// A [ShellRoute], so none of it remounts on navigation.
 class _Shell extends StatelessComponent {
   const _Shell({required this.child});
 
@@ -309,21 +344,46 @@ class _Shell extends StatelessComponent {
 
   @override
   Component build(BuildContext context) {
-    return div(classes: 'flex min-h-screen flex-col bg-background', [
-      // Above the route, so it is visible wherever the user is rather than
-      // only on the screen that happened to notice the problem.
-      const ServerIssueBanner(),
-      const ReleaseBanner(),
-      const _SessionGate(),
-      const KeyboardLayer(),
-      const DesktopIntegration(),
-      const TerminalDisplayRequests(),
-      // Above every route: a tool waiting for approval holds up its reply
-      // wherever the person happens to be looking.
-      const UiRequestCard(),
-      div(classes: 'min-h-0 flex-1', [child]),
-      if (showsFloatingSettingsLink(RouteState.of(context).location))
-        _settingsLink(),
-    ]);
+    final location = RouteState.of(context).location;
+    // Settings opens over the workspace once there is one to open over.
+    final workspace =
+        hasWorkspace(location) ||
+        (location.startsWith('/settings') &&
+            context.watch(needsOnboardingProvider).value == false);
+    return div(
+      classes:
+          'flex h-screen flex-col overflow-hidden bg-window text-foreground',
+      [
+        TitleBar(
+          workspace: workspace,
+          sidePane: location == '/' || location == '/index.html',
+        ),
+        // Above the route, so it is visible wherever the user is rather than
+        // only on the screen that happened to notice the problem.
+        const ServerIssueBanner(),
+        const ReleaseBanner(),
+        const _SessionGate(),
+        const KeyboardLayer(),
+        const DesktopIntegration(),
+        const TerminalDisplayRequests(),
+        // Above every route: a tool waiting for approval holds up its reply
+        // wherever the person happens to be looking.
+        const UiRequestCard(),
+        if (workspace)
+          Workspace(
+            child: hasWorkspace(location)
+                ? child
+                // Settings is a dialog over the window: an empty frame
+                // behind it keeps the workspace's shape.
+                : Component.fragment([
+                    div(classes: '$frameClasses flex-1', const []),
+                    child,
+                  ]),
+          )
+        else
+          div(classes: 'min-h-0 flex-1 overflow-y-auto', [child]),
+        if (showsFloatingSettingsLink(location)) _settingsLink(),
+      ],
+    );
   }
 }

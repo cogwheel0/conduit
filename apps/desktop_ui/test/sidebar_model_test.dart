@@ -189,4 +189,58 @@ void main() {
       expect(model.folders.single.totalChats, 2);
     });
   });
+
+  group('groupRecent', () {
+    test('Today, Yesterday, then everything older as Earlier', () {
+      final model = buildSidebar(
+        ChatList(
+          chats: <ChatSummary>[
+            _chat('now'),
+            _chat('yesterday', at: DateTime(2026, 9, 21, 9)),
+            _chat('last week', at: DateTime(2026, 9, 17)),
+            _chat('last month', at: DateTime(2026, 9, 1)),
+            _chat('last year', at: DateTime(2025, 9, 1)),
+          ],
+        ),
+        now: _now,
+      );
+      final groups = groupRecent(model.recent);
+      expect(groups.map((g) => g.group), RecentGroup.values);
+      expect(groups.last.chats.map((c) => c.id), <String>[
+        'last week',
+        'last month',
+        'last year',
+      ]);
+    });
+
+    test('an empty group is left out', () {
+      final model = buildSidebar(
+        ChatList(chats: <ChatSummary>[_chat('old', at: DateTime(2025, 1, 1))]),
+        now: _now,
+      );
+      expect(groupRecent(model.recent).map((g) => g.group), <RecentGroup>[
+        RecentGroup.earlier,
+      ]);
+    });
+  });
+
+  group('folderPathTo', () {
+    test('names the folders around a conversation, outermost first', () {
+      final model = buildSidebar(
+        ChatList(
+          chats: <ChatSummary>[
+            _chat('deep', folderId: 'inner'),
+            _chat('loose'),
+          ],
+          folders: const <FolderSummary>[
+            FolderSummary(id: 'outer', name: 'Outer'),
+            FolderSummary(id: 'inner', name: 'Inner', parentId: 'outer'),
+          ],
+        ),
+        now: _now,
+      );
+      expect(folderPathTo('deep', model.folders), <String>['outer', 'inner']);
+      expect(folderPathTo('loose', model.folders), isNull);
+    });
+  });
 }

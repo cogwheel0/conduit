@@ -412,5 +412,20 @@
   "themePaletteZaiDescription": "Монохромная, спокойная и плотная",
   "desktopUiFontSize": "Размер текста",
   "desktopUiFontSizeValue": "{size} px",
-  "desktopUiFontSizeHint": "Код, диффы и терминал сохраняют собственные размеры."
+  "desktopUiFontSizeHint": "Код, диффы и терминал сохраняют собственные размеры.",
+  "desktopSidebar": "Боковая панель",
+  "desktopSidePane": "Дополнительная панель",
+  "desktopShortcutToggleSidebar": "Показать или скрыть боковую панель",
+  "desktopShortcutToggleSidePane": "Показать или скрыть дополнительную панель",
+  "desktopSearch": "Поиск",
+  "desktopMinimizeWindow": "Свернуть",
+  "desktopMaximizeWindow": "Развернуть",
+  "desktopRestoreWindow": "Свернуть в окно",
+  "desktopCloseWindow": "Закрыть",
+  "desktopResizeSidebar": "Изменить размер боковой панели",
+  "desktopResizeSidePane": "Изменить размер дополнительной панели",
+  "desktopEarlier": "Ранее",
+  "desktopChatRunning": "Отвечает",
+  "desktopChatUnread": "Новый ответ",
+  "desktopChatFailed": "Ошибка ответа"
 }

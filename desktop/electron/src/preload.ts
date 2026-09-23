@@ -53,6 +53,17 @@ export interface ConduitBridge {
 
   /** Hides this window (the quick-ask panel's Escape). */
   hideWindow(): void
+
+  /**
+   * The drawn window controls (window-frame.ts): minimize, maximize or
+   * restore, close -- or `state`, which asks for [onWindowState] now.
+   */
+  windowControl(action: 'minimize' | 'toggleMaximize' | 'close' | 'state'): void
+
+  /** Hears the window maximize, go full screen, and gain or lose focus. */
+  onWindowState(
+    callback: (state: { maximized: boolean; fullscreen: boolean; focused: boolean }) => void,
+  ): void
 }
 
 export interface AuthWindowRequest {
@@ -101,6 +112,11 @@ const bridge: ConduitBridge = {
   },
   openInMain: (request) => ipcRenderer.send('conduit:open-in-main', request),
   hideWindow: () => ipcRenderer.send('conduit:hide-window'),
+  windowControl: (action) => ipcRenderer.send('conduit:window', action),
+  onWindowState: (callback) => {
+    ipcRenderer.on('conduit:window-state', (_event, state) => callback(state))
+    ipcRenderer.send('conduit:window', 'state')
+  },
 }
 
 contextBridge.exposeInMainWorld('conduit', bridge)
