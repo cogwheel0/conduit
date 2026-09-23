@@ -609,6 +609,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
       knowledge: WorkspaceKnowledgeDto(name: 'Docs'),
     ),
     create: true,
+    metadataOnly: true,
   ),
   'workspaceAccessEdit': const WorkspaceAccessEdit(
     kind: WorkspaceKind.models,

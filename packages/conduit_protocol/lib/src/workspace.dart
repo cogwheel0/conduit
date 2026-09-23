@@ -277,6 +277,10 @@ abstract class WorkspaceSave with _$WorkspaceSave {
   const factory WorkspaceSave({
     required WorkspaceDetail detail,
     @Default(false) bool create,
+
+    /// For a prompt: save its name, command and tags only, without making
+    /// a new version of its content.
+    @Default(false) bool metadataOnly,
   }) = _WorkspaceSave;
 
   factory WorkspaceSave.fromJson(Map<String, dynamic> json) =>

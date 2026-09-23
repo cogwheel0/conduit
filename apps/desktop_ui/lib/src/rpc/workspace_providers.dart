@@ -40,12 +40,19 @@ class WorkspaceActions {
     WorkspaceDetail.fromJson,
   );
 
-  Future<WorkspaceDetail> save(WorkspaceDetail detail, {bool create = false}) =>
-      _call(
-        ConduitMethods.workspaceSave,
-        WorkspaceSave(detail: detail, create: create).toJson(),
-        WorkspaceDetail.fromJson,
-      );
+  Future<WorkspaceDetail> save(
+    WorkspaceDetail detail, {
+    bool create = false,
+    bool metadataOnly = false,
+  }) => _call(
+    ConduitMethods.workspaceSave,
+    WorkspaceSave(
+      detail: detail,
+      create: create,
+      metadataOnly: metadataOnly,
+    ).toJson(),
+    WorkspaceDetail.fromJson,
+  );
 
   Future<void> delete(WorkspaceKind kind, String id) => _call(
     ConduitMethods.workspaceDelete,

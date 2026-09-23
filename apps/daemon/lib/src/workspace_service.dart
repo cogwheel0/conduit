@@ -352,6 +352,16 @@ final class WorkspaceService {
         if (!create && existing == null) {
           throw _notFound(detail.kind, dto.id);
         }
+        if (request.metadataOnly && existing != null) {
+          await notifier.updateMetadata(
+            dto.id,
+            name: dto.name.trim(),
+            command: command,
+            tags: dto.tags,
+          );
+          id = dto.id;
+          break;
+        }
         final commit = dto.commitMessage?.trim();
         final form = WorkspacePromptForm(
           command: command,

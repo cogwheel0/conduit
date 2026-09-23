@@ -1571,6 +1571,23 @@ void main() {
             );
             expect(restored.prompt!.content, isNot(contains('warmly')));
 
+            // A rename alone makes no new version.
+            final renamed = await workspace.save(
+              WorkspaceSave(
+                metadataOnly: true,
+                detail: restored.copyWith(
+                  prompt: restored.prompt!.copyWith(
+                    name: 'Live prompt renamed',
+                  ),
+                ),
+              ),
+            );
+            expect(renamed.prompt!.name, 'Live prompt renamed');
+            expect(
+              (await workspace.promptHistory(id)).versions,
+              hasLength(history.versions.length),
+            );
+
             final exported = await workspace.export(
               WorkspaceExportQuery(kind: WorkspaceKind.prompts, id: id),
             );

@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.40.0",
+  "protocolVersion": "1.41.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.40.0",
+  "protocolVersion": "1.41.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -1174,7 +1174,8 @@ const Map<String, String> protocolGoldens = <String, String>{
     "grants": [],
     "writeAccess": true
   },
-  "create": true
+  "create": true,
+  "metadataOnly": true
 }''',
 
   'workspaceAccessEdit': r'''

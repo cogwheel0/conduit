@@ -8,7 +8,9 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import 'package:jaspr_router/jaspr_router.dart' show Link;
 
 import '../../l10n/strings.g.dart';
-import '../../rpc/rpc_providers.dart' show fileSaverProvider;
+import '../../file_picker.dart';
+import '../../rpc/rpc_providers.dart'
+    show filePickerProvider, fileSaverProvider;
 import '../../rpc/workspace_providers.dart';
 import '../../widgets/form_field.dart';
 import 'workspace_access.dart';
@@ -316,7 +318,7 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
     _ => _saveFailedText,
   };
 
-  Future<void> _save(BuildContext context) async {
+  Future<void> _save(BuildContext context, {bool metadataOnly = false}) async {
     final invalid = _validate();
     if (invalid != null) {
       _say(invalid, error: true);
@@ -326,7 +328,11 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
     final actions = context.read(workspaceActionsProvider);
     setState(() => _busy = true);
     try {
-      final saved = await actions.save(_draft, create: component.create);
+      final saved = await actions.save(
+        _draft,
+        create: component.create,
+        metadataOnly: metadataOnly,
+      );
       if (!mounted) return;
       _dirty.set(false);
       context.read(workspaceTemplateProvider.notifier).set(null);
@@ -342,7 +348,7 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
         _draft = saved;
         _text.clear();
       });
-      _say(_savedText);
+      _say(metadataOnly ? t.app.workspacePromptDetailsSaved : _savedText);
     } on RpcError catch (error) {
       final detail = serverDetail(error);
       _say(
@@ -472,6 +478,43 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
       );
     }
   }
+
+  /// Fills a new skill from a Markdown file: its front matter's name, id
+  /// and description, and the whole file as the instructions -- as Open
+  /// WebUI's editor and mobile's do.
+  Future<void> _importMarkdown(BuildContext context) async {
+    final PickedTextFile? file;
+    try {
+      file = await context
+          .read(filePickerProvider)
+          .pickText(accept: '.md,.markdown,text/markdown');
+    } on Object {
+      _say(t.app.workspaceSkillImportMarkdownFailed, error: true);
+      return;
+    }
+    if (file == null || !mounted) return;
+    final front = skillFrontMatter(file.content);
+    final name = front['name'] ?? '';
+    final idSource = (front['id'] ?? '').isNotEmpty ? front['id']! : name;
+    final skill = _draft.skill!;
+    _idEdited = false;
+    _update(
+      _draft.copyWith(
+        skill: skill.copyWith(
+          content: file.content,
+          name: name.isEmpty ? skill.name : _titleCase(name),
+          id: idSource.isEmpty ? skill.id : _slug(idSource),
+          description: front['description'] ?? skill.description,
+        ),
+      ),
+    );
+    _say(t.app.workspaceSkillImportMarkdownLoaded);
+  }
+
+  /// `code-review_guidelines` as `Code Review Guidelines`.
+  static String _titleCase(String name) => name
+      .replaceAll(RegExp('[-_]'), ' ')
+      .replaceAllMapped(RegExp(r'\b\w'), (m) => m[0]!.toUpperCase());
 
   // -------------------------------------------------------------------------
   // Layout
@@ -638,9 +681,9 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
         switch (kind) {
           WorkspaceKind.models => _modelFields(context),
           WorkspaceKind.knowledge => _knowledgeFields(),
-          WorkspaceKind.prompts => _promptFields(),
+          WorkspaceKind.prompts => _promptFields(context),
           WorkspaceKind.tools => _toolFields(context),
-          WorkspaceKind.skills => _skillFields(),
+          WorkspaceKind.skills => _skillFields(context),
         },
       ),
       if (existing && kind == WorkspaceKind.knowledge)
@@ -1051,7 +1094,7 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
     ];
   }
 
-  List<Component> _promptFields() {
+  List<Component> _promptFields(BuildContext context) {
     final p = _draft.prompt!;
     final disabled = !_canWrite;
     void set(WorkspacePromptDto next) => _update(_draft.copyWith(prompt: next));
@@ -1110,6 +1153,12 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
             value: p.commitMessage ?? '',
             onInput: (value) =>
                 set(p.copyWith(commitMessage: value.isEmpty ? null : value)),
+          ),
+          actionButton(
+            t.app.workspacePromptUpdateDetails,
+            id: 'prompt-save-details',
+            disabled: _busy || !_isDirty,
+            onClick: () => unawaited(_save(context, metadataOnly: true)),
           ),
           checkboxField(
             id: 'prompt-production',
@@ -1226,11 +1275,18 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
     ];
   }
 
-  List<Component> _skillFields() {
+  List<Component> _skillFields(BuildContext context) {
     final s = _draft.skill!;
     final disabled = !_canWrite;
     void set(WorkspaceSkillDto next) => _update(_draft.copyWith(skill: next));
     return [
+      if (component.create)
+        div([
+          actionButton(
+            t.app.workspaceSkillImportMarkdown,
+            onClick: () => unawaited(_importMarkdown(context)),
+          ),
+        ]),
       textField(
         id: 'skill-name',
         labelText: t.app.workspaceSkillName,
@@ -1281,4 +1337,20 @@ class _WorkspaceEditorFormState extends State<WorkspaceEditorForm> {
       ),
     ];
   }
+}
+
+/// A Markdown file's front matter -- the `---` block at its top -- as
+/// `key: value` pairs, quotes taken off. The same reading as the core's
+/// `WorkspaceSkillContent.parseFrontmatter`, which mobile uses.
+Map<String, String> skillFrontMatter(String content) {
+  final match = RegExp(r'^---\s*\n([\s\S]*?)\n---').firstMatch(content);
+  if (match == null) return const <String, String>{};
+  return <String, String>{
+    for (final line in match[1]!.split('\n'))
+      if (line.indexOf(':') case final colon when colon > 0)
+        line.substring(0, colon).trim(): line
+            .substring(colon + 1)
+            .trim()
+            .replaceAll(RegExp(r'''^["']|["']$'''), ''),
+  };
 }

@@ -71,12 +71,16 @@ class _FakeActions extends WorkspaceActions {
       details['${kind.name}/$id'] ??
       (throw const RpcError(code: ConduitErrorCodes.notFound));
 
+  final List<bool> metadataOnly = [];
+
   @override
   Future<WorkspaceDetail> save(
     WorkspaceDetail detail, {
     bool create = false,
+    bool metadataOnly = false,
   }) async {
     saves.add((detail, create));
+    this.metadataOnly.add(metadataOnly);
     return detail;
   }
 
@@ -221,7 +225,12 @@ class _Seeded extends WorkspaceTemplate {
 class _Picker implements FilePickerPort {
   @override
   Future<PickedTextFile?> pickText({required String accept}) async =>
-      (name: 'prompts.json', content: '[{"command": "hi"}]');
+      accept.contains('.md')
+      ? (
+          name: 'review.md',
+          content: '---\nname: code-review_guidelines\ndescription: "Reviews"\n---\nCheck the diff.',
+        )
+      : (name: 'prompts.json', content: '[{"command": "hi"}]');
 }
 
 void main() {
@@ -444,6 +453,21 @@ void main() {
       expect(find.text(t.app.workspacePromptSaved), findsOneComponent);
     }, url: '/workspace/prompts/p1');
 
+    testComponents('saves the name and command alone, as no new version', (
+      tester,
+    ) async {
+      tester.pumpComponent(app(seed));
+      await settle();
+      await tester.click(buttonWith(t.app.workspacePromptHistory));
+      await settle();
+      await tester.click(buttonWith(t.app.workspacePromptHistoryRestore).last);
+      await settle();
+      await tester.click(buttonWith(t.app.workspacePromptUpdateDetails));
+      await settle();
+      expect(actions.metadataOnly, [true]);
+      expect(find.text(t.app.workspacePromptDetailsSaved), findsOneComponent);
+    }, url: '/workspace/prompts/p1');
+
     testComponents('compares a version with production, and promotes it', (
       tester,
     ) async {
@@ -584,6 +608,28 @@ void main() {
     expect(create, isTrue);
     expect(created.skill!.id, 'tidy-copy');
     expect(went, ['/workspace/skills/tidy-copy']);
+  }, url: '/workspace/skills/new');
+
+  testComponents('a new skill fills in from a Markdown file', (tester) async {
+    tester.pumpComponent(app((_) {}));
+    await settle();
+    await tester.click(buttonWith(t.app.workspaceSkillImportMarkdown));
+    await settle();
+    expect(
+      find.text(t.app.workspaceSkillImportMarkdownLoaded),
+      findsOneComponent,
+    );
+    await tester.click(
+      find.byComponentPredicate(
+        (c) => c is DomComponent && c.id == 'workspace-save',
+      ),
+    );
+    await settle();
+    final skill = actions.saves.single.$1.skill!;
+    expect(skill.name, 'Code Review Guidelines');
+    expect(skill.id, 'code-review_guidelines');
+    expect(skill.description, 'Reviews');
+    expect(skill.content, startsWith('---'));
   }, url: '/workspace/skills/new');
 
   testComponents('a new item is checked before it is sent', (tester) async {
