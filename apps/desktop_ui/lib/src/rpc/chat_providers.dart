@@ -44,9 +44,30 @@ final _chatsChangedProvider = StreamProvider<({int tick, String? chatId})>((
       );
 });
 
+/// The daemon's `route.remap`: a chat made here was given the server's id.
+final routeRemapProvider = StreamProvider<RouteRemap>(
+  (ref) => ref
+      .watch(rpcClientProvider)
+      .events
+      .where((envelope) => envelope.event == ConduitEvents.routeRemap)
+      .map((envelope) => RouteRemap.fromJson(envelope.payload)),
+);
+
+final _modelsChangedProvider = StreamProvider<int>((ref) {
+  var tick = 0;
+  return ref
+      .watch(rpcClientProvider)
+      .events
+      .where((envelope) => envelope.event == ConduitEvents.modelsChanged)
+      .map((_) => ++tick);
+});
+
 /// The models the active server offers, and which is selected.
 final modelListProvider = FutureProvider<ModelList>((ref) async {
   ref.watch(coreConnectionProvider);
+  // Refetched when the daemon says the offer changed: a direct connection's
+  // models arrive a moment after it is saved.
+  ref.watch(_modelsChangedProvider);
   // Same reason as the chat list: an unauthenticated server offers none, and
   // the composer would show no picker forever.
   ref.watch(authStatusProvider);
@@ -252,7 +273,9 @@ class Lightbox extends Notifier<({String src, String name})?> {
 /// Every branch of the open conversation, for the overview (WP-3.4).
 final chatTreeProvider = FutureProvider<ChatTree?>((ref) async {
   final chatId = ref.watch(selectedChatIdProvider);
-  if (chatId == null || isTemporaryChatId(chatId)) return null;
+  if (chatId == null || ref.watch(temporaryChatIdsProvider).contains(chatId)) {
+    return null;
+  }
   ref.watch(_chatsChangedProvider);
   return ref
       .read(rpcClientProvider)
@@ -383,7 +406,15 @@ final selectedChatIdProvider = NotifierProvider<SelectedChatId, String?>(
 
 class SelectedChatId extends Notifier<String?> {
   @override
-  String? build() => null;
+  String? build() {
+    // A direct chat mirrored to Open WebUI starts as `local:` and is renamed
+    // on its first sync. The window follows it rather than losing it.
+    ref.listen(routeRemapProvider, (_, next) {
+      final remap = next.value;
+      if (remap != null && remap.fromId == state) state = remap.toId;
+    });
+    return null;
+  }
 
   void select(String? chatId) => state = chatId;
 }
@@ -650,6 +681,9 @@ class ChatActions {
     bool imageGeneration = false,
   }) async {
     final sentText = text;
+    final temporary =
+        _ref.read(selectedChatIdProvider) == null &&
+        _ref.read(temporaryChatProvider);
     final accepted = await _client.call(
       ConduitMethods.turnsSend,
       params: SendTurn(
@@ -661,12 +695,13 @@ class ChatActions {
         knowledge: knowledge,
         webSearch: webSearch,
         imageGeneration: imageGeneration,
-        temporary:
-            _ref.read(selectedChatIdProvider) == null &&
-            _ref.read(temporaryChatProvider),
+        temporary: temporary,
       ).toJson(),
       decode: SendTurnAccepted.fromJson,
     );
+    if (temporary) {
+      _ref.read(temporaryChatIdsProvider.notifier).add(accepted.chatId);
+    }
     // A new conversation gets its id from the server, so select it here --
     // otherwise the first answer streams into a transcript the user is not
     // looking at.
@@ -1053,10 +1088,27 @@ class TemporaryChat extends Notifier<bool> {
   void set({required bool value}) => state = value;
 }
 
-/// Whether [chatId] is a temporary conversation, by the prefix the daemon,
-/// the core and Open WebUI all read the same way.
-bool isTemporaryChatId(String? chatId) =>
-    chatId != null && chatId.startsWith('local:');
+/// Whether [chatId] is a direct chat kept only on this computer (M4).
+///
+/// Stored, so it can be branched, but Open WebUI has never heard of it:
+/// sharing, tags, ratings and the server-side controls do not apply.
+bool isLocalOnlyChatId(String? chatId) =>
+    chatId != null && chatId.startsWith('direct-local:');
+
+/// The temporary conversations this window started.
+///
+/// Known by membership, not by the `local:` prefix they carry: a direct
+/// chat waiting for its first sync to Open WebUI carries it too, and that
+/// one is kept.
+final temporaryChatIdsProvider =
+    NotifierProvider<TemporaryChatIds, Set<String>>(TemporaryChatIds.new);
+
+class TemporaryChatIds extends Notifier<Set<String>> {
+  @override
+  Set<String> build() => const <String>{};
+
+  void add(String chatId) => state = <String>{...state, chatId};
+}
 
 /// What the composer may offer for the next turn (WP-3.3).
 ///

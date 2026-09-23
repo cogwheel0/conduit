@@ -41,6 +41,13 @@ final RegExp _slash = RegExp(r'(?:^|\s)(/[^\s/]*)$');
 final RegExp _at = RegExp(r'(?:^|\s)(@[^\s@]*)$');
 final RegExp _hash = RegExp(r'(?:^|\s)(#[^\s#]*)$');
 
+/// How a model is named on screen: with its direct connection, when it
+/// comes from one, so it cannot be mistaken for the server's model of the
+/// same name.
+String modelLabel(ModelSummary model) => model.connection == null
+    ? model.name
+    : '${model.name} · ${model.connection}';
+
 /// The models whose name or id matches what follows the `@`: those that
 /// start with it first.
 List<ModelSummary> matchModels(

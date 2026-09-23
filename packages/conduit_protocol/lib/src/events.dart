@@ -48,6 +48,11 @@ abstract final class ConduitEvents {
   /// Apple helper becoming available.
   static const String capabilitiesChanged = 'capabilities.changed';
 
+  /// The models on offer changed: a direct connection was added and its
+  /// models discovered, or the server's list was refreshed (M4). No
+  /// payload; `models.list` says what they are.
+  static const String modelsChanged = 'models.changed';
+
   /// Every event name, for subscription validation and tests.
   static const Set<String> all = {
     turnStarted,
@@ -65,6 +70,7 @@ abstract final class ConduitEvents {
     uiRequest,
     uiSettled,
     capabilitiesChanged,
+    modelsChanged,
   };
 }
 

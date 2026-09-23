@@ -1,6 +1,8 @@
 @TestOn('vm')
 library;
 
+import 'dart:async';
+
 import 'package:conduit_desktop_ui/src/l10n/strings.g.dart';
 import 'package:conduit_desktop_ui/src/pages/chat_page.dart';
 import 'package:conduit_desktop_ui/src/rpc/chat_providers.dart';
@@ -72,8 +74,10 @@ Component _scoped({
   Capabilities? capabilities,
   Set<String>? chosen,
   bool online = true,
+  Set<String> temporaryIds = const <String>{},
 }) => ProviderScope(
   overrides: [
+    temporaryChatIdsProvider.overrideWith(() => _Temporary(temporaryIds)),
     onlineProvider.overrideWith((ref) => Stream<bool>.value(online)),
     if (chosen != null)
       chatSelectionProvider.overrideWith(() => _Chosen(chosen)),
@@ -114,6 +118,14 @@ class _FixedQuery extends SearchQuery {
 
   @override
   String build() => _initial;
+}
+
+class _Temporary extends TemporaryChatIds {
+  _Temporary(this._ids);
+  final Set<String> _ids;
+
+  @override
+  Set<String> build() => _ids;
 }
 
 class _FixedSelection extends SelectedChatId {
@@ -518,7 +530,12 @@ void main() {
         ],
       );
       tester.pumpComponent(
-        _scoped(detail: temporary, selected: 'local:abc', onActions: (_) {}),
+        _scoped(
+          detail: temporary,
+          selected: 'local:abc',
+          temporaryIds: const <String>{'local:abc'},
+          onActions: (_) {},
+        ),
       );
       await pumpEventQueue();
 
@@ -529,6 +546,89 @@ void main() {
       expect(find.text(t.app.edit), findsNothing);
       expect(find.text(t.app.copy), findsNComponents(2));
     });
+
+    testComponents('a `local:` chat this window did not start is kept', (
+      tester,
+    ) async {
+      // A direct chat mirrored to Open WebUI, before its first sync.
+      const direct = ChatDetail(
+        summary: ChatSummary(id: 'local:abc', title: 'Q', updatedAtMs: 1),
+        messages: <ChatMessageDto>[
+          ChatMessageDto(id: 'u', role: 'user', content: 'Q', timestampMs: 1),
+          ChatMessageDto(
+            id: 'a',
+            role: 'assistant',
+            content: 'A',
+            timestampMs: 2,
+          ),
+        ],
+      );
+      tester.pumpComponent(
+        _scoped(detail: direct, selected: 'local:abc', onActions: (_) {}),
+      );
+      await pumpEventQueue();
+
+      expect(find.text(t.app.temporaryChat), findsNothing);
+      expect(find.text(t.app.regenerate), findsOneComponent);
+    });
+
+    testComponents('a local-only direct chat offers only what it can do', (
+      tester,
+    ) async {
+      const direct = ChatDetail(
+        summary: ChatSummary(
+          id: 'direct-local:abc',
+          title: 'Q',
+          updatedAtMs: 1,
+        ),
+        messages: <ChatMessageDto>[
+          ChatMessageDto(id: 'u', role: 'user', content: 'Q', timestampMs: 1),
+          ChatMessageDto(
+            id: 'a',
+            role: 'assistant',
+            content: 'A',
+            timestampMs: 2,
+          ),
+        ],
+      );
+      tester.pumpComponent(
+        _scoped(
+          detail: direct,
+          selected: 'direct-local:abc',
+          capabilities: const Capabilities(messageRating: true, tags: true),
+          onActions: (_) {},
+        ),
+      );
+      await pumpEventQueue();
+
+      // Stored here, so it branches like any other chat...
+      expect(find.text(t.app.regenerate), findsOneComponent);
+      expect(find.text(t.app.edit), findsOneComponent);
+      // ...but Open WebUI has never heard of it.
+      expect(find.text(t.app.shareChat), findsNothing);
+      expect(find.text('👍'), findsNothing);
+    });
+  });
+
+  test('follows a chat the daemon renamed on sync', () async {
+    final remaps = StreamController<RouteRemap>();
+    addTearDown(remaps.close);
+    final container = ProviderContainer(
+      overrides: [routeRemapProvider.overrideWith((ref) => remaps.stream)],
+    );
+    addTearDown(container.dispose);
+    // Watched, as the page watches it: an unwatched provider's own
+    // subscriptions are paused.
+    container.listen(selectedChatIdProvider, (_, _) {});
+    container.read(selectedChatIdProvider.notifier).select('local:abc');
+
+    remaps.add(const RouteRemap(fromId: 'local:other', toId: 'x'));
+    await pumpEventQueue();
+    expect(container.read(selectedChatIdProvider), 'local:abc');
+
+    remaps.add(const RouteRemap(fromId: 'local:abc', toId: 'chat-1'));
+    await pumpEventQueue();
+    expect(container.read(selectedChatIdProvider), 'chat-1');
   });
 
   group('sections', () {

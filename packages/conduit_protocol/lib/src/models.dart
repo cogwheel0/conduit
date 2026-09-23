@@ -18,6 +18,11 @@ abstract class ModelSummary with _$ModelSummary {
     /// Names rather than a fixed struct, because the set is the server's and
     /// grows without this protocol changing.
     @Default(<String>[]) List<String> capabilities,
+
+    /// The direct connection that offers it, by name (M4); null for the
+    /// server's own. Two connections can offer a model of the same name,
+    /// and the server may too.
+    String? connection,
   }) = _ModelSummary;
 
   factory ModelSummary.fromJson(Map<String, dynamic> json) =>

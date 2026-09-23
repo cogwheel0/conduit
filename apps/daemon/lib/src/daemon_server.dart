@@ -132,7 +132,7 @@ class DaemonServer {
       temporary: temporary,
       uiRequests: _uiRequests,
     );
-    _models = ModelsService(core.container);
+    _models = ModelsService(core.container, events: events);
     _composer = ComposerService(core.container);
     _prompts = PromptsService(core.container);
     _direct = DirectService(core.container);

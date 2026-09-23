@@ -177,7 +177,14 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     capabilities: <String>['tools', 'vision'],
   ),
   'modelList': const ModelList(
-    models: <ModelSummary>[ModelSummary(id: 'gpt-4o', name: 'GPT-4o')],
+    models: <ModelSummary>[
+      ModelSummary(id: 'gpt-4o', name: 'GPT-4o'),
+      ModelSummary(
+        id: 'direct:home:bGxhbWEz',
+        name: 'llama3',
+        connection: 'Home Ollama',
+      ),
+    ],
     selectedId: 'gpt-4o',
   ),
   'selectModel': const SelectModel(id: 'gpt-4o'),
@@ -326,6 +333,10 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   ),
   'syncState': const SyncState(running: true, progress: 0.4, online: false),
   'chatsChanged': const ChatsChanged(chatId: 'chat-7c1f0b2a'),
+  'routeRemap': const RouteRemap(
+    fromId: 'local:4b1c9e2d',
+    toId: 'chat-7c1f0b2a',
+  ),
   'editTurn': const EditTurn(
     chatId: 'chat-7c1f0b2a',
     messageId: 'msg-user-01',
@@ -591,6 +602,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'composerOptions': ComposerOptions.fromJson,
       'syncState': SyncState.fromJson,
       'chatsChanged': ChatsChanged.fromJson,
+      'routeRemap': RouteRemap.fromJson,
       'editTurn': EditTurn.fromJson,
       'chatMessageVersionDto': ChatMessageVersionDto.fromJson,
       'folderSummary': FolderSummary.fromJson,

@@ -1,6 +1,17 @@
 import 'dart:async';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_chat_storage.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/ports/ui_request_port.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -9,6 +20,8 @@ import 'package:conduit_core/services/chat_completion_transport.dart';
 import 'package:conduit_core/services/message_rating.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/services/streaming_helper.dart';
+import 'package:conduit_core/sync/chat_locks.dart';
+import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/utils/message_tree_utils.dart' as message_tree;
@@ -21,6 +34,8 @@ import 'event_bus.dart';
 import 'files_service.dart';
 import 'settled.dart';
 import 'temporary_chats.dart';
+
+part 'direct_turns.dart';
 
 /// Implements `turns.*`: sending a message and streaming the answer (M3).
 ///
@@ -153,7 +168,6 @@ final class TurnsService {
   }
 
   Future<SendTurnAccepted> send(SendTurn request) async {
-    final api = _requireApi();
     final text = request.text.trim();
     if (text.isEmpty) {
       throw const RpcError(
@@ -169,6 +183,12 @@ final class TurnsService {
         debugMessage: 'this server offers no models',
       );
     }
+
+    // A model from a direct connection: the daemon is the client.
+    if (DirectModelId.decode(model) case final route?) {
+      return _sendDirect(request, model: model, text: text, route: route);
+    }
+    final api = _requireApi();
 
     final chatId = request.chatId;
     if (chatId != null) _requireIdle(chatId);
@@ -308,10 +328,9 @@ final class TurnsService {
   /// the first answer has not lost it. That also means this does not delete
   /// anything: the server decides which child is current.
   Future<SendTurnAccepted> regenerate(RegenerateTurn request) async {
-    final api = _requireApi();
-    // Both rely on the server's message tree, which a temporary chat does
+    // Both rely on the stored message tree, which a temporary chat does
     // not have.
-    if (TemporaryChats.isTemporary(request.chatId)) {
+    if (temporary.contains(request.chatId)) {
       throw const RpcError(
         code: ConduitErrorCodes.unsupported,
         debugMessage: 'a temporary chat has no history to branch',
@@ -364,6 +383,17 @@ final class TurnsService {
       );
     }
 
+    if (DirectModelId.decode(model) case final route?) {
+      return _regenerateDirect(
+        chatId: request.chatId,
+        model: model,
+        route: route,
+        prompt: prompt.sublist(0, userIndex + 1),
+        user: userMessage,
+      );
+    }
+
+    final api = _requireApi();
     final systemPrompt = await _systemPromptFor(api, request.chatId);
     Future<ChatCompletionSession> dispatch(
       String? sessionId,
@@ -431,10 +461,9 @@ final class TurnsService {
   /// and the old question keeps its answer and everything after it. Nothing
   /// is deleted.
   Future<SendTurnAccepted> edit(EditTurn request) async {
-    final api = _requireApi();
-    // Both rely on the server's message tree, which a temporary chat does
+    // Both rely on the stored message tree, which a temporary chat does
     // not have.
-    if (TemporaryChats.isTemporary(request.chatId)) {
+    if (temporary.contains(request.chatId)) {
       throw const RpcError(
         code: ConduitErrorCodes.unsupported,
         debugMessage: 'a temporary chat has no history to branch',
@@ -486,6 +515,18 @@ final class TurnsService {
       );
     }
 
+    if (DirectModelId.decode(model) case final route?) {
+      return _editDirect(
+        chatId: request.chatId,
+        model: model,
+        route: route,
+        before: before,
+        parent: before.where((m) => m.id == parentId).lastOrNull,
+        text: text,
+      );
+    }
+
+    final api = _requireApi();
     final userMessageId = _uuid.v4();
     final assistantMessageId = _uuid.v4();
     final now = DateTime.now();
@@ -580,6 +621,19 @@ final class TurnsService {
   Future<void> stop(String chatId) async {
     final turn = _active[chatId];
     if (turn == null) return;
+    if (turn.direct) {
+      turn.stopped = true;
+      try {
+        await turn.cancel?.call();
+      } on Object catch (error) {
+        DebugLogger.error(
+          'turn-stop-failed',
+          scope: 'daemon/turns',
+          error: error,
+        );
+      }
+      return;
+    }
     try {
       await turn.stream?.controller?.cancel();
     } on Object catch (error) {
@@ -732,7 +786,7 @@ final class TurnsService {
   /// a second request to learn nothing new.
   Future<String?> _systemPromptFor(ApiService api, String? chatId) async {
     String? own;
-    if (chatId != null && !TemporaryChats.isTemporary(chatId)) {
+    if (chatId != null && !temporary.contains(chatId)) {
       try {
         own = (await readSettled(
           _container,
@@ -774,7 +828,9 @@ final class TurnsService {
   /// was sent to the model with no memory of the conversation it was in,
   /// and the answer read as though the user had started over.
   Future<List<ChatMessage>> _historyFor(String chatId) async {
-    if (TemporaryChats.isTemporary(chatId)) return temporary.transcript(chatId);
+    // By membership, not by the `local:` prefix: a direct chat waiting to
+    // reach Open WebUI has that prefix too, and its history is stored.
+    if (temporary.contains(chatId)) return temporary.transcript(chatId);
     if (_settling[chatId] case final pending?) {
       await pending.timeout(_settleTimeout, onTimeout: () {});
     }
@@ -839,7 +895,8 @@ final class TurnsService {
         ).toJson(),
       );
     } else {
-      if (TemporaryChats.isTemporary(chatId)) {
+      // A direct turn has added its own answer already.
+      if (!turn.direct && TemporaryChats.isTemporary(chatId)) {
         temporary.append(
           chatId,
           ChatMessage(
@@ -866,10 +923,14 @@ final class TurnsService {
     // lands. Publishing straight away made the renderer refetch a
     // transcript whose answer was still the empty placeholder. It then kept
     // that version, because nothing told it to look again.
-    final settling = _announceWhenSynced(
-      chatId,
-      answerId: turn.failure == null ? turn.messageId : null,
-    );
+    // A direct turn has already written its answer; there is nothing on a
+    // server to wait for.
+    final settling = turn.direct
+        ? _announceStored(chatId)
+        : _announceWhenSynced(
+            chatId,
+            answerId: turn.failure == null ? turn.messageId : null,
+          );
     _settling[chatId] = settling;
     unawaited(
       settling.whenComplete(() {
@@ -936,6 +997,14 @@ final class TurnsService {
     );
   }
 
+  Future<void> _announceStored(String chatId) async {
+    _container.invalidate(loadConversationProvider(chatId));
+    _events.publish(
+      ConduitEvents.chatsChanged,
+      payload: ChatsChanged(chatId: chatId).toJson(),
+    );
+  }
+
   Future<void> _pull(String chatId) async {
     try {
       await _container.read(syncEngineProvider.notifier).pullChatNow(chatId);
@@ -983,6 +1052,15 @@ class _ActiveTurn {
 
   /// Whether the server is running this turn as a socket task.
   bool overSocket = false;
+
+  /// Whether the daemon itself is talking to the provider (M4). Such a turn
+  /// stores its own answer, so there is nothing to pull afterwards.
+  bool direct = false;
+
+  /// Stops a direct turn's provider request; its runner then stores what
+  /// arrived and finishes the turn.
+  Future<void> Function()? cancel;
+  bool stopped = false;
 
   final StringBuffer _content = StringBuffer();
   String? _pending;

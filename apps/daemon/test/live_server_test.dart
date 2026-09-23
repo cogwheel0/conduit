@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -949,6 +950,164 @@ void main() {
           ),
         );
       }, timeout: const Timeout(Duration(minutes: 3)));
+
+      // M4: the daemon as the client. The test server's own OpenAI-compatible
+      // endpoint stands in for a provider, signed in with the session's token,
+      // so the daemon talks to it exactly as it would to any other.
+      test('answers through a direct connection, locally and synced', () async {
+        final api = runtime.container.read(apiServiceProvider)!;
+        final direct = DirectService(runtime.container);
+        final saved = await direct.save(
+          DirectConnectionEdit(
+            name: 'Live direct ${DateTime.now().millisecondsSinceEpoch}',
+            kind: DirectKind.openai,
+            baseUrl: '${credentials!.url.replaceAll(RegExp(r'/$'), '')}/api',
+            apiKey: api.authToken,
+          ),
+        );
+        final profileId = saved.connections.last.id;
+        addTearDown(() => direct.remove(profileId));
+        final model = DirectModelId.encode(profileId, 'gemma3:1b');
+        // Offered alongside the server's models, as the picker needs it.
+        await _waitFor(
+          () async => (await models.list()).models.any((m) => m.id == model),
+          seconds: 30,
+        );
+        final offered = (await models.list()).models.firstWhere(
+          (m) => m.id == model,
+        );
+        expect(offered.connection, startsWith('Live direct'));
+
+        final events = EventBus();
+        final turns = TurnsService(runtime.container, events);
+        final chats = ChatsService(runtime.container, events: events);
+        addTearDown(turns.dispose);
+        addTearDown(chats.dispose);
+        final seen = <String, List<Map<String, dynamic>>>{};
+        events.attach('probe', (envelope) {
+          (seen[envelope.event] ??= <Map<String, dynamic>>[]).add(
+            envelope.payload,
+          );
+        });
+
+        Future<SendTurnAccepted> answered(
+          SendTurn request, {
+          RegenerateTurn? regenerate,
+          EditTurn? edit,
+        }) async {
+          final before = seen[ConduitEvents.turnCompleted]?.length ?? 0;
+          final accepted = edit != null
+              ? await turns.edit(edit)
+              : regenerate == null
+              ? await turns.send(request)
+              : await turns.regenerate(regenerate);
+          events.subscribe(
+            'probe',
+            EventSubscription(scopes: <String>[accepted.chatId]),
+          );
+          await _waitFor(
+            () =>
+                (seen[ConduitEvents.turnCompleted]?.length ?? 0) > before ||
+                seen.containsKey(ConduitEvents.turnFailed),
+            seconds: 90,
+          );
+          expect(
+            seen[ConduitEvents.turnFailed],
+            isNull,
+            reason: 'failed: ${seen[ConduitEvents.turnFailed]}',
+          );
+          final completed = TurnCompleted.fromJson(
+            seen[ConduitEvents.turnCompleted]!.last,
+          );
+          expect(completed.text.trim(), isNotEmpty);
+          return accepted;
+        }
+
+        // History kept on this computer: a `direct-local:` chat Open WebUI
+        // never hears of.
+        await direct.setHistory(localOnly: true);
+        final local = await answered(
+          SendTurn(model: model, text: 'Say the word: kappa'),
+        );
+        expect(local.chatId, startsWith('direct-local:'));
+        // A follow-up reads the stored history and hangs off its answer.
+        final followUp = await answered(
+          SendTurn(
+            chatId: local.chatId,
+            model: model,
+            text: 'Now say the word: lambda',
+          ),
+        );
+        final detail = await chats.get(local.chatId);
+        expect(detail, isNotNull);
+        expect(detail!.messages.map((m) => m.role), <String>[
+          'user',
+          'assistant',
+          'user',
+          'assistant',
+        ]);
+        expect(detail.messages.last.content.trim(), isNotEmpty);
+
+        // Regenerated as a branch: the new answer is current, the old one
+        // is still there as a version of it.
+        final again = await answered(
+          SendTurn(text: '', model: model),
+          regenerate: RegenerateTurn(
+            chatId: local.chatId,
+            messageId: followUp.assistantMessageId,
+          ),
+        );
+        expect(again.assistantMessageId, isNot(followUp.assistantMessageId));
+        final branched = (await chats.get(local.chatId))!;
+        expect(branched.messages, hasLength(4));
+        expect(branched.messages.last.id, again.assistantMessageId);
+        expect(
+          branched.messages.last.versions.map((v) => v.id),
+          contains(followUp.assistantMessageId),
+        );
+
+        // Editing the first question starts a branch beside it.
+        final edited = await answered(
+          SendTurn(text: '', model: model),
+          edit: EditTurn(
+            chatId: local.chatId,
+            messageId: local.userMessageId,
+            text: 'Say the word: nu',
+          ),
+        );
+        final rewritten = (await chats.get(local.chatId))!;
+        expect(rewritten.messages.map((m) => m.id), <String>[
+          edited.userMessageId,
+          edited.assistantMessageId,
+        ]);
+        expect(rewritten.messages.first.content, 'Say the word: nu');
+
+        // Mirrored to Open WebUI: made as `local:`, then renamed to the
+        // server's id when it syncs -- which a window hears as `route.remap`.
+        await direct.setHistory(localOnly: false);
+        final synced = await answered(
+          SendTurn(model: model, text: 'Say the word: mu'),
+        );
+        expect(synced.chatId, startsWith('local:'));
+        await _waitFor(
+          () => (seen[ConduitEvents.routeRemap] ?? const []).any(
+            (payload) => payload['fromId'] == synced.chatId,
+          ),
+          seconds: 60,
+        );
+        final remap = RouteRemap.fromJson(
+          seen[ConduitEvents.routeRemap]!.firstWhere(
+            (payload) => payload['fromId'] == synced.chatId,
+          ),
+        );
+        created.add(remap.toId);
+        final raw = await api.getChatRaw(remap.toId);
+        final messages =
+            ((raw?['chat'] as Map?)?['history'] as Map?)?['messages'] as Map?;
+        final answer = messages?[synced.assistantMessageId] as Map?;
+        expect(answer?['content'], isA<String>());
+        expect((answer!['content'] as String).trim(), isNotEmpty);
+      }, timeout: const Timeout(Duration(minutes: 4)));
     },
   );
 }

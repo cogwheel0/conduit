@@ -5,13 +5,42 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
+import 'event_bus.dart';
 import 'settled.dart';
 
 /// Implements `models.*` over the core's model providers (M3).
 final class ModelsService {
-  ModelsService(this._container);
+  ModelsService(this._container, {EventBus? events}) {
+    if (events != null) _announceChanges(events);
+  }
 
   final ProviderContainer _container;
+
+  /// Publishes `models.changed` when the ids on offer change (M4).
+  ///
+  /// A direct connection's models are discovered after it is saved, over
+  /// the network, so the list a window fetched straight after saving did
+  /// not have them yet -- and nothing told it to look again.
+  void _announceChanges(EventBus events) {
+    List<String>? last;
+    _container.listen<AsyncValue<List<core.Model>>>(modelsProvider, (_, next) {
+      final models = next.value;
+      if (models == null) return;
+      final ids = models.map((model) => model.id).toList(growable: false);
+      final previous = last;
+      last = ids;
+      if (previous == null || _sameIds(previous, ids)) return;
+      events.publish(ConduitEvents.modelsChanged);
+    });
+  }
+
+  static bool _sameIds(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
 
   Future<ModelList> list() async {
     final models = await readSettled(_container, modelsProvider.future);
@@ -52,5 +81,8 @@ final class ModelsService {
           in (model.capabilities ?? const <String, dynamic>{}).entries)
         if (entry.value == true) entry.key,
     ]..sort(),
+    connection: model.metadata?['direct'] == true
+        ? (model.metadata?['directProfileName'] as String?)
+        : null,
   );
 }

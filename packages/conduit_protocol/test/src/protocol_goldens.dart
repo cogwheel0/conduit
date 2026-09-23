@@ -11,7 +11,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.23.0",
+  "protocolVersion": "1.26.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -20,7 +20,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.23.0",
+  "protocolVersion": "1.26.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -321,6 +321,13 @@ const Map<String, String> protocolGoldens = <String, String>{
       "name": "GPT-4o",
       "pinned": false,
       "capabilities": []
+    },
+    {
+      "id": "direct:home:bGxhbWEz",
+      "name": "llama3",
+      "pinned": false,
+      "capabilities": [],
+      "connection": "Home Ollama"
     }
   ],
   "selectedId": "gpt-4o"
@@ -619,6 +626,12 @@ const Map<String, String> protocolGoldens = <String, String>{
   'chatsChanged': r'''
 {
   "chatId": "chat-7c1f0b2a"
+}''',
+
+  'routeRemap': r'''
+{
+  "fromId": "local:4b1c9e2d",
+  "toId": "chat-7c1f0b2a"
 }''',
 
   'editTurn': r'''
@@ -1061,4 +1074,5 @@ const Map<String, String> protocolGoldens = <String, String>{
     "cookies"
   ]
 }''',
+
 };

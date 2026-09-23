@@ -512,6 +512,21 @@ abstract class ChatsChanged with _$ChatsChanged {
       _$ChatsChangedFromJson(json);
 }
 
+/// Payload of `route.remap` (M4).
+///
+/// A chat made on this computer -- a direct-connection chat mirrored to
+/// Open WebUI -- starts with a `local:` id and is given the server's on its
+/// first sync. A window showing it rewrites its address rather than
+/// losing the conversation.
+@freezed
+abstract class RouteRemap with _$RouteRemap {
+  const factory RouteRemap({required String fromId, required String toId}) =
+      _RouteRemap;
+
+  factory RouteRemap.fromJson(Map<String, dynamic> json) =>
+      _$RouteRemapFromJson(json);
+}
+
 /// Payload of `sync.status` (WP-3.1).
 ///
 /// Published whenever the sync engine starts or finishes a cycle. The

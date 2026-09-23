@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/database/account_storage_isolation.dart';
+import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:conduit_core/persistence/hive_boxes.dart';
 import 'package:conduit_core/persistence/persistence_providers.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -70,6 +71,9 @@ final class CoreRuntime {
     // future that never settles -- without editing the core to add logging.
     List<ProviderObserver> observers = const <ProviderObserver>[],
   }) async {
+    // The daemon, like the mobile app, owns two database files on purpose:
+    // the server's and the direct-local one.
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
     final secureStore = await DaemonSecureStore.open(
       file: File(p.join(directories.paths.userData, 'secure_store.bin')),
       masterKey: base64.decode(config.masterKey),

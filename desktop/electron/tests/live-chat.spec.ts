@@ -164,7 +164,7 @@ async function shot(page: Page, name: string): Promise<void> {
 test.describe('against a real server', () => {
   test.skip(credentials === null, 'no OWUI_* credentials in .env')
   // A cold start, a sign-in round trip and a model reply.
-  test.setTimeout(180_000)
+  test.setTimeout(300_000)
 
   let app: ElectronApplication
   let userData: string
@@ -1253,6 +1253,83 @@ test.describe('against a real server', () => {
     await expect(directEditor).toBeHidden({ timeout: 30_000 })
     await expect(settingsDialog.getByText('Open WebUI API')).toBeVisible()
     await shot(page, '15b-direct-list')
+
+    // 15c. A chat through it (M4): the daemon is the client, the answer is
+    // stored here and mirrored to the account, where the chat is found and
+    // deleted by its unique question.
+    await page.evaluate(() => {
+      window.history.pushState(null, '', '/')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    await expect(settingsDialog).toBeHidden()
+    await page.keyboard.press('Shift+Escape')
+    const directModel = `:${Buffer.from(model ?? 'gemma3:1b').toString('base64url').replace(/=+$/, '')}`
+    // Discovered over the network after the save, so they arrive a moment
+    // later -- announced by `models.changed`.
+    let directValue: string | undefined
+    await expect
+      .poll(
+        async () => {
+          directValue = await page
+            .locator('#model option')
+            .evaluateAll(
+              (nodes, suffix) =>
+                nodes
+                  .map((n) => (n as HTMLOptionElement).value)
+                  .find((v) => v.startsWith('direct:') && v.endsWith(suffix)),
+              directModel,
+            )
+          return directValue
+        },
+        { message: 'the direct connection offers the model', timeout: 60_000 },
+      )
+      .toBeTruthy()
+    await page.locator('#model').selectOption(directValue!)
+    const directQuestion = `Direct check ${Date.now()}: reply with the word omega`
+    const composer = page.getByPlaceholder('Ask Conduit')
+    await composer.fill(directQuestion)
+    await composer.press('Enter')
+    await expect(transcript).toContainText(directQuestion, { timeout: 30_000 })
+    await expect
+      .poll(async () => (await transcript.innerText()).length, {
+        timeout: 120_000,
+      })
+      .toBeGreaterThan(directQuestion.length + 2)
+    // The stored answer: only a finished one reports its statistics.
+    await expect(
+      transcript.getByRole('group', { name: /response statistics/i }),
+    ).toBeVisible({ timeout: 90_000 })
+    await shot(page, '15c-direct-chat')
+    {
+      const { api, auth } = await serverApi(credentials!)
+      try {
+        let found: { id: string } | undefined
+        await expect
+          .poll(
+            async () => {
+              const list = (await (
+                await api.get('/api/v1/chats/?page=1', { headers: auth })
+              ).json()) as Array<{ id: string; title: string }>
+              found = list.find(
+                (chat) =>
+                  // Shortened with an ellipsis when it was made.
+                  chat.title.length > 12 &&
+                  directQuestion.startsWith(chat.title.replace(/…$/, '')),
+              )
+              return found !== undefined
+            },
+            { timeout: 60_000 },
+          )
+          .toBe(true)
+        await api.delete(`/api/v1/chats/${found!.id}`, { headers: auth })
+      } finally {
+        await api.dispose()
+      }
+    }
+    await page.evaluate(() => {
+      window.history.pushState(null, '', '/settings/direct')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
     await settingsDialog.getByRole('button', { name: /^delete$/i }).click()
     await settingsDialog
       .getByRole('alertdialog')

@@ -11,6 +11,7 @@ import 'package:conduit_core/providers/host_ports.dart'
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/conversation_parsing.dart'
     show kMessageRatingMetadataKey;
+import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/utils/source_reference_helper.dart';
@@ -42,6 +43,7 @@ final class ChatsService {
       _announceListChanges();
       _announceSync();
       _announceConnectivity();
+      _announceRemaps();
     }
   }
 
@@ -76,7 +78,30 @@ final class ChatsService {
   StreamSubscription<bool>? _connectivity;
 
   /// Stops listening to the network port.
-  void dispose() => unawaited(_connectivity?.cancel());
+  void dispose() {
+    unawaited(_connectivity?.cancel());
+    unawaited(_remaps?.cancel());
+  }
+
+  StreamSubscription<RemapEvent>? _remaps;
+
+  /// Publishes `route.remap` when a chat made here gets its server id (M4),
+  /// so a window showing the `local:` chat follows it instead of losing it.
+  void _announceRemaps() {
+    _remaps = _container
+        .read(syncEngineProvider.notifier)
+        .remapEvents
+        .where((event) => event.entityKind == 'chat')
+        .listen((event) {
+          _events?.publish(
+            ConduitEvents.routeRemap,
+            payload: RouteRemap(
+              fromId: event.fromId,
+              toId: event.toId,
+            ).toJson(),
+          );
+        });
+  }
 
   /// Publishes `sync.status` when a cycle starts or ends, and on progress
   /// in steps a person would notice.
@@ -252,9 +277,10 @@ final class ChatsService {
   /// not an error worth a banner.
   Future<ChatDetail?> get(String id) async {
     // Never in the database, so never in the list. The transcript lives
-    // only in the daemon's memory.
-    if (TemporaryChats.isTemporary(id)) {
-      if (!_temporary.contains(id)) return null;
+    // only in the daemon's memory. Known by membership rather than by the
+    // `local:` prefix, which a direct chat awaiting its first sync to Open
+    // WebUI also carries -- and that one *is* in the database.
+    if (_temporary.contains(id)) {
       final messages = _temporary.transcript(id);
       return ChatDetail(
         summary: ChatSummary(

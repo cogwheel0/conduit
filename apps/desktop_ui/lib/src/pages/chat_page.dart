@@ -34,10 +34,12 @@ class ChatPage extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     final selected = context.watch(selectedChatIdProvider);
+    final temporaryIds = context.watch(temporaryChatIdsProvider);
     final showControls =
         context.watch(controlsOpenProvider) &&
         selected != null &&
-        !isTemporaryChatId(selected);
+        !temporaryIds.contains(selected) &&
+        !isLocalOnlyChatId(selected);
     final detail = showControls
         ? context.watch(chatDetailProvider).value
         : null;
@@ -751,6 +753,7 @@ class _Transcript extends StatelessComponent {
     final detail = context.watch(chatDetailProvider);
     final live = context.watch(liveTurnProvider).value;
     final selected = context.watch(selectedChatIdProvider);
+    final temporaryIds = context.watch(temporaryChatIdsProvider);
     final pending = context.watch(pendingUserMessageProvider);
 
     // Once the server's copy of the sent message arrives, stop rendering the
@@ -821,7 +824,8 @@ class _Transcript extends StatelessComponent {
     final canRate =
         context.watch(serverCapabilitiesProvider).messageRating &&
         selected != null &&
-        !isTemporaryChatId(selected) &&
+        !temporaryIds.contains(selected) &&
+        !isLocalOnlyChatId(selected) &&
         (live == null || live.settled);
 
     // After the frame this build produces, not during it: the pane has to
@@ -847,7 +851,7 @@ class _Transcript extends StatelessComponent {
           // Said where the conversation is named, not only at the toggle.
           // Someone who scrolls back through a temporary chat an hour later
           // should not have to remember that it will not be kept.
-          if (isTemporaryChatId(selected) ||
+          if (temporaryIds.contains(selected) ||
               (selected == null && context.watch(temporaryChatProvider)))
             span(
               classes:
@@ -859,7 +863,8 @@ class _Transcript extends StatelessComponent {
               [Component.text(t.app.temporaryChat)],
             ),
           if (selected != null &&
-              !isTemporaryChatId(selected) &&
+              !temporaryIds.contains(selected) &&
+              !isLocalOnlyChatId(selected) &&
               context.watch(serverCapabilitiesProvider).tags &&
               detail.value != null)
             ChatTags(
@@ -877,7 +882,9 @@ class _Transcript extends StatelessComponent {
               onFilter: (name) =>
                   context.read(searchQueryProvider.notifier).set('tag:$name'),
             ),
-          if (selected != null && !isTemporaryChatId(selected)) ...[
+          if (selected != null &&
+              !temporaryIds.contains(selected) &&
+              !isLocalOnlyChatId(selected)) ...[
             button(
               [Component.text(t.app.shareChat)],
               classes:
@@ -1030,7 +1037,7 @@ class _Transcript extends StatelessComponent {
                             onEdit:
                                 message.role == 'user' &&
                                     selected != null &&
-                                    !isTemporaryChatId(selected) &&
+                                    !temporaryIds.contains(selected) &&
                                     (live == null || live.settled)
                                 ? () => context
                                       .read(editingMessageProvider.notifier)
@@ -1056,7 +1063,7 @@ class _Transcript extends StatelessComponent {
                             onRegenerate:
                                 message.role == 'assistant' &&
                                     selected != null &&
-                                    !isTemporaryChatId(selected) &&
+                                    !temporaryIds.contains(selected) &&
                                     (live == null || live.settled)
                                 ? () => unawaited(
                                     context
@@ -1098,7 +1105,7 @@ class _Transcript extends StatelessComponent {
                     live.settled &&
                         !live.failed &&
                         selected != null &&
-                        !isTemporaryChatId(selected)
+                        !temporaryIds.contains(selected)
                     ? () => unawaited(
                         context
                             .read(chatActionsProvider)
@@ -1634,7 +1641,7 @@ class _ComposerState extends State<_Composer> {
               for (final model in mentioned)
                 (
                   key: model.id,
-                  title: model.name,
+                  title: modelLabel(model),
                   detail: model.name == model.id ? null : model.id,
                 ),
             ],
@@ -1662,7 +1669,9 @@ class _ComposerState extends State<_Composer> {
                   'flex items-center gap-1 rounded-full border border-border '
                   'py-0.5 pl-2 pr-1 text-xs text-muted-foreground',
               [
-                Component.text(t.desktop.desktopAnswerWith(model: model.name)),
+                Component.text(
+                  t.desktop.desktopAnswerWith(model: modelLabel(model)),
+                ),
                 button(
                   [
                     span(
@@ -1730,7 +1739,7 @@ class _ComposerState extends State<_Composer> {
                   option(
                     value: model.id,
                     selected: models.selectedId == model.id,
-                    [Component.text(model.name)],
+                    [Component.text(modelLabel(model))],
                   ),
               ],
               id: 'model',
