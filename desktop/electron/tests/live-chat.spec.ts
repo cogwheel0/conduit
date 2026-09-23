@@ -2354,6 +2354,12 @@ test.describe('against a real server', () => {
           await expect(transcript).toContainText(/quick brown fox/i, { timeout: 30_000 })
           await page.locator('#call-end').click()
           await expect(call).toBeHidden()
+        } else {
+          // Without a sample there is no call, so no answer to read: ask
+          // for one in writing.
+          await composer.fill('Say hello in five words.')
+          await composer.press('Enter')
+          await expect(page.getByRole('log')).toContainText(/hello/i, { timeout: 60_000 })
         }
 
         // Read aloud: the system's voice, and stopped again. A CI box has no
