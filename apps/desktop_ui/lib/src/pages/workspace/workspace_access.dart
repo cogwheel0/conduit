@@ -176,7 +176,7 @@ class _AccessDialogState extends State<AccessDialog> {
                       ];
               }),
             ),
-            p(classes: 'pl-6 text-ui-sm text-muted-foreground', [
+            p(classes: 'pl-6 text-ui-sm text-foreground-subtle', [
               Component.text(
                 component.section.sharePublicly
                     ? t.app.workspaceAccessVisibilityDescription
@@ -192,45 +192,48 @@ class _AccessDialogState extends State<AccessDialog> {
           if (people.isEmpty)
             statusLine(t.app.workspaceAccessEmpty)
           else
-            ul(classes: 'divide-y divide-border rounded border border-border', [
-              for (final g in people)
-                li(classes: 'flex items-center gap-2 px-2 py-1.5', [
-                  span(classes: 'min-w-0 flex-1 truncate', [
-                    Component.text(
-                      _names[_key(g.principalType, g.principalId)] ??
-                          g.principalId,
+            ul(
+              classes: 'divide-y divide-border rounded-lg border border-border',
+              [
+                for (final g in people)
+                  li(classes: 'flex items-center gap-2 px-2 py-1.5', [
+                    span(classes: 'min-w-0 flex-1 truncate', [
+                      Component.text(
+                        _names[_key(g.principalType, g.principalId)] ??
+                            g.principalId,
+                      ),
+                    ]),
+                    badge(
+                      g.principalType == 'group'
+                          ? t.app.workspaceAccessGroupBadge
+                          : t.app.workspaceAccessUserBadge,
+                    ),
+                    checkboxField(
+                      id: 'access-write-${g.principalType}-${g.principalId}',
+                      text: t.app.workspaceAccessCanEdit,
+                      checked: g.write,
+                      onChanged: ({required value}) => setState(() {
+                        _grants = [
+                          for (final other in _grants)
+                            identical(other, g)
+                                ? other.copyWith(write: value)
+                                : other,
+                        ];
+                      }),
+                    ),
+                    actionButton(
+                      '✕',
+                      ariaLabel: t.app.workspaceAccessRemoveGrant,
+                      onClick: () => setState(() {
+                        _grants = [
+                          for (final other in _grants)
+                            if (!identical(other, g)) other,
+                        ];
+                      }),
                     ),
                   ]),
-                  badge(
-                    g.principalType == 'group'
-                        ? t.app.workspaceAccessGroupBadge
-                        : t.app.workspaceAccessUserBadge,
-                  ),
-                  checkboxField(
-                    id: 'access-write-${g.principalType}-${g.principalId}',
-                    text: t.app.workspaceAccessCanEdit,
-                    checked: g.write,
-                    onChanged: ({required value}) => setState(() {
-                      _grants = [
-                        for (final other in _grants)
-                          identical(other, g)
-                              ? other.copyWith(write: value)
-                              : other,
-                      ];
-                    }),
-                  ),
-                  actionButton(
-                    '✕',
-                    ariaLabel: t.app.workspaceAccessRemoveGrant,
-                    onClick: () => setState(() {
-                      _grants = [
-                        for (final other in _grants)
-                          if (!identical(other, g)) other,
-                      ];
-                    }),
-                  ),
-                ]),
-            ]),
+              ],
+            ),
           textField(
             id: 'access-search',
             labelText: component.allowUserGrants
@@ -250,7 +253,7 @@ class _AccessDialogState extends State<AccessDialog> {
                     principal.name.isEmpty ? principal.id : principal.name,
                   ),
                   if (principal.email case final email?)
-                    span(classes: 'ml-1 text-ui-sm text-muted-foreground', [
+                    span(classes: 'ml-1 text-ui-sm text-foreground-subtle', [
                       Component.text(email),
                     ]),
                 ]),

@@ -68,15 +68,19 @@ body {
 }
 
 /* Selection and focus rings follow the palette rather than the browser
- * defaults, so every theme stays legible. */
+ * defaults, so every theme stays legible. In the base layer, so a control
+ * that shows focus its own way -- the composer's field, whose shell does --
+ * can set `outline-none` and have it win. */
 ::selection {
   background-color: var(--conduit-accent);
   color: var(--conduit-accent-foreground);
 }
 
-:focus-visible {
-  outline: 2px solid var(--conduit-ring);
-  outline-offset: 2px;
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--conduit-ring);
+    outline-offset: 2px;
+  }
 }
 
 /* The drawn title bar (widgets/title_bar.dart) moves the window; its

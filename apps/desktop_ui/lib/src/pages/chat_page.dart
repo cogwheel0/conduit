@@ -30,6 +30,7 @@ import '../widgets/prompt_menu.dart';
 import '../widgets/share_dialog.dart';
 import '../widgets/sources_list.dart';
 import '../widgets/usage_details.dart';
+import '../widgets/ui.dart';
 import '../widgets/voice_controls.dart';
 import '../widgets/workspace_frame.dart';
 import 'terminal_page.dart' show terminalOffered;
@@ -194,12 +195,12 @@ class _Transcript extends StatelessComponent {
       // and the sidebar selection is off-screen the moment the list scrolls.
       header(
         classes:
-            'flex h-12 shrink-0 items-center border-b border-border px-6 '
-            'text-ui-base font-medium text-foreground',
+            'flex h-11 shrink-0 items-center gap-2 border-b border-border '
+            'bg-header pr-2 pl-4 text-ui-base font-medium text-foreground',
         [
           // A conversation the list has not caught up with yet is a
           // conversation this window just created.
-          span(classes: 'truncate', [
+          span(classes: 'min-w-0 truncate', [
             Component.text(title ?? t.desktop.desktopNewConversation),
           ]),
           // Said where the conversation is named, not only at the toggle.
@@ -209,8 +210,8 @@ class _Transcript extends StatelessComponent {
               (selected == null && context.watch(temporaryChatProvider)))
             span(
               classes:
-                  'ml-3 shrink-0 rounded-full border border-border px-2 py-0.5 '
-                  'text-ui-sm font-normal text-muted-foreground',
+                  'shrink-0 rounded-full bg-surface px-2 py-0.5 '
+                  'text-ui-xs font-normal text-foreground-subtle',
               attributes: <String, String>{
                 'title': t.desktop.desktopTemporaryHint,
               },
@@ -239,25 +240,22 @@ class _Transcript extends StatelessComponent {
           if (selected != null &&
               !temporaryIds.contains(selected) &&
               !isLocalOnlyChatId(selected)) ...[
+            div(classes: 'min-w-0 flex-1', const []),
             if (isShareableChatId(selected))
-              button(
-                [Component.text(t.app.shareChat)],
-                classes:
-                    'ml-auto shrink-0 rounded px-2 py-1 text-ui-sm font-normal '
-                    'text-muted-foreground hover:bg-accent',
-                type: ButtonType.button,
+              iconButton(
+                id: 'share-chat',
+                glyph: LucideIcon.share2,
+                label: t.app.shareChat,
                 onClick: () =>
                     context.read(shareDialogProvider.notifier).open(selected),
               ),
-            button(
-              [Component.text(t.desktop.desktopControls)],
-              classes:
-                  'shrink-0 rounded px-2 py-1 text-ui-sm font-normal '
-                  'text-muted-foreground hover:bg-accent aria-pressed:bg-accent',
-              type: ButtonType.button,
-              attributes: <String, String>{
-                'aria-pressed': '${context.watch(controlsOpenProvider)}',
-              },
+            // Beside the pane it opens, rather than in the window's bar.
+            iconButton(
+              id: 'toggle-side-pane',
+              glyph: LucideIcon.panelRight,
+              label: t.desktop.desktopControls,
+              pressed: context.watch(controlsOpenProvider),
+              tooltip: TooltipSide.left,
               onClick: () =>
                   context.read(controlsOpenProvider.notifier).toggle(),
             ),
@@ -269,10 +267,13 @@ class _Transcript extends StatelessComponent {
       if (context.watch(onlineProvider).value == false)
         div(
           classes:
-              'shrink-0 border-b border-border bg-muted px-6 py-2 text-ui-sm '
-              'text-muted-foreground',
+              'flex shrink-0 items-center gap-2 border-b border-border '
+              'bg-surface px-4 py-1.5 text-ui-sm text-foreground-subtle',
           attributes: const <String, String>{'role': 'status'},
-          [Component.text(t.desktop.desktopOffline)],
+          [
+            icon(LucideIcon.wifiOff, classes: 'size-3.5 shrink-0'),
+            Component.text(t.desktop.desktopOffline),
+          ],
         ),
       if (context.watch(shareDialogProvider) case final shareId?)
         ShareDialog(
@@ -292,7 +293,7 @@ class _Transcript extends StatelessComponent {
         ),
       div(
         id: 'transcript',
-        classes: 'min-h-0 flex-1 overflow-y-auto px-6 py-6',
+        classes: 'min-h-0 flex-1 overflow-y-auto px-6 pt-6 pb-4',
         // `log` so a screen reader announces arriving messages without the
         // user having to go looking for them, and politely enough not to
         // interrupt what they are reading.
@@ -302,7 +303,7 @@ class _Transcript extends StatelessComponent {
         },
         [
           if (nothingChosen) _emptyState(),
-          div(classes: 'mx-auto flex max-w-3xl flex-col gap-4', [
+          div(classes: 'mx-auto flex max-w-3xl flex-col gap-6', [
             // `value`, not `when`. A refetch reports `loading` while still
             // holding the previous transcript, and `when` would blank the
             // whole conversation every time a turn finished.
@@ -335,9 +336,7 @@ class _Transcript extends StatelessComponent {
                               ),
                             ],
                             id: 'transcript-older',
-                            classes:
-                                'rounded border border-border px-3 py-1 text-ui-sm '
-                                'text-muted-foreground hover:bg-accent',
+                            classes: buttonClasses(size: ControlSize.sm),
                             type: ButtonType.button,
                             onClick: () => context
                                 .read(transcriptWindowProvider.notifier)
@@ -553,7 +552,7 @@ class _Transcript extends StatelessComponent {
       p(classes: 'text-ui-xl font-medium text-foreground', [
         Component.text(t.desktop.desktopPickAConversation),
       ]),
-      p(classes: 'text-ui-base text-muted-foreground', [
+      p(classes: 'text-ui-base text-foreground-subtle', [
         Component.text(t.desktop.desktopPickAConversationHint),
       ]),
     ],
@@ -595,11 +594,13 @@ class _Transcript extends StatelessComponent {
         // Above a question, as they were attached before it was asked;
         // below an answer, as what it produced.
         if (isUser && files.isNotEmpty) MessageFiles(files, alignEnd: true),
+        // A question is a quiet bubble on the right; an answer is the page
+        // itself, full width, as reading it is what the window is for.
         article(
           classes:
-              'rounded px-4 py-3 text-ui-base '
-              '${isUser ? 'ml-auto max-w-[80%] bg-primary text-primary-foreground whitespace-pre-wrap' : 'mr-auto max-w-[90%] bg-card text-card-foreground'} '
-              '${failed ? 'border border-destructive' : ''}',
+              'text-ui-base leading-relaxed '
+              '${isUser ? 'ml-auto max-w-[80%] rounded-xl bg-muted px-3.5 py-2 text-foreground whitespace-pre-wrap' : 'w-full min-w-0 text-foreground'} '
+              '${failed ? 'rounded-xl border border-destructive/50 px-3.5 py-2' : ''}',
           [
             // The user's own text is rendered verbatim: they typed it, so
             // markdown they did not mean should not be interpreted, and a stray
@@ -630,7 +631,7 @@ class _Transcript extends StatelessComponent {
         ),
         if (!isUser && files.isNotEmpty) MessageFiles(files),
         if (!isUser && (sources.isNotEmpty || usage != null))
-          div(classes: 'mr-auto flex max-w-[90%] items-start gap-4', [
+          div(classes: 'mr-auto flex w-full items-start gap-4', [
             if (sources.isNotEmpty) SourcesList(sources),
             if (usage != null) UsageDetails(usage),
           ]),
@@ -641,7 +642,7 @@ class _Transcript extends StatelessComponent {
             onEdit != null ||
             onRate != null ||
             versionNav != null)
-          div(classes: 'flex items-center gap-1', [
+          div(classes: 'flex items-center gap-0.5 text-foreground-subtle', [
             // Always visible, unlike the actions beside it. That there
             // *are* other answers is information in itself, and hiding it
             // behind a hover means nobody finds out.
@@ -649,13 +650,27 @@ class _Transcript extends StatelessComponent {
             ?readAloud,
             div(
               classes:
-                  'flex gap-1 opacity-0 transition-opacity '
+                  'flex gap-0.5 opacity-0 transition-opacity '
                   'group-hover:opacity-100 group-focus-within:opacity-100',
               [
-                if (onCopy case final copy?) _messageAction(t.app.copy, copy),
+                if (onCopy case final copy?)
+                  iconAction(
+                    glyph: LucideIcon.copy,
+                    label: t.app.copy,
+                    onClick: copy,
+                  ),
                 if (onRegenerate case final again?)
-                  _messageAction(t.app.regenerate, again),
-                if (onEdit case final edit?) _messageAction(t.app.edit, edit),
+                  iconAction(
+                    glyph: LucideIcon.refreshCw,
+                    label: t.app.regenerate,
+                    onClick: again,
+                  ),
+                if (onEdit case final edit?)
+                  iconAction(
+                    glyph: LucideIcon.pencil,
+                    label: t.app.edit,
+                    onClick: edit,
+                  ),
               ],
             ),
             // After the other actions, and visible once used: a thumb that
@@ -668,13 +683,13 @@ class _Transcript extends StatelessComponent {
                 [
                   _rateButton(
                     t.desktop.desktopGoodResponse,
-                    '\u{1F44D}',
+                    LucideIcon.thumbsUp,
                     pressed: rating == 1,
                     onClick: () => rate(1),
                   ),
                   _rateButton(
                     t.desktop.desktopBadResponse,
-                    '\u{1F44E}',
+                    LucideIcon.thumbsDown,
                     pressed: rating == -1,
                     onClick: () => rate(-1),
                   ),
@@ -718,23 +733,14 @@ class _Transcript extends StatelessComponent {
     final index = (selected ?? count - 1).clamp(0, count - 1);
     void show(int next) =>
         context.read(answerVersionProvider.notifier).show(message.id, next);
-    Component arrow(String glyph, String label, int? target) => button(
-      [
-        span(
-          attributes: const <String, String>{'aria-hidden': 'true'},
-          [Component.text(glyph)],
-        ),
-      ],
-      classes:
-          'rounded px-1.5 py-0.5 text-ui-sm text-muted-foreground '
-          'hover:bg-accent disabled:opacity-40',
-      type: ButtonType.button,
+    Component arrow(LucideIcon glyph, String label, int? target) => iconButton(
+      glyph: glyph,
+      label: label,
       disabled: target == null,
-      attributes: <String, String>{'aria-label': label, 'title': label},
       onClick: target == null ? null : () => show(target),
     );
     return div(
-      classes: 'flex items-center text-ui-sm text-muted-foreground',
+      classes: 'flex items-center text-ui-sm text-foreground-subtle',
       attributes: <String, String>{
         'role': 'group',
         'aria-label': t.desktop.desktopAnswerPosition(
@@ -744,13 +750,15 @@ class _Transcript extends StatelessComponent {
       },
       [
         arrow(
-          '\u2039',
+          LucideIcon.chevronLeft,
           t.desktop.desktopPreviousAnswer,
           index > 0 ? index - 1 : null,
         ),
-        span(classes: 'tabular-nums', [Component.text('${index + 1}/$count')]),
+        span(classes: 'px-0.5 text-ui-xs tabular-nums', [
+          Component.text('${index + 1}/$count'),
+        ]),
         arrow(
-          '\u203a',
+          LucideIcon.chevronRight,
           t.desktop.desktopNextAnswer,
           index < count - 1 ? index + 1 : null,
         ),
@@ -760,36 +768,15 @@ class _Transcript extends StatelessComponent {
 
   Component _rateButton(
     String label,
-    String glyph, {
+    LucideIcon glyph, {
     required bool pressed,
     required void Function() onClick,
-  }) => button(
-    [
-      span(
-        attributes: const <String, String>{'aria-hidden': 'true'},
-        [Component.text(glyph)],
-      ),
-    ],
-    classes:
-        'rounded px-1 py-0.5 text-ui-sm '
-        '${pressed ? 'bg-accent' : 'opacity-60 hover:bg-accent hover:opacity-100'}',
-    type: ButtonType.button,
-    attributes: <String, String>{
-      'aria-label': label,
-      'title': label,
-      'aria-pressed': '$pressed',
-    },
+  }) => iconButton(
+    glyph: glyph,
+    label: label,
+    pressed: pressed,
     onClick: onClick,
-  );
-
-  Component _messageAction(String label, void Function() onClick) => button(
-    [Component.text(label)],
-    classes:
-        'rounded px-1.5 py-0.5 text-ui-sm text-muted-foreground '
-        'hover:bg-accent hover:text-accent-foreground',
-    type: ButtonType.button,
-    attributes: <String, String>{'title': label},
-    onClick: onClick,
+    classes: pressed ? 'text-foreground' : '',
   );
 }
 
@@ -837,17 +824,13 @@ class _QuestionEditorState extends State<_QuestionEditor> {
         div(classes: 'flex justify-end gap-2', [
           button(
             [Component.text(t.app.cancel)],
-            classes:
-                'rounded px-3 py-1.5 text-ui-base text-muted-foreground '
-                'hover:bg-accent',
+            classes: buttonClasses(tone: ButtonTone.ghost),
             type: ButtonType.button,
             onClick: component.onCancel,
           ),
           button(
             [Component.text(t.app.send)],
-            classes:
-                'rounded bg-primary px-3 py-1.5 text-ui-base text-primary-foreground '
-                'disabled:opacity-60',
+            classes: buttonClasses(tone: ButtonTone.primary),
             type: ButtonType.button,
             // Unchanged text would branch the conversation to ask the same
             // thing again, which is what Regenerate is for.
@@ -1052,9 +1035,7 @@ class _ComposerState extends State<_Composer> {
 
     return div(
       key: const ValueKey('composer'),
-      classes:
-          'border-t border-border bg-background p-4'
-          '${_dragDepth > 0 ? ' ring-2 ring-inset ring-primary' : ''}',
+      classes: 'shrink-0 px-4 pt-1 pb-3',
       // Files arrive three ways: the + button, a drop anywhere on the
       // composer, and a paste into it. The last two go through the port,
       // which is what may call `preventDefault` -- that throws on the VM.
@@ -1128,227 +1109,286 @@ class _ComposerState extends State<_Composer> {
                 _chooseKnowledge(context, knowledgeHits[index]),
             onHighlight: (index) => setState(() => _promptIndex = index),
           ),
-        if (_atModel case final model?)
-          div(classes: 'mx-auto mb-2 flex max-w-3xl', [
-            span(
-              classes:
-                  'flex items-center gap-1 rounded-full border border-border '
-                  'py-0.5 pl-2 pr-1 text-ui-sm text-muted-foreground',
-              [
-                Component.text(
-                  t.desktop.desktopAnswerWith(model: modelLabel(model)),
-                ),
-                button(
-                  [
-                    span(
-                      attributes: const <String, String>{'aria-hidden': 'true'},
-                      [Component.text('×')],
-                    ),
-                  ],
-                  classes: 'rounded-full px-1 hover:text-foreground',
-                  type: ButtonType.button,
-                  attributes: <String, String>{
-                    'aria-label': t.desktop.desktopClearMention,
-                    'title': t.desktop.desktopClearMention,
-                  },
-                  onClick: () => setState(() => _atModel = null),
-                ),
-              ],
-            ),
-          ]),
-        if (_attachments.isNotEmpty || _knowledge.isNotEmpty)
-          div(
-            classes: 'mx-auto mb-2 flex max-w-3xl flex-wrap gap-2',
-            attributes: <String, String>{'aria-label': t.app.attachments},
-            [
-              for (final attachment in _attachments) _chip(context, attachment),
-              for (final knowledge in _knowledge)
-                span(
-                  classes:
-                      'flex items-center gap-1 rounded-full border '
-                      'border-border py-0.5 pl-2 pr-1 text-ui-sm',
-                  [
-                    Component.text('# ${knowledge.name}'),
-                    button(
-                      [
-                        span(
-                          attributes: const <String, String>{
-                            'aria-hidden': 'true',
-                          },
-                          [Component.text('×')],
-                        ),
-                      ],
-                      classes: 'rounded-full px-1 hover:bg-accent',
-                      type: ButtonType.button,
-                      attributes: <String, String>{
-                        'aria-label': t.desktop.desktopRemoveAttachment(
-                          name: knowledge.name,
-                        ),
-                      },
-                      onClick: () =>
-                          setState(() => _knowledge.remove(knowledge)),
-                    ),
-                  ],
-                ),
-            ],
-          ),
-        if (models != null && models.models.isNotEmpty)
-          div(classes: 'mx-auto mb-2 flex max-w-3xl items-center gap-2', [
-            label(
-              [Component.text(t.app.chooseModel)],
-              htmlFor: 'model',
-              classes: 'text-ui-sm text-muted-foreground',
-            ),
-            select(
-              [
-                for (final model in models.models)
-                  option(
-                    value: model.id,
-                    selected: models.selectedId == model.id,
-                    [Component.text(modelLabel(model))],
-                  ),
-              ],
-              id: 'model',
-              classes:
-                  'rounded border border-border bg-background '
-                  'px-2 py-1 text-ui-sm text-foreground',
-              disabled: _busy,
-              onChange: (values) {
-                if (values.isEmpty) return;
-                unawaited(
-                  context.read(chatActionsProvider).selectModel(values.first),
-                );
-              },
-            ),
-            // Only before the first message. A conversation is temporary or
-            // not from the start: switching an existing chat would mean
-            // deleting it from the server, which is what Delete is for.
-            if (context.watch(selectedChatIdProvider) == null)
-              div(classes: 'ml-auto', [
-                checkboxField(
-                  id: 'temporary-chat',
-                  text: t.app.temporaryChat,
-                  checked: context.watch(temporaryChatProvider),
-                  onChanged: ({required value}) => context
-                      .read(temporaryChatProvider.notifier)
-                      .set(value: value),
-                ),
-              ]),
-          ]),
         form(
           [
-            // `min-w-0` on the field: a flex item's automatic minimum is its
-            // content's, and a textarea's is its `cols` -- without this the
-            // field refuses to give ground and the row overflows instead.
-            div(classes: 'mx-auto flex max-w-3xl items-end gap-2', [
-              button(
-                [
-                  span(
-                    attributes: const <String, String>{'aria-hidden': 'true'},
-                    [Component.text('\u002b')],
-                  ),
-                ],
-                classes:
-                    'shrink-0 rounded border border-border px-3 py-2 text-ui-base '
-                    'text-muted-foreground hover:bg-accent',
-                type: ButtonType.button,
-                attributes: <String, String>{
-                  'aria-label': t.desktop.desktopAttachFiles,
-                  'title': t.desktop.desktopAttachFiles,
-                },
-                onClick: () => unawaited(_attach(context)),
-              ),
-              div(classes: 'min-w-0 flex-1', [
-                textAreaField(
-                  id: 'composer',
-                  labelText: t.app.sendMessage,
-                  placeholder: t.app.messageHintText,
-                  hideLabel: true,
-                  value: _text,
-                  rows: 2,
-                  // Not disabled while the turn is being accepted. The send
-                  // button is, which is what prevents a double send -- and
-                  // greying out the field costs the user the caret twice: a
-                  // disabled element cannot be focused, so the refocus below
-                  // was a no-op against a DOM that had not rebuilt yet, and
-                  // they were left typing into nothing.
-                  onInput: (value) => setState(() {
-                    _text = value;
-                    _promptIndex = 0;
-                  }),
-                  onKeyDown: composerKeys(
-                    menuOpen: () => menuLength > 0,
-                    move: ({required down}) {
-                      final next = movePaletteIndex(
-                        highlighted,
-                        menuLength,
-                        down: down,
-                      );
-                      setState(() => _promptIndex = next);
-                      final prefix = prompts.isNotEmpty
-                          ? 'prompt'
-                          : mentioned.isNotEmpty
-                          ? 'model'
-                          : 'knowledge';
-                      Future<void>.microtask(
-                        () => context
-                            .read(windowCommandsProvider)
-                            .reveal('$prefix-option-$next'),
-                      );
+            // One shell for everything that goes with the message: what is
+            // attached, the field, and the controls for how it is sent.
+            div(
+              classes:
+                  'mx-auto max-w-3xl rounded-2xl border bg-panel shadow-sm '
+                  'transition-colors focus-within:border-ring '
+                  'focus-within:ring-1 focus-within:ring-ring '
+                  '${_dragDepth > 0 ? 'border-ring ring-2 ring-ring/30' : 'border-border'}',
+              [
+                if (_atModel case final model?)
+                  div(classes: 'flex px-3 pt-2.5', [
+                    span(
+                      classes:
+                          'flex items-center gap-1 rounded-full border border-border '
+                          'py-0.5 pl-2 pr-1 text-ui-sm text-foreground-subtle',
+                      [
+                        Component.text(
+                          t.desktop.desktopAnswerWith(model: modelLabel(model)),
+                        ),
+                        button(
+                          [
+                            span(
+                              attributes: const <String, String>{
+                                'aria-hidden': 'true',
+                              },
+                              [Component.text('×')],
+                            ),
+                          ],
+                          classes: 'rounded-full px-1 hover:text-foreground',
+                          type: ButtonType.button,
+                          attributes: <String, String>{
+                            'aria-label': t.desktop.desktopClearMention,
+                            'title': t.desktop.desktopClearMention,
+                          },
+                          onClick: () => setState(() => _atModel = null),
+                        ),
+                      ],
+                    ),
+                  ]),
+                if (_attachments.isNotEmpty || _knowledge.isNotEmpty)
+                  div(
+                    classes: 'flex flex-wrap gap-1.5 px-3 pt-2.5',
+                    attributes: <String, String>{
+                      'aria-label': t.app.attachments,
                     },
-                    choose: () => prompts.isNotEmpty
-                        ? unawaited(
-                            _choosePrompt(context, prompts[highlighted]),
-                          )
-                        : mentioned.isNotEmpty
-                        ? _chooseModel(context, mentioned[highlighted])
-                        : _chooseKnowledge(context, knowledgeHits[highlighted]),
-                    dismiss: () => setState(() => _promptsDismissedAt = _text),
-                    send: () => unawaited(_send(context)),
+                    [
+                      for (final attachment in _attachments)
+                        _chip(context, attachment),
+                      for (final knowledge in _knowledge)
+                        span(
+                          classes:
+                              'flex items-center gap-1 rounded-full border '
+                              'border-border py-0.5 pl-2 pr-1 text-ui-sm',
+                          [
+                            Component.text('# ${knowledge.name}'),
+                            button(
+                              [
+                                span(
+                                  attributes: const <String, String>{
+                                    'aria-hidden': 'true',
+                                  },
+                                  [Component.text('×')],
+                                ),
+                              ],
+                              classes: 'rounded-full px-1 hover:bg-hover',
+                              type: ButtonType.button,
+                              attributes: <String, String>{
+                                'aria-label': t.desktop.desktopRemoveAttachment(
+                                  name: knowledge.name,
+                                ),
+                              },
+                              onClick: () =>
+                                  setState(() => _knowledge.remove(knowledge)),
+                            ),
+                          ],
+                        ),
+                    ],
                   ),
-                ),
-              ]),
-              if (voice) ...[const DictationButton(), const VoiceCallButton()],
-              if (streaming)
-                button(
-                  [Component.text(t.app.stopGenerating)],
-                  classes:
-                      'shrink-0 rounded border border-border px-4 py-2 '
-                      'text-ui-base text-foreground',
-                  type: ButtonType.button,
-                  onClick: () => unawaited(
-                    context.read(chatActionsProvider).stop(live.chatId),
+                div(classes: 'px-1', [
+                  textAreaField(
+                    id: 'composer',
+                    labelText: t.app.sendMessage,
+                    placeholder: t.app.messageHintText,
+                    hideLabel: true,
+                    value: _text,
+                    rows: 2,
+                    bare: true,
+                    // Not disabled while the turn is being accepted. The send
+                    // button is, which is what prevents a double send -- and
+                    // greying out the field costs the user the caret twice: a
+                    // disabled element cannot be focused, so the refocus below
+                    // was a no-op against a DOM that had not rebuilt yet, and
+                    // they were left typing into nothing.
+                    onInput: (value) => setState(() {
+                      _text = value;
+                      _promptIndex = 0;
+                    }),
+                    onKeyDown: composerKeys(
+                      menuOpen: () => menuLength > 0,
+                      move: ({required down}) {
+                        final next = movePaletteIndex(
+                          highlighted,
+                          menuLength,
+                          down: down,
+                        );
+                        setState(() => _promptIndex = next);
+                        final prefix = prompts.isNotEmpty
+                            ? 'prompt'
+                            : mentioned.isNotEmpty
+                            ? 'model'
+                            : 'knowledge';
+                        Future<void>.microtask(
+                          () => context
+                              .read(windowCommandsProvider)
+                              .reveal('$prefix-option-$next'),
+                        );
+                      },
+                      choose: () => prompts.isNotEmpty
+                          ? unawaited(
+                              _choosePrompt(context, prompts[highlighted]),
+                            )
+                          : mentioned.isNotEmpty
+                          ? _chooseModel(context, mentioned[highlighted])
+                          : _chooseKnowledge(
+                              context,
+                              knowledgeHits[highlighted],
+                            ),
+                      dismiss: () =>
+                          setState(() => _promptsDismissedAt = _text),
+                      send: () => unawaited(_send(context)),
+                    ),
                   ),
-                )
-              else
-                submitButton(
-                  labelText: t.app.send,
-                  busyLabel: t.desktop.desktopSending,
-                  busy: _busy,
-                  // An attachment still climbing is not a reason to grey the
-                  // button out -- the user would watch it and wonder. The
-                  // send waits for the upload instead, and says so.
-                  enabled:
-                      (_text.trim().isNotEmpty || _attachments.isNotEmpty) &&
-                      context.watch(onlineProvider).value != false,
-                  fullWidth: false,
-                ),
-            ]),
+                ]),
+                div(classes: 'flex items-center gap-0.5 px-2 pb-2', [
+                  iconButton(
+                    glyph: LucideIcon.plus,
+                    label: t.desktop.desktopAttachFiles,
+                    size: ControlSize.md,
+                    tooltip: TooltipSide.top,
+                    onClick: () => unawaited(_attach(context)),
+                  ),
+                  if (models != null && models.models.isNotEmpty) ...[
+                    // The label is there for a screen reader; the menu
+                    // says what it is by showing the model.
+                    label(
+                      [Component.text(t.app.chooseModel)],
+                      htmlFor: 'model',
+                      classes: 'sr-only',
+                    ),
+                    select(
+                      [
+                        for (final model in models.models)
+                          option(
+                            value: model.id,
+                            selected: models.selectedId == model.id,
+                            [Component.text(modelLabel(model))],
+                          ),
+                      ],
+                      id: 'model',
+                      classes:
+                          'h-7 max-w-56 min-w-0 truncate rounded-lg border-0 '
+                          'bg-transparent px-1.5 text-ui-sm '
+                          'text-foreground-subtle transition-colors '
+                          'hover:bg-hover hover:text-foreground',
+                      disabled: _busy,
+                      onChange: (values) {
+                        if (values.isEmpty) return;
+                        unawaited(
+                          context
+                              .read(chatActionsProvider)
+                              .selectModel(values.first),
+                        );
+                      },
+                    ),
+                  ],
+                  // Only before the first message. A conversation is
+                  // temporary or not from the start: switching an existing
+                  // chat would mean deleting it from the server, which is
+                  // what Delete is for.
+                  // With a model to answer, as the field is only then of use.
+                  if (models != null &&
+                      models.models.isNotEmpty &&
+                      context.watch(selectedChatIdProvider) == null)
+                    div(classes: 'px-1.5 [&_label]:text-ui-sm', [
+                      checkboxField(
+                        id: 'temporary-chat',
+                        text: t.app.temporaryChat,
+                        checked: context.watch(temporaryChatProvider),
+                        onChanged: ({required value}) => context
+                            .read(temporaryChatProvider.notifier)
+                            .set(value: value),
+                      ),
+                    ]),
+                  div(classes: 'min-w-0 flex-1', const []),
+                  if (voice) ...[
+                    const DictationButton(),
+                    const VoiceCallButton(),
+                  ],
+                  if (streaming)
+                    button(
+                      [
+                        icon(LucideIcon.square, classes: 'size-3 fill-current'),
+                        span(classes: 'sr-only', [
+                          Component.text(t.app.stopGenerating),
+                        ]),
+                      ],
+                      classes:
+                          'ml-1 inline-flex size-8 shrink-0 items-center '
+                          'justify-center rounded-full bg-primary '
+                          'text-primary-foreground transition-colors '
+                          'hover:bg-primary/85',
+                      type: ButtonType.button,
+                      attributes: tooltipAttributes(
+                        t.app.stopGenerating,
+                        side: TooltipSide.top,
+                      ),
+                      onClick: () => unawaited(
+                        context.read(chatActionsProvider).stop(live.chatId),
+                      ),
+                    )
+                  else
+                    button(
+                      [
+                        icon(
+                          _busy ? LucideIcon.loaderCircle : LucideIcon.arrowUp,
+                          classes: 'size-4${_busy ? ' animate-spin' : ''}',
+                        ),
+                        span(classes: 'sr-only', [
+                          Component.text(
+                            _busy ? t.desktop.desktopSending : t.app.send,
+                          ),
+                        ]),
+                      ],
+                      classes:
+                          'ml-1 inline-flex size-8 shrink-0 items-center '
+                          'justify-center rounded-full bg-primary '
+                          'text-primary-foreground transition-colors '
+                          'hover:bg-primary/85 disabled:bg-foreground-subtlest '
+                          'disabled:text-panel',
+                      type: ButtonType.submit,
+                      // An attachment still climbing is not a reason to
+                      // grey the button out -- the user would watch it and
+                      // wonder. The send waits for the upload instead, and
+                      // says so.
+                      disabled:
+                          _busy ||
+                          !((_text.trim().isNotEmpty ||
+                                  _attachments.isNotEmpty) &&
+                              context.watch(onlineProvider).value != false),
+                      attributes: <String, String>{
+                        if (_busy) 'aria-busy': 'true',
+                        ...tooltipAttributes(t.app.send, side: TooltipSide.top),
+                      },
+                    ),
+                ]),
+              ],
+            ),
             if (_dragDepth > 0)
-              p(classes: 'mx-auto mt-1.5 max-w-3xl text-ui-sm text-primary', [
-                Component.text(t.desktop.desktopDropToAttach),
-              ])
+              p(
+                classes:
+                    'mx-auto mt-1.5 max-w-3xl px-3 text-ui-xs text-foreground',
+                [Component.text(t.desktop.desktopDropToAttach)],
+              )
             else if (_error case final message?)
-              div(classes: 'mx-auto mt-2 max-w-3xl', [formError(message)])
+              div(classes: 'mx-auto mt-1.5 max-w-3xl px-3', [
+                formError(message),
+              ])
             else if (uploading)
               p(
                 classes:
-                    'mx-auto mt-1.5 max-w-3xl text-ui-sm text-muted-foreground',
+                    'mx-auto mt-1.5 max-w-3xl px-3 text-ui-xs '
+                    'text-foreground-subtle',
                 [Component.text(t.desktop.desktopAttachmentsUploading)],
               )
             else if (dictationProblem case final message?)
               p(
-                classes: 'mx-auto mt-1.5 max-w-3xl text-ui-sm text-destructive',
+                classes:
+                    'mx-auto mt-1.5 max-w-3xl px-3 text-ui-xs text-destructive',
                 attributes: const <String, String>{'role': 'status'},
                 [Component.text(message)],
               )
@@ -1358,7 +1398,8 @@ class _ComposerState extends State<_Composer> {
               // message not send.
               p(
                 classes:
-                    'mx-auto mt-1.5 max-w-3xl text-ui-sm text-muted-foreground',
+                    'mx-auto mt-1.5 max-w-3xl px-3 text-ui-xs '
+                    'text-foreground-subtle',
                 [Component.text(t.desktop.desktopComposerHint)],
               ),
           ],
@@ -1407,8 +1448,8 @@ class _ComposerState extends State<_Composer> {
     }) => button(
       [Component.text(label)],
       classes:
-          'rounded-full border px-3 py-1 text-ui-sm '
-          '${on ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground hover:bg-accent'}',
+          'h-7 rounded-full border px-2.5 text-ui-sm transition-colors '
+          '${on ? 'border-transparent bg-selected text-foreground' : 'border-border text-foreground-subtle hover:bg-hover hover:text-foreground'}',
       type: ButtonType.button,
       attributes: <String, String>{'aria-pressed': on ? 'true' : 'false'},
       onClick: () => setState(flip),
@@ -1441,9 +1482,9 @@ class _ComposerState extends State<_Composer> {
               ),
             ],
             classes:
-                'rounded-full border px-3 py-1 text-ui-sm '
-                '${_toolIds.isNotEmpty ? 'border-primary text-foreground' : 'border-border text-muted-foreground'} '
-                'hover:bg-accent',
+                'h-7 rounded-full border px-2.5 text-ui-sm transition-colors '
+                'hover:bg-hover '
+                '${_toolIds.isNotEmpty ? 'border-transparent bg-selected text-foreground' : 'border-border text-foreground-subtle hover:text-foreground'}',
             type: ButtonType.button,
             attributes: <String, String>{
               'aria-expanded': _toolsOpen ? 'true' : 'false',
@@ -1465,9 +1506,9 @@ class _ComposerState extends State<_Composer> {
               ),
             ],
             classes:
-                'rounded-full border px-3 py-1 text-ui-sm '
-                '${selectedTerminal != null ? 'border-primary text-foreground' : 'border-border text-muted-foreground'} '
-                'hover:bg-accent',
+                'h-7 rounded-full border px-2.5 text-ui-sm transition-colors '
+                'hover:bg-hover '
+                '${selectedTerminal != null ? 'border-transparent bg-selected text-foreground' : 'border-border text-foreground-subtle hover:text-foreground'}',
             type: ButtonType.button,
             attributes: <String, String>{
               'aria-expanded': _terminalOpen ? 'true' : 'false',
@@ -1481,8 +1522,8 @@ class _ComposerState extends State<_Composer> {
             [Component.text(t.app.directMcpContentAction)],
             classes:
                 'rounded-full border px-3 py-1 text-ui-sm '
-                '${_contentOpen ? 'border-primary text-foreground' : 'border-border text-muted-foreground'} '
-                'hover:bg-accent',
+                '${_contentOpen ? 'border-primary text-foreground' : 'border-border text-foreground-subtle'} '
+                'hover:bg-hover',
             type: ButtonType.button,
             attributes: <String, String>{
               'aria-expanded': _contentOpen ? 'true' : 'false',
@@ -1508,7 +1549,8 @@ class _ComposerState extends State<_Composer> {
       if (_terminalOpen && !_answeredDirectly && terminalOffered(terminals))
         div(
           id: 'composer-terminal',
-          classes: 'mt-2 flex flex-wrap gap-2 rounded border border-border p-3',
+          classes:
+              'mt-2 flex flex-wrap gap-2 rounded-lg border border-border p-3',
           attributes: <String, String>{
             'role': 'group',
             'aria-label': t.app.terminalSelectServer,
@@ -1522,7 +1564,7 @@ class _ComposerState extends State<_Composer> {
                 [Component.text(name)],
                 classes:
                     'rounded-full border px-3 py-1 text-ui-sm '
-                    '${terminals.selectedId == id ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:bg-accent'}',
+                    '${terminals.selectedId == id ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:bg-hover'}',
                 type: ButtonType.button,
                 attributes: <String, String>{
                   'aria-pressed': terminals.selectedId == id ? 'true' : 'false',
@@ -1538,7 +1580,7 @@ class _ComposerState extends State<_Composer> {
       if (_toolsOpen && _toolsOffered(options).isNotEmpty)
         div(
           id: 'composer-tools',
-          classes: 'mt-2 space-y-2 rounded border border-border p-3',
+          classes: 'mt-2 space-y-2 rounded-lg border border-border p-3',
           [
             for (final tool in _toolsOffered(options))
               div([
@@ -1555,7 +1597,7 @@ class _ComposerState extends State<_Composer> {
                 if (tool.description case final description?)
                   p(
                     classes:
-                        'ml-6 line-clamp-2 text-ui-sm text-muted-foreground',
+                        'ml-6 line-clamp-2 text-ui-sm text-foreground-subtle',
                     [Component.text(description)],
                   ),
               ]),
@@ -1570,8 +1612,8 @@ class _ComposerState extends State<_Composer> {
     final name = attachment.picked.name;
     return div(
       classes:
-          'flex items-center gap-2 rounded border px-2 py-1 text-ui-sm '
-          '${attachment.failed ? 'border-destructive text-destructive' : 'border-border text-muted-foreground'}',
+          'flex items-center gap-2 rounded-lg border px-2 py-1 text-ui-sm '
+          '${attachment.failed ? 'border-destructive text-destructive' : 'border-border text-foreground-subtle'}',
       [
         span(classes: 'max-w-48 truncate', [Component.text(name)]),
         if (!attachment.ready && !attachment.failed)
@@ -1589,7 +1631,7 @@ class _ComposerState extends State<_Composer> {
               [Component.text('\u2715')],
             ),
           ],
-          classes: 'rounded px-1 hover:bg-accent',
+          classes: 'rounded-lg px-1 hover:bg-hover',
           type: ButtonType.button,
           attributes: <String, String>{
             'aria-label': t.desktop.desktopRemoveAttachment(name: name),

@@ -72,7 +72,7 @@ class _DesktopSettingsState extends State<_DesktopSettings> {
       onChanged: ({required value}) =>
           unawaited(_save(<String, Object?>{key: value})),
     ),
-    p(classes: 'pl-6 text-ui-sm text-muted-foreground', [
+    p(classes: 'pl-6 text-ui-sm text-foreground-subtle', [
       Component.text(description),
     ]),
   ]);

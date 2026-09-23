@@ -32,7 +32,7 @@ class UiRequestCard extends StatelessComponent {
       [
         div(
           classes:
-              'pointer-events-auto mx-auto w-full max-w-md rounded border '
+              'pointer-events-auto mx-auto w-full max-w-md rounded-lg border '
               'border-border bg-popover p-4 text-popover-foreground shadow-lg',
           attributes: <String, String>{
             'role': 'alertdialog',
@@ -41,7 +41,7 @@ class UiRequestCard extends StatelessComponent {
           [
             _RequestBody(key: ValueKey(request.requestId), request: request),
             if (waiting.length > 1)
-              p(classes: 'mt-2 text-ui-sm text-muted-foreground', [
+              p(classes: 'mt-2 text-ui-sm text-foreground-subtle', [
                 Component.text('+${waiting.length - 1}'),
               ]),
           ],
@@ -95,8 +95,8 @@ class _RequestBodyState extends State<_RequestBody> {
         button(
           [Component.text(text)],
           classes: primary
-              ? 'rounded bg-primary px-3 py-1.5 text-ui-base text-primary-foreground'
-              : 'rounded px-3 py-1.5 text-ui-base hover:bg-accent',
+              ? 'rounded-lg bg-primary px-3 py-1.5 text-ui-base text-primary-foreground'
+              : 'rounded-lg px-3 py-1.5 text-ui-base hover:bg-hover',
           type: ButtonType.button,
           onClick: () => _choose(context, choice),
         );
@@ -111,12 +111,12 @@ class _RequestBodyState extends State<_RequestBody> {
       if (arguments.isNotEmpty && arguments != '{}')
         pre(
           classes:
-              'max-h-40 overflow-auto whitespace-pre-wrap break-all rounded '
+              'max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg '
               'bg-muted p-2 font-mono text-xs',
           [Component.text(arguments)],
         ),
       if (_confirmingAlways) ...[
-        p(classes: 'text-ui-base text-muted-foreground', [
+        p(classes: 'text-ui-base text-foreground-subtle', [
           Component.text(
             t.app.directMcpApprovalAlwaysMessage(
               serverName: server,
@@ -127,7 +127,7 @@ class _RequestBodyState extends State<_RequestBody> {
         div(classes: 'flex justify-end gap-2', [
           button(
             [Component.text(t.app.cancel)],
-            classes: 'rounded px-3 py-1.5 text-ui-base hover:bg-accent',
+            classes: 'rounded-lg px-3 py-1.5 text-ui-base hover:bg-hover',
             type: ButtonType.button,
             onClick: () => setState(() => _confirmingAlways = false),
           ),
@@ -142,7 +142,7 @@ class _RequestBodyState extends State<_RequestBody> {
           action(t.app.directMcpApprovalDeny, 'deny'),
           button(
             [Component.text(t.app.directMcpApprovalAllowAlways)],
-            classes: 'rounded px-3 py-1.5 text-ui-base hover:bg-accent',
+            classes: 'rounded-lg px-3 py-1.5 text-ui-base hover:bg-hover',
             type: ButtonType.button,
             onClick: () => setState(() => _confirmingAlways = true),
           ),
@@ -188,8 +188,8 @@ class _RequestBodyState extends State<_RequestBody> {
           button(
             [Component.text(label(choice))],
             classes: choice == 'once'
-                ? 'rounded bg-primary px-3 py-1.5 text-ui-base text-primary-foreground'
-                : 'rounded px-3 py-1.5 text-ui-base hover:bg-accent',
+                ? 'rounded-lg bg-primary px-3 py-1.5 text-ui-base text-primary-foreground'
+                : 'rounded-lg px-3 py-1.5 text-ui-base hover:bg-hover',
             type: ButtonType.button,
             onClick: () => _choose(context, choice),
           ),
@@ -212,7 +212,7 @@ class _RequestBodyState extends State<_RequestBody> {
       if (title.isNotEmpty)
         h2(classes: 'text-ui-base font-semibold', [Component.text(title)]),
       if (message.isNotEmpty)
-        p(classes: 'whitespace-pre-wrap text-ui-base text-muted-foreground', [
+        p(classes: 'whitespace-pre-wrap text-ui-base text-foreground-subtle', [
           Component.text(message),
         ]),
       if (_isPrompt)
@@ -234,8 +234,8 @@ class _RequestBodyState extends State<_RequestBody> {
             ),
           ],
           classes:
-              'rounded px-3 py-1.5 text-ui-base text-muted-foreground '
-              'hover:bg-accent',
+              'rounded-lg px-3 py-1.5 text-ui-base text-foreground-subtle '
+              'hover:bg-hover',
           type: ButtonType.button,
           onClick: () => _answer(context, allow: false),
         ),
@@ -246,7 +246,7 @@ class _RequestBodyState extends State<_RequestBody> {
                   (_isPrompt ? t.app.ok : t.desktop.desktopAllow),
             ),
           ],
-          classes: 'rounded bg-primary px-3 py-1.5 text-ui-base text-primary-foreground',
+          classes: 'rounded-lg bg-primary px-3 py-1.5 text-ui-base text-primary-foreground',
           type: ButtonType.button,
           onClick: () => _answer(context, allow: true),
         ),

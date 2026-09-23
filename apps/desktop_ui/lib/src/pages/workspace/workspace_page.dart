@@ -81,7 +81,7 @@ class WorkspaceScreen extends StatelessComponent {
   Component _centered(String text) => div(
     classes: 'flex flex-1 items-center justify-center p-8',
     [
-      p(classes: 'text-ui-base text-muted-foreground', [Component.text(text)]),
+      p(classes: 'text-ui-base text-foreground-subtle', [Component.text(text)]),
     ],
   );
 }
@@ -118,7 +118,7 @@ class _SectionNavState extends State<_SectionNav> {
         div(classes: 'mb-2 flex items-center gap-2', [
           button(
             [Component.text('←')],
-            classes: 'rounded px-2 py-1 text-ui-base hover:bg-accent',
+            classes: 'rounded-lg px-2 py-1 text-ui-base hover:bg-hover',
             type: ButtonType.button,
             attributes: <String, String>{'aria-label': t.app.back},
             onClick: () => _go(context, '/'),
@@ -131,8 +131,8 @@ class _SectionNavState extends State<_SectionNav> {
           button(
             [Component.text(sectionLabel(kind))],
             classes:
-                'block w-full rounded px-2 py-1.5 text-left text-ui-base '
-                'hover:bg-accent aria-[current=page]:bg-accent '
+                'block w-full rounded-lg px-2 py-1.5 text-left text-ui-base '
+                'hover:bg-hover aria-[current=page]:bg-accent '
                 'aria-[current=page]:font-medium',
             type: ButtonType.button,
             attributes: <String, String>{
@@ -265,7 +265,7 @@ class _WorkspaceListState extends State<WorkspaceList> {
           Component.text(sectionLabel(kind)),
           if (page.value case final value?)
             span(
-              classes: 'ml-2 text-ui-base font-normal text-muted-foreground',
+              classes: 'ml-2 text-ui-base font-normal text-foreground-subtle',
               [Component.text('${value.total}')],
             ),
         ]),
@@ -349,7 +349,7 @@ class _WorkspaceListState extends State<WorkspaceList> {
       else if (items.isEmpty)
         statusLine(t.app.workspaceEmpty)
       else
-        ul(classes: 'divide-y divide-border rounded border border-border', [
+        ul(classes: 'divide-y divide-border rounded-lg border border-border', [
           for (final item in items) _row(context, item),
         ]),
       if (page.value?.hasMore ?? false)
@@ -378,10 +378,10 @@ class _WorkspaceListState extends State<WorkspaceList> {
           if (item.active == false) badge(t.app.workspaceModelDeactivate),
         ]),
         if (item.subtitle case final subtitle?)
-          p(classes: 'truncate text-ui-sm text-muted-foreground', [
+          p(classes: 'truncate text-ui-sm text-foreground-subtle', [
             Component.text(subtitle),
           ]),
-        p(classes: 'text-ui-xs text-muted-foreground', [
+        p(classes: 'text-ui-xs text-foreground-subtle', [
           Component.text(
             [
               ?item.ownerName,
@@ -423,7 +423,7 @@ class _WorkspaceListState extends State<WorkspaceList> {
     ],
     id: id,
     classes:
-        'rounded border border-border bg-background px-2 py-2 text-ui-base '
+        'rounded-lg border border-border bg-panel px-2 py-2 text-ui-base '
         'text-foreground',
     attributes: <String, String>{'aria-label': label},
     onChange: (values) => onChange(values.isEmpty ? '' : values.first),

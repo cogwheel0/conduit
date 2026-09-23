@@ -39,8 +39,8 @@ class _HtmlPreviewState extends State<HtmlPreview> {
         ),
       ],
       classes:
-          'rounded border border-border px-2 py-0.5 text-ui-sm '
-          'text-muted-foreground hover:bg-accent',
+          'rounded-lg border border-border px-2 py-0.5 text-ui-sm '
+          'text-foreground-subtle hover:bg-hover',
       type: ButtonType.button,
       attributes: <String, String>{
         'aria-expanded': _showing ? 'true' : 'false',
@@ -50,7 +50,7 @@ class _HtmlPreviewState extends State<HtmlPreview> {
     if (_showing)
       Component.element(
         tag: 'iframe',
-        classes: 'mt-2 h-64 w-full rounded border border-border bg-white',
+        classes: 'mt-2 h-64 w-full rounded-lg border border-border bg-white',
         attributes: <String, String>{
           // Empty, not absent. An absent `sandbox` is no sandbox at all;
           // an empty one is every restriction.

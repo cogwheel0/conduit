@@ -233,21 +233,22 @@ class MarkdownView extends StatelessComponent {
       'strong' => strong(children),
       'del' => Component.element(tag: 'del', children: children),
       'code' => code(
-        classes: 'rounded bg-muted px-1 py-0.5 text-ui-sm',
+        classes:
+            'rounded-md bg-surface-hover px-1 py-0.5 font-mono text-[0.88em]',
         children,
       ),
       'pre' => pre(
         classes:
-            'overflow-x-auto rounded bg-muted p-3 text-ui-sm '
-            'whitespace-pre',
+            'overflow-x-auto rounded-lg border border-border bg-surface '
+            'px-3 py-2.5 font-mono text-xs whitespace-pre',
         children,
       ),
       'blockquote' => blockquote(
-        classes: 'border-l-2 border-border pl-3 text-muted-foreground',
+        classes: 'border-l-2 border-border pl-3 text-foreground-subtle',
         children,
       ),
-      'h1' => h1(classes: 'text-ui-xl font-semibold', children),
-      'h2' => h2(classes: 'text-ui-lg font-semibold', children),
+      'h1' => h1(classes: 'mt-5 text-ui-xl font-semibold', children),
+      'h2' => h2(classes: 'mt-4 text-ui-lg font-semibold', children),
       'h3' => h3(classes: 'text-ui-base font-semibold', children),
       'h4' || 'h5' || 'h6' => h4(classes: 'text-ui-base font-medium', children),
       'ul' => ul(classes: 'list-disc space-y-1 pl-5', children),
@@ -257,7 +258,10 @@ class MarkdownView extends StatelessComponent {
       'thead' => thead(children),
       'tbody' => tbody(children),
       'tr' => tr(classes: 'border-b border-border', children),
-      'th' => th(classes: 'px-2 py-1 text-left font-medium', children),
+      'th' => th(
+        classes: 'bg-surface px-2 py-1.5 text-left font-medium',
+        children,
+      ),
       'td' => td(classes: 'px-2 py-1', children),
       'a' => _link(element, children),
       'div' => div(children),
@@ -282,8 +286,8 @@ class MarkdownView extends StatelessComponent {
         ? shortSourceLabel(first)
         : '${shortSourceLabel(first)} +${cited.length - 1}';
     const classes =
-        'mx-0.5 inline-flex items-center rounded bg-muted px-1.5 '
-        'align-baseline text-ui-sm text-muted-foreground no-underline '
+        'mx-0.5 inline-flex items-center rounded-lg bg-muted px-1.5 '
+        'align-baseline text-ui-sm text-foreground-subtle no-underline '
         'hover:text-foreground';
     final title = cited.map((cite) => cite.label).join('\n');
     final url = first.url;
@@ -351,9 +355,11 @@ class MarkdownView extends StatelessComponent {
     final display = element.attributes['display'] == 'block';
     final prefix = mathIdPrefix;
     if (prefix == null) {
-      return code(classes: 'rounded bg-muted px-1 py-0.5 text-ui-sm', [
-        Component.text(source),
-      ]);
+      return code(
+        classes:
+            'rounded-md bg-surface-hover px-1 py-0.5 font-mono text-[0.88em]',
+        [Component.text(source)],
+      );
     }
     // Keyed by content as well as position: a streaming reply re-parses on
     // every delta, and a frame whose id stayed put while its neighbours
@@ -388,7 +394,9 @@ class MarkdownView extends StatelessComponent {
     if (!safe) return span(children);
     return a(
       href: href,
-      classes: 'text-primary underline underline-offset-2',
+      classes:
+          'text-foreground underline decoration-foreground-subtlest '
+          'underline-offset-2 hover:decoration-foreground',
       target: Target.blank,
       // `noopener` so the opened page cannot reach back through
       // `window.opener`, and `noreferrer` so a private server's URL is not

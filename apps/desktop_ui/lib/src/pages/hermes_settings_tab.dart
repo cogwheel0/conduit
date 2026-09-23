@@ -26,7 +26,7 @@ class HermesSettingsTab extends StatelessComponent {
       );
     }
     return div(classes: 'space-y-6', [
-      p(classes: 'text-ui-base text-muted-foreground', [
+      p(classes: 'text-ui-base text-foreground-subtle', [
         Component.text(t.app.hermesNativeSettingsSubtitle),
       ]),
       HermesConnectionForm(
@@ -93,7 +93,7 @@ class _HermesConnectionFormState extends State<HermesConnectionForm> {
     final saved = component.saved;
     final desktop = _mode == 'desktop';
     return section(
-      classes: 'space-y-4 rounded border border-border p-4',
+      classes: 'space-y-4 rounded-lg border border-border p-4',
       attributes: <String, String>{
         'aria-label': t.app.hermesConnectionDetailsTitle,
       },
@@ -104,7 +104,7 @@ class _HermesConnectionFormState extends State<HermesConnectionForm> {
           checked: _enabled,
           onChanged: ({required value}) => setState(() => _enabled = value),
         ),
-        p(classes: '-mt-3 pl-6 text-ui-sm text-muted-foreground', [
+        p(classes: '-mt-3 pl-6 text-ui-sm text-foreground-subtle', [
           Component.text(t.app.hermesEnableSubtitle),
         ]),
         textField(
@@ -131,7 +131,7 @@ class _HermesConnectionFormState extends State<HermesConnectionForm> {
             ],
             id: 'hermes-mode',
             classes:
-                'w-full rounded border border-border bg-background px-3 py-2 '
+                'w-full rounded-lg border border-border bg-panel px-3 py-2 '
                 'text-ui-base',
             onChange: (values) => setState(
               () => _mode = values.isEmpty ? 'responses' : values.first,
@@ -159,7 +159,7 @@ class _HermesConnectionFormState extends State<HermesConnectionForm> {
             value: _memoryKey,
             onInput: (value) => setState(() => _memoryKey = value),
           ),
-          p(classes: '-mt-2 text-ui-sm text-muted-foreground', [
+          p(classes: '-mt-2 text-ui-sm text-foreground-subtle', [
             Component.text(t.app.hermesMemoryKeyShortDescription),
           ]),
         ] else ...[
@@ -188,7 +188,7 @@ class _HermesConnectionFormState extends State<HermesConnectionForm> {
               ],
               id: 'hermes-auth',
               classes:
-                  'w-full rounded border border-border bg-background px-3 '
+                  'w-full rounded-lg border border-border bg-panel px-3 '
                   'py-2 text-ui-base',
               onChange: (values) => setState(
                 () => _authKind = values.isEmpty ? 'legacyToken' : values.first,
@@ -265,7 +265,7 @@ class _HermesStatusSection extends StatelessComponent {
     final capabilities = status?.capabilities;
     return div(classes: 'space-y-4', [
       section(
-        classes: 'space-y-2 rounded border border-border p-4',
+        classes: 'space-y-2 rounded-lg border border-border p-4',
         attributes: <String, String>{
           'aria-label': t.app.hermesServerStatusTitle,
         },
@@ -297,7 +297,7 @@ class _HermesStatusSection extends StatelessComponent {
         ],
       ),
       section(
-        classes: 'space-y-2 rounded border border-border p-4',
+        classes: 'space-y-2 rounded-lg border border-border p-4',
         attributes: <String, String>{
           'aria-label': t.app.hermesCapabilityToolsets,
         },
@@ -318,7 +318,7 @@ class _HermesStatusSection extends StatelessComponent {
                       toolset.label.isEmpty ? toolset.name : toolset.label,
                     ),
                   ]),
-                  span(classes: 'ml-2 text-ui-sm text-muted-foreground', [
+                  span(classes: 'ml-2 text-ui-sm text-foreground-subtle', [
                     Component.text(
                       t.app.hermesToolCount(count: toolset.tools.length),
                     ),
@@ -335,7 +335,7 @@ class _HermesStatusSection extends StatelessComponent {
                 li(classes: 'text-ui-base', [
                   code([Component.text('/${skill.name}')]),
                   if (skill.description case final description?)
-                    span(classes: 'ml-2 text-ui-sm text-muted-foreground', [
+                    span(classes: 'ml-2 text-ui-sm text-foreground-subtle', [
                       Component.text(description),
                     ]),
                 ]),

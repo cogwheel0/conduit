@@ -34,7 +34,7 @@ const ICONS = [
   'radio', 'redo-2', 'refresh-cw', 'rotate-ccw', 'rss', 'save', 'scroll-text',
   'search', 'send', 'server', 'settings', 'share-2', 'shield-check',
   'sliders-horizontal', 'sparkles', 'square', 'square-pen', 'square-stop',
-  'square-terminal', 'star', 'sticky-note', 'sun', 'tag', 'terminal', 'trash',
+  'square-terminal', 'star', 'sticky-note', 'sun', 'tag', 'terminal', 'thumbs-down', 'thumbs-up', 'trash',
   'triangle-alert', 'undo-2', 'upload', 'user', 'users', 'volume-2', 'volume-x',
   'wifi-off', 'wrench', 'x', 'zap',
 ]

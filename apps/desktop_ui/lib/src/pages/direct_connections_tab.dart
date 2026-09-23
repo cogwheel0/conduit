@@ -57,7 +57,7 @@ class _DirectConnectionsTabState extends State<DirectConnectionsTab> {
     final list = context.watch(directConnectionsProvider);
     final value = list.value;
     return div(classes: 'space-y-4', [
-      p(classes: 'text-ui-base text-muted-foreground', [
+      p(classes: 'text-ui-base text-foreground-subtle', [
         Component.text(t.app.directConnectionsDescription),
       ]),
       if (value != null)
@@ -83,7 +83,7 @@ class _DirectConnectionsTabState extends State<DirectConnectionsTab> {
           h3(classes: 'text-ui-base font-semibold', [
             Component.text(t.app.openWebUiDirectConnectionsSectionTitle),
           ]),
-          p(classes: 'text-ui-sm text-muted-foreground', [
+          p(classes: 'text-ui-sm text-foreground-subtle', [
             Component.text(t.app.openWebUiDirectConnectionsSectionDescription),
           ]),
         ]),
@@ -104,7 +104,7 @@ class _DirectConnectionsTabState extends State<DirectConnectionsTab> {
     required bool account,
   }) => <Component>[
     if (connections.isEmpty && !_addingTo(account: account))
-      div(classes: 'rounded border border-dashed border-border p-4', [
+      div(classes: 'rounded-lg border border-dashed border-border p-4', [
         p(classes: 'text-ui-base font-medium', [
           Component.text(
             account
@@ -112,7 +112,7 @@ class _DirectConnectionsTabState extends State<DirectConnectionsTab> {
                 : t.app.directProfilesEmptyTitle,
           ),
         ]),
-        p(classes: 'text-ui-sm text-muted-foreground', [
+        p(classes: 'text-ui-sm text-foreground-subtle', [
           Component.text(
             account
                 ? t.app.openWebUiDirectProfilesEmptySubtitle
@@ -143,8 +143,8 @@ class _DirectConnectionsTabState extends State<DirectConnectionsTab> {
       button(
         [Component.text(t.app.directConnectProvider)],
         classes:
-            'rounded border border-border px-3 py-1.5 text-ui-base '
-            'hover:bg-accent',
+            'rounded-lg border border-border px-3 py-1.5 text-ui-base '
+            'hover:bg-hover',
         type: ButtonType.button,
         attributes: <String, String>{
           if (account)
@@ -160,7 +160,7 @@ class _DirectConnectionsTabState extends State<DirectConnectionsTab> {
   Component _row(
     BuildContext context,
     DirectConnectionSummary connection,
-  ) => li(classes: 'rounded border border-border p-3', [
+  ) => li(classes: 'rounded-lg border border-border p-3', [
     div(classes: 'flex items-center gap-3', [
       input<bool>(
         classes: 'size-4',
@@ -183,7 +183,7 @@ class _DirectConnectionsTabState extends State<DirectConnectionsTab> {
           span(
             classes:
                 'rounded-full border border-border px-2 text-ui-sm '
-                'text-muted-foreground',
+                'text-foreground-subtle',
             [
               Component.text(
                 connection.kind == DirectKind.ollama
@@ -193,7 +193,7 @@ class _DirectConnectionsTabState extends State<DirectConnectionsTab> {
             ],
           ),
         ]),
-        span(classes: 'truncate font-mono text-xs text-muted-foreground', [
+        span(classes: 'truncate font-mono text-xs text-foreground-subtle', [
           Component.text(connection.baseUrl),
         ]),
         if (!connection.compatible)
@@ -204,7 +204,7 @@ class _DirectConnectionsTabState extends State<DirectConnectionsTab> {
       if (connection.kind == DirectKind.ollama)
         button(
           [Component.text(t.app.ollamaModelActions)],
-          classes: 'rounded px-2.5 py-1 text-ui-sm hover:bg-accent',
+          classes: 'rounded-lg px-2.5 py-1 text-ui-sm hover:bg-hover',
           type: ButtonType.button,
           attributes: <String, String>{
             'aria-expanded': '${_modelsOpen.contains(connection.id)}',
@@ -218,14 +218,14 @@ class _DirectConnectionsTabState extends State<DirectConnectionsTab> {
       if (connection.compatible)
         button(
           [Component.text(t.app.edit)],
-          classes: 'rounded px-2.5 py-1 text-ui-sm hover:bg-accent',
+          classes: 'rounded-lg px-2.5 py-1 text-ui-sm hover:bg-hover',
           type: ButtonType.button,
           onClick: () => setState(() => _editing = connection),
         ),
       button(
         [Component.text(t.app.delete)],
         classes:
-            'rounded px-2.5 py-1 text-ui-sm text-destructive '
+            'rounded-lg px-2.5 py-1 text-ui-sm text-destructive '
             'hover:bg-destructive/10',
         type: ButtonType.button,
         onClick: () => setState(() => _deleting = connection.id),
@@ -239,7 +239,7 @@ class _DirectConnectionsTabState extends State<DirectConnectionsTab> {
     if (_deleting == connection.id)
       div(
         classes:
-            'mt-2 space-y-2 rounded border border-destructive/40 '
+            'mt-2 space-y-2 rounded-lg border border-destructive/40 '
             'bg-destructive/10 p-2 text-ui-sm',
         attributes: const <String, String>{'role': 'alertdialog'},
         [
@@ -256,7 +256,7 @@ class _DirectConnectionsTabState extends State<DirectConnectionsTab> {
             button(
               [Component.text(t.app.delete)],
               classes:
-                  'rounded bg-destructive px-2 py-1 '
+                  'rounded-lg bg-destructive px-2 py-1 '
                   'text-destructive-foreground',
               type: ButtonType.button,
               onClick: () {
@@ -268,7 +268,7 @@ class _DirectConnectionsTabState extends State<DirectConnectionsTab> {
             ),
             button(
               [Component.text(t.app.cancel)],
-              classes: 'rounded px-2 py-1',
+              classes: 'rounded-lg px-2 py-1',
               type: ButtonType.button,
               onClick: () => setState(() => _deleting = null),
             ),
@@ -372,7 +372,7 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
   Component build(BuildContext context) {
     final openAi = _kind == DirectKind.openai;
     return div(
-      classes: 'space-y-3 rounded border border-border bg-background p-4',
+      classes: 'space-y-3 rounded-lg border border-border bg-panel p-4',
       attributes: <String, String>{
         'role': 'group',
         'aria-label': t.app.directConnectionDetailsTitle,
@@ -381,7 +381,7 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
         // Open WebUI names these after their host and supports only
         // OpenAI-compatible ones, so neither is asked.
         if (component.connection.openWebUi)
-          p(classes: 'text-ui-sm text-muted-foreground', [
+          p(classes: 'text-ui-sm text-foreground-subtle', [
             Component.text(t.app.openWebUiDirectConnectionEditorDescription),
             Component.text(' '),
             Component.text(t.app.openWebUiDirectConnectionProviderDescription),
@@ -410,7 +410,7 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
               ],
               id: 'direct-kind',
               classes:
-                  'w-full rounded border border-border bg-background px-2 '
+                  'w-full rounded-lg border border-border bg-panel px-2 '
                   'py-1.5 text-ui-base',
               onChange: (values) => setState(
                 () => _kind = values.firstOrNull == 'ollama'
@@ -429,7 +429,7 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
               : 'http://localhost:11434',
           onInput: (value) => setState(() => _baseUrl = value),
         ),
-        p(classes: '-mt-2 text-ui-sm text-muted-foreground', [
+        p(classes: '-mt-2 text-ui-sm text-foreground-subtle', [
           Component.text(t.app.directBaseUrlDescription),
         ]),
         if (openAi)
@@ -454,7 +454,7 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
               ],
               id: 'direct-mode',
               classes:
-                  'w-full rounded border border-border bg-background px-2 '
+                  'w-full rounded-lg border border-border bg-panel px-2 '
                   'py-1.5 text-ui-base',
               onChange: (values) => setState(
                 () => _apiMode = values.firstOrNull == 'responses'
@@ -506,7 +506,7 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
         if (_result case final result?)
           p(
             classes:
-                'text-ui-base ${_resultOk ? 'text-muted-foreground' : 'text-destructive'}',
+                'text-ui-base ${_resultOk ? 'text-foreground-subtle' : 'text-destructive'}',
             attributes: <String, String>{
               'role': _resultOk ? 'status' : 'alert',
             },
@@ -515,15 +515,15 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
         div(classes: 'flex justify-end gap-2', [
           button(
             [Component.text(t.app.cancel)],
-            classes: 'rounded px-3 py-1.5 text-ui-base hover:bg-accent',
+            classes: 'rounded-lg px-3 py-1.5 text-ui-base hover:bg-hover',
             type: ButtonType.button,
             onClick: component.onDone,
           ),
           button(
             [Component.text(t.app.directMcpTestConnection)],
             classes:
-                'rounded border border-border px-3 py-1.5 text-ui-base '
-                'hover:bg-accent disabled:opacity-50',
+                'rounded-lg border border-border px-3 py-1.5 text-ui-base '
+                'hover:bg-hover disabled:opacity-50',
             type: ButtonType.button,
             disabled: _busy,
             onClick: () => unawaited(_test(context)),
@@ -531,7 +531,7 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
           button(
             [Component.text(t.app.save)],
             classes:
-                'rounded bg-primary px-3 py-1.5 text-ui-base '
+                'rounded-lg bg-primary px-3 py-1.5 text-ui-base '
                 'text-primary-foreground disabled:opacity-50',
             type: ButtonType.button,
             disabled: _busy,
@@ -572,7 +572,7 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
             value: _prefix,
             onInput: (value) => setState(() => _prefix = value),
           ),
-          p(classes: '-mt-2 text-ui-sm text-muted-foreground', [
+          p(classes: '-mt-2 text-ui-sm text-foreground-subtle', [
             Component.text(t.app.directModelIdPrefixDescription),
           ]),
           textField(
@@ -582,7 +582,7 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
             placeholder: 'local, private',
             onInput: (value) => setState(() => _tags = value),
           ),
-          p(classes: '-mt-2 text-ui-sm text-muted-foreground', [
+          p(classes: '-mt-2 text-ui-sm text-foreground-subtle', [
             Component.text(t.app.directModelTagsDescription),
           ]),
           textAreaField(
@@ -594,7 +594,7 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
             placeholder: t.app.directMcpCustomHeadersHint,
             onInput: (value) => setState(() => _headers = value),
           ),
-          p(classes: '-mt-2 text-ui-sm text-muted-foreground', [
+          p(classes: '-mt-2 text-ui-sm text-foreground-subtle', [
             Component.text(
               connection.customHeaderNames.isEmpty
                   ? t.app.customHeadersDescription
@@ -607,7 +607,7 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
             p(classes: 'text-ui-base font-medium', [
               Component.text(t.app.mutualTlsSectionTitle),
             ]),
-            p(classes: 'text-ui-sm text-muted-foreground', [
+            p(classes: 'text-ui-sm text-foreground-subtle', [
               Component.text(t.app.mutualTlsSectionDescription),
             ]),
             _pemRow(
@@ -646,7 +646,7 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
             if (certificate != null || key != null)
               button(
                 [Component.text(t.app.mutualTlsClearCredentials)],
-                classes: 'text-ui-sm text-muted-foreground underline',
+                classes: 'text-ui-sm text-foreground-subtle underline',
                 type: ButtonType.button,
                 onClick: () => setState(() {
                   _certificate = null;
@@ -682,8 +682,7 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
         ),
       ],
       id: id,
-      classes:
-          'rounded border border-border px-2.5 py-1 text-ui-sm hover:bg-accent',
+      classes: 'rounded-lg border border-border px-2.5 py-1 text-ui-sm hover:bg-hover',
       type: ButtonType.button,
       attributes: <String, String>{'aria-labelledby': '$id-label $id'},
       onClick: () async {
@@ -710,7 +709,7 @@ class _ConnectionEditorState extends State<_ConnectionEditor> {
       },
     ),
     if (current != null)
-      span(classes: 'truncate font-mono text-xs text-muted-foreground', [
+      span(classes: 'truncate font-mono text-xs text-foreground-subtle', [
         Component.text(current),
       ]),
   ]);

@@ -147,7 +147,7 @@ class _ValvesDialogState extends State<ValvesDialog> {
           ],
           id: id,
           classes:
-              'w-full rounded border border-border bg-background px-3 py-2 '
+              'w-full rounded-lg border border-border bg-panel px-3 py-2 '
               'text-ui-base',
           onChange: (values) => set(values.isEmpty ? null : values.first),
         ),
@@ -190,11 +190,11 @@ class _ValvesDialogState extends State<ValvesDialog> {
     return div(classes: 'space-y-1', [
       control,
       if (description != null && description.isNotEmpty)
-        p(classes: 'text-ui-sm text-muted-foreground', [
+        p(classes: 'text-ui-sm text-foreground-subtle', [
           Component.text(description),
         ]),
       if (fallback != null)
-        p(classes: 'text-ui-xs text-muted-foreground', [
+        p(classes: 'text-ui-xs text-foreground-subtle', [
           Component.text('${t.app.workspaceValveDefault}: $fallback'),
         ]),
     ]);

@@ -51,7 +51,7 @@ class _ChatTagsState extends State<ChatTags> {
           input<String>(
             id: 'tag-draft',
             classes:
-                'w-32 rounded border border-border bg-background px-2 py-0.5 '
+                'w-32 rounded-lg border border-border bg-panel px-2 py-0.5 '
                 'text-ui-sm font-normal',
             type: InputType.text,
             value: _draft,
@@ -72,7 +72,7 @@ class _ChatTagsState extends State<ChatTags> {
             [Component.text('+ ${t.desktop.desktopAddTag}')],
             classes:
                 'shrink-0 rounded-full px-2 py-0.5 text-ui-sm font-normal '
-                'text-muted-foreground hover:bg-accent',
+                'text-foreground-subtle hover:bg-hover',
             type: ButtonType.button,
             onClick: () {
               setState(() {
@@ -89,7 +89,7 @@ class _ChatTagsState extends State<ChatTags> {
   Component _chip(String name) => span(
     classes:
         'flex shrink-0 items-center rounded-full border border-border '
-        'text-ui-sm font-normal text-muted-foreground',
+        'text-ui-sm font-normal text-foreground-subtle',
     [
       button(
         [Component.text(name)],

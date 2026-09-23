@@ -60,7 +60,7 @@ class UsageDetails extends StatelessComponent {
     if (rows.isEmpty) return const Component.empty();
 
     return details(
-      classes: 'text-ui-sm text-muted-foreground',
+      classes: 'text-ui-sm text-foreground-subtle',
       attributes: <String, String>{'aria-label': t.app.usageInfoTitle},
       [
         Component.element(

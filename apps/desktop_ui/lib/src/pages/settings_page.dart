@@ -68,7 +68,7 @@ class SettingsPage extends StatelessComponent {
         div(
           classes:
               'flex h-[min(40rem,90vh)] w-[min(56rem,95vw)] overflow-hidden '
-              'rounded border border-border bg-card shadow-xl',
+              'rounded-lg border border-border bg-card shadow-xl',
           [_sidebar(context, current), _panel(context, current)],
         ),
       ],
@@ -78,7 +78,7 @@ class SettingsPage extends StatelessComponent {
   Component _sidebar(
     BuildContext context,
     SettingsTab current,
-  ) => nav(classes: 'w-56 shrink-0 border-r border-border bg-background p-3', [
+  ) => nav(classes: 'w-56 shrink-0 border-r border-border bg-panel p-3', [
     h2(
       id: 'settings-title',
       classes: 'px-2 pb-3 pt-1 text-ui-base font-semibold text-foreground',
@@ -90,8 +90,8 @@ class SettingsPage extends StatelessComponent {
           a(
             href: '/settings/${tab.name}',
             classes:
-                'block rounded px-2 py-1.5 text-ui-base '
-                '${tab == current ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'}',
+                'block rounded-lg px-2 py-1.5 text-ui-base '
+                '${tab == current ? 'bg-selected text-foreground' : 'text-foreground-subtle hover:bg-hover'}',
             // `page`, not `selected`: these are navigation links, and
             // `aria-current="page"` is what a screen reader reports for
             // "this is where you are".
@@ -130,8 +130,8 @@ class SettingsPage extends StatelessComponent {
             button(
               [Component.text('×')],
               classes:
-                  'size-7 rounded text-ui-xl leading-none '
-                  'text-muted-foreground hover:bg-accent',
+                  'size-7 rounded-lg text-ui-xl leading-none '
+                  'text-foreground-subtle hover:bg-hover',
               type: ButtonType.button,
               attributes: <String, String>{'aria-label': t.app.close},
               // `Router` exposes no pop, and a settings dialog opened from a
@@ -261,9 +261,9 @@ class _AppearanceTab extends StatelessComponent {
           ],
           htmlFor: 'palette-${palette.id}',
           classes:
-              'flex cursor-pointer items-center gap-2 rounded '
+              'flex cursor-pointer items-center gap-2 rounded-lg '
               'border p-2 '
-              '${prefs.themePaletteId == palette.id ? 'border-primary bg-accent/40' : 'border-border hover:bg-accent/20'}',
+              '${prefs.themePaletteId == palette.id ? 'border-primary bg-selected' : 'border-border hover:bg-hover'}',
         ),
     ]),
   ]);
@@ -346,7 +346,7 @@ class _AppearanceTab extends StatelessComponent {
         ],
         id: 'locale',
         classes:
-            'w-full rounded border border-border bg-background '
+            'w-full rounded-lg border border-border bg-panel '
             'px-3 py-2 text-ui-base text-foreground',
         onChange: (values) =>
             unawaited(_setLocale(context, values.isEmpty ? '' : values.first)),
@@ -383,7 +383,7 @@ class _ConnectionsTab extends StatelessComponent {
       error: (error, _) => formError('$error'),
       data: (list) => div(classes: 'space-y-4', [
         if (list.servers.isEmpty)
-          p(classes: 'text-ui-base text-muted-foreground', [
+          p(classes: 'text-ui-base text-foreground-subtle', [
             Component.text(t.desktop.desktopSettingsNoServers),
           ]),
         ul(classes: 'space-y-2', [
@@ -392,8 +392,8 @@ class _ConnectionsTab extends StatelessComponent {
         a(
           href: '/onboarding',
           classes:
-              'inline-block rounded border border-border px-3 '
-              'py-1.5 text-ui-base text-foreground hover:bg-accent',
+              'inline-block rounded-lg border border-border px-3 '
+              'py-1.5 text-ui-base text-foreground hover:bg-hover',
           [Component.text(t.desktop.desktopSettingsAddServer)],
         ),
       ]),
@@ -402,7 +402,7 @@ class _ConnectionsTab extends StatelessComponent {
 
   Component _row(BuildContext context, ServerSummary server) => li(
     classes:
-        'flex items-center gap-3 rounded border border-border '
+        'flex items-center gap-3 rounded-lg border border-border '
         'p-3',
     [
       div(classes: 'min-w-0 flex-1', [
@@ -418,7 +418,7 @@ class _ConnectionsTab extends StatelessComponent {
               [Component.text(t.app.connectedToServer)],
             ),
         ]),
-        span(classes: 'truncate font-mono text-xs text-muted-foreground', [
+        span(classes: 'truncate font-mono text-xs text-foreground-subtle', [
           Component.text(server.url),
         ]),
       ]),
@@ -426,15 +426,15 @@ class _ConnectionsTab extends StatelessComponent {
       // one you are on: "signed in" next to the server you are using says
       // nothing, while next to another it is the whole reason to switch.
       if (server.hasStoredSession && !server.isActive)
-        span(classes: 'text-ui-sm text-muted-foreground', [
+        span(classes: 'text-ui-sm text-foreground-subtle', [
           Component.text(t.desktop.desktopSettingsSignedIn),
         ]),
       if (!server.isActive)
         button(
           [Component.text(t.desktop.desktopSettingsSwitchServer)],
           classes:
-              'rounded border border-border px-2.5 py-1 text-ui-sm '
-              'text-foreground hover:bg-accent',
+              'rounded-lg border border-border px-2.5 py-1 text-ui-sm '
+              'text-foreground hover:bg-hover',
           type: ButtonType.button,
           onClick: () => unawaited(
             context.read(sessionActionsProvider).connectToServer(server.id),
@@ -443,7 +443,7 @@ class _ConnectionsTab extends StatelessComponent {
       button(
         [Component.text(t.desktop.desktopSettingsRemoveServer)],
         classes:
-            'rounded px-2.5 py-1 text-ui-sm text-destructive '
+            'rounded-lg px-2.5 py-1 text-ui-sm text-destructive '
             'hover:bg-destructive/10',
         type: ButtonType.button,
         onClick: () => unawaited(
@@ -482,7 +482,7 @@ class _DataTabState extends State<_DataTab> {
         onChanged: ({required value}) =>
             setState(() => _keepServerDetails = value),
       ),
-      p(classes: 'text-ui-sm text-muted-foreground', [
+      p(classes: 'text-ui-sm text-foreground-subtle', [
         Component.text(t.app.keepServerDetailsDescription),
       ]),
     ]),
@@ -491,7 +491,7 @@ class _DataTabState extends State<_DataTab> {
     button(
       [Component.text(_busy ? t.desktop.desktopSigningOut : t.app.signOut)],
       classes:
-          'rounded bg-destructive px-4 py-2 text-ui-base '
+          'rounded-lg bg-destructive px-4 py-2 text-ui-base '
           'text-destructive-foreground disabled:opacity-60',
       type: ButtonType.button,
       disabled: _busy,
@@ -505,11 +505,12 @@ class _DataTabState extends State<_DataTab> {
   /// finishes, so "you are signed out here, but this device has not finished
   /// forgetting" is a real and temporary state the user is entitled to see.
   Component _outcomeNotice(SignOutOutcome outcome) => switch (outcome) {
-    SignOutOutcome.cleared => p(classes: 'text-ui-base text-muted-foreground', [
-      Component.text(t.desktop.desktopSignedOut),
-    ]),
+    SignOutOutcome.cleared => p(
+      classes: 'text-ui-base text-foreground-subtle',
+      [Component.text(t.desktop.desktopSignedOut)],
+    ),
     SignOutOutcome.ownershipYielded => p(
-      classes: 'text-ui-base text-muted-foreground',
+      classes: 'text-ui-base text-foreground-subtle',
       [Component.text(t.desktop.desktopSignOutSuperseded)],
     ),
     SignOutOutcome.localDataClearedSessionCleanupIncomplete ||
@@ -569,7 +570,7 @@ class _AboutTab extends StatelessComponent {
         [Component.text(text)],
       ),
       if (detail != null)
-        p(classes: 'text-ui-sm text-muted-foreground', [
+        p(classes: 'text-ui-sm text-foreground-subtle', [
           Component.text(detail),
         ]),
     ]);
@@ -595,7 +596,7 @@ class _AboutTab extends StatelessComponent {
           h3(classes: 'text-ui-base font-semibold', [
             Component.text(t.app.supportConduit),
           ]),
-          p(classes: 'text-ui-sm text-muted-foreground', [
+          p(classes: 'text-ui-sm text-foreground-subtle', [
             Component.text(t.app.supportConduitSubtitle),
           ]),
           ul(classes: 'space-y-2', [
@@ -616,7 +617,7 @@ class _AboutTab extends StatelessComponent {
   }
 
   List<Component> _row(String term, String value) => <Component>[
-    dt(classes: 'text-muted-foreground', [Component.text(term)]),
+    dt(classes: 'text-foreground-subtle', [Component.text(term)]),
     dd(classes: 'truncate font-mono text-card-foreground', [
       Component.text(value),
     ]),
@@ -624,7 +625,7 @@ class _AboutTab extends StatelessComponent {
 }
 
 Component _loading() =>
-    p(classes: 'text-ui-base text-muted-foreground', [Component.text('…')]);
+    p(classes: 'text-ui-base text-foreground-subtle', [Component.text('…')]);
 
 /// A language's name in that language.
 ///

@@ -116,14 +116,14 @@ class _QuickAskPageState extends State<QuickAskPage> {
     return div(
       classes:
           'flex h-screen flex-col gap-3 overflow-hidden border border-border '
-          'bg-background p-4 text-foreground',
+          'bg-panel p-4 text-foreground',
       attributes: <String, String>{
         'role': 'dialog',
         'aria-label': t.desktop.desktopQuickAskTitle,
       },
       [
         if (!ready)
-          p(classes: 'text-ui-base text-muted-foreground', [
+          p(classes: 'text-ui-base text-foreground-subtle', [
             Component.text(t.desktop.desktopQuickAskNeedsSetup),
           ])
         else ...[
@@ -141,20 +141,20 @@ class _QuickAskPageState extends State<QuickAskPage> {
           if (_asked case final question?)
             div(
               classes:
-                  'min-h-0 flex-1 space-y-2 overflow-y-auto rounded border '
+                  'min-h-0 flex-1 space-y-2 overflow-y-auto rounded-lg border '
                   'border-border bg-card p-3 text-ui-base',
               attributes: const <String, String>{
                 'role': 'log',
                 'aria-live': 'polite',
               },
               [
-                p(classes: 'text-ui-sm text-muted-foreground', [
+                p(classes: 'text-ui-sm text-foreground-subtle', [
                   Component.text(question),
                 ]),
                 if (answer != null && answer.text.isNotEmpty)
                   MarkdownView(answer.text)
                 else
-                  p(classes: 'animate-pulse text-muted-foreground', [
+                  p(classes: 'animate-pulse text-foreground-subtle', [
                     Component.text('▌'),
                   ]),
               ],
@@ -164,8 +164,8 @@ class _QuickAskPageState extends State<QuickAskPage> {
               [Component.text(_busy ? t.desktop.desktopSending : t.app.send)],
               id: 'quick-ask-send',
               classes:
-                  'rounded border border-border px-3 py-1.5 text-ui-base '
-                  'hover:bg-accent disabled:opacity-60',
+                  'rounded-lg border border-border px-3 py-1.5 text-ui-base '
+                  'hover:bg-hover disabled:opacity-60',
               type: ButtonType.button,
               disabled: _busy || _text.trim().isEmpty,
               onClick: () => unawaited(_ask()),
@@ -174,8 +174,8 @@ class _QuickAskPageState extends State<QuickAskPage> {
               button(
                 [Component.text(t.app.newChat)],
                 classes:
-                    'rounded border border-border px-3 py-1.5 text-ui-base '
-                    'hover:bg-accent',
+                    'rounded-lg border border-border px-3 py-1.5 text-ui-base '
+                    'hover:bg-hover',
                 type: ButtonType.button,
                 onClick: _reset,
               ),
@@ -183,7 +183,7 @@ class _QuickAskPageState extends State<QuickAskPage> {
                 [Component.text(t.desktop.desktopQuickAskContinue)],
                 id: 'quick-ask-continue',
                 classes:
-                    'rounded bg-primary px-3 py-1.5 text-ui-base '
+                    'rounded-lg bg-primary px-3 py-1.5 text-ui-base '
                     'text-primary-foreground',
                 type: ButtonType.button,
                 onClick: _continue,

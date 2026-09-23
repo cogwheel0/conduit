@@ -105,7 +105,7 @@ class _OllamaModelsState extends State<OllamaModels> {
       [
         if (_error case final error?) formError(error),
         if (list == null && _error == null)
-          p(classes: 'text-ui-sm text-muted-foreground', [
+          p(classes: 'text-ui-sm text-foreground-subtle', [
             Component.text(t.app.directMcpContentLoading),
           ]),
         if (list != null)
@@ -140,7 +140,7 @@ class _OllamaModelsState extends State<OllamaModels> {
                   : t.app.ollamaLoadModel,
             ),
           ],
-          classes: 'rounded px-2 py-0.5 text-ui-sm hover:bg-accent disabled:opacity-50',
+          classes: 'rounded-lg px-2 py-0.5 text-ui-sm hover:bg-hover disabled:opacity-50',
           type: ButtonType.button,
           disabled: busy,
           onClick: () {
@@ -171,7 +171,7 @@ class _OllamaModelsState extends State<OllamaModels> {
               ),
             ]),
           ],
-          classes: 'rounded border border-border bg-background px-1.5 py-0.5 text-ui-sm',
+          classes: 'rounded-lg border border-border bg-panel px-1.5 py-0.5 text-ui-sm',
           attributes: <String, String>{
             'aria-label': '${t.app.ollamaKeepAlive}: ${model.name}',
           },
@@ -215,7 +215,7 @@ class _OllamaModelsState extends State<OllamaModels> {
               button(
                 [Component.text(t.app.save)],
                 classes:
-                    'rounded bg-primary px-2 py-1 text-ui-sm '
+                    'rounded-lg bg-primary px-2 py-1 text-ui-sm '
                     'text-primary-foreground',
                 type: ButtonType.button,
                 onClick: () {
@@ -240,7 +240,7 @@ class _OllamaModelsState extends State<OllamaModels> {
                 Component.text(labelOf()),
               ]),
           ],
-          classes: 'rounded border border-border bg-background px-1.5 py-0.5 text-ui-sm',
+          classes: 'rounded-lg border border-border bg-panel px-1.5 py-0.5 text-ui-sm',
           attributes: <String, String>{
             'aria-label': '${t.app.ollamaThinking}: ${model.name}',
           },

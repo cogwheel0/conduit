@@ -100,7 +100,7 @@ class _PromptHistoryPanelState extends State<PromptHistoryPanel> {
         .map((v) => v.id)
         .firstOrNull;
     return section(
-      classes: 'space-y-2 rounded border border-border p-4',
+      classes: 'space-y-2 rounded-lg border border-border p-4',
       attributes: <String, String>{'aria-label': t.app.workspacePromptHistory},
       [
         h3(classes: 'text-ui-base font-semibold', [
@@ -117,7 +117,7 @@ class _PromptHistoryPanelState extends State<PromptHistoryPanel> {
         ul(classes: 'space-y-2', [
           for (final version in versions)
             li(
-              classes: 'space-y-1 rounded border border-border p-2',
+              classes: 'space-y-1 rounded-lg border border-border p-2',
               attributes: <String, String>{'data-version': version.id},
               [
                 div(classes: 'flex items-center gap-2 text-ui-base', [
@@ -130,7 +130,7 @@ class _PromptHistoryPanelState extends State<PromptHistoryPanel> {
                   if (version.production)
                     badge(t.app.workspacePromptHistoryLive, muted: false),
                 ]),
-                p(classes: 'text-ui-xs text-muted-foreground', [
+                p(classes: 'text-ui-xs text-foreground-subtle', [
                   Component.text(
                     [
                       ?version.authorName,
@@ -188,8 +188,7 @@ class _PromptHistoryPanelState extends State<PromptHistoryPanel> {
                 statusLine(t.app.workspacePromptHistoryDiffEmpty)
               else
                 pre(
-                  classes:
-                      'overflow-x-auto rounded bg-muted p-3 font-mono text-xs',
+                  classes: 'overflow-x-auto rounded-lg bg-muted p-3 font-mono text-xs',
                   [
                     for (final line in diff.lines)
                       div(classes: _lineClass(line), [
@@ -211,11 +210,11 @@ class _PromptHistoryPanelState extends State<PromptHistoryPanel> {
 
   static String _lineClass(String line) {
     if (line.startsWith('+++') || line.startsWith('---')) {
-      return 'text-muted-foreground';
+      return 'text-foreground-subtle';
     }
     if (line.startsWith('+')) return 'bg-success/10 text-success';
     if (line.startsWith('-')) return 'bg-destructive/10 text-destructive';
-    if (line.startsWith('@@')) return 'text-muted-foreground';
+    if (line.startsWith('@@')) return 'text-foreground-subtle';
     return '';
   }
 }

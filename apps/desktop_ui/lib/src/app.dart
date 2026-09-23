@@ -175,7 +175,7 @@ class ConduitDesktopApp extends StatelessComponent {
           h1(classes: 'text-xl font-semibold', [
             Component.text('Page not found'),
           ]),
-          p(classes: 'mt-2 text-ui-base text-muted-foreground', [
+          p(classes: 'mt-2 text-ui-base text-foreground-subtle', [
             Component.text(state.location),
           ]),
         ]),
@@ -244,7 +244,7 @@ Component _settingsLink() => a(
   href: '/settings/appearance',
   classes:
       'fixed bottom-4 right-4 rounded-full border border-border bg-card '
-      'px-3 py-1.5 text-ui-sm text-muted-foreground shadow hover:bg-accent',
+      'px-3 py-1.5 text-ui-sm text-foreground-subtle shadow hover:bg-hover',
   [Component.text(t.desktop.desktopSettingsTitle)],
 );
 
@@ -354,10 +354,7 @@ class _Shell extends StatelessComponent {
       classes:
           'flex h-screen flex-col overflow-hidden bg-window text-foreground',
       [
-        TitleBar(
-          workspace: workspace,
-          sidePane: location == '/' || location == '/index.html',
-        ),
+        TitleBar(workspace: workspace),
         // Above the route, so it is visible wherever the user is rather than
         // only on the screen that happened to notice the problem.
         const ServerIssueBanner(),

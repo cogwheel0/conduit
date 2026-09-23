@@ -47,7 +47,7 @@ class TerminalPage extends StatelessComponent {
               statusLine(t.app.terminalNoServersConfigured),
               Link(
                 to: '/',
-                classes: 'text-ui-sm text-muted-foreground hover:underline',
+                classes: 'text-ui-sm text-foreground-subtle hover:underline',
                 child: Component.text('← ${t.app.back}'),
               ),
             ],
@@ -315,7 +315,7 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
         div(classes: 'flex items-center gap-2', [
           Link(
             to: '/',
-            classes: 'rounded px-2 py-1 text-ui-base hover:bg-accent',
+            classes: 'rounded-lg px-2 py-1 text-ui-base hover:bg-hover',
             attributes: <String, String>{'aria-label': t.app.back},
             child: Component.text('←'),
           ),
@@ -333,7 +333,7 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
             ],
             id: 'terminal-server',
             classes:
-                'w-full rounded border border-border bg-background px-2 py-2 '
+                'w-full rounded-lg border border-border bg-panel px-2 py-2 '
                 'text-ui-base',
             attributes: <String, String>{
               'aria-label': t.app.terminalSelectServer,
@@ -383,9 +383,10 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
               ),
             ]),
             if (listing != null)
-              code(classes: 'block truncate text-ui-sm text-muted-foreground', [
-                Component.text(listing.path),
-              ]),
+              code(
+                classes: 'block truncate text-ui-sm text-foreground-subtle',
+                [Component.text(listing.path)],
+              ),
             if (_namingFolder)
               _nameField(
                 id: 'terminal-folder-name',
@@ -430,7 +431,7 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
                 li(classes: 'flex items-center gap-2 text-ui-base', [
                   code([Component.text('${port.port}')]),
                   span(
-                    classes: 'min-w-0 flex-1 truncate text-ui-sm text-muted-foreground',
+                    classes: 'min-w-0 flex-1 truncate text-ui-sm text-foreground-subtle',
                     [Component.text(port.process ?? '')],
                   ),
                   actionButton(
@@ -453,8 +454,8 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
         button(
           [Component.text('${entry.directory ? '📁' : '📄'} ${entry.name}')],
           classes:
-              'min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left '
-              'hover:bg-accent',
+              'min-w-0 flex-1 truncate rounded-lg px-1 py-0.5 text-left '
+              'hover:bg-hover',
           type: ButtonType.button,
           onClick: () =>
               unawaited(entry.directory ? _open(entry.path) : _show(entry)),
@@ -560,12 +561,12 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
         _link == TerminalLinkState.connecting;
     return main_(
       classes: _fullscreen
-          ? 'fixed inset-0 z-40 flex flex-col bg-background p-2'
+          ? 'fixed inset-0 z-40 flex flex-col bg-panel p-2'
           : 'flex min-w-0 flex-1 flex-col p-3',
       [
         div(classes: 'mb-2 flex flex-wrap items-center gap-2', [
           span(
-            classes: 'flex-1 text-ui-sm text-muted-foreground',
+            classes: 'flex-1 text-ui-sm text-foreground-subtle',
             attributes: const <String, String>{'role': 'status'},
             [Component.text(label)],
           ),
@@ -610,7 +611,7 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
         div(
           id: _hostId,
           classes:
-              'terminal-host min-h-0 flex-1 overflow-hidden rounded border '
+              'terminal-host min-h-0 flex-1 overflow-hidden rounded-lg border '
               'border-border bg-card p-1',
           [],
         ),
@@ -632,7 +633,7 @@ class _TerminalWorkspaceState extends State<TerminalWorkspace> {
         if (file.text case final text?)
           pre(
             classes:
-                'max-h-[60vh] overflow-auto rounded bg-muted p-3 font-mono '
+                'max-h-[60vh] overflow-auto rounded-lg bg-muted p-3 font-mono '
                 'text-xs',
             [Component.text(text)],
           )

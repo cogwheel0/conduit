@@ -30,7 +30,7 @@ class HermesPage extends StatelessComponent {
             div(classes: 'flex items-center gap-2', [
               Link(
                 to: '/',
-                classes: 'rounded px-2 py-1 text-ui-base hover:bg-accent',
+                classes: 'rounded-lg px-2 py-1 text-ui-base hover:bg-hover',
                 attributes: <String, String>{'aria-label': t.app.back},
                 child: Component.text('←'),
               ),
@@ -39,7 +39,7 @@ class HermesPage extends StatelessComponent {
               ]),
               a(
                 href: '/settings/hermes',
-                classes: 'text-ui-sm text-muted-foreground hover:underline',
+                classes: 'text-ui-sm text-foreground-subtle hover:underline',
                 [Component.text(t.desktop.desktopSettingsTitle)],
               ),
             ]),
@@ -129,7 +129,7 @@ class _SessionsState extends State<_Sessions> {
           statusLine(t.app.hermesConversationsLoadError, error: true)
         else if (list.isEmpty)
           statusLine(t.app.hermesNoConversationsMessage),
-        ul(classes: 'divide-y divide-border rounded border border-border', [
+        ul(classes: 'divide-y divide-border rounded-lg border border-border', [
           for (final session in list)
             li(
               classes: 'space-y-2 px-3 py-2',
@@ -151,7 +151,7 @@ class _SessionsState extends State<_Sessions> {
                     onClick: () => _open(context, session.chatId),
                   ),
                   if (session.updatedAtMs case final ms?)
-                    span(classes: 'text-ui-sm text-muted-foreground', [
+                    span(classes: 'text-ui-sm text-foreground-subtle', [
                       Component.text(dayOf(ms)),
                     ]),
                   actionButton(
@@ -180,7 +180,7 @@ class _SessionsState extends State<_Sessions> {
                   ),
                 ]),
                 if (session.preview case final preview?)
-                  p(classes: 'truncate text-ui-sm text-muted-foreground', [
+                  p(classes: 'truncate text-ui-sm text-foreground-subtle', [
                     Component.text(preview),
                   ]),
                 if (_renaming == session.id)
@@ -318,7 +318,7 @@ class _JobsState extends State<_Jobs> {
           statusLine(t.app.hermesJobLoadFailed, error: true)
         else if (list.isEmpty)
           statusLine(t.app.hermesJobEmptyMessage),
-        ul(classes: 'divide-y divide-border rounded border border-border', [
+        ul(classes: 'divide-y divide-border rounded-lg border border-border', [
           for (final job in list)
             li(
               classes: 'space-y-1 px-3 py-2',
@@ -366,7 +366,7 @@ class _JobsState extends State<_Jobs> {
                     ),
                   ],
                 ]),
-                p(classes: 'text-ui-sm text-muted-foreground', [
+                p(classes: 'text-ui-sm text-foreground-subtle', [
                   Component.text(
                     [
                       job.scheduleText ?? job.schedule,
@@ -403,7 +403,7 @@ class _JobsState extends State<_Jobs> {
   }
 
   Component _editor(BuildContext context, HermesJobDto? job) =>
-      div(classes: 'space-y-3 rounded border border-border p-3', [
+      div(classes: 'space-y-3 rounded-lg border border-border p-3', [
         h3(classes: 'text-ui-base font-semibold', [
           Component.text(
             job == null ? t.app.hermesJobNew : t.app.hermesJobEditorEditTitle,
@@ -431,7 +431,7 @@ class _JobsState extends State<_Jobs> {
           value: _schedule,
           onInput: (value) => setState(() => _schedule = value),
         ),
-        p(classes: 'text-ui-sm text-muted-foreground', [
+        p(classes: 'text-ui-sm text-foreground-subtle', [
           Component.text(t.app.hermesJobScheduleHelp),
         ]),
         div(classes: 'flex justify-end gap-2', [

@@ -49,7 +49,7 @@ class _ShareDialogState extends State<ShareDialog> {
     [
       div(
         classes:
-            'w-full max-w-md space-y-4 rounded border border-border '
+            'w-full max-w-md space-y-4 rounded-lg border border-border '
             'bg-popover p-5 text-ui-base text-popover-foreground shadow-lg',
         attributes: <String, String>{
           'role': 'dialog',
@@ -63,11 +63,11 @@ class _ShareDialogState extends State<ShareDialog> {
           h2(classes: 'text-ui-lg font-semibold', [
             Component.text(t.app.shareChat),
           ]),
-          p(classes: 'text-muted-foreground', [
+          p(classes: 'text-foreground-subtle', [
             Component.text(t.app.shareChatDescription),
           ]),
           if (_hasLink && _link == null)
-            p(classes: 'text-muted-foreground', [
+            p(classes: 'text-foreground-subtle', [
               Component.text('${t.app.shareChatExisting} '),
               button(
                 [Component.text(t.app.shareChatDeleteLink)],
@@ -83,7 +83,7 @@ class _ShareDialogState extends State<ShareDialog> {
           if (_link case final link?)
             input<String>(
               classes:
-                  'w-full rounded border border-border bg-muted px-2 py-1.5 '
+                  'w-full rounded-lg border border-border bg-muted px-2 py-1.5 '
                   'font-mono text-xs',
               type: InputType.text,
               value: link,
@@ -94,7 +94,7 @@ class _ShareDialogState extends State<ShareDialog> {
             ),
           if (_status case final status?)
             p(
-              classes: _failed ? 'text-destructive' : 'text-muted-foreground',
+              classes: _failed ? 'text-destructive' : 'text-foreground-subtle',
               attributes: <String, String>{
                 'role': _failed ? 'alert' : 'status',
               },
@@ -103,7 +103,7 @@ class _ShareDialogState extends State<ShareDialog> {
           div(classes: 'flex justify-end gap-2', [
             button(
               [Component.text(t.app.close)],
-              classes: 'rounded px-3 py-1.5 hover:bg-accent',
+              classes: 'rounded-lg px-3 py-1.5 hover:bg-hover',
               type: ButtonType.button,
               onClick: component.onClose,
             ),
@@ -114,7 +114,7 @@ class _ShareDialogState extends State<ShareDialog> {
                 ),
               ],
               classes:
-                  'rounded bg-primary px-3 py-1.5 text-primary-foreground '
+                  'rounded-lg bg-primary px-3 py-1.5 text-primary-foreground '
                   'disabled:opacity-50',
               type: ButtonType.button,
               disabled: _busy,

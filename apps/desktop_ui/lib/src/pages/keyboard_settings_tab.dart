@@ -84,7 +84,7 @@ class _KeyboardSettingsTabState extends State<KeyboardSettingsTab> {
         const <String, String>{};
     return div(classes: 'space-y-4', [
       if (_problem case final problem?) statusLine(problem, error: true),
-      ul(classes: 'divide-y divide-border rounded border border-border', [
+      ul(classes: 'divide-y divide-border rounded-lg border border-border', [
         for (final shortcut in table)
           li(
             classes: 'flex items-center gap-3 px-3 py-2 text-ui-base',
@@ -97,7 +97,7 @@ class _KeyboardSettingsTabState extends State<KeyboardSettingsTab> {
                 input<String>(
                   id: 'shortcut-capture',
                   classes:
-                      'w-56 rounded border border-primary bg-background '
+                      'w-56 rounded-lg border border-primary bg-panel '
                       'px-2 py-1 text-ui-sm',
                   attributes: <String, String>{
                     'readonly': '',
@@ -121,7 +121,7 @@ class _KeyboardSettingsTabState extends State<KeyboardSettingsTab> {
               else
                 Component.element(
                   tag: 'kbd',
-                  classes: 'rounded border border-border px-1.5 text-ui-sm',
+                  classes: 'rounded-lg border border-border px-1.5 text-ui-sm',
                   children: [
                     Component.text(
                       describeStroke(shortcut.stroke, isMac: isMac),
@@ -131,8 +131,8 @@ class _KeyboardSettingsTabState extends State<KeyboardSettingsTab> {
               button(
                 [Component.text(t.desktop.desktopShortcutChange)],
                 classes:
-                    'rounded border border-border px-2 py-0.5 text-ui-sm '
-                    'hover:bg-accent',
+                    'rounded-lg border border-border px-2 py-0.5 text-ui-sm '
+                    'hover:bg-hover',
                 type: ButtonType.button,
                 attributes: <String, String>{
                   'aria-label': t.desktop.desktopShortcutChangeLabel(
@@ -156,8 +156,8 @@ class _KeyboardSettingsTabState extends State<KeyboardSettingsTab> {
                 button(
                   [Component.text(t.desktop.desktopShortcutReset)],
                   classes:
-                      'rounded px-2 py-0.5 text-ui-sm text-muted-foreground '
-                      'hover:bg-accent',
+                      'rounded-lg px-2 py-0.5 text-ui-sm text-foreground-subtle '
+                      'hover:bg-hover',
                   type: ButtonType.button,
                   onClick: () => _reset(shortcut.action),
                 ),

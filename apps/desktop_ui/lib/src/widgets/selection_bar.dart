@@ -46,8 +46,8 @@ class _SelectionBarState extends State<SelectionBar> {
         button(
           [Component.text(t.desktop.desktopSelect)],
           classes:
-              'rounded px-2 py-0.5 text-ui-sm text-muted-foreground '
-              'hover:bg-accent',
+              'rounded-lg px-2 py-0.5 text-ui-sm text-foreground-subtle '
+              'hover:bg-hover',
           type: ButtonType.button,
           onClick: () {
             setState(() => _notice = null);
@@ -60,9 +60,9 @@ class _SelectionBarState extends State<SelectionBar> {
     final count = selection.length;
     final none = count == 0 || _busy;
     const action =
-        'rounded px-2 py-0.5 text-ui-sm hover:bg-accent disabled:opacity-40';
+        'rounded-lg px-2 py-0.5 text-ui-sm hover:bg-hover disabled:opacity-40';
     return div(
-      classes: 'mx-2 mb-2 space-y-2 rounded border border-border p-2',
+      classes: 'mx-2 mb-2 space-y-2 rounded-lg border border-border p-2',
       attributes: <String, String>{
         'role': 'toolbar',
         'aria-label': t.desktop.desktopSelectedCount(count: count),
@@ -95,14 +95,14 @@ class _SelectionBarState extends State<SelectionBar> {
                 button(
                   [Component.text(t.app.delete)],
                   classes:
-                      'rounded bg-destructive px-2 py-1 '
+                      'rounded-lg bg-destructive px-2 py-1 '
                       'text-destructive-foreground',
                   type: ButtonType.button,
                   onClick: () => unawaited(_run(BulkChatAction.delete)),
                 ),
                 button(
                   [Component.text(t.app.cancel)],
-                  classes: 'rounded px-2 py-1',
+                  classes: 'rounded-lg px-2 py-1',
                   type: ButtonType.button,
                   onClick: () => setState(() => _confirmingDelete = false),
                 ),
@@ -140,7 +140,7 @@ class _SelectionBarState extends State<SelectionBar> {
                     option(value: folder.id, [Component.text(folder.name)]),
                 ],
                 classes:
-                    'rounded border border-border bg-background px-1 py-0.5 '
+                    'rounded-lg border border-border bg-panel px-1 py-0.5 '
                     'text-ui-sm disabled:opacity-40',
                 disabled: none,
                 attributes: <String, String>{

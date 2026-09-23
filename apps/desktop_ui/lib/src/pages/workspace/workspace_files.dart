@@ -100,7 +100,7 @@ class _KnowledgeFilesState extends State<KnowledgeFiles> {
         if (f.status == 'failed' || f.error != null) f,
     ];
     return section(
-      classes: 'space-y-3 rounded border border-border p-4',
+      classes: 'space-y-3 rounded-lg border border-border p-4',
       attributes: <String, String>{
         'aria-label': t.app.workspaceKnowledgeFilesTitle,
       },
@@ -110,7 +110,7 @@ class _KnowledgeFilesState extends State<KnowledgeFiles> {
             Component.text(t.app.workspaceKnowledgeFilesTitle),
             if (value != null)
               span(
-                classes: 'ml-2 text-ui-sm font-normal text-muted-foreground',
+                classes: 'ml-2 text-ui-sm font-normal text-foreground-subtle',
                 [Component.text('${value.total}')],
               ),
           ]),
@@ -153,7 +153,7 @@ class _KnowledgeFilesState extends State<KnowledgeFiles> {
             _crumb(context, t.app.workspaceKnowledgeRoot, ''),
             for (final crumb
                 in value?.breadcrumbs ?? const <WorkspaceDirectory>[]) ...[
-              span(classes: 'text-muted-foreground', [Component.text('/')]),
+              span(classes: 'text-foreground-subtle', [Component.text('/')]),
               _crumb(context, crumb.name, crumb.id),
             ],
           ],
@@ -253,7 +253,7 @@ class _KnowledgeFilesState extends State<KnowledgeFiles> {
   Component _crumb(BuildContext context, String text, String directoryId) =>
       button(
         [Component.text(text)],
-        classes: 'rounded px-1 hover:bg-accent',
+        classes: 'rounded-lg px-1 hover:bg-hover',
         type: ButtonType.button,
         onClick: () => unawaited(
           _run(
@@ -344,7 +344,7 @@ class _KnowledgeFilesState extends State<KnowledgeFiles> {
           span(classes: 'min-w-0 flex-1 truncate', [
             Component.text(file.filename),
             if (file.size case final size?)
-              span(classes: 'ml-2 text-ui-sm text-muted-foreground', [
+              span(classes: 'ml-2 text-ui-sm text-foreground-subtle', [
                 Component.text(_size(size)),
               ]),
           ]),
@@ -417,7 +417,7 @@ class _KnowledgeFilesState extends State<KnowledgeFiles> {
           ]),
         if (_moving == file.id)
           div(classes: 'flex flex-wrap items-center gap-1 text-ui-sm', [
-            span(classes: 'text-muted-foreground', [
+            span(classes: 'text-foreground-subtle', [
               Component.text(t.app.workspaceKnowledgeMoveTitle),
             ]),
             for (final (id, name) in targets)

@@ -240,13 +240,5 @@ void main() {
       await tester.click(_labelled(t.desktop.desktopSearch));
       expect(asked, <ShortcutAction>[ShortcutAction.openPalette]);
     });
-
-    testComponents('the side pane toggle is there only with a conversation', (
-      tester,
-    ) async {
-      tester.pumpComponent(bar());
-      await pumpEventQueue();
-      expect(_labelled(t.desktop.desktopSidePane), findsNothing);
-    });
   });
 }

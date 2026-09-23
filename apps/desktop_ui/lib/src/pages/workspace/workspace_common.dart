@@ -70,12 +70,12 @@ Component actionButton(
   [Component.text(text)],
   id: id,
   classes: primary
-      ? 'rounded bg-primary px-3 py-1.5 text-ui-sm text-primary-foreground '
+      ? 'rounded-lg bg-primary px-3 py-1.5 text-ui-sm text-primary-foreground '
             'disabled:opacity-60'
       : destructive
-      ? 'rounded px-3 py-1.5 text-ui-sm text-destructive hover:bg-destructive/10 '
+      ? 'rounded-lg px-3 py-1.5 text-ui-sm text-destructive hover:bg-destructive/10 '
             'disabled:opacity-60'
-      : 'rounded border border-border px-3 py-1.5 text-ui-sm hover:bg-accent '
+      : 'rounded-lg border border-border px-3 py-1.5 text-ui-sm hover:bg-hover '
             'disabled:opacity-60',
   type: ButtonType.button,
   disabled: disabled,
@@ -96,7 +96,7 @@ Component modal({
   [
     div(
       classes:
-          'max-h-[85vh] w-full $width space-y-4 overflow-y-auto rounded '
+          'max-h-[85vh] w-full $width space-y-4 overflow-y-auto rounded-lg '
           'border border-border bg-popover p-5 text-ui-base '
           'text-popover-foreground shadow-lg',
       attributes: <String, String>{
@@ -125,25 +125,25 @@ Component confirmBox({
   String? cancelText,
 }) => div(
   classes:
-      'space-y-2 rounded border border-destructive/40 bg-destructive/10 p-3 '
+      'space-y-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 '
       'text-ui-base',
   attributes: const <String, String>{'role': 'alertdialog'},
   [
     p(classes: 'font-medium', [Component.text(title)]),
     if (message != null)
-      p(classes: 'text-muted-foreground', [Component.text(message)]),
+      p(classes: 'text-foreground-subtle', [Component.text(message)]),
     div(classes: 'flex gap-2', [
       button(
         [Component.text(confirmText)],
         classes:
-            'rounded bg-destructive px-2.5 py-1 text-ui-sm '
+            'rounded-lg bg-destructive px-2.5 py-1 text-ui-sm '
             'text-destructive-foreground',
         type: ButtonType.button,
         onClick: onConfirm,
       ),
       button(
         [Component.text(cancelText ?? t.app.cancel)],
-        classes: 'rounded px-2.5 py-1 text-ui-sm hover:bg-accent',
+        classes: 'rounded-lg px-2.5 py-1 text-ui-sm hover:bg-hover',
         type: ButtonType.button,
         onClick: onCancel,
       ),
@@ -154,14 +154,14 @@ Component confirmBox({
 Component badge(String text, {bool muted = true}) => span(
   classes:
       'shrink-0 rounded-full border px-1.5 text-ui-xs '
-      '${muted ? 'border-border text-muted-foreground' : 'border-primary/50 text-primary'}',
+      '${muted ? 'border-border text-foreground-subtle' : 'border-primary/50 text-primary'}',
   [Component.text(text)],
 );
 
 Component statusLine(String text, {bool error = false}) => p(
   classes: error
       ? 'text-ui-sm text-destructive'
-      : 'text-ui-sm text-muted-foreground',
+      : 'text-ui-sm text-foreground-subtle',
   attributes: <String, String>{'role': error ? 'alert' : 'status'},
   [Component.text(text)],
 );

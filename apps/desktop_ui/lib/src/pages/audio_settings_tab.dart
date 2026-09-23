@@ -45,7 +45,7 @@ Component _section(String title, List<Component> children) => section(
 );
 
 Component _hint(String text) =>
-    p(classes: 'text-ui-sm text-muted-foreground', [Component.text(text)]);
+    p(classes: 'text-ui-sm text-foreground-subtle', [Component.text(text)]);
 
 /// A slider that saves when it is let go.
 Component _slider({
@@ -63,7 +63,7 @@ Component _slider({
     label(htmlFor: id, classes: 'font-medium text-foreground', [
       Component.text(text),
     ]),
-    span(classes: 'text-ui-sm text-muted-foreground', [Component.text(shown)]),
+    span(classes: 'text-ui-sm text-foreground-subtle', [Component.text(shown)]),
   ]),
   input<Object?>(
     id: id,
@@ -313,7 +313,7 @@ class _Speech extends StatelessComponent {
           option(value: id, selected: selected == id, [Component.text(name)]),
       ],
       id: 'tts-voice',
-      classes: 'w-full rounded border border-border bg-background px-3 py-2 text-ui-base',
+      classes: 'w-full rounded-lg border border-border bg-panel px-3 py-2 text-ui-base',
       onChange: (values) {
         final id = values.isEmpty ? '' : values.first;
         onChanged(id.isEmpty ? null : id);
@@ -385,13 +385,13 @@ class _LocalModels extends StatelessComponent {
           [Component.text(text)],
           id: id,
           classes:
-              'rounded border border-border px-2 py-0.5 text-ui-sm '
-              'hover:bg-accent',
+              'rounded-lg border border-border px-2 py-0.5 text-ui-sm '
+              'hover:bg-hover',
           type: ButtonType.button,
           onClick: onClick,
         );
     return section(
-      classes: 'space-y-3 rounded border border-border p-3',
+      classes: 'space-y-3 rounded-lg border border-border p-3',
       attributes: <String, String>{
         'aria-label': t.desktop.desktopSttModelsTitle,
       },
@@ -421,13 +421,13 @@ class _LocalModels extends StatelessComponent {
                   span(classes: 'min-w-0 flex-1', [
                     Component.text(model.name),
                     if (model.englishOnly)
-                      span(classes: 'ml-2 text-ui-sm text-muted-foreground', [
+                      span(classes: 'ml-2 text-ui-sm text-foreground-subtle', [
                         Component.text(t.desktop.desktopSttModelEnglishOnly),
                       ]),
                   ]),
                   if (model.receivedBytes case final received?)
                     span(
-                      classes: 'text-ui-sm text-muted-foreground',
+                      classes: 'text-ui-sm text-foreground-subtle',
                       attributes: const <String, String>{'role': 'status'},
                       [
                         Component.text(

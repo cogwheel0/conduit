@@ -75,7 +75,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
         h1(classes: 'text-2xl font-semibold', [
           Component.text(t.app.backendChooserWelcome),
         ]),
-        p(classes: 'text-ui-base text-muted-foreground', [
+        p(classes: 'text-ui-base text-foreground-subtle', [
           Component.text(t.app.backendChooserPrompt),
         ]),
       ]),
@@ -100,7 +100,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
       button(
         [Component.text(t.app.skipServerSetupTryDemo)],
         classes:
-            'self-start text-ui-base text-muted-foreground underline '
+            'self-start text-ui-base text-foreground-subtle underline '
             'underline-offset-4 disabled:opacity-60',
         type: ButtonType.button,
         disabled: _busy,
@@ -115,7 +115,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
     required String subtitle,
     required void Function() onChoose,
   }) => div(classes: 'space-y-2', [
-    h2(classes: 'text-ui-sm font-medium uppercase text-muted-foreground', [
+    h2(classes: 'text-ui-sm font-medium uppercase text-foreground-subtle', [
       Component.text(section),
     ]),
     button(
@@ -123,13 +123,13 @@ class _OnboardingPageState extends State<OnboardingPage> {
         span(classes: 'block text-ui-base font-medium', [
           Component.text(title),
         ]),
-        span(classes: 'block text-ui-sm text-muted-foreground', [
+        span(classes: 'block text-ui-sm text-foreground-subtle', [
           Component.text(subtitle),
         ]),
       ],
       classes:
-          'w-full rounded border border-border bg-card p-4 text-left '
-          'hover:bg-accent disabled:opacity-60',
+          'w-full rounded-lg border border-border bg-card p-4 text-left '
+          'hover:bg-hover disabled:opacity-60',
       type: ButtonType.button,
       disabled: _busy,
       onClick: onChoose,
@@ -151,7 +151,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
   Component _back(BuildContext context) => button(
     [Component.text('← ${t.app.backendChooserWelcome}')],
     classes:
-        'self-start text-ui-base text-muted-foreground hover:text-foreground '
+        'self-start text-ui-base text-foreground-subtle hover:text-foreground '
         'disabled:opacity-60',
     type: ButtonType.button,
     disabled: _busy,
@@ -189,12 +189,12 @@ class _OnboardingPageState extends State<OnboardingPage> {
           h1(classes: 'text-2xl font-semibold', [
             Component.text(t.app.backendChooserHermesTitle),
           ]),
-          p(classes: 'text-ui-base text-muted-foreground', [
+          p(classes: 'text-ui-base text-foreground-subtle', [
             Component.text(t.app.hermesNativeSettingsSubtitle),
           ]),
         ]),
         if (saved == null)
-          p(classes: 'text-ui-base text-muted-foreground', [
+          p(classes: 'text-ui-base text-foreground-subtle', [
             Component.text(t.app.loadingShort),
           ])
         else
@@ -216,7 +216,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
           h1(classes: 'text-2xl font-semibold', [
             Component.text(t.app.connectToServer),
           ]),
-          p(classes: 'text-ui-base text-muted-foreground', [
+          p(classes: 'text-ui-base text-foreground-subtle', [
             Component.text(t.app.signInServerDescription),
           ]),
         ]),
@@ -264,7 +264,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
         button(
           [Component.text(t.app.skipServerSetupTryDemo)],
           classes:
-              'text-ui-base text-muted-foreground underline underline-offset-4 '
+              'text-ui-base text-foreground-subtle underline underline-offset-4 '
               'disabled:opacity-60',
           type: ButtonType.button,
           disabled: _busy,
@@ -352,7 +352,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
           }),
         ),
       ]),
-  ], classes: 'rounded border border-border p-4');
+  ], classes: 'rounded-lg border border-border p-4');
 
   /// A button plus the chosen filename, not an `<input type="file">` in the
   /// form.
@@ -388,8 +388,8 @@ class _OnboardingPageState extends State<OnboardingPage> {
         ],
         id: id,
         classes:
-            'rounded border border-border px-3 py-1.5 text-ui-base '
-            'text-foreground hover:bg-accent disabled:opacity-60',
+            'rounded-lg border border-border px-3 py-1.5 text-ui-base '
+            'text-foreground hover:bg-hover disabled:opacity-60',
         type: ButtonType.button,
         disabled: _busy,
         // Both, so the button announces which field it belongs to. "Choose
@@ -399,12 +399,12 @@ class _OnboardingPageState extends State<OnboardingPage> {
             unawaited(_pick(context, accept, marker, invalidMessage, onPicked)),
       ),
       if (label != null) ...<Component>[
-        span(classes: 'truncate font-mono text-xs text-muted-foreground', [
+        span(classes: 'truncate font-mono text-xs text-foreground-subtle', [
           Component.text(label),
         ]),
         button(
           [Component.text(t.app.clear)],
-          classes: 'text-ui-sm text-muted-foreground underline',
+          classes: 'text-ui-sm text-foreground-subtle underline',
           type: ButtonType.button,
           disabled: _busy,
           onClick: onCleared,

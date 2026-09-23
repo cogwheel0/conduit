@@ -1212,9 +1212,7 @@ void main() {
     await pumpEventQueue();
     expect(find.tag('aside'), findsNothing);
 
-    await tester.click(
-      find.componentWithText(button, t.desktop.desktopControls),
-    );
+    await tester.click(_byLabel(t.desktop.desktopControls));
     await pumpEventQueue();
     expect(find.tag('aside'), findsOneComponent);
     expect(find.text('Answer tersely.'), findsOneComponent);

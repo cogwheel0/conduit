@@ -77,7 +77,7 @@ class StatusPage extends StatelessComponent {
 
   Component _connectedCard(CoreConnection state) {
     final handshake = state.handshake!;
-    return div(classes: 'rounded border border-border bg-card p-6', [
+    return div(classes: 'rounded-lg border border-border bg-card p-6', [
       div(classes: 'flex items-center gap-2', [
         span(classes: 'inline-block size-2 rounded-full bg-success', const []),
         span(classes: 'font-medium text-card-foreground', [
@@ -106,14 +106,14 @@ class StatusPage extends StatelessComponent {
       : 'reported by the daemon';
 
   List<Component> _definition(String term, String value) => <Component>[
-    dt(classes: 'text-muted-foreground', [Component.text(term)]),
+    dt(classes: 'text-foreground-subtle', [Component.text(term)]),
     dd(classes: 'truncate font-mono text-card-foreground', [
       Component.text(value),
     ]),
   ];
 
   Component _detailRow(String label, String value) =>
-      div(classes: 'flex justify-between text-ui-base text-muted-foreground', [
+      div(classes: 'flex justify-between text-ui-base text-foreground-subtle', [
         span([Component.text(label)]),
         span(classes: 'font-mono', [Component.text(value)]),
       ]);
@@ -122,9 +122,9 @@ class StatusPage extends StatelessComponent {
     required String tone,
     required String title,
     required String detail,
-  }) => div(classes: 'rounded border border-border bg-card p-6', [
+  }) => div(classes: 'rounded-lg border border-border bg-card p-6', [
     div(classes: 'font-medium text-$tone', [Component.text(title)]),
-    p(classes: 'mt-2 text-ui-base text-muted-foreground', [
+    p(classes: 'mt-2 text-ui-base text-foreground-subtle', [
       Component.text(detail),
     ]),
   ]);

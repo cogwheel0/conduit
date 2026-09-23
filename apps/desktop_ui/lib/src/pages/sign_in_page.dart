@@ -56,11 +56,11 @@ class _SignInPageState extends State<SignInPage> {
       [
         header(classes: 'space-y-2', [
           h1(classes: 'text-2xl font-semibold', [Component.text(t.app.signIn)]),
-          p(classes: 'text-ui-base text-muted-foreground', [
+          p(classes: 'text-ui-base text-foreground-subtle', [
             Component.text(t.app.enterCredentials),
           ]),
           if (serverUrl != null)
-            p(classes: 'truncate font-mono text-xs text-muted-foreground', [
+            p(classes: 'truncate font-mono text-xs text-foreground-subtle', [
               Component.text(serverUrl),
             ]),
         ]),
@@ -88,7 +88,7 @@ class _SignInPageState extends State<SignInPage> {
         button(
           [Component.text(t.app.backToServerSetup)],
           classes:
-              'text-ui-base text-muted-foreground underline underline-offset-4 '
+              'text-ui-base text-foreground-subtle underline underline-offset-4 '
               'disabled:opacity-60',
           type: ButtonType.button,
           disabled: _busy,
@@ -107,7 +107,7 @@ class _SignInPageState extends State<SignInPage> {
   Component _ssoButton(BuildContext context, String? serverUrl) => button(
     [Component.text(t.app.signInWithSso)],
     classes:
-        'w-full rounded border border-border px-4 py-2 '
+        'w-full rounded-lg border border-border px-4 py-2 '
         'text-foreground disabled:opacity-60',
     type: ButtonType.button,
     disabled: _busy || serverUrl == null,

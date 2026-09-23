@@ -4,7 +4,6 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 
 import '../desktop_shell.dart';
 import '../l10n/strings.g.dart';
-import '../rpc/chat_providers.dart';
 import '../rpc/layout_providers.dart';
 import '../rpc/rpc_providers.dart';
 import '../shortcuts.dart';
@@ -20,13 +19,11 @@ import 'ui.dart';
 ///
 /// With [workspace], it carries the sidebar toggle, a new chat and search:
 /// the controls that belong to the window rather than to a conversation.
+/// The side pane's toggle is the conversation header's, beside the pane.
 class TitleBar extends StatefulComponent {
-  const TitleBar({this.workspace = true, this.sidePane = true, super.key});
+  const TitleBar({this.workspace = true, super.key});
 
   final bool workspace;
-
-  /// Whether the route has a side pane to toggle: the chat's.
-  final bool sidePane;
 
   @override
   State<TitleBar> createState() => _TitleBarState();
@@ -99,18 +96,6 @@ class _TitleBarState extends State<TitleBar> {
           ),
         ],
         div(classes: 'min-w-0 flex-1', const []),
-        if (component.workspace &&
-            component.sidePane &&
-            context.watch(selectedChatIdProvider) != null)
-          iconButton(
-            id: 'toggle-side-pane',
-            glyph: LucideIcon.panelRight,
-            label: t.desktop.desktopSidePane,
-            pressed: context.watch(controlsOpenProvider),
-            shortcut: keys(ShortcutAction.toggleSidePane),
-            tooltip: TooltipSide.left,
-            onClick: () => context.read(controlsOpenProvider.notifier).toggle(),
-          ),
         if (drawsControls) _windowControls(context),
       ],
     );

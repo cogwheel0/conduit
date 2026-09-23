@@ -16,7 +16,7 @@ class SourcesList extends StatelessComponent {
 
   @override
   Component build(BuildContext context) => details(
-    classes: 'mr-auto max-w-[90%] text-ui-sm text-muted-foreground',
+    classes: 'mr-auto max-w-[90%] text-ui-sm text-foreground-subtle',
     [
       Component.element(
         tag: 'summary',

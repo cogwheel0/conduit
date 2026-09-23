@@ -63,7 +63,7 @@ class _ControlsPaneState extends State<ControlsPane> {
               [Component.text('✕')],
             ),
           ],
-          classes: 'rounded px-2 py-1 text-ui-sm hover:bg-accent',
+          classes: 'rounded-lg px-2 py-1 text-ui-sm hover:bg-hover',
           type: ButtonType.button,
           attributes: <String, String>{'aria-label': t.app.close},
           onClick: () => context.read(controlsOpenProvider.notifier).close(),
@@ -79,14 +79,14 @@ class _ControlsPaneState extends State<ControlsPane> {
           _status = null;
         }),
       ),
-      p(classes: 'text-ui-sm text-muted-foreground', [
+      p(classes: 'text-ui-sm text-foreground-subtle', [
         Component.text(t.desktop.desktopSystemPromptHint),
       ]),
       div(classes: 'flex items-center gap-2', [
         button(
           [Component.text(t.app.save)],
           classes:
-              'rounded bg-primary px-3 py-1.5 text-ui-sm text-primary-foreground '
+              'rounded-lg bg-primary px-3 py-1.5 text-ui-sm text-primary-foreground '
               'disabled:opacity-50',
           type: ButtonType.button,
           disabled: !_changed || _saving,
@@ -94,7 +94,7 @@ class _ControlsPaneState extends State<ControlsPane> {
         ),
         if (_status case final status?)
           span(
-            classes: 'text-ui-sm text-muted-foreground',
+            classes: 'text-ui-sm text-foreground-subtle',
             attributes: const <String, String>{'role': 'status'},
             [Component.text(status)],
           ),

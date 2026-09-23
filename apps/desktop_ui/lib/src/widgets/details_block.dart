@@ -5,6 +5,7 @@ import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 
 import '../l10n/strings.g.dart';
+import 'ui.dart';
 
 /// A reasoning, tool-call or code-interpreter section of a reply (WP-3.2).
 ///
@@ -49,20 +50,45 @@ class DetailsBlock extends StatelessComponent {
       if (_type == 'tool_calls') ..._toolCall(),
       ...body,
     ];
+    // A quiet row that opens: an icon for what kind of step it was, and
+    // what it says about itself. The contents are the detail, not the
+    // answer, so they sit a step back.
     return details(
-      classes: 'conduit-details rounded border border-border text-ui-base',
+      classes:
+          'conduit-details group/details rounded-lg border border-border '
+          'text-ui-base',
       attributes: <String, String>{'data-type': _type},
       [
         Component.element(
           tag: 'summary',
           classes:
-              'cursor-pointer select-none px-3 py-1.5 text-ui-sm '
-              'text-muted-foreground hover:text-foreground'
+              'flex cursor-pointer list-none items-center gap-2 px-3 py-1.5 '
+              'text-ui-sm text-foreground-subtle select-none '
+              'hover:text-foreground [&::-webkit-details-marker]:hidden'
               '${pending ? ' animate-pulse' : ''}',
-          children: <Component>[Component.text(label())],
+          children: <Component>[
+            icon(switch (_type) {
+              'reasoning' => LucideIcon.brain,
+              'tool_calls' => LucideIcon.wrench,
+              'code_interpreter' => LucideIcon.squareTerminal,
+              _ => LucideIcon.info,
+            }, classes: 'size-3.5 shrink-0'),
+            span(classes: 'min-w-0 flex-1 truncate', [Component.text(label())]),
+            icon(
+              LucideIcon.chevronRight,
+              classes:
+                  'size-3.5 shrink-0 transition-transform '
+                  'group-open/details:rotate-90',
+            ),
+          ],
         ),
         if (content.isNotEmpty)
-          div(classes: 'space-y-3 border-t border-border px-3 py-2', content),
+          div(
+            classes:
+                'space-y-3 border-t border-border px-3 py-2 text-ui-sm '
+                'text-foreground-subtle',
+            content,
+          ),
       ],
     );
   }
@@ -125,7 +151,7 @@ class DetailsBlock extends StatelessComponent {
     p(classes: 'mb-1 text-ui-sm font-medium', [Component.text(title)]),
     pre(
       classes:
-          'max-h-64 overflow-auto rounded bg-muted p-2 text-ui-sm '
+          'max-h-64 overflow-auto rounded-lg bg-muted p-2 text-ui-sm '
           'whitespace-pre-wrap break-words',
       [Component.text(text)],
     ),

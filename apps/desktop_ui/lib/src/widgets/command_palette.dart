@@ -100,8 +100,8 @@ class _CommandPaletteState extends State<CommandPalette> {
         key: ValueKey('palette-option-$index'),
         id: 'palette-option-$index',
         classes:
-            'flex cursor-pointer items-baseline gap-3 rounded px-3 py-2 '
-            'text-ui-base ${active ? 'bg-accent text-accent-foreground' : ''}',
+            'flex cursor-pointer items-baseline gap-3 rounded-lg px-3 py-2 '
+            'text-ui-base ${active ? 'bg-selected text-foreground' : ''}',
         attributes: <String, String>{
           'role': 'option',
           'aria-selected': '$active',
@@ -116,14 +116,14 @@ class _CommandPaletteState extends State<CommandPalette> {
           div(classes: 'min-w-0 flex-1', [
             div(classes: 'truncate', [Component.text(item.label)]),
             if (item case PaletteChatItem(:final snippet?))
-              div(classes: 'truncate text-ui-sm text-muted-foreground', [
+              div(classes: 'truncate text-ui-sm text-foreground-subtle', [
                 Component.text(snippet),
               ]),
           ]),
           if (item case PaletteCommandItem(:final shortcut?))
             Component.element(
               tag: 'kbd',
-              classes: 'shrink-0 text-ui-sm text-muted-foreground',
+              classes: 'shrink-0 text-ui-sm text-foreground-subtle',
               children: <Component>[Component.text(shortcut)],
             ),
         ],
@@ -131,7 +131,7 @@ class _CommandPaletteState extends State<CommandPalette> {
     }
 
     Component heading(String text) => div(
-      classes: 'px-3 pb-1 pt-3 text-ui-sm font-medium text-muted-foreground',
+      classes: 'px-3 pb-1 pt-3 text-ui-sm font-medium text-foreground-subtle',
       attributes: const <String, String>{'role': 'presentation'},
       [Component.text(text)],
     );
@@ -146,7 +146,7 @@ class _CommandPaletteState extends State<CommandPalette> {
         div(
           classes:
               'flex h-fit max-h-[60vh] w-full max-w-xl flex-col '
-              'overflow-hidden rounded border border-border bg-popover '
+              'overflow-hidden rounded-lg border border-border bg-popover '
               'text-popover-foreground shadow-lg',
           attributes: <String, String>{
             'role': 'dialog',
@@ -217,7 +217,7 @@ class _CommandPaletteState extends State<CommandPalette> {
                   ),
                 for (var i = commands.length; i < items.length; i++) row(i),
                 if (items.isEmpty)
-                  p(classes: 'px-3 py-4 text-ui-base text-muted-foreground', [
+                  p(classes: 'px-3 py-4 text-ui-base text-foreground-subtle', [
                     Component.text(t.desktop.desktopSearchNoResults),
                   ]),
               ],

@@ -146,6 +146,42 @@ Component iconButton({
   onClick: onClick,
 );
 
+/// An icon button named by text a screen reader reads and the eye does
+/// not: the same as [iconButton] to a user, but its name is content rather
+/// than an attribute, so it is found by its words -- in the transcript's
+/// action rows, where "Copy" is also what a test looks for.
+Component iconAction({
+  required LucideIcon glyph,
+  required String label,
+  void Function()? onClick,
+  bool? pressed,
+  bool destructive = false,
+  bool disabled = false,
+  String? id,
+  String classes = '',
+  TooltipSide tooltip = TooltipSide.bottom,
+  Map<String, String>? attributes,
+}) => button(
+  [
+    icon(glyph, classes: 'size-3.5'),
+    span(classes: 'sr-only', [Component.text(label)]),
+  ],
+  id: id,
+  classes:
+      'inline-flex size-7 shrink-0 items-center justify-center rounded-lg '
+      'transition-colors disabled:pointer-events-none disabled:opacity-40 '
+      '${destructive ? 'text-foreground-subtle hover:bg-destructive/10 hover:text-destructive' : 'text-foreground-subtle hover:bg-hover hover:text-foreground aria-pressed:text-foreground'} '
+      '$classes',
+  type: ButtonType.button,
+  disabled: disabled,
+  attributes: <String, String>{
+    'aria-pressed': ?pressed?.toString(),
+    ...tooltipAttributes(label, side: tooltip),
+    ...?attributes,
+  },
+  onClick: onClick,
+);
+
 /// Where a tooltip opens relative to its control.
 enum TooltipSide { top, bottom, left, right }
 
@@ -266,7 +302,7 @@ const String sectionLabelClasses =
 /// A keyboard shortcut, e.g. in a menu row or a tooltip.
 Component kbd(String keys) => span(
   classes:
-      'ml-auto rounded border border-border px-1 font-mono text-ui-xs '
+      'ml-auto rounded-lg border border-border px-1 font-mono text-ui-xs '
       'text-foreground-subtle',
   [Component.text(keys)],
 );

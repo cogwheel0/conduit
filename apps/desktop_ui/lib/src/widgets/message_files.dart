@@ -40,12 +40,12 @@ class MessageFiles extends StatelessComponent {
                   src: srcOf(file)!,
                   alt: file.name,
                   classes:
-                      'max-h-48 max-w-64 rounded border border-border '
+                      'max-h-48 max-w-64 rounded-lg border border-border '
                       'object-cover',
                   attributes: const <String, String>{'loading': 'lazy'},
                 ),
               ],
-              classes: 'cursor-zoom-in rounded',
+              classes: 'cursor-zoom-in rounded-lg',
               type: ButtonType.button,
               attributes: <String, String>{
                 'aria-label': t.desktop.desktopOpenImage(name: file.name),
@@ -60,7 +60,7 @@ class MessageFiles extends StatelessComponent {
             Component.element(
               tag: kind,
               classes: kind == 'video'
-                  ? 'max-h-64 max-w-full rounded border border-border'
+                  ? 'max-h-64 max-w-full rounded-lg border border-border'
                   : 'max-w-full',
               attributes: <String, String>{
                 'src': srcOf(file)!,
@@ -76,7 +76,7 @@ class MessageFiles extends StatelessComponent {
               href: srcOf(file)!,
               target: Target.blank,
               classes:
-                  'rounded border border-border px-2 py-1 text-ui-sm '
+                  'rounded-lg border border-border px-2 py-1 text-ui-sm '
                   'text-foreground underline-offset-2 hover:underline',
               attributes: const <String, String>{'rel': 'noopener noreferrer'},
               [Component.text(file.name)],
@@ -84,8 +84,8 @@ class MessageFiles extends StatelessComponent {
           else
             span(
               classes:
-                  'rounded border border-border px-2 py-1 text-ui-sm '
-                  'text-muted-foreground',
+                  'rounded-lg border border-border px-2 py-1 text-ui-sm '
+                  'text-foreground-subtle',
               [Component.text(file.name)],
             ),
       ],
@@ -146,7 +146,7 @@ class _LightboxOverlayState extends State<LightboxOverlay> {
         img(
           src: component.src,
           alt: component.name,
-          classes: 'max-h-full max-w-full rounded shadow-lg',
+          classes: 'max-h-full max-w-full rounded-lg shadow-lg',
         ),
         button(
           [
@@ -157,7 +157,7 @@ class _LightboxOverlayState extends State<LightboxOverlay> {
           ],
           id: 'lightbox-close',
           classes:
-              'absolute right-4 top-4 rounded bg-black/50 px-3 py-1.5 '
+              'absolute right-4 top-4 rounded-lg bg-black/50 px-3 py-1.5 '
               'text-ui-base text-white hover:bg-black/70',
           type: ButtonType.button,
           attributes: <String, String>{'aria-label': t.app.close},

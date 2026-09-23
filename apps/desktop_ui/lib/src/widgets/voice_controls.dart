@@ -7,6 +7,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import '../l10n/strings.g.dart';
 import '../rpc/voice_providers.dart';
 import '../voice.dart';
+import 'ui.dart';
 
 /// "Read aloud" under an answer (M8). Revealed on hover like the other
 /// actions, and kept in view while it reads, so it can be stopped.
@@ -22,19 +23,15 @@ class ReadAloudButton extends StatelessComponent {
     final label = reading
         ? t.desktop.desktopStopReading
         : t.desktop.desktopReadAloud;
-    return button(
-      [Component.text(reading ? t.app.ttsStop : t.app.ttsListen)],
-      classes:
-          'rounded px-1.5 py-0.5 text-ui-sm hover:bg-accent '
-          'hover:text-accent-foreground '
-          '${reading ? 'text-primary' : 'text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100'}',
-      type: ButtonType.button,
-      attributes: <String, String>{
-        'aria-label': label,
-        'title': label,
-        'aria-pressed': '$reading',
-        'data-read-aloud': id,
-      },
+    return iconButton(
+      glyph: reading ? LucideIcon.square : LucideIcon.volume2,
+      label: label,
+      pressed: reading,
+      classes: reading
+          ? 'text-foreground'
+          : 'opacity-0 transition-opacity group-hover:opacity-100 '
+                'group-focus-within:opacity-100',
+      attributes: <String, String>{'data-read-aloud': id},
       onClick: () =>
           context.read(speechPlayerProvider.notifier).toggle(id, text),
     );
@@ -43,11 +40,11 @@ class ReadAloudButton extends StatelessComponent {
 
 /// A small meter of how loud the microphone is.
 Component _meter(double level) => span(
-  classes: 'inline-flex h-3 w-1 flex-col overflow-hidden rounded bg-muted',
+  classes: 'inline-flex h-3 w-1 flex-col overflow-hidden rounded-lg bg-surface-hover',
   attributes: const <String, String>{'aria-hidden': 'true'},
   [
     span(
-      classes: 'block w-full bg-primary',
+      classes: 'block w-full bg-foreground-subtle',
       styles: Styles(
         raw: <String, String>{
           'height': '${(level * 400).clamp(8, 100).round()}%',
@@ -79,22 +76,23 @@ class DictationButton extends StatelessComponent {
         : t.app.startDictation;
     return button(
       [
-        span(
-          attributes: const <String, String>{'aria-hidden': 'true'},
-          [Component.text(transcribing ? '…' : '\u{1F399}')],
+        icon(
+          transcribing ? LucideIcon.loaderCircle : LucideIcon.mic,
+          classes: 'size-4 shrink-0${transcribing ? ' animate-spin' : ''}',
         ),
         if (listening) _meter(state.level),
       ],
       id: 'dictate',
       classes:
-          'flex shrink-0 items-center gap-1 rounded border px-3 py-2 text-ui-base '
-          '${listening ? 'border-primary text-primary' : 'border-border text-muted-foreground hover:bg-accent'}',
+          'inline-flex h-8 min-w-8 shrink-0 items-center justify-center gap-1 '
+          'rounded-lg px-2 transition-colors '
+          '${listening ? 'bg-selected text-foreground' : 'text-foreground-subtle hover:bg-hover hover:text-foreground'}',
       type: ButtonType.button,
       disabled: transcribing,
       attributes: <String, String>{
         'aria-label': label,
-        'title': label,
         'aria-pressed': '$listening',
+        ...tooltipAttributes(label, side: TooltipSide.top),
       },
       events: hold
           ? <String, EventCallback>{
@@ -124,19 +122,12 @@ class VoiceCallButton extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     final label = t.app.androidAssistantVoiceCallOption;
-    return button(
-      [
-        span(
-          attributes: const <String, String>{'aria-hidden': 'true'},
-          [Component.text('\u{1F4DE}')],
-        ),
-      ],
+    return iconButton(
       id: 'voice-call',
-      classes:
-          'shrink-0 rounded border border-border px-3 py-2 text-ui-base '
-          'text-muted-foreground hover:bg-accent',
-      type: ButtonType.button,
-      attributes: <String, String>{'aria-label': label, 'title': label},
+      glyph: LucideIcon.audioLines,
+      label: label,
+      size: ControlSize.md,
+      tooltip: TooltipSide.top,
       onClick: () =>
           unawaited(context.read(voiceCallProvider.notifier).start()),
     );
@@ -161,7 +152,7 @@ class VoiceCallPanel extends StatelessComponent {
       };
       if (problem == null) return const Component.empty();
       return p(
-        classes: 'mx-auto mb-2 max-w-3xl text-ui-base text-destructive',
+        classes: 'mx-auto mb-2 max-w-3xl text-ui-sm text-destructive',
         attributes: const <String, String>{'role': 'alert'},
         [Component.text(problem)],
       );
@@ -184,13 +175,14 @@ class VoiceCallPanel extends StatelessComponent {
     }) => button(
       [Component.text(text)],
       id: id,
-      classes:
-          'rounded border px-3 py-1.5 text-ui-base '
-          '${danger
-              ? 'border-destructive bg-destructive text-white hover:opacity-90'
-              : pressed ?? false
-              ? 'border-primary bg-accent'
-              : 'border-border hover:bg-accent'}',
+      classes: buttonClasses(
+        tone: danger
+            ? ButtonTone.destructive
+            : pressed ?? false
+            ? ButtonTone.secondary
+            : ButtonTone.outline,
+        size: ControlSize.sm,
+      ),
       type: ButtonType.button,
       attributes: <String, String>{'aria-pressed': ?pressed?.toString()},
       onClick: onClick,
@@ -198,8 +190,8 @@ class VoiceCallPanel extends StatelessComponent {
 
     return section(
       classes:
-          'mx-auto mb-3 flex max-w-3xl items-center gap-3 rounded border '
-          'border-primary bg-card px-4 py-3',
+          'mx-auto mb-2 flex max-w-3xl items-center gap-2 rounded-xl border '
+          'border-border bg-panel px-3.5 py-2.5 shadow-sm',
       attributes: <String, String>{
         'role': 'region',
         'aria-label': t.app.voiceCallTitle,
@@ -207,7 +199,7 @@ class VoiceCallPanel extends StatelessComponent {
       [
         div(classes: 'min-w-0 flex-1', [
           p(
-            classes: 'flex items-center gap-2 text-ui-base font-medium',
+            classes: 'flex items-center gap-2 text-ui-sm font-medium',
             attributes: const <String, String>{
               'role': 'status',
               'aria-live': 'polite',
@@ -219,7 +211,7 @@ class VoiceCallPanel extends StatelessComponent {
             ],
           ),
           if (call.heard case final heard?)
-            p(classes: 'truncate text-ui-sm text-muted-foreground', [
+            p(classes: 'truncate text-ui-sm text-foreground-subtle', [
               Component.text(t.desktop.desktopVoiceCallHeard(text: heard)),
             ]),
           if (call.problem == CallProblem.failed)

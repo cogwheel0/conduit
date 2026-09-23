@@ -5,6 +5,7 @@ import 'package:jaspr/jaspr.dart';
 import '../l10n/strings.g.dart';
 import 'code_languages.dart';
 import 'html_preview.dart';
+import 'ui.dart';
 
 /// A fenced code block: language label, copy button, highlighted source
 /// (WP-3.5).
@@ -39,32 +40,33 @@ class CodeBlock extends StatelessComponent {
     final resolved = resolveLanguage(language);
     return div(
       classes:
-          'group relative my-2 overflow-hidden rounded border border-border',
+          'group relative my-3 overflow-hidden rounded-lg border border-border '
+          'bg-surface',
       [
         div(
           classes:
-              'flex items-center justify-between border-b border-border '
-              'bg-muted px-3 py-1',
+              'flex h-8 items-center justify-between border-b border-border '
+              'pr-1 pl-3',
           [
-            span(classes: 'font-mono text-xs text-muted-foreground', [
+            span(classes: 'font-mono text-xs text-foreground-subtle', [
               // What the author wrote, not the grammar it resolved to. An
               // `html` fence labelled "xml" -- the grammar highlight.js uses
               // for both -- reads as the app having misunderstood it.
               Component.text(fenceLabel(language) ?? ''),
             ]),
             if (onCopy case final copy?)
-              button(
-                [Component.text(t.app.copy)],
+              iconAction(
+                glyph: LucideIcon.copy,
+                label: t.app.copy,
+                tooltip: TooltipSide.left,
                 classes:
-                    'rounded px-2 py-0.5 text-ui-sm text-muted-foreground '
-                    'opacity-0 transition-opacity hover:bg-accent '
+                    'size-6 opacity-0 transition-opacity '
                     'group-hover:opacity-100 focus-visible:opacity-100',
-                type: ButtonType.button,
                 onClick: () => copy(source),
               ),
           ],
         ),
-        pre(classes: 'overflow-x-auto p-3', [
+        pre(classes: 'overflow-x-auto px-3 py-2.5', [
           code(classes: 'font-mono text-xs leading-relaxed', _spans(resolved)),
         ]),
         // Only for markup, and only behind a button. A block tagged `html`

@@ -109,7 +109,7 @@ class _ReleaseBannerState extends State<ReleaseBanner> {
           Component.text(t.app.releaseNotesAnnouncementTitle(version: shown)),
         ]),
         link(t.desktop.desktopReleaseSeeChanges, desktopReleaseUrl(current)),
-        span(classes: 'text-muted-foreground', [
+        span(classes: 'text-foreground-subtle', [
           Component.text(t.app.releaseNotesSupportPromptHeading),
         ]),
         link(t.app.buyMeACoffeeTitle, conduitCoffeeUrl),
@@ -121,7 +121,7 @@ class _ReleaseBannerState extends State<ReleaseBanner> {
               [Component.text('×')],
             ),
           ],
-          classes: 'ml-auto rounded px-2 hover:bg-accent',
+          classes: 'ml-auto rounded-lg px-2 hover:bg-hover',
           type: ButtonType.button,
           attributes: <String, String>{
             'aria-label': t.desktop.desktopReleaseDismiss,

@@ -73,6 +73,10 @@ Component textAreaField({
   /// newline that would otherwise follow.
   EventCallback? onKeyDown,
   String? error,
+
+  /// No box of its own: the field inside a shell that draws one, as the
+  /// composer's does. It grows with its text up to a limit.
+  bool bare = false,
 }) {
   final errorId = '$id-error';
   return div(classes: 'space-y-1.5', [
@@ -80,9 +84,12 @@ Component textAreaField({
     textarea(
       [Component.text(value)],
       id: id,
-      classes:
-          '${_controlClasses(invalid: error != null)}'
-          '${monospace ? ' font-mono text-xs' : ''}',
+      classes: bare
+          ? 'block max-h-60 min-h-12 w-full resize-none bg-transparent '
+                'px-2.5 pt-2.5 pb-1 text-ui-base text-foreground outline-none '
+                'field-sizing-content placeholder:text-foreground-subtlest'
+          : '${_controlClasses(invalid: error != null)}'
+                '${monospace ? ' font-mono text-xs' : ''}',
       disabled: disabled,
       rows: rows,
       placeholder: placeholder,
@@ -109,7 +116,7 @@ Component checkboxField({
 }) => div(classes: 'flex items-center gap-2', [
   input<bool>(
     id: id,
-    classes: 'size-4 rounded border-border accent-primary',
+    classes: 'size-4 rounded-lg border-border accent-primary',
     type: InputType.checkbox,
     disabled: disabled,
     checked: checked,

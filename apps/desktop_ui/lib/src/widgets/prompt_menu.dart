@@ -28,8 +28,8 @@ class PromptMenu extends StatelessComponent {
   Component build(BuildContext context) => div(
     id: 'prompt-menu',
     classes:
-        'mx-auto mb-2 max-h-64 max-w-3xl overflow-y-auto rounded border '
-        'border-border bg-popover p-1 text-popover-foreground shadow',
+        'mx-auto mb-2 max-h-64 max-w-3xl overflow-y-auto rounded-lg border '
+        'border-border bg-menu p-1 text-popover-foreground shadow-md',
     attributes: <String, String>{
       'role': 'listbox',
       'aria-label': t.desktop.desktopPromptMenu,
@@ -40,8 +40,8 @@ class PromptMenu extends StatelessComponent {
           key: ValueKey('prompt-${prompts[i].command}'),
           id: 'prompt-option-$i',
           classes:
-              'flex cursor-pointer items-baseline gap-3 rounded px-3 py-1.5 '
-              'text-ui-base ${i == highlighted ? 'bg-accent text-accent-foreground' : ''}',
+              'flex cursor-pointer items-baseline gap-3 rounded-md px-2 py-1.5 '
+              'text-ui-base ${i == highlighted ? 'bg-menu-hover text-foreground' : ''}',
           attributes: <String, String>{
             'role': 'option',
             'aria-selected': '${i == highlighted}',
@@ -60,8 +60,7 @@ class PromptMenu extends StatelessComponent {
             if (prompts[i].description case final description?
                 when description.isNotEmpty)
               span(
-                classes:
-                    'ml-auto min-w-0 truncate text-ui-sm text-muted-foreground',
+                classes: 'ml-auto min-w-0 truncate text-ui-sm text-foreground-subtle',
                 [Component.text(description)],
               ),
           ],
@@ -97,8 +96,8 @@ class SuggestionMenu extends StatelessComponent {
   Component build(BuildContext context) => div(
     id: '$idPrefix-menu',
     classes:
-        'mx-auto mb-2 max-h-64 max-w-3xl overflow-y-auto rounded border '
-        'border-border bg-popover p-1 text-popover-foreground shadow',
+        'mx-auto mb-2 max-h-64 max-w-3xl overflow-y-auto rounded-lg border '
+        'border-border bg-menu p-1 text-popover-foreground shadow-md',
     attributes: <String, String>{'role': 'listbox', 'aria-label': label},
     [
       for (var i = 0; i < items.length; i++)
@@ -106,8 +105,8 @@ class SuggestionMenu extends StatelessComponent {
           key: ValueKey('$idPrefix-${items[i].key}'),
           id: '$idPrefix-option-$i',
           classes:
-              'flex cursor-pointer items-baseline gap-3 rounded px-3 py-1.5 '
-              'text-ui-base ${i == highlighted ? 'bg-accent text-accent-foreground' : ''}',
+              'flex cursor-pointer items-baseline gap-3 rounded-md px-2 py-1.5 '
+              'text-ui-base ${i == highlighted ? 'bg-menu-hover text-foreground' : ''}',
           attributes: <String, String>{
             'role': 'option',
             'aria-selected': '${i == highlighted}',
@@ -120,8 +119,7 @@ class SuggestionMenu extends StatelessComponent {
             span(classes: 'min-w-0 truncate', [Component.text(items[i].title)]),
             if (items[i].detail case final detail? when detail.isNotEmpty)
               span(
-                classes:
-                    'ml-auto min-w-0 truncate text-ui-sm text-muted-foreground',
+                classes: 'ml-auto min-w-0 truncate text-ui-sm text-foreground-subtle',
                 [Component.text(detail)],
               ),
           ],
@@ -169,8 +167,8 @@ class _PromptInputsFormState extends State<PromptInputsForm> {
   @override
   Component build(BuildContext context) => div(
     classes:
-        'mx-auto mb-2 max-w-3xl space-y-3 rounded border border-border '
-        'bg-popover p-3 text-popover-foreground',
+        'mx-auto mb-2 max-w-3xl space-y-3 rounded-xl border border-border '
+        'bg-popover p-3 text-popover-foreground shadow-md',
     attributes: <String, String>{
       'role': 'group',
       'aria-label': t.desktop.desktopPromptFill(title: component.title),
@@ -183,14 +181,14 @@ class _PromptInputsFormState extends State<PromptInputsForm> {
       div(classes: 'flex justify-end gap-2', [
         button(
           [Component.text(t.app.cancel)],
-          classes: 'rounded px-3 py-1.5 text-ui-base hover:bg-accent',
+          classes: 'rounded-lg px-3 py-1.5 text-ui-base hover:bg-hover',
           type: ButtonType.button,
           onClick: component.onCancel,
         ),
         button(
           [Component.text(t.desktop.desktopPromptInsert)],
           classes:
-              'rounded bg-primary px-3 py-1.5 text-ui-base text-primary-foreground '
+              'rounded-lg bg-primary px-3 py-1.5 text-ui-base text-primary-foreground '
               'disabled:opacity-50',
           type: ButtonType.button,
           disabled: !_complete,
@@ -232,7 +230,7 @@ class _PromptInputsFormState extends State<PromptInputsForm> {
           ],
           id: id,
           classes:
-              'w-full rounded border border-border bg-background px-2 '
+              'w-full rounded-lg border border-border bg-panel px-2 '
               'py-1.5 text-ui-base',
           onChange: (values) {
             if (values.isNotEmpty) update(values.first);

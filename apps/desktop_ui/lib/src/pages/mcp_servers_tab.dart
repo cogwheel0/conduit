@@ -32,12 +32,12 @@ class _McpServersTabState extends State<McpServersTab> {
     final list = context.watch(mcpServersProvider);
     final value = list.value;
     return div(classes: 'space-y-4', [
-      p(classes: 'text-ui-base text-muted-foreground', [
+      p(classes: 'text-ui-base text-foreground-subtle', [
         Component.text(t.desktop.desktopMcpReachabilityHelp),
       ]),
       if (list.hasError && value == null) formError(t.app.directMcpLoadFailed),
       if (value != null && value.servers.isEmpty && _editing == null)
-        div(classes: 'rounded border border-dashed border-border p-4', [
+        div(classes: 'rounded-lg border border-dashed border-border p-4', [
           p(classes: 'text-ui-base font-medium', [
             Component.text(t.app.directMcpEmptyTitle),
           ]),
@@ -66,8 +66,8 @@ class _McpServersTabState extends State<McpServersTab> {
         button(
           [Component.text(t.app.directMcpAddTitle)],
           classes:
-              'rounded border border-border px-3 py-1.5 text-ui-base '
-              'hover:bg-accent',
+              'rounded-lg border border-border px-3 py-1.5 text-ui-base '
+              'hover:bg-hover',
           type: ButtonType.button,
           onClick: () => setState(() => _editing = _blank),
         ),
@@ -77,7 +77,7 @@ class _McpServersTabState extends State<McpServersTab> {
   Component _row(
     BuildContext context,
     McpServerSummary server,
-  ) => li(classes: 'rounded border border-border p-3', [
+  ) => li(classes: 'rounded-lg border border-border p-3', [
     div(classes: 'flex items-center gap-3', [
       input<bool>(
         classes: 'size-4',
@@ -105,20 +105,20 @@ class _McpServersTabState extends State<McpServersTab> {
                   : t.desktop.desktopMcpNotSignedIn,
             ),
         ]),
-        span(classes: 'truncate font-mono text-xs text-muted-foreground', [
+        span(classes: 'truncate font-mono text-xs text-foreground-subtle', [
           Component.text(server.endpoint),
         ]),
       ]),
       button(
         [Component.text(t.app.edit)],
-        classes: 'rounded px-2.5 py-1 text-ui-sm hover:bg-accent',
+        classes: 'rounded-lg px-2.5 py-1 text-ui-sm hover:bg-hover',
         type: ButtonType.button,
         onClick: () => setState(() => _editing = server),
       ),
       button(
         [Component.text(t.app.delete)],
         classes:
-            'rounded px-2.5 py-1 text-ui-sm text-destructive '
+            'rounded-lg px-2.5 py-1 text-ui-sm text-destructive '
             'hover:bg-destructive/10',
         type: ButtonType.button,
         onClick: () => setState(() => _deleting = server.id),
@@ -127,7 +127,7 @@ class _McpServersTabState extends State<McpServersTab> {
     if (_deleting == server.id)
       div(
         classes:
-            'mt-2 space-y-2 rounded border border-destructive/40 '
+            'mt-2 space-y-2 rounded-lg border border-destructive/40 '
             'bg-destructive/10 p-2 text-ui-sm',
         attributes: const <String, String>{'role': 'alertdialog'},
         [
@@ -136,7 +136,7 @@ class _McpServersTabState extends State<McpServersTab> {
             button(
               [Component.text(t.app.delete)],
               classes:
-                  'rounded bg-destructive px-2 py-1 '
+                  'rounded-lg bg-destructive px-2 py-1 '
                   'text-destructive-foreground',
               type: ButtonType.button,
               onClick: () {
@@ -146,7 +146,7 @@ class _McpServersTabState extends State<McpServersTab> {
             ),
             button(
               [Component.text(t.app.cancel)],
-              classes: 'rounded px-2 py-1',
+              classes: 'rounded-lg px-2 py-1',
               type: ButtonType.button,
               onClick: () => setState(() => _deleting = null),
             ),
@@ -157,8 +157,7 @@ class _McpServersTabState extends State<McpServersTab> {
 }
 
 Component _badge(String text) => span(
-  classes:
-      'rounded-full border border-border px-2 text-ui-sm text-muted-foreground',
+  classes: 'rounded-full border border-border px-2 text-ui-sm text-foreground-subtle',
   [Component.text(text)],
 );
 
@@ -224,7 +223,7 @@ class _ServerEditorState extends State<_ServerEditor> {
   @override
   Component build(BuildContext context) {
     return div(
-      classes: 'space-y-3 rounded border border-border bg-background p-4',
+      classes: 'space-y-3 rounded-lg border border-border bg-panel p-4',
       attributes: <String, String>{
         'role': 'group',
         'aria-label': _isNew
@@ -260,7 +259,7 @@ class _ServerEditorState extends State<_ServerEditor> {
             ],
             id: 'mcp-auth',
             classes:
-                'w-full rounded border border-border bg-background px-2 '
+                'w-full rounded-lg border border-border bg-panel px-2 '
                 'py-1.5 text-ui-base',
             onChange: (values) => setState(
               () => _auth = McpAuth.values.firstWhere(
@@ -291,7 +290,7 @@ class _ServerEditorState extends State<_ServerEditor> {
           onInput: (value) => setState(() => _headers = value),
         ),
         if (_server.customHeaderNames.isNotEmpty)
-          p(classes: '-mt-2 text-ui-sm text-muted-foreground', [
+          p(classes: '-mt-2 text-ui-sm text-foreground-subtle', [
             Component.text(
               t.desktop.desktopMcpHeadersConfigured(
                 names: _server.customHeaderNames.join(', '),
@@ -303,7 +302,7 @@ class _ServerEditorState extends State<_ServerEditor> {
         if (_result case final result?)
           p(
             classes:
-                'text-ui-base ${_resultOk ? 'text-muted-foreground' : 'text-destructive'}',
+                'text-ui-base ${_resultOk ? 'text-foreground-subtle' : 'text-destructive'}',
             attributes: <String, String>{
               'role': _resultOk ? 'status' : 'alert',
             },
@@ -313,15 +312,15 @@ class _ServerEditorState extends State<_ServerEditor> {
         div(classes: 'flex justify-end gap-2', [
           button(
             [Component.text(t.app.cancel)],
-            classes: 'rounded px-3 py-1.5 text-ui-base hover:bg-accent',
+            classes: 'rounded-lg px-3 py-1.5 text-ui-base hover:bg-hover',
             type: ButtonType.button,
             onClick: component.onDone,
           ),
           button(
             [Component.text(t.app.directMcpTestConnection)],
             classes:
-                'rounded border border-border px-3 py-1.5 text-ui-base '
-                'hover:bg-accent disabled:opacity-50',
+                'rounded-lg border border-border px-3 py-1.5 text-ui-base '
+                'hover:bg-hover disabled:opacity-50',
             type: ButtonType.button,
             disabled: _busy,
             onClick: () => unawaited(_test(context)),
@@ -329,7 +328,7 @@ class _ServerEditorState extends State<_ServerEditor> {
           button(
             [Component.text(t.app.save)],
             classes:
-                'rounded bg-primary px-3 py-1.5 text-ui-base '
+                'rounded-lg bg-primary px-3 py-1.5 text-ui-base '
                 'text-primary-foreground disabled:opacity-50',
             type: ButtonType.button,
             disabled: _busy,
@@ -342,7 +341,7 @@ class _ServerEditorState extends State<_ServerEditor> {
 
   Component _oauth(BuildContext context) =>
       div(classes: 'flex flex-wrap items-center gap-2 text-ui-base', [
-        span(classes: 'text-muted-foreground', [
+        span(classes: 'text-foreground-subtle', [
           Component.text(
             _signingIn
                 ? t.app.directMcpOAuthPending
@@ -354,7 +353,7 @@ class _ServerEditorState extends State<_ServerEditor> {
         if (_signingIn)
           button(
             [Component.text(t.app.cancel)],
-            classes: 'rounded px-2.5 py-1 text-ui-sm hover:bg-accent',
+            classes: 'rounded-lg px-2.5 py-1 text-ui-sm hover:bg-hover',
             type: ButtonType.button,
             onClick: () => unawaited(
               context.read(mcpActionsProvider).cancelConnect(_server.id),
@@ -370,8 +369,8 @@ class _ServerEditorState extends State<_ServerEditor> {
               ),
             ],
             classes:
-                'rounded border border-border px-2.5 py-1 text-ui-sm '
-                'hover:bg-accent disabled:opacity-50',
+                'rounded-lg border border-border px-2.5 py-1 text-ui-sm '
+                'hover:bg-hover disabled:opacity-50',
             type: ButtonType.button,
             disabled: _busy,
             onClick: () => unawaited(_signIn(context)),
@@ -379,7 +378,7 @@ class _ServerEditorState extends State<_ServerEditor> {
           if (_server.oauthConnected)
             button(
               [Component.text(t.app.directMcpOAuthDisconnect)],
-              classes: 'rounded px-2.5 py-1 text-ui-sm hover:bg-accent',
+              classes: 'rounded-lg px-2.5 py-1 text-ui-sm hover:bg-hover',
               type: ButtonType.button,
               disabled: _busy,
               onClick: () => unawaited(_signOut(context)),
@@ -389,7 +388,7 @@ class _ServerEditorState extends State<_ServerEditor> {
 
   Component _insecureConfirmation(BuildContext context) => div(
     classes:
-        'space-y-2 rounded border border-destructive/40 bg-destructive/10 '
+        'space-y-2 rounded-lg border border-destructive/40 bg-destructive/10 '
         'p-2 text-ui-sm',
     attributes: const <String, String>{'role': 'alertdialog'},
     [
@@ -401,7 +400,7 @@ class _ServerEditorState extends State<_ServerEditor> {
         button(
           [Component.text(t.app.directMcpInsecureCredentialsConfirm)],
           classes:
-              'rounded bg-destructive px-2 py-1 text-destructive-foreground',
+              'rounded-lg bg-destructive px-2 py-1 text-destructive-foreground',
           type: ButtonType.button,
           onClick: () {
             setState(() {
@@ -413,7 +412,7 @@ class _ServerEditorState extends State<_ServerEditor> {
         ),
         button(
           [Component.text(t.app.cancel)],
-          classes: 'rounded px-2 py-1',
+          classes: 'rounded-lg px-2 py-1',
           type: ButtonType.button,
           onClick: () => setState(() => _confirmingInsecure = false),
         ),
@@ -429,12 +428,12 @@ class _ServerEditorState extends State<_ServerEditor> {
           ]),
           button(
             [Component.text(t.app.directMcpRememberedApprovalsRevokeAll)],
-            classes: 'rounded px-2 py-0.5 text-ui-sm hover:bg-accent',
+            classes: 'rounded-lg px-2 py-0.5 text-ui-sm hover:bg-hover',
             type: ButtonType.button,
             onClick: () => unawaited(_forget(context, null)),
           ),
         ]),
-        p(classes: 'text-ui-sm text-muted-foreground', [
+        p(classes: 'text-ui-sm text-foreground-subtle', [
           Component.text(t.app.directMcpRememberedApprovalsSubtitle),
         ]),
         ul(classes: 'space-y-1', [
@@ -445,7 +444,7 @@ class _ServerEditorState extends State<_ServerEditor> {
               ]),
               button(
                 [Component.text(t.app.directMcpRememberedApprovalRevoke)],
-                classes: 'rounded px-2 py-0.5 text-ui-sm hover:bg-accent',
+                classes: 'rounded-lg px-2 py-0.5 text-ui-sm hover:bg-hover',
                 type: ButtonType.button,
                 onClick: () => unawaited(_forget(context, approval.digest)),
               ),

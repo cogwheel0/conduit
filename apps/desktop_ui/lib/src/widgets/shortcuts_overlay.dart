@@ -32,7 +32,7 @@ class ShortcutsOverlay extends StatelessComponent {
     [
       div(
         classes:
-            'max-h-full w-full max-w-md overflow-y-auto rounded border '
+            'max-h-full w-full max-w-md overflow-y-auto rounded-lg border '
             'border-border bg-popover p-5 text-popover-foreground shadow-lg',
         attributes: <String, String>{
           'role': 'dialog',
@@ -51,7 +51,7 @@ class ShortcutsOverlay extends StatelessComponent {
             ]),
             button(
               [Component.text('✕')],
-              classes: 'rounded px-2 py-1 text-ui-base hover:bg-accent',
+              classes: 'rounded-lg px-2 py-1 text-ui-base hover:bg-hover',
               type: ButtonType.button,
               attributes: <String, String>{'aria-label': t.app.close},
               onClick: onClose,
@@ -65,8 +65,8 @@ class ShortcutsOverlay extends StatelessComponent {
                 ]),
                 dd(
                   classes:
-                      'shrink-0 rounded border border-border bg-muted px-2 '
-                      'py-0.5 font-mono text-xs text-muted-foreground',
+                      'shrink-0 rounded-lg border border-border bg-muted px-2 '
+                      'py-0.5 font-mono text-xs text-foreground-subtle',
                   [
                     Component.text(
                       describeStroke(shortcut.stroke, isMac: isMac),
