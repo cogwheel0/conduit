@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform;
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
@@ -53,6 +52,7 @@ import 'package:uuid/uuid.dart';
 import 'event_bus.dart';
 import 'files_service.dart';
 import 'hermes_service.dart';
+import 'language_tag.dart';
 import 'settled.dart';
 import 'temporary_chats.dart';
 import 'ui_requests_service.dart';
@@ -950,22 +950,9 @@ final class TurnsService {
       now: DateTime.now(),
       userName: name != null && name.isNotEmpty ? name : (user?.email ?? ''),
       userEmail: user?.email ?? '',
-      userLanguage: _languageTag(),
+      userLanguage: userLanguageTag(_container),
       userLocation: location,
     );
-  }
-
-  /// The window's language when chosen in settings, else the system's, as a
-  /// BCP-47 tag (`en_US.UTF-8` becomes `en-US`).
-  String _languageTag() {
-    final chosen = _container
-        .read(optimizedStorageServiceProvider)
-        .getLocaleCode();
-    final raw = (chosen != null && chosen.isNotEmpty)
-        ? chosen
-        : Platform.localeName;
-    final tag = raw.split('.').first.split('@').first.replaceAll('_', '-');
-    return tag.isEmpty || tag == 'C' || tag == 'POSIX' ? 'en-US' : tag;
   }
 
   /// The conversation so far, as the server has it.

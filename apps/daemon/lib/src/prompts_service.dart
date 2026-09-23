@@ -9,6 +9,7 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
 import 'settled.dart';
+import 'language_tag.dart';
 
 /// Implements `prompts.*`: the composer's `/` menu (WP-3.3).
 ///
@@ -71,6 +72,7 @@ final class PromptsService {
       parser: _parser,
       systemResolver: SystemVariableResolver(
         userName: user?.name ?? user?.username,
+        userLanguage: userLanguageTag(_container),
         clipboard: _GivenClipboard(request.clipboard),
       ),
     );
