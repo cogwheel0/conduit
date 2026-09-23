@@ -70,6 +70,16 @@ const _prompt = UiRequest(
   defaultChoice: 'cancel',
 );
 
+const _hermes = UiRequest(
+  requestId: 'r4',
+  kind: UiRequestKind.hermesDecision,
+  messageCode: 'hermes.approval',
+  messageArgs: {'summary': 'Clean the build folder'},
+  detail: {
+    'choices': ['once', 'session', 'deny'],
+  },
+);
+
 void main() {
   late _Recording recording;
 
@@ -185,5 +195,24 @@ void main() {
     );
     await pumpEventQueue();
     expect(recording.choices.single.choice, 'allowAlways');
+  });
+
+  testComponents('a Hermes agent asks, and the answer is its choice', (
+    tester,
+  ) async {
+    tester.pumpComponent(scoped(const [_hermes]));
+    await pumpEventQueue();
+    expect(find.text(t.app.hermesApprovalRequired), findsOneComponent);
+    expect(find.text('Clean the build folder'), findsOneComponent);
+    // Only what the agent offered: no "always".
+    expect(find.text(t.app.hermesApprovalAlwaysAllow), findsNothing);
+    await tester.click(
+      find.ancestor(
+        of: find.text(t.app.hermesApprovalAllowSession),
+        matching: find.tag('button'),
+      ),
+    );
+    await pumpEventQueue();
+    expect(recording.choices.single, (id: 'r4', choice: 'session'));
   });
 }

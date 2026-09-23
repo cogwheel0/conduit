@@ -7,6 +7,7 @@ import 'package:jaspr_router/jaspr_router.dart';
 import 'pages/chat_page.dart';
 import 'pages/diagnostics_page.dart';
 import 'pages/channels_page.dart';
+import 'pages/hermes_page.dart';
 import 'pages/notes_page.dart';
 import 'pages/terminal_page.dart';
 import 'pages/workspace/workspace_page.dart';
@@ -101,6 +102,11 @@ class ConduitDesktopApp extends StatelessComponent {
               path: '/channels',
               title: 'Channels',
               builder: (context, state) => const ChannelsPage(),
+            ),
+            Route(
+              path: '/hermes',
+              title: 'Hermes',
+              builder: (context, state) => const HermesPage(),
             ),
             Route(
               path: '/terminal',
@@ -221,7 +227,8 @@ bool showsFloatingSettingsLink(String location) =>
     !location.startsWith('/notes') &&
     !location.startsWith('/channels') &&
     !location.startsWith('/workspace') &&
-    !location.startsWith('/terminal');
+    !location.startsWith('/terminal') &&
+    !location.startsWith('/hermes');
 
 /// Sends a window to onboarding or sign-in when it has no session.
 String? _sessionRedirect(BuildContext context, String location) =>

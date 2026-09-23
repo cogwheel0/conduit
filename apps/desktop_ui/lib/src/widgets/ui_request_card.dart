@@ -152,10 +152,58 @@ class _RequestBodyState extends State<_RequestBody> {
     ]);
   }
 
+  /// A Hermes agent asking to go on (M7): what it wants to do, and the
+  /// answers it offers -- once, for the session, always, or no.
+  Component _hermesApproval(BuildContext context) {
+    final summary = component.request.messageArgs['summary'] ?? '';
+    final offered = <String>[
+      for (final choice
+          in (component.request.detail['choices'] as List?) ??
+              const <Object?>[])
+        '$choice',
+    ];
+    String label(String choice) => switch (choice) {
+      'once' => t.app.hermesApprovalAllowOnce,
+      'session' => t.app.hermesApprovalAllowSession,
+      'always' => t.app.hermesApprovalAlwaysAllow,
+      'deny' => t.app.hermesApprovalDenyAction,
+      _ => choice,
+    };
+    return div(classes: 'space-y-3', [
+      h2(classes: 'text-sm font-semibold', [
+        Component.text(t.app.hermesApprovalRequired),
+      ]),
+      p(classes: 'whitespace-pre-wrap text-sm', [
+        Component.text(
+          summary.isEmpty ? t.app.hermesApprovalFallback : summary,
+        ),
+      ]),
+      div(classes: 'flex flex-wrap justify-end gap-2', [
+        for (final choice in <String>[
+          if (offered.contains('deny') || offered.isEmpty) 'deny',
+          for (final choice in offered)
+            if (choice != 'deny' && choice != 'once') choice,
+          if (offered.contains('once') || offered.isEmpty) 'once',
+        ])
+          button(
+            [Component.text(label(choice))],
+            classes: choice == 'once'
+                ? 'rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground'
+                : 'rounded px-3 py-1.5 text-sm hover:bg-accent',
+            type: ButtonType.button,
+            onClick: () => _choose(context, choice),
+          ),
+      ]),
+    ]);
+  }
+
   @override
   Component build(BuildContext context) {
     if (component.request.kind == UiRequestKind.mcpApproval) {
       return _mcpApproval(context);
+    }
+    if (component.request.kind == UiRequestKind.hermesDecision) {
+      return _hermesApproval(context);
     }
     final args = component.request.messageArgs;
     final title = args['title'] ?? '';

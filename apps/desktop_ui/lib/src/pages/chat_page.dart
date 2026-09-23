@@ -16,6 +16,7 @@ import '../rpc/chat_providers.dart';
 import '../rpc/rpc_providers.dart';
 import '../rpc/session_providers.dart';
 import '../rpc/workspace_providers.dart';
+import '../rpc/hermes_providers.dart';
 import '../rpc/terminal_providers.dart';
 import '../sidebar_model.dart';
 import '../widgets/form_field.dart';
@@ -195,6 +196,15 @@ class _Sidebar extends StatelessComponent {
                   'block rounded px-2 py-1.5 text-sm text-muted-foreground '
                   'hover:bg-accent hover:text-accent-foreground',
               child: Component.text(t.app.sidebarChannelsTab),
+            ),
+          // Hermes Agent's conversations and schedules, once connected (M7).
+          if (context.watch(hermesSettingsProvider).value?.usable ?? false)
+            Link(
+              to: '/hermes',
+              classes:
+                  'block rounded px-2 py-1.5 text-sm text-muted-foreground '
+                  'hover:bg-accent hover:text-accent-foreground',
+              child: Component.text(t.app.hermesAgentSettingsTitle),
             ),
           // The terminal, when the account has a terminal server (M7).
           if (terminalOffered(context.watch(terminalServersProvider).value))

@@ -616,5 +616,25 @@
   "desktopWorkspaceDefaultFeaturesHint": "Features switched on in a new chat with this model, e.g. web_search, code_interpreter.",
   "@desktopWorkspaceDefaultFeaturesHint": {
     "description": "Hint under the default features field of the model editor."
+  },
+  "desktopHermesTestOk": "Connected to Hermes.",
+  "@desktopHermesTestOk": {
+    "description": "Result of testing a Hermes connection that answered."
+  },
+  "desktopHermesTestUnauthorized": "Hermes refused the key.",
+  "@desktopHermesTestUnauthorized": {
+    "description": "Result of testing a Hermes connection whose API key was not accepted."
+  },
+  "desktopHermesTestUnreachable": "Could not reach Hermes at that address.",
+  "@desktopHermesTestUnreachable": {
+    "description": "Result of testing a Hermes connection that did not answer."
+  },
+  "desktopHermesOpenSession": "Open",
+  "@desktopHermesOpenSession": {
+    "description": "Button that opens a Hermes conversation in the chat view."
+  },
+  "desktopHermesMode": "Connection type",
+  "@desktopHermesMode": {
+    "description": "Label of the choice between Hermes's API server (with a key) and its desktop gateway."
   }
 }

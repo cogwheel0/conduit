@@ -13,6 +13,7 @@ import '../rpc/session_providers.dart';
 import '../rpc/settings_providers.dart';
 import '../widgets/form_field.dart';
 import 'direct_connections_tab.dart';
+import 'hermes_settings_tab.dart';
 import 'mcp_servers_tab.dart';
 
 /// The tabs, and the order they appear in.
@@ -21,6 +22,7 @@ enum SettingsTab {
   connections,
   direct,
   mcp,
+  hermes,
   data,
   about;
 
@@ -100,6 +102,7 @@ class SettingsPage extends StatelessComponent {
     SettingsTab.connections => t.app.settingsCategoryServer,
     SettingsTab.direct => t.app.directConnectionsTitle,
     SettingsTab.mcp => t.app.directMcpServersTitle,
+    SettingsTab.hermes => t.app.hermesAgentSettingsTitle,
     SettingsTab.data => t.app.settingsDataAndConnection,
     SettingsTab.about => t.app.aboutConduit,
   };
@@ -134,6 +137,7 @@ class SettingsPage extends StatelessComponent {
             SettingsTab.connections => const _ConnectionsTab(),
             SettingsTab.direct => const DirectConnectionsTab(),
             SettingsTab.mcp => const McpServersTab(),
+            SettingsTab.hermes => const HermesSettingsTab(),
             SettingsTab.data => const _DataTab(),
             SettingsTab.about => const _AboutTab(),
           },
