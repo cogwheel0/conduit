@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:jaspr/dom.dart';
@@ -293,9 +294,12 @@ class _Sections extends StatelessComponent {
           for (final node in model.folders) _folder(context, node, open),
         ]),
       for (final group in model.recent)
-        _section(_bucketLabel(group.bucket), [
-          for (final chat in group.chats) _row(chat),
-        ], dropOut: context),
+        _section(
+          _bucketLabel(group.bucket),
+          const <Component>[],
+          dropOut: context,
+          body: _chunked(group.chats, 'recent-${group.bucket.name}'),
+        ),
       if (list.hasMore)
         _footerButton(
           t.app.workspaceLoadMore,
@@ -320,6 +324,34 @@ class _Sections extends StatelessComponent {
   Component _row(ChatSummary chat) =>
       _ChatRow(chat: chat, isSelected: selected == chat.id);
 
+  /// Rows past this many are drawn a chunk at a time, when near the view.
+  static const int _eagerRows = 200;
+  static const int _chunkRows = 100;
+
+  /// [chats] as rows: all of them for an ordinary group, and for a big one
+  /// the first [_eagerRows], then chunks drawn only when scrolled near
+  /// (WP-10.1). A group of thousands otherwise rebuilt every row on every
+  /// sync event, and each "Load more" took seconds.
+  Component _chunked(List<ChatSummary> chats, String key) {
+    if (chats.length <= _eagerRows) {
+      return ul(classes: 'space-y-0.5', [for (final chat in chats) _row(chat)]);
+    }
+    return div(classes: 'space-y-0.5', [
+      ul(classes: 'space-y-0.5', [
+        for (final chat in chats.take(_eagerRows)) _row(chat),
+      ]),
+      for (var start = _eagerRows; start < chats.length; start += _chunkRows)
+        _LazyRows(
+          key: ValueKey('$key-$start'),
+          id: 'rows-$key-$start',
+          count: math.min(_chunkRows, chats.length - start),
+          build: () => <Component>[
+            for (final chat in chats.skip(start).take(_chunkRows)) _row(chat),
+          ],
+        ),
+    ]);
+  }
+
   /// A heading and its rows, as a real heading so a screen reader can jump
   /// between sections instead of reading two hundred titles in a row.
   ///
@@ -329,9 +361,11 @@ class _Sections extends StatelessComponent {
     String title,
     List<Component> rows, {
     BuildContext? dropOut,
+    Component? body,
   }) {
+    final list = body ?? ul(classes: 'space-y-0.5', rows);
     if (dropOut == null) {
-      return section([_heading(title), ul(classes: 'space-y-0.5', rows)]);
+      return section([_heading(title), list]);
     }
     final context = dropOut;
     final dragging = context.watch(draggingChatProvider);
@@ -350,7 +384,7 @@ class _Sections extends StatelessComponent {
           unawaited(context.read(chatActionsProvider).move(chat.id, null));
         }),
       },
-      [_heading(title), ul(classes: 'space-y-0.5', rows)],
+      [_heading(title), list],
     );
   }
 
@@ -481,6 +515,68 @@ class _Sections extends StatelessComponent {
 /// because a permanent "Synced" line is noise. It appears only while there
 /// is something to know: the list may be incomplete, or the last sync
 /// failed.
+/// A chunk of sidebar rows, drawn only while near the view: otherwise one
+/// empty list of about the same height, so the scrollbar stays honest.
+class _LazyRows extends StatefulComponent {
+  const _LazyRows({
+    required this.id,
+    required this.count,
+    required this.build,
+    super.key,
+  });
+
+  final String id;
+  final int count;
+  final List<Component> Function() build;
+
+  /// A row's height with its gap: `text-sm` with `py-1.5`, and `space-y-0.5`.
+  static const int rowHeight = 34;
+
+  @override
+  State<_LazyRows> createState() => _LazyRowsState();
+}
+
+class _LazyRowsState extends State<_LazyRows> {
+  bool _near = false;
+  void Function()? _stop;
+
+  @override
+  void initState() {
+    super.initState();
+    // Once the element exists to be observed.
+    Future<void>.microtask(() {
+      if (!mounted) return;
+      _stop = context.read(windowCommandsProvider).observeNearView(
+        component.id,
+        (near) {
+          if (mounted && near != _near) setState(() => _near = near);
+        },
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _stop?.call();
+    super.dispose();
+  }
+
+  @override
+  Component build(BuildContext context) => ul(
+    id: component.id,
+    classes: 'space-y-0.5',
+    styles: _near
+        ? null
+        : Styles(
+            raw: <String, String>{
+              'height': '${component.count * _LazyRows.rowHeight}px',
+            },
+          ),
+    attributes: _near ? null : const <String, String>{'aria-hidden': 'true'},
+    _near ? component.build() : const <Component>[],
+  );
+}
+
 class _SyncIndicator extends StatelessComponent {
   const _SyncIndicator();
 
@@ -603,6 +699,13 @@ class _ChatRow extends StatefulComponent {
 }
 
 class _ChatRowState extends State<_ChatRow> {
+  static const Styles _rowSkippable = Styles(
+    raw: <String, String>{
+      'content-visibility': 'auto',
+      'contain-intrinsic-size': 'auto 36px',
+    },
+  );
+
   bool _renaming = false;
   bool _confirmingDelete = false;
   String _draftTitle = '';
@@ -657,10 +760,12 @@ class _ChatRowState extends State<_ChatRow> {
 
     return li(
       classes: 'group relative',
-      // Not `content-visibility` here, as the transcript has: it contains
-      // paint, which makes the row the box a `fixed` child is placed in --
-      // and the right-click menu is one, and would be clipped to the row.
-      // The list is paged anyway.
+      // Skipped off screen, as the transcript's messages are: a big account
+      // lists thousands of rows (WP-10.1). But not while the right-click
+      // menu is open -- `content-visibility` contains paint, which makes the
+      // row the box a `fixed` child is placed in, and the menu would be
+      // clipped to it.
+      styles: _menuAt == null ? _rowSkippable : null,
       events: <String, EventCallback>{
         'contextmenu': contextMenuAt(
           (x, y) => setState(() => _menuAt = (x: x, y: y)),
@@ -942,6 +1047,7 @@ class _Transcript extends StatelessComponent {
     void copyCode(String source) => unawaited(commands.copy(source));
     final versions = context.watch(answerVersionProvider);
     final editing = context.watch(editingMessageProvider);
+    context.watch(transcriptWindowProvider);
     final ratings = context.watch(ratingOverridesProvider);
     final canRate =
         context.watch(serverCapabilitiesProvider).messageRating &&
@@ -1086,8 +1192,32 @@ class _Transcript extends StatelessComponent {
                     final cut = showPending && pending.replaces != null
                         ? all.indexWhere((m) => m.id == pending.replaces)
                         : -1;
-                    final shown = cut < 0 ? all : all.sublist(0, cut);
+                    final kept = cut < 0 ? all : all.sublist(0, cut);
+                    // The latest messages only; older ones on request.
+                    final limit = context
+                        .read(transcriptWindowProvider.notifier)
+                        .countFor(selected);
+                    final hidden = math.max(0, kept.length - limit);
+                    final shown = hidden == 0 ? kept : kept.sublist(hidden);
                     return <Component>[
+                      if (hidden > 0)
+                        div(classes: 'flex justify-center', [
+                          button(
+                            [
+                              Component.text(
+                                t.desktop.desktopLoadOlderMessages,
+                              ),
+                            ],
+                            id: 'transcript-older',
+                            classes:
+                                'rounded border border-border px-3 py-1 text-xs '
+                                'text-muted-foreground hover:bg-accent',
+                            type: ButtonType.button,
+                            onClick: () => context
+                                .read(transcriptWindowProvider.notifier)
+                                .more(selected),
+                          ),
+                        ]),
                       for (final message in shown)
                         if (message.role == 'user' && editing == message.id)
                           _QuestionEditor(

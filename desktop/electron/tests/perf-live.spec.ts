@@ -92,7 +92,7 @@ async function api() {
 /** The daemon's resident memory, from /proc (Linux only). */
 function daemonRssMb(): number | null {
   try {
-    const pid = execFileSync('pgrep', ['-n', '-f', 'conduitd'], { encoding: 'utf8' }).trim()
+    const pid = execFileSync('pgrep', ['-n', '-f', 'bundle/bin/conduitd'], { encoding: 'utf8' }).trim()
     const status = readFileSync(`/proc/${pid}/status`, 'utf8')
     const kb = /VmRSS:\s+(\d+)/.exec(status)?.[1]
     return kb === undefined ? null : Math.round(Number(kb) / 1024)
@@ -127,7 +127,7 @@ async function framesDuring(page: Page, action: () => Promise<void>) {
 
 test.describe('a big account', () => {
   test.skip(credentials === null || process.env.CONDUIT_PERF !== '1', 'set CONDUIT_PERF=1 with OWUI_* in .env')
-  test.setTimeout(1_800_000)
+  test.setTimeout(3_600_000)
 
   let app: ElectronApplication
   let userData: string
@@ -139,12 +139,6 @@ test.describe('a big account', () => {
     test.setTimeout(900_000)
     const { context, auth } = await api()
     try {
-      const big = await context.post('/api/v1/chats/new', {
-        headers: auth,
-        data: chatBody(`Perf ${run}: ten thousand messages`, MESSAGES),
-      })
-      expect(big.ok(), await big.text()).toBe(true)
-      created.push(((await big.json()) as { id: string }).id)
       // The sidebar's worth, sixteen at a time.
       for (let start = 0; start < CHATS; start += 16) {
         const batch = await Promise.all(
@@ -159,6 +153,13 @@ test.describe('a big account', () => {
           if (response.ok()) created.push(((await response.json()) as { id: string }).id)
         }
       }
+      // Last, so it is the newest and first in the list.
+      const big = await context.post('/api/v1/chats/new', {
+        headers: auth,
+        data: chatBody(`Perf ${run}: ten thousand messages`, MESSAGES),
+      })
+      expect(big.ok(), await big.text()).toBe(true)
+      created.push(((await big.json()) as { id: string }).id)
     } finally {
       await context.dispose()
     }
@@ -205,14 +206,21 @@ test.describe('a big account', () => {
     await page.getByRole('button', { name: /^sign in$/i }).click()
     await expect.poll(() => page.evaluate(() => location.pathname), { timeout: 60_000 }).toBe('/')
 
-    // The sidebar: the newest page, then every page of 5,000.
+    // The sidebar lists what the local database holds, so a big account is
+    // only all there once the first full sync is done: time that.
     const sidebar = page.locator('nav[aria-label]')
     const rows = sidebar.locator('li button')
-    await expect(sidebar.getByText(`Perf ${run} sidebar ${CHATS - 1}`)).toBeVisible({ timeout: 300_000 })
+    const big = sidebar.getByRole('button', { name: new RegExp(`^Perf ${run}: ten thousand messages`) }).first()
+    await expect(big).toBeVisible({ timeout: 300_000 })
     const firstPageMs = Date.now() - signedInAt
+    const syncing = page.getByRole('status').filter({ hasText: /^syncing/i })
+    await expect(syncing).toHaveCount(0, { timeout: 2_400_000 })
+    const syncedMs = Date.now() - signedInAt
+
+    // Then every page of it, and a scroll through them.
     const pagesAt = Date.now()
     const loadMore = page.getByRole('button', { name: /^load more$/i })
-    for (let i = 0; i < 30 && (await loadMore.isVisible()); i++) {
+    for (let i = 0; i < 40 && (await loadMore.isVisible()); i++) {
       const before = await rows.count()
       await loadMore.click()
       await expect.poll(() => rows.count(), { timeout: 120_000 }).toBeGreaterThan(before)
@@ -220,30 +228,19 @@ test.describe('a big account', () => {
     const allPagesMs = Date.now() - pagesAt
     const sidebarRows = await rows.count()
     const sidebarScroll = await framesDuring(page, async () => {
-      const list = sidebar.locator('[data-chat-list], ul').first()
       for (let i = 0; i < 40; i++) {
-        await list.evaluate((el) => {
-          const scroller = (el.closest('[class*="overflow-y"]') as HTMLElement | null) ?? el.parentElement!
-          scroller.scrollBy(0, 1200)
+        await sidebar.evaluate((el) => {
+          const scroller = el.querySelector('[class*="overflow-y"]') as HTMLElement | null
+          ;(scroller ?? el).scrollBy(0, 1200)
         })
         await page.waitForTimeout(25)
       }
     })
 
-    // How far the account's full sync has got meanwhile: search sees only
-    // what it has pulled, so the big conversation is opened from the list.
-    const syncStatus = await page
-      .getByRole('status')
-      .filter({ hasText: /syncing/i })
-      .first()
-      .textContent()
-      .catch(() => null)
-
-    // The big conversation, the oldest row: open it, then scroll it.
-    const row = sidebar.getByRole('button', { name: new RegExp(`^Perf ${run}: ten thousand messages`) }).first()
-    await row.scrollIntoViewIfNeeded()
+    // The big conversation, the newest row: open it, then scroll it.
+    await big.scrollIntoViewIfNeeded()
     const openAt = Date.now()
-    await row.click()
+    await big.click()
     const transcript = page.getByRole('log')
     await expect(transcript).toContainText(`Step ${MESSAGES - 1} works like this`, { timeout: 300_000 })
     const openMs = Date.now() - openAt
@@ -269,9 +266,9 @@ test.describe('a big account', () => {
       messages: MESSAGES,
       chats: CHATS,
       firstPageMs,
+      syncedMs,
       allPagesMs,
       sidebarRows,
-      syncStatus,
       sidebarScroll,
       openMs,
       transcriptScroll,

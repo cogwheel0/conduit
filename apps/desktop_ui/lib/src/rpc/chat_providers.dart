@@ -1155,3 +1155,25 @@ final composerOptionsProvider = FutureProvider<ComposerOptions>((ref) async {
       .read(rpcClientProvider)
       .call(ConduitMethods.composerOptions, decode: ComposerOptions.fromJson);
 });
+
+/// How many of the open conversation's latest messages the transcript
+/// renders (WP-10.1). A conversation of thousands opened in seconds, not
+/// half a minute, and scrolls at 60 Hz: older ones come a page at a time,
+/// when asked for.
+final transcriptWindowProvider =
+    NotifierProvider<TranscriptWindow, ({String? chatId, int count})>(
+      TranscriptWindow.new,
+    );
+
+class TranscriptWindow extends Notifier<({String? chatId, int count})> {
+  static const int page = 100;
+
+  @override
+  ({String? chatId, int count}) build() => (chatId: null, count: page);
+
+  /// The count for [chatId]: a page, until more are asked for there.
+  int countFor(String? chatId) => state.chatId == chatId ? state.count : page;
+
+  void more(String? chatId) =>
+      state = (chatId: chatId, count: countFor(chatId) + page);
+}

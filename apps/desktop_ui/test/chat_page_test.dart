@@ -477,6 +477,62 @@ void main() {
     expect(find.text(t.app.shareChat), findsNothing);
   });
 
+  testComponents('a long conversation renders its latest messages first', (
+    tester,
+  ) async {
+    final long = ChatDetail(
+      summary: const ChatSummary(id: 'chat-1', title: 'Long', updatedAtMs: 1),
+      messages: <ChatMessageDto>[
+        for (var i = 0; i < 250; i++)
+          ChatMessageDto(
+            id: 'm$i',
+            role: i.isEven ? 'user' : 'assistant',
+            content: 'Message number $i',
+            timestampMs: i,
+          ),
+      ],
+    );
+    tester.pumpComponent(_scoped(detail: long, selected: 'chat-1'));
+    await pumpEventQueue();
+    expect(find.text('Message number 249'), findsOneComponent);
+    expect(find.text('Message number 150'), findsOneComponent);
+    expect(find.text('Message number 149'), findsNothing);
+    await tester.click(_byId('transcript-older'));
+    await pumpEventQueue();
+    expect(find.text('Message number 50'), findsOneComponent);
+    expect(find.text('Message number 49'), findsNothing);
+    await tester.click(_byId('transcript-older'));
+    await pumpEventQueue();
+    expect(find.text('Message number 0'), findsOneComponent);
+    expect(_byId('transcript-older'), findsNothing);
+  });
+
+  testComponents('a sidebar of thousands draws what is near the view', (
+    tester,
+  ) async {
+    final big = ChatList(
+      chats: <ChatSummary>[
+        for (var i = 0; i < 5000; i++)
+          ChatSummary(
+            id: 'c$i',
+            title: 'Chat $i',
+            updatedAtMs: DateTime.now().millisecondsSinceEpoch - i * 1000,
+          ),
+      ],
+    );
+    final commands = RecordingWindowCommands()..near = false;
+    final watch = Stopwatch()..start();
+    tester.pumpComponent(_scoped(chats: big, commands: commands));
+    await pumpEventQueue();
+    final elapsed = watch.elapsedMilliseconds;
+    expect(find.text('Chat 0'), findsOneComponent);
+    expect(find.text('Chat 199'), findsOneComponent);
+    expect(find.text('Chat 200'), findsNothing, reason: 'far from the view');
+    expect(commands.observed, hasLength(48));
+    // Far below the 1.9 s every row took to build.
+    expect(elapsed, lessThan(1200));
+  });
+
   group('voice', () {
     late RecordingVoice port;
 

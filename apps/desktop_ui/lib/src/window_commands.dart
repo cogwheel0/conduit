@@ -50,6 +50,11 @@ abstract interface class WindowCommandsPort {
   /// `window.open` there -- if this is the window the user is in, so that
   /// several open windows do not each open it.
   void openExternal(String url);
+
+  /// Tells [onChange] whether the element [id] is near enough the viewport
+  /// to be worth drawing, now and as that changes (WP-10.1). Returns what
+  /// stops it.
+  void Function() observeNearView(String id, void Function(bool near) onChange);
 }
 
 /// Records what it was asked to do. The default outside a browser.
@@ -89,6 +94,21 @@ final class RecordingWindowCommands implements WindowCommandsPort {
   void openExternal(String url) => opened.add(url);
 
   final List<String> opened = <String>[];
+
+  /// What [observeNearView] reports: near, by default, so a test sees
+  /// everything drawn.
+  bool near = true;
+  final List<String> observed = <String>[];
+
+  @override
+  void Function() observeNearView(
+    String id,
+    void Function(bool near) onChange,
+  ) {
+    observed.add(id);
+    onChange(near);
+    return () => observed.remove(id);
+  }
 
   final List<({String id, String text})> values =
       <({String id, String text})>[];

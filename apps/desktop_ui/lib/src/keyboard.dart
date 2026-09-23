@@ -136,6 +136,29 @@ final class DocumentWindowCommands implements WindowCommandsPort {
   }
 
   @override
+  void Function() observeNearView(
+    String id,
+    void Function(bool near) onChange,
+  ) {
+    final element = web.document.getElementById(id);
+    if (element == null) {
+      onChange(true);
+      return () {};
+    }
+    // Generous: a chunk starts drawing well before it scrolls into view.
+    final observer = web.IntersectionObserver(
+      ((JSArray<web.IntersectionObserverEntry> entries, JSAny _) {
+        for (final entry in entries.toDart) {
+          onChange(entry.isIntersecting);
+        }
+      }).toJS,
+      web.IntersectionObserverInit(rootMargin: '1500px 0px'),
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }
+
+  @override
   void reveal(String id) {
     web.document
         .getElementById(id)
