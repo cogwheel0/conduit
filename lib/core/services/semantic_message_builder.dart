@@ -196,6 +196,15 @@ String _renderDetailsBlock(SemanticDetailsBlock block) {
 }
 
 String _jsonAttributeValue(Object? value) {
+  // Open WebUI persists arguments/result as serialized JSON strings.
+  // jsonEncode-ing them again double-escapes every quote into \"
+  // sequences that the attribute parse chain cannot decode consistently,
+  // leaving residue as literal &quot;/&gt; entity text (issue #677). A
+  // String value is used verbatim — [_escape] (attribute mode) provides
+  // the single escaping layer the parse chain understands.
+  if (value is String) {
+    return value;
+  }
   try {
     return jsonEncode(value);
   } catch (_) {
