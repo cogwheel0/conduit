@@ -123,7 +123,7 @@ List<String>? folderPathTo(String chatId, List<FolderNode> roots) {
   return null;
 }
 
-/// The desktop sidebar's coarser time groups (docs/desktop/REDESIGN.md).
+/// The desktop sidebar's coarser time groups.
 enum RecentGroup { today, yesterday, earlier }
 
 /// [recent] regrouped as Today, Yesterday and Earlier: the three older

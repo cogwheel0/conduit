@@ -154,7 +154,7 @@ const List<Shortcut> defaultShortcuts = <Shortcut>[
     KeyStroke('l', primary: true, shift: true),
     whileTyping: true,
   ),
-  // The workspace frames (docs/desktop/REDESIGN.md): Open WebUI's sidebar
+  // The workspace frames: Open WebUI's sidebar
   // chord, and VS Code's for the pane on the other side.
   Shortcut(
     ShortcutAction.toggleSidebar,

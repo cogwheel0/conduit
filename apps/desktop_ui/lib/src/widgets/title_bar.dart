@@ -10,7 +10,7 @@ import '../shortcuts.dart';
 import 'desktop_integration.dart';
 import 'ui.dart';
 
-/// The window's own title bar (docs/desktop/REDESIGN.md).
+/// The window's own title bar.
 ///
 /// The whole bar drags the window, and a double-click on it maximizes -- the
 /// system does both for a drag region -- while its buttons stay buttons. On

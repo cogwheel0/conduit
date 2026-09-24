@@ -8,8 +8,8 @@ import { _electron as electron, expect, test, type ElectronApplication } from '@
 /**
  * Streaming performance (WP-10.1), with no server: a fake provider streams a
  * long answer as fast as a fast model does, and the window's frames are
- * timed while it arrives. The numbers go to `test-results/perf-stream.json`
- * and docs/desktop/PERFORMANCE.md; the assertions are the floor below which
+ * timed while it arrives. The numbers go to `test-results/perf-stream.json`;
+ * the assertions are the floor below which
  * streaming stops looking live.
  */
 

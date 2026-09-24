@@ -37,8 +37,8 @@ import 'terminal_page.dart'
     show TerminalLayout, TerminalWorkspace, terminalOffered;
 
 /// The chat vertical: the conversation frame -- header, transcript,
-/// composer -- and the side pane's frame beside it (M3; the frames are
-/// docs/desktop/REDESIGN.md's). The sidebar is the workspace's.
+/// composer -- and the side pane's frame beside it (M3). The sidebar is the
+/// workspace's.
 class ChatPage extends StatelessComponent {
   const ChatPage({super.key});
 

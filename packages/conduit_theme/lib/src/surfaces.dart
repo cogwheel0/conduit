@@ -5,7 +5,7 @@ import 'palette.dart';
 ///
 /// The desktop window is built from frames on a backdrop, and it separates
 /// layers by background contrast before borders, and borders before
-/// shadows (docs/desktop/REDESIGN.md). The shared tweakcn tokens name
+/// shadows. The shared tweakcn tokens name
 /// too few layers for that, so these sit alongside them:
 ///
 /// * `window` is the backdrop the frames sit on, and `panel` and `header`

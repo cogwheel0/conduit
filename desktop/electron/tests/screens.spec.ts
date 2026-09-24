@@ -6,7 +6,7 @@ import { fakeProvider, go } from './support/fake-provider'
 
 /**
  * Every screen a setup with no server reaches, in light and in dark, as
- * screenshots in screenshots/screens/ for review (docs/desktop/REDESIGN.md).
+ * screenshots in screenshots/screens/ for review.
  * It asserts only that each screen rendered; judging them is a person's job.
  */
 

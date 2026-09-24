@@ -34,8 +34,7 @@ import 'widgets/workspace_frame.dart';
 /// information architecture before the chat vertical is built on it. It can:
 /// [ShellRoute] gives the persistent sidebar/main split, `redirect` works at
 /// both the router and route level, and `RouteState.params` carries path
-/// parameters. The 200-line history-API fallback in section 11 is therefore
-/// not needed; see docs/desktop/ROUTER-SPIKE.md for what was checked.
+/// parameters. A hand-written history-API fallback is therefore not needed.
 class ConduitDesktopApp extends StatelessComponent {
   const ConduitDesktopApp({super.key});
 
@@ -263,7 +262,7 @@ bool showsFloatingSettingsLink(String location) =>
     !location.startsWith('/hermes');
 
 /// Whether [location] is drawn in the workspace -- the sidebar and frames
-/// (docs/desktop/REDESIGN.md) -- rather than alone on the window, as
+/// -- rather than alone on the window, as
 /// onboarding, sign-in and diagnostics are.
 bool hasWorkspace(String location) =>
     location == '/' ||

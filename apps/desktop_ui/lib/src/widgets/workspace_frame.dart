@@ -11,7 +11,7 @@ import 'sidebar.dart';
 /// A layout frame: its own background and border, with `lg` corners.
 ///
 /// Frames are the workspace's structure, not content, so they do not count
-/// toward the radius nesting inside them (docs/desktop/REDESIGN.md).
+/// toward the radius nesting inside them.
 const String frameClasses =
     'flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border '
     'border-border bg-panel';

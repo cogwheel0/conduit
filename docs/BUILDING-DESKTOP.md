@@ -9,10 +9,8 @@
 
 The desktop client is an Electron shell around two Dart programs: `conduitd`,
 a native sidecar that hosts the shared core, and a Jaspr renderer that talks
-to it over a loopback JSON-RPC WebSocket. See
-[docs/desktop/PLAN.md](desktop/PLAN.md) for the architecture and the milestone
-plan, and [docs/desktop/THREAT-MODEL.md](desktop/THREAT-MODEL.md) for the
-security design; this file is how to build, test and package it.
+to it over a loopback JSON-RPC WebSocket. This file is how to build, test and
+package it.
 
 > Status: M0 to M9 are done, apart from the Apple helper (WP-8.4) and what
 > needs signing certificates. M10 (hardening and the public release) is in
@@ -235,10 +233,11 @@ against the daemon works without a credential in markup. The renderer runs with
 navigate away from `app://conduit`. `desktop/electron/tests/launch.spec.ts`
 asserts each of these.
 
-## Known deviations from PLAN.md
+## Known workarounds
 
-Three of the plan's assumed dependencies do not work against this repo's
-pinned Dart 3.13.1, and the workarounds are load-bearing enough to write down.
+Three dependencies the obvious approach would use do not work against this
+repo's pinned Dart 3.13.1, and the workarounds are load-bearing enough to
+write down.
 
 **`jaspr_builder` is not a dependency.** It pins `analyzer ^12.1.0`, while the
 mobile app's `riverpod_lint` needs `analyzer >=13`. A pub workspace has one

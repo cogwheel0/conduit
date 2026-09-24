@@ -15,7 +15,7 @@ dependencies:
     path: ../../packages/conduit_core
   conduit_protocol:
     path: ../../packages/conduit_protocol
-  # AES-256-GCM for the secure store (PLAN.md section 3.3). The master key
+  # AES-256-GCM for the secure store. The master key
   # comes from Electron's safeStorage on stdin and never touches disk.
   cryptography: ^2.9.0
   # SHA-256 of downloaded speech models (M11).

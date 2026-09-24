@@ -215,7 +215,7 @@ jobs:
         run: dart run build_runner build
 
       # `dart compile exe` produces a native binary per OS/arch; there is no
-      # cross-compilation, which is why this matrix exists (PLAN.md section 11).
+      # cross-compilation, which is why this matrix exists.
       - name: Build conduitd
         working-directory: apps/daemon
         run: dart compile exe bin/conduitd.dart -o build/conduitd${{ runner.os == 'Windows' && '.exe' || '' }}

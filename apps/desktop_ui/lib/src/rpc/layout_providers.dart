@@ -6,11 +6,11 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import '../shortcuts.dart';
 import 'rpc_providers.dart';
 
-/// The side pane's tabs (docs/desktop/REDESIGN.md), in order.
+/// The side pane's tabs, in order.
 enum SidePaneTab { controls, terminal, notes, preview }
 
 /// The workspace's frames: whether the sidebar shows, and how wide it and
-/// the side pane are (docs/desktop/REDESIGN.md).
+/// the side pane are.
 ///
 /// Kept by the window, not the daemon: it is how this screen is arranged,
 /// not a preference of the account.

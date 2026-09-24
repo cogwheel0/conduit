@@ -8,7 +8,7 @@ import 'lucide_icons.dart';
 
 export 'lucide_icons.dart';
 
-/// The redesign's base pieces (docs/desktop/REDESIGN.md): icons, buttons,
+/// The desktop's base pieces: icons, buttons,
 /// tabs, and the class sets overlays and fields share.
 ///
 /// Mostly functions and constants, like form_field.dart: they hold no

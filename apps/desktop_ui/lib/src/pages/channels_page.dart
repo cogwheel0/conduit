@@ -454,7 +454,8 @@ class _ChannelViewState extends State<_ChannelView> {
       ]),
       if (thread != null)
         aside(
-          classes: 'flex w-96 shrink-0 flex-col border-l border-border bg-surface',
+          classes:
+              'flex w-96 shrink-0 flex-col border-l border-border bg-surface',
           attributes: <String, String>{'aria-label': t.app.thread},
           [
             div(

@@ -6,7 +6,7 @@ import {
 } from 'electron'
 
 /**
- * The main window's custom frame (docs/desktop/REDESIGN.md).
+ * The main window's custom frame.
  *
  * The renderer draws its own title bar. On macOS the traffic lights stay
  * the system's, inset into that bar; on Windows and Linux there is no

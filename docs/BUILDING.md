@@ -149,7 +149,7 @@ Every key in an English template needs an `@key` entry with a `description`,
 and that description is the only context a translator gets.
 
 The desktop UI cannot use slang's ARB importer directly; see
-[BUILDING-DESKTOP.md](BUILDING-DESKTOP.md#known-deviations-from-planmd) for
+[BUILDING-DESKTOP.md](BUILDING-DESKTOP.md#known-workarounds) for
 why, and `tool/arb_to_slang.dart` for the conversion.
 
 ## Project layout
@@ -197,8 +197,7 @@ desktop/
 `packages/conduit_theme` is the source of truth for the colour palettes;
 `lib/shared/theme/tweakcn_themes.dart` is a thin `Color` adapter over it, so a
 palette edit reaches both front-ends. See
-[BUILDING-DESKTOP.md](BUILDING-DESKTOP.md) to build the desktop client and
-[docs/desktop/PLAN.md](desktop/PLAN.md) for the roadmap.
+[BUILDING-DESKTOP.md](BUILDING-DESKTOP.md) to build the desktop client.
 
 ## Conventions
 

@@ -5,7 +5,7 @@ import { _electron as electron, expect, test, type ElectronApplication } from '@
 import { fakeProvider } from './support/fake-provider'
 
 /**
- * The redesigned shell (docs/desktop/REDESIGN.md): the drawn title bar and
+ * The redesigned shell: the drawn title bar and
  * its window controls, and the sidebar frame -- resized by dragging its
  * edge, kept across a reload, and hidden by its shortcut.
  */

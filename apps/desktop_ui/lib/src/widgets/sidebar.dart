@@ -25,7 +25,7 @@ import 'context_menu.dart';
 import 'selection_bar.dart';
 import '../pages/terminal_page.dart' show terminalOffered;
 
-/// The conversation sidebar (docs/desktop/REDESIGN.md): search, then
+/// The conversation sidebar: search, then
 /// pinned, folders, and Today, Yesterday and Earlier, with the window's
 /// other places at its foot. It lives in the workspace, beside every route
 /// that has one, rather than inside the chat page.

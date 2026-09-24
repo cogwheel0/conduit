@@ -23,7 +23,7 @@
  * `classes:` strings only ever live in these Dart files. */
 @source "../../../apps/desktop_ui/lib/**/*.dart";
 
-/* The interface type scale (docs/desktop/REDESIGN.md). Every step follows
+/* The interface type scale. Every step follows
  * `--ui-font-size`, which the text-size setting writes on <html>; the root
  * font size never changes, so rem-based spacing stays put. Code, diffs and
  * the terminal use Tailwind's fixed sizes and keep them. */

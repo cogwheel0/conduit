@@ -16,7 +16,7 @@ import 'controls_pane.dart';
 import 'html_preview.dart';
 import 'ui.dart';
 
-/// The pane beside a conversation (docs/desktop/REDESIGN.md): its own tab
+/// The pane beside a conversation: its own tab
 /// bar over controls and sources, the terminal's files and ports, notes,
 /// and a preview of pages the answers wrote.
 ///
