@@ -1,4 +1,4 @@
-// Enforces the workspace import rules in docs/desktop/PLAN.md section 2.2.
+// Enforces the workspace's import rules.
 //
 //   dart run tool/check_package_boundaries.dart
 //
@@ -284,7 +284,7 @@ List<String> _scanDesktopUi() {
       if (declared.contains(banned))
         '$root/pubspec.yaml declares "$banned" - the renderer holds no '
             'business logic and has no native capabilities; this belongs in '
-            'the daemon, behind RPC (PLAN.md section 2.2)',
+            'the daemon, behind RPC',
   ];
 
   final target = Directory('$root/lib');
@@ -301,7 +301,7 @@ List<String> _scanDesktopUi() {
         if (_desktopUiForbiddenDartLibraries.contains(uri)) {
           violations.add(
             '${entity.path}:$line imports "$uri", which the renderer cannot '
-            'have: it compiles to JS (PLAN.md section 2.2)',
+            'have: it compiles to JS',
           );
         }
         continue;
@@ -314,7 +314,7 @@ List<String> _scanDesktopUi() {
       violations.add(
         '${entity.path}:$line imports "package:$package", which '
         '$root/pubspec.yaml does not declare - the renderer may use only '
-        'what it depends on directly (PLAN.md section 2.2)',
+        'what it depends on directly',
       );
     }
   }

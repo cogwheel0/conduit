@@ -19,7 +19,7 @@ env:
 
 jobs:
   # The gate that matters most during the extraction: the mobile app must stay
-  # exactly as it was while code moves out from under it (PLAN.md section 7).
+  # exactly as it was while code moves out from under it.
   mobile:
     name: Mobile app (analyze + test)
     runs-on: ubuntu-latest
