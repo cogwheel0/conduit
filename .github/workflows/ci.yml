@@ -118,7 +118,7 @@ jobs:
         working-directory: apps/desktop_ui
         run: dart compile js -O2 -o build/main.dart.js lib/main.dart
 
-  # Section 2.2: the shared packages must survive dart2js, and the renderer
+  # The shared packages must survive dart2js, and the renderer
   # must not be able to reach dio, drift or conduit_core. Both are cheap to
   # check and expensive to discover late.
   web-safety:
