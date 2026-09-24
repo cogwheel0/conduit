@@ -80,7 +80,7 @@ jobs:
         working-directory: ${{ matrix.package }}
         run: dart test
 
-  # Section 2.2: the web-safe packages must survive dart2js, and must not be
+  # The web-safe packages must survive dart2js, and must not be
   # able to reach dio, drift or conduit_core. Both are cheap to check and
   # expensive to discover late.
   web-safety:
