@@ -13,9 +13,11 @@ import '../../navigation/models/sidebar_navigation_model.dart';
 import '../../navigation/widgets/chats_drawer.dart'
     show sidebarSectionDisclosureIcon;
 import '../../navigation/widgets/drawer_section_notifiers.dart';
-import '../models/hermes_bot.dart';
-import '../models/hermes_session.dart';
-import '../providers/hermes_providers.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
+import 'package:conduit_core/features/hermes/models/hermes_session.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+
 import 'hermes_bot_tile.dart';
 import 'hermes_jobs_sheet.dart';
 import 'hermes_session_tile.dart';

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 
+import 'package:conduit_core/conduit_core.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart'
@@ -12,27 +13,56 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'core/widgets/error_boundary.dart';
+import 'shared/widgets/error_boundary.dart';
+import 'platform/flutter_app_lifecycle.dart';
+import 'platform/flutter_clipboard_port.dart';
+import 'platform/flutter_connectivity_port.dart';
+import 'platform/url_launcher_open_external_url_port.dart';
+import 'platform/flutter_cookie_jar.dart';
+import 'platform/flutter_flush_scheduler.dart';
+import 'platform/flutter_post_frame_scheduler.dart';
+import 'platform/ios_display_boost.dart';
+import 'platform/mobile_background_execution.dart';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:conduit_core/services/share_staging_cleanup.dart'
+    show shareStagingDirectoryName;
 
-import 'core/providers/app_providers.dart';
-import 'core/network/conduit_user_agent.dart';
+import 'platform/ios_share_staging.dart';
+import 'platform/just_audio_playback.dart';
+import 'platform/record_audio_capture.dart';
+import 'platform/flutter_secure_key_value_store.dart';
+import 'platform/flutter_key_value_store.dart';
+import 'platform/flutter_log_sink.dart';
+import 'platform/flutter_worker_port.dart';
+import 'platform/flutter_database_opener.dart';
+
+import 'package:conduit_core/providers/app_providers.dart';
+
+import 'package:conduit_core/providers/host_ports.dart';
+
+import 'package:conduit_core/network/conduit_user_agent.dart';
+
 import 'core/persistence/hive_bootstrap.dart';
-import 'core/persistence/hive_prefs_migrator.dart';
+
+import 'package:conduit_core/persistence/hive_prefs_migrator.dart';
+
 import 'core/persistence/persistence_migrator.dart';
-import 'core/persistence/persistence_providers.dart';
-import 'core/persistence/preferences_store.dart';
+
+import 'package:conduit_core/persistence/persistence_providers.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+
 import 'core/router/app_router.dart';
 import 'core/services/native_sheet_bridge.dart';
 import 'core/services/native_sheet_hydration_service.dart';
-import 'core/services/navigation_service.dart';
-import 'core/services/performance_profiler.dart';
-import 'core/services/raster_media_policy.dart';
-import 'core/services/carplay_service.dart';
-import 'core/services/readiness_gated_secure_storage.dart';
-import 'core/services/settings_service.dart';
-import 'core/sync/request_completion_runner_provider.dart';
+import 'shared/services/navigation_service.dart';
+import 'shared/services/raster_media_policy.dart';
+import 'platform/carplay_service.dart';
+
+import 'package:conduit_core/services/readiness_gated_secure_storage.dart';
+import 'package:conduit_core/services/settings_service.dart';
+
+import 'package:conduit_core/sync/request_completion_runner_provider.dart';
+
 import 'core/utils/tts_voice_utils.dart';
 import 'core/utils/current_localizations.dart';
 import 'features/chat/services/request_completion_runner.dart';
@@ -45,20 +75,36 @@ import 'features/release_notes/data/release_notes_repository.dart';
 import 'features/release_notes/release_notes_presenter.dart';
 import 'l10n/conduit_localizations.dart';
 import 'shared/widgets/legacy_design_compatibility.dart';
-import 'features/tools/providers/tools_providers.dart';
+
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+
 import 'features/workspace/providers/workspace_capabilities_provider.dart';
 import 'features/workspace/workspace_navigation.dart';
-import 'core/utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'core/utils/system_ui_style.dart';
-import 'core/models/tool.dart';
+
+import 'package:conduit_core/models/tool.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
-import 'core/services/quick_actions_service.dart';
+import 'platform/quick_actions_service.dart';
 import 'core/providers/app_startup_providers.dart';
 import 'features/notifications/services/local_notification_service.dart';
 import 'shared/widgets/sign_out_options_dialog.dart';
 import 'shared/theme/theme_extensions.dart';
+import 'shared/theme/theme_providers.dart';
+import 'platform/frame_profiler.dart';
+import 'features/direct_connections/providers/apple_pcc_providers.dart';
+
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+
+import 'shared/services/app_package_info.dart';
+
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+
+import 'features/hermes/services/hermes_dashboard_rest_bridge.dart';
 
 const bool _enableFlutterDriverExtension = bool.fromEnvironment(
   'ENABLE_FLUTTER_DRIVER_EXTENSION',
@@ -117,6 +163,20 @@ void _registerBundledLicenses() {
 }
 
 void main() {
+  // Diagnostics have no destination until a host gives them one.
+  // Installed first, so startup itself is logged.
+  DebugLogger.sink = const FlutterLogSink();
+  AudioPlaybackPort.hostFactory = JustAudioPlayback.new;
+  BackgroundExecutionPort.hostDefault = const MobileBackgroundExecution();
+  DisplayBoostPort.hostDefault = const IosDisplayBoost();
+  ShareStagingPort.hostDefault = IosShareStaging(
+    stagingDirectoryName: shareStagingDirectoryName,
+  );
+  AudioCapturePort.hostFactory = RecordAudioCapture.new;
+  // The preference store is a host capability too; installed
+  // before bootstrap awaits its first synchronous read.
+  PreferencesStore.installLoader(FlutterKeyValueStore.load);
+
   if (_enableFlutterDriverExtension) {
     enableFlutterDriverExtension();
   }
@@ -136,7 +196,7 @@ void main() {
       unawaited(_configureUserAgent());
 
       _registerBundledLicenses();
-      PerformanceProfiler.instance.attachFrameTimings();
+      FrameProfiler.instance.attachFrameTimings();
 
       // Global error handlers
       FlutterError.onError = (FlutterErrorDetails details) {
@@ -165,19 +225,9 @@ void main() {
       // No need for SystemUiMode.edgeToEdge which is deprecated
       _startupTimeline?.instant('edge_to_edge_configured');
 
-      const secureStorage = FlutterSecureStorage(
-        aOptions: AndroidOptions(
-          // Same name as the pre-v11 sharedPreferencesName so the plugin's
-          // LegacyNamespaceKeyRecovery keeps existing Android data readable.
-          storageNamespace: 'conduit_secure_prefs',
-          preferencesKeyPrefix: 'conduit_',
-          resetOnError: false,
-        ),
-        iOptions: IOSOptions(
-          accountName: 'conduit_secure_storage',
-          synchronizable: false,
-        ),
-      );
+      // Platform options now live inside the adapter, so they cannot drift
+      // apart from the ones SecureCredentialStorage used to keep separately.
+      final secureStorage = FlutterSecureKeyValueStore();
 
       // Start independent platform/file work together. Quick Actions still
       // completes before runApp so a cold-launch action cannot be lost, while
@@ -244,8 +294,44 @@ void main() {
         _startupTimeline = null;
       });
 
+      // One WidgetsBindingObserver for the whole app; every engine that
+      // cares about foreground/background now shares it.
+      final appLifecycle = FlutterAppLifecycle();
+
       final providerContainer = ProviderContainer(
         overrides: [
+          // Host ports. `lib/core` declares these without a value so it
+          // stays free of Flutter plugins; each host binds its own.
+          databaseOpenerProvider.overrideWithValue(
+            const FlutterDatabaseOpener(),
+          ),
+          appLifecycleProvider.overrideWithValue(appLifecycle),
+          workerPortProvider.overrideWithValue(const FlutterWorkerPort()),
+          connectivityPortProvider.overrideWithValue(FlutterConnectivityPort()),
+          cookieJarProvider.overrideWithValue(const FlutterCookieJar()),
+          flushSchedulerProvider.overrideWithValue(
+            const FlutterFlushScheduler(),
+          ),
+          postFrameSchedulerProvider.overrideWithValue(
+            const FlutterPostFrameScheduler(),
+          ),
+          signOutResetTargetsProvider.overrideWithValue(
+            themePreferenceResetTargets,
+          ),
+          hostDirectProviderAdaptersProvider.overrideWith(
+            (ref) => [ref.watch(applePccAdapterProvider)],
+          ),
+          hostHermesDashboardBridgeFactoryProvider.overrideWith(
+            (ref) =>
+                ({required root}) => HermesDashboardRestBridge(
+                  config: ref.read(hermesConfigProvider),
+                  root: root,
+                ),
+          ),
+          clipboardPortProvider.overrideWithValue(const FlutterClipboardPort()),
+          openExternalUrlProvider.overrideWithValue(
+            const UrlLauncherOpenExternalUrlPort(),
+          ),
           secureStorageProvider.overrideWithValue(
             ReadinessGatedSecureStorage(
               delegate: secureStorage,

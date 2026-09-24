@@ -1,28 +1,23 @@
+import 'package:conduit_core/utils/openwebui_request_variables.dart';
+
+export 'package:conduit_core/utils/openwebui_request_variables.dart'
+    show UserLocationSetting;
+
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:meta/meta.dart';
 
-import '../utils/debug_logger.dart';
-import 'api_service.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
+import 'package:conduit_core/services/api_service.dart';
 
 enum UserLocationFailureReason {
   servicesDisabled,
   permissionDenied,
   permissionDeniedForever,
   unavailable,
-}
-
-@immutable
-class UserLocationSetting {
-  const UserLocationSetting({
-    this.autoRefreshEnabled = false,
-    this.legacyLocation,
-  });
-
-  final bool autoRefreshEnabled;
-  final String? legacyLocation;
 }
 
 @immutable
@@ -41,89 +36,22 @@ class UserLocationResult {
   bool get hasLocation => location != null && location!.trim().isNotEmpty;
 }
 
-String _formatUserLocationCoordinates({
-  required double latitude,
-  required double longitude,
-}) {
-  return '${latitude.toStringAsFixed(3)}, '
-      '${longitude.toStringAsFixed(3)} (lat, long)';
-}
-
 @visibleForTesting
 String formatUserLocationCoordinatesForTest({
   required double latitude,
   required double longitude,
 }) {
-  return _formatUserLocationCoordinates(
+  return formatUserLocationCoordinates(
     latitude: latitude,
     longitude: longitude,
   );
-}
-
-Map<String, dynamic>? _asStringDynamicMap(dynamic value) {
-  if (value is Map<String, dynamic>) {
-    return value;
-  }
-  if (value is Map) {
-    return value.map((key, entryValue) => MapEntry(key.toString(), entryValue));
-  }
-  return null;
-}
-
-String? _normalizeLocationString(dynamic value) {
-  if (value is! String) {
-    return null;
-  }
-  final trimmed = value.trim();
-  return trimmed.isEmpty ? null : trimmed;
-}
-
-UserLocationSetting _extractUserLocationSetting(
-  Map<String, dynamic>? userSettings,
-) {
-  final uiMap = _asStringDynamicMap(userSettings?['ui']);
-  final hasRootUserLocation =
-      userSettings?.containsKey('userLocation') ?? false;
-  final raw = hasRootUserLocation
-      ? (userSettings?['userLocation'])
-      : (uiMap?['userLocation']);
-
-  if (raw is bool) {
-    return UserLocationSetting(autoRefreshEnabled: raw);
-  }
-  if (raw is num) {
-    return UserLocationSetting(autoRefreshEnabled: raw != 0);
-  }
-
-  final normalized = _normalizeLocationString(raw);
-  if (normalized == null) {
-    return const UserLocationSetting();
-  }
-
-  switch (normalized.toLowerCase()) {
-    case 'always':
-    case 'enabled':
-    case 'on':
-    case 'true':
-    case '1':
-    case 'yes':
-      return const UserLocationSetting(autoRefreshEnabled: true);
-    case 'disabled':
-    case 'off':
-    case 'false':
-    case '0':
-    case 'no':
-      return const UserLocationSetting();
-    default:
-      return UserLocationSetting(legacyLocation: normalized);
-  }
 }
 
 @visibleForTesting
 UserLocationSetting extractUserLocationSettingForTest(
   Map<String, dynamic>? userSettings,
 ) {
-  return _extractUserLocationSetting(userSettings);
+  return extractUserLocationSetting(userSettings);
 }
 
 const Duration _defaultLocationLookupTimeout = Duration(seconds: 8);
@@ -188,7 +116,7 @@ class LocationService {
       final position = await fetchCurrentPosition().timeout(
         locationLookupTimeout,
       );
-      final formatted = _formatUserLocationCoordinates(
+      final formatted = formatUserLocationCoordinates(
         latitude: position.latitude,
         longitude: position.longitude,
       );
@@ -239,7 +167,7 @@ class LocationService {
     Map<String, dynamic>? userSettings, {
     ApiService? api,
   }) async {
-    final setting = _extractUserLocationSetting(userSettings);
+    final setting = extractUserLocationSetting(userSettings);
     if (setting.autoRefreshEnabled) {
       final result = await refreshAndSyncUserLocation(api);
       if (result.hasLocation) {

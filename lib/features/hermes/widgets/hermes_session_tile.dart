@@ -3,10 +3,13 @@ import 'package:dio/dio.dart' show DioException;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/models/conversation.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../../core/services/navigation_service.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+
+import '../../../shared/services/navigation_service.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../l10n/app_localizations.dart';
 import '../../../l10n/app_localizations_en.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
@@ -15,21 +18,22 @@ import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../chat/providers/chat_providers.dart' show isChatStreamingProvider;
 import '../../navigation/widgets/conversation_tile.dart';
-import '../models/hermes_config.dart';
-import '../models/hermes_model.dart';
-import '../models/hermes_session.dart';
-import '../models/hermes_bot.dart';
-import '../providers/hermes_providers.dart';
-import '../services/hermes_backend_service.dart';
-import '../services/hermes_desktop_api_service.dart';
-import '../services/hermes_desktop_transport.dart';
-import '../services/hermes_decision_projection.dart';
-import '../services/hermes_identifier.dart';
-import '../services/hermes_json_guard.dart';
-import '../services/hermes_local_document_trust_store.dart';
-import '../services/hermes_message_mapper.dart';
-import '../services/hermes_pending_decision_store.dart';
-import '../services/hermes_session_provenance.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/models/hermes_session.dart';
+import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
+import 'package:conduit_core/features/hermes/services/hermes_decision_projection.dart';
+import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
+import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
+import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 
 /// A single Hermes session row, styled to match the chat conversation tiles —
 /// single-line title, selected highlight, and an in-progress spinner while a

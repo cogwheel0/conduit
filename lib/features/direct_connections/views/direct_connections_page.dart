@@ -7,10 +7,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
-import '../../../core/models/model.dart';
-import '../../../core/providers/backend_mode_providers.dart';
-import '../../../core/platform/conduit_platform_apis.g.dart';
-import '../../../core/services/navigation_service.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
+
+import '../../../platform/conduit_platform_apis.g.dart';
+import '../../../shared/services/navigation_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
@@ -18,12 +19,15 @@ import '../../../shared/widgets/adaptive_selection_sheet.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
-import '../models/direct_connection_profile.dart';
-import '../models/direct_mcp_server.dart';
-import '../models/openwebui_direct_connection.dart';
-import '../providers/direct_connection_providers.dart';
-import '../providers/direct_mcp_providers.dart';
-import '../services/direct_chat_bridge.dart';
+
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
+import 'package:conduit_core/features/direct_connections/models/openwebui_direct_connection.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
+
+import '../providers/apple_pcc_providers.dart';
 
 const List<int> _directContextLengthOptions = <int>[
   4096,

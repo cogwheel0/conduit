@@ -1,13 +1,15 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
-import 'package:conduit/core/utils/debug_logger.dart';
-import 'package:conduit/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_tool_content.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
+
+export 'package:conduit_core/features/workspace/models/workspace_transfer.dart'
+    show normalizeImportedTool;
 
 /// Loads a tool definition from a URL. Returns the raw tool map, or null.
 typedef WorkspaceToolUrlLoader = Future<Map<String, dynamic>> Function(
@@ -162,45 +164,4 @@ class _WorkspaceToolUrlImportSheetState
       ),
     );
   }
-}
-
-/// Applies front-matter overrides from a loaded/import tool payload, mirroring
-/// Open WebUI's ImportModal: an id defaults to `nameToId(name)`, a front-matter
-/// `title` overrides the name, and the description falls back to the name.
-Map<String, dynamic> normalizeImportedTool(Map<String, dynamic> tool) {
-  final result = Map<String, dynamic>.from(tool);
-  final name = result['name']?.toString() ?? '';
-  final content = result['content']?.toString() ?? '';
-  final rawId = result['id']?.toString().trim() ?? '';
-  final frontmatter = WorkspaceToolContent.parseFrontmatter(content);
-
-  final title = frontmatter['title']?.trim();
-  final resolvedName = (title != null && title.isNotEmpty) ? title : name;
-  result['name'] = resolvedName;
-  // Derive the id from the original name *before* the front-matter title
-  // override (matching upstream's ImportModal), so a payload like
-  // `{name: 'main', content: '---\ntitle: Web Search\n---'}` keeps id `main`
-  // rather than retargeting to `web_search`.
-  var derivedId = rawId;
-  if (derivedId.isEmpty) {
-    derivedId = WorkspaceToolContent.nameToId(name);
-  }
-  // A whitespace-/punctuation-only name is non-empty but slugifies to '', so
-  // fall back to the front-matter title (then a safe default) — otherwise the
-  // id would be empty/invalid and rejected by the server.
-  if (derivedId.isEmpty) {
-    derivedId = WorkspaceToolContent.nameToId(resolvedName);
-  }
-  if (derivedId.isEmpty) {
-    derivedId = 'tool';
-  }
-  result['id'] = derivedId;
-
-  final meta = workspaceJsonMap(result['meta']);
-  final fmDescription = frontmatter['description']?.trim();
-  meta['description'] = (fmDescription != null && fmDescription.isNotEmpty)
-      ? fmDescription
-      : (meta['description']?.toString() ?? resolvedName);
-  result['meta'] = meta;
-  return result;
 }

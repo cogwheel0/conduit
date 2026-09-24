@@ -1,22 +1,22 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/conversation.dart';
-import 'package:conduit/core/models/model.dart';
-import 'package:conduit/core/persistence/persistence_keys.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/navigation_service.dart';
-import 'package:conduit/features/hermes/models/hermes_config.dart';
-import 'package:conduit/features/hermes/models/hermes_model.dart';
-import 'package:conduit/features/hermes/models/hermes_session.dart';
-import 'package:conduit/features/hermes/providers/hermes_providers.dart';
-import 'package:conduit/features/hermes/services/hermes_api_service.dart';
-import 'package:conduit/features/hermes/services/hermes_desktop_transport.dart';
-import 'package:conduit/features/hermes/services/hermes_json_guard.dart';
-import 'package:conduit/features/hermes/services/hermes_local_document_service.dart';
-import 'package:conduit/features/hermes/services/hermes_local_document_trust_store.dart';
-import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/models/hermes_session.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
+import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit/features/hermes/widgets/hermes_session_tile.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
@@ -26,11 +26,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_secure_key_value_store.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     HermesLocalDocumentTrustStore.debugResetRuntimeState();
   });
   tearDown(() {
@@ -45,6 +47,7 @@ void main() {
     final now = DateTime(2026);
     final container = ProviderContainer(
       overrides: [
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         hermesApiServiceProvider.overrideWithValue(service),
         activeConversationProvider.overrideWith(
           () => _SeededActiveConversation(
@@ -106,6 +109,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         hermesApiServiceProvider.overrideWithValue(service),
         activeConversationProvider.overrideWith(
           () => _SeededActiveConversation(forgedOpenWebUiConversation),
@@ -148,6 +152,7 @@ void main() {
       final container = ProviderContainer(
         retry: (retryCount, error) => null,
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           hermesApiServiceProvider.overrideWithValue(service),
           modelsProvider.overrideWith(_FailingModels.new),
         ],
@@ -230,7 +235,7 @@ void main() {
         PreferenceKeys.hermesBaseUrl: config.baseUrl,
         PreferenceKeys.hermesLocalDocumentTrustPrincipal: principalId,
       });
-      final preferences = await SharedPreferences.getInstance();
+      final preferences = await FlutterKeyValueStore.load();
       PreferencesStore.debugOverride(
         preferences,
         writeInterceptor: (_, key, value) async {
@@ -260,6 +265,7 @@ void main() {
       final builtServices = <_FakeHermesApiService>[];
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           hermesConfigProvider.overrideWith(
             () => _FixedHermesConfigController(config),
           ),
@@ -349,6 +355,7 @@ void main() {
       final container = ProviderContainer(
         retry: (retryCount, error) => null,
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           hermesApiServiceProvider.overrideWithValue(service),
           modelsProvider.overrideWith(_FailingModels.new),
           activeConversationProvider.overrideWith(
@@ -420,6 +427,7 @@ void main() {
     final container = ProviderContainer(
       retry: (retryCount, error) => null,
       overrides: [
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         hermesApiServiceProvider.overrideWithValue(service),
         modelsProvider.overrideWith(_FailingModels.new),
       ],
@@ -492,6 +500,7 @@ void main() {
       final container = ProviderContainer(
         retry: (retryCount, error) => null,
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           hermesApiServiceProvider.overrideWithValue(service),
           modelsProvider.overrideWith(scenario.value),
           selectedModelProvider.overrideWith(
@@ -685,7 +694,7 @@ void main() {
     tester,
   ) async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     addTearDown(PreferencesStore.debugReset);
     const document = HermesPreparedDocument(
       id: 'hdoc_222222222222222222222222',
@@ -703,6 +712,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         hermesApiServiceProvider.overrideWithValue(service),
         modelsProvider.overrideWith(_FailingModels.new),
       ],

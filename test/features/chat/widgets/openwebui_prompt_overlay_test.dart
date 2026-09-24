@@ -1,11 +1,11 @@
-import 'package:conduit/core/models/openwebui_chat_prompt.dart';
-import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit_core/models/openwebui_chat_prompt.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/chat/widgets/openwebui_prompt_overlay.dart';
-import 'package:conduit/features/hermes/models/hermes_capabilities.dart';
-import 'package:conduit/features/hermes/models/hermes_model.dart';
-import 'package:conduit/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';

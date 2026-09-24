@@ -1,5 +1,5 @@
 import 'package:flutter/widgets.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit/features/workspace/views/knowledge/workspace_knowledge_editor.dart';
 import 'package:conduit/features/workspace/views/models/workspace_model_editor.dart';

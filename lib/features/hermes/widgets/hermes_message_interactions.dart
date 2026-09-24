@@ -4,19 +4,22 @@ import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
-import '../../../core/models/chat_message.dart';
-import '../../../core/providers/app_providers.dart'
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/providers/app_providers.dart'
     show activeConversationProvider;
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../chat/providers/chat_providers.dart'
     show
         captureHermesApprovalProjectionStateUpdater,
         chatMessagesProvider,
         hermesRunKeyForConversation;
-import '../models/hermes_run_event.dart';
-import '../providers/hermes_providers.dart';
-import '../services/hermes_desktop_api_service.dart';
-import '../services/hermes_run_transport.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
+
 import 'hermes_approval_card.dart';
 import 'hermes_decision_card.dart';
 

@@ -1,17 +1,39 @@
 import 'dart:convert';
 import 'dart:io';
 
-/// Verifies that every non-meta key in app_en.arb has a corresponding
-/// @key entry with a non-empty `description`.
+/// Verifies that every non-meta key in an English ARB template has a
+/// corresponding @key entry with a non-empty `description`.
+///
+/// Covers every namespace template in lib/l10n — `app_en.arb` for the shared
+/// catalog and `desktop_en.arb` for desktop-only strings — so a new
+/// front-end cannot quietly skip the description requirement.
 ///
 /// Usage: dart run tool/verify_arb_descriptions.dart
 Future<void> main() async {
-  final arbPath = 'lib/l10n/app_en.arb';
-  final file = File(arbPath);
-  if (!await file.exists()) {
-    stderr.writeln('ARB file not found: $arbPath');
+  final templates =
+      Directory('lib/l10n')
+          // Recursive: `flutter gen-l10n` refuses two files claiming the same
+          // locale in one directory, so non-mobile namespaces live in
+          // subdirectories (lib/l10n/desktop/) that gen-l10n does not scan.
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('_en.arb'))
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
+  if (templates.isEmpty) {
+    stderr.writeln('No English ARB templates found in lib/l10n');
     exit(2);
   }
+
+  var failed = false;
+  for (final template in templates) {
+    if (!await _verify(template)) failed = true;
+  }
+  exit(failed ? 1 : 0);
+}
+
+Future<bool> _verify(File file) async {
+  final arbPath = file.path;
 
   final content = await file.readAsString();
   late final Map<String, dynamic> data;
@@ -43,24 +65,28 @@ Future<void> main() async {
 
   if (missingMeta.isEmpty && missingDescription.isEmpty) {
     stdout.writeln(
-      'ARB descriptions check passed: all keys have @meta.description.',
+      'ARB descriptions check passed for $arbPath: all keys have '
+      '@meta.description.',
     );
-    return;
+    return true;
   }
 
   if (missingMeta.isNotEmpty) {
-    stderr.writeln('Missing @meta for keys (${missingMeta.length}):');
+    stderr.writeln(
+      '[$arbPath] Missing @meta for keys (${missingMeta.length}):',
+    );
     for (final k in missingMeta) {
       stderr.writeln(' - $k');
     }
   }
   if (missingDescription.isNotEmpty) {
     stderr.writeln(
-      'Missing description in @meta for keys (${missingDescription.length}):',
+      '[$arbPath] Missing description in @meta for keys '
+      '(${missingDescription.length}):',
     );
     for (final k in missingDescription) {
       stderr.writeln(' - $k');
     }
   }
-  exit(1);
+  return false;
 }

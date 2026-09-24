@@ -4,6 +4,7 @@ import 'dart:io' show Platform;
 import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit_core/utils/usage_summary.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -94,212 +95,71 @@ class UsageStatsModal {
     ConduitThemeExtension theme,
   ) {
     final stats = <Widget>[];
+    // The arithmetic is the core's, shared with the desktop app; this only
+    // lays it out.
+    final summary = UsageSummary.fromUsage(usage);
 
-    // Parse all possible fields
-    final evalCount = _parseNum(usage['eval_count']);
-    final evalDuration = _parseNum(usage['eval_duration']);
-    final promptEvalCount = _parseNum(usage['prompt_eval_count']);
-    final promptEvalDuration = _parseNum(usage['prompt_eval_duration']);
-    final completionTokens = _parseNum(usage['completion_tokens']);
-    final promptTokens = _parseNum(usage['prompt_tokens']);
-    final totalTokens = _parseNum(usage['total_tokens']);
-    // Time fields in seconds (Groq/OpenAI extended format)
-    final completionTime = _parseNum(usage['completion_time']);
-    final promptTime = _parseNum(usage['prompt_time']);
-    final totalTime = _parseNum(usage['total_time']);
-    final queueTime = _parseNum(usage['queue_time']);
-    // Time fields in nanoseconds (Ollama/llama.cpp format)
-    final totalDuration = _parseNum(usage['total_duration']);
-    final loadDuration = _parseNum(usage['load_duration']);
-    // Reasoning tokens (OpenAI o1/o3 models, Groq)
-    final completionDetails = usage['completion_tokens_details'];
-    final reasoningTokens = completionDetails is Map
-        ? _parseNum(completionDetails['reasoning_tokens'])
-        : null;
+    Widget row(String label, String value, {String? detail}) =>
+        _UsageStatRow(label: label, value: value, detail: detail, theme: theme);
+    String? count(int? tokens) =>
+        tokens == null ? null : l10n.usageTokenCount(tokens);
 
-    // llama.cpp server format: pre-calculated tokens/second values
-    final predictedPerSecond = _parseNum(usage['predicted_per_second']);
-    final promptPerSecond = _parseNum(usage['prompt_per_second']);
-    final predictedN = _parseNum(usage['predicted_n']);
-    final promptN = _parseNum(usage['prompt_n']);
-
-    // --- Token Generation Speed ---
-    // Priority: llama.cpp direct > Ollama calculated > Groq/OpenAI > count only
-    if (predictedPerSecond != null && predictedPerSecond > 0) {
-      // llama.cpp server: pre-calculated tokens/second
+    if (summary.generationPerSecond case final rate?) {
       stats.add(
-        _UsageStatRow(
-          label: l10n.usageTokenGeneration,
-          value: l10n.usageTokensPerSecond(
-            predictedPerSecond.toStringAsFixed(1),
-          ),
-          detail: predictedN != null
-              ? l10n.usageTokenCount(predictedN.toInt())
-              : null,
-          theme: theme,
+        row(
+          l10n.usageTokenGeneration,
+          l10n.usageTokensPerSecond(rate.toStringAsFixed(1)),
+          detail: count(summary.generationTokens),
         ),
       );
-    } else if (evalCount != null && evalDuration != null && evalDuration > 0) {
-      // Ollama: duration in nanoseconds
-      final tgSpeed = evalCount / (evalDuration / 1e9);
+    } else if (summary.generationTokens case final tokens?) {
+      stats.add(row(l10n.usageTokenGeneration, l10n.usageTokenCount(tokens)));
+    }
+
+    if (summary.promptPerSecond case final rate?) {
       stats.add(
-        _UsageStatRow(
-          label: l10n.usageTokenGeneration,
-          value: l10n.usageTokensPerSecond(tgSpeed.toStringAsFixed(1)),
-          detail: l10n.usageTokenCount(evalCount.toInt()),
-          theme: theme,
+        row(
+          l10n.usagePromptEval,
+          l10n.usageTokensPerSecond(rate.toStringAsFixed(1)),
+          detail: count(summary.promptTokens),
         ),
       );
-    } else if (completionTokens != null &&
-        completionTime != null &&
-        completionTime > 0) {
-      // Groq/OpenAI extended: time in seconds
-      final tgSpeed = completionTokens / completionTime;
+    } else if (summary.promptTokens case final tokens?) {
+      stats.add(row(l10n.usagePromptEval, l10n.usageTokenCount(tokens)));
+    }
+
+    if (summary.reasoningTokens case final tokens?) {
+      stats.add(row(l10n.usageReasoningTokens, l10n.usageTokenCount(tokens)));
+    }
+    if (summary.totalTokens case final tokens?) {
+      stats.add(row(l10n.usageTotalTokens, l10n.usageTokenCount(tokens)));
+    }
+    if (summary.totalSeconds case final seconds?) {
       stats.add(
-        _UsageStatRow(
-          label: l10n.usageTokenGeneration,
-          value: l10n.usageTokensPerSecond(tgSpeed.toStringAsFixed(1)),
-          detail: l10n.usageTokenCount(completionTokens.toInt()),
-          theme: theme,
-        ),
-      );
-    } else if (completionTokens != null) {
-      // Basic OpenAI: token count only
-      stats.add(
-        _UsageStatRow(
-          label: l10n.usageTokenGeneration,
-          value: l10n.usageTokenCount(completionTokens.toInt()),
-          theme: theme,
+        row(
+          l10n.usageTotalDuration,
+          l10n.usageSecondsFormat(seconds.toStringAsFixed(2)),
         ),
       );
     }
-
-    // --- Prompt Processing Speed ---
-    // Priority: llama.cpp direct > Ollama calculated > Groq/OpenAI > count only
-    if (promptPerSecond != null && promptPerSecond > 0) {
-      // llama.cpp server: pre-calculated tokens/second
+    if (summary.queueSeconds case final seconds?) {
       stats.add(
-        _UsageStatRow(
-          label: l10n.usagePromptEval,
-          value: l10n.usageTokensPerSecond(promptPerSecond.toStringAsFixed(1)),
-          detail: promptN != null
-              ? l10n.usageTokenCount(promptN.toInt())
-              : null,
-          theme: theme,
-        ),
-      );
-    } else if (promptEvalCount != null &&
-        promptEvalDuration != null &&
-        promptEvalDuration > 0) {
-      // Ollama: duration in nanoseconds
-      final ppSpeed = promptEvalCount / (promptEvalDuration / 1e9);
-      stats.add(
-        _UsageStatRow(
-          label: l10n.usagePromptEval,
-          value: l10n.usageTokensPerSecond(ppSpeed.toStringAsFixed(1)),
-          detail: l10n.usageTokenCount(promptEvalCount.toInt()),
-          theme: theme,
-        ),
-      );
-    } else if (promptTokens != null && promptTime != null && promptTime > 0) {
-      // Groq/OpenAI extended: time in seconds
-      final ppSpeed = promptTokens / promptTime;
-      stats.add(
-        _UsageStatRow(
-          label: l10n.usagePromptEval,
-          value: l10n.usageTokensPerSecond(ppSpeed.toStringAsFixed(1)),
-          detail: l10n.usageTokenCount(promptTokens.toInt()),
-          theme: theme,
-        ),
-      );
-    } else if (promptTokens != null) {
-      // Basic OpenAI: token count only
-      stats.add(
-        _UsageStatRow(
-          label: l10n.usagePromptEval,
-          value: l10n.usageTokenCount(promptTokens.toInt()),
-          theme: theme,
+        row(
+          l10n.usageQueueTime,
+          l10n.usageSecondsFormat(seconds.toStringAsFixed(3)),
         ),
       );
     }
-
-    // --- Reasoning Tokens (for o1/o3 models) ---
-    if (reasoningTokens != null && reasoningTokens > 0) {
+    if (summary.loadSeconds case final seconds?) {
       stats.add(
-        _UsageStatRow(
-          label: l10n.usageReasoningTokens,
-          value: l10n.usageTokenCount(reasoningTokens.toInt()),
-          theme: theme,
-        ),
-      );
-    }
-
-    // --- Total Tokens (if not already shown via completion + prompt) ---
-    if (totalTokens != null &&
-        (completionTokens == null || promptTokens == null)) {
-      stats.add(
-        _UsageStatRow(
-          label: l10n.usageTotalTokens,
-          value: l10n.usageTokenCount(totalTokens.toInt()),
-          theme: theme,
-        ),
-      );
-    }
-
-    // --- Total Duration ---
-    if (totalDuration != null && totalDuration > 0) {
-      // Ollama/llama.cpp: nanoseconds
-      final totalSec = totalDuration / 1e9;
-      stats.add(
-        _UsageStatRow(
-          label: l10n.usageTotalDuration,
-          value: l10n.usageSecondsFormat(totalSec.toStringAsFixed(2)),
-          theme: theme,
-        ),
-      );
-    } else if (totalTime != null && totalTime > 0) {
-      // Groq/OpenAI extended: seconds
-      stats.add(
-        _UsageStatRow(
-          label: l10n.usageTotalDuration,
-          value: l10n.usageSecondsFormat(totalTime.toStringAsFixed(2)),
-          theme: theme,
-        ),
-      );
-    }
-
-    // --- Queue Time (Groq) ---
-    if (queueTime != null && queueTime > 0) {
-      stats.add(
-        _UsageStatRow(
-          label: l10n.usageQueueTime,
-          value: l10n.usageSecondsFormat(queueTime.toStringAsFixed(3)),
-          theme: theme,
-        ),
-      );
-    }
-
-    // --- Model Load Time (Ollama) ---
-    if (loadDuration != null && loadDuration > 0) {
-      final loadSec = loadDuration / 1e9;
-      stats.add(
-        _UsageStatRow(
-          label: l10n.usageLoadDuration,
-          value: l10n.usageSecondsFormat(loadSec.toStringAsFixed(2)),
-          theme: theme,
+        row(
+          l10n.usageLoadDuration,
+          l10n.usageSecondsFormat(seconds.toStringAsFixed(2)),
         ),
       );
     }
 
     return stats;
-  }
-
-  /// Safely parse a number from dynamic value.
-  static num? _parseNum(dynamic value) {
-    if (value == null) return null;
-    if (value is num) return value;
-    if (value is String) return num.tryParse(value);
-    return null;
   }
 
   static String _buildUsageSummaryText(Map<String, dynamic> usage) {

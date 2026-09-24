@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Pinned so a Flutter release cannot change what CI means overnight. Keep in
+  # step with the `environment` block in pubspec.yaml.
+  FLUTTER_VERSION: '3.47.1'
+
+jobs:
+  # The gate that matters most during the extraction: the mobile app must stay
+  # exactly as it was while code moves out from under it.
+  mobile:
+    name: Mobile app (analyze + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+      # One `pub get` at the workspace root resolves every member.
+      - run: flutter pub get
+      # Every workspace member with codegen, not only this job's own: a
+      # package is analyzed against the generated code of what it imports.
+      - name: Generate code
+        shell: bash
+        run: |
+          for dir in . packages/* apps/*; do
+            if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+              echo "::group::build_runner in $dir"
+              (cd "$dir" && dart run build_runner build)
+              echo "::endgroup::"
+            fi
+          done
+      # Errors fail the job; warnings and infos do not yet. The app carries
+      # riverpod_lint findings from before this workflow existed (main has
+      # the same ones), which want their own clean-up. The packages below are
+      # clean and stay held to --fatal-infos.
+      - run: flutter analyze --no-fatal-warnings --no-fatal-infos
+      - run: flutter test
+
+  # Each workspace member analyzes and tests on its own, which is what proves
+  # the pub workspace actually works per package.
+  packages:
+    name: Dart packages
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - packages/conduit_core
+          - packages/conduit_markdown
+          - packages/conduit_theme
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+      - run: flutter pub get
+      # Every workspace member with codegen, not only this job's own: a
+      # package is analyzed against the generated code of what it imports.
+      - name: Generate code
+        shell: bash
+        run: |
+          for dir in . packages/* apps/*; do
+            if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+              echo "::group::build_runner in $dir"
+              (cd "$dir" && dart run build_runner build)
+              echo "::endgroup::"
+            fi
+          done
+      - name: Analyze
+        working-directory: ${{ matrix.package }}
+        run: dart analyze --fatal-infos
+      - name: Test
+        working-directory: ${{ matrix.package }}
+        run: dart test
+
+  # The web-safe packages must survive dart2js, and must not be
+  # able to reach dio, drift or conduit_core. Both are cheap to check and
+  # expensive to discover late.
+  web-safety:
+    name: Web-safe packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+      - run: flutter pub get
+      - name: Check package boundaries
+        run: dart run tool/check_package_boundaries.dart
+      # conduit_markdown is meant for a web renderer too: compile it and
+      # actually run it, rather than trusting the grep.
+      - name: Compile markdown package to JS
+        working-directory: packages/conduit_markdown
+        run: dart compile js -o build/web_safety_check.js test/web_safety_check.dart
+      - name: Run markdown web-safety check under Node
+        working-directory: packages/conduit_markdown
+        run: node build/web_safety_check.js
+
+  localization:
+    name: Localization
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+      - run: flutter pub get
+      - name: Verify ARB descriptions
+        run: dart run tool/verify_arb_descriptions.dart
+      - name: Validate ARB locales and placeholders
+        run: dart run tool/validate_arb_locales.dart

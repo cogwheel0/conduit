@@ -5,17 +5,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
-import '../../../core/models/channel.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/models/channel.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/locale_display_formatters.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../../../core/services/navigation_service.dart';
-import '../../auth/providers/unified_auth_providers.dart';
+import '../../../shared/services/navigation_service.dart';
+
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+
 import '../../navigation/providers/sidebar_search_providers.dart';
 import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
 import '../../navigation/models/sidebar_navigation_model.dart';

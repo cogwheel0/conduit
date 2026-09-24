@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:conduit/core/network/conduit_user_agent.dart';
+import 'package:conduit_core/network/conduit_user_agent.dart';
 import 'package:conduit/features/terminal/models/terminal_models.dart';
 import 'package:conduit/features/terminal/providers/terminal_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

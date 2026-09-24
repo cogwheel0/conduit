@@ -1,10 +1,10 @@
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/services/secure_credential_storage.dart';
+import 'package:conduit_core/services/secure_credential_storage.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:conduit_core/conduit_core.dart';
 
 const _credentialsKey = 'user_credentials_v2';
 const _authTokenKey = 'auth_token_v2';
@@ -358,7 +358,7 @@ String _storedCredentialsJson({String deviceId = 'device'}) {
   });
 }
 
-class _FakeSecureStorage implements FlutterSecureStorage {
+class _FakeSecureStorage implements SecureKeyValueStore {
   final Map<String, String> store = {};
   final List<String> operations = [];
   final Set<String> failReadsFor = {};
@@ -368,15 +368,7 @@ class _FakeSecureStorage implements FlutterSecureStorage {
   bool failDeleteAll = false;
 
   @override
-  Future<String?> read({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
+  Future<String?> read({required String key}) async {
     operations.add('read:$key');
     final remainingFailures = remainingReadFailures[key] ?? 0;
     if (remainingFailures > 0) {
@@ -391,16 +383,7 @@ class _FakeSecureStorage implements FlutterSecureStorage {
   }
 
   @override
-  Future<void> write({
-    required String key,
-    required String? value,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
+  Future<void> write({required String key, required String? value}) async {
     operations.add('write:$key');
     if (failWritesFor.contains(key)) {
       throw StateError('write failed for $key');
@@ -414,15 +397,7 @@ class _FakeSecureStorage implements FlutterSecureStorage {
   }
 
   @override
-  Future<void> delete({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
+  Future<void> delete({required String key}) async {
     operations.add('delete:$key');
     if (failDeletesFor.contains(key)) {
       throw StateError('delete failed for $key');
@@ -431,14 +406,7 @@ class _FakeSecureStorage implements FlutterSecureStorage {
   }
 
   @override
-  Future<void> deleteAll({
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
+  Future<void> deleteAll() async {
     operations.add('deleteAll');
     if (failDeleteAll) {
       throw StateError('deleteAll failed');

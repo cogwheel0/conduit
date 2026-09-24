@@ -1,10 +1,10 @@
 import 'dart:collection';
 
-import 'package:flutter/foundation.dart';
 
-import '../../../core/models/chat_message.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'chat_turn_render_state.dart';
+import 'package:meta/meta.dart';
 
 @immutable
 class ChatTimelineRenderModel {

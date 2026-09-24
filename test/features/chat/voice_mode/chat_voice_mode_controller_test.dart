@@ -1,17 +1,17 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/chat_message.dart';
-import 'package:conduit/core/models/conversation.dart';
-import 'package:conduit/core/models/model.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit/core/services/callkit_service.dart';
-import 'package:conduit/core/services/optimized_storage_service.dart';
-import 'package:conduit/core/services/settings_service.dart';
-import 'package:conduit/core/services/socket_service.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/services/optimized_storage_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/services/socket_service.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/services/text_to_speech_service.dart';
@@ -20,17 +20,19 @@ import 'package:conduit/features/chat/voice_call/voice_call_eligibility.dart';
 import 'package:conduit/features/chat/voice_call/presentation/voice_call_launcher.dart';
 import 'package:conduit/features/chat/voice_mode/chat_voice_audio_session_coordinator.dart';
 import 'package:conduit/features/chat/voice_mode/chat_voice_mode_controller.dart';
-import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
-import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
-import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
-import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
-import 'package:conduit/features/hermes/models/hermes_config.dart';
-import 'package:conduit/features/hermes/models/hermes_model.dart';
-import 'package:conduit/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:flutter_callkit_incoming/entities/call_event.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:conduit_core/ports/app_lifecycle.dart';
+import 'package:conduit_core/providers/host_ports.dart';
+import 'package:conduit_core/testing.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter/widgets.dart';
 
 import '../../../support/openwebui_storage_test_overrides.dart';
 
@@ -1692,8 +1694,11 @@ void main() {
       final callKit = _AvailableCallKitService();
       final background = _FakeChatVoiceBackgroundCoordinator();
       final audioSession = _FakeChatVoiceAudioSessionCoordinator();
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
       final container = ProviderContainer(
         overrides: [
+          appLifecycleProvider.overrideWithValue(lifecycle),
           ...openWebUiStorageOpenOverrides(),
           authNavigationStateProvider.overrideWithValue(
             AuthNavigationState.authenticated,
@@ -1732,8 +1737,7 @@ void main() {
       expect(audioSession.registeredCallIds, <String>['call-1']);
       await _until(() => callKit.connectedCallIds.contains('call-1'));
 
-      final messages = container.read(chatMessagesProvider.notifier);
-      messages.didChangeAppLifecycleState(AppLifecycleState.paused);
+      lifecycle.emit(AppLifecyclePhase.paused);
       final responseWaitStopsBeforeTurn = audioSession.responseWaitEndCalls;
       await input.completeCurrent('background voice response');
       await _until(() => tts.finishedTexts.isNotEmpty);

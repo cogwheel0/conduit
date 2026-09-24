@@ -1,11 +1,11 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/backend_config.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/auth/webview_cookie_helper.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/navigation_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit/platform/webview_cookie_helper.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit/features/auth/views/authentication_page.dart';
 import 'package:conduit/features/profile/widgets/adaptive_segmented_selector.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';

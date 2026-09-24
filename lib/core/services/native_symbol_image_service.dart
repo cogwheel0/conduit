@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb, visibleForTesting;
 import 'package:flutter/services.dart';
 
-import '../utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
 /// Prefix marking an avatar URL that resolves to a system symbol rather than
 /// an image. Mirrors the `asset:` scheme handled alongside it.

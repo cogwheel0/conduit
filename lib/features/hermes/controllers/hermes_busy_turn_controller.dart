@@ -1,12 +1,14 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 
-import '../../../core/providers/app_providers.dart';
-import '../../../core/utils/debug_logger.dart';
-import '../models/hermes_model.dart';
-import '../models/hermes_config.dart';
-import '../providers/hermes_providers.dart';
-import '../services/hermes_desktop_api_service.dart';
-import '../services/hermes_session_provenance.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 
 enum HermesBusyTurnAction { steer, sendNext }
 

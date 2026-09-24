@@ -6,16 +6,19 @@ import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
+import 'package:conduit_core/conduit_core.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:record/record.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:vad/vad.dart' show VadHandler;
 
-import '../../../core/providers/app_providers.dart';
-import '../../../core/services/api_service.dart';
-import '../../../core/services/settings_service.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+
+import 'package:conduit_core/services/settings_service.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'native_stt_service.dart';
 import 'server_vad_recorder.dart';
 
@@ -56,47 +59,12 @@ class VoiceInputService {
     milliseconds: 900,
   );
   static const String _bundledVadAssetBasePath = 'assets/vad/';
-  static const List<IosAudioCategoryOption> _iosServerVadCategoryOptions = [
-    // A2DP is output-only on iOS and can break duplex mic capture when the
-    // recorder is trying to open a microphone stream.
-    IosAudioCategoryOption.defaultToSpeaker,
-    IosAudioCategoryOption.allowBluetooth,
-  ];
-  static const IosRecordConfig _iosServerVadRecordConfig = IosRecordConfig(
-    categoryOptions: _iosServerVadCategoryOptions,
-  );
-
-  @visibleForTesting
-  static AndroidRecordConfig androidServerVadRecordConfigForTesting({
-    required bool voiceCallSession,
-  }) => _androidServerVadRecordConfig(voiceCallSession: voiceCallSession);
-
-  static AndroidRecordConfig _androidServerVadRecordConfig({
-    required bool voiceCallSession,
-  }) {
-    return AndroidRecordConfig(
-      audioSource: voiceCallSession
-          ? AndroidAudioSource.voiceCommunication
-          : AndroidAudioSource.voiceRecognition,
-      audioManagerMode: voiceCallSession
-          ? AudioManagerMode.modeInCommunication
-          : AudioManagerMode.modeNormal,
-      speakerphone: false,
-      // During voice calls the audio session coordinator owns SCO and
-      // communication-device selection. Letting the record plugin manage
-      // Bluetooth makes every recorder stop clear the communication device
-      // (issue #716: the loudspeaker route is wiped right before TTS speaks).
-      manageBluetooth: !voiceCallSession,
-      useLegacy: false,
-    );
-  }
-
   VadHandler? _vadHandler;
   ServerVadRecorderSession? _serverVadRecorderSession;
   final NativeSttService _nativeStt;
   final ApiService? _api;
   final Ref? _ref;
-  final ServerVadRecorderClient Function() _serverVadRecorderFactory;
+  final AudioCapturePort Function() _serverVadRecorderFactory;
   bool _isInitialized = false;
   bool _didAttemptLocalInitialization = false;
   bool _isListening = false;
@@ -170,13 +138,12 @@ class VoiceInputService {
     ApiService? api,
     Ref? ref,
     NativeSttService? nativeStt,
-    @visibleForTesting
-    ServerVadRecorderClient Function()? serverVadRecorderFactory,
+    @visibleForTesting AudioCapturePort Function()? serverVadRecorderFactory,
   }) : _api = api,
        _ref = ref,
        _nativeStt = nativeStt ?? NativeSttService(),
        _serverVadRecorderFactory =
-           serverVadRecorderFactory ?? RecordServerVadRecorderClient.new;
+           serverVadRecorderFactory ?? AudioCapturePort.hostFactory;
 
   void updatePreference(SttPreference preference) {
     _preference = preference;
@@ -1000,19 +967,13 @@ class VoiceInputService {
     try {
       await recorderSession.start(
         iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
-        config: RecordConfig(
-          encoder: AudioEncoder.pcm16bits,
+        // The platform routing that used to be spelled out here now follows
+        // from the profile; see RecordAudioCapture.
+        config: AudioCaptureConfig(
+          profile: Platform.isAndroid && iosAudioSessionManagedExternally
+              ? AudioCaptureProfile.voiceCall
+              : AudioCaptureProfile.dictation,
           sampleRate: _vadSampleRate,
-          numChannels: 1,
-          bitRate: 16,
-          echoCancel: true,
-          autoGain: false,
-          noiseSuppress: true,
-          androidConfig: _androidServerVadRecordConfig(
-            voiceCallSession:
-                Platform.isAndroid && iosAudioSessionManagedExternally,
-          ),
-          iosConfig: _iosServerVadRecordConfig,
         ),
         connectVad: (audioStream) => _connectServerVad(vad, audioStream),
         onRecorderError: (error, stackTrace) {

@@ -1,10 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
+import '../../platform/conduit_platform_apis.g.dart';
 
-import '../platform/conduit_platform_apis.g.dart';
-import '../utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
+import 'package:meta/meta.dart';
 
 enum BackgroundStreamKind {
   chat('chat'),

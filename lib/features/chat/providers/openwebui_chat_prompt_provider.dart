@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
+import 'package:meta/meta.dart';
 
-import '../../../core/models/openwebui_chat_prompt.dart';
+import 'package:conduit_core/models/openwebui_chat_prompt.dart';
 
 @visibleForTesting
 Duration? debugOpenWebUiPromptTimeoutOverride;

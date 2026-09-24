@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:meta/meta.dart';
 
 /// Represents a non-file attachment that enriches a chat message,
 /// such as a web page, YouTube video transcript, existing note,

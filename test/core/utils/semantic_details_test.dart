@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/utils/semantic_details.dart';
+import 'package:conduit_markdown/conduit_markdown.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

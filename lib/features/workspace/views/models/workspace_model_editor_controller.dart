@@ -2,9 +2,12 @@ import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
 
-import '../../models/workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart';
+
 import '../../models/workspace_model_draft.dart';
-import '../../models/workspace_resources.dart';
+
+import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
+
 import '../../providers/workspace_model_relationships.dart';
 import '../../widgets/workspace_editor_session.dart';
 import '../../workspace_navigation.dart';

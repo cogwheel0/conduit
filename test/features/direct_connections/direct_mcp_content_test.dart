@@ -2,16 +2,17 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:conduit/core/providers/storage_providers.dart';
-import 'package:conduit/features/direct_connections/models/direct_completion.dart';
-import 'package:conduit/features/direct_connections/models/direct_mcp_content.dart';
-import 'package:conduit/features/direct_connections/models/direct_mcp_server.dart';
-import 'package:conduit/features/direct_connections/providers/direct_mcp_providers.dart';
-import 'package:conduit/features/direct_connections/services/direct_mcp_client.dart';
+import 'package:conduit_core/providers/storage_providers.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_mcp_content.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_mcp_client.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mcp_dart/mcp_dart.dart' as mcp;
+import 'package:conduit/platform/flutter_secure_key_value_store.dart';
 
 void main() {
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
@@ -197,7 +198,7 @@ void main() {
     'per-server providers refresh independently and persist no content',
     () async {
       var firstLoads = 0;
-      const storage = FlutterSecureStorage();
+      final storage = FlutterSecureKeyValueStore();
       final container = ProviderContainer(
         overrides: [
           secureStorageProvider.overrideWithValue(storage),

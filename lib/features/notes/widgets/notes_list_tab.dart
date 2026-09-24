@@ -7,9 +7,9 @@ import 'package:material_ui/material_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/models/note.dart';
-import '../../../core/services/navigation_service.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/models/note.dart';
+import '../../../shared/services/navigation_service.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/utils/locale_display_formatters.dart';

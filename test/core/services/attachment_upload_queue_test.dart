@@ -2,14 +2,14 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/auth/api_auth_interceptor.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/database_provider.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
@@ -18,8 +18,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:conduit/core/services/attachment_upload_queue.dart';
-import 'package:conduit/core/services/share_staging_cleanup.dart';
+import 'package:conduit_core/services/attachment_upload_queue.dart';
+import 'package:conduit_core/services/share_staging_cleanup.dart';
 
 /// Lifecycle tests for the per-server [AttachmentUploadQueue]. Each test builds
 /// a fresh instance (the queue is no longer a singleton — it is owned and

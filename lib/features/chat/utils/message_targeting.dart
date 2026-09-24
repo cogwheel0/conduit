@@ -1,4 +1,4 @@
-import '../../../core/models/chat_message.dart';
+import 'package:conduit_core/models/chat_message.dart';
 
 typedef AssistantRegenerationTarget = ({
   int assistantIndex,

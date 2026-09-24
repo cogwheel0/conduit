@@ -3,19 +3,20 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/features/hermes/models/hermes_bot.dart';
-import 'package:conduit/features/hermes/models/hermes_chat_input.dart';
-import 'package:conduit/features/hermes/services/hermes_backend_service.dart';
-import 'package:conduit/features/hermes/models/hermes_run_event.dart';
-import 'package:conduit/features/hermes/models/hermes_config.dart';
-import 'package:conduit/features/hermes/services/hermes_desktop_api_service.dart';
-import 'package:conduit/features/hermes/services/hermes_desktop_transport.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
+import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
+import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 final class _MockWebSocketChannel extends Mock implements WebSocketChannel {}
 
@@ -275,7 +276,7 @@ void main() {
 
   test('continued chats request the latest transcript page', () async {
     SharedPreferences.setMockInitialValues({});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final harness = _GatewayHarness();
     final adapter = _StubAdapter();
     final rpc = HermesDesktopRpcClient(
@@ -326,7 +327,7 @@ void main() {
     'a session the gateway refuses to resume still loads over REST',
     () async {
       SharedPreferences.setMockInitialValues({});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       final harness = _GatewayHarness();
       final adapter = _StubAdapter(
         messages: const [
@@ -383,7 +384,7 @@ void main() {
 
   test('a REST failure after a refused resume is not swallowed', () async {
     SharedPreferences.setMockInitialValues({});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final harness = _GatewayHarness();
     final adapter = _FailingMessagesAdapter(status: 404);
     final rpc = HermesDesktopRpcClient(
@@ -425,7 +426,7 @@ void main() {
 
   test('a new bot chat opens before its first prompt is persisted', () async {
     SharedPreferences.setMockInitialValues({});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final harness = _GatewayHarness();
     final adapter = _StubAdapter();
     final rpc = HermesDesktopRpcClient(
@@ -477,7 +478,7 @@ void main() {
     'bot chat transcripts use gateway history instead of dashboard REST',
     () async {
       SharedPreferences.setMockInitialValues({});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       final harness = _GatewayHarness();
       final adapter = _StubAdapter();
       final rpc = HermesDesktopRpcClient(
@@ -543,7 +544,7 @@ void main() {
     'every bot-chat RPC names the bot profile, never the connection one',
     () async {
       SharedPreferences.setMockInitialValues({});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       final harness = _GatewayHarness();
       final rpc = HermesDesktopRpcClient(
         channelFactory: (_, _, {httpClient}) => harness.channel,
@@ -633,7 +634,7 @@ void main() {
 
   test('bot sends keep the bot profile model settings', () async {
     SharedPreferences.setMockInitialValues({});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final harness = _GatewayHarness();
     final rpc = HermesDesktopRpcClient(
       channelFactory: (_, _, {httpClient}) => harness.channel,

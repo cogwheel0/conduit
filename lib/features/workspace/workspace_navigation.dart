@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/services/navigation_service.dart';
+import '../../shared/services/navigation_service.dart';
 import 'models/workspace_capabilities.dart';
 
 /// Keeps the launch context attached while navigating between Workspace

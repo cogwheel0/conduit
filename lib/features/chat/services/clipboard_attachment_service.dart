@@ -5,7 +5,8 @@ import 'dart:typed_data';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import 'file_attachment_service.dart';
 import 'ios_native_paste_service.dart';
 

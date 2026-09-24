@@ -8,17 +8,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/auth/webview_cookie_helper.dart';
-import '../../../core/auth/webview_origin.dart';
-import '../../../core/models/server_config.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../../core/utils/debug_logger.dart';
+import '../../../platform/webview_cookie_helper.dart';
+
+import 'package:conduit_core/auth/webview_origin.dart';
+import 'package:conduit_core/models/server_config.dart';
+
+import 'package:conduit_core/providers/app_providers.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
-import '../providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+
 import '../../../shared/widgets/connection_components.dart';
 
 /// Whether an SSO page is allowed to expose cookies or localStorage tokens.

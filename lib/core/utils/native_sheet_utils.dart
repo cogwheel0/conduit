@@ -2,11 +2,15 @@ import 'package:intl/intl.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../shared/utils/locale_display_formatters.dart';
-import '../models/model.dart';
-import '../models/server_memory.dart';
-import '../models/socket_health.dart';
+
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/server_memory.dart';
+import 'package:conduit_core/models/socket_health.dart';
+
 import '../services/native_sheet_bridge.dart';
-import '../services/settings_service.dart';
+
+import 'package:conduit_core/services/settings_service.dart';
+
 import 'tts_voice_utils.dart';
 
 String nativeQuickActionsTitle(AppLocalizations l10n) {

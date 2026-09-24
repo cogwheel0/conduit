@@ -4,28 +4,36 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
-import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart' show Provider;
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as path;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:synchronized/synchronized.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../features/chat/services/file_attachment_service.dart';
-import '../../features/direct_connections/direct_connections.dart';
-import '../../features/hermes/models/hermes_chat_input.dart';
-import '../../features/hermes/models/hermes_config.dart';
-import '../../features/hermes/models/hermes_model.dart';
-import '../../features/hermes/providers/hermes_providers.dart';
-import '../../features/hermes/services/hermes_local_document_service.dart';
-import '../models/file_info.dart';
-import '../providers/app_providers.dart';
-import '../utils/debug_logger.dart';
-import 'api_service.dart';
-import 'attachment_upload_queue.dart';
+
+import 'package:conduit_core/features/direct_connections/direct_connections.dart';
+import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
+
+import 'package:conduit_core/models/file_info.dart';
+
+import 'package:conduit_core/providers/app_providers.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
+import 'package:conduit_core/services/api_service.dart';
+
+import 'package:conduit_core/services/attachment_upload_queue.dart';
+
 import 'image_attachment_cache_service.dart';
-import 'share_staging_cleanup.dart';
+
+import 'package:conduit_core/services/share_staging_cleanup.dart';
 
 part 'media_upload_controller.g.dart';
 

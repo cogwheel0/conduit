@@ -5,9 +5,9 @@ import 'package:conduit/features/direct_connections/controllers/direct_connectio
 import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_form.dart';
 import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_workflow.dart';
 import 'package:conduit/features/direct_connections/controllers/direct_custom_headers_controller.dart';
-import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
-import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
-import 'package:conduit/features/direct_connections/services/direct_connection_profile_store.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_connection_profile_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

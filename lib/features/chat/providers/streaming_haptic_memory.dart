@@ -1,6 +1,6 @@
 import 'dart:collection';
 
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 
 /// Streaming haptic events that must fire at most once per assistant message.
 enum StreamingHapticEvent { contentArrival, turnCompleted, runningIndicator }

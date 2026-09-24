@@ -9,7 +9,7 @@ import '../theme/conduit_button_styles.dart';
 import '../theme/conduit_input_styles.dart';
 import '../theme/theme_extensions.dart';
 import '../services/brand_service.dart';
-import '../../core/services/enhanced_accessibility_service.dart';
+import '../services/enhanced_accessibility_service.dart';
 import '../../core/services/haptic_service.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';

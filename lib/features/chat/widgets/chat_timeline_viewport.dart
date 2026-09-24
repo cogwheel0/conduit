@@ -14,8 +14,9 @@ import 'package:flutter/rendering.dart'
         ScrollCacheExtent,
         ScrollDirection;
 
-import '../../../core/database/models/chat_transcript_window.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/database/models/chat_transcript_window.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
 
 @visibleForTesting
 const int debugChatTimelineInitialPositionMaxAttempts = 12;

@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
-import '../../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../../l10n/app_localizations.dart';
 import '../../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../widgets/workspace_export_controller.dart';

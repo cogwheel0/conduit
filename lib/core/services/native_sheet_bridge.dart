@@ -4,8 +4,9 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import '../platform/conduit_platform_apis.g.dart';
-import '../utils/debug_logger.dart';
+import '../../platform/conduit_platform_apis.g.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
 
 void _logNativeSheetBridgeError(
   String method,

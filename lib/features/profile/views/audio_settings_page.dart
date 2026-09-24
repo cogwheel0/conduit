@@ -7,7 +7,9 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
-import '../../../core/services/settings_service.dart';
+
+import 'package:conduit_core/services/settings_service.dart';
+
 import '../../../core/utils/tts_voice_utils.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -168,9 +170,7 @@ class AudioSettingsPage extends ConsumerWidget {
                 const SizedBox(height: Spacing.xs),
                 Text(
                   l10n.sttSilenceDurationDescription,
-                  style: theme.bodySmall?.copyWith(
-                    color: theme.textSecondary,
-                  ),
+                  style: theme.bodySmall?.copyWith(color: theme.textSecondary),
                 ),
                 const SizedBox(height: Spacing.md),
                 Row(

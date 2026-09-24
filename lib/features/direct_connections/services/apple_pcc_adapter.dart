@@ -4,12 +4,13 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../../core/platform/conduit_platform_apis.g.dart';
-import '../models/direct_completion.dart';
-import '../models/direct_connection_profile.dart';
-import '../models/direct_remote_model.dart';
-import 'direct_adapter_helpers.dart';
-import 'direct_provider_adapter.dart';
+import '../../../platform/conduit_platform_apis.g.dart';
+
+import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
 
 const List<String> kApplePccReasoningEfforts = <String>[
   'automatic',

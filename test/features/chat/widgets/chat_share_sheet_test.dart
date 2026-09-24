@@ -1,13 +1,13 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/chat_database_repository.dart';
-import 'package:conduit/core/models/conversation.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/widgets/chat_share_sheet.dart';
-import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
@@ -45,25 +45,6 @@ class _RecordingShareApiService extends ApiService {
   Future<void> deleteSharedConversation(String id) async {
     deleteCalls += 1;
     deletedConversationIds.add(id);
-  }
-
-  @override
-  Future<List<Conversation>> getConversationPage({
-    int page = 1,
-    bool includeFolders = true,
-    bool includePinned = false,
-  }) async {
-    return const <Conversation>[];
-  }
-
-  @override
-  Future<List<Conversation>> getPinnedChats() async {
-    return const <Conversation>[];
-  }
-
-  @override
-  Future<List<Conversation>> getArchivedChats({int? limit, int? offset}) async {
-    return const <Conversation>[];
   }
 }
 

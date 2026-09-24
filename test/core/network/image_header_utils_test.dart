@@ -1,13 +1,14 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/network/conduit_user_agent.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/network/conduit_user_agent.dart';
 import 'package:conduit/core/network/image_header_utils.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:conduit_core/conduit_core.dart';
 
 void main() {
   group('imageUrlIsServerOrigin', () {
@@ -95,7 +96,7 @@ void main() {
       Map<String, String> customHeaders = const {'X-Custom': 'value'},
       bool suppressCookieCustomHeader = false,
     }) {
-      final workerManager = WorkerManager(debugIsWebOverride: true);
+      final workerManager = WorkerManager(worker: const InlineWorkerPort());
       addTearDown(workerManager.dispose);
       final api = ApiService(
         serverConfig: ServerConfig(
@@ -220,7 +221,7 @@ void main() {
     String url = 'https://openwebui.example.com',
     String? authToken,
   }) {
-    final workerManager = WorkerManager(debugIsWebOverride: true);
+    final workerManager = WorkerManager(worker: const InlineWorkerPort());
     addTearDown(workerManager.dispose);
     final api = ApiService(
       serverConfig: ServerConfig(id: id, name: 'Open WebUI', url: url),
@@ -336,7 +337,7 @@ void main() {
   });
 
   test('effective image headers participate through an opaque stable hash', () {
-    final workerManager = WorkerManager(debugIsWebOverride: true);
+    final workerManager = WorkerManager(worker: const InlineWorkerPort());
     final api = ApiService(
       serverConfig: const ServerConfig(
         id: 'server-1',
@@ -392,7 +393,7 @@ void main() {
   test(
     'explicit cross-origin headers never share the public URL cache key',
     () {
-      final workerManager = WorkerManager(debugIsWebOverride: true);
+      final workerManager = WorkerManager(worker: const InlineWorkerPort());
       final api = ApiService(
         serverConfig: const ServerConfig(
           id: 'server-1',
@@ -458,7 +459,7 @@ void main() {
   });
 
   test('ownership failure never falls back to a URL-shared cache key', () {
-    final workerManager = WorkerManager(debugIsWebOverride: true);
+    final workerManager = WorkerManager(worker: const InlineWorkerPort());
     final api = ApiService(
       serverConfig: const ServerConfig(
         id: 'server-1',

@@ -2,22 +2,23 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/auth/auth_state_manager.dart';
-import 'package:conduit/core/auth/api_auth_interceptor.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/models/user.dart';
-import 'package:conduit/core/persistence/persistence_keys.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/optimized_storage_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/optimized_storage_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 void main() {
   const previousConfig = ServerConfig(
@@ -73,7 +74,7 @@ void main() {
 
   test('a newer server selection fences the older publication', () async {
     SharedPreferences.setMockInitialValues({});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     addTearDown(PreferencesStore.debugReset);
     final storage = _Storage();
     when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
@@ -132,7 +133,7 @@ void main() {
 
   test('a rolled-back login publication restores in-memory auth', () async {
     SharedPreferences.setMockInitialValues({});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     addTearDown(PreferencesStore.debugReset);
     final storage = _Storage();
     when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
@@ -194,7 +195,7 @@ void main() {
     'login keeps the replacement API authenticated when clearing logout fence',
     () async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       addTearDown(PreferencesStore.debugReset);
 
       final storage = _Storage();
@@ -889,7 +890,7 @@ void main() {
     'logout started by an auth publication listener wins the commit',
     () async {
       SharedPreferences.setMockInitialValues({});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       addTearDown(PreferencesStore.debugReset);
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
@@ -971,7 +972,7 @@ void main() {
 
   test('newer login wins while remote logout is delayed', () async {
     SharedPreferences.setMockInitialValues({});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     addTearDown(PreferencesStore.debugReset);
     final storage = _Storage();
     when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
@@ -1044,7 +1045,7 @@ void main() {
     'newer committed session still owns auth data in connection error state',
     () async {
       SharedPreferences.setMockInitialValues({});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       addTearDown(PreferencesStore.debugReset);
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
@@ -1125,7 +1126,7 @@ void main() {
     'successful refresh carries newer session ownership past delayed logout',
     () async {
       SharedPreferences.setMockInitialValues({});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       addTearDown(PreferencesStore.debugReset);
       final storage = _Storage();
       String? storedToken;
@@ -1210,7 +1211,7 @@ void main() {
     'remote logout rejects a newer commit that reuses the revoked token',
     () async {
       SharedPreferences.setMockInitialValues({});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       addTearDown(PreferencesStore.debugReset);
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
@@ -1286,7 +1287,7 @@ void main() {
     'dispatched logout with a lost response rejects same-token resurrection',
     () async {
       SharedPreferences.setMockInitialValues({});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       addTearDown(PreferencesStore.debugReset);
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
@@ -1363,7 +1364,7 @@ void main() {
     'interactive login accepts a byte-identical reissued token after logout',
     () async {
       SharedPreferences.setMockInitialValues({});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       addTearDown(PreferencesStore.debugReset);
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
@@ -1433,7 +1434,7 @@ void main() {
     'prevalidated proxy commit accepts a reissued token after logout',
     () async {
       SharedPreferences.setMockInitialValues({});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       addTearDown(PreferencesStore.debugReset);
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
@@ -1528,7 +1529,7 @@ void main() {
 
   test('delayed logout completes cleanup after a newer login fails', () async {
     SharedPreferences.setMockInitialValues({});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     addTearDown(PreferencesStore.debugReset);
 
     final storage = _Storage();
@@ -1619,7 +1620,7 @@ void main() {
     'logout settles when a newer authentication attempt stays loading',
     () async {
       SharedPreferences.setMockInitialValues({});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       addTearDown(PreferencesStore.debugReset);
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
@@ -1713,7 +1714,7 @@ void main() {
     'failed logout keeps proxy cookies suppressed live and after restart',
     () async {
       SharedPreferences.setMockInitialValues({});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       addTearDown(PreferencesStore.debugReset);
 
       final storage = _Storage();
@@ -1785,7 +1786,7 @@ void main() {
       SharedPreferences.setMockInitialValues({
         PreferenceKeys.incompleteLogoutFence: true,
       });
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       addTearDown(PreferencesStore.debugReset);
 
       final container = ProviderContainer();
@@ -1819,7 +1820,7 @@ void main() {
     'saved-credential client observes a logout fence raised after creation',
     () async {
       SharedPreferences.setMockInitialValues({});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       addTearDown(PreferencesStore.debugReset);
       final container = ProviderContainer();
       addTearDown(container.dispose);
@@ -1859,7 +1860,7 @@ void main() {
       SharedPreferences.setMockInitialValues({
         PreferenceKeys.incompleteLogoutFence: true,
       });
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       addTearDown(PreferencesStore.debugReset);
 
       final storage = _Storage();
@@ -2229,7 +2230,7 @@ void main() {
 
       for (final testCase in cases) {
         SharedPreferences.setMockInitialValues({});
-        PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+        PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
         final storage = _Storage();
         when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
         var strictCredentialReads = 0;
@@ -2293,7 +2294,7 @@ void main() {
     'foreground silent login settles when saved-credential storage throws',
     () async {
       SharedPreferences.setMockInitialValues({});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       addTearDown(PreferencesStore.debugReset);
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
@@ -2333,7 +2334,7 @@ void main() {
     () async {
       for (final failFenceRestore in [false, true]) {
         SharedPreferences.setMockInitialValues({});
-        final preferences = await SharedPreferences.getInstance();
+        final preferences = await FlutterKeyValueStore.load();
         PreferencesStore.debugOverride(preferences);
 
         final storage = _Storage();
@@ -2419,7 +2420,7 @@ void main() {
     'newer logout wins while an older login fence clear is delayed',
     () async {
       SharedPreferences.setMockInitialValues({});
-      final preferences = await SharedPreferences.getInstance();
+      final preferences = await FlutterKeyValueStore.load();
       PreferencesStore.debugOverride(preferences);
 
       final storage = _Storage();
@@ -2527,7 +2528,7 @@ void main() {
     'newer login clears a pending logout fence before publication',
     () async {
       SharedPreferences.setMockInitialValues({});
-      final preferences = await SharedPreferences.getInstance();
+      final preferences = await FlutterKeyValueStore.load();
       PreferencesStore.debugOverride(preferences);
 
       final storage = _Storage();

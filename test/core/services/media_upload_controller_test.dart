@@ -3,25 +3,25 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:conduit/core/auth/api_auth_interceptor.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/models/file_info.dart';
-import 'package:conduit/core/models/model.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/attachment_upload_queue.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/models/file_info.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/attachment_upload_queue.dart';
 import 'package:conduit/core/services/media_upload_controller.dart';
-import 'package:conduit/core/services/share_staging_cleanup.dart';
-import 'package:conduit/core/services/worker_manager.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/services/share_staging_cleanup.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/services/file_attachment_service.dart';
-import 'package:conduit/features/direct_connections/direct_connections.dart';
-import 'package:conduit/features/hermes/models/hermes_capabilities.dart';
-import 'package:conduit/features/hermes/models/hermes_chat_input.dart';
-import 'package:conduit/features/hermes/models/hermes_model.dart';
-import 'package:conduit/features/hermes/providers/hermes_providers.dart';
-import 'package:conduit/features/hermes/services/hermes_local_document_service.dart';
+import 'package:conduit_core/features/direct_connections/direct_connections.dart';
+import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
+import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
@@ -31,6 +31,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:conduit_core/conduit_core.dart';
 
 AppDatabase? _testUploadDatabase;
 
@@ -3581,7 +3582,7 @@ final class _OwnedFileSyncApiService extends ApiService {
     Completer<void>? fileInfoStarted,
     Completer<Map<String, dynamic>>? fileInfoResponse,
   }) : this._(
-         WorkerManager(debugIsWebOverride: true),
+         WorkerManager(worker: const InlineWorkerPort()),
          initialFiles: initialFiles,
          fileInfoStarted: fileInfoStarted,
          fileInfoResponse: fileInfoResponse,

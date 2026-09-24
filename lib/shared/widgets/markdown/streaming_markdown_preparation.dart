@@ -1,9 +1,9 @@
 import 'dart:collection';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 
-import 'markdown_preprocessor.dart';
+import 'package:conduit_markdown/conduit_markdown.dart';
+import 'package:meta/meta.dart';
 
 String prepareMarkdownContentCanonical(
   String content, {

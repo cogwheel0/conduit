@@ -9,8 +9,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
 import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
-import '../../../core/models/chat_message.dart';
-import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
+
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_markdown/conduit_markdown.dart';
+
 import '../providers/text_to_speech_provider.dart';
 import '../providers/queued_completion_provider.dart';
 import '../providers/streaming_haptic_memory.dart';
@@ -33,14 +35,19 @@ import '../providers/chat_providers.dart'
         sendMessageWithContainer,
         streamingContentProvider;
 import '../../../shared/utils/external_link_launcher.dart';
-import '../../../core/utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../core/services/haptic_service.dart';
-import '../../../core/services/settings_service.dart';
-import '../../../core/utils/embed_utils.dart';
+
+import 'package:conduit_core/services/settings_service.dart';
+
 import 'sources/openwebui_sources.dart';
 import '../providers/assistant_response_builder_provider.dart';
 import '../views/chat_turn_render_state.dart';
-import '../../../core/services/worker_manager.dart';
+
+import 'package:conduit_core/services/worker_manager.dart';
+
 import 'streaming_status_widget.dart';
 import '../utils/file_utils.dart';
 import 'code_execution_display.dart';

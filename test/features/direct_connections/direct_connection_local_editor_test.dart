@@ -1,9 +1,9 @@
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/providers/backend_mode_providers.dart';
-import 'package:conduit/core/services/navigation_service.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_draft.dart';
-import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
-import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/views/direct_connection_editor_page.dart';
 import 'package:conduit/features/direct_connections/views/direct_connections_page.dart';
 import 'package:conduit/features/profile/widgets/adaptive_segmented_selector.dart';
@@ -16,6 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:conduit/platform/flutter_secure_key_value_store.dart';
 
 import 'direct_connections_ui_test_support.dart';
 
@@ -39,7 +40,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         ],
         child: MaterialApp(
           localizationsDelegates: conduitLocalizationsDelegates,
@@ -85,7 +86,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         ],
         child: MaterialApp(
           localizationsDelegates: conduitLocalizationsDelegates,
@@ -207,7 +208,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         ],
         child: MaterialApp(
           localizationsDelegates: conduitLocalizationsDelegates,
@@ -287,7 +288,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         ],
         child: MaterialApp(
           localizationsDelegates: conduitLocalizationsDelegates,
@@ -322,8 +323,7 @@ void main() {
     );
     final delete = tester.widget<ConduitButton>(
       find.byWidgetPredicate(
-        (widget) =>
-            widget is ConduitButton && widget.text == 'Delete',
+        (widget) => widget is ConduitButton && widget.text == 'Delete',
       ),
     );
     expect(save.onPressed, isNull);
@@ -335,8 +335,7 @@ void main() {
 
     final restoredDelete = tester.widget<ConduitButton>(
       find.byWidgetPredicate(
-        (widget) =>
-            widget is ConduitButton && widget.text == 'Delete',
+        (widget) => widget is ConduitButton && widget.text == 'Delete',
       ),
     );
     expect(restoredDelete.isLoading, isFalse);
@@ -388,7 +387,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           preferredBackendProvider.overrideWith(() => backendController),
         ],
         child: MaterialApp.router(
@@ -454,7 +453,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           preferredBackendProvider.overrideWith(
             DirectTestFailingPreferredBackendController.new,
           ),
@@ -490,7 +489,7 @@ void main() {
       'home',
     );
     expect(container.read(preferredBackendProvider), PreferredBackend.direct);
-    final durable = await const FlutterSecureStorage().read(
+    final durable = await FlutterSecureKeyValueStore().read(
       key: 'direct_connection_profiles_v1',
     );
     expect(durable, contains('secret'));

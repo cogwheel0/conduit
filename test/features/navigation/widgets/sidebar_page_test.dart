@@ -2,14 +2,14 @@ import 'dart:ui' show Tristate;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/conversation.dart';
-import 'package:conduit/core/services/navigation_service.dart';
-import 'package:conduit/core/sync/sync_engine.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
+import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_tab_registry.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
-import 'package:conduit/features/hermes/models/hermes_job.dart';
+import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit/features/hermes/widgets/hermes_sessions_tab.dart';
 import 'package:conduit/features/terminal/models/terminal_models.dart';
 import 'package:conduit/features/terminal/providers/terminal_providers.dart';

@@ -44,6 +44,10 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
+# Workspace package build output (the root `/build/` rule is root-anchored
+# and does not cover the packages).
+packages/*/build/
+
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile

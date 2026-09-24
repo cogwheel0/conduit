@@ -3,11 +3,12 @@ import 'package:dio/dio.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:conduit/core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
-import 'package:conduit/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_transfer.dart';
 import 'package:conduit/features/workspace/models/workspace_prompt_command.dart';
-import 'package:conduit/features/workspace/models/workspace_resources.dart';
+import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/prompts/workspace_prompt_history.dart';
@@ -408,7 +409,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
         items,
         importItem: (item) => ref
             .read(workspacePromptsProvider.notifier)
-            .importPrompt(_formFromImport(item)),
+            .importPrompt(workspacePromptFormFromImport(item)),
         labelOf: (item) =>
             item['name']?.toString() ?? item['command']?.toString() ?? '',
       ),
@@ -428,7 +429,9 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
           .read(workspacePromptsProvider.notifier)
           .loadAllForExport();
       if (!mounted) return;
-      final payload = [for (final item in items) _exportMap(item)];
+      final payload = [
+        for (final item in items) workspacePromptExportMap(item),
+      ];
       await WorkspaceExportController().shareJson(
         filename: 'prompts',
         data: payload,
@@ -612,29 +615,6 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       context,
       message: message,
       type: isError ? AdaptiveSnackBarType.error : AdaptiveSnackBarType.success,
-    );
-  }
-
-  Map<String, dynamic> _exportMap(WorkspacePromptSummary item) => {
-    'command': WorkspacePromptCommand.strip(item.command),
-    'name': item.name,
-    'content': item.content,
-    'tags': item.tags,
-    if (item.meta != null) 'meta': item.meta,
-    if (item.data != null) 'data': item.data,
-  };
-
-  WorkspacePromptForm _formFromImport(Map<String, dynamic> json) {
-    final rawCommand = json['command']?.toString() ?? '';
-    final name = json['name']?.toString() ?? json['title']?.toString() ?? '';
-    final command = WorkspacePromptCommand.strip(rawCommand);
-    return WorkspacePromptForm(
-      command: command.isEmpty ? WorkspacePromptCommand.slugify(name) : command,
-      name: name,
-      content: json['content']?.toString() ?? '',
-      tags: workspaceStringList(json['tags']),
-      meta: json['meta'] is Map ? workspaceJsonMap(json['meta']) : null,
-      data: json['data'] is Map ? workspaceJsonMap(json['data']) : null,
     );
   }
 

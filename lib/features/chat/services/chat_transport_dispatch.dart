@@ -1,21 +1,29 @@
 import 'dart:async';
 
-import '../../../core/models/chat_message.dart';
-import '../../../core/providers/app_providers.dart'
+import 'package:conduit_core/models/chat_message.dart';
+
+import '../../../shared/services/flutter_ui_requests.dart';
+
+import 'package:conduit_core/providers/app_providers.dart'
     show
         activeChatIdsProvider,
         activeConversationProvider,
         conversationsProvider,
         isTemporaryChat,
         refreshConversationsCache;
-import '../../../core/services/api_service.dart';
-import '../../../core/services/chat_completion_transport.dart';
+import 'package:conduit_core/services/api_service.dart';
 
-import '../../../core/services/socket_service.dart';
-import '../../../core/services/streaming_helper.dart';
-import '../../../core/sync/sync_engine.dart';
-import '../../../core/services/worker_manager.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/services/chat_completion_transport.dart';
+
+import 'package:conduit_core/services/socket_service.dart';
+
+import 'package:conduit_core/services/streaming_helper.dart';
+
+import 'package:conduit_core/sync/sync_engine.dart';
+
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../providers/chat_providers.dart';
 import '../providers/openwebui_chat_prompt_provider.dart';
 import '../../navigation/models/sidebar_navigation_model.dart';
@@ -319,6 +327,9 @@ Future<bool> dispatchChatTransport({
 
   // 5. Attach streaming
   final activeStream = attachUnifiedChunkedStreaming(
+    // The Flutter surface for server-initiated prompts and notices;
+    // the core decides when to ask, this renders it.
+    uiRequests: const FlutterUiRequests(),
     session: session,
     webSearchEnabled: webSearchEnabled,
     assistantMessageId: assistantMessageId,

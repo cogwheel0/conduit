@@ -29,36 +29,48 @@ import '../services/ios_keyboard_attachment_bridge.dart';
 import '../providers/context_attachments_provider.dart';
 import '../providers/knowledge_cache_provider.dart';
 import '../../notes/providers/notes_providers.dart';
-import '../../tools/providers/tools_providers.dart';
+
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+
 import '../../prompts/providers/prompts_providers.dart';
 import '../../hermes/controllers/hermes_busy_turn_controller.dart';
-import '../../hermes/models/hermes_model.dart';
-import '../../hermes/models/hermes_config.dart';
-import '../../hermes/providers/hermes_providers.dart';
-import '../../hermes/services/hermes_local_document_service.dart';
-import '../../direct_connections/direct_connections.dart';
-import '../../direct_connections/providers/direct_mcp_providers.dart';
-import '../../direct_connections/services/direct_mcp_client.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
+import 'package:conduit_core/features/direct_connections/direct_connections.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_mcp_client.dart';
+
 import '../../direct_connections/views/direct_mcp_content_sheet.dart';
-import '../../workspace/models/workspace_resources.dart';
-import '../../../core/models/tool.dart';
-import '../../../core/models/model.dart';
-import '../../../core/models/prompt.dart';
-import '../../../core/models/toggle_filter.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../../core/services/navigation_service.dart';
+
+import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
+
+import 'package:conduit_core/models/tool.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/prompt.dart';
+import 'package:conduit_core/models/toggle_filter.dart';
+
+import 'package:conduit_core/providers/app_providers.dart';
+
+import '../../../shared/services/navigation_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/location_service.dart';
-import '../../../core/services/settings_service.dart';
-import '../../../core/utils/debug_logger.dart';
+
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../chat/services/voice_input_service.dart';
-import '../../../core/models/knowledge_base.dart';
-import '../../../core/models/knowledge_base_file.dart';
+
+import 'package:conduit_core/models/knowledge_base.dart';
+import 'package:conduit_core/models/knowledge_base_file.dart';
 
 import '../../../shared/utils/platform_utils.dart';
 import '../../../shared/utils/adaptive_glass.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/model_avatar.dart';
@@ -66,9 +78,13 @@ import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import '../../../shared/widgets/horizontal_gesture_ownership.dart';
 import '../../../shared/widgets/horizontal_overflow_fade.dart';
-import '../../../core/utils/prompt_variable_parser.dart';
+
+import 'package:conduit_core/utils/prompt_variable_parser.dart';
+
 import '../../prompts/widgets/prompt_variable_dialog.dart';
-import '../../auth/providers/unified_auth_providers.dart';
+
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+
 import 'chat_input_intents.dart';
 import 'expanded_text_editor.dart';
 import 'composer_overflow_items.dart';
@@ -2078,6 +2094,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       userName: user?.name ?? user?.email,
       userLanguage: locale.languageCode,
       userLocation: userLocation,
+      clipboard: ref.read(clipboardPortProvider),
     );
     final processor = PromptProcessor(
       parser: parser,

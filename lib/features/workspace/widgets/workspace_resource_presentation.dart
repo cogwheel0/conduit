@@ -2,8 +2,10 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../models/workspace_knowledge.dart';
-import '../models/workspace_resources.dart';
+
+import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart';
+import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
+
 import '../workspace_navigation.dart';
 import 'workspace_status_pill.dart';
 import 'workspace_tiles.dart';

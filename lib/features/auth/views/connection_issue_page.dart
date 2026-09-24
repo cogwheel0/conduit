@@ -5,19 +5,26 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/auth/auth_state_manager.dart';
-import '../../../core/auth/webview_cookie_helper.dart';
-import '../../../core/models/server_config.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../../core/services/api_service.dart';
-import '../../../core/services/connectivity_service.dart';
-import '../../../core/services/navigation_service.dart';
-import '../../../core/services/worker_manager.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart';
+
+import '../../../platform/webview_cookie_helper.dart';
+
+import 'package:conduit_core/auth/proxy_session.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
+
+import '../../../shared/services/navigation_service.dart';
+
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../l10n/app_localizations.dart';
-import '../providers/unified_auth_providers.dart';
+
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+
 import 'proxy_auth_page.dart';
-import 'server_connection_page.dart' show mergeCapturedProxyCookiesIntoHeaders;
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/sign_out_options_dialog.dart';

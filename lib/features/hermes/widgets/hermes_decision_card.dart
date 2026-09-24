@@ -6,7 +6,8 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/composer_prompt_surface.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../models/hermes_run_event.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 
 final class HermesDecisionCard extends StatefulWidget {
   const HermesDecisionCard({

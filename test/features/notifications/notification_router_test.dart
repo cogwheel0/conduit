@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/features/notifications/models/app_notification.dart';
 import 'package:conduit/features/notifications/services/active_view_tracker.dart';
 import 'package:conduit/features/notifications/services/local_notification_service.dart';

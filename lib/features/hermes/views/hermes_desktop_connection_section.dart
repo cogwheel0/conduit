@@ -4,17 +4,20 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_dropdown_field.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../controllers/hermes_connection_controller.dart';
-import '../models/hermes_config.dart';
-import '../providers/hermes_providers.dart';
-import '../services/hermes_desktop_connection_coordinator.dart';
-import '../services/hermes_desktop_api_service.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_connection_coordinator.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+
 import 'hermes_dashboard_auth_page.dart';
 
 class HermesDesktopConnectionSection extends ConsumerStatefulWidget {

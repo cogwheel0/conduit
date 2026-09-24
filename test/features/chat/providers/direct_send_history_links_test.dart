@@ -4,42 +4,43 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/chat_database_repository.dart';
-import 'package:conduit/core/database/database_manager.dart';
-import 'package:conduit/core/database/database_provider.dart';
-import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
-import 'package:conduit/core/auth/api_auth_interceptor.dart';
-import 'package:conduit/core/models/chat_message.dart';
-import 'package:conduit/core/models/conversation.dart';
-import 'package:conduit/core/models/model.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/direct_replay_output.dart';
-import 'package:conduit/core/services/worker_manager.dart';
-import 'package:conduit/core/sync/id_remapper.dart';
-import 'package:conduit/core/sync/sync_engine.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/database_manager.dart';
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/direct_replay_output.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/sync/id_remapper.dart';
+import 'package:conduit_core/sync/sync_engine.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/services/file_attachment_service.dart';
-import 'package:conduit/features/direct_connections/models/direct_completion.dart';
-import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
-import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
-import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
-import 'package:conduit/features/direct_connections/services/direct_adapter_helpers.dart';
-import 'package:conduit/features/direct_connections/services/direct_chat_bridge.dart';
-import 'package:conduit/features/direct_connections/services/direct_local_document_service.dart';
-import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
-import 'package:conduit/features/direct_connections/services/direct_provider_adapter.dart';
-import 'package:conduit/features/direct_connections/services/direct_run_registry.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_local_document_service.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_run_registry.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:conduit/platform/flutter_secure_key_value_store.dart';
 
-import '../../../support/gated_close_database.dart';
+import 'package:conduit_core/testing.dart';
 
 const _directDocumentTestKey = <int>[
   0,
@@ -983,6 +984,7 @@ _createGatedDirectHarness(
   final repository = repositoryBuilder?.call(db);
   container = ProviderContainer(
     overrides: [
+      secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
       activeConversationProvider.overrideWith(_ActiveConversation.new),
       selectedModelProvider.overrideWithValue(model),
       reviewerModeProvider.overrideWithValue(false),
@@ -1052,6 +1054,7 @@ _createInvalidatedOwnerRefreshHarness(
   );
   final container = ProviderContainer(
     overrides: [
+      secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
       activeConversationProvider.overrideWith(_ActiveConversation.new),
       selectedModelProvider.overrideWithValue(model),
       reviewerModeProvider.overrideWithValue(false),
@@ -1078,6 +1081,85 @@ _createInvalidatedOwnerRefreshHarness(
     adapter: adapter,
     runRegistry: runRegistry,
     repository: repository,
+    chat: chat,
+  );
+}
+
+// Harness for a remappable OpenWebUI-stored direct chat: the chat id can move
+// under a live run, which is the only path that rebinds the private direct
+// stop index while the visible conversation keeps its pre-remap id.
+Future<
+  ({
+    ProviderContainer container,
+    AppDatabase db,
+    _GatedAdapter adapter,
+    DirectRunRegistry runRegistry,
+    _SwitchableRemapSyncEngine syncEngine,
+    _ProvenanceApi api,
+    Conversation chat,
+  })
+>
+_createRemappableDirectHarness(String suffix) async {
+  final db = AppDatabase(NativeDatabase.memory());
+  addTearDown(db.close);
+  final directLocal = AppDatabase(NativeDatabase.memory());
+  addTearDown(directLocal.close);
+  final api = _ProvenanceApi(label: suffix, gateFirstInfo: true);
+  final syncEngine = _SwitchableRemapSyncEngine();
+  addTearDown(syncEngine.disposeStreams);
+  final profile = DirectConnectionProfile(
+    id: 'profile',
+    name: 'Provider',
+    adapterKey: 'test-adapter',
+    baseUrl: 'http://localhost:11434',
+  );
+  final modelRegistry = DirectModelRegistry();
+  final model = modelRegistry.replaceProfileModels(profile, [
+    DirectRemoteModel(id: 'model', isMultimodal: true),
+  ]).single;
+  final adapter = _GatedAdapter();
+  addTearDown(adapter.dispose);
+  final runRegistry = DirectRunRegistry();
+  final chat = withChatStorageProvenance(
+    await _seedDirectConversation(
+      db: db,
+      chatId: 'local:$suffix',
+      modelId: model.id,
+      suffix: suffix,
+    ),
+    ChatStorageKind.openWebUi,
+  );
+  final container = ProviderContainer(
+    overrides: [
+      secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
+      activeConversationProvider.overrideWith(_ActiveConversation.new),
+      selectedModelProvider.overrideWithValue(model),
+      reviewerModeProvider.overrideWithValue(false),
+      isAuthenticatedProvider2.overrideWithValue(false),
+      apiServiceProvider.overrideWithValue(api),
+      socketServiceProvider.overrideWithValue(null),
+      appDatabaseProvider.overrideWithValue(db),
+      directLocalDatabaseProvider.overrideWithValue(directLocal),
+      directModelRegistryProvider.overrideWithValue(modelRegistry),
+      directRunRegistryProvider.overrideWithValue(runRegistry),
+      directConnectionProfilesProvider.overrideWith(() => _Profiles(profile)),
+      directProviderAdapterRegistryProvider.overrideWithValue(
+        DirectProviderAdapterRegistry([adapter]),
+      ),
+      syncEngineProvider.overrideWith(() => syncEngine),
+    ],
+  );
+  addTearDown(container.dispose);
+  container.read(openWebUiDatabaseAccessProvider.notifier).open();
+  container.read(activeConversationProvider.notifier).set(chat);
+  container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
+  return (
+    container: container,
+    db: db,
+    adapter: adapter,
+    runRegistry: runRegistry,
+    syncEngine: syncEngine,
+    api: api,
     chat: chat,
   );
 }
@@ -1186,6 +1268,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -1284,6 +1367,7 @@ void main() {
       ];
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -1389,6 +1473,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -1475,6 +1560,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -1563,6 +1649,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           reviewerModeProvider.overrideWithValue(false),
           isAuthenticatedProvider2.overrideWithValue(false),
@@ -1655,6 +1742,7 @@ void main() {
       final previousAssistant = chat.messages.last;
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           reviewerModeProvider.overrideWithValue(false),
           isAuthenticatedProvider2.overrideWithValue(false),
@@ -1736,6 +1824,7 @@ void main() {
       final previousAssistant = chat.messages.last;
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           reviewerModeProvider.overrideWithValue(false),
           isAuthenticatedProvider2.overrideWithValue(false),
@@ -1827,6 +1916,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
         selectedModelProvider.overrideWithValue(model),
         reviewerModeProvider.overrideWithValue(false),
@@ -1900,6 +1990,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
         selectedModelProvider.overrideWithValue(model),
         reviewerModeProvider.overrideWithValue(false),
@@ -1973,6 +2064,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
         reviewerModeProvider.overrideWithValue(false),
         isAuthenticatedProvider2.overrideWithValue(false),
@@ -2050,6 +2142,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
         reviewerModeProvider.overrideWithValue(false),
         isAuthenticatedProvider2.overrideWithValue(false),
@@ -2113,6 +2206,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
         selectedModelProvider.overrideWithValue(model),
         reviewerModeProvider.overrideWithValue(false),
@@ -2294,6 +2388,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -2405,6 +2500,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -2527,6 +2623,7 @@ void main() {
       );
       container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -2652,6 +2749,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -2770,6 +2868,7 @@ void main() {
       final rowsBefore = await db.messagesDao.getForChat(chatA.id);
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -2855,6 +2954,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
         selectedModelProvider.overrideWithValue(model),
         reviewerModeProvider.overrideWithValue(false),
@@ -2949,6 +3049,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
         selectedModelProvider.overrideWithValue(model),
         reviewerModeProvider.overrideWithValue(false),
@@ -3051,6 +3152,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -3169,6 +3271,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -3250,6 +3353,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -3349,6 +3453,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -3412,6 +3517,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -3815,6 +3921,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -4640,6 +4747,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
         selectedModelProvider.overrideWithValue(model),
         reviewerModeProvider.overrideWithValue(false),
@@ -4742,6 +4850,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         activeServerProvider.overrideWith((_) async => serverA),
         databaseManagerProvider.overrideWithValue(manager),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
@@ -4867,6 +4976,7 @@ void main() {
       final runRegistry = DirectRunRegistry();
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeServerProvider.overrideWith((_) async => serverA),
           databaseManagerProvider.overrideWithValue(manager),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
@@ -5000,6 +5110,7 @@ void main() {
       final runRegistry = DirectRunRegistry();
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeServerProvider.overrideWith((_) async => serverA),
           databaseManagerProvider.overrideWithValue(manager),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
@@ -5165,6 +5276,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeServerProvider.overrideWith(
             (_) async => const ServerConfig(
               id: 'closing-retry-server',
@@ -5280,6 +5392,7 @@ void main() {
       final assistantId = chat.messages.last.id;
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
@@ -5345,4 +5458,179 @@ void main() {
       expect(durable.isStreaming, isFalse);
     },
   );
+
+  // Characterization of the private direct stop index (`_DirectRunStopIndex`
+  // in lib/features/chat/providers/chat_providers.dart). Neither the class nor
+  // its provider is reachable from a test, so these three tests pin it through
+  // the only consumer of its lookup: the direct branch of
+  // `stopGenerationProvider`, which falls back to resolving a live run by
+  // assistant message identity when the visible conversation no longer names
+  // the run's owner scope.
+  //
+  // Baseline (`track`, no lookup needed): while the conversation still names
+  // the run owner, stop cancels through the owner key directly.
+  test('stop cancels a direct run through its unremapped owner key', () async {
+    final harness = await _createRemappableDirectHarness('stop-index-owner');
+    final container = harness.container;
+    final started = harness.adapter.nextRun();
+    final send = sendMessageWithContainer(
+      container,
+      'Stop before any remap',
+      const ['same-file-id'],
+    );
+    await harness.api.firstInfoStarted.future.timeout(
+      const Duration(seconds: 1),
+    );
+    harness.syncEngine.useA = false;
+    harness.api.firstInfoGate.complete();
+    final run = await started.timeout(const Duration(seconds: 1));
+    addTearDown(run.close);
+    run.add(const DirectContentDelta('Partial answer'));
+    await Future<void>.delayed(Duration.zero);
+
+    final assistantId = container.read(chatMessagesProvider).last.id;
+    final ownerKey = (
+      ownerConversationId: directRunOwnerScopeForTest(container, harness.chat),
+      assistantMessageId: assistantId,
+    );
+    expect(harness.runRegistry.runFor(ownerKey), same(run.run));
+
+    container.read(stopGenerationProvider)();
+    expect(run.run.isCancelled, isTrue);
+    // A key-resolved stop leaves the final render to the registered
+    // dispatcher, so the row is still streaming at this instant.
+    expect(container.read(chatMessagesProvider).last.isStreaming, isTrue);
+    // The adapter never sends a terminal event; the send only settles because
+    // the stop cancelled the run.
+    await send.timeout(const Duration(seconds: 1));
+
+    expect(harness.runRegistry.hasLiveIntent(ownerKey), isFalse);
+    final completed = container.read(chatMessagesProvider).last;
+    expect(completed.id, assistantId);
+    expect(completed.isStreaming, isFalse);
+    expect(completed.content, 'Partial answer');
+  });
+
+  // `rebind(previous, next)`: a chat-id remap moves the run to a new owner
+  // scope while the visible conversation keeps the pre-remap id, so the key the
+  // stop path derives from the transcript no longer resolves. Only the stop
+  // index still names the live run, by assistant message id. The
+  // `untrack(previous)` half of the rebind is not separately observable from
+  // here: the registry's live-intent filter already rejects the vacated key.
+  test('stop cancels a direct run rebound by a chat-id remap', () async {
+    final harness = await _createRemappableDirectHarness('stop-index-remap');
+    final container = harness.container;
+    final started = harness.adapter.nextRun();
+    final send = sendMessageWithContainer(
+      container,
+      'Stop after the chat id moves',
+      const ['same-file-id'],
+    );
+    await harness.api.firstInfoStarted.future.timeout(
+      const Duration(seconds: 1),
+    );
+    harness.syncEngine.useA = false;
+    harness.api.firstInfoGate.complete();
+    final run = await started.timeout(const Duration(seconds: 1));
+    addTearDown(run.close);
+    run.add(const DirectContentDelta('Partial answer'));
+    await Future<void>.delayed(Duration.zero);
+
+    final assistantId = container.read(chatMessagesProvider).last.id;
+    final originalKey = (
+      ownerConversationId: directRunOwnerScopeForTest(container, harness.chat),
+      assistantMessageId: assistantId,
+    );
+    expect(harness.runRegistry.runFor(originalKey), same(run.run));
+
+    const remappedId = 'server-stop-index-remap';
+    final remapper = IdRemapper(harness.db);
+    addTearDown(remapper.dispose);
+    await remapper.remapChat(
+      localId: harness.chat.id,
+      serverId: remappedId,
+      serverCreatedAt: 1,
+      serverUpdatedAt: 2,
+    );
+    harness.syncEngine.emitA(
+      RemapEvent(fromId: harness.chat.id, toId: remappedId, entityKind: 'chat'),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    final remappedKey = (
+      ownerConversationId: directRunOwnerScopeForTest(
+        container,
+        withChatStorageProvenance(
+          harness.chat.copyWith(id: remappedId),
+          ChatStorageKind.openWebUi,
+        ),
+      ),
+      assistantMessageId: assistantId,
+    );
+    expect(harness.runRegistry.runFor(remappedKey), same(run.run));
+    expect(harness.runRegistry.runFor(originalKey), isNull);
+    // The remap does not move the visible conversation, so the stop key
+    // derived from it is the stale pre-remap owner scope.
+    expect(container.read(activeConversationProvider)?.id, harness.chat.id);
+
+    container.read(stopGenerationProvider)();
+    // The key derived from the visible conversation is vacant, so this
+    // synchronous cancellation can only have come from the stop index's
+    // `keysForMessage(assistantId)` lookup of the rebound key.
+    expect(run.run.isCancelled, isTrue);
+    // An identity-resolved stop also completes the visible placeholder itself
+    // instead of leaving the final render to the dispatcher.
+    expect(container.read(chatMessagesProvider).last.isStreaming, isFalse);
+    await send.timeout(const Duration(seconds: 1));
+
+    expect(harness.runRegistry.hasLiveIntent(remappedKey), isFalse);
+    final completed = container.read(chatMessagesProvider).last;
+    expect(completed.id, assistantId);
+    expect(completed.isStreaming, isFalse);
+    expect(completed.content, 'Partial answer');
+  });
+
+  // `untrack`: the dispatch drops its key when the run settles, so a later
+  // stop on a re-shown streaming tail for the same message finds no candidate
+  // and only settles the visible row. Note the registry's live-intent filter
+  // would also reject a leaked entry here, so this pins the observable
+  // contract rather than the index's internal bookkeeping.
+  test('stop after a settled direct run cancels nothing', () async {
+    final harness = await _createGatedDirectHarness('stop-index-untrack');
+    final container = harness.container;
+    final started = harness.adapter.nextRun();
+    final send = sendMessageWithContainer(container, 'Finish then stop', null);
+    final run = await started.timeout(const Duration(seconds: 1));
+    addTearDown(run.close);
+    run.add(const DirectContentDelta('Final answer'));
+    run.add(const DirectStreamDone());
+    await send.timeout(const Duration(seconds: 1));
+
+    final settled = container.read(chatMessagesProvider).last;
+    expect(settled.isStreaming, isFalse);
+    expect(settled.metadata?['transport'], 'direct');
+    final runRegistry = container.read(directRunRegistryProvider);
+    final ownerKey = (
+      ownerConversationId: directRunOwnerScopeForTest(container, harness.chat),
+      assistantMessageId: settled.id,
+    );
+    expect(runRegistry.hasLiveIntent(ownerKey), isFalse);
+
+    // Re-show the settled assistant as a streaming tail, the way a restored
+    // checkpoint would, and stop it.
+    final visible = container.read(chatMessagesProvider);
+    container.read(chatMessagesProvider.notifier).setMessages([
+      ...visible.take(visible.length - 1),
+      settled.copyWith(isStreaming: true),
+    ]);
+    expect(container.read(chatMessagesProvider).last.isStreaming, isTrue);
+
+    container.read(stopGenerationProvider)();
+    await Future<void>.delayed(Duration.zero);
+
+    final stopped = container.read(chatMessagesProvider).last;
+    expect(stopped.id, settled.id);
+    expect(stopped.isStreaming, isFalse);
+    expect(stopped.content, 'Final answer');
+  });
 }

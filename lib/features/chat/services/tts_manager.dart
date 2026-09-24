@@ -1,18 +1,23 @@
 import 'dart:async';
 import 'dart:io' show Directory, File, Platform;
 
+import 'package:conduit_core/conduit_core.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-import '../../../core/models/backend_config.dart';
-import '../../../core/services/api_service.dart';
+import 'package:conduit_core/models/backend_config.dart';
+
+import 'package:conduit_core/services/api_service.dart';
+
 import '../../../core/services/background_streaming_handler.dart';
-import '../../../core/utils/debug_logger.dart';
-import '../../../core/utils/semantic_details.dart';
-import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
+import 'package:conduit_markdown/conduit_markdown.dart';
+import 'package:conduit_markdown/conduit_markdown.dart' as speech;
+
 import 'native_tts_service.dart';
 
 // =============================================================================
@@ -90,25 +95,6 @@ class TtsPlaybackSession {
   final bool useServerTts;
 }
 
-/// The chunks a streaming feed made speakable, plus the cursor to resume from.
-class StreamingChunkAdvance {
-  const StreamingChunkAdvance({
-    required this.chunks,
-    required this.fedChunkCount,
-    required this.spokenText,
-  });
-
-  /// Newly speakable chunks, trimmed, in playback order.
-  final List<String> chunks;
-
-  /// How many chunks of the current split have been consumed.
-  final int fedChunkCount;
-
-  /// Everything handed to playback so far, concatenated. The cursor is
-  /// re-derived from this after a re-split.
-  final String spokenText;
-}
-
 @visibleForTesting
 StreamingChunkAdvance advanceStreamingChunksForTesting({
   required List<String> chunks,
@@ -116,7 +102,7 @@ StreamingChunkAdvance advanceStreamingChunksForTesting({
   required String spokenText,
   required bool finalized,
 }) {
-  return _advanceStreamingChunks(
+  return advanceStreamingChunks(
     chunks: chunks,
     fedChunkCount: fedChunkCount,
     spokenText: spokenText,
@@ -124,116 +110,9 @@ StreamingChunkAdvance advanceStreamingChunksForTesting({
   );
 }
 
-StreamingChunkAdvance _advanceStreamingChunks({
-  required List<String> chunks,
-  required int fedChunkCount,
-  required String spokenText,
-  required bool finalized,
-}) {
-  // Hold the trailing chunk back until finalization: it is still growing.
-  final speakableCount = finalized
-      ? chunks.length
-      : (chunks.length <= 1 ? 0 : chunks.length - 1);
-
-  final resolved = _resolveStreamingCursor(
-    chunks: chunks,
-    fedChunkCount: fedChunkCount,
-    spokenText: spokenText,
-  );
-  var cursor = resolved.cursor;
-  final spoken = StringBuffer(resolved.spokenText);
-  final pending = <String>[];
-
-  // The part of the old response that playback heard past the point the two
-  // versions stop agreeing. A rewrite usually touches one sentence and leaves
-  // the rest alone, so the sentences after it are still in here and must not be
-  // spoken twice.
-  final alreadyHeard = spokenText.substring(resolved.spokenText.length);
-  var heardCursor = 0;
-
-  while (cursor < speakableCount) {
-    final chunk = chunks[cursor];
-    cursor++;
-    final trimmed = chunk.trim();
-    if (trimmed.isEmpty) {
-      continue;
-    }
-    spoken.write(trimmed);
-    if (heardCursor < alreadyHeard.length) {
-      // Scan forward only, so a sentence that repeats later in the answer is
-      // still spoken once for each time the old version was heard.
-      final at = alreadyHeard.indexOf(trimmed, heardCursor);
-      if (at >= 0) {
-        heardCursor = at + trimmed.length;
-        continue;
-      }
-    }
-    pending.add(trimmed);
-  }
-
-  // Whatever is left of the old response playback heard stays on the end. Mid
-  // stream the trailing chunk is held back, so a sentence beyond it is heard
-  // history the next feed still has to match against; dropping it here would
-  // let finalization queue that sentence a second time.
-  spoken.write(alreadyHeard.substring(heardCursor));
-
-  return StreamingChunkAdvance(
-    chunks: pending,
-    fedChunkCount: cursor,
-    spokenText: spoken.toString(),
-  );
-}
-
-/// Where the feed cursor sits in a freshly derived split, and the text behind
-/// it.
-class _StreamingCursor {
-  const _StreamingCursor(this.cursor, this.spokenText);
-
-  final int cursor;
-  final String spokenText;
-}
-
-/// Re-derives the feed cursor by matching the split against the text already
-/// handed to playback.
-///
-/// The split is re-derived from the whole accumulated response on every feed,
-/// so a `</details>` arriving late removes that block from the sanitized body
-/// and shifts every later chunk left. A bare index would then point past
-/// sentences nobody has spoken, typically the answer itself, which is what
-/// makes a response go silent after a tool call. Matching on running text
-/// instead of on a single chunk keeps the cursor exact even when the same
-/// sentence appears more than once, and a server rewrite mid-answer resumes at
-/// the point the two versions stop agreeing.
-_StreamingCursor _resolveStreamingCursor({
-  required List<String> chunks,
-  required int fedChunkCount,
-  required String spokenText,
-}) {
-  if (spokenText.isEmpty || fedChunkCount <= 0) {
-    return const _StreamingCursor(0, '');
-  }
-
-  final replayed = StringBuffer();
-  var cursor = 0;
-  var matched = '';
-  for (final chunk in chunks) {
-    replayed.write(chunk.trim());
-    final candidate = replayed.toString();
-    if (!spokenText.startsWith(candidate)) {
-      break;
-    }
-    cursor++;
-    matched = candidate;
-    if (candidate.length == spokenText.length) {
-      break;
-    }
-  }
-  return _StreamingCursor(cursor, matched);
-}
-
 @visibleForTesting
 bool isServerTtsPlaybackCompleteForTesting({
-  required ProcessingState processingState,
+  required AudioProcessingState processingState,
   required int currentIndex,
   required int lastChunkIndex,
   required int lastEnqueuedIndex,
@@ -247,12 +126,12 @@ bool isServerTtsPlaybackCompleteForTesting({
 }
 
 bool _isServerTtsPlaybackComplete({
-  required ProcessingState processingState,
+  required AudioProcessingState processingState,
   required int currentIndex,
   required int lastChunkIndex,
   required int lastEnqueuedIndex,
 }) {
-  return processingState == ProcessingState.completed &&
+  return processingState == AudioProcessingState.completed &&
       currentIndex >= lastChunkIndex &&
       lastEnqueuedIndex >= lastChunkIndex;
 }
@@ -308,7 +187,7 @@ class TtsConfig {
 
 /// Single global manager for all TTS operations.
 ///
-/// This manager owns native device TTS and AudioPlayer instances and ensures
+/// This manager owns native device TTS and the host audio player, and ensures
 /// only one playback session is active at a time. Events are emitted via
 /// a stream that consumers can listen to.
 class TtsManager {
@@ -316,11 +195,9 @@ class TtsManager {
   static const Duration _serverInitialLookaheadTimeout = Duration(
     milliseconds: 220,
   );
-  static const String splitOnPunctuation = 'punctuation';
-  static const String splitOnParagraphs = 'paragraphs';
-  static const String splitOnNone = 'none';
-  static const int _mergeMinWords = 4;
-  static const int _mergeMinChars = 50;
+  static const String splitOnPunctuation = speechSplitOnPunctuation;
+  static const String splitOnParagraphs = speechSplitOnParagraphs;
+  static const String splitOnNone = speechSplitOnNone;
   static const double _serverPlaybackRate = 1.0;
 
   TtsManager._();
@@ -332,10 +209,10 @@ class TtsManager {
   StreamSubscription<NativeTtsEvent>? _nativeTtsSub;
   bool _nativeTtsAvailable = false;
 
-  // AudioPlayer for server TTS (using just_audio)
-  final AudioPlayer _player = AudioPlayer();
+  // Server TTS playback goes through the host's audio port.
+  final AudioPlaybackPort _player = AudioPlaybackPort.hostFactory();
   bool _playerConfigured = false;
-  StreamSubscription<PlayerState>? _playerStateSub;
+  StreamSubscription<AudioPlaybackState>? _playerStateSub;
   StreamSubscription<int?>? _playerIndexSub;
 
   /// Flag to suppress spurious TtsPaused events during chunk transitions.
@@ -476,10 +353,10 @@ class TtsManager {
     // Initialize native device TTS.
     await _ensureTtsInitialized();
 
-    // Configure AudioPlayer for all platforms (using just_audio)
+    // Configure the host audio player for all platforms.
     if (!_playerConfigured) {
-      _playerStateSub = _player.playerStateStream.listen((state) {
-        if (state.processingState == ProcessingState.completed) {
+      _playerStateSub = _player.stateChanges.listen((state) {
+        if (state.processingState == AudioProcessingState.completed) {
           _onServerAudioComplete();
         }
         if (state.playing) {
@@ -489,7 +366,7 @@ class TtsManager {
           _isTransitioningChunks = false;
           _emitEvent(const TtsStarted());
         } else if (!state.playing &&
-            state.processingState == ProcessingState.ready &&
+            state.processingState == AudioProcessingState.ready &&
             !_isTransitioningChunks) {
           // Only emit pause when actually paused, ready, and NOT transitioning
           // between chunks. During chunk transitions, the player briefly enters
@@ -497,7 +374,7 @@ class TtsManager {
           _emitEvent(const TtsPaused());
         }
       });
-      _playerIndexSub = _player.currentIndexStream.listen((index) {
+      _playerIndexSub = _player.currentIndexChanges.listen((index) {
         final session = _activeSession;
         if (session == null || !session.useServerTts || index == null) {
           return;
@@ -622,7 +499,7 @@ class TtsManager {
     if (shouldUseServer) {
       await _startServerBackgroundLease(session.id);
       await _player.stop();
-      await _player.clearAudioSources();
+      await _player.clearClips();
     } else {
       if (!_deviceEngineAvailable) {
         throw StateError('Device TTS is not available');
@@ -664,7 +541,8 @@ class TtsManager {
       final producerDone =
           _serverLastEnqueuedIndex >= session.chunks.length - 1 &&
           _serverFetchingIndices.isEmpty;
-      final playerDone = _player.processingState == ProcessingState.completed;
+      final playerDone =
+          _player.processingState == AudioProcessingState.completed;
       if (producerDone && playerDone) {
         _onServerAudioComplete();
       }
@@ -783,114 +661,21 @@ class TtsManager {
   }
 
   /// Mirrors OpenWebUI's `extractSentences`.
-  List<String> extractSentences(String text) {
-    final codeBlocks = <String>[];
-    var processed = text;
-    var codeBlockIndex = 0;
-
-    final codeBlockRegex = RegExp(r'```[\s\S]*?```', multiLine: true);
-    processed = processed.replaceAllMapped(codeBlockRegex, (match) {
-      final placeholder = '\u0000$codeBlockIndex\u0000';
-      codeBlocks.add(match.group(0)!);
-      codeBlockIndex++;
-      return placeholder;
-    });
-
-    final sentences = processed.split(RegExp(r'(?<=[.!?])\s+|\n+')).toList();
-
-    return sentences
-        .map((sentence) {
-          return sentence.replaceAllMapped(RegExp(r'\u0000(\d+)\u0000'), (m) {
-            final idx = int.parse(m.group(1)!);
-            return idx < codeBlocks.length ? codeBlocks[idx] : '';
-          });
-        })
-        .map(ConduitMarkdownPreprocessor.cleanText)
-        .where((s) => s.isNotEmpty)
-        .toList();
-  }
+  List<String> extractSentences(String text) => speech.extractSentences(text);
 
   /// Mirrors OpenWebUI's `extractParagraphsForAudio`.
-  List<String> extractParagraphsForAudio(String text) {
-    final codeBlocks = <String>[];
-    var processed = text;
-    var codeBlockIndex = 0;
-
-    final codeBlockRegex = RegExp(r'```[\s\S]*?```', multiLine: true);
-    processed = processed.replaceAllMapped(codeBlockRegex, (match) {
-      final placeholder = '\u0000$codeBlockIndex\u0000';
-      codeBlocks.add(match.group(0)!);
-      codeBlockIndex++;
-      return placeholder;
-    });
-
-    final paragraphs = processed
-        .split(RegExp(r'\n+'))
-        .map((paragraph) {
-          return paragraph.replaceAllMapped(RegExp(r'\u0000(\d+)\u0000'), (m) {
-            final idx = int.parse(m.group(1)!);
-            return idx < codeBlocks.length ? codeBlocks[idx] : '';
-          });
-        })
-        .map(ConduitMarkdownPreprocessor.cleanText)
-        .where((s) => s.isNotEmpty)
-        .toList();
-
-    return paragraphs;
-  }
+  List<String> extractParagraphsForAudio(String text) =>
+      speech.extractParagraphsForAudio(text);
 
   /// Mirrors OpenWebUI's `extractSentencesForAudio`.
-  List<String> extractSentencesForAudio(String text) {
-    final sentences = extractSentences(text);
-
-    final mergedChunks = <String>[];
-    for (final sentence in sentences) {
-      if (mergedChunks.isEmpty) {
-        mergedChunks.add(sentence);
-      } else {
-        final lastIndex = mergedChunks.length - 1;
-        final previousText = mergedChunks[lastIndex];
-        final wordCount = previousText.split(RegExp(r'\s+')).length;
-        final charCount = previousText.length;
-
-        if (wordCount < _mergeMinWords || charCount < _mergeMinChars) {
-          mergedChunks[lastIndex] = '$previousText $sentence';
-        } else {
-          mergedChunks.add(sentence);
-        }
-      }
-    }
-
-    return mergedChunks;
-  }
+  List<String> extractSentencesForAudio(String text) =>
+      speech.extractSentencesForAudio(text);
 
   /// Mirrors OpenWebUI's `getMessageContentParts`.
   List<String> getMessageContentParts(
     String content, {
     String splitOn = splitOnPunctuation,
-  }) {
-    final sanitizedContent = _sanitizeForSpeech(content);
-
-    switch (splitOn) {
-      case splitOnParagraphs:
-        return extractParagraphsForAudio(sanitizedContent);
-      case splitOnNone:
-        final cleaned = ConduitMarkdownPreprocessor.cleanText(sanitizedContent);
-        return cleaned.isEmpty ? const [] : [cleaned];
-      case splitOnPunctuation:
-      default:
-        return extractSentencesForAudio(sanitizedContent);
-    }
-  }
-
-  /// Removes everything that must never be spoken: rendered semantic
-  /// `<details>` wrappers (reasoning, tool calls, code interpreter output) and
-  /// any other complete `<details>` block.
-  ///
-  /// A semantic wrapper that is still open — the common case while a response
-  /// streams — takes the rest of the body with it. Its contents would otherwise
-  /// be read aloud in the frames before `</details>` arrives to hide them.
-  String _sanitizeForSpeech(String content) => stripDetailsForSpeech(content);
+  }) => speech.getMessageContentParts(content, splitOn: splitOn);
 
   /// Gets available voices from the device TTS engine.
   Future<List<Map<String, dynamic>>> getDeviceVoices() async {
@@ -996,7 +781,7 @@ class TtsManager {
   }) async {
     if (_activeSession?.id != session.id) return;
 
-    final advance = _advanceStreamingChunks(
+    final advance = advanceStreamingChunks(
       chunks: splitTextForSpeech(accumulatedText),
       fedChunkCount: _streamingFedChunkCount,
       spokenText: _streamingSpokenText,
@@ -1254,7 +1039,7 @@ class TtsManager {
 
     _setBufferedServerChunk(0, firstChunk);
     _serverLastEnqueuedIndex = 0;
-    final initialSources = <AudioSource>[
+    final initialSources = <AudioClip>[
       await _audioSourceForServerChunk(session.id, 0, firstChunk),
     ];
 
@@ -1288,7 +1073,7 @@ class TtsManager {
     // Flag will be cleared by state listener when playing=true is received.
     // This prevents race condition where flag is cleared before state fires.
     try {
-      await _player.setAudioSources(
+      await _player.setClips(
         initialSources,
         initialIndex: 0,
         initialPosition: Duration.zero,
@@ -1517,7 +1302,7 @@ class TtsManager {
                 _serverLastEnqueuedIndex < 0) {
               _isTransitioningChunks = true;
               try {
-                await _player.setAudioSources(
+                await _player.setClips(
                   [source],
                   initialIndex: 0,
                   initialPosition: Duration.zero,
@@ -1528,7 +1313,7 @@ class TtsManager {
                 rethrow;
               }
             } else {
-              await _player.addAudioSource(source);
+              await _player.addClip(source);
             }
             _serverLastEnqueuedIndex = nextIndex;
           }
@@ -1546,7 +1331,7 @@ class TtsManager {
   }
 
   Future<void> _resumeServerQueueFromCompleted(int currentIndex) async {
-    if (_player.processingState != ProcessingState.completed) {
+    if (_player.processingState != AudioProcessingState.completed) {
       return;
     }
     final nextIndex = currentIndex + 1;
@@ -1557,7 +1342,7 @@ class TtsManager {
     await _player.play();
   }
 
-  Future<AudioSource> _audioSourceForServerChunk(
+  Future<AudioClip> _audioSourceForServerChunk(
     int sessionId,
     int index,
     _AudioChunk chunk,
@@ -1570,7 +1355,7 @@ class TtsManager {
     final file = File(p.join(dir.path, 'chunk_$index.$extension'));
     await file.writeAsBytes(chunk.bytes, flush: true);
     _serverTempFiles.add(file);
-    return AudioSource.uri(file.uri, tag: index);
+    return AudioClip(uri: file.uri, tag: index);
   }
 
   String _audioExtensionForMimeType(String mimeType) {

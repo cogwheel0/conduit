@@ -2,8 +2,10 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
-import '../../../core/models/server_about_info.dart';
-import '../../../core/providers/app_providers.dart';
+import 'package:conduit_core/models/server_about_info.dart';
+
+import 'package:conduit_core/providers/app_providers.dart';
+
 import '../../../features/release_notes/data/release_notes_repository.dart';
 import '../../../features/release_notes/release_notes_presenter.dart';
 import '../../../l10n/app_localizations.dart';
@@ -13,6 +15,7 @@ import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../widgets/settings_page_scaffold.dart';
 import '../../../shared/widgets/utility_components.dart';
+import '../../../shared/services/app_package_info.dart';
 
 class AboutPage extends ConsumerStatefulWidget {
   const AboutPage({super.key});

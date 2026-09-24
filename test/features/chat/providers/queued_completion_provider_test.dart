@@ -6,20 +6,21 @@ import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/daos/outbox_dao.dart';
-import 'package:conduit/core/database/database_provider.dart';
-import 'package:conduit/core/models/chat_message.dart';
-import 'package:conduit/core/models/conversation.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/connectivity_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
-import 'package:conduit/core/sync/sync_engine.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/outbox_dao.dart';
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit/features/chat/providers/queued_completion_provider.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
-import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/conduit_core.dart';
 
 class _NoopSyncEngine extends SyncEngine {
   int databaseOwnedDrainCalls = 0;
@@ -560,7 +561,7 @@ void main() {
     final seq = await enqueueCompletion(chatId, assistantId);
     await db.outboxDao.markParked(seq, error: 'boom');
 
-    final workerManager = WorkerManager(debugIsWebOverride: true);
+    final workerManager = WorkerManager(worker: const InlineWorkerPort());
     addTearDown(workerManager.dispose);
     ApiService buildApi() {
       final api = ApiService(

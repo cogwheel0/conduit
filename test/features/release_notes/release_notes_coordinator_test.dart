@@ -1,12 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:conduit/core/persistence/persistence_keys.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/providers/backend_mode_providers.dart';
-import 'package:conduit/core/services/navigation_service.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/release_notes/data/release_notes_repository.dart';
 import 'package:conduit/features/release_notes/models/release_note.dart';
 import 'package:conduit/features/release_notes/release_notes_bootstrap.dart';
@@ -21,6 +20,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
+import 'package:conduit/shared/services/app_package_info.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -28,7 +29,7 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     PreferencesStore.debugReset();
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
   });
 
   tearDown(() {
@@ -88,7 +89,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.activeServerId: 'existing-server',
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     await captureReleaseNotesInstallProvenance();
     expect(
       PreferencesStore.getBool(
@@ -119,7 +120,7 @@ void main() {
       PreferenceKeys.lastSeenReleaseVersion: '4.0.0',
       PreferenceKeys.activeServerId: 'existing-server',
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
     await tester.pumpWidget(
       _app(
@@ -150,7 +151,7 @@ void main() {
         if (backend == PreferredBackend.hermes)
           PreferenceKeys.hermesEnabled: true,
       });
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
       await tester.pumpWidget(
         _app(authState: AuthNavigationState.needsLogin, showBanner: true),
@@ -167,7 +168,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.lastSeenReleaseVersion: '3.3.1',
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
     await tester.pumpWidget(_app(authState: AuthNavigationState.needsLogin));
     await tester.pump();
@@ -186,7 +187,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.lastSeenReleaseVersion: '3.3.1',
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
     await tester.pumpWidget(
       _app(authState: AuthNavigationState.authenticated, showBanner: true),
@@ -211,7 +212,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.lastSeenReleaseVersion: '3.3.1',
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
     await tester.pumpWidget(
       _app(authState: AuthNavigationState.authenticated, showBanner: true),
@@ -258,7 +259,7 @@ void main() {
       PreferenceKeys.lastSeenReleaseVersion: '3.3.2',
       PreferenceKeys.releaseNotesBannerPreviousVersion: '3.3.1',
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
     await tester.pumpWidget(
       _app(authState: AuthNavigationState.authenticated, showBanner: true),
@@ -279,7 +280,7 @@ void main() {
       PreferenceKeys.lastSeenReleaseVersion: '3.3.2',
       PreferenceKeys.releaseNotesBannerPreviousVersion: '3.3.1',
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
     await tester.pumpWidget(
       _app(authState: AuthNavigationState.authenticated, showBanner: true),
@@ -310,7 +311,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.lastSeenReleaseVersion: '3.3.1',
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final repository = _DeferredReleaseNotesRepository();
     final locale = ValueNotifier(const Locale('en'));
     addTearDown(locale.dispose);
@@ -349,7 +350,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.lastSeenReleaseVersion: '3.3.1',
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
     await tester.pumpWidget(
       _app(

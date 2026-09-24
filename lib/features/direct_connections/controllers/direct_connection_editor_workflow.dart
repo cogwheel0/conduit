@@ -1,10 +1,13 @@
 import 'package:flutter/foundation.dart';
 
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../shared/models/connection_attempt.dart';
-import '../models/direct_connection_profile.dart';
-import '../models/direct_remote_model.dart';
-import '../services/direct_adapter_helpers.dart';
+
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
+
 import 'direct_connection_editor_draft.dart';
 import 'direct_connection_editor_form.dart';
 

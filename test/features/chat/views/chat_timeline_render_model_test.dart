@@ -1,4 +1,4 @@
-import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit/features/chat/views/chat_timeline_render_model.dart';
 import 'package:conduit/features/chat/views/chat_turn_render_state.dart';
 import 'package:checks/checks.dart';

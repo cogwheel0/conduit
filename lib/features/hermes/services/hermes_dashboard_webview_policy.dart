@@ -4,7 +4,9 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
-import '../../../core/auth/webview_origin.dart';
+import 'package:conduit_core/auth/webview_origin.dart';
+
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_access.dart';
 
 Map<String, String> hermesHeadersWithoutAccessCredentials(
   Map<String, String> headers,
@@ -16,11 +18,6 @@ Map<String, String> hermesHeadersWithoutAccessCredentials(
       if (!reserved.contains(entry.key.toLowerCase())) entry.key: entry.value,
   };
 }
-
-bool hermesDashboardHeadersSupported({
-  required TargetPlatform platform,
-  required Map<String, String> accessHeaders,
-}) => platform != TargetPlatform.iOS || accessHeaders.isEmpty;
 
 ({bool allowed, bool leftDashboard, bool returnedToDashboard})
 hermesDashboardNavigationTransition({
@@ -66,7 +63,7 @@ final class HermesDashboardWebViewPolicy {
   final Dio _resourceClient;
 
   bool get supported => hermesDashboardHeadersSupported(
-    platform: defaultTargetPlatform,
+    isIOS: defaultTargetPlatform == TargetPlatform.iOS,
     accessHeaders: accessHeaders,
   );
 

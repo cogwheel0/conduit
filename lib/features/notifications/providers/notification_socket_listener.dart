@@ -4,13 +4,18 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/widgets.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../../core/providers/app_providers.dart';
-import '../../../core/database/local_conversation_loader.dart';
-import '../../../core/services/navigation_service.dart';
-import '../../../core/services/settings_service.dart';
-import '../../../core/services/socket_service.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/database/local_conversation_loader.dart';
+
+import '../../../shared/services/navigation_service.dart';
+
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/services/socket_service.dart';
+
 import '../../../core/utils/current_localizations.dart';
-import '../../../core/utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../channels/providers/channel_providers.dart';
 import '../../chat/providers/chat_providers.dart';
 import '../models/app_notification.dart';

@@ -3,25 +3,27 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/connectivity_service.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
+import 'package:conduit_core/conduit_core.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter/widgets.dart';
+
+import 'package:conduit_core/testing.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(ConnectivityService.debugResetTrafficSignals);
 
   test('a probe settling after dispose cannot install a new timer', () async {
+    final lifecycle = FakeAppLifecycle();
     final connectivity = _OnlineConnectivity();
     final adapter = _BlockingHealthAdapter();
     final dio = Dio()..httpClientAdapter = adapter;
     final serviceProvider = Provider<ConnectivityService>(
-      (ref) => ConnectivityService(dio, ref, connectivity),
+      (ref) => ConnectivityService(dio, ref, connectivity, false, lifecycle),
     );
     final container = ProviderContainer(
       overrides: [
@@ -54,11 +56,12 @@ void main() {
   });
 
   test('forced checkNow awaits the active health probe', () async {
+    final lifecycle = FakeAppLifecycle();
     final connectivity = _OnlineConnectivity();
     final adapter = _BlockingHealthAdapter();
     final dio = Dio()..httpClientAdapter = adapter;
     final serviceProvider = Provider<ConnectivityService>(
-      (ref) => ConnectivityService(dio, ref, connectivity),
+      (ref) => ConnectivityService(dio, ref, connectivity, false, lifecycle),
     );
     final container = ProviderContainer(
       overrides: [
@@ -95,13 +98,14 @@ void main() {
   test(
     'credential-bearing client without an origin never probes active server',
     () async {
+      final lifecycle = FakeAppLifecycle();
       final connectivity = _OnlineConnectivity();
       final adapter = _ImmediateHealthAdapter();
       final dio = Dio(
         BaseOptions(headers: const {'Cookie': 'proxy_session=secret'}),
       )..httpClientAdapter = adapter;
       final serviceProvider = Provider<ConnectivityService>(
-        (ref) => ConnectivityService(dio, ref, connectivity),
+        (ref) => ConnectivityService(dio, ref, connectivity, false, lifecycle),
       );
       final container = ProviderContainer(
         overrides: [
@@ -131,11 +135,12 @@ void main() {
   test(
     'forced checkNow follows an overlapping recent-traffic fast path',
     () async {
+      final lifecycle = FakeAppLifecycle();
       final connectivity = _OnlineConnectivity();
       final adapter = _ImmediateHealthAdapter();
       final dio = Dio()..httpClientAdapter = adapter;
       final serviceProvider = Provider<ConnectivityService>(
-        (ref) => ConnectivityService(dio, ref, connectivity),
+        (ref) => ConnectivityService(dio, ref, connectivity, false, lifecycle),
       );
       final container = ProviderContainer(
         overrides: [
@@ -304,11 +309,12 @@ void main() {
   );
 
   test('repeated transport failures retain the first probe deadline', () async {
+    final lifecycle = FakeAppLifecycle();
     final connectivity = _OnlineConnectivity();
     final adapter = _ImmediateHealthAdapter();
     final dio = Dio()..httpClientAdapter = adapter;
     final serviceProvider = Provider<ConnectivityService>(
-      (ref) => ConnectivityService(dio, ref, connectivity),
+      (ref) => ConnectivityService(dio, ref, connectivity, false, lifecycle),
     );
     final container = ProviderContainer(
       overrides: [
@@ -352,11 +358,12 @@ void main() {
   test(
     'transport failure upgrades a retained resume timer to forced',
     () async {
+      final lifecycle = FakeAppLifecycle();
       final connectivity = _OnlineConnectivity();
       final adapter = _ImmediateHealthAdapter();
       final dio = Dio()..httpClientAdapter = adapter;
       final serviceProvider = Provider<ConnectivityService>(
-        (ref) => ConnectivityService(dio, ref, connectivity),
+        (ref) => ConnectivityService(dio, ref, connectivity, false, lifecycle),
       );
       final container = ProviderContainer(
         overrides: [
@@ -385,8 +392,8 @@ void main() {
       ConnectivityService.noteSuccessfulTraffic(
         Uri.parse('https://server.example'),
       );
-      service.didChangeAppLifecycleState(AppLifecycleState.paused);
-      service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      lifecycle.emit(AppLifecyclePhase.paused);
+      lifecycle.emit(AppLifecyclePhase.resumed);
       ConnectivityService.reportTransportFailure(
         Uri.parse('https://server.example'),
       );
@@ -399,11 +406,12 @@ void main() {
   test(
     'matching successful traffic immediately restores healthy state',
     () async {
+      final lifecycle = FakeAppLifecycle();
       final connectivity = _OnlineConnectivity();
       final adapter = _FailingHealthAdapter();
       final dio = Dio()..httpClientAdapter = adapter;
       final serviceProvider = Provider<ConnectivityService>(
-        (ref) => ConnectivityService(dio, ref, connectivity),
+        (ref) => ConnectivityService(dio, ref, connectivity, false, lifecycle),
       );
       final container = ProviderContainer(
         overrides: [
@@ -458,17 +466,19 @@ Future<void> _waitForRequestCount(
   check(adapter.requestCount).isGreaterOrEqual(expected);
 }
 
-final class _OnlineConnectivity implements Connectivity {
-  final StreamController<List<ConnectivityResult>> _changes =
-      StreamController<List<ConnectivityResult>>.broadcast();
+/// A device that always has an interface and never reports a change.
+///
+/// The service takes a [ConnectivityPort] rather than
+/// `connectivity_plus` directly, so this fake no longer has to model the
+/// plugin's list-of-interface-kinds shape.
+final class _OnlineConnectivity implements ConnectivityPort {
+  final StreamController<bool> _changes = StreamController<bool>.broadcast();
 
   @override
-  Future<List<ConnectivityResult>> checkConnectivity() async => const [
-    ConnectivityResult.wifi,
-  ];
+  Future<bool> hasNetworkInterface() async => true;
 
   @override
-  Stream<List<ConnectivityResult>> get onConnectivityChanged => _changes.stream;
+  Stream<bool> get onChanged => _changes.stream;
 
   Future<void> dispose() => _changes.close();
 }

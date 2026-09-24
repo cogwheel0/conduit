@@ -1,9 +1,9 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/models/chat_transcript_window.dart';
-import 'package:conduit/core/models/chat_message.dart';
-import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit_core/database/models/chat_transcript_window.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';

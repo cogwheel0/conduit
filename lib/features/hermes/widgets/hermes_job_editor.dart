@@ -5,7 +5,8 @@ import '../../../l10n/app_localizations_en.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
-import '../models/hermes_job.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 
 final RegExp _hermesDurationPattern = RegExp(
   r'^\d+\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)$',

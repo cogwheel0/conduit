@@ -2,12 +2,15 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:typed_data';
 
-import '../providers/app_providers.dart';
-import 'api_service.dart';
-import 'raster_media_policy.dart';
+import 'package:riverpod/riverpod.dart';
+import 'package:meta/meta.dart';
+
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+
+import '../../shared/services/raster_media_policy.dart';
 
 final _imageAttachmentCacheStore = ImageAttachmentCacheStore();
 

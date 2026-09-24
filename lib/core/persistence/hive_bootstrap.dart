@@ -1,6 +1,6 @@
 import 'package:hive_ce_flutter/hive_flutter.dart';
 
-import 'hive_boxes.dart';
+import 'package:conduit_core/persistence/hive_boxes.dart';
 
 /// Sets up Hive and exposes lazily opened boxes used across the app.
 class HiveBootstrap {
