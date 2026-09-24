@@ -35,8 +35,18 @@ jobs:
           cache: true
       # One `pub get` at the workspace root resolves every member.
       - run: flutter pub get
+      # Every workspace member with codegen, not only this job's own: a
+      # package is analyzed against the generated code of what it imports.
       - name: Generate code
-        run: dart run build_runner build
+        shell: bash
+        run: |
+          for dir in . packages/* apps/*; do
+            if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+              echo "::group::build_runner in $dir"
+              (cd "$dir" && dart run build_runner build)
+              echo "::endgroup::"
+            fi
+          done
       - run: flutter analyze
       - run: flutter test
 
@@ -63,16 +73,18 @@ jobs:
           channel: 'stable'
           cache: true
       - run: flutter pub get
-      # Only packages that actually declare build_runner have codegen; the
-      # step is skipped elsewhere rather than failing on a missing dev dep.
+      # Every workspace member with codegen, not only this job's own: a
+      # package is analyzed against the generated code of what it imports.
       - name: Generate code
-        working-directory: ${{ matrix.package }}
+        shell: bash
         run: |
-          if grep -q '^  build_runner:' pubspec.yaml; then
-            dart run build_runner build
-          else
-            echo "no build_runner in ${{ matrix.package }}; skipping"
-          fi
+          for dir in . packages/* apps/*; do
+            if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+              echo "::group::build_runner in $dir"
+              (cd "$dir" && dart run build_runner build)
+              echo "::endgroup::"
+            fi
+          done
       - name: Analyze
         working-directory: ${{ matrix.package }}
         run: dart analyze --fatal-infos
