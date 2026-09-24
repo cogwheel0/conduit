@@ -1,21 +1,22 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/database_manager.dart';
-import 'package:conduit/core/database/database_provider.dart';
-import 'package:conduit/core/persistence/hive_boxes.dart';
-import 'package:conduit/core/persistence/persistence_keys.dart';
-import 'package:conduit/core/persistence/persistence_providers.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/providers/storage_providers.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/database_manager.dart';
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/persistence/hive_boxes.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/persistence_providers.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/storage_providers.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
-import '../../support/gated_close_database.dart';
+import 'package:conduit_core/testing.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -29,7 +30,7 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     PreferencesStore.debugReset();
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-a');
 
     tempDirectory = await Directory.systemTemp.createTemp(

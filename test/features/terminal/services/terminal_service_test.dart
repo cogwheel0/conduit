@@ -1,5 +1,4 @@
 import 'package:conduit/features/terminal/models/terminal_models.dart';
-import 'package:conduit/features/terminal/controllers/terminal_session_controller.dart';
 import 'package:conduit/features/terminal/services/terminal_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 

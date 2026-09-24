@@ -2,14 +2,20 @@ import 'dart:convert';
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../../core/database/app_database.dart';
-import '../../../core/database/daos/outbox_dao.dart';
-import '../../../core/database/mappers/conversation_assembler.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../../core/services/conversation_parsing.dart';
-import '../../../core/services/worker_manager.dart';
-import '../../../core/sync/outbox_drainer.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/outbox_dao.dart';
+import 'package:conduit_core/database/mappers/conversation_assembler.dart';
+
+import 'package:conduit_core/providers/app_providers.dart';
+
+import 'package:conduit_core/services/conversation_parsing.dart';
+
+import 'package:conduit_core/services/worker_manager.dart';
+
+import 'package:conduit_core/sync/outbox_drainer.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../providers/chat_providers.dart';
 
 part 'request_completion_runner.g.dart';

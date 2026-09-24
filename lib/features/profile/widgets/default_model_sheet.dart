@@ -5,7 +5,8 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/models/model.dart';
+import 'package:conduit_core/models/model.dart';
+
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -13,7 +14,8 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/model_list_tile.dart';
 import '../../../shared/widgets/sheet_handle.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
-import '../../../core/providers/app_providers.dart';
+
+import 'package:conduit_core/providers/app_providers.dart';
 
 /// A bottom sheet for selecting a default model from the available models.
 class DefaultModelBottomSheet extends ConsumerStatefulWidget {

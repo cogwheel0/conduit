@@ -4,10 +4,10 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/utils/debug_logger.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
-import 'package:conduit/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 import 'package:conduit/features/workspace/providers/workspace_session.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/l10n/app_localizations.dart';

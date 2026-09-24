@@ -3,25 +3,26 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/models/model.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/models/socket_transport_availability.dart';
-import 'package:conduit/core/models/user.dart';
-import 'package:conduit/core/persistence/hive_boxes.dart';
-import 'package:conduit/core/persistence/persistence_keys.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/cache_manager.dart';
-import 'package:conduit/core/services/optimized_storage_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/socket_transport_availability.dart';
+import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/persistence/hive_boxes.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/cache_manager.dart';
+import 'package:conduit_core/services/optimized_storage_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_secure_key_value_store.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -135,7 +136,7 @@ void main() {
     secureStorageSnapshotReadsBeforeGate.clear();
     SharedPreferences.setMockInitialValues({});
     PreferencesStore.debugReset();
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     tempDir = await Directory.systemTemp.createTemp(
       'optimized-storage-service-test',
     );
@@ -146,7 +147,7 @@ void main() {
     metadata = await Hive.openBox<dynamic>(HiveBoxNames.metadata);
     workerManager = WorkerManager(maxConcurrentTasks: 1);
     storage = OptimizedStorageService(
-      secureStorage: const FlutterSecureStorage(),
+      secureStorage: FlutterSecureKeyValueStore(),
       boxes: HiveBoxes(
         preferences: preferences,
         caches: caches,
@@ -183,7 +184,7 @@ void main() {
   test('server config read failures are not cached as an empty list', () async {
     await saveServerConfigs(['server-a']);
     storage = OptimizedStorageService(
-      secureStorage: const FlutterSecureStorage(),
+      secureStorage: FlutterSecureKeyValueStore(),
       boxes: HiveBoxes(
         preferences: preferences,
         caches: caches,
@@ -229,7 +230,7 @@ void main() {
   test('serverConfigsProvider exposes Keychain failure and recovers after invalidation', () async {
     await saveServerConfigs(['server-a']);
     storage = OptimizedStorageService(
-      secureStorage: const FlutterSecureStorage(),
+      secureStorage: FlutterSecureKeyValueStore(),
       boxes: HiveBoxes(
         preferences: preferences,
         caches: caches,
@@ -268,7 +269,7 @@ void main() {
       await saveServerConfigs(['server-a']);
       await storage.setActiveServerId('server-a');
       storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
+        secureStorage: FlutterSecureKeyValueStore(),
         boxes: HiveBoxes(
           preferences: preferences,
           caches: caches,
@@ -302,7 +303,7 @@ void main() {
     () async {
       secureStorageValues['auth_token_v2'] = 'old-token';
       storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
+        secureStorage: FlutterSecureKeyValueStore(),
         boxes: HiveBoxes(
           preferences: preferences,
           caches: caches,
@@ -338,7 +339,7 @@ void main() {
       password: 'old-password',
     );
     storage = OptimizedStorageService(
-      secureStorage: const FlutterSecureStorage(),
+      secureStorage: FlutterSecureKeyValueStore(),
       boxes: HiveBoxes(
         preferences: preferences,
         caches: caches,
@@ -377,7 +378,7 @@ void main() {
       final newConfig = _serverConfig('server-new');
       await storage.saveServerConfigs([oldConfig]);
       storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
+        secureStorage: FlutterSecureKeyValueStore(),
         boxes: HiveBoxes(
           preferences: preferences,
           caches: caches,
@@ -408,7 +409,7 @@ void main() {
   test('transient auth reads are not negative-cached', () async {
     secureStorageValues['auth_token_v2'] = 'recovered-token';
     storage = OptimizedStorageService(
-      secureStorage: const FlutterSecureStorage(),
+      secureStorage: FlutterSecureKeyValueStore(),
       boxes: HiveBoxes(
         preferences: preferences,
         caches: caches,
@@ -439,7 +440,7 @@ void main() {
         password: 'password',
       );
       storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
+        secureStorage: FlutterSecureKeyValueStore(),
         boxes: HiveBoxes(
           preferences: preferences,
           caches: caches,
@@ -493,7 +494,7 @@ void main() {
       password: 'password',
     );
     storage = OptimizedStorageService(
-      secureStorage: const FlutterSecureStorage(),
+      secureStorage: FlutterSecureKeyValueStore(),
       boxes: HiveBoxes(
         preferences: preferences,
         caches: caches,
@@ -556,7 +557,7 @@ void main() {
   test('token compare-delete propagates exhausted Keychain reads', () async {
     await storage.saveAuthToken('rejected-token');
     storage = OptimizedStorageService(
-      secureStorage: const FlutterSecureStorage(),
+      secureStorage: FlutterSecureKeyValueStore(),
       boxes: HiveBoxes(
         preferences: preferences,
         caches: caches,
@@ -627,7 +628,7 @@ void main() {
         password: 'rejected-password',
       );
       storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
+        secureStorage: FlutterSecureKeyValueStore(),
         boxes: HiveBoxes(
           preferences: preferences,
           caches: caches,
@@ -967,7 +968,7 @@ void main() {
       // durable state, modeling the strict Keychain read after a long-lived
       // app's cache TTL has elapsed.
       storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
+        secureStorage: FlutterSecureKeyValueStore(),
         boxes: HiveBoxes(
           preferences: preferences,
           caches: caches,
@@ -1423,7 +1424,7 @@ void main() {
         validatedConfig: target,
         requireActive: false,
       );
-      final sharedPreferences = await SharedPreferences.getInstance();
+      final sharedPreferences = await FlutterKeyValueStore.load();
       PreferencesStore.debugOverride(
         sharedPreferences,
         writeInterceptor: (preferences, key, value) async {
@@ -1796,7 +1797,7 @@ void main() {
       // Re-instantiation models a terminated process: the in-memory candidate
       // marker is gone, while secure storage/preferences remain.
       storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
+        secureStorage: FlutterSecureKeyValueStore(),
         boxes: HiveBoxes(
           preferences: preferences,
           caches: caches,
@@ -1986,7 +1987,7 @@ void main() {
       });
       var resolutions = 0;
       storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
+        secureStorage: FlutterSecureKeyValueStore(),
         boxes: HiveBoxes(
           preferences: preferences,
           caches: caches,
@@ -2059,7 +2060,7 @@ void main() {
     });
     var resolutions = 0;
     storage = OptimizedStorageService(
-      secureStorage: const FlutterSecureStorage(),
+      secureStorage: FlutterSecureKeyValueStore(),
       boxes: HiveBoxes(
         preferences: preferences,
         caches: caches,
@@ -2101,7 +2102,7 @@ void main() {
       if (!releaseGate.isCompleted) releaseGate.complete();
     });
     storage = OptimizedStorageService(
-      secureStorage: const FlutterSecureStorage(),
+      secureStorage: FlutterSecureKeyValueStore(),
       boxes: HiveBoxes(
         preferences: preferences,
         caches: caches,
@@ -2162,7 +2163,7 @@ void main() {
         if (!cleanupReleaseGate.isCompleted) cleanupReleaseGate.complete();
       });
       storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
+        secureStorage: FlutterSecureKeyValueStore(),
         boxes: HiveBoxes(
           preferences: preferences,
           caches: caches,
@@ -2390,7 +2391,7 @@ void main() {
 
   test('failed wipe suppression survives cache expiry eviction and clearing until explicit resave', () async {
     storage = OptimizedStorageService(
-      secureStorage: const FlutterSecureStorage(),
+      secureStorage: FlutterSecureKeyValueStore(),
       boxes: HiveBoxes(
         preferences: preferences,
         caches: caches,
@@ -2519,7 +2520,7 @@ void main() {
         if (!resolutionGate.isCompleted) resolutionGate.complete();
       });
       storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
+        secureStorage: FlutterSecureKeyValueStore(),
         boxes: HiveBoxes(
           preferences: preferences,
           caches: caches,

@@ -1,11 +1,14 @@
 import 'dart:async';
 
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 
-import '../../../core/models/backend_config.dart';
-import '../../../core/services/settings_service.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
+import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/services/settings_service.dart';
+
+import 'package:conduit_core/providers/app_providers.dart';
+
+import 'package:conduit_markdown/conduit_markdown.dart';
+
 import '../services/text_to_speech_service.dart';
 
 enum TtsPlaybackStatus { idle, initializing, loading, speaking, paused, error }

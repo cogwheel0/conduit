@@ -1,7 +1,7 @@
 import 'dart:io' show Platform;
 
-import 'package:conduit/core/models/conversation.dart';
-import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart' as chat;

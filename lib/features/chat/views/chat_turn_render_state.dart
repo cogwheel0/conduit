@@ -1,6 +1,6 @@
-import 'package:flutter/foundation.dart';
 
-import '../../../core/models/chat_message.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:meta/meta.dart';
 
 enum ChatTurnPhase { none, running, completed, failed }
 

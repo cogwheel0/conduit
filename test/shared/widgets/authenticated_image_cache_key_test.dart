@@ -1,10 +1,10 @@
 import 'package:cached_network_image_ce/cached_network_image.dart';
-import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
@@ -13,6 +13,7 @@ import 'package:conduit/shared/widgets/user_avatar.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:conduit_core/conduit_core.dart';
 
 const _imageUrl = 'https://openwebui.example.com/api/v1/files/shared/content';
 const _markdownImageKey = ValueKey<String>('markdown-network-image');
@@ -72,7 +73,7 @@ void main() {
     'avatar and markdown images change cache identity with the account token '
     'but keep it stable across epoch-object churn',
     (tester) async {
-      final workerManager = WorkerManager(debugIsWebOverride: true);
+      final workerManager = WorkerManager(worker: const InlineWorkerPort());
       final api = _buildApi(workerManager);
       final epochs = NotifierProvider<_ValueNotifier<Object>, Object>(
         () => _ValueNotifier<Object>(Object()),
@@ -167,7 +168,7 @@ void main() {
       // cache written before the restart must remain addressable afterwards.
       final keysPerProcess = <String>[];
       for (var process = 0; process < 2; process++) {
-        final workerManager = WorkerManager(debugIsWebOverride: true);
+        final workerManager = WorkerManager(worker: const InlineWorkerPort());
         final api = _buildApi(workerManager);
         final container = ProviderContainer(
           overrides: [

@@ -4,10 +4,10 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:conduit/core/network/conduit_user_agent.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/network/conduit_user_agent.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 
 int _unownedImageCacheKeyNonce = 0;
 final String _unownedImageCacheProcessSalt = _newProcessCacheSalt();

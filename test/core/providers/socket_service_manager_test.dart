@@ -1,13 +1,13 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/models/socket_transport_availability.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/connectivity_service.dart';
-import 'package:conduit/core/services/settings_service.dart';
-import 'package:conduit/core/services/socket_service.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/socket_transport_availability.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/services/socket_service.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 

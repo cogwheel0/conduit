@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:xterm/xterm.dart';
 
@@ -15,18 +14,6 @@ typedef TerminalContextValidator = bool Function(
   TerminalServerInfo server,
   String sessionScopeId,
 );
-
-@visibleForTesting
-Map<String, dynamic> buildTerminalWebSocketAuthPayload(
-  TerminalServerInfo server, {
-  required String token,
-  required String sessionScopeId,
-}) => <String, dynamic>{
-  'type': 'auth',
-  'token': token,
-  if (server.isSystem && isSavedTerminalChatScopeId(sessionScopeId))
-    'chat_id': sessionScopeId,
-};
 
 /// Owns the interactive terminal session and its WebSocket lifecycle.
 ///

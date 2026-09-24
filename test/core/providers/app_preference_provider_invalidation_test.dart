@@ -1,11 +1,12 @@
 import 'dart:async';
 
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/optimized_storage_service.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:checks/checks.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:conduit/shared/theme/theme_providers.dart';
 
 class _MockOptimizedStorageService extends Mock
     implements OptimizedStorageService {}

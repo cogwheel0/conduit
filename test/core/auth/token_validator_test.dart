@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/auth/token_validator.dart';
+import 'package:conduit_core/auth/token_validator.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 

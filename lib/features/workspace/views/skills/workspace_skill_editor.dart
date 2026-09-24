@@ -7,10 +7,11 @@ import 'package:file_picker/file_picker.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:conduit/core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
-import 'package:conduit/features/workspace/models/workspace_common.dart';
-import 'package:conduit/features/workspace/models/workspace_resources.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_transfer.dart';
+import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/models/workspace_skill_content.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
@@ -486,7 +487,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
         items,
         importItem: (item) => ref
             .read(workspaceSkillsProvider.notifier)
-            .importSkill(_formFromImport(item)),
+            .importSkill(workspaceSkillFormFromImport(item)),
         labelOf: (item) =>
             item['name']?.toString() ?? item['id']?.toString() ?? '',
       ),
@@ -504,7 +505,9 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
           .read(workspaceSkillsProvider.notifier)
           .exportAll();
       if (!mounted) return;
-      final payload = [for (final item in skills) _exportMap(item)];
+      final payload = [
+        for (final item in skills) workspaceSkillExportMap(item),
+      ];
       await WorkspaceExportController().shareJson(
         filename: 'skills',
         data: payload,
@@ -804,29 +807,6 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
       context,
       message: message,
       type: isError ? AdaptiveSnackBarType.error : AdaptiveSnackBarType.success,
-    );
-  }
-
-  Map<String, dynamic> _exportMap(WorkspaceSkillSummary item) => {
-    'id': item.id,
-    'name': item.name,
-    if (item.description != null) 'description': item.description,
-    'content': item.content ?? '',
-    'meta': item.meta,
-    'is_active': item.isActive,
-  };
-
-  WorkspaceSkillForm _formFromImport(Map<String, dynamic> json) {
-    final rawId = json['id']?.toString().trim() ?? '';
-    final name = json['name']?.toString() ?? json['title']?.toString() ?? '';
-    final id = rawId.isEmpty ? WorkspaceSkillContent.slugify(name) : rawId;
-    return WorkspaceSkillForm(
-      id: id,
-      name: name,
-      description: json['description']?.toString(),
-      content: json['content']?.toString() ?? '',
-      meta: json['meta'] is Map ? workspaceJsonMap(json['meta']) : const {},
-      isActive: workspaceBool(json['is_active'], true),
     );
   }
 

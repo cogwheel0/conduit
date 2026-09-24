@@ -1,0 +1,17 @@
+name: conduit_theme
+description: >-
+  Pure-Dart tweakcn palette registry, shared by the Flutter app and the
+  desktop UI so both front-ends render the same palettes.
+version: 0.1.0
+publish_to: 'none'
+resolution: workspace
+
+environment:
+  sdk: ">=3.13.0 <4.0.0"
+
+dependencies:
+  meta: ^1.16.0
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.0

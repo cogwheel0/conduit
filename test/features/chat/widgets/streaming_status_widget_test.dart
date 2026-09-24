@@ -1,4 +1,4 @@
-import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit/features/chat/widgets/assistant_detail_header.dart';
 import 'package:conduit/features/chat/widgets/streaming_status_widget.dart';
 import 'package:conduit/l10n/app_localizations.dart';

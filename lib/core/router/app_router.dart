@@ -3,18 +3,24 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../auth/auth_state_manager.dart';
-import '../providers/app_providers.dart';
-import '../providers/backend_mode_providers.dart';
-import '../../features/hermes/models/hermes_config.dart';
-import '../../features/hermes/providers/hermes_providers.dart';
-import '../services/navigation_service.dart';
-import '../services/performance_profiler.dart';
-import '../utils/debug_logger.dart';
-import '../../features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+
+import 'package:conduit_core/providers/backend_mode_providers.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+
+import '../../shared/services/navigation_service.dart';
+
+import 'package:conduit_core/services/performance_profiler.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+
 import '../../features/auth/views/authentication_page.dart';
 import '../../features/auth/views/backend_chooser_page.dart';
 import '../../features/auth/views/connect_signin_page.dart';
@@ -44,14 +50,19 @@ import '../../features/notifications/views/notification_settings_page.dart';
 import '../../features/workspace/providers/workspace_capabilities_provider.dart';
 import '../../features/workspace/views/workspace_page.dart';
 import '../../features/workspace/workspace_navigation.dart';
-import '../../features/direct_connections/models/direct_connection_profile.dart';
+
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+
 import '../../features/direct_connections/controllers/direct_connection_editor_draft.dart';
-import '../../features/direct_connections/providers/direct_connection_providers.dart';
+
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+
 import '../../features/direct_connections/views/direct_connection_editor_page.dart';
 import '../../features/direct_connections/views/direct_connections_page.dart';
 import '../../features/direct_connections/views/direct_mcp_server_editor_page.dart';
 import '../../l10n/app_localizations.dart';
-import '../models/server_config.dart';
+
+import 'package:conduit_core/models/server_config.dart';
 
 /// App-local destinations that remain meaningful without an OpenWebUI account.
 /// Keep this list explicit so adding an OWUI-only profile route does not expose

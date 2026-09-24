@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'lib/l10n/*.arb'
+      - 'lib/l10n/**.arb'
 
 jobs:
   l10n:

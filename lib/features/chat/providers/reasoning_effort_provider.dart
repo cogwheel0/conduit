@@ -1,18 +1,21 @@
 import 'dart:convert';
 
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../../core/models/model.dart';
-import '../../../core/persistence/persistence_keys.dart';
-import '../../../core/persistence/preferences_store.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../direct_connections/models/direct_connection_profile.dart';
-import '../../direct_connections/models/ollama_thinking.dart';
-import '../../direct_connections/models/openrouter_reasoning.dart';
-import '../../direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/ollama_thinking.dart';
+import 'package:conduit_core/features/direct_connections/models/openrouter_reasoning.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+
 import '../../direct_connections/services/apple_pcc_adapter.dart';
-import '../../hermes/models/hermes_model.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 
 part 'reasoning_effort_provider.g.dart';
 

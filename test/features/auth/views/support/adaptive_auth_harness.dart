@@ -1,16 +1,16 @@
-import 'package:conduit/core/models/backend_config.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/navigation_service.dart';
-import 'package:conduit/core/services/optimized_storage_service.dart';
+import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit/platform/conduit_platform_apis.g.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
+import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit/features/auth/views/authentication_page.dart';
 import 'package:conduit/features/auth/views/backend_chooser_page.dart';
 import 'package:conduit/features/auth/views/server_connection_page.dart';
 import 'package:conduit/features/direct_connections/views/direct_connection_editor_page.dart';
 import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_draft.dart';
-import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/services/apple_pcc_adapter.dart';
 import 'package:conduit/features/direct_connections/views/direct_connections_page.dart';
 import 'package:conduit/features/hermes/views/hermes_settings_page.dart';
@@ -24,6 +24,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_secure_key_value_store.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
+import 'package:conduit/features/direct_connections/providers/apple_pcc_providers.dart';
 
 class AdaptiveAuthHarness {
   AdaptiveAuthHarness({
@@ -181,7 +184,7 @@ class BackendOnboardingHarness {
     router.go(initialLocation);
     return ProviderScope(
       overrides: [
-        secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         // The host test platform is never iOS; keep the Apple rows reachable so
         // onboarding coverage still exercises them.
         applePccPlatformSupportedProvider.overrideWithValue(true),
@@ -233,7 +236,7 @@ final class _AvailablePccHost extends PccHostApi {
 Future<void> initializeBackendOnboardingStorage() async {
   SharedPreferences.setMockInitialValues({});
   PreferencesStore.debugReset();
-  PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+  PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
   FlutterSecureStorage.setMockInitialValues({});
 }
 

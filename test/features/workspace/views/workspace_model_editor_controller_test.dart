@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 import 'package:conduit/features/workspace/models/workspace_model_draft.dart';
 import 'package:conduit/features/workspace/providers/workspace_model_relationships.dart';
 import 'package:conduit/features/workspace/views/models/workspace_model_editor_controller.dart';

@@ -3,9 +3,12 @@ import 'dart:collection';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:material_ui/material_ui.dart';
 
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../shared/widgets/connection_components.dart';
-import '../models/hermes_config.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+
 import '../services/hermes_dashboard_cookie_store.dart';
 import '../services/hermes_dashboard_webview_policy.dart';
 

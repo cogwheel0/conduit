@@ -2,14 +2,14 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/auth/api_auth_interceptor.dart';
-import 'package:conduit/core/network/conduit_user_agent.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/network/conduit_user_agent.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit/core/services/image_attachment_cache_service.dart';
-import 'package:conduit/core/services/raster_media_policy.dart';
-import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit/shared/services/raster_media_policy.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit/features/chat/widgets/enhanced_image_attachment.dart'
     show
         debugDecodeCachedResolvedImageAttachment,

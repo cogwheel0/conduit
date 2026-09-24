@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../core/services/performance_profiler.dart';
-import '../../../../core/models/chat_message.dart';
+import 'package:conduit_core/services/performance_profiler.dart';
+import 'package:conduit_core/models/chat_message.dart';
 import '../compiled_markdown_document.dart';
 import '../markdown_compile_service.dart';
 import '../markdown_document_controller.dart';

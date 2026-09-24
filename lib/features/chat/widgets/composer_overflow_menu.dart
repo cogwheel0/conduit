@@ -11,13 +11,17 @@ import '../../../shared/widgets/horizontal_gesture_ownership.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/horizontal_overflow_fade.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
-import '../../../core/models/toggle_filter.dart';
-import '../../../core/models/tool.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../tools/providers/tools_providers.dart';
+
+import 'package:conduit_core/models/toggle_filter.dart';
+import 'package:conduit_core/models/tool.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+
 import '../../terminal/providers/terminal_providers.dart';
-import '../../direct_connections/direct_connections.dart';
-import '../../direct_connections/providers/direct_mcp_providers.dart';
+
+import 'package:conduit_core/features/direct_connections/direct_connections.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+
 import '../providers/chat_providers.dart';
 import 'composer_overflow_items.dart';
 

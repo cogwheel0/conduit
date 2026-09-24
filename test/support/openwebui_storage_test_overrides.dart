@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/database_provider.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/database_provider.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/misc.dart';
 

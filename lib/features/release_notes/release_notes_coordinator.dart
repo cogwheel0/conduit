@@ -3,18 +3,22 @@ import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/persistence/persistence_keys.dart';
-import '../../core/persistence/preferences_store.dart';
-import '../../core/providers/app_providers.dart';
-import '../../core/providers/backend_mode_providers.dart';
-import '../../core/utils/debug_logger.dart';
-import '../../features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+
+import 'package:conduit_core/providers/backend_mode_providers.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+
 import '../../l10n/app_localizations.dart';
 import 'data/release_notes_repository.dart';
 import 'models/release_note.dart';
 import 'release_notes_bootstrap.dart';
 import 'release_notes_banner_controller.dart';
 import 'services/release_notes_service.dart';
+import '../../shared/services/app_package_info.dart';
 
 class ReleaseNotesCoordinator extends ConsumerStatefulWidget {
   const ReleaseNotesCoordinator({

@@ -1,10 +1,11 @@
-import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
+import 'package:meta/meta.dart';
 
-import '../../../core/providers/app_providers.dart';
-import '../../../core/models/chat_message.dart';
-import '../../../core/services/api_service.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../providers/chat_providers.dart';
 import '../services/chat_transport_dispatch.dart';
 import '../utils/message_targeting.dart';

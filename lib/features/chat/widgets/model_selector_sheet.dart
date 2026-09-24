@@ -6,10 +6,13 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/models/model.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../../core/services/api_service.dart';
-import '../../../core/services/settings_service.dart';
+import 'package:conduit_core/models/model.dart';
+
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+
+import 'package:conduit_core/services/settings_service.dart';
+
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
@@ -20,12 +23,16 @@ import '../../../shared/widgets/model_list_tile.dart';
 import '../../../shared/widgets/sheet_handle.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/themed_sheets.dart';
-import '../../direct_connections/models/direct_connection_profile.dart';
-import '../../direct_connections/providers/direct_connection_providers.dart';
-import '../../direct_connections/services/direct_model_registry.dart';
+
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+
 import '../../direct_connections/views/ollama_model_actions.dart';
-import '../../hermes/models/hermes_model.dart';
-import '../../hermes/providers/hermes_providers.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+
 import '../models/model_selector_layout.dart';
 import '../providers/reasoning_effort_provider.dart';
 

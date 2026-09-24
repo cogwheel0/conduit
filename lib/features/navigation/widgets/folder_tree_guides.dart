@@ -1,6 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 
-import 'package:conduit/core/models/folder.dart';
+import 'package:conduit_core/models/folder.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 
 String? _normalizeFolderParentId(String? parentId) {

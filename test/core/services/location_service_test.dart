@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/services/api_service.dart';
+import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit/core/services/location_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter_test/flutter_test.dart';

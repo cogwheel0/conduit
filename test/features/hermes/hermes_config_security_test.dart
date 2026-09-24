@@ -1,19 +1,22 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/persistence/persistence_keys.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit/features/hermes/controllers/hermes_connection_controller.dart';
-import 'package:conduit/features/hermes/models/hermes_config.dart';
-import 'package:conduit/features/hermes/providers/hermes_providers.dart';
-import 'package:conduit/features/hermes/services/hermes_connection_service.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_connection_service.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit_core/conduit_core.dart';
+import 'package:conduit/platform/flutter_secure_key_value_store.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 void main() {
   setUp(() async {
@@ -21,7 +24,7 @@ void main() {
       PreferenceKeys.hermesEnabled: true,
       PreferenceKeys.hermesBaseUrl: 'https://one.example/v1',
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     FlutterSecureStorage.setMockInitialValues({
       'hermes_api_key_v1': 'key-for-one',
       'hermes_session_key_v1': 'memory-for-one',
@@ -44,7 +47,7 @@ void main() {
 
     final container = ProviderContainer(
       overrides: [
-        secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
       ],
     );
     addTearDown(container.dispose);
@@ -67,7 +70,7 @@ void main() {
 
   test('runtime trust principals are isolated by config controller', () async {
     PreferencesStore.debugReset();
-    const storage = FlutterSecureStorage();
+    final storage = FlutterSecureKeyValueStore();
     final firstContainer = ProviderContainer(
       overrides: [secureStorageProvider.overrideWithValue(storage)],
     );
@@ -87,7 +90,7 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{
       PreferenceKeys.hermesLocalDocumentTrustPrincipal: durablePrincipal,
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
     check(first.documentTrustPrincipalId()).equals(durablePrincipal);
     check(second.documentTrustPrincipalId()).equals(durablePrincipal);
@@ -96,7 +99,7 @@ void main() {
   test(
     'failed trust-principal rotation does not commit new credentials',
     () async {
-      const storage = FlutterSecureStorage();
+      final storage = FlutterSecureKeyValueStore();
       final container = await _readyHermesContainer(storage);
       addTearDown(container.dispose);
       final controller = container.read(hermesConfigProvider.notifier);
@@ -152,7 +155,7 @@ void main() {
   );
 
   test('failed endpoint persistence restores previous credentials', () async {
-    const storage = FlutterSecureStorage();
+    final storage = FlutterSecureKeyValueStore();
     final container = await _readyHermesContainer(storage);
     addTearDown(container.dispose);
     final controller = container.read(hermesConfigProvider.notifier);
@@ -193,7 +196,7 @@ void main() {
   test(
     'failed replacement and recovery endpoint writes stay quarantined',
     () async {
-      const storage = FlutterSecureStorage();
+      final storage = FlutterSecureKeyValueStore();
       final container = await _readyHermesContainer(storage);
       addTearDown(container.dispose);
       var replacementWriteFailed = false;
@@ -403,7 +406,7 @@ void main() {
   test(
     'changing origin stops owner-bound runs before rotating credentials',
     () async {
-      const storage = FlutterSecureStorage();
+      final storage = FlutterSecureKeyValueStore();
       final container = await _readyHermesContainer(storage);
       addTearDown(container.dispose);
 
@@ -457,7 +460,7 @@ void main() {
   test(
     'origin change commits credentials entered for the new server',
     () async {
-      const storage = FlutterSecureStorage();
+      final storage = FlutterSecureKeyValueStore();
       final container = await _readyHermesContainer(storage);
       addTearDown(container.dispose);
       final credentials = HermesDesktopCredentials(
@@ -490,12 +493,12 @@ void main() {
       PreferenceKeys.hermesBaseUrl: 'https://one.example/v1',
       PreferenceKeys.hermesBackendMode: HermesBackendMode.desktopGateway.name,
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     FlutterSecureStorage.setMockInitialValues({
       'hermes_desktop_credentials_v1':
           '{"legacy_token":"cold-token","access_headers":{}}',
     });
-    const storage = FlutterSecureStorage();
+    final storage = FlutterSecureKeyValueStore();
     final container = ProviderContainer(
       overrides: [secureStorageProvider.overrideWithValue(storage)],
     );
@@ -513,7 +516,7 @@ void main() {
   test(
     'same-origin endpoint change stops runs but retains credentials',
     () async {
-      const storage = FlutterSecureStorage();
+      final storage = FlutterSecureKeyValueStore();
       final container = await _readyHermesContainer(storage);
       addTearDown(container.dispose);
 
@@ -545,7 +548,7 @@ void main() {
   );
 
   test('equivalent root and v1 endpoint do not reset the session', () async {
-    const storage = FlutterSecureStorage();
+    final storage = FlutterSecureKeyValueStore();
     final container = await _readyHermesContainer(storage);
     addTearDown(container.dispose);
 
@@ -560,7 +563,7 @@ void main() {
   });
 
   test('same-endpoint secret change stops runs and unbinds session', () async {
-    const storage = FlutterSecureStorage();
+    final storage = FlutterSecureKeyValueStore();
     final container = await _readyHermesContainer(storage);
     addTearDown(container.dispose);
 
@@ -641,7 +644,7 @@ void main() {
   );
 
   test('endpoint rotation waits for an in-flight create to settle', () async {
-    const storage = FlutterSecureStorage();
+    final storage = FlutterSecureKeyValueStore();
     final container = await _readyHermesContainer(storage);
     addTearDown(container.dispose);
 
@@ -805,7 +808,7 @@ void main() {
   test(
     'disable keeps run admission blocked through preference commit',
     () async {
-      const storage = FlutterSecureStorage();
+      final storage = FlutterSecureKeyValueStore();
       final container = await _readyHermesContainer(storage);
       addTearDown(container.dispose);
       final controller = container.read(hermesConfigProvider.notifier);
@@ -1244,7 +1247,7 @@ void main() {
   );
 
   test('app-data clear barrier rejects and can resume Hermes writes', () async {
-    const storage = FlutterSecureStorage();
+    final storage = FlutterSecureKeyValueStore();
     final container = await _readyHermesContainer(storage);
     addTearDown(container.dispose);
     final controller = container.read(hermesConfigProvider.notifier);
@@ -1339,7 +1342,7 @@ void main() {
   });
 
   test('provider rebuild cannot lower an in-memory clear barrier', () async {
-    const storage = FlutterSecureStorage();
+    final storage = FlutterSecureKeyValueStore();
     final container = await _readyHermesContainer(storage);
     addTearDown(container.dispose);
     final controller = container.read(hermesConfigProvider.notifier);
@@ -1393,7 +1396,7 @@ void main() {
       PreferenceKeys.incompleteLogoutFence,
       true,
     );
-    const storage = FlutterSecureStorage();
+    final storage = FlutterSecureKeyValueStore();
     final container = ProviderContainer(
       overrides: [secureStorageProvider.overrideWithValue(storage)],
     );
@@ -1413,7 +1416,7 @@ void main() {
 }
 
 Future<ProviderContainer> _readyHermesContainer(
-  FlutterSecureStorage storage,
+  SecureKeyValueStore storage,
 ) async {
   final container = ProviderContainer(
     overrides: [secureStorageProvider.overrideWithValue(storage)],
@@ -1450,7 +1453,7 @@ Future<void> _waitUntil(bool Function() predicate) async {
   }
 }
 
-class _GatedSecureStorage implements FlutterSecureStorage {
+class _GatedSecureStorage implements SecureKeyValueStore {
   _GatedSecureStorage(
     Map<String, String> initialValues, {
     this.gatedReadKey,
@@ -1482,15 +1485,7 @@ class _GatedSecureStorage implements FlutterSecureStorage {
   }
 
   @override
-  Future<String?> read({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
+  Future<String?> read({required String key}) async {
     if (key == gatedReadKey) {
       if (!readStarted.isCompleted) readStarted.complete();
       await _readRelease.future;
@@ -1499,16 +1494,7 @@ class _GatedSecureStorage implements FlutterSecureStorage {
   }
 
   @override
-  Future<void> write({
-    required String key,
-    required String? value,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
+  Future<void> write({required String key, required String? value}) async {
     if (key == gatedWriteKey) {
       if (!writeStarted.isCompleted) writeStarted.complete();
       await _writeRelease.future;
@@ -1522,15 +1508,7 @@ class _GatedSecureStorage implements FlutterSecureStorage {
   }
 
   @override
-  Future<void> delete({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
+  Future<void> delete({required String key}) async {
     values.remove(key);
   }
 
@@ -1538,7 +1516,7 @@ class _GatedSecureStorage implements FlutterSecureStorage {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-class _FailOnceSecureStorage implements FlutterSecureStorage {
+class _FailOnceSecureStorage implements SecureKeyValueStore {
   _FailOnceSecureStorage(Map<String, String> initialValues)
     : values = Map<String, String>.from(initialValues);
 
@@ -1548,30 +1526,13 @@ class _FailOnceSecureStorage implements FlutterSecureStorage {
   bool failReads = false;
 
   @override
-  Future<String?> read({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
+  Future<String?> read({required String key}) async {
     if (failReads) throw StateError('secure storage unavailable');
     return values[key];
   }
 
   @override
-  Future<void> write({
-    required String key,
-    required String? value,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
+  Future<void> write({required String key, required String? value}) async {
     if (failNextWriteFor == key) {
       failNextWriteFor = null;
       throw StateError('write failed for $key');
@@ -1588,15 +1549,7 @@ class _FailOnceSecureStorage implements FlutterSecureStorage {
   }
 
   @override
-  Future<void> delete({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
+  Future<void> delete({required String key}) async {
     values.remove(key);
   }
 

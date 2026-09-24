@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:meta/meta.dart';
 
 const _measureWebViewContentHeightScript = r'''
 (() => {

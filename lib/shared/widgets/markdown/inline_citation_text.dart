@@ -1,7 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
-import '../../../core/models/chat_message.dart';
-import '../../../core/utils/citation_parser.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_markdown/conduit_markdown.dart';
 import 'renderer/markdown_style.dart';
 import 'citation_badge.dart';
 

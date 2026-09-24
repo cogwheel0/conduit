@@ -1,11 +1,11 @@
 import 'dart:async';
 
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_draft.dart';
-import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
-import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
-import 'package:conduit/features/direct_connections/services/openwebui_direct_connection_store.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/services/openwebui_direct_connection_store.dart';
 import 'package:conduit/features/direct_connections/views/direct_connection_editor_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -323,9 +323,7 @@ void main() {
         isNull,
       );
       expect(
-        buttons
-            .singleWhere((button) => button.text == 'Delete')
-            .onPressed,
+        buttons.singleWhere((button) => button.text == 'Delete').onPressed,
         isNotNull,
       );
       expect(find.textContaining('cannot safely use'), findsOneWidget);

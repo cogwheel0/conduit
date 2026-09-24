@@ -1,11 +1,11 @@
 import 'dart:async';
 
-import 'package:conduit/core/models/tool.dart';
-import 'package:conduit/core/services/secure_credential_storage.dart';
-import 'package:conduit/features/direct_connections/models/direct_mcp_server.dart';
-import 'package:conduit/features/direct_connections/providers/direct_mcp_providers.dart';
-import 'package:conduit/features/direct_connections/services/direct_mcp_oauth.dart';
-import 'package:conduit/features/direct_connections/services/direct_mcp_server_store.dart';
+import 'package:conduit_core/models/tool.dart';
+import 'package:conduit_core/services/secure_credential_storage.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_mcp_oauth.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_mcp_server_store.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_items.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/direct_connections/views/direct_connections_page.dart';
@@ -20,6 +20,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+import 'package:conduit_core/conduit_core.dart';
+import 'package:conduit/platform/flutter_secure_key_value_store.dart';
 
 void main() {
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
@@ -507,7 +509,7 @@ void main() {
 }
 
 DirectMcpServerStore _managementStore() => DirectMcpServerStore(
-  SecureCredentialStorage(instance: const FlutterSecureStorage()),
+  SecureCredentialStorage(instance: FlutterSecureKeyValueStore()),
 );
 
 Future<DirectMcpServer> _saveManagementOAuthServer(
@@ -596,7 +598,7 @@ final class _BlockedHttpClient extends http.BaseClient {
   void close() => release();
 }
 
-final class _BlockingMcpSecureStorage implements FlutterSecureStorage {
+final class _BlockingMcpSecureStorage implements SecureKeyValueStore {
   String? _source;
   bool _block = false;
   final writeStarted = Completer<void>();

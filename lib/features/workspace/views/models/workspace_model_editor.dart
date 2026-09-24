@@ -5,11 +5,12 @@ import 'package:file_picker/file_picker.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:conduit/core/utils/debug_logger.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit/features/workspace/models/workspace_model_draft.dart';
-import 'package:conduit/features/workspace/models/workspace_resources.dart';
+import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
+import 'package:conduit_core/features/workspace/models/workspace_transfer.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_model_relationships.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
@@ -468,9 +469,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       if (!mounted) return;
       await exportWorkspaceModelsToShare(
         context,
-        models: models
-            .map((m) => WorkspaceModelDraft.fromSummary(m).toForm().toJson())
-            .toList(),
+        models: models.map(workspaceModelExportMap).toList(),
         filename: 'models',
       );
     } catch (error, stackTrace) {

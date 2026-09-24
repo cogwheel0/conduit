@@ -5,9 +5,9 @@ import 'dart:ui' as ui;
 import 'package:checks/checks.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
-import 'package:conduit/core/services/worker_manager.dart';
-import 'package:conduit/core/models/chat_message.dart';
-import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
@@ -3930,59 +3930,54 @@ Tail keeps growing
     },
   );
 
-  testWidgets(
-    'over-cap settled mount compiles off-frame behind a skeleton',
-    (tester) async {
-      // A settled body past the synchronous-mount cap must not prepare or
-      // parse on the mount frame (the conversation-open freeze); it shows the
-      // approximate skeleton while the compile runs and fills in after.
-      final longSettled = StringBuffer();
-      var index = 0;
-      while (longSettled.length < 30000) {
-        longSettled.writeln('Deferred giant line $index with padding words.');
-        index += 1;
-      }
-      final content = longSettled.toString();
-      final compiler = _GatedSettledPrepareMarkdownCompileService();
-      addTearDown(() {
-        compiler.releaseFirst();
-        compiler.dispose();
-      });
+  testWidgets('over-cap settled mount compiles off-frame behind a skeleton', (
+    tester,
+  ) async {
+    // A settled body past the synchronous-mount cap must not prepare or
+    // parse on the mount frame (the conversation-open freeze); it shows the
+    // approximate skeleton while the compile runs and fills in after.
+    final longSettled = StringBuffer();
+    var index = 0;
+    while (longSettled.length < 30000) {
+      longSettled.writeln('Deferred giant line $index with padding words.');
+      index += 1;
+    }
+    final content = longSettled.toString();
+    final compiler = _GatedSettledPrepareMarkdownCompileService();
+    addTearDown(() {
+      compiler.releaseFirst();
+      compiler.dispose();
+    });
 
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            markdownCompileServiceProvider.overrideWithValue(compiler),
-          ],
-          child: MaterialApp(
-            theme: AppTheme.light(TweakcnThemes.t3Chat),
-            home: Scaffold(
-              body: SingleChildScrollView(
-                child: StreamingMarkdownWidget(
-                  content: content,
-                  isStreaming: false,
-                  // Opt into the production mount path; the default
-                  // widget-test detection forces the synchronous path.
-                  debugTreatAsWidgetTest: false,
-                ),
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [markdownCompileServiceProvider.overrideWithValue(compiler)],
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: StreamingMarkdownWidget(
+                content: content,
+                isStreaming: false,
+                // Opt into the production mount path; the default
+                // widget-test detection forces the synchronous path.
+                debugTreatAsWidgetTest: false,
               ),
             ),
           ),
         ),
-      );
+      ),
+    );
 
-      check(tester.any(find.byType(MarkdownLoadingSkeleton))).isTrue();
-      check(
-        tester.any(find.textContaining('Deferred giant line 0')),
-      ).isFalse();
+    check(tester.any(find.byType(MarkdownLoadingSkeleton))).isTrue();
+    check(tester.any(find.textContaining('Deferred giant line 0'))).isFalse();
 
-      compiler.releaseFirst();
-      await tester.pumpAndSettle();
+    compiler.releaseFirst();
+    await tester.pumpAndSettle();
 
-      check(compiler.preparedInputs).deepEquals([content]);
-      check(tester.any(find.textContaining('Deferred giant line 0'))).isTrue();
-    },
-  );
+    check(compiler.preparedInputs).deepEquals([content]);
+    check(tester.any(find.textContaining('Deferred giant line 0'))).isTrue();
+  });
 
   testWidgets(
     'below-cap settled mount renders synchronously on the first frame',

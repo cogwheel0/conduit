@@ -1,20 +1,20 @@
 import 'package:checks/checks.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_access.dart';
 import 'package:conduit/features/hermes/services/hermes_dashboard_webview_policy.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('fails closed for dashboard access headers on iOS', () {
     expect(
       hermesDashboardHeadersSupported(
-        platform: TargetPlatform.iOS,
+        isIOS: true,
         accessHeaders: const {'CF-Access-Client-Secret': 'secret'},
       ),
       isFalse,
     );
     expect(
       hermesDashboardHeadersSupported(
-        platform: TargetPlatform.android,
+        isIOS: false,
         accessHeaders: const {'CF-Access-Client-Secret': 'secret'},
       ),
       isTrue,

@@ -30,8 +30,8 @@ import 'renderer/markdown_style.dart';
 
 import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
 import 'package:conduit/core/network/image_header_utils.dart';
-import 'package:conduit/core/utils/debug_logger.dart';
-import 'package:conduit/core/services/raster_media_policy.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit/shared/services/raster_media_policy.dart';
 
 typedef MarkdownLinkTapCallback = void Function(String url, String title);
 

@@ -2,7 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
-import '../../../../core/utils/reasoning_parser.dart';
+import 'package:conduit_markdown/conduit_markdown.dart';
 import '../../assistant_detail_header.dart';
 import '../../themed_sheets.dart';
 import '../../web_content_embed.dart';

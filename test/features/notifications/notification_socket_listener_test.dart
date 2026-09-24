@@ -1,14 +1,14 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/channel.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/models/user.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/settings_service.dart';
-import 'package:conduit/core/services/socket_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit_core/models/channel.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/services/socket_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit/features/channels/providers/channel_providers.dart';
 import 'package:conduit/features/notifications/models/app_notification.dart';
 import 'package:conduit/features/notifications/providers/notification_socket_listener.dart';

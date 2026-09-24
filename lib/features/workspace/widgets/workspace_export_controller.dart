@@ -5,7 +5,7 @@ import 'dart:ui' show Rect;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
-import 'package:conduit/core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
 typedef WorkspaceShareFn = Future<ShareResult> Function(ShareParams params);
 

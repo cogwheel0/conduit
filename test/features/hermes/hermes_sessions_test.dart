@@ -2,21 +2,22 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/persistence/persistence_keys.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
-import 'package:conduit/features/hermes/models/hermes_config.dart';
-import 'package:conduit/features/hermes/models/hermes_session.dart';
-import 'package:conduit/features/hermes/providers/hermes_providers.dart';
-import 'package:conduit/features/hermes/services/hermes_api_service.dart';
-import 'package:conduit/features/hermes/services/hermes_local_document_service.dart';
-import 'package:conduit/features/hermes/services/hermes_local_document_trust_store.dart';
-import 'package:conduit/features/hermes/services/hermes_message_mapper.dart';
-import 'package:conduit/features/hermes/utils/hermes_time_parsing.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_session.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
+import 'package:conduit_core/features/hermes/utils/hermes_time_parsing.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 class _CaptureInterceptor extends Interceptor {
   _CaptureInterceptor(this.responseFor);
@@ -898,7 +899,7 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{
       PreferenceKeys.hermesLocalDocumentTrustPrincipal: principalId,
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     HermesLocalDocumentTrustStore.debugResetRuntimeState();
     addTearDown(() {
       HermesLocalDocumentTrustStore.debugResetRuntimeState();
@@ -967,7 +968,7 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{
       PreferenceKeys.hermesLocalDocumentTrustPrincipal: principalId,
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     HermesLocalDocumentTrustStore.debugResetRuntimeState();
     addTearDown(() {
       HermesLocalDocumentTrustStore.debugResetRuntimeState();
@@ -1033,7 +1034,7 @@ void main() {
       SharedPreferences.setMockInitialValues(<String, Object>{
         PreferenceKeys.hermesLocalDocumentTrustPrincipal: principalId,
       });
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       HermesLocalDocumentTrustStore.debugResetRuntimeState();
       addTearDown(() {
         HermesLocalDocumentTrustStore.debugResetRuntimeState();
@@ -1113,7 +1114,7 @@ void main() {
       SharedPreferences.setMockInitialValues(<String, Object>{
         PreferenceKeys.hermesLocalDocumentTrustPrincipal: principalId,
       });
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       HermesLocalDocumentTrustStore.debugResetRuntimeState();
       final purgeStarted = Completer<void>();
       final allowPurge = Completer<void>();
@@ -1205,7 +1206,7 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{
       PreferenceKeys.hermesLocalDocumentTrustPrincipal: principalId,
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     HermesLocalDocumentTrustStore.debugResetRuntimeState();
     addTearDown(() {
       HermesLocalDocumentTrustStore.debugResetRuntimeState();

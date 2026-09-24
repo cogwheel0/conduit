@@ -1,17 +1,20 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
+import 'package:meta/meta.dart';
 
-import '../../../core/models/model.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../../core/providers/backend_mode_providers.dart';
-import '../../../core/services/settings_service.dart';
-import '../../auth/providers/unified_auth_providers.dart';
-import '../../direct_connections/providers/direct_connection_providers.dart';
-import '../../direct_connections/services/direct_model_registry.dart';
-import '../../hermes/models/hermes_model.dart';
-import '../../hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/models/model.dart';
+
+import 'package:conduit_core/providers/app_providers.dart';
+
+import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/services/settings_service.dart';
+
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
 enum VoiceCallEligibilityReason {
   eligible,

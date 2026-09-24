@@ -1,16 +1,17 @@
 import 'dart:async';
 
-import 'package:flutter/widgets.dart';
+import 'package:conduit_core/conduit_core.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../features/auth/providers/unified_auth_providers.dart';
-import '../database/database_provider.dart';
-import '../providers/app_providers.dart';
-import '../services/connectivity_service.dart';
-import '../utils/debug_logger.dart';
-import 'pull_sync.dart';
-import 'sync_api_client.dart';
-import 'sync_engine.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/host_ports.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_core/sync/pull_sync.dart';
+import 'package:conduit_core/sync/sync_api_client.dart';
+import 'package:conduit_core/sync/sync_engine.dart';
 
 part 'sync_triggers.g.dart';
 
@@ -28,7 +29,7 @@ const Duration kPeriodicPullInterval = Duration(minutes: 5);
 @Riverpod(keepAlive: true)
 class SyncTriggers extends _$SyncTriggers {
   Timer? _periodic;
-  _SyncLifecycleObserver? _observer;
+  StreamSubscription<AppLifecyclePhase>? _lifecycle;
   bool _isForeground = false;
   bool _startFired = false;
   bool _startCheckQueued = false;
@@ -86,36 +87,38 @@ class SyncTriggers extends _$SyncTriggers {
     });
 
     // Foreground/background lifecycle + periodic timer.
-    final observer = _SyncLifecycleObserver(
-      onResumed: () {
-        _isForeground = true;
-        _request('foreground');
-        _restartPeriodicTimer();
-      },
-      onSuspended: _leaveForeground,
-    );
-    _observer = observer;
-    WidgetsBinding.instance.addObserver(observer);
+    final lifecycle = ref.watch(appLifecycleProvider);
+    _lifecycle = lifecycle.changes.listen((phase) {
+      switch (phase) {
+        case AppLifecyclePhase.resumed:
+          _isForeground = true;
+          _request('foreground');
+          _restartPeriodicTimer();
+        case AppLifecyclePhase.paused:
+        case AppLifecyclePhase.detached:
+        case AppLifecyclePhase.inactive:
+        case AppLifecyclePhase.hidden:
+          _leaveForeground();
+      }
+    });
 
-    // Flutter does NOT re-deliver the current lifecycle state to a freshly
-    // added observer (flutter/flutter#73947). On a cold launch the app is
-    // already resumed before this observer registers, so onResumed never fires
-    // and the periodic timer would not start until a background/foreground
+    // The host does NOT re-deliver the current lifecycle state to a freshly
+    // added listener (flutter/flutter#73947). On a cold launch the app is
+    // already resumed before this subscribes, so `resumed` never arrives and
+    // the periodic timer would not start until a background/foreground
     // round-trip. Seed the initial foreground state and start the timer.
-    // We do NOT call onResumed() here, since that would also fire a redundant
-    // 'foreground' pull on top of the 'start' pull from _maybeFireStart().
-    if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+    // We do NOT replay the resumed branch here, since that would also fire a
+    // redundant 'foreground' pull on top of the 'start' pull from
+    // _maybeFireStart().
+    if (lifecycle.current == AppLifecyclePhase.resumed) {
       _isForeground = true;
       _restartPeriodicTimer();
     }
 
     ref.onDispose(() {
       _cancelPeriodicTimer();
-      final installed = _observer;
-      _observer = null;
-      if (installed != null) {
-        WidgetsBinding.instance.removeObserver(installed);
-      }
+      unawaited(_lifecycle?.cancel());
+      _lifecycle = null;
     });
 
     _maybeFireStart();
@@ -289,27 +292,5 @@ class SyncTriggers extends _$SyncTriggers {
         );
       }),
     );
-  }
-}
-
-class _SyncLifecycleObserver with WidgetsBindingObserver {
-  _SyncLifecycleObserver({required this.onResumed, required this.onSuspended});
-
-  final void Function() onResumed;
-  final void Function() onSuspended;
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    switch (state) {
-      case AppLifecycleState.resumed:
-        onResumed();
-        break;
-      case AppLifecycleState.paused:
-      case AppLifecycleState.detached:
-      case AppLifecycleState.inactive:
-      case AppLifecycleState.hidden:
-        onSuspended();
-        break;
-    }
   }
 }

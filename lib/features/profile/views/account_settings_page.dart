@@ -7,12 +7,15 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/models/account_metadata.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../../core/services/api_service.dart';
+import 'package:conduit_core/models/account_metadata.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+
 import '../../../core/services/ios_native_dropdown_bridge.dart';
 import '../../../core/services/native_sheet_bridge.dart';
-import '../../../core/utils/user_avatar_utils.dart';
+
+import 'package:conduit_core/utils/user_avatar_utils.dart';
+
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';

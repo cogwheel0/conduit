@@ -1,21 +1,20 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/daos/outbox_dao.dart';
-import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
-import 'package:conduit/core/sync/backoff.dart';
-import 'package:conduit/core/sync/chat_adapter.dart';
-import 'package:conduit/core/sync/chat_locks.dart';
-import 'package:conduit/core/sync/clock.dart';
-import 'package:conduit/core/sync/id_remapper.dart';
-import 'package:conduit/core/sync/outbox_drainer.dart';
-import 'package:conduit/core/sync/pull_sync.dart';
-import 'package:conduit/core/sync/push_sync.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/outbox_dao.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/sync/backoff.dart';
+import 'package:conduit_core/sync/chat_adapter.dart';
+import 'package:conduit_core/sync/chat_locks.dart';
+import 'package:conduit_core/sync/clock.dart';
+import 'package:conduit_core/sync/id_remapper.dart';
+import 'package:conduit_core/sync/outbox_drainer.dart';
+import 'package:conduit_core/sync/pull_sync.dart';
+import 'package:conduit_core/sync/push_sync.dart';
 import 'package:conduit/features/chat/services/request_completion_runner.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../../support/fake_open_webui_server.dart';
-import '../../support/fake_sync_api_client.dart';
+import 'package:conduit_core/testing.dart';
 
 /// Mutable epoch-seconds clock.
 class _Clock implements SyncClock {

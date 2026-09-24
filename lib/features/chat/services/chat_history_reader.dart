@@ -1,9 +1,8 @@
-import 'package:flutter/foundation.dart';
-
-import '../../../core/database/chat_database_repository.dart';
-import '../../../core/database/mappers/conversation_assembler.dart';
-import '../../../core/models/chat_message.dart';
-import '../../../core/models/conversation.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/mappers/conversation_assembler.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:meta/meta.dart';
 
 typedef AuthoritativeConversationLoader = Future<Conversation> Function(
   Conversation conversation,

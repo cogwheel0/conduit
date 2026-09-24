@@ -1,4 +1,4 @@
-import 'package:conduit/features/direct_connections/models/direct_mcp_app.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_mcp_app.dart';
 import 'package:conduit/features/direct_connections/widgets/direct_mcp_app_view.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_test/flutter_test.dart';

@@ -1,24 +1,24 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/daos/outbox_dao.dart';
-import 'package:conduit/core/database/database_provider.dart';
-import 'package:conduit/core/database/fts/fts_ddl.dart';
-import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
-import 'package:conduit/core/persistence/hive_boxes.dart';
-import 'package:conduit/core/persistence/persistence_providers.dart';
-import 'package:conduit/core/services/optimized_storage_service.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/connectivity_service.dart';
-import 'package:conduit/core/sync/clock.dart';
-import 'package:conduit/core/sync/id_remapper.dart';
-import 'package:conduit/core/sync/outbox_drainer.dart';
-import 'package:conduit/core/sync/outbox_task_queue_migrator.dart';
-import 'package:conduit/core/sync/request_completion_runner_provider.dart';
-import 'package:conduit/core/sync/sync_api_client.dart';
-import 'package:conduit/core/sync/sync_engine.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/outbox_dao.dart';
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/database/fts/fts_ddl.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/persistence/hive_boxes.dart';
+import 'package:conduit_core/persistence/persistence_providers.dart';
+import 'package:conduit_core/services/optimized_storage_service.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
+import 'package:conduit_core/sync/clock.dart';
+import 'package:conduit_core/sync/id_remapper.dart';
+import 'package:conduit_core/sync/outbox_drainer.dart';
+import 'package:conduit_core/sync/outbox_task_queue_migrator.dart';
+import 'package:conduit_core/sync/request_completion_runner_provider.dart';
+import 'package:conduit_core/sync/sync_api_client.dart';
+import 'package:conduit_core/sync/sync_engine.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,8 +26,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:mocktail/mocktail.dart';
 
-import '../../support/fake_open_webui_server.dart';
-import '../../support/fake_sync_api_client.dart';
+import 'package:conduit_core/testing.dart';
 
 class _FailableFtsDatabase extends AppDatabase {
   _FailableFtsDatabase(super.e);

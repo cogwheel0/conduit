@@ -2,14 +2,14 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:conduit/core/models/model.dart';
-import 'package:conduit/core/models/socket_transport_availability.dart';
-import 'package:conduit/core/models/tool.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/optimized_storage_service.dart';
-import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/socket_transport_availability.dart';
+import 'package:conduit_core/models/tool.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/optimized_storage_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/features/profile/views/app_customization_page.dart';
-import 'package:conduit/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 

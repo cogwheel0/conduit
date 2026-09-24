@@ -2,7 +2,7 @@ import 'package:pigeon/pigeon.dart';
 
 @ConfigurePigeon(
   PigeonOptions(
-    dartOut: 'lib/core/platform/conduit_platform_apis.g.dart',
+    dartOut: 'lib/platform/conduit_platform_apis.g.dart',
     dartOptions: DartOptions(),
     kotlinOut: 'android/app/src/main/kotlin/app/cogwheel/conduit/ConduitPlatformApis.g.kt',
     kotlinOptions: KotlinOptions(package: 'app.cogwheel.conduit'),

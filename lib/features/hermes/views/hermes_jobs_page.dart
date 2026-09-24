@@ -9,10 +9,12 @@ import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/utility_components.dart';
-import '../models/hermes_job.dart';
-import '../models/hermes_config.dart';
-import '../providers/hermes_providers.dart';
-import '../utils/hermes_schedule_format.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_job.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/utils/hermes_schedule_format.dart';
+
 import '../widgets/hermes_job_editor.dart';
 import '../widgets/hermes_session_tile.dart' show openHermesSession;
 
@@ -312,12 +314,16 @@ class _JobCardState extends ConsumerState<_JobCard> {
             if (job.lastError?.isNotEmpty == true)
               Text(
                 job.lastError!,
-                style: AppTypography.bodySmallStyle.copyWith(color: theme.error),
+                style: AppTypography.bodySmallStyle.copyWith(
+                  color: theme.error,
+                ),
               ),
             if (job.lastDeliveryError?.isNotEmpty == true)
               Text(
                 'Delivery: ${job.lastDeliveryError}',
-                style: AppTypography.bodySmallStyle.copyWith(color: theme.error),
+                style: AppTypography.bodySmallStyle.copyWith(
+                  color: theme.error,
+                ),
               ),
             const SizedBox(height: Spacing.xs),
             Align(

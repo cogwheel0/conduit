@@ -5,12 +5,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
-import '../../../core/models/channel_message.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../../core/services/api_service.dart';
+import 'package:conduit_core/models/channel_message.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+
 import '../../../core/utils/model_icon_utils.dart';
-import '../../../core/utils/user_avatar_utils.dart'
+
+import 'package:conduit_core/utils/user_avatar_utils.dart'
     show resolveUserProfileImageUrl;
+
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/conduit_components.dart';

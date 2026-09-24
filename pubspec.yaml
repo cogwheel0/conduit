@@ -7,6 +7,18 @@ environment:
   sdk: ">=3.13.0 <4.0.0"
   flutter: ">=3.47.0"
 
+# Pub workspace (WP-0.1). The Flutter mobile app stays the workspace root so
+# `flutter run`/`flutter test` keep working from here with no extra flags;
+# the shared packages resolve against the same single lockfile, which is what
+# stops the app and the packages from drifting onto different versions.
+#
+# Members declare `resolution: workspace`. Add new members here *and* there —
+# pub fails loudly if only one side is updated.
+workspace:
+  - packages/conduit_core
+  - packages/conduit_markdown
+  - packages/conduit_theme
+
 dependencies:
   flutter:
     sdk: flutter
@@ -17,8 +29,19 @@ dependencies:
   flutter_driver:
     sdk: flutter
   
+  # Shared desktop/mobile packages (pub workspace members).
+  conduit_core:
+    path: packages/conduit_core
+  conduit_markdown:
+    path: packages/conduit_markdown
+  conduit_theme:
+    path: packages/conduit_theme
+
   # State Management
   flutter_riverpod: ^3.4.3
+  # Non-UI code imports the Flutter-free Riverpod directly, so that those
+  # files can move into packages/conduit_core unchanged (WP-1.8).
+  riverpod: ^3.4.3
   
   # Navigation
   go_router: ^18.0.1
@@ -73,6 +96,8 @@ dependencies:
   path_provider: ^2.1.4
   
   # Utilities
+  collection: ^1.19.1
+  meta: ^1.16.0
   path: ^1.9.0
   uuid: ^4.6.0
   crypto: ^3.0.3
@@ -141,7 +166,6 @@ dev_dependencies:
   riverpod_lint: ^3.1.9
   mocktail: ^1.0.4
   checks: ^0.3.1
-  collection: ^1.19.1
   drift_dev: ^2.34.0
   fake_async: ^1.3.3
   # Used only in tests to mock the microphone permission platform channel.
