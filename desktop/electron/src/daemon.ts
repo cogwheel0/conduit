@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { CoreSecrets } from './secrets.js'
 
-/** Section 3.1: at most five restarts inside a minute, then give up. */
+/** At most five restarts inside a minute, then give up. */
 const MAX_RESTARTS = 5
 const RESTART_WINDOW_MS = 60_000
 

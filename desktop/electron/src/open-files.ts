@@ -4,7 +4,7 @@ import { basename, extname, isAbsolute, resolve } from 'node:path'
 import type { OpenedFile } from './deep-link.js'
 
 /**
- * "Open with Conduit" (WP-9.3): files the OS hands the app.
+ * "Open with Conduit": files the OS hands the app.
  *
  * The window cannot read a path off the disk -- it is sandboxed, and that
  * is the point -- so the main process uploads each file through the

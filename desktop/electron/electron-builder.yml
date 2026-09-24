@@ -1,4 +1,4 @@
-# Packaging for the six desktop targets (WP-9.5): macOS, Windows and Linux,
+# Packaging for the six desktop targets: macOS, Windows and Linux,
 # each on x64 and arm64. Each is built on a machine of its own OS and
 # architecture, because the daemon is native: run `npm run build`, then
 # `npm run stage`, then `npx electron-builder`. release-desktop.yml does
@@ -32,7 +32,7 @@ protocols:
   - name: Conduit
     schemes: [conduit]
 
-# "Open with Conduit": a new chat with the file attached (WP-9.3). Never the
+# "Open with Conduit": a new chat with the file attached. Never the
 # default app for any of these -- an alternative the user chooses.
 fileAssociations:
   - ext: [pdf, txt, md, csv, json, docx, xlsx, pptx]

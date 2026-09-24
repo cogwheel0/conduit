@@ -9,7 +9,7 @@ import 'package:crypto/crypto.dart';
 import 'package:ffi/ffi.dart';
 import 'package:path/path.dart' as p;
 
-/// Speech recognition on this computer (M11): whisper.cpp through
+/// Speech recognition on this computer: whisper.cpp through
 /// `libconduit_whisper`, with models downloaded when the user asks.
 
 /// A whisper.cpp model the user may download.

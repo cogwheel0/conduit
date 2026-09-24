@@ -12,7 +12,7 @@ import {
 import electronBinary from 'electron'
 
 /**
- * The app on the desktop (M9), with no server needed: a `conduit://` link
+ * The app on the desktop, with no server needed: a `conduit://` link
  * from a second launch, a reload on a deep route, rebinding a shortcut,
  * closing to the tray, and the quick-ask panel.
  */

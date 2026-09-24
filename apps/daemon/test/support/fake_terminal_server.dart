@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 /// A terminal server in the shape Open WebUI's open-terminal answers, on
-/// loopback, for the terminal tests (M7).
+/// loopback, for the terminal tests.
 ///
 /// The shell is an echo: after the auth frame, every keystroke comes back
 /// prefixed with `echo:`. Files are held in memory. Every REST call must

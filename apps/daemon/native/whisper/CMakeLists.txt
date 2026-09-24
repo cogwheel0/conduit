@@ -1,5 +1,5 @@
 # libconduit_whisper: whisper.cpp and conduit_whisper.c in one shared
-# library, for conduitd's local speech recognition (M11). Built by
+# library, for conduitd's local speech recognition. Built by
 # desktop/electron/scripts/build-whisper.mjs; set
 # FETCHCONTENT_SOURCE_DIR_WHISPER to use a checkout already on disk.
 cmake_minimum_required(VERSION 3.16)

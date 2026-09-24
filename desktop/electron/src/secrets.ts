@@ -33,8 +33,7 @@ export interface CoreSecrets {
  *
  * On a Linux box with no keyring `safeStorage` reports the `basic_text`
  * backend, which is obfuscation rather than encryption. Refusing to run would
- * strand those users, so the key is still written and the caller is told, per
- * the section 11 mitigation.
+ * strand those users, so the key is still written and the caller is told.
  */
 export function loadOrCreateSecrets(userDataDir: string): CoreSecrets {
   const keyPath = join(userDataDir, 'secure', 'master.bin')

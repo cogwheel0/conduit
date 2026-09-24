@@ -3,7 +3,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 part 'channels.freezed.dart';
 part 'channels.g.dart';
 
-/// A channel, as the list shows it (M5).
+/// A channel, as the list shows it.
 @freezed
 abstract class ChannelSummary with _$ChannelSummary {
   const factory ChannelSummary({

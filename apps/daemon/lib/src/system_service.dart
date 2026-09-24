@@ -9,8 +9,7 @@ import 'log.dart';
 
 /// Implements the `system.*` family.
 ///
-/// M0 wires the lifecycle only. Capabilities stay empty until M2 gives the
-/// daemon a server to interrogate — reporting `true` for a feature the core
+/// Capabilities stay empty until the daemon has a server to interrogate — reporting `true` for a feature the core
 /// cannot yet serve would light up sidebar entries that dead-end.
 class SystemService {
   SystemService({
@@ -31,7 +30,7 @@ class SystemService {
 
   /// What this daemon can currently serve.
   ///
-  /// M2 replaces this when a server is selected, and the daemon then emits
+  /// Replaced when a server is selected, and the daemon then emits
   /// [ConduitEvents.capabilitiesChanged] so open windows re-gate their
   /// navigation without reconnecting.
   Capabilities capabilities = Capabilities.none;
@@ -46,8 +45,8 @@ class SystemService {
     capabilities: capabilities,
     paths: directories.paths,
     platform: currentPlatform,
-    // Until M2 persists servers there is nothing configured, so every launch
-    // is an onboarding launch.
+    // Always true here: the renderer decides from the server list and the
+    // session whether onboarding is needed.
     needsOnboarding: true,
   );
 
@@ -67,13 +66,13 @@ class SystemService {
         _onShutdownRequested,
       ),
     );
-    // M1 replaces this with a real outbox flush and database checkpoint.
+    // Not yet a real outbox flush and database checkpoint.
     return const ShutdownResult(flushed: true);
   }
 
   Future<DiagnosticsExport> exportDiagnostics() async {
-    // A real zip lands with the rotating LogSink in WP-1.5. Writing a stub
-    // file now keeps the method's contract honest: callers get a path that
+    // A stub rather than a real zip of rotated logs, which is still to come.
+    // It keeps the method's contract honest: callers get a path that
     // exists, so the shell's "reveal in folder" works from day one.
     final stamp = DateTime.now().toUtc().toIso8601String().split('T').first;
     final file = File(

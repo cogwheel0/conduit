@@ -18,7 +18,7 @@ import 'command_palette.dart';
 import 'desktop_integration.dart';
 import 'shortcuts_overlay.dart';
 
-/// Binds the shortcut table to the running window (WP-3.7).
+/// Binds the shortcut table to the running window.
 ///
 /// Lives in the shell rather than on the chat page, because a shortcut that
 /// only works on one route is a shortcut the user has to think about. Focus
@@ -62,7 +62,7 @@ class _KeyboardLayerState extends State<KeyboardLayer> {
     context.read(shortcutBindingProvider)
       ..install(_dispatch)
       ..rebind(container.read(shortcutTableProvider));
-    // The user's own keys (WP-9.4), as they change.
+    // The user's own keys, as they change.
     _table = container.listen<List<Shortcut>>(
       shortcutTableProvider,
       (_, shortcuts) => context.read(shortcutBindingProvider).rebind(shortcuts),

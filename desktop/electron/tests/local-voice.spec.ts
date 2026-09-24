@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication } from '@playwright/test'
 
 /**
- * Dictation on this computer (M11), with no server anywhere: a direct
+ * Dictation on this computer, with no server anywhere: a direct
  * connection to chat with, Whisper's smallest model downloaded from Settings
  * → Audio, and the fox sentence through Chromium's fake microphone. Runs
  * when the bundle has the whisper library (`npm run build:whisper`) and

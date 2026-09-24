@@ -11,8 +11,7 @@ import '../rpc/chat_providers.dart';
 import '../rpc/rpc_providers.dart';
 import 'ui.dart';
 
-/// The files on a message: images as thumbnails, anything else by name
-/// (WP-3.2).
+/// The files on a message: images as thumbnails, anything else by name.
 class MessageFiles extends StatelessComponent {
   const MessageFiles(this.files, {this.alignEnd = false, super.key});
 
@@ -106,7 +105,7 @@ String? _media(ChatFileDto file) {
   return null;
 }
 
-/// An image, full size over the window (WP-3.2). A click anywhere or Esc
+/// An image, full size over the window. A click anywhere or Esc
 /// closes it; the close button takes focus so Esc reaches it at once.
 class LightboxOverlay extends StatefulComponent {
   const LightboxOverlay({required this.src, required this.name, super.key});

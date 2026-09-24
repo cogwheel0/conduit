@@ -3,7 +3,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 part 'terminal.freezed.dart';
 part 'terminal.g.dart';
 
-/// A terminal server the account can use (M7): one of Open WebUI's own
+/// A terminal server the account can use: one of Open WebUI's own
 /// (`system`), or one the user added to their settings (`direct`).
 @freezed
 abstract class TerminalServerDto with _$TerminalServerDto {
@@ -209,7 +209,7 @@ abstract class TerminalPreview with _$TerminalPreview {
 }
 
 /// Payload of `terminal.displayFile`: a model's tool asks to show a file
-/// from the chat's terminal (M7), scoped to the chat.
+/// from the chat's terminal, scoped to the chat.
 @freezed
 abstract class TerminalDisplayFile with _$TerminalDisplayFile {
   const factory TerminalDisplayFile({

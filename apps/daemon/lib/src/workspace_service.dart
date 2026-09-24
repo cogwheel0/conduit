@@ -23,7 +23,7 @@ import 'package:riverpod/riverpod.dart';
 import 'event_bus.dart';
 import 'settled.dart';
 
-/// Implements `workspace.*` over the core's workspace providers (M6).
+/// Implements `workspace.*` over the core's workspace providers.
 ///
 /// The providers are mobile's: one collection per section, paged and
 /// filtered by the notifier, and one file browser per knowledge base. The

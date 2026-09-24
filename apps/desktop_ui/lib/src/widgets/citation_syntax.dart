@@ -1,6 +1,6 @@
 import 'package:markdown/markdown.dart' as md;
 
-/// `[1]`, `[1,2]` and `[1][2]` as citations of an answer's sources (WP-3.2).
+/// `[1]`, `[1,2]` and `[1][2]` as citations of an answer's sources.
 ///
 /// The same shapes Open WebUI's `citation-extension.ts` recognises, and the
 /// same ones `CitationParser` in `conduit_markdown` does for mobile. Only

@@ -22,7 +22,7 @@ import type { ShellSettings, ShellSettingsStore } from './shell-settings.js'
 export type WindowFactory = (kind: 'main' | 'quickAsk') => BrowserWindow
 
 /**
- * How the app lives on the desktop (M9): the tray, closing to it, starting
+ * How the app lives on the desktop: the tray, closing to it, starting
  * at login, the quick-ask panel and its global shortcut, notifications,
  * and `conduit://` links reaching the window.
  */

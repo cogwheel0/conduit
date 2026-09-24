@@ -16,7 +16,7 @@ extension type _SandboxMessage._(JSObject _) implements JSObject {
   external int? get height;
 }
 
-/// [SandboxPort] against real frames (WP-3.5).
+/// [SandboxPort] against real frames.
 ///
 /// One `message` listener on the window for every frame, rather than one
 /// each: the listener has to identify the sender by `event.source`, and a

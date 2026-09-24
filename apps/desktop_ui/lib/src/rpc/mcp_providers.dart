@@ -4,7 +4,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import 'chat_providers.dart';
 import 'rpc_providers.dart';
 
-/// The MCP servers, secrets reported only as present (M4).
+/// The MCP servers, secrets reported only as present.
 final mcpServersProvider = FutureProvider<McpServerList>((ref) async {
   ref.watch(coreConnectionProvider);
   return ref

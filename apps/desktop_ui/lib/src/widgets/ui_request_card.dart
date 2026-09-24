@@ -9,7 +9,7 @@ import '../l10n/strings.g.dart';
 import '../rpc/ui_request_providers.dart';
 import 'form_field.dart';
 
-/// The server's question, waiting for an answer (WP-3.6).
+/// The server's question, waiting for an answer.
 ///
 /// Shows the oldest waiting request. A tool asking to run, or a function
 /// asking for a value mid-reply, holds up that reply until someone answers.
@@ -84,7 +84,7 @@ class _RequestBodyState extends State<_RequestBody> {
         .answerWith(component.request, choice: choice),
   );
 
-  /// An MCP tool asking to run (M4): which server, which tool, with what,
+  /// An MCP tool asking to run: which server, which tool, with what,
   /// and how long a yes should last.
   Component _mcpApproval(BuildContext context) {
     final args = component.request.messageArgs;
@@ -152,7 +152,7 @@ class _RequestBodyState extends State<_RequestBody> {
     ]);
   }
 
-  /// A Hermes agent asking to go on (M7): what it wants to do, and the
+  /// A Hermes agent asking to go on: what it wants to do, and the
   /// answers it offers -- once, for the session, always, or no.
   Component _hermesApproval(BuildContext context) {
     final summary = component.request.messageArgs['summary'] ?? '';

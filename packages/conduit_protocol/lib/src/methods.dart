@@ -3,12 +3,11 @@
 /// Both peers reference these constants instead of string literals, so a
 /// renamed method is a compile error on the side that forgot to follow.
 ///
-/// `system.*`, `servers.*` and `auth.*` are implemented. The remaining
-/// namespaces are declared here as prefixes so later milestones extend a
-/// known surface (section 4) rather than inventing one.
+/// Namespaces are declared here as prefixes too, so new methods extend a
+/// known surface rather than inventing one.
 abstract final class ConduitMethods {
   // ---------------------------------------------------------------------
-  // system.* — implemented in WP-0.4.
+  // system.*
   // ---------------------------------------------------------------------
 
   /// Exchange versions and capabilities. Must be the first call on a socket;
@@ -31,8 +30,7 @@ abstract final class ConduitMethods {
   static const String systemExportDiagnostics = 'system.exportDiagnostics';
 
   /// The window's view of the network: the browser's `online` and
-  /// `offline` events, which arrive at once where the daemon can only poll
-  /// (WP-3.3).
+  /// `offline` events, which arrive at once where the daemon can only poll.
   static const String systemNetwork = 'system.network';
 
   /// Replace this client's event interest set.
@@ -43,7 +41,7 @@ abstract final class ConduitMethods {
   static const String uiRespond = 'ui.respond';
 
   // ---------------------------------------------------------------------
-  // servers.* and auth.* -- implemented in WP-2.1.
+  // servers.* and auth.*
   // ---------------------------------------------------------------------
 
   /// Every configured server plus which one is active.
@@ -109,7 +107,7 @@ abstract final class ConduitMethods {
   static const String authSetReviewerMode = 'auth.setReviewerMode';
 
   // ---------------------------------------------------------------------
-  // chats.* -- the conversation list and transcripts (M3).
+  // chats.* -- the conversation list and transcripts.
   // ---------------------------------------------------------------------
 
   /// The first page of conversations, plus the archived count.
@@ -126,28 +124,28 @@ abstract final class ConduitMethods {
   /// Full-text search over titles and message bodies.
   static const String chatsSearch = 'chats.search';
 
-  /// Moves a conversation into a folder, or out of one (WP-3.1). Open WebUI
+  /// Moves a conversation into a folder, or out of one. Open WebUI
   /// unpins a conversation it moves; so does this.
   static const String chatsMove = 'chats.move';
 
-  /// Every conversation in one folder, for its page (WP-3.1).
+  /// Every conversation in one folder, for its page.
   static const String chatsFolder = 'chats.folder';
 
-  /// Every message on every branch, for the overview map (WP-3.4).
+  /// Every message on every branch, for the overview map.
   static const String chatsTree = 'chats.tree';
 
   /// Makes the branch through a message the one the transcript shows, on
   /// the server, as Open WebUI's client does when switching branches.
   static const String chatsSetCurrent = 'chats.setCurrent';
 
-  /// Sets or clears a conversation's own system prompt (WP-3.4).
+  /// Sets or clears a conversation's own system prompt.
   static const String chatsSetSystemPrompt = 'chats.setSystemPrompt';
 
   /// Archives, unarchives, deletes or moves many conversations at once,
-  /// refreshing the list once at the end (WP-3.8).
+  /// refreshing the list once at the end.
   static const String chatsBulk = 'chats.bulk';
 
-  /// Every tag the account has, with its display name (WP-3.8).
+  /// Every tag the account has, with its display name.
   static const String chatsTagsAll = 'chats.tags.all';
 
   /// Tags a chat; answers with the chat's tags afterwards.
@@ -180,7 +178,7 @@ abstract final class ConduitMethods {
   static const String chatsUnshare = 'chats.unshare';
 
   // ---------------------------------------------------------------------
-  // models.* -- what the active server offers (M3).
+  // models.* -- what the active server offers.
   // ---------------------------------------------------------------------
 
   /// Every model the server offers, and which one is selected.
@@ -194,10 +192,10 @@ abstract final class ConduitMethods {
   /// server's tools. Re-asked when the model or the session changes.
   static const String composerOptions = 'composer.options';
 
-  /// Knowledge bases matching what follows a `#` in the composer (WP-3.3).
+  /// Knowledge bases matching what follows a `#` in the composer.
   static const String composerKnowledge = 'composer.knowledge';
 
-  /// The account's saved prompts, for the composer's `/` menu (WP-3.3).
+  /// The account's saved prompts, for the composer's `/` menu.
   static const String promptsList = 'prompts.list';
 
   /// A prompt's text with its variables filled in. Answers with the fields
@@ -206,7 +204,7 @@ abstract final class ConduitMethods {
 
   // ---------------------------------------------------------------------
   // direct.* -- connections the app talks to itself, not through Open
-  // WebUI (M4).
+  // WebUI.
   // ---------------------------------------------------------------------
 
   /// Every direct connection, secrets reported only as present.
@@ -248,7 +246,7 @@ abstract final class ConduitMethods {
   static const String directOllamaThinking = 'direct.ollamaThinking';
 
   // ---------------------------------------------------------------------
-  // mcp.* -- MCP servers the app talks to itself (M4).
+  // mcp.* -- MCP servers the app talks to itself.
   // ---------------------------------------------------------------------
 
   /// Every MCP server, secrets reported only as present.
@@ -291,7 +289,7 @@ abstract final class ConduitMethods {
   static const String mcpReadResource = 'mcp.readResource';
 
   // ---------------------------------------------------------------------
-  // turns.* -- sending and stopping generation (M3).
+  // turns.* -- sending and stopping generation.
   // ---------------------------------------------------------------------
 
   /// Sends a message and starts generation.
@@ -321,8 +319,7 @@ abstract final class ConduitMethods {
   static const String turnsRate = 'turns.rate';
 
   // ---------------------------------------------------------------------
-  // settings.* -- app preferences implemented in WP-2.4. The server-side
-  // user settings in this namespace arrive with M9.
+  // settings.* -- the app's own preferences.
   // ---------------------------------------------------------------------
 
   /// Theme, palette and locale, as the daemon has them stored.
@@ -332,7 +329,7 @@ abstract final class ConduitMethods {
   static const String settingsSetApp = 'settings.setApp';
 
   // ---------------------------------------------------------------------
-  // Namespace prefixes for later milestones (section 4).
+  // Namespace prefixes.
   // ---------------------------------------------------------------------
 
   static const String serversPrefix = 'servers.';
@@ -347,7 +344,7 @@ abstract final class ConduitMethods {
   static const String knowledgePrefix = 'knowledge.';
   static const String notesPrefix = 'notes.';
 
-  // notes.* (M5) -- listed with the prefixes because they are few.
+  // notes.* -- listed with the prefixes because they are few.
 
   /// Every note, or those matching a query; pinned first.
   static const String notesList = 'notes.list';
@@ -378,7 +375,7 @@ abstract final class ConduitMethods {
   static const String notesDetach = 'notes.detach';
   static const String channelsPrefix = 'channels.';
 
-  // channels.* (M5).
+  // channels.*.
 
   /// Every channel the user can see, with unread counts.
   static const String channelsList = 'channels.list';
@@ -412,7 +409,7 @@ abstract final class ConduitMethods {
   static const String channelsMembers = 'channels.members';
   static const String workspacePrefix = 'workspace.';
 
-  // workspace.* (M6): models, knowledge, prompts, tools and skills. Most
+  // workspace.*: models, knowledge, prompts, tools and skills. Most
   // methods take a [WorkspaceKind]; the rest belong to one section.
 
   /// Which sections the user may manage, and what each allows.
@@ -482,7 +479,7 @@ abstract final class ConduitMethods {
   static const String mcpPrefix = 'mcp.';
   static const String hermesPrefix = 'hermes.';
 
-  // hermes.* (M7): the Hermes Agent connection, its sessions -- chats with
+  // hermes.*: the Hermes Agent connection, its sessions -- chats with
   // `local:hermes_<id>` ids, sent to through turns.* -- jobs and catalog.
 
   static const String hermesSettings = 'hermes.settings';
@@ -517,7 +514,7 @@ abstract final class ConduitMethods {
   static const String hermesCatalog = 'hermes.catalog';
   static const String terminalPrefix = 'terminal.';
 
-  // terminal.* (M7). The shell itself is `WS /terminal/{handle}`.
+  // terminal.*. The shell itself is `WS /terminal/{handle}`.
 
   /// The terminal servers usable in a scope, and the selected one.
   static const String terminalServers = 'terminal.servers';
@@ -545,7 +542,7 @@ abstract final class ConduitMethods {
   static const String terminalPreviewPort = 'terminal.previewPort';
   static const String voicePrefix = 'voice.';
 
-  // voice.* (M8). Audio stays in the window; recordings reach the server
+  // voice.*. Audio stays in the window; recordings reach the server
   // through `POST /transcribe`, and speech comes back from `GET /tts/{jobId}`.
 
   static const String voiceSettings = 'voice.settings';
@@ -557,7 +554,7 @@ abstract final class ConduitMethods {
   /// Starts a server speech job for an `<audio>` element to play.
   static const String voiceSpeak = 'voice.speak';
 
-  /// The whisper models for transcribing on this computer (M11).
+  /// The whisper models for transcribing on this computer.
   static const String voiceModels = 'voice.models';
 
   /// Starts downloading a model; `voice.changed` reports its progress.
@@ -604,7 +601,7 @@ abstract final class ConduitMethods {
 }
 
 /// HTTP paths served next to the RPC socket, for payloads that do not belong
-/// in JSON-RPC frames (section 3.2).
+/// in JSON-RPC frames.
 abstract final class ConduitHttpRoutes {
   /// `POST` multipart; streamed straight to the attachment queue so a 2 GB
   /// file never lands in a JSON string.
@@ -620,18 +617,18 @@ abstract final class ConduitHttpRoutes {
   static String tts(String jobId) => '/tts/$jobId';
 
   /// `POST` a recording as the body, its type as `content-type`: its
-  /// transcription as a `VoiceTranscript` (M8), by the active server or, with
-  /// the local engine, by whisper on this computer (M11) -- which takes 16 kHz
+  /// transcription as a `VoiceTranscript`, by the active server or, with
+  /// the local engine, by whisper on this computer -- which takes 16 kHz
   /// mono WAV only. The saved language applies.
   static const String transcribe = '/transcribe';
 
   /// `WS /terminal/{handle}` — raw byte tunnel to the Open WebUI terminal
-  /// socket with auth added (WP-7.2).
+  /// socket with auth added.
   static String terminal(String handle) => '/terminal/$handle';
 
   /// `POST` with the headers `x-conduit-terminal` (a handle) and
   /// `x-conduit-directory`: an upload into a terminal's files rather than
-  /// to Open WebUI (M7). Same body as [upload].
+  /// to Open WebUI. Same body as [upload].
   static const String terminalUpload = '/terminal-upload';
 
   /// The JSON-RPC WebSocket itself.

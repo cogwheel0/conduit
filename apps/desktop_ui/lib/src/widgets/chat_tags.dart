@@ -9,7 +9,7 @@ import '../l10n/strings.g.dart';
 import '../rpc/rpc_providers.dart';
 import 'ui.dart';
 
-/// A conversation's tags, in its header (WP-3.8).
+/// A conversation's tags, in its header.
 ///
 /// A tag is also a way in: clicking one filters the sidebar to everything
 /// carrying it, through the same `tag:` search Open WebUI's box accepts.

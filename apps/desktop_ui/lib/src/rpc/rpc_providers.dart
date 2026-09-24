@@ -36,7 +36,7 @@ final filePickerProvider = Provider<FilePickerPort>(
   (ref) => const UnavailableFilePicker(),
 );
 
-/// Saves exports as downloads, overridden in `main.dart` (M6).
+/// Saves exports as downloads, overridden in `main.dart`.
 final fileSaverProvider = Provider<FileSaverPort>(
   (ref) => RecordingFileSaver(),
 );
@@ -61,7 +61,7 @@ final attachmentsProvider = Provider<AttachmentPort>(
   (ref) => RecordingAttachments(),
 );
 
-/// The desktop around the window (M9), overridden in `main.dart` under
+/// The desktop around the window, overridden in `main.dart` under
 /// Electron.
 final desktopShellProvider = Provider<DesktopShellPort>(
   (ref) => RecordingDesktopShell(),

@@ -19,7 +19,7 @@ import 'package:riverpod/riverpod.dart';
 import 'event_bus.dart';
 import 'settled.dart';
 
-/// Implements `notes.*` over the core's note providers (M5).
+/// Implements `notes.*` over the core's note providers.
 ///
 /// The same providers mobile uses, so the durable path is the same too:
 /// an edit made offline is written with its outbox operation and pushed

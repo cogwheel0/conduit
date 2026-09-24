@@ -5,8 +5,8 @@ import 'package:conduit_desktop_ui/src/l10n/strings.g.dart';
 import 'package:conduit_desktop_ui/src/widgets/markdown_view.dart';
 import 'package:jaspr_test/jaspr_test.dart';
 
-/// Reasoning and tool calls arrive inside the message as `<details>` markup
-/// (WP-3.2), in exactly the shapes below: the first is what Open WebUI
+/// Reasoning and tool calls arrive inside the message as `<details>` markup,
+/// in exactly the shapes below: the first is what Open WebUI
 /// writes for a reasoning model, the second what it writes for a tool call,
 /// attributes escaped and the arguments a JSON string holding JSON.
 void main() {

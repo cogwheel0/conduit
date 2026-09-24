@@ -133,7 +133,7 @@ final class ServersService {
     return list();
   }
 
-  /// The live state of the active server (WP-2.2).
+  /// The live state of the active server.
   ///
   /// Deliberately never throws for an unreachable server. "I could not reach
   /// it, and here is the code" is the answer the connection-issue page exists
@@ -213,8 +213,8 @@ final class ServersService {
   /// dead-ends.
   ///
   /// The flags with no `BackendConfig` counterpart -- Hermes, the terminal,
-  /// the Apple helper, the parity-plus features -- are left off until the
-  /// milestones that implement them can answer honestly.
+  /// the Apple helper, the parity-plus features -- are left off here; the
+  /// services that implement them answer for themselves.
   static Capabilities capabilitiesFor(BackendConfig config) => Capabilities(
     // Open WebUI has no feature flag for these; they exist on every server
     // this app supports, and the sidebar entries are always meaningful.

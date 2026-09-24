@@ -7,7 +7,7 @@ import 'package:jaspr/jaspr.dart';
 import '../l10n/strings.g.dart';
 import 'ui.dart';
 
-/// A reasoning, tool-call or code-interpreter section of a reply (WP-3.2).
+/// A reasoning, tool-call or code-interpreter section of a reply.
 ///
 /// Open WebUI serializes these into the message content as `<details>`
 /// blocks, and `DetailsBlockSyntax` -- the same syntax the mobile renderer

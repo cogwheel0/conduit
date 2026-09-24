@@ -8,7 +8,7 @@ import 'package:web/web.dart' as web;
 import 'attachments.dart';
 import 'shell_bridge.dart';
 
-/// [AttachmentPort] against the browser and the daemon (WP-3.3).
+/// [AttachmentPort] against the browser and the daemon.
 ///
 /// The picked `File` stays in the browser and is handed to `XMLHttpRequest`
 /// as the request body, so the bytes never cross into Dart. That is the

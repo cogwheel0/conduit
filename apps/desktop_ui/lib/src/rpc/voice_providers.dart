@@ -4,7 +4,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import '../voice_port.dart';
 import 'rpc_providers.dart';
 
-/// The window's audio, overridden in `main.dart` (M8).
+/// The window's audio, overridden in `main.dart`.
 final voicePortProvider = Provider<VoicePort>((ref) => RecordingVoice());
 
 /// Every `voice.*` call the window makes, in one place so a test replaces
@@ -82,7 +82,7 @@ final deviceVoicesProvider = FutureProvider<List<DeviceVoice>>(
   (ref) => ref.read(voicePortProvider).deviceVoices(),
 );
 
-/// The whisper models (M11): listed once, then kept current by
+/// The whisper models: listed once, then kept current by
 /// `voice.changed` as downloads move. A finished one changes what the
 /// settings say is ready, so they are asked again.
 final voiceModelsProvider = StreamProvider<VoiceModels>((ref) async* {

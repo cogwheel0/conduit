@@ -1,4 +1,4 @@
-/// A file the user chose, still held by the browser (WP-3.3).
+/// A file the user chose, still held by the browser.
 ///
 /// Deliberately not the bytes. [handle] names a `File` the browser keeps;
 /// the upload streams it straight to the daemon, so a 200 MB attachment
@@ -20,7 +20,7 @@ class PickedAttachment {
   final String contentType;
 }
 
-/// A terminal handle and a folder on its machine, for an upload (M7).
+/// A terminal handle and a folder on its machine, for an upload.
 typedef TerminalUploadTarget = ({String handle, String directory});
 
 /// Picking and uploading attachments.
@@ -36,7 +36,7 @@ abstract interface class AttachmentPort {
   /// [onProgress] reports a fraction between 0 and 1.
   ///
   /// With [terminal], the file goes into that folder of a terminal's
-  /// machine instead (M7), and the answer is its path there.
+  /// machine instead, and the answer is its path there.
   Future<String> upload(
     String handle, {
     void Function(double fraction)? onProgress,
@@ -62,7 +62,7 @@ abstract interface class AttachmentPort {
   /// the browser would.
   List<PickedAttachment> takeFiles(Object event);
 
-  /// Starts recording from the microphone (M5). False when there is no
+  /// Starts recording from the microphone. False when there is no
   /// microphone or it was refused -- which is the user's answer, not an
   /// error to report as one.
   Future<bool> startRecording();

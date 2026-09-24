@@ -14,7 +14,7 @@ import 'support/fake_openai.dart';
 import 'support/mcp_fixture.dart';
 import 'support/null_sink.dart';
 
-/// A direct turn that calls an MCP tool (M4), end to end over real HTTP: a
+/// A direct turn that calls an MCP tool, end to end over real HTTP: a
 /// fake OpenAI-compatible provider asks for the tool, the daemon asks a
 /// window for approval, runs the tool on a real MCP server and hands the
 /// result back to the provider for the answer.

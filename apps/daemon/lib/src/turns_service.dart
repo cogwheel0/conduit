@@ -60,7 +60,7 @@ import 'ui_requests_service.dart';
 part 'direct_turns.dart';
 part 'hermes_turns.dart';
 
-/// Implements `turns.*`: sending a message and streaming the answer (M3).
+/// Implements `turns.*`: sending a message and streaming the answer.
 ///
 /// Drives the core's `attachUnifiedChunkedStreaming` directly rather than
 /// going through the mobile app's transport dispatch. That dispatch exists to
@@ -96,7 +96,7 @@ final class TurnsService {
 
   StreamSubscription<RemapEvent>? _remaps;
 
-  /// Moves a turn to its chat's new id (M4).
+  /// Moves a turn to its chat's new id.
   ///
   /// A direct chat mirrored to Open WebUI is written as `local:` and the
   /// sync engine may give it the server's id while the answer is still
@@ -129,14 +129,14 @@ final class TurnsService {
   /// exercises sending does not have to build one.
   final FilesService? _files;
 
-  /// Hermes sessions' transcripts (M7).
+  /// Hermes sessions' transcripts.
   final HermesService? _hermes;
 
   static const Uuid _uuid = Uuid();
 
   /// Coalescing window for `turn.delta`.
   ///
-  /// The plan's 60 Hz ceiling. A fast model emits tokens far quicker than
+  /// A 60 Hz ceiling. A fast model emits tokens far quicker than
   /// that, and every extra frame costs a JSON encode, a socket write and a
   /// markdown parse for text the user cannot read at that rate anyway.
   static const Duration _deltaInterval = Duration(milliseconds: 16);
@@ -250,7 +250,7 @@ final class TurnsService {
     final relayed = await _openWebUiWireModel(requested);
     final model = relayed ?? requested;
 
-    // Hermes Agent: the daemon runs the turn against it (M7).
+    // Hermes Agent: the daemon runs the turn against it.
     if (relayed == null && await _isHermes(model)) {
       return _sendHermes(request, model: model, text: text);
     }
@@ -675,7 +675,7 @@ final class TurnsService {
     );
   }
 
-  /// Rates an answer up or down (WP-3.8).
+  /// Rates an answer up or down.
   ///
   /// The core's `MessageRating` does what Open WebUI's client does; this
   /// only refuses what cannot be rated and tells the windows afterwards, so
@@ -840,8 +840,7 @@ final class TurnsService {
 
   /// The model to send with.
   ///
-  /// The request wins when it names one, so WP-3.4's picker will simply pass
-  /// a value. Otherwise the account's current selection, and failing that the
+  /// The request wins when it names one, as the composer's picker does. Otherwise the account's current selection, and failing that the
   /// first model the server offers -- which is what a fresh install has
   /// before anything has been chosen.
   Future<String?> _resolveModel(String? requested) async {
@@ -879,14 +878,14 @@ final class TurnsService {
     return '${firstLine.substring(0, 47)}\u2026';
   }
 
-  /// The system prompt a turn in [chatId] goes out with (WP-3.4).
+  /// The system prompt a turn in [chatId] goes out with.
   ///
   /// The conversation's own, else the user's default from their Open WebUI
   /// settings -- which desktop turns used to ignore, so the same question
   /// answered differently here than on the phone or the web. Settings are
   /// kept for a minute: they change rarely, and a turn should not wait on
   /// a second request to learn nothing new.
-  /// The terminal a turn may use, as mobile sends it (M7): the one
+  /// The terminal a turn may use, as mobile sends it: the one
   /// selected, unless the model has switched terminals off in its
   /// capabilities.
   String? _terminalIdFor(String modelId) {
@@ -942,7 +941,7 @@ final class TurnsService {
   ///
   /// The location is the account's fixed one, when it has one. Looking it up
   /// live is the phone's job; Chromium's geolocation needs a Google key on
-  /// Windows and Linux, and the Apple helper is not here yet (WP-8.4).
+  /// Windows and Linux, and the Apple helper is not here yet.
   Future<Map<String, dynamic>> _variables() async {
     User? user;
     try {
@@ -1028,7 +1027,7 @@ final class TurnsService {
           chatId: chatId,
           messageId: turn.messageId,
           code: ConduitErrorCodes.serverError,
-          // The server's own words. Section 4 says errors cross as codes, and
+          // The server's own words. Errors cross as codes, and
           // they do -- but a refusal like "this model needs a paid plan" is
           // information only the server has, and dropping it would leave the
           // user with `server.error` and no way to act.
@@ -1197,7 +1196,7 @@ class _ActiveTurn {
   /// Whether the server is running this turn as a socket task.
   bool overSocket = false;
 
-  /// Whether the daemon itself is talking to the provider (M4). Such a turn
+  /// Whether the daemon itself is talking to the provider. Such a turn
   /// stores its own answer, so there is nothing to pull afterwards.
   bool direct = false;
 

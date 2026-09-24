@@ -118,7 +118,7 @@ final searchResultsProvider = FutureProvider<ChatSearchResults?>((ref) async {
       );
 });
 
-/// The command palette's text (WP-3.1).
+/// The command palette's text.
 ///
 /// Separate from [searchQueryProvider] on purpose. The palette is a
 /// passing glance, and typing into it should not replace what the sidebar
@@ -149,7 +149,7 @@ final paletteResultsProvider = FutureProvider<ChatSearchResults?>((ref) async {
 });
 
 /// Whether sending can work: the window's network and the daemon's agree
-/// that there is one (WP-3.3).
+/// that there is one.
 ///
 /// The window hears `offline` at once; the daemon polls, and also covers
 /// the case the window cannot see. Either saying "no network" is enough.
@@ -190,7 +190,7 @@ final onlineProvider = StreamProvider<bool>((ref) {
   return controller.stream;
 });
 
-/// The conversations chosen in the sidebar's selection mode (WP-3.8).
+/// The conversations chosen in the sidebar's selection mode.
 ///
 /// Null outside the mode. A mode, not modifier-clicks alone: a click on a
 /// row has to keep meaning "open it", and a checkbox is something a
@@ -215,8 +215,8 @@ class ChatSelection extends Notifier<Set<String>?> {
   void end() => state = null;
 }
 
-/// A conversation being dragged in the sidebar, and where it would land
-/// (WP-3.1). Held here rather than in the drag's `DataTransfer`, because
+/// A conversation being dragged in the sidebar, and where it would land.
+/// Held here rather than in the drag's `DataTransfer`, because
 /// the drop target has to know during `dragover` -- when the browser keeps
 /// that data hidden -- whether the drop would mean anything.
 final draggingChatProvider = NotifierProvider<DraggingChat, DragState?>(
@@ -247,7 +247,7 @@ class DraggingChat extends Notifier<DragState?> {
   void end() => state = null;
 }
 
-/// Where the window loads a message's file from (WP-3.2): the daemon's
+/// Where the window loads a message's file from: the daemon's
 /// `/files/{server}/{file}`, which Electron adds the daemon token to. Null
 /// until the active server is known.
 final fileUrlProvider = Provider<String Function(String fileId)?>((ref) {
@@ -258,7 +258,7 @@ final fileUrlProvider = Provider<String Function(String fileId)?>((ref) {
       base.replace(path: ConduitHttpRoutes.file(server, fileId)).toString();
 });
 
-/// The image shown full size over the window, if any (WP-3.2).
+/// The image shown full size over the window, if any.
 final lightboxProvider =
     NotifierProvider<Lightbox, ({String src, String name})?>(Lightbox.new);
 
@@ -270,7 +270,7 @@ class Lightbox extends Notifier<({String src, String name})?> {
   void close() => state = null;
 }
 
-/// Every branch of the open conversation, for the overview (WP-3.4).
+/// Every branch of the open conversation, for the overview.
 final chatTreeProvider = FutureProvider<ChatTree?>((ref) async {
   final chatId = ref.watch(selectedChatIdProvider);
   if (chatId == null || ref.watch(temporaryChatIdsProvider).contains(chatId)) {
@@ -286,7 +286,7 @@ final chatTreeProvider = FutureProvider<ChatTree?>((ref) async {
       );
 });
 
-/// The folder whose page is open in place of a transcript (WP-3.1).
+/// The folder whose page is open in place of a transcript.
 final openFolderProvider = NotifierProvider<OpenFolder, String?>(
   OpenFolder.new,
 );
@@ -313,7 +313,7 @@ final folderContentsProvider = FutureProvider<FolderContents?>((ref) async {
       );
 });
 
-/// Whether the controls pane is open beside the transcript (WP-3.4).
+/// Whether the controls pane is open beside the transcript.
 final controlsOpenProvider = NotifierProvider<ControlsOpen, bool>(
   ControlsOpen.new,
 );
@@ -326,7 +326,7 @@ class ControlsOpen extends Notifier<bool> {
   void close() => state = false;
 }
 
-/// The conversation whose share dialog is open, if any (WP-3.1). One
+/// The conversation whose share dialog is open, if any. One
 /// dialog for the window, opened from the header or a sidebar row's menu.
 final shareDialogProvider = NotifierProvider<ShareDialogTarget, String?>(
   ShareDialogTarget.new,
@@ -340,7 +340,7 @@ class ShareDialogTarget extends Notifier<String?> {
   void close() => state = null;
 }
 
-/// Tag names by id (WP-3.8). A chat lists its tags by id -- `work_notes`
+/// Tag names by id. A chat lists its tags by id -- `work_notes`
 /// -- and this is how the header shows "Work notes" instead.
 final tagNamesProvider = FutureProvider<Map<String, String>>((ref) async {
   ref.watch(coreConnectionProvider);
@@ -369,7 +369,7 @@ class RatingOverrides extends Notifier<Map<String, int>> {
       state = <String, int>{...state}..remove(messageId);
 }
 
-/// Knowledge bases matching what follows a `#` (WP-3.3), a moment after
+/// Knowledge bases matching what follows a `#`, a moment after
 /// typing stops: each letter is a search on the server.
 final knowledgeSearchProvider = FutureProvider.family<KnowledgeList, String>((
   ref,
@@ -388,14 +388,14 @@ final knowledgeSearchProvider = FutureProvider.family<KnowledgeList, String>((
       );
 });
 
-/// The account's saved prompts, for the composer's `/` menu (WP-3.3).
+/// The account's saved prompts, for the composer's `/` menu.
 ///
 /// Fetched when the menu first opens rather than at startup: most messages
 /// never type a `/`, and the list is one request away when one does.
 final promptListProvider = FutureProvider<PromptList>((ref) async {
   ref.watch(coreConnectionProvider);
   // Refetched when the model changes: Hermes Agent's `/` menu is its
-  // skills (M7).
+  // skills.
   ref.watch(modelListProvider.select((models) => models.value?.selectedId));
   return ref
       .read(rpcClientProvider)
@@ -478,7 +478,7 @@ final eventSubscriptionProvider = Provider<void>((ref) {
         // Empty `events` means every event; the scope is what narrows it.
         scopes: <String>[
           ?chatId,
-          // The channel on screen (M5), in the daemon's scope for it.
+          // The channel on screen, in the daemon's scope for it.
           if (channelId != null) 'channel:$channelId',
         ],
       ),
@@ -486,7 +486,7 @@ final eventSubscriptionProvider = Provider<void>((ref) {
   );
 });
 
-/// The channel this window shows, if any (M5): its events join the
+/// The channel this window shows, if any: its events join the
 /// window's subscription.
 final openChannelIdProvider = NotifierProvider<OpenChannelId, String?>(
   OpenChannelId.new,
@@ -693,8 +693,8 @@ class ChatActions {
 
   /// Sends [text], letting the daemon pick the model.
   ///
-  /// WP-3.4's picker will pass one explicitly. Until then the daemon resolves
-  /// it from the account's selection, which is better than the renderer
+  /// A caller may name one; otherwise the daemon resolves it from the
+  /// account's selection, which is better than the renderer
   /// fetching a model list purely so it can name what the daemon already
   /// knows.
   Future<SendTurnAccepted> send({
@@ -797,7 +797,7 @@ class ChatActions {
     return result.failed;
   }
 
-  /// Shows the branch through [messageId] (WP-3.4).
+  /// Shows the branch through [messageId].
   Future<void> setCurrent(String chatId, String messageId) async {
     await _client.call(
       ConduitMethods.chatsSetCurrent,
@@ -811,7 +811,7 @@ class ChatActions {
       ..invalidate(chatTreeProvider);
   }
 
-  /// Sets a conversation's own system prompt; empty clears it (WP-3.4).
+  /// Sets a conversation's own system prompt; empty clears it.
   Future<void> setSystemPrompt(String chatId, String prompt) async {
     await _client.call(
       ConduitMethods.chatsSetSystemPrompt,
@@ -845,7 +845,7 @@ class ChatActions {
     decode: ChatShare.fromJson,
   );
 
-  /// Tags a conversation (WP-3.8). The header refreshes from the stored
+  /// Tags a conversation. The header refreshes from the stored
   /// copy once the daemon's `chats.changed` arrives.
   Future<void> addTag(String chatId, String name) => _client.call(
     ConduitMethods.chatsTagsAdd,
@@ -859,7 +859,7 @@ class ChatActions {
     decode: TagList.fromJson,
   );
 
-  /// Rates an answer: 1 up, -1 down (WP-3.8).
+  /// Rates an answer: 1 up, -1 down.
   ///
   /// Shown at once through [ratingOverridesProvider] and confirmed when the
   /// stored copy comes back with it. A refusal takes the thumb back off.
@@ -1003,7 +1003,7 @@ class ChatActions {
   }
 }
 
-/// Which folders the sidebar has open (WP-3.1).
+/// Which folders the sidebar has open.
 ///
 /// Null until the first list arrives, and then seeded from each folder's
 /// own `expanded` flag -- the state the account last left it in, so a new
@@ -1041,7 +1041,7 @@ class ExpandedFolders extends Notifier<Set<String>?> {
   }
 }
 
-/// Which alternative answer each message is showing (WP-3.8).
+/// Which alternative answer each message is showing.
 ///
 /// Keyed by message id and held per window. It changes what is on screen,
 /// not what the server considers current. That matches the mobile app, and
@@ -1074,7 +1074,7 @@ class EditingMessage extends Notifier<String?> {
   void stop() => state = null;
 }
 
-/// The sync engine's state (WP-3.1): asked for once, then followed.
+/// The sync engine's state: asked for once, then followed.
 ///
 /// Subscribed to events before asking, so a change that lands between the
 /// answer and the subscription is not lost. The later of the two wins,
@@ -1105,7 +1105,7 @@ final syncStateProvider = StreamProvider<SyncState>((ref) {
   return controller.stream;
 });
 
-/// Whether the next new conversation is temporary (WP-3.4).
+/// Whether the next new conversation is temporary.
 ///
 /// Held until turned off, not reset per chat, which matches Open WebUI. It
 /// is a mode someone chooses for a stretch of work, and silently switching
@@ -1121,7 +1121,7 @@ class TemporaryChat extends Notifier<bool> {
   void set({required bool value}) => state = value;
 }
 
-/// Whether [chatId] is a direct chat kept only on this computer (M4).
+/// Whether [chatId] is a direct chat kept only on this computer.
 ///
 /// Stored, so it can be branched, but Open WebUI has never heard of it:
 /// sharing, tags, ratings and the server-side controls do not apply.
@@ -1150,7 +1150,7 @@ class TemporaryChatIds extends Notifier<Set<String>> {
   void add(String chatId) => state = <String>{...state, chatId};
 }
 
-/// What the composer may offer for the next turn (WP-3.3).
+/// What the composer may offer for the next turn.
 ///
 /// Re-asked when the session or the model changes, since both decide it:
 /// image generation depends on the account's permissions, and a direct
@@ -1164,7 +1164,7 @@ final composerOptionsProvider = FutureProvider<ComposerOptions>((ref) async {
 });
 
 /// How many of the open conversation's latest messages the transcript
-/// renders (WP-10.1). A conversation of thousands opened in seconds, not
+/// renders. A conversation of thousands opened in seconds, not
 /// half a minute, and scrolls at 60 Hz: older ones come a page at a time,
 /// when asked for.
 final transcriptWindowProvider =

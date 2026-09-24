@@ -1,4 +1,4 @@
-/// The terminal (M7), as a port.
+/// The terminal, as a port.
 ///
 /// xterm.js and the shell's socket live in the browser, and the page that
 /// shows them is tested on the VM -- the same reason [NoteEditorPort] is a

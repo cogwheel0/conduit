@@ -11,7 +11,7 @@ import 'details_block.dart';
 import 'math_syntax.dart';
 import 'sandboxed_render.dart';
 
-/// Renders markdown as DOM, never as HTML (WP-3.5).
+/// Renders markdown as DOM, never as HTML.
 ///
 /// The obvious implementation is `md.markdownToHtml` into an `innerHTML`, and
 /// it is the one thing that must not happen here: this text is model output,
@@ -34,13 +34,13 @@ class MarkdownView extends StatelessComponent {
 
   final String markdown;
 
-  /// Passed through to every fenced block's copy button (WP-3.5).
+  /// Passed through to every fenced block's copy button.
   ///
   /// Null renders no button, which is the right answer on a surface with no
   /// clipboard -- the VM tests, and any host that has not bound the port.
   final void Function(String source)? onCopyCode;
 
-  /// Namespace for the sandbox frames this view creates (WP-3.5).
+  /// Namespace for the sandbox frames this view creates.
   ///
   /// Null renders formulas as their LaTeX source instead, which is what
   /// the VM tests and any host without a sandbox get. It has to be unique
@@ -48,7 +48,7 @@ class MarkdownView extends StatelessComponent {
   /// would draw into each other.
   final String? mathIdPrefix;
 
-  /// What the reply cites, in `[1]`, `[2]` order (WP-3.2). Empty leaves
+  /// What the reply cites, in `[1]`, `[2]` order. Empty leaves
   /// bracketed numbers as the text they are.
   final List<ChatSourceDto> sources;
 
@@ -59,8 +59,8 @@ class MarkdownView extends StatelessComponent {
   /// Inline and block tags the AST walker will render.
   ///
   /// Deliberately excludes `img` and `iframe`: a remote image in a reply is a
-  /// tracking pixel that reports when the user read it, and the plan routes
-  /// real embeds through a sandboxed frame instead.
+  /// tracking pixel that reports when the user read it, and real embeds go
+  /// through a sandboxed frame instead.
   static const Set<String> _allowedTags = <String>{
     'p',
     'br',

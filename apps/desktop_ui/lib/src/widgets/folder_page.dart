@@ -7,7 +7,7 @@ import '../l10n/strings.g.dart';
 import '../rpc/chat_providers.dart';
 import 'ui.dart';
 
-/// A folder, opened: everything in it, sortable (WP-3.1).
+/// A folder, opened: everything in it, sortable.
 ///
 /// In the main pane rather than the sidebar, which only ever holds the
 /// page of conversations it has loaded; this holds all of them.

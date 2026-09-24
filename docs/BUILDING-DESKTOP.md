@@ -12,9 +12,7 @@ a native sidecar that hosts the shared core, and a Jaspr renderer that talks
 to it over a loopback JSON-RPC WebSocket. This file is how to build, test and
 package it.
 
-> Status: M0 to M9 are done, apart from the Apple helper (WP-8.4) and what
-> needs signing certificates. M10 (hardening and the public release) is in
-> progress.
+> Status: alpha. What is not done yet is listed below.
 
 ## Requirements
 
@@ -53,11 +51,11 @@ connections, plus what a desktop adds:
 | Voice | Dictation, read aloud, voice calls, Settings → Audio |
 | Desktop | Tray, open at login, `conduit://` links, "Open with Conduit", notifications, quick ask, rebindable shortcuts, What's new |
 
-| Not yet | Where it lands |
+| Not yet | What it needs |
 | --- | --- |
-| On-device speech and Apple models on macOS | WP-8.4, the Swift helper |
-| Signed and notarized packages, store listings | WP-9.5/9.6, needs certificates and a first release |
-| Local speech recognition on Windows and Linux | M11 |
+| On-device speech and Apple models on macOS | the Swift helper |
+| Signed and notarized packages, store listings | certificates and a first release |
+| Local speech recognition on Windows | built, not yet checked on a Windows machine |
 
 Run `npm test` in `desktop/electron` to check the shell still launches and
 talks to the daemon.
@@ -212,7 +210,7 @@ from `lib/platform/`, and the daemon will bind its own. Reading an unbound
 port throws at startup rather than silently degrading.
 
 `tool/check_package_boundaries.dart` also enforces the reverse direction: once
-an M1 work package takes a directory off Flutter, that directory is listed in
+a directory comes off Flutter, it is listed in
 `_flutterFreeDirectories` and CI fails if the dependency comes back.
 
 The renderer holds no business logic. `tool/check_package_boundaries.dart`

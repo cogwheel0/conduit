@@ -5,7 +5,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 
 import 'rpc_providers.dart';
 
-/// Questions the server is waiting on a person to answer (WP-3.6).
+/// Questions the server is waiting on a person to answer.
 ///
 /// Oldest first. Every window holds the same queue: the daemon sends each
 /// request to all of them, and a `ui.settled` removes it from all of them

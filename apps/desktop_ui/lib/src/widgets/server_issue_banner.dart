@@ -6,7 +6,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import '../l10n/strings.g.dart';
 import '../rpc/session_providers.dart';
 
-/// The version gate and the connection-issue notice (WP-2.2).
+/// The version gate and the connection-issue notice.
 ///
 /// A banner in the shell rather than a route the guard redirects to. A
 /// redirect would eject the user from whatever they were doing the moment a

@@ -6,7 +6,7 @@ import 'package:uuid/uuid.dart';
 
 import 'event_bus.dart';
 
-/// The core asking a person something, answered from any window (WP-3.6).
+/// The core asking a person something, answered from any window.
 ///
 /// Implements the core's [UiRequestPort], so the streaming pipeline asks
 /// the same way it does on mobile. The question goes out as a `ui.request`
@@ -109,7 +109,7 @@ final class UiRequestsService implements UiRequestPort {
     return text == null || text.isEmpty ? null : text;
   }
 
-  /// Asks whether an MCP tool may run (M4), and how long the answer holds.
+  /// Asks whether an MCP tool may run, and how long the answer holds.
   ///
   /// The four answers mobile offers: `allow` (once), `allowSession`,
   /// `allowAlways`, or anything else, which denies. Unanswered for
@@ -130,7 +130,7 @@ final class UiRequestsService implements UiRequestPort {
     return response.choice;
   }
 
-  /// Asks whether a Hermes agent may go on with what it wants to do (M7):
+  /// Asks whether a Hermes agent may go on with what it wants to do:
   /// run a command, write a file. [choices] are the agent's own -- `once`,
   /// `session`, `always`, `deny` -- and unanswered it is denied.
   Future<String> askHermesApproval({

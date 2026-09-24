@@ -8,7 +8,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import '../l10n/strings.g.dart';
 import '../rpc/chat_providers.dart';
 
-/// Every branch of a conversation, as a tree (WP-3.4).
+/// Every branch of a conversation, as a tree.
 ///
 /// A run of single replies is drawn as one flat list; only where a message
 /// has several replies -- an edit, a regeneration -- does it indent, one

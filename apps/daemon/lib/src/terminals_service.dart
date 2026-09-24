@@ -32,7 +32,7 @@ final class _Handle {
 }
 
 /// Implements `terminal.*`, `WS /terminal/{handle}` and
-/// `POST /terminal-upload` (M7).
+/// `POST /terminal-upload`.
 ///
 /// A window never sees a terminal's credential. It asks for a handle, and
 /// the daemon adds the Open WebUI token or the server's key on everything

@@ -132,7 +132,7 @@ class Sidebar extends StatelessComponent {
                 // first sync took.
                 ? _hint(
                     // With no server there is nothing to sync, and never
-                    // will be: a Hermes- or direct-only setup (M7).
+                    // will be: a Hermes- or direct-only setup.
                     (context.watch(syncStateProvider).value?.everCompleted ??
                                 true) ||
                             switch (context.watch(serverListProvider).value) {
@@ -169,7 +169,7 @@ class Sidebar extends StatelessComponent {
           else
             _hint(t.app.loadingShort),
         ]),
-        // Hermes Agent's latest conversations, once it is connected (M7):
+        // Hermes Agent's latest conversations, once it is connected:
         // its sessions are not in the chat list, which is Open WebUI's.
         if (query.trim().isEmpty &&
             (context.watch(hermesSettingsProvider).value?.usable ?? false))
@@ -178,7 +178,7 @@ class Sidebar extends StatelessComponent {
         // which is where it used to sit -- on top of the send button.
         div(classes: 'shrink-0 space-y-0.5 border-t border-border px-1 pt-1', [
           const _SyncIndicator(),
-          // Notes live in the Open WebUI account, so only with one (M5).
+          // Notes live in the Open WebUI account, so only with one.
           if (context.watch(authStatusProvider).value?.isAuthenticated ?? false)
             _place(LucideIcon.notebookPen, t.app.notes, '/notes'),
           // Channels too, when the server has them switched on.
@@ -186,14 +186,13 @@ class Sidebar extends StatelessComponent {
                   false) &&
               (context.watch(channelListProvider).value?.enabled ?? false))
             _place(LucideIcon.hash, t.app.sidebarChannelsTab, '/channels'),
-          // Hermes Agent's conversations and schedules, once connected (M7).
+          // Hermes Agent's conversations and schedules, once connected.
           if (context.watch(hermesSettingsProvider).value?.usable ?? false)
             _place(LucideIcon.bot, t.app.hermesAgentSettingsTitle, '/hermes'),
-          // The terminal, when the account has a terminal server (M7).
+          // The terminal, when the account has a terminal server.
           if (terminalOffered(context.watch(terminalServersProvider).value))
             _place(LucideIcon.squareTerminal, t.app.terminal, '/terminal'),
-          // The workspace, when there is a section this account may manage
-          // (M6).
+          // The workspace, when there is a section this account may manage.
           if (manageableSections(
             context.watch(workspaceAccessProvider).value ??
                 const WorkspaceAccess(),
@@ -261,7 +260,7 @@ ChatList withOpenChat(ChatList list, ChatSummary? open) {
   return list.copyWith(chats: chats);
 }
 
-/// The sidebar's list, in the sections Open WebUI draws (WP-3.1).
+/// The sidebar's list, in the sections Open WebUI draws.
 ///
 /// The sorting lives in `buildSidebar`, which is pure and tested on its own;
 /// this only draws what it decided.
@@ -361,8 +360,8 @@ class _Sections extends StatelessComponent {
   static const int _chunkRows = 100;
 
   /// [chats] as rows: all of them for an ordinary group, and for a big one
-  /// the first [_eagerRows], then chunks drawn only when scrolled near
-  /// (WP-10.1). A group of thousands otherwise rebuilt every row on every
+  /// the first [_eagerRows], then chunks drawn only when scrolled near.
+  /// A group of thousands otherwise rebuilt every row on every
   /// sync event, and each "Load more" took seconds.
   Component _chunked(List<ChatSummary> chats, String key) {
     if (chats.length <= _eagerRows) {
@@ -664,7 +663,7 @@ class _LazyRowsState extends State<_LazyRows> {
   );
 }
 
-/// Whether the conversation list is still catching up (WP-3.1).
+/// Whether the conversation list is still catching up.
 ///
 /// Quiet on purpose. When the sync is idle and healthy it renders nothing,
 /// because a permanent "Synced" line is noise. It appears only while there
@@ -861,7 +860,7 @@ class _ChatRowState extends State<_ChatRow> {
     return li(
       classes: 'group relative',
       // Skipped off screen, as the transcript's messages are: a big account
-      // lists thousands of rows (WP-10.1). But not while the right-click
+      // lists thousands of rows. But not while the right-click
       // menu is open -- `content-visibility` contains paint, which makes the
       // row the box a `fixed` child is placed in, and the menu would be
       // clipped to it.

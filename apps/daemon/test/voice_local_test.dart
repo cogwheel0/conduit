@@ -14,7 +14,7 @@ import 'package:test/test.dart';
 
 import 'support/null_sink.dart';
 
-/// Transcribing on this computer (M11), through the daemon's voice service
+/// Transcribing on this computer, through the daemon's voice service
 /// with no server at all. The whisper parts run when a built library and a
 /// model are at hand: CONDUIT_WHISPER_LIB and CONDUIT_WHISPER_MODEL (a
 /// ggml-tiny.en.bin), with CONDUIT_SPEECH_SAMPLE the fox sentence as WAV.

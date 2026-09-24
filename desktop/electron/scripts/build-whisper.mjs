@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Builds libconduit_whisper (M11): whisper.cpp and a small C face on it,
+// Builds libconduit_whisper: whisper.cpp and a small C face on it,
 // for transcribing speech on this computer. Needs CMake and a C/C++
 // compiler; fetches whisper.cpp at the tag pinned in the CMake file.
 //
@@ -32,7 +32,7 @@ const name =
 function run(args) {
   const result = spawnSync('cmake', args, { stdio: 'inherit', shell: process.platform === 'win32' })
   if (result.error?.code === 'ENOENT') {
-    console.error('cmake is not installed; it builds the local speech engine (M11).')
+    console.error('cmake is not installed; it builds the local speech engine.')
     process.exit(1)
   }
   if (result.status !== 0) process.exit(result.status ?? 1)

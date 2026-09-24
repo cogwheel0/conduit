@@ -3,7 +3,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 part 'notes.freezed.dart';
 part 'notes.g.dart';
 
-/// A note, as the list shows it (M5).
+/// A note, as the list shows it.
 @freezed
 abstract class NoteSummary with _$NoteSummary {
   const factory NoteSummary({

@@ -9,7 +9,7 @@ import '../l10n/strings.g.dart';
 import '../rpc/direct_providers.dart';
 import '../widgets/form_field.dart';
 
-/// One Ollama connection's models (M4): whether each is in memory, loading
+/// One Ollama connection's models: whether each is in memory, loading
 /// and unloading it, how long it stays loaded, and for Ollama Cloud how
 /// much it thinks.
 ///

@@ -7,8 +7,7 @@ import 'code_languages.dart';
 import 'html_preview.dart';
 import 'ui.dart';
 
-/// A fenced code block: language label, copy button, highlighted source
-/// (WP-3.5).
+/// A fenced code block: language label, copy button, highlighted source.
 ///
 /// `highlight` returns a node tree rather than a string of HTML, and this
 /// walks it into components. That is not a stylistic preference: the source

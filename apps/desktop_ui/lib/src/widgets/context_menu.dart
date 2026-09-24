@@ -17,7 +17,7 @@ class ContextMenuItem {
   final bool destructive;
 }
 
-/// A right-click menu (WP-3.1).
+/// A right-click menu.
 ///
 /// Everything it offers is also reachable without it -- the hover actions,
 /// the header -- because a context menu is where a mouse user looks first

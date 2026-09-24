@@ -9,7 +9,7 @@ resolution: workspace
 environment:
   sdk: ">=3.13.0 <4.0.0"
 
-# Section 2.2 import rule, enforced by tool/check_package_boundaries.dart in
+# The renderer's import rule, enforced by tool/check_package_boundaries.dart in
 # CI: this package may import only what it declares below, and may never
 # declare dio, drift, conduit_core, conduitd, conduit or flutter. Anything
 # that is logic belongs in the daemon, behind RPC. Adding a dependency here
@@ -60,7 +60,7 @@ dev_dependencies:
   build_web_compilers: ^4.8.10
   jaspr_test: 0.23.4
   lints: ^6.0.0
-  # Reads the mobile app's ARB files directly (WP-0.8). Flutter-independent,
+  # Reads the mobile app's ARB files directly. Flutter-independent,
   # and run as a CLI rather than a build_runner builder so it adds no
   # constraint to the shared lockfile's analyzer.
   slang: ^4.19.2

@@ -10,7 +10,7 @@ import 'package:test/test.dart';
 
 import 'support/null_sink.dart';
 
-/// `direct.*` over the real core (WP-4.1): profiles land in the daemon's
+/// `direct.*` over the real core: profiles land in the daemon's
 /// secure store, and nothing secret ever comes back out.
 void main() {
   late Directory temporary;

@@ -1,6 +1,6 @@
 import 'package:markdown/markdown.dart' as md;
 
-/// LaTeX delimiters, as an inline markdown syntax (WP-3.5).
+/// LaTeX delimiters, as an inline markdown syntax.
 ///
 /// `package:markdown` has no notion of math, and models write it four ways:
 /// `$x$`, `$$x$$`, `\(x\)` and `\[x\]`. Each becomes a `math` element with a

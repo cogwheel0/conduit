@@ -17,7 +17,7 @@ const int kConduitRpcErrorCode = -32000;
 /// Errors travel as `{code, args}` rather than as prose. The daemon has no
 /// locale and no access to the ARB catalog; the UI looks [code] up in its
 /// localizations and interpolates [args]. This is what lets `api_service.dart`
-/// drop its `current_localizations` import (WP-1.6).
+/// drop its `current_localizations` import.
 /// Implements [Exception] so a handler can `throw RpcError(...)` directly;
 /// [registerTypedMethod] converts it to the wire form on the way out.
 @freezed
@@ -121,8 +121,7 @@ abstract final class ConduitErrorCodes {
   static const String invalidCredentials = 'auth.invalidCredentials';
   static const String sessionExpired = 'auth.sessionExpired';
 
-  // Placeholder families. Filled in as each milestone lands its methods; the
-  // constants exist now so handlers can be written against them.
+  // Shared families, which handlers are written against.
   static const String notFound = 'resource.notFound';
   static const String conflict = 'resource.conflict';
   static const String unsupported = 'capability.unsupported';

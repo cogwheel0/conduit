@@ -12,7 +12,7 @@ import 'package:uuid/uuid.dart';
 
 import 'settled.dart';
 
-/// Implements `direct.*`: connections the app talks to itself (WP-4.1).
+/// Implements `direct.*`: connections the app talks to itself.
 ///
 /// Everything that decides what is safe is the core's -- validation, the
 /// rule that a key does not follow a URL to a new origin, the secure store
@@ -33,7 +33,7 @@ final class DirectService {
     return DirectConnectionList(
       connections: <DirectConnectionSummary>[
         for (final profile in profiles)
-          // Apple's connections are the app's own, managed in M8.
+          // Apple's connections are the app's own, managed elsewhere.
           if (profile.adapterKey == kOpenAiCompatibleAdapterKey ||
               profile.adapterKey == kOllamaAdapterKey)
             _summarize(profile),
@@ -262,7 +262,7 @@ final class DirectService {
     return list();
   }
 
-  /// An Ollama connection's models and what can be done to them (M4).
+  /// An Ollama connection's models and what can be done to them.
   ///
   /// Listed from the server itself rather than from the model picker, so a
   /// connection that is switched off can still be managed.

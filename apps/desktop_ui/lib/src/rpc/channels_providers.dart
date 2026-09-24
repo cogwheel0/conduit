@@ -15,7 +15,7 @@ final _channelsChangedProvider = StreamProvider<int>((ref) {
       .map((_) => ++tick);
 });
 
-/// Every channel the user can see (M5).
+/// Every channel the user can see.
 final channelListProvider = FutureProvider<ChannelList>((ref) async {
   ref.watch(coreConnectionProvider);
   ref.watch(_channelsChangedProvider);

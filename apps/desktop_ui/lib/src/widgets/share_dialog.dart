@@ -9,7 +9,7 @@ import '../rpc/chat_providers.dart';
 import '../rpc/rpc_providers.dart';
 import '../rpc/session_providers.dart';
 
-/// Open WebUI's share modal, with its wording (WP-3.1).
+/// Open WebUI's share modal, with its wording.
 ///
 /// A share is a snapshot: the server copies the conversation as it stands,
 /// and the link shows that copy. So sharing again is "update", and the

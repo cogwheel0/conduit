@@ -11,7 +11,7 @@ import '../rpc/chat_providers.dart';
 import '../rpc/rpc_providers.dart';
 import '../shortcuts.dart';
 
-/// The shell's settings, as the main process keeps them (M9).
+/// The shell's settings, as the main process keeps them.
 final shellSettingsProvider = FutureProvider<ShellSettings>(
   (ref) => ref.read(desktopShellProvider).settings(),
 );
@@ -50,7 +50,7 @@ class ComposerPrefill extends Notifier<ComposerDraft?> {
   }
 }
 
-/// The main window's side of the desktop (M9): opening what a link, a
+/// The main window's side of the desktop: opening what a link, a
 /// notification or the tray asks for, and notifying when an answer or a
 /// channel message arrives out of sight.
 class DesktopIntegration extends StatefulComponent {

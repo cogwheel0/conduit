@@ -208,7 +208,7 @@ final class AuthService {
   }
 
   /// The core's `AuthState.error` is a human string, sometimes from the
-  /// server. Section 4 says errors cross as codes, so the phase decides the
+  /// server. Errors cross the protocol as codes, so the phase decides the
   /// code and the prose is dropped rather than shown in the server's locale.
   static String? _errorCodeFor(AuthState state) => switch (state.status) {
     AuthStatus.credentialError => ConduitErrorCodes.invalidCredentials,

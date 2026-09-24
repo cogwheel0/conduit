@@ -1,6 +1,6 @@
 part of 'turns_service.dart';
 
-/// Hermes Agent turns (M7), in a chat that is a Hermes session.
+/// Hermes Agent turns, in a chat that is a Hermes session.
 ///
 /// Sessions live on the Hermes server; a new chat makes one first, so its
 /// id -- `local:hermes_<session>` -- is final from the start and never

@@ -353,7 +353,7 @@ async function fakeMcpServer(): Promise<{ endpoint: string; calls: number; close
 }
 
 /**
- * A terminal server in the shape of Open WebUI's open-terminal (M7): REST
+ * A terminal server in the shape of Open WebUI's open-terminal: REST
  * for files and ports, and a WebSocket shell. The shell is a real `sh`
  * over pipes -- no pty, so this server echoes keystrokes itself and turns
  * Enter into a newline -- in a temporary folder that is also the files
@@ -530,7 +530,7 @@ test.describe('against a real server', () => {
         // a CI box has none. The app's own permission policy still decides.
         '--use-fake-device-for-media-stream',
         // Spoken words instead of the fake device's beep, when a WAV of
-        // "The quick brown fox jumps over the lazy dog." is given (M8).
+        // "The quick brown fox jumps over the lazy dog." is given.
         ...(speechSample ? [`--use-file-for-fake-audio-capture=${speechSample}`] : []),
       ],
       cwd: join(__dirname, '..'),
@@ -733,7 +733,7 @@ test.describe('against a real server', () => {
       .poll(() => transcript.locator('article').count(), { timeout: 15_000 })
       .toBe(0)
 
-    // 7. The keyboard layer (WP-3.7). Ctrl+/ is bound at the document, so
+    // 7. The keyboard layer. Ctrl+/ is bound at the document, so
     // it has to work with focus wherever the last step left it.
     await page.keyboard.press('Control+Slash')
     const overlay = page.getByRole('dialog', { name: /keyboard shortcuts/i })
@@ -744,7 +744,7 @@ test.describe('against a real server', () => {
     await page.keyboard.press('Escape')
     await expect(overlay).toBeHidden()
 
-    // 7b. The command palette (WP-3.1). Ctrl+K from anywhere opens it with
+    // 7b. The command palette. Ctrl+K from anywhere opens it with
     // the caret in its field, and Enter runs the highlighted row -- here a
     // command, found by a fragment of its name.
     await page.keyboard.press('Control+k')
@@ -835,8 +835,8 @@ test.describe('against a real server', () => {
     await openChatLeadsSidebar(page)
     await shot(page, '08-reply')
 
-    // 8b. Regenerate from the UI, then walk back to the answer it replaced
-    // (WP-3.8). The first regenerate orphaned the new answer on the server
+    // 8b. Regenerate from the UI, then walk back to the answer it replaced.
+    // The first regenerate orphaned the new answer on the server
     // and dropped the question from the conversation. Only a round trip
     // through the real server shows the tree is right.
     await idle(page)
@@ -860,7 +860,7 @@ test.describe('against a real server', () => {
     await expect(transcript.getByText(/^1\/2$/)).toBeVisible()
     await shot(page, '08b-branches')
 
-    // 8b'. Rate the current answer (WP-3.8). A real evaluation is filed on
+    // 8b'. Rate the current answer. A real evaluation is filed on
     // the server, so the step notes which already existed and deletes only
     // the one it made.
     await transcript
@@ -906,7 +906,7 @@ test.describe('against a real server', () => {
       }
     }
 
-    // 8d. Tag the conversation (WP-3.8), find it by the tag, untag it. The
+    // 8d. Tag the conversation, find it by the tag, untag it. The
     // name is unique to this run, and the server drops a tag once no
     // conversation carries it, so nothing is left behind.
     const tagName = `e2e ${process.pid}`
@@ -935,8 +935,8 @@ test.describe('against a real server', () => {
     await expect(tagChip).toBeHidden({ timeout: 30_000 })
     await page.getByLabel(/search conversations/i).fill('')
 
-    // 8e. A right-click menu on the open conversation's row, and sharing
-    // (WP-3.1). The link is deleted again before the step ends: a share is
+    // 8e. A right-click menu on the open conversation's row, and sharing.
+    // The link is deleted again before the step ends: a share is
     // a public URL, and a test has no business leaving one up.
     await page
       .locator('nav[aria-label] button[aria-current="true"]')
@@ -997,7 +997,7 @@ test.describe('against a real server', () => {
       await cleanup.dispose()
     }
 
-    // 8f. Into a folder and back out (WP-3.1): the context menu one way,
+    // 8f. Into a folder and back out: the context menu one way,
     // a drag the other. Only when the account has a folder to use; the
     // conversation is this run's, and it ends where it started.
     const foldersSection = page
@@ -1060,7 +1060,7 @@ test.describe('against a real server', () => {
       await expect(page.getByLabel(/^sort by$/i)).toBeHidden()
     }
 
-    // 8g. Several at once (WP-3.8): archive this run's conversation from
+    // 8g. Several at once: archive this run's conversation from
     // the selection mode, then bring it back the same way. Found by its id,
     // which the checkbox carries, never by a title other chats could share.
     await openChatLeadsSidebar(page)
@@ -1094,7 +1094,7 @@ test.describe('against a real server', () => {
     if ((await archivedToggle.count()) > 0) await archivedToggle.click()
     await openChatLeadsSidebar(page)
 
-    // 8h. The controls pane (WP-3.4): this conversation's own system
+    // 8h. The controls pane: this conversation's own system
     // prompt, saved to the server and read back, then cleared again.
     await page.locator('header').getByRole('button', { name: /^side pane$/i }).click()
     const controls = page.getByRole('complementary', { name: /controls/i })
@@ -1109,7 +1109,7 @@ test.describe('against a real server', () => {
     await controls.getByRole('button', { name: /^save$/i }).click()
     await expect(controls.getByText(/^saved$/i)).toBeVisible({ timeout: 30_000 })
 
-    // The overview (WP-3.4): both answers the regeneration left, one
+    // The overview: both answers the regeneration left, one
     // current. Switching to the other and back goes through the server.
     {
       const overview = controls.getByRole('region', { name: /^overview$/i })
@@ -1135,7 +1135,7 @@ test.describe('against a real server', () => {
     await page.getByRole('button', { name: /^close the side pane$/i }).click()
     await expect(controls).toBeHidden()
 
-    // 8c. Edit the question in place (WP-3.2). The conversation should read
+    // 8c. Edit the question in place. The conversation should read
     // as the edited question and a new answer, with the original gone from
     // view but kept on the server as the branch it was.
     await idle(page)
@@ -1155,7 +1155,7 @@ test.describe('against a real server', () => {
     await shot(page, '08c-edited')
     await page.keyboard.press('Shift+Escape')
 
-    // 9. A code block, highlighted and copyable (WP-3.5). The prompt is
+    // 9. A code block, highlighted and copyable. The prompt is
     // narrow because a 1B model will happily write an essay around it.
     await idle(page)
     await page.keyboard.type(
@@ -1294,7 +1294,7 @@ test.describe('against a real server', () => {
       .toBeGreaterThan(beforeAttachment + 1)
     // And the composer emptied of chips along with the text.
     await expect(chip).toBeHidden()
-    // The question carries its attachment in the transcript (WP-3.2), once
+    // The question carries its attachment in the transcript, once
     // the stored copy is back.
     // `first`: the answer's collapsed Sources list names the file too.
     await expect(transcript.getByText(basename(attachPath)).first()).toBeVisible({
@@ -1394,7 +1394,7 @@ test.describe('against a real server', () => {
     }
     await expect(chips).toBeHidden()
 
-    // 12d. A saved prompt through the `/` menu (WP-3.3). Created for this
+    // 12d. A saved prompt through the `/` menu. Created for this
     // run through the server's API and deleted again afterwards, since an
     // account need not have any -- and the one this runs against has none.
     // Skipped when the account may not create prompts.
@@ -1451,7 +1451,7 @@ test.describe('against a real server', () => {
       await api.dispose()
     }
 
-    // 12d'. `@model` (WP-3.3): picks who answers the next message, shown
+    // 12d'. `@model`: picks who answers the next message, shown
     // as a chip, and the text loses the mention. Cleared rather than sent.
     {
       const composer = page.getByPlaceholder('Ask Conduit')
@@ -1470,7 +1470,7 @@ test.describe('against a real server', () => {
       await expect(page.getByText(/^next answer from /i)).toBeHidden()
     }
 
-    // 12d''. `#knowledge` (WP-3.3): a knowledge base this run creates,
+    // 12d''. `#knowledge`: a knowledge base this run creates,
     // chosen from the menu into a chip, then taken off again and deleted.
     // Skipped when the account may not create one.
     {
@@ -1508,7 +1508,7 @@ test.describe('against a real server', () => {
       }
     }
 
-    // 12e. Offline (WP-3.3). The window's own `offline` event, as the
+    // 12e. Offline. The window's own `offline` event, as the
     // browser fires it when the network goes: the banner appears, Send
     // pauses, and both come back with `online`.
     await page.getByPlaceholder('Ask Conduit').fill('Held until online')
@@ -1550,7 +1550,7 @@ test.describe('against a real server', () => {
     ).toHaveCount(0)
     process.stderr.write(`[cleanup] deleted "${currentTitle}"\n`)
 
-    // 14. A temporary chat (WP-3.4): answered, marked as temporary, and
+    // 14. A temporary chat: answered, marked as temporary, and
     // never in the sidebar, because the server was never told about it.
     const rowsBefore = await page.locator('nav[aria-label] li').count()
     await page.getByLabel(/temporary chat/i).check()
@@ -1587,7 +1587,7 @@ test.describe('against a real server', () => {
     await page.waitForTimeout(500)
     await shot(page, '14-settings-connections')
 
-    // 15. A direct connection (WP-4.2): the test server's own OpenAI-
+    // 15. A direct connection: the test server's own OpenAI-
     // compatible API, with this session's token as its key. Tested, saved,
     // shown without its key, and deleted. It lives in this run's throwaway
     // profile, so nothing outlives the run even if a step fails.
@@ -1613,7 +1613,7 @@ test.describe('against a real server', () => {
     await expect(settingsDialog.getByText('Open WebUI API')).toBeVisible()
     await shot(page, '15b-direct-list')
 
-    // 15c. A chat through it (M4): the daemon is the client, the answer is
+    // 15c. A chat through it: the daemon is the client, the answer is
     // stored here and mirrored to the account, where the chat is found and
     // deleted by its unique question.
     await page.evaluate(() => {
@@ -1695,7 +1695,7 @@ test.describe('against a real server', () => {
       timeout: 30_000,
     })
 
-    // 16. MCP tools on a direct model (M4): a server added in settings,
+    // 16. MCP tools on a direct model: a server added in settings,
     // chosen in the composer, and a call that waits for the user's yes.
     // The provider and the MCP server run in this process; the history
     // stays on this computer, so the account is not touched.
@@ -1789,7 +1789,7 @@ test.describe('against a real server', () => {
       await expect(toolComposer).toHaveValue(/Water the plants\./)
       await toolComposer.fill('')
 
-      // 17. Ollama's model memory (M4), with the connection's models.
+      // 17. Ollama's model memory, with the connection's models.
       const ollama = await fakeOllama()
       try {
         await page.evaluate(() => {
@@ -1816,7 +1816,7 @@ test.describe('against a real server', () => {
         ollama.close()
       }
 
-      // 18. Notes (M5): the account's notes, edited in Quill, saved as the
+      // 18. Notes: the account's notes, edited in Quill, saved as the
       // markdown the web client reads. This run's note is deleted in the UI,
       // and again through the API should any step fail first.
       await page.evaluate(() => {
@@ -1915,7 +1915,7 @@ test.describe('against a real server', () => {
         await api.dispose()
       }
 
-      // 19. Channels (M5): a channel of this run's own -- a post, a
+      // 19. Channels: a channel of this run's own -- a post, a
       // reaction, a reply in its thread -- then deleted.
       await page.getByRole('link', { name: /^back$/i }).click()
       await page.getByRole('link', { name: /^channels$/i }).click()
@@ -1974,7 +1974,7 @@ test.describe('against a real server', () => {
         await api.dispose()
       }
 
-      // 20. The workspace (M6): a prompt made, versioned, compared,
+      // 20. The workspace: a prompt made, versioned, compared,
       // exported, shared and deleted; a knowledge base with a folder and a
       // file uploaded into it. Everything is this run's own, and deleted
       // through the API as well should a step fail first.
@@ -2183,7 +2183,7 @@ test.describe('against a real server', () => {
         rmSync(imagePath, { force: true })
       }
 
-      // 21. The terminal (M7): a terminal server added to the account's
+      // 21. The terminal: a terminal server added to the account's
       // settings for this step -- a real `sh` behind open-terminal's API --
       // then the shell, its files and a port, and the server removed again.
       const terminal = await fakeTerminal()
@@ -2362,7 +2362,7 @@ test.describe('against a real server', () => {
         terminal.close()
       }
 
-      // M8: voice. Settings → Audio, then dictation and a call through the
+      // Voice. Settings → Audio, then dictation and a call through the
       // server's transcription -- with real words when a sample is given --
       // and an answer read aloud.
       {
@@ -2425,7 +2425,7 @@ test.describe('against a real server', () => {
         await expect(listen).toHaveAttribute('aria-pressed', 'false')
       }
 
-      // M9: "Open with Conduit". A second launch with a file, as the OS
+      // "Open with Conduit". A second launch with a file, as the OS
       // does, uploads it through the daemon and starts a chat with it.
       {
         const name = `conduit-e2e-open-${process.pid}.txt`

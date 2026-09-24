@@ -5,7 +5,7 @@ import '../l10n/strings.g.dart';
 import '../shortcuts.dart';
 import 'ui.dart';
 
-/// The `Cmd+/` sheet (WP-3.7).
+/// The `Cmd+/` sheet.
 ///
 /// Reads the same [defaultShortcuts] table the dispatcher matches against,
 /// so the list cannot drift from what the keys actually do -- which is the

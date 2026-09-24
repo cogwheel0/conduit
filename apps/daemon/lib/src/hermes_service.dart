@@ -28,7 +28,7 @@ String? hermesSessionOf(String chatId) =>
     ? chatId.substring('local:hermes_'.length)
     : null;
 
-/// Implements `hermes.*` (M7) over the core's Hermes providers.
+/// Implements `hermes.*` over the core's Hermes providers.
 ///
 /// The connection, its secrets and every session action go through the
 /// providers mobile uses -- which check that the connection did not change

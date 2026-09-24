@@ -4,7 +4,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import '../note_editor.dart';
 import 'rpc_providers.dart';
 
-/// The notes editor, overridden in `main.dart` with Quill (M5).
+/// The notes editor, overridden in `main.dart` with Quill.
 final noteEditorProvider = Provider<NoteEditorPort>(
   (ref) => RecordingNoteEditor(),
 );

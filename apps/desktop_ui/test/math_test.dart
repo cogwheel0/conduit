@@ -8,7 +8,7 @@ import 'package:jaspr/jaspr.dart';
 import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import 'package:jaspr_test/jaspr_test.dart';
 
-/// Math in replies (WP-3.5).
+/// Math in replies.
 ///
 /// The delimiter rules are the substance here. A missed formula renders as
 /// the LaTeX the model wrote, which is readable; a false positive turns a

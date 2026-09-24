@@ -1,4 +1,4 @@
-# Flatpak manifest (WP-9.6): the published .deb, unpacked into /app.
+# Flatpak manifest: the published .deb, unpacked into /app.
 app-id: app.cogwheel.conduit.desktop
 runtime: org.freedesktop.Platform
 runtime-version: '24.08'

@@ -9,7 +9,7 @@ import 'package:riverpod/riverpod.dart';
 
 import 'settled.dart';
 
-/// Implements `POST /upload`: attachments on their way to the server (WP-3.3).
+/// Implements `POST /upload`: attachments on their way to the server.
 ///
 /// An HTTP route rather than an RPC method because of what it carries. A
 /// JSON-RPC frame is a string, so a 200 MB attachment would have to become
@@ -98,7 +98,7 @@ final class FilesService {
     ];
   }
 
-  /// A file on the active server, for `GET /files/{server}/{file}` (WP-3.2).
+  /// A file on the active server, for `GET /files/{server}/{file}`.
   ///
   /// Through the core's authenticated client, so an `<img>` in the window
   /// shows an attachment without the window ever holding the server's

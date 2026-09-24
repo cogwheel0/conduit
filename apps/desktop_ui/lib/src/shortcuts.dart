@@ -1,4 +1,4 @@
-/// The keyboard layer (WP-3.7).
+/// The keyboard layer.
 ///
 /// Deliberately free of `package:web`: a chord, the table and the matching
 /// rules are values and pure functions, so the behaviour that is easy to get
@@ -76,9 +76,8 @@ class Shortcut {
 
 /// Open WebUI's defaults, for the actions this app can carry out today.
 ///
-/// Section 5.2 lists more -- temporary chat, regenerate, tool
-/// approve/deny, edit last message. Each waits on a feature that does not
-/// exist yet (M4, and edit-and-branch in WP-3.2), and a shortcut
+/// Open WebUI has more -- temporary chat, regenerate, edit last message.
+/// Each is added here with the feature it drives, because a shortcut
 /// overlay that advertises a key doing nothing is worse than one that is
 /// short: the user presses it, nothing happens, and they stop trusting the
 /// list. They join this table with their features.
@@ -88,7 +87,7 @@ const List<Shortcut> defaultShortcuts = <Shortcut>[
     KeyStroke('o', primary: true, shift: true),
     whileTyping: true,
   ),
-  // The command palette (WP-3.1), which is also where search lives: it
+  // The command palette, which is also where search lives: it
   // finds conversations as well as commands, so a separate "focus the
   // sidebar search" chord would be a second way to do half of this.
   Shortcut(
@@ -130,7 +129,7 @@ const List<Shortcut> defaultShortcuts = <Shortcut>[
     KeyStroke('c', primary: true, shift: true),
     whileTyping: true,
   ),
-  // Answer the server's waiting request (WP-3.6). Alt as well as the
+  // Answer the server's waiting request. Alt as well as the
   // accelerator, so neither can be pressed by accident while typing.
   // Allowing a tool to run should take a deliberate chord.
   Shortcut(
@@ -148,7 +147,7 @@ const List<Shortcut> defaultShortcuts = <Shortcut>[
     KeyStroke(';', primary: true, shift: true),
     whileTyping: true,
   ),
-  // Dictation (M8): start, and stop to transcribe.
+  // Dictation: start, and stop to transcribe.
   Shortcut(
     ShortcutAction.dictate,
     KeyStroke('l', primary: true, shift: true),
@@ -255,7 +254,7 @@ String? lastCodeBlock(String markdown) {
   return last;
 }
 
-/// [stroke] as stored, e.g. `mod+shift+o` (WP-9.4).
+/// [stroke] as stored, e.g. `mod+shift+o`.
 String encodeStroke(KeyStroke stroke) => <String>[
   if (stroke.primary) 'mod',
   if (stroke.shift) 'shift',

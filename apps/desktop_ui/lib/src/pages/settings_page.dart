@@ -39,7 +39,7 @@ enum SettingsTab {
       SettingsTab.appearance;
 }
 
-/// The settings modal (WP-2.4).
+/// The settings modal.
 ///
 /// A route rather than a component toggled by a flag, so the tab is in the
 /// URL: "settings, connections tab" is then a thing a menu item, a keyboard

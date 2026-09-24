@@ -21,7 +21,7 @@ import '../widgets/ui.dart';
 import 'workspace/workspace_common.dart'
     show actionButton, confirmBox, modal, statusLine, workspaceGo;
 
-/// The terminal (M7): a shell on one of the account's terminal servers,
+/// The terminal: a shell on one of the account's terminal servers,
 /// its files and its listening ports.
 class TerminalPage extends StatelessComponent {
   const TerminalPage({super.key});
@@ -722,7 +722,7 @@ bool terminalOffered(TerminalServers? servers) =>
     servers != null && servers.servers.isNotEmpty;
 
 /// Hears `terminal.displayFile` for the open conversation, and takes the
-/// window to the terminal with the file shown (M7).
+/// window to the terminal with the file shown.
 class TerminalDisplayRequests extends StatefulComponent {
   const TerminalDisplayRequests({super.key});
 

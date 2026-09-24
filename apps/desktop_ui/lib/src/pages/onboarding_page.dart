@@ -19,12 +19,12 @@ import 'hermes_settings_tab.dart' show HermesConnectionForm;
 
 /// How the app connects: the first thing a fresh install shows.
 ///
-/// A choice first (M4), as on mobile: an Open WebUI server, or direct
+/// A choice first, as on mobile: an Open WebUI server, or direct
 /// connections to model APIs with no server at all. Hermes and Apple
-/// Intelligence join the list when they are built (M7, M8) -- an entry that
+/// Intelligence join the list when they are built -- an entry that
 /// leads nowhere is worse than no entry.
 ///
-/// Server setup (WP-2.2):
+/// Server setup:
 /// Adds a server and connects to it in one gesture, because from the user's
 /// side those are one act. They are two RPCs because `servers.add` must not
 /// be destructive -- `servers.connect` supersedes every other configured
@@ -180,7 +180,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
     ],
   );
 
-  /// Hermes Agent, set up in place (M7). Once it is usable the session
+  /// Hermes Agent, set up in place. Once it is usable the session
   /// gate takes the window to the chat, with the agent to talk to.
   Component _hermes(BuildContext context) {
     final saved = context.watch(hermesSettingsProvider).value;
@@ -506,7 +506,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
     }
   }
 
-  /// Codes, not server prose: the daemon has no locale (WP-1.6).
+  /// Codes, not server prose: the daemon has no locale.
   String _describe(RpcError error) => switch (error.code) {
     ConduitErrorCodes.invalidParams => t.app.serverNotOpenWebUI,
     ConduitErrorCodes.connectionFailed => t.app.weCouldntReachServer,

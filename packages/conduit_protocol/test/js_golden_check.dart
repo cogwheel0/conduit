@@ -2,7 +2,7 @@
 // `dart compile js` and run them under Node.
 //
 // `package:test`'s own browser runner would need a browser; this is cheaper
-// and proves the thing section 2.2 actually requires — that conduit_protocol
+// and proves the thing the renderer actually requires — that conduit_protocol
 // and its goldens survive dart2js. A mismatch here is almost always a number
 // or type-coercion difference between the VM and JS.
 //

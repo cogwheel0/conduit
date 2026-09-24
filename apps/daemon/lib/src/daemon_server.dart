@@ -288,7 +288,7 @@ class DaemonServer {
     return shelf.Response.notFound('no such endpoint');
   }
 
-  /// `WS /terminal/{handle}` -- a shell, through the daemon (M7). The auth
+  /// `WS /terminal/{handle}` -- a shell, through the daemon. The auth
   /// gate has checked the origin and the session token already; an unknown
   /// handle is refused before the upgrade.
   Future<shelf.Response> _terminalTunnel(
@@ -308,7 +308,7 @@ class DaemonServer {
     )(request);
   }
 
-  /// `POST /terminal-upload` -- a file into a terminal's machine (M7).
+  /// `POST /terminal-upload` -- a file into a terminal's machine.
   /// The same body as `/upload`; the handle and directory come in headers.
   Future<shelf.Response> _terminalUpload(shelf.Request request) async {
     final terminals = _terminals;
@@ -375,7 +375,7 @@ class DaemonServer {
     }
   }
 
-  /// `POST /upload` -- an attachment on its way to the server (WP-3.3).
+  /// `POST /upload` -- an attachment on its way to the server.
   ///
   /// The body is the file's bytes and nothing else. No multipart parsing
   /// here: both ends of this request are ours, the daemon re-wraps the
@@ -445,7 +445,7 @@ class DaemonServer {
     }
   }
 
-  /// `GET /files/{serverId}/{fileId}` -- an attachment for an `<img>` (WP-3.2).
+  /// `GET /files/{serverId}/{fileId}` -- an attachment for an `<img>`.
   ///
   /// Electron adds the daemon's token to the window's requests to this
   /// port, so the image tag carries no credential and the daemon still
@@ -497,7 +497,7 @@ class DaemonServer {
     }
   }
 
-  /// `POST /transcribe` -- a recording, as text (M8). The body is the
+  /// `POST /transcribe` -- a recording, as text. The body is the
   /// recording and nothing else; its type is the content type.
   Future<shelf.Response> _transcribe(shelf.Request request) async {
     final voice = _voice;
@@ -532,7 +532,7 @@ class DaemonServer {
   }
 
   /// `GET /tts/{jobId}` -- a `voice.speak` job's audio, for an `<audio>`
-  /// element (M8). Electron adds the token, as for `/files/`.
+  /// element. Electron adds the token, as for `/files/`.
   Future<shelf.Response> _speech(shelf.Request request, String path) async {
     final voice = _voice;
     if (voice == null) {

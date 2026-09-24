@@ -16,7 +16,7 @@ import 'support/null_sink.dart';
 const String _token = 'cJkVQ1mEo3nT7pZs9YbXwF2gH5LdRaUvNi0KqMtBxCe';
 final String _masterKey = base64.encode(List<int>.filled(32, 7));
 
-/// A question from the core, across the RPC boundary and back (WP-3.6).
+/// A question from the core, across the RPC boundary and back.
 ///
 /// One daemon for the file.
 ///

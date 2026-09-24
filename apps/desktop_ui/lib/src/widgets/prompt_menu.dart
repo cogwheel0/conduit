@@ -5,7 +5,7 @@ import 'package:jaspr/jaspr.dart';
 import '../l10n/strings.g.dart';
 import 'form_field.dart';
 
-/// The `/` menu over the composer (WP-3.3).
+/// The `/` menu over the composer.
 ///
 /// The field keeps focus throughout, as in the command palette: the arrows
 /// move the highlight from inside the text, so the menu is a listbox the
@@ -69,7 +69,7 @@ class PromptMenu extends StatelessComponent {
   );
 }
 
-/// A menu over the composer for `@` and `#` (WP-3.3): models, knowledge.
+/// A menu over the composer for `@` and `#`: models, knowledge.
 ///
 /// One shape for both, as the `/` menu has: the field keeps focus and the
 /// arrows move the highlight from inside the text.

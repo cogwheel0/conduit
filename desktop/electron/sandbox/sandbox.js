@@ -1,4 +1,4 @@
-// The render sandbox's whole program (WP-3.5).
+// The render sandbox's whole program.
 //
 // Runs with an opaque origin inside `<iframe sandbox="allow-scripts">`, so
 // there is nothing here to protect: it cannot see the app's DOM, storage or

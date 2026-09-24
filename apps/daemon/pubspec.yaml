@@ -18,10 +18,10 @@ dependencies:
   # AES-256-GCM for the secure store. The master key
   # comes from Electron's safeStorage on stdin and never touches disk.
   cryptography: ^2.9.0
-  # SHA-256 of downloaded speech models (M11).
+  # SHA-256 of downloaded speech models.
   crypto: ^3.0.6
   dio: ^5.9.0
-  # The local speech engine, libconduit_whisper, through dart:ffi (M11).
+  # The local speech engine, libconduit_whisper, through dart:ffi.
   ffi: ^2.2.0
   drift: ^2.34.0
   mcp_dart: ^2.4.0

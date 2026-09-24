@@ -1,5 +1,5 @@
-// A small C face on whisper.cpp for conduitd's local speech recognition
-// (M11). The daemon binds these few functions through dart:ffi; whisper's own
+// A small C face on whisper.cpp for conduitd's local speech recognition.
+// The daemon binds these few functions through dart:ffi; whisper's own
 // structs, whose layout changes between versions, never cross into Dart.
 
 #include <stdlib.h>

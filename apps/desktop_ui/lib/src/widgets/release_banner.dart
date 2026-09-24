@@ -9,7 +9,7 @@ import '../rpc/rpc_providers.dart';
 import 'desktop_integration.dart';
 import 'ui.dart';
 
-/// Where Conduit's source, releases and support live (WP-9.7).
+/// Where Conduit's source, releases and support live.
 const String conduitRepositoryUrl = 'https://github.com/cogwheel0/conduit';
 const String conduitSponsorsUrl = 'https://github.com/sponsors/cogwheel0';
 const String conduitCoffeeUrl = 'https://www.buymeacoffee.com/cogwheel0';
@@ -46,7 +46,7 @@ bool isNewerVersion(String a, String b) {
   return leftPre.compareTo(rightPre) > 0;
 }
 
-/// "What's new in 0.2" after an update (WP-9.7), with the release's notes
+/// "What's new in 0.2" after an update, with the release's notes
 /// a click away and the support links beside them. Gone once dismissed; a
 /// first run records the version and shows nothing.
 class ReleaseBanner extends StatefulComponent {

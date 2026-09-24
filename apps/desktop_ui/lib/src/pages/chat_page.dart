@@ -37,7 +37,7 @@ import 'terminal_page.dart'
     show TerminalLayout, TerminalWorkspace, terminalOffered;
 
 /// The chat vertical: the conversation frame -- header, transcript,
-/// composer -- and the side pane's frame beside it (M3). The sidebar is the
+/// composer -- and the side pane's frame beside it. The sidebar is the
 /// workspace's.
 class ChatPage extends StatelessComponent {
   const ChatPage({super.key});
@@ -828,7 +828,7 @@ class _Transcript extends StatelessComponent {
   );
 }
 
-/// A sent question, reopened for editing in place (WP-3.2).
+/// A sent question, reopened for editing in place.
 ///
 /// In place rather than in the composer. Editing a question from three
 /// turns ago is a change to *that* turn, and moving it into the composer
@@ -926,11 +926,11 @@ class _ComposerState extends State<_Composer> {
   bool _imageGeneration = false;
   final Set<String> _toolIds = <String>{};
 
-  /// Whether the terminal chooser is open (M7).
+  /// Whether the terminal chooser is open.
   bool _terminalOpen = false;
   bool _toolsOpen = false;
 
-  /// The MCP content sheet (M4), for a direct model with MCP servers.
+  /// The MCP content sheet, for a direct model with MCP servers.
   bool _contentOpen = false;
 
   /// Counted rather than a flag: `dragleave` fires every time the pointer
@@ -942,10 +942,10 @@ class _ComposerState extends State<_Composer> {
   int _promptIndex = 0;
   String? _promptsDismissedAt;
 
-  /// Knowledge bases a `#` added to the next message (WP-3.3).
+  /// Knowledge bases a `#` added to the next message.
   final List<KnowledgeSummary> _knowledge = <KnowledgeSummary>[];
 
-  /// The model an `@` chose for the next message only (WP-3.3). Open
+  /// The model an `@` chose for the next message only. Open
   /// WebUI's rule: the conversation's selected model is left as it was.
   ModelSummary? _atModel;
 
@@ -955,7 +955,7 @@ class _ComposerState extends State<_Composer> {
   int _askingStart = 0;
   String? _askingClipboard;
 
-  /// What dictation hears, into the field (WP-8.1).
+  /// What dictation hears, into the field.
   StreamSubscription<String>? _dictated;
 
   @override
@@ -1043,7 +1043,7 @@ class _ComposerState extends State<_Composer> {
         ? -1
         : _promptIndex.clamp(0, menuLength - 1);
 
-    // A `conduit://new?q=` link, or a quick ask continued here (M9).
+    // A `conduit://new?q=` link, or a quick ask continued here.
     if (context.watch(composerPrefillProvider) != null) {
       Future<void>.microtask(() {
         if (!mounted) return;
@@ -1073,8 +1073,8 @@ class _ComposerState extends State<_Composer> {
       });
     }
 
-    // Voice needs something to transcribe it: the server (M8), or whisper
-    // on this computer (M11).
+    // Voice needs something to transcribe it: the server, or whisper
+    // on this computer.
     final voiceSettings = context.watch(voiceSettingsProvider).value;
     final voice = voiceSettings != null && canTranscribe(voiceSettings);
     final dictationProblem = dictationProblemText(
@@ -1467,13 +1467,13 @@ class _ComposerState extends State<_Composer> {
   /// Only what the daemon says this account and model may use. A switch
   /// that is shown but does nothing is worse than none.
   /// The tools the answering model can use: the server's for its own
-  /// models, the app's MCP servers for a direct connection's (M4).
+  /// models, the app's MCP servers for a direct connection's.
   List<ToolSummary> _toolsOffered(ComposerOptions? options) {
     if (options == null || _answeredByHermes) return const <ToolSummary>[];
     return _answeredDirectly ? options.mcpTools : options.tools;
   }
 
-  /// Whether the next answer comes from Hermes Agent (M7), which has its
+  /// Whether the next answer comes from Hermes Agent, which has its
   /// own tools and search: Open WebUI's switches would do nothing there.
   bool get _answeredByHermes {
     final answering =
@@ -1540,7 +1540,7 @@ class _ComposerState extends State<_Composer> {
             },
             onClick: () => setState(() => _toolsOpen = !_toolsOpen),
           ),
-        // The terminal the model may use, from the account's (M7). Direct
+        // The terminal the model may use, from the account's. Direct
         // models answer here, without Open WebUI's terminal.
         if (!_answeredDirectly &&
             !_answeredByHermes &&

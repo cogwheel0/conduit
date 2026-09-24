@@ -1,4 +1,4 @@
-/// What the command palette offers, and how it narrows (WP-3.1).
+/// What the command palette offers, and how it narrows.
 ///
 /// Pure, like the shortcut table: the component renders this and the
 /// keyboard layer carries it out, and neither is where "which commands
@@ -7,9 +7,9 @@ library;
 
 /// Something the palette can do other than open a conversation.
 ///
-/// Notes, knowledge and files join this list with their milestones. A
-/// command that leads nowhere is worse than a short list, for the same
-/// reason the shortcut table only binds what exists.
+/// Only commands that lead somewhere are listed. A command that leads
+/// nowhere is worse than a short list, for the same reason the shortcut table
+/// only binds what exists.
 enum PaletteCommand {
   newChat,
   newTemporaryChat,

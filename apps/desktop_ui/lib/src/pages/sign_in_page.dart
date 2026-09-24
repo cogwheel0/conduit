@@ -13,12 +13,12 @@ import '../widgets/form_field.dart';
 /// How to prove who you are to the configured server.
 ///
 /// Which of these a server actually offers comes from its backend config;
-/// until `capabilities.*` carries that (M3), all three are shown and the
+/// until `capabilities.*` carries that, all three are shown and the
 /// server rejects what it does not support. That is worse than hiding them
 /// and better than guessing wrong and hiding the only one that works.
 enum SignInMethod { password, ldap, apiKey }
 
-/// Credentials against the connected server (WP-2.2).
+/// Credentials against the connected server.
 class SignInPage extends StatefulComponent {
   const SignInPage({super.key});
 

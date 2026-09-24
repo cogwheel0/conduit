@@ -3,7 +3,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 part 'mcp.freezed.dart';
 part 'mcp.g.dart';
 
-/// How the app signs in to an MCP server (M4).
+/// How the app signs in to an MCP server.
 enum McpAuth { none, bearer, oauth }
 
 /// A tool call the user said to always allow on one server.

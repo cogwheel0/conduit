@@ -154,7 +154,7 @@ After.
     });
   });
 
-  group('rebinding (WP-9.4)', () {
+  group('rebinding', () {
     test('a stroke is stored and read back as written', () {
       const stroke = KeyStroke('o', primary: true, shift: true);
       expect(encodeStroke(stroke), 'mod+shift+o');

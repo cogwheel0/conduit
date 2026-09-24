@@ -57,13 +57,13 @@ final authStatusProvider = FutureProvider<AuthSnapshot>((ref) async {
 /// Three states, not two: while either query is in flight the answer is
 /// unknown, and rendering onboarding during that window is what makes a
 /// signed-in user's app flash a setup screen on every launch.
-/// Whether the app is used with direct connections and no server (M4):
+/// Whether the app is used with direct connections and no server:
 /// the welcome screen's "Connect directly", with a connection that works.
 /// Such a window neither onboards nor signs in.
 final directOnlyProvider = Provider<AsyncValue<bool>>((ref) {
   final servers = ref.watch(serverListProvider);
   final direct = ref.watch(directConnectionsProvider);
-  // Hermes Agent is a backend of its own too (M7): usable, it is enough
+  // Hermes Agent is a backend of its own too: usable, it is enough
   // to chat with no server. A daemon that cannot say counts as no.
   final hermes = ref.watch(hermesSettingsProvider);
   if (servers.isLoading || direct.isLoading || hermes.isLoading) {

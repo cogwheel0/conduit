@@ -3,7 +3,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 
 import 'rpc_providers.dart';
 
-/// Every Hermes call the window makes (M7), in one place so a test
+/// Every Hermes call the window makes, in one place so a test
 /// replaces the daemon by overriding this.
 final hermesActionsProvider = Provider<HermesActions>(HermesActions.new);
 

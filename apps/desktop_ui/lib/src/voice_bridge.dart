@@ -10,7 +10,7 @@ import 'package:web/web.dart' as web;
 import 'shell_bridge.dart';
 import 'voice_port.dart';
 
-/// [VoicePort] in the browser (M8).
+/// [VoicePort] in the browser.
 ///
 /// The microphone is `getUserMedia` into a `MediaRecorder`, with an
 /// `AnalyserNode` beside it reporting how loud it is; the recording goes to
@@ -167,7 +167,7 @@ final class BrowserVoice implements VoicePort {
         .text;
   }
 
-  /// [recording] as 16 kHz mono 16-bit WAV, which whisper wants (M11): the
+  /// [recording] as 16 kHz mono 16-bit WAV, which whisper wants: the
   /// browser decodes it and an offline context resamples it.
   static Future<web.Blob> _toWav16k(web.Blob recording) async {
     final bytes = await recording.arrayBuffer().toDart;

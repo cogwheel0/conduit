@@ -15,7 +15,7 @@ import 'workspace_common.dart';
 import 'workspace_editor.dart';
 import '../../widgets/ui.dart';
 
-/// The workspace (M6): models, knowledge, prompts, tools and skills on the
+/// The workspace: models, knowledge, prompts, tools and skills on the
 /// account's server, each a list and an editor.
 ///
 /// [section] null opens the first section the user may manage. [id] opens

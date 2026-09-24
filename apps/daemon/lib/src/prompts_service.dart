@@ -11,7 +11,7 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'settled.dart';
 import 'language_tag.dart';
 
-/// Implements `prompts.*`: the composer's `/` menu (WP-3.3).
+/// Implements `prompts.*`: the composer's `/` menu.
 ///
 /// Filling a prompt in is the core's `PromptProcessor`, the one mobile
 /// uses, so `{{CURRENT_DATE}}` and `{{team | select:...}}` mean the same in
@@ -114,7 +114,7 @@ final class PromptsService {
 
   Future<List<Prompt>> _fetch() async {
     // With Hermes Agent's model chosen, the `/` menu is its skills, as on
-    // mobile (M7): `/review` sent to the agent runs that skill.
+    // mobile: `/review` sent to the agent runs that skill.
     final selected = _container.read(selectedModelProvider);
     final prompts = selected != null && isHermesModel(selected)
         ? await _hermesSkills()

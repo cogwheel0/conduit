@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 /**
- * The shell's own preferences (M9): how the app lives on the desktop.
+ * The shell's own preferences: how the app lives on the desktop.
  *
  * Kept by the main process rather than the daemon because they are needed
  * before any window exists -- at login, a tray-only start -- and nothing but
@@ -22,7 +22,7 @@ export interface ShellSettings {
   /** Notifications for channel messages out of sight. */
   notifyChannels: boolean
   /**
-   * The window's own shortcuts, rebound (WP-9.4): action name to a stroke
+   * The window's own shortcuts, rebound: action name to a stroke
    * as the renderer encodes it, e.g. `mod+shift+o`.
    */
   shortcuts: Record<string, string>

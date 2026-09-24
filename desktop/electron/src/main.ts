@@ -113,7 +113,7 @@ async function main(): Promise<void> {
   windowState = new WindowStateStore(userDataDir)
 
   if (secrets.masterKeyIsPlaintext) {
-    // Section 11: warn, but keep working. Refusing to run would strand every
+    // Warn, but keep working. Refusing to run would strand every
     // Linux user without a keyring daemon.
     console.warn(
       'No OS keyring available; the master key is stored with weak protection. ' +
@@ -190,7 +190,7 @@ async function main(): Promise<void> {
 }
 
 /**
- * Updates from the GitHub release this build came from (WP-9.5): checked
+ * Updates from the GitHub release this build came from: checked
  * at start and every six hours, downloaded in the background, and applied
  * on the next quit, with the OS's own notification when one is ready.
  * Installed builds only; `CONDUIT_NO_UPDATES` turns it off (tests, and
@@ -198,7 +198,7 @@ async function main(): Promise<void> {
  */
 function checkForUpdates(): void {
   if (!app.isPackaged || process.env.CONDUIT_NO_UPDATES !== undefined) return
-  // Until the desktop joins the `v*` releases (WP-10.6) every build of it
+  // Until the desktop joins the `v*` releases every build of it
   // is a `desktop-v*` prerelease, so that is where updates are. A newer
   // mobile release in the same repository has no desktop files; the check
   // then fails, is logged, and the next one tries again.
@@ -263,7 +263,7 @@ function createWindow(kind: 'main' | 'quickAsk', port: number): BrowserWindow {
 }
 
 /**
- * What a page may ask the system for (M5).
+ * What a page may ask the system for.
  *
  * Electron grants every permission request unless told otherwise. The app
  * origin needs exactly these: the microphone, for a note's recording (and

@@ -54,7 +54,7 @@ async function appWindow(app: ElectronApplication): Promise<Page> {
 }
 
 /**
- * The end-to-end check that the shell works (section 10).
+ * The end-to-end check that the shell works.
  *
  * It exercises the whole chain in one go: Electron spawns conduitd, the
  * daemon binds a loopback port and reports it on stdout, the preload bridge
@@ -105,7 +105,7 @@ test('hands the renderer a port and token through the preload bridge', async () 
 
 test('connects to the core and reports the handshake', async () => {
   const window = await appWindow(app)
-  // `/` is the chat vertical now (M3). The status page moved to `/core`,
+  // `/` is the chat vertical now. The status page moved to `/core`,
   // where it remains the quickest way to see a handshake, a port and a
   // session id when something is wrong -- which is exactly what this
   // asserts, so the test follows it rather than finding a new proxy for it.
@@ -160,7 +160,7 @@ test('refuses to navigate the app origin away to the web', async () => {
 
 test('a previewed reply cannot run a script, twice over', async () => {
   const window = await appWindow(app)
-  // The HTML preview (WP-3.5) puts model-written markup in an
+  // The HTML preview puts model-written markup in an
   // `<iframe sandbox srcdoc>`. Two independent things must stop a script in
   // it, and this measures both rather than trusting either.
   const result = await window.evaluate(
@@ -215,8 +215,8 @@ test('a previewed reply cannot run a script, twice over', async () => {
 
 test('the render sandbox draws math and reports its height', async () => {
   const window = await appWindow(app)
-  // The contract between the renderer and `app://conduit/sandbox.html`
-  // (WP-3.5), exercised without a model: create the frame exactly as
+  // The contract between the renderer and `app://conduit/sandbox.html`,
+  // exercised without a model: create the frame exactly as
   // SandboxedRender does, wait for `ready`, post a formula, read back the
   // height and what was drawn.
   const result = await window.evaluate(

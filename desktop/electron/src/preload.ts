@@ -6,10 +6,10 @@ import { contextBridge, ipcRenderer } from 'electron'
  * `contextIsolation` is on and `nodeIntegration` is off, so this object is
  * the entire surface between the Jaspr bundle and the OS; every function
  * added here is a capability granted to anything the renderer ends up
- * executing, including model output. It stayed data-only through M0 for that
+ * executing, including model output. It started out data-only for that
  * reason, and [openAuthWindow] is the first exception — see
  * `registerAuthWindowChannel` in main for why that one is safe to grant.
- * The M9 additions are bounded the same way: the main process checks
+ * The desktop-integration additions are bounded the same way: the main process checks
  * every argument, and the worst any of them does is show a notification,
  * open a chat, or change a shell setting the user can see and change back.
  */
@@ -33,7 +33,7 @@ export interface ConduitBridge {
   openAuthWindow(request: AuthWindowRequest): Promise<AuthWindowResult>
 
   /**
-   * The shell's own settings (M9), changed by [patch] when given. The main
+   * The shell's own settings, changed by [patch] when given. The main
    * process keeps only known keys of the right type.
    */
   shellSettings(patch?: Record<string, unknown>): Promise<Record<string, unknown>>

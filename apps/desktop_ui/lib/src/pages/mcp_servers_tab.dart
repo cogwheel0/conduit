@@ -9,7 +9,7 @@ import '../l10n/strings.g.dart';
 import '../rpc/mcp_providers.dart';
 import '../widgets/form_field.dart';
 
-/// Settings > MCP servers (M4): tool servers the app talks to itself, for
+/// Settings > MCP servers: tool servers the app talks to itself, for
 /// models from direct connections.
 ///
 /// Mobile's wording, as the direct connections tab uses it.

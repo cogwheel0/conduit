@@ -1,7 +1,7 @@
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/providers/app_providers.dart' show isTemporaryChat;
 
-/// Conversations the server never stores (WP-3.4).
+/// Conversations the server never stores.
 ///
 /// A temporary chat has a `local:` id, which Open WebUI declines to persist
 /// and the sync engine never pulls. Something still has to remember what

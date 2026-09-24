@@ -7,7 +7,7 @@ import 'package:conduit_desktop_ui/src/widgets/sources_list.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:jaspr_test/jaspr_test.dart';
 
-/// `[1]` in an answer that has sources (WP-3.2). The shapes are Open
+/// `[1]` in an answer that has sources. The shapes are Open
 /// WebUI's; the live test found `[1]` sitting in a reply as raw text.
 void main() {
   const sources = <ChatSourceDto>[

@@ -1,6 +1,6 @@
 import 'package:conduit_protocol/conduit_protocol.dart';
 
-/// A `/command` being typed at the end of the composer (WP-3.3).
+/// A `/command` being typed at the end of the composer.
 class SlashTrigger {
   const SlashTrigger({required this.start, required this.query});
 

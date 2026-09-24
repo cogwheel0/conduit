@@ -4,7 +4,7 @@ import 'package:jaspr/jaspr.dart';
 
 import '../l10n/strings.g.dart';
 
-/// How an answer was produced: speed, tokens, time (WP-3.2).
+/// How an answer was produced: speed, tokens, time.
 ///
 /// The closed line is the one figure most people look for -- how fast, or
 /// failing that how long -- and opening it gives the rest. The labels are

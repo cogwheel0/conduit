@@ -6,7 +6,7 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
 import { fakeProvider, go } from './support/fake-provider'
 
 /**
- * Accessibility (WP-10.2): axe-core over every screen a setup with no server
+ * Accessibility: axe-core over every screen a setup with no server
  * reaches -- onboarding, each settings tab, a conversation, the quick-ask
  * panel. It catches what a machine can: names, labels, roles, contrast,
  * structure. What only a person with a screen reader can judge needs a

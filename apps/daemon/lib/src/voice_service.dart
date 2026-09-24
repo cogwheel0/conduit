@@ -17,7 +17,7 @@ import 'event_bus.dart';
 import 'local_whisper.dart';
 import 'settled.dart';
 
-/// `voice.*`, `POST /transcribe` and `GET /tts/{jobId}` (M8).
+/// `voice.*`, `POST /transcribe` and `GET /tts/{jobId}`.
 ///
 /// The window records and plays; this is where the server is asked. A
 /// recording comes in as bytes and leaves as the server's transcription; a
@@ -40,7 +40,7 @@ final class VoiceService {
   final EventBus? _events;
   final Random _random = Random.secure();
 
-  /// `libconduit_whisper`, when this build has it (M11).
+  /// `libconduit_whisper`, when this build has it.
   final String? _library;
   final WhisperModelStore _models;
   String? _failedId;

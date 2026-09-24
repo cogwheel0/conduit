@@ -2,8 +2,8 @@
  *
  * It lives here rather than next to the Dart sources because the Tailwind CLI
  * resolves `@import "tailwindcss"` relative to the input file, and npm
- * dependencies are installed in this package (section 5.1: vendored JS comes
- * through desktop/electron's npm, never a CDN).
+ * dependencies are installed in this package (vendored JS comes through
+ * desktop/electron's npm, never a CDN).
  *
  * Built by scripts/build-ui.mjs into apps/desktop_ui/web/app.css.
  */
@@ -172,7 +172,7 @@ body {
   }
 }
 
-/* Syntax highlighting (WP-3.5).
+/* Syntax highlighting.
  *
  * Derived from the palette rather than shipping one of highlight.js's own
  * stylesheets. There are five palettes and a dark variant of each, and a
@@ -244,7 +244,7 @@ body {
   font-weight: 700;
 }
 
-/* Quill, the notes editor (M5). Its snow theme hard-codes greys; these take
+/* Quill, the notes editor. Its snow theme hard-codes greys; these take
    the app's palette instead so the editor follows light and dark. */
 
 /* The toolbar stays put and the text scrolls under it: only the container
@@ -318,7 +318,7 @@ body {
   border-left-color: var(--conduit-border);
 }
 
-/* xterm.js, the terminal (M7). It sizes itself to its element; the element
+/* xterm.js, the terminal. It sizes itself to its element; the element
    is the flex child that grows, so xterm fills it. */
 .terminal-host .xterm {
   height: 100%;

@@ -15,7 +15,7 @@ abstract final class ConduitEvents {
 
   /// Already-parsed segments: text, reasoning, tool call, code execution,
   /// citations, images, follow-ups, status. Parsing happens once, in the
-  /// daemon (section 4); the UI only turns markdown into DOM.
+  /// daemon; the UI only turns markdown into DOM.
   static const String turnBlocks = 'turn.blocks';
   static const String turnCompleted = 'turn.completed';
   static const String turnFailed = 'turn.failed';
@@ -24,22 +24,22 @@ abstract final class ConduitEvents {
   static const String notesChanged = 'notes.changed';
   static const String channelsMessage = 'channels.message';
 
-  /// Who is typing in a channel changed (M5). Payload
+  /// Who is typing in a channel changed. Payload
   /// [ChannelTypingUsers], scoped to `channel:<id>`.
   static const String channelsTyping = 'channels.typing';
 
   /// The channel list changed: a channel added, removed, renamed, or a new
-  /// unread count (M5). No payload.
+  /// unread count. No payload.
   static const String channelsChanged = 'channels.changed';
 
   static const String syncStatus = 'sync.status';
   static const String socketHealth = 'socket.health';
 
-  /// Ask the shell to raise an OS notification (WP-9.3).
+  /// Ask the shell to raise an OS notification.
   static const String notifyShow = 'notify.show';
 
   /// A chat ID was remapped after sync; the UI must rewrite its route
-  /// without pushing a history entry (WP-1.7).
+  /// without pushing a history entry.
   static const String routeRemap = 'route.remap';
 
   /// The core needs an answer from the user: tool approval, an Open WebUI
@@ -57,23 +57,23 @@ abstract final class ConduitEvents {
   static const String capabilitiesChanged = 'capabilities.changed';
 
   /// The models on offer changed: a direct connection was added and its
-  /// models discovered, or the server's list was refreshed (M4). No
+  /// models discovered, or the server's list was refreshed. No
   /// payload; `models.list` says what they are.
   static const String modelsChanged = 'models.changed';
 
-  /// The daemon needs a page opened in the system browser (M4): an MCP
+  /// The daemon needs a page opened in the system browser: an MCP
   /// server's OAuth sign-in. Payload [OpenUrl]. The first window to hear it
   /// opens it.
   static const String openUrl = 'shell.openUrl';
 
-  /// A workspace section's items changed (M6). Payload [WorkspaceChanged].
+  /// A workspace section's items changed. Payload [WorkspaceChanged].
   static const String workspaceChanged = 'workspace.changed';
 
-  /// Hermes's settings, sessions or jobs changed (M7). No payload.
+  /// Hermes's settings, sessions or jobs changed. No payload.
   static const String hermesChanged = 'hermes.changed';
 
   /// The whisper models changed: a download moved, finished or failed, or
-  /// one was deleted (M11). Payload [VoiceModels].
+  /// one was deleted. Payload [VoiceModels].
   static const String voiceChanged = 'voice.changed';
 
   /// A model's tool asked to show a file from the chat's terminal. Payload

@@ -25,7 +25,7 @@ abstract class PongResult with _$PongResult {
 @freezed
 abstract class ShutdownResult with _$ShutdownResult {
   const factory ShutdownResult({
-    /// False when the 5 s budget in section 3.1 expired with work still
+    /// False when the 5 s shutdown budget expired with work still
     /// pending. Electron main still proceeds to SIGTERM, but the next launch
     /// knows to run recovery.
     required bool flushed,
@@ -43,7 +43,7 @@ abstract class ShutdownResult with _$ShutdownResult {
 abstract class DiagnosticsExport with _$DiagnosticsExport {
   const factory DiagnosticsExport({
     /// Absolute path to a zip in the staging directory. The shell reveals it
-    /// in the file manager; nothing is ever uploaded (section 1, non-goals).
+    /// in the file manager; nothing is ever uploaded.
     required String path,
     required int sizeBytes,
   }) = _DiagnosticsExport;

@@ -12,7 +12,7 @@ import {
 } from '@playwright/test'
 
 /**
- * The app with Hermes Agent as its only backend (M7): chosen on the
+ * The app with Hermes Agent as its only backend: chosen on the
  * welcome screen, tested and saved, then a conversation -- one turn asking
  * the user's approval -- and the Hermes page's conversations and schedules.
  * Hermes is a fake of its API server in this process, in the shapes a real

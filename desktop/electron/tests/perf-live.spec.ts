@@ -12,7 +12,7 @@ import {
 } from '@playwright/test'
 
 /**
- * Big-account performance (WP-10.1), against a real server: a conversation
+ * Big-account performance, against a real server: a conversation
  * with 10,000 messages and a sidebar of 5,000 conversations, made through the
  * server's API for this run and deleted again by id. Opt-in with
  * CONDUIT_PERF=1, because it writes thousands of rows to the account for a

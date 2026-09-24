@@ -9,7 +9,7 @@ import 'rpc/chat_providers.dart';
 import 'rpc/voice_providers.dart';
 import 'voice_port.dart';
 
-/// Voice in the window (M8): reading answers aloud, dictation, and calls.
+/// Voice in the window: reading answers aloud, dictation, and calls.
 ///
 /// The audio itself is behind [VoicePort]; this file is the logic, so a
 /// test drives it with a microphone that reports whatever levels it is told
@@ -58,7 +58,7 @@ class UtteranceDetector {
 bool canTranscribe(VoiceSettings settings) =>
     transcribesLocally(settings) || settings.serverStt;
 
-/// Whether this computer does the transcribing (M11), which wants WAV.
+/// Whether this computer does the transcribing, which wants WAV.
 bool transcribesLocally(VoiceSettings settings) =>
     settings.sttEngine == 'local' && settings.localReady;
 

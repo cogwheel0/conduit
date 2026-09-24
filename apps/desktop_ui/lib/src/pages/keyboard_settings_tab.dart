@@ -12,7 +12,7 @@ import '../widgets/desktop_integration.dart';
 import '../widgets/shortcuts_overlay.dart' show shortcutLabel;
 import 'workspace/workspace_common.dart' show actionButton, statusLine;
 
-/// Settings → Keyboard (WP-9.4): every shortcut, rebound by pressing the
+/// Settings → Keyboard: every shortcut, rebound by pressing the
 /// new keys. A key another command already has is refused, and says which.
 class KeyboardSettingsTab extends StatefulComponent {
   const KeyboardSettingsTab({super.key});

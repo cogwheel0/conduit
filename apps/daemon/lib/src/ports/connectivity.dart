@@ -12,9 +12,9 @@ import 'package:conduit_core/ports/connectivity_port.dart';
 /// weak: "an interface exists" is a hint that a probe is worth attempting,
 /// never a claim about reachability.
 ///
-/// Electron *does* get `net.isOnline` events, and WP-2.x forwards them over
-/// RPC into [report] so the edge arrives immediately instead of up to one
-/// poll interval late. Polling stays as the floor under that.
+/// Electron *does* get `net.isOnline` events; forwarding them over RPC into
+/// [report] makes the edge arrive immediately instead of up to one poll
+/// interval late. Polling stays as the floor under that.
 final class DaemonConnectivity implements ConnectivityPort {
   DaemonConnectivity({this.pollInterval = const Duration(seconds: 10)});
 

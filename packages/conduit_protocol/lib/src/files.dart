@@ -3,7 +3,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 part 'files.freezed.dart';
 part 'files.g.dart';
 
-/// The daemon's answer to `POST /upload` (WP-3.3).
+/// The daemon's answer to `POST /upload`.
 ///
 /// An HTTP route rather than an RPC method, and the reason is in the body:
 /// the file is sent as raw bytes and streamed to the server, so a 200 MB

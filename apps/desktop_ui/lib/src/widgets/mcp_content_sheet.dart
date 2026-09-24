@@ -15,7 +15,7 @@ import 'ui.dart';
 /// the draft past it is refused rather than truncated.
 const int kComposerMaxBytes = 256 * 1024;
 
-/// MCP content (M4): a server's prompts and resources, previewed and
+/// MCP content: a server's prompts and resources, previewed and
 /// inserted into the draft as text.
 ///
 /// Mobile's sheet, as a panel over the composer. The server wrote every

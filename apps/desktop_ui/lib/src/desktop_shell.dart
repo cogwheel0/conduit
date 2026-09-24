@@ -1,6 +1,6 @@
 import 'package:conduit_protocol/conduit_protocol.dart';
 
-/// What the window may be asked to open (M9): from a `conduit://` link, a
+/// What the window may be asked to open: from a `conduit://` link, a
 /// notification, the tray, or the quick-ask panel. The main process has
 /// already checked it; the renderer maps it onto its own navigation.
 class OpenRequest {
@@ -120,15 +120,14 @@ class ShellSettings {
   final bool notifyAnswers;
   final bool notifyChannels;
 
-  /// The user's own keys, by action name, as `encodeStroke` writes them
-  /// (WP-9.4).
+  /// The user's own keys, by action name, as `encodeStroke` writes them.
   final Map<String, String> shortcuts;
 
   /// The version whose "What's new" was seen, or empty before the first.
   final String lastSeenVersion;
 }
 
-/// The desktop around the window (M9). Unavailable outside Electron.
+/// The desktop around the window. Unavailable outside Electron.
 abstract interface class DesktopShellPort {
   /// Whether there is a shell at all; the dev browser has none.
   bool get available;

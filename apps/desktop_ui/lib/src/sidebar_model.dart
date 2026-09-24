@@ -6,7 +6,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 /// one finds a conversation under the same heading in both.
 enum DateBucket { today, yesterday, previous7Days, previous30Days, older }
 
-/// A folder with what is in it (WP-3.1).
+/// A folder with what is in it.
 class FolderNode {
   FolderNode(this.folder);
 

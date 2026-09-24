@@ -7,7 +7,7 @@ import 'package:jaspr_router/jaspr_router.dart';
 import '../../l10n/strings.g.dart';
 import '../../widgets/ui.dart';
 
-/// Pieces every workspace screen draws the same way (M6).
+/// Pieces every workspace screen draws the same way.
 
 String sectionLabel(WorkspaceKind kind) => switch (kind) {
   WorkspaceKind.models => t.app.workspaceModels,

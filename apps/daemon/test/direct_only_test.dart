@@ -11,7 +11,7 @@ import 'package:test/test.dart';
 import 'support/fake_openai.dart';
 import 'support/null_sink.dart';
 
-/// The app with no Open WebUI server at all (M4): a direct connection is
+/// The app with no Open WebUI server at all: a direct connection is
 /// the whole backend, chosen on the welcome screen.
 void main() {
   late Directory temporary;

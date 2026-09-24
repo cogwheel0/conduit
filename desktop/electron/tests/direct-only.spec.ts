@@ -12,7 +12,7 @@ import {
 } from '@playwright/test'
 
 /**
- * The app with no Open WebUI server at all (M4): the welcome screen's
+ * The app with no Open WebUI server at all: the welcome screen's
  * "Connect directly", one connection, and a chat. The provider is a fake
  * OpenAI-compatible endpoint in this process, so the spec needs nothing
  * outside the machine.

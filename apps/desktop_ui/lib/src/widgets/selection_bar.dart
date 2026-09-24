@@ -8,8 +8,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import '../l10n/strings.g.dart';
 import '../rpc/chat_providers.dart';
 
-/// Above the sidebar list: "Select", or what to do with what is selected
-/// (WP-3.8).
+/// Above the sidebar list: "Select", or what to do with what is selected.
 class SelectionBar extends StatefulComponent {
   const SelectionBar({
     required this.folders,

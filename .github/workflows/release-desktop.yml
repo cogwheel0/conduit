@@ -1,7 +1,7 @@
 name: Release Desktop
 
-# Alphas of Conduit Desktop (WP-9.5), from `desktop-v*` tags, as
-# prereleases. Once the desktop is public (WP-10.6) these jobs join
+# Alphas of Conduit Desktop, from `desktop-v*` tags, as
+# prereleases. Once the desktop is public these jobs join
 # release.yml's `v*` release and the separate tags are retired.
 on:
   push:
@@ -99,7 +99,7 @@ jobs:
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CERTIFICATE_PASSWORD }}
         run: |
           npm run build:daemon
-          # The local speech engine (M11); CMake is on every hosted runner.
+          # The local speech engine; CMake is on every hosted runner.
           npm run build:whisper
           npm run build:ui -- --release
           npm run build:ts

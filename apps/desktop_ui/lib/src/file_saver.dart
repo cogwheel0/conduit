@@ -1,4 +1,4 @@
-/// Saving a file the daemon produced -- an export (M6).
+/// Saving a file the daemon produced -- an export.
 ///
 /// A port like [FilePickerPort]'s other direction, so the pages that export
 /// stay testable on the VM. The browser hands the file to the shell as a

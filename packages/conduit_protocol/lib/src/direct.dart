@@ -3,7 +3,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 part 'direct.freezed.dart';
 part 'direct.g.dart';
 
-/// Which kind of server a direct connection talks to (M4).
+/// Which kind of server a direct connection talks to.
 ///
 /// OpenRouter, Azure and LM Studio are OpenAI-compatible servers, not kinds
 /// of their own: the core tells OpenRouter apart by its address, and Azure
@@ -14,7 +14,7 @@ enum DirectKind { openai, ollama }
 /// responses API.
 enum DirectApiMode { chat, responses }
 
-/// A direct connection, as the settings list shows it (WP-4.1).
+/// A direct connection, as the settings list shows it.
 ///
 /// Never its secrets. An API key or a header value is written once and
 /// then only reported as present -- the same rule `servers.*` follows,
@@ -48,7 +48,7 @@ abstract class DirectConnectionSummary with _$DirectConnectionSummary {
     @Default(false) bool ollamaCloud,
 
     /// Kept in the Open WebUI account's settings rather than on this
-    /// computer (M4). Its chats go through Open WebUI, which asks the app
+    /// computer. Its chats go through Open WebUI, which asks the app
     /// to make the request -- Open WebUI's own "direct connections".
     @Default(false) bool openWebUi,
 
@@ -182,8 +182,7 @@ abstract class DirectHistory with _$DirectHistory {
       _$DirectHistoryFromJson(json);
 }
 
-/// One of an Ollama connection's models, with what can be done to it
-/// (M4).
+/// One of an Ollama connection's models, with what can be done to it.
 @freezed
 abstract class OllamaModelStatus with _$OllamaModelStatus {
   const factory OllamaModelStatus({

@@ -5,7 +5,7 @@ import '../terminal_port.dart';
 import 'rpc_providers.dart';
 import 'session_providers.dart';
 
-/// xterm.js and the shell's socket, overridden in `main.dart` (M7).
+/// xterm.js and the shell's socket, overridden in `main.dart`.
 final terminalViewProvider = Provider<TerminalViewPort>(
   (ref) => RecordingTerminalView(),
 );

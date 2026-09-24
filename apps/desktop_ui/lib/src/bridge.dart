@@ -308,7 +308,7 @@ ShellBridge? resolveShellBridge() {
   return null;
 }
 
-/// [DesktopShellPort] over the preload bridge (M9). Requests cross as
+/// [DesktopShellPort] over the preload bridge. Requests cross as
 /// plain JSON objects, which the main process checks again.
 final class ElectronDesktopShell implements DesktopShellPort {
   const ElectronDesktopShell();

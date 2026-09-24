@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <title>Conduit</title>
     <!--
-      Content Security Policy (section 5.1). `connect-src` is widened at
+      Content Security Policy. `connect-src` is widened at
       runtime by Electron to the daemon's loopback port, which is only known
       after conduitd reports it; everything else is locked down here.
 
@@ -35,7 +35,7 @@
     <!-- Quill 2, the notes editor, vendored by build-ui.mjs. Before app.css
          so the theme's overrides of its colours win. -->
     <link rel="stylesheet" href="/vendor/quill/quill.snow.css" />
-    <!-- xterm.js, the terminal (M7), vendored the same way. -->
+    <!-- xterm.js, the terminal, vendored the same way. -->
     <link rel="stylesheet" href="/vendor/xterm/xterm.css" />
     <link rel="stylesheet" href="/app.css" />
   </head>

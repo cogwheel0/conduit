@@ -19,7 +19,7 @@ abstract class ModelSummary with _$ModelSummary {
     /// grows without this protocol changing.
     @Default(<String>[]) List<String> capabilities,
 
-    /// The direct connection that offers it, by name (M4); null for the
+    /// The direct connection that offers it, by name; null for the
     /// server's own. Two connections can offer a model of the same name,
     /// and the server may too.
     String? connection,

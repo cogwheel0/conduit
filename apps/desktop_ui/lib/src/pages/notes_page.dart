@@ -15,7 +15,7 @@ import '../rpc/rpc_providers.dart' show attachmentsProvider;
 import '../widgets/form_field.dart';
 import '../widgets/ui.dart';
 
-/// Notes (M5): the list on the left, the note on the right.
+/// Notes: the list on the left, the note on the right.
 ///
 /// The same notes as mobile and the web client: stored as markdown in the
 /// account, edited here in Quill. Saved as you type, a moment after you

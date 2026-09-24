@@ -847,8 +847,8 @@ void main() {
           edited.assistantMessageId,
         );
 
-        // The overview sees both branches, and can go back to the first
-        // (WP-3.4): its question and answer become the transcript again.
+        // The overview sees both branches, and can go back to the first:
+        // its question and answer become the transcript again.
         final chats = ChatsService(runtime.container, events: events);
         final tree = await chats.tree(accepted.chatId);
         expect(
@@ -994,7 +994,7 @@ void main() {
         );
       }, timeout: const Timeout(Duration(minutes: 3)));
 
-      // M4: the daemon as the client. The test server's own OpenAI-compatible
+      // The daemon as the client. The test server's own OpenAI-compatible
       // endpoint stands in for a provider, signed in with the session's token,
       // so the daemon talks to it exactly as it would to any other.
       test('answers through a direct connection, locally and synced', () async {
@@ -1152,7 +1152,7 @@ void main() {
         expect((answer!['content'] as String).trim(), isNotEmpty);
       }, timeout: const Timeout(Duration(minutes: 4)));
 
-      // M4: a direct connection kept in the Open WebUI account. Open WebUI
+      // A direct connection kept in the Open WebUI account. Open WebUI
       // sends the chat, then asks this app over the socket to make the
       // request -- the core's relay answers. Removed again afterwards; the
       // account had none before.
@@ -1240,7 +1240,7 @@ void main() {
         expect(after.connections.where(ours), isEmpty);
       }, timeout: const Timeout(Duration(minutes: 4)));
 
-      // M5: notes, stored as markdown and edited as Quill ops.
+      // Notes, stored as markdown and edited as Quill ops.
       test('creates, edits, pins and deletes a note', () async {
         final notes = NotesService(runtime.container);
         final title = 'Live note ${DateTime.now().millisecondsSinceEpoch}';
@@ -1310,7 +1310,7 @@ void main() {
         deleted = true;
       }, timeout: const Timeout(Duration(minutes: 2)));
 
-      // M5: a note's AI title and enhancement, from a model on the server.
+      // A note's AI title and enhancement, from a model on the server.
       // Nothing is saved, so nothing is left behind.
       test('titles and enhances a note with a model', () async {
         final notes = NotesService(runtime.container);
@@ -1333,7 +1333,7 @@ void main() {
         );
       }, timeout: const Timeout(Duration(minutes: 3)));
 
-      // M5: a file attached to a note, as a recording is. The note and the
+      // A file attached to a note, as a recording is. The note and the
       // file are deleted afterwards, straight through the API.
       test('attaches a file to a note and takes it off again', () async {
         final api = runtime.container.read(apiServiceProvider)!;
@@ -1401,7 +1401,7 @@ void main() {
         expect(await serverFiles(), isEmpty);
       }, timeout: const Timeout(Duration(minutes: 2)));
 
-      // M5: channels. This run's own channel, deleted at the end.
+      // Channels. This run's own channel, deleted at the end.
       test('posts, reacts, pins, threads and edits in a channel', () async {
         final events = EventBus();
         final heard = <String>[];
@@ -1508,7 +1508,7 @@ void main() {
         expect(after.channels.map((c) => c.id), isNot(contains(channel.id)));
       }, timeout: const Timeout(Duration(minutes: 2)));
 
-      // M7: a terminal. A fake terminal server on this computer, added to
+      // A terminal. A fake terminal server on this computer, added to
       // the account's settings as a direct server for the length of the
       // test and taken out again at the end.
       test(
@@ -1707,7 +1707,7 @@ void main() {
         timeout: const Timeout(Duration(minutes: 2)),
       );
 
-      // M8: dictation and speech. The server transcribes a recording; a
+      // Dictation and speech. The server transcribes a recording; a
       // real sentence is used when CONDUIT_SPEECH_SAMPLE names one (the
       // quick brown fox), and otherwise a tone, which checks the route only.
       test('transcribes a recording and makes speech jobs', () async {
@@ -1750,7 +1750,7 @@ void main() {
         }
       }, timeout: const Timeout(Duration(minutes: 2)));
 
-      // M6: the workspace. Everything is named for this run and deleted
+      // The workspace. Everything is named for this run and deleted
       // at the end, straight through the API if a step fails first.
       group('workspace', () {
         late WorkspaceService workspace;

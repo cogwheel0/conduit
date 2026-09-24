@@ -9,7 +9,7 @@ import '../rpc/voice_providers.dart';
 import '../voice.dart';
 import 'ui.dart';
 
-/// "Read aloud" under an answer (M8). Revealed on hover like the other
+/// "Read aloud" under an answer. Revealed on hover like the other
 /// actions, and kept in view while it reads, so it can be stopped.
 class ReadAloudButton extends StatelessComponent {
   const ReadAloudButton({required this.id, required this.text, super.key});
@@ -56,7 +56,7 @@ Component _meter(double level) => span(
   ],
 );
 
-/// The composer's microphone (WP-8.1): click to dictate until a pause, or
+/// The composer's microphone: click to dictate until a pause, or
 /// with hold-to-talk, hold it down.
 class DictationButton extends StatelessComponent {
   const DictationButton({super.key});
@@ -115,7 +115,7 @@ String? dictationProblemText(DictationProblem? problem) => switch (problem) {
   DictationProblem.failed => t.desktop.desktopTranscriptionFailed,
 };
 
-/// Starts a voice call (WP-8.3).
+/// Starts a voice call.
 class VoiceCallButton extends StatelessComponent {
   const VoiceCallButton({super.key});
 
@@ -134,7 +134,7 @@ class VoiceCallButton extends StatelessComponent {
   }
 }
 
-/// The call, over the composer while it runs (WP-8.3): what it is doing,
+/// The call, over the composer while it runs: what it is doing,
 /// what it heard, and mute, pause and hang up.
 class VoiceCallPanel extends StatelessComponent {
   const VoiceCallPanel({super.key});

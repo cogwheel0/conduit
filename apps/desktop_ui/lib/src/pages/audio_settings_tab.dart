@@ -11,7 +11,7 @@ import '../voice.dart';
 import '../widgets/form_field.dart';
 import 'workspace/workspace_common.dart' show actionButton, statusLine;
 
-/// Settings → Audio (M8): dictation, and how answers are read aloud. Each
+/// Settings → Audio: dictation, and how answers are read aloud. Each
 /// control saves as it changes, as the appearance tab's do.
 class AudioSettingsTab extends StatelessComponent {
   const AudioSettingsTab({super.key});
@@ -370,7 +370,7 @@ class _Speech extends StatelessComponent {
 
 String _megabytes(int bytes) => '${(bytes / 1e6).round()} MB';
 
-/// The whisper models to download, use and delete (M11).
+/// The whisper models to download, use and delete.
 class _LocalModels extends StatelessComponent {
   const _LocalModels(this.settings);
 

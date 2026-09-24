@@ -4,7 +4,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
-/// Filling a prompt in (WP-3.3). The parsing is the core's and tested
+/// Filling a prompt in. The parsing is the core's and tested
 /// there; what is tested here is the exchange: ask once per field, answer
 /// with what was given, and let the window supply the clipboard.
 void main() {

@@ -165,7 +165,7 @@ int mixColor(int argb, int toward, double amount) {
 
 /// [variant]'s colours for the desktop's CSS, with the destructive red
 /// moved until it meets WCAG AA (4.5:1) where the window uses it: as text
-/// on the surfaces, and as a fill under its own foreground (WP-10.2).
+/// on the surfaces, and as a fill under its own foreground.
 ///
 /// On a light variant both needs point the same way, so the red darkens
 /// until both are met. On a dark one they pull apart -- text wants it

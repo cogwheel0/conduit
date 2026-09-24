@@ -1,5 +1,5 @@
 /**
- * `conduit://` links (M9), and what the window is asked to open.
+ * `conduit://` links, and what the window is asked to open.
  *
  * A link comes from anywhere on the system -- a web page, another app, a
  * notification -- so it is parsed into one of a few shapes here, in the

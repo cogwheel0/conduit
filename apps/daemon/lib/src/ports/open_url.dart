@@ -3,7 +3,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 
 import '../event_bus.dart';
 
-/// Opens a page in the system browser by asking a window to (M4).
+/// Opens a page in the system browser by asking a window to.
 ///
 /// The daemon has no browser and should not start one itself: Electron
 /// already sends every http(s) `window.open` to `shell.openExternal`, so

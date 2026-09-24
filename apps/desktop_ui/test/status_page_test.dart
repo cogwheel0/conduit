@@ -38,8 +38,7 @@ const HandshakeResponse _handshake = HandshakeResponse(
 );
 
 /// Renders [StatusPage] against a fixed connection state, with no socket and
-/// no daemon. This is the layer the plan's testing table calls "UI logic
-/// without Electron".
+/// no daemon: UI logic without Electron.
 Component _scoped(CoreConnection connection) => ProviderScope(
   overrides: [
     shellBridgeProvider.overrideWithValue(_bridge),

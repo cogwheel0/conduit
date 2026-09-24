@@ -7,13 +7,12 @@ import '../l10n/strings.g.dart';
 import '../rpc/rpc_client.dart';
 import '../rpc/rpc_providers.dart';
 
-/// The M0 "connected to core" screen.
+/// The "connected to core" screen.
 ///
 /// Deliberately plain: its job is to prove the whole chain works end to end —
 /// Electron spawned the daemon, the preload bridge handed over a port and a
 /// token, the socket passed the origin and token checks, and the handshake
-/// agreed on a protocol version. Every later milestone replaces a piece of
-/// this page with the real thing.
+/// agreed on a protocol version.
 class StatusPage extends StatelessComponent {
   const StatusPage({super.key});
 
@@ -66,7 +65,7 @@ class StatusPage extends StatelessComponent {
     CoreConnectionState.failed => _statusCard(
       tone: 'destructive',
       // The daemon has no locale, so it sends a code and the UI resolves it.
-      // This is the pattern every RpcError follows (WP-1.6).
+      // This is the pattern every RpcError follows.
       title: state.error?.code == ConduitErrorCodes.protocolVersionMismatch
           ? t.desktop.desktopCoreVersionMismatch
           : t.desktop.desktopCoreUnavailable,
@@ -98,11 +97,11 @@ class StatusPage extends StatelessComponent {
     ]);
   }
 
-  /// M0 reports no capabilities at all; saying so plainly is more useful than
+  /// With no server there are no capabilities; saying so plainly is more useful than
   /// an empty row that reads like a bug.
   String _describeCapabilities(Capabilities capabilities) =>
       capabilities == Capabilities.none
-      ? 'none yet — a server is configured in M2'
+      ? 'none yet — no server is selected'
       : 'reported by the daemon';
 
   List<Component> _definition(String term, String value) => <Component>[

@@ -4,7 +4,7 @@ import 'package:jaspr/jaspr.dart';
 
 import '../l10n/strings.g.dart';
 
-/// Everything an answer drew on, under it (WP-3.2).
+/// Everything an answer drew on, under it.
 ///
 /// Collapsed: the chips in the text already say which source backs which
 /// sentence, and this is for someone who wants the list. Numbered to match

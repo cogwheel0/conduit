@@ -3,7 +3,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 part 'hermes.freezed.dart';
 part 'hermes.g.dart';
 
-/// The Hermes Agent connection as settings show it (M7). Secrets are never
+/// The Hermes Agent connection as settings show it. Secrets are never
 /// sent back, only whether they are set.
 @freezed
 abstract class HermesSettings with _$HermesSettings {

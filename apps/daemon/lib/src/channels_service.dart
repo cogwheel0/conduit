@@ -14,7 +14,7 @@ import 'package:riverpod/riverpod.dart';
 import 'event_bus.dart';
 import 'settled.dart';
 
-/// Implements `channels.*` over the core's channel providers (M5).
+/// Implements `channels.*` over the core's channel providers.
 ///
 /// The same providers and socket handler mobile uses: a channel being
 /// looked at is subscribed to over the socket, and posts, edits,

@@ -8,8 +8,8 @@ part 'capabilities.g.dart';
 /// The UI gates navigation and affordances on these flags rather than probing
 /// the server itself: capability detection is server- and build-dependent
 /// (an Open WebUI version, a Hermes deployment, a macOS-only helper), and
-/// duplicating that logic in the renderer is exactly the drift section 2.2
-/// forbids.
+/// duplicating that logic in the renderer is exactly the drift the workspace
+/// rules exist to stop.
 ///
 /// A flat struct is safe here because [kConduitProtocolVersion] demands strict
 /// equality — the daemon and the UI are always the same build, so there is no
@@ -29,19 +29,19 @@ abstract class Capabilities with _$Capabilities {
     @Default(false) bool mcp,
 
     // Speech. `serverStt` follows the active server's audio config;
-    // `onDeviceStt` is macOS-only until WP-11.1 ships whisper.cpp.
+    // `onDeviceStt` says whether this computer can transcribe on its own.
     @Default(false) bool serverStt,
     @Default(false) bool onDeviceStt,
     @Default(false) bool serverTts,
     @Default(false) bool deviceTts,
 
-    // macOS Apple helper (WP-8.4). `applePcc` stays false unless Apple grants
+    // macOS Apple helper. `applePcc` stays false unless Apple grants
     // the entitlement, so the UI must treat it as independent of
     // `appleOnDeviceModels`.
     @Default(false) bool appleOnDeviceModels,
     @Default(false) bool applePcc,
 
-    // Parity-plus (WP-3.8). Desktop-only at first; the mobile app can flip
+    // Parity-plus. Desktop-only at first; the mobile app can flip
     // these on later against the same core methods.
     @Default(false) bool branchNavigation,
     @Default(false) bool messageRating,

@@ -8,7 +8,7 @@ import 'package:riverpod/riverpod.dart';
 import 'event_bus.dart';
 import 'settled.dart';
 
-/// Implements `models.*` over the core's model providers (M3).
+/// Implements `models.*` over the core's model providers.
 final class ModelsService {
   ModelsService(this._container, {EventBus? events}) {
     if (events != null) _announceChanges(events);
@@ -16,7 +16,7 @@ final class ModelsService {
 
   final ProviderContainer _container;
 
-  /// Publishes `models.changed` when the ids on offer change (M4).
+  /// Publishes `models.changed` when the ids on offer change.
   ///
   /// A direct connection's models are discovered after it is saved, over
   /// the network, so the list a window fetched straight after saving did

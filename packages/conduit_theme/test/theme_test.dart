@@ -142,7 +142,7 @@ void main() {
     });
   });
 
-  group('accessibleColors (WP-10.2)', () {
+  group('accessibleColors', () {
     test(
       'a light variant\'s red reads as text and under its own foreground',
       () {

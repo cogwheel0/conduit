@@ -16,7 +16,7 @@ abstract class ToolSummary with _$ToolSummary {
       _$ToolSummaryFromJson(json);
 }
 
-/// What the composer may offer for the next turn (WP-3.3).
+/// What the composer may offer for the next turn.
 ///
 /// Decided by the daemon from the server's permissions and the selected
 /// model, the same way the mobile app decides it, so the two front ends
@@ -29,7 +29,7 @@ abstract class ComposerOptions with _$ComposerOptions {
     @Default(<ToolSummary>[]) List<ToolSummary> tools,
 
     /// The MCP servers the app talks to itself, as tools with the id
-    /// `local_mcp:<server id>` (M4). Offered instead of [tools] when the
+    /// `local_mcp:<server id>`. Offered instead of [tools] when the
     /// model is a direct connection's: the server's tools run on the
     /// server, and a direct model never reaches it.
     @Default(<ToolSummary>[]) List<ToolSummary> mcpTools,
@@ -39,7 +39,7 @@ abstract class ComposerOptions with _$ComposerOptions {
       _$ComposerOptionsFromJson(json);
 }
 
-/// A knowledge base, as the `#` menu lists it (WP-3.3).
+/// A knowledge base, as the `#` menu lists it.
 @freezed
 abstract class KnowledgeSummary with _$KnowledgeSummary {
   const factory KnowledgeSummary({

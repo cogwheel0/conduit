@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Gathers what electron-builder packs next to the app (WP-9.5):
+// Gathers what electron-builder packs next to the app:
 //
 //   build/stage/conduitd/   the daemon bundle `dart build cli` wrote for
 //                           this machine's OS and architecture
@@ -75,7 +75,7 @@ for (const name of vendored) {
     sections.push('```', readFileSync(licenceFile, 'utf8').trim(), '```', '')
   }
 }
-// whisper.cpp, when the local speech engine is in the bundle (M11).
+// whisper.cpp, when the local speech engine is in the bundle.
 const whisperLicence = [
   join(repoRoot, 'apps', 'daemon', 'build', 'whisper', dartTarget(), '_deps', 'whisper-src', 'LICENSE'),
   process.env.WHISPER_SOURCE_DIR && join(process.env.WHISPER_SOURCE_DIR, 'LICENSE'),

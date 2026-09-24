@@ -1,4 +1,4 @@
-/// The embedder's half of the render sandbox (WP-3.5).
+/// The embedder's half of the render sandbox.
 ///
 /// A port, like every other browser capability in this package, so the
 /// components that use it stay testable on the VM -- and so a test can

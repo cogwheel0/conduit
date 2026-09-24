@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 /// A Hermes Agent API server (Responses mode) on loopback, in the shapes
-/// the core's parsers read from a real one (M7).
+/// the core's parsers read from a real one.
 ///
 /// Sessions, jobs, skills and toolsets are held in memory. A run answers
 /// `Echo: <input>` a word at a time; an input that mentions "approve"

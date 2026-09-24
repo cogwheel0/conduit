@@ -10,7 +10,7 @@ import '../rpc/hermes_providers.dart';
 import '../widgets/form_field.dart';
 import 'workspace/workspace_common.dart' show actionButton, badge, statusLine;
 
-/// Settings → Hermes Agent (M7): the connection, what the server can do,
+/// Settings → Hermes Agent: the connection, what the server can do,
 /// and its skills and toolsets.
 class HermesSettingsTab extends StatelessComponent {
   const HermesSettingsTab({super.key});

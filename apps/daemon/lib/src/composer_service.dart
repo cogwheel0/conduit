@@ -8,7 +8,7 @@ import 'package:riverpod/riverpod.dart';
 
 import 'settled.dart';
 
-/// Implements `composer.*`: what the composer may offer (WP-3.3).
+/// Implements `composer.*`: what the composer may offer.
 ///
 /// The rules are the core's `webSearchAvailableProvider` and
 /// `imageGenerationAvailableProvider`, the same ones mobile reads. Those
@@ -75,7 +75,7 @@ final class ComposerService {
     );
   }
 
-  /// Knowledge bases matching [query], for the `#` menu (WP-3.3).
+  /// Knowledge bases matching [query], for the `#` menu.
   Future<KnowledgeList> knowledge(String query) async {
     final api = _container.read(apiServiceProvider);
     if (api == null) return const KnowledgeList();

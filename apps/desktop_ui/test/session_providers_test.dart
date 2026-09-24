@@ -31,8 +31,8 @@ class _FakeRpcClient implements RpcClient {
   }) async {
     calls.add((method: method, params: params));
     // Every window asks for the direct connections, which decide whether a
-    // setup with no server is a setup at all (M4). None, unless a test says.
-    // Hermes too (M7): not set up, unless a test says.
+    // setup with no server is a setup at all. None, unless a test says.
+    // Hermes too: not set up, unless a test says.
     final responder =
         responses[method] ??
         (method == ConduitMethods.directList
@@ -170,7 +170,7 @@ void main() {
       expect(container.read(needsOnboardingProvider).value, isFalse);
     });
 
-    test('direct connections and no server are a setup (M4)', () async {
+    test('direct connections and no server are a setup', () async {
       final container = _container(
         _FakeRpcClient(<String, Object Function()>{
           ConduitMethods.serversList: () => _emptyList,
@@ -188,7 +188,7 @@ void main() {
       expect(container.read(needsOnboardingProvider).value, isFalse);
     });
 
-    test('Hermes Agent and no server are a setup too (M7)', () async {
+    test('Hermes Agent and no server are a setup too', () async {
       final container = _container(
         _FakeRpcClient(<String, Object Function()>{
           ConduitMethods.serversList: () => _emptyList,

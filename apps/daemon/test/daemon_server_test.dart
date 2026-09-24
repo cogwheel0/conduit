@@ -175,7 +175,7 @@ void main() {
     });
 
     test('speech and transcription need the token too', () async {
-      // `<audio src=/tts/...>` and the dictation upload (M8).
+      // `<audio src=/tts/...>` and the dictation upload.
       final client = HttpClient();
       addTearDown(client.close);
       final speech = Uri.parse(
@@ -225,7 +225,7 @@ void main() {
       expect(response.sessionId, isNotEmpty);
       expect(response.paths.userData, tempDir.path);
       expect(response.platform, isNotEmpty);
-      // Nothing is configured yet, so every M0 launch is an onboarding launch.
+      // The handshake always reports an onboarding launch.
       expect(response.needsOnboarding, isTrue);
       expect(response.capabilities, Capabilities.none);
     });
@@ -298,7 +298,7 @@ void main() {
     });
 
     test(
-      'an unknown method is a typo; a reserved one is a missing milestone',
+      'an unknown method is a typo; a reserved one is a missing feature',
       () async {
         final peer = await connect();
         addTearDown(peer.close);

@@ -13,7 +13,7 @@ import '../widgets/form_field.dart';
 import 'ollama_models.dart';
 import '../widgets/ui.dart';
 
-/// Settings > Direct connections (WP-4.2): model providers the app talks to
+/// Settings > Direct connections: model providers the app talks to
 /// itself, without Open WebUI in between.
 ///
 /// Mobile's wording throughout, which already explains the parts that need
@@ -30,7 +30,7 @@ class _DirectConnectionsTabState extends State<DirectConnectionsTab> {
   DirectConnectionSummary? _editing;
   String? _deleting;
 
-  /// Ollama connections whose models are shown (M4).
+  /// Ollama connections whose models are shown.
   final Set<String> _modelsOpen = <String>{};
 
   static const _blank = DirectConnectionSummary(
@@ -40,7 +40,7 @@ class _DirectConnectionsTabState extends State<DirectConnectionsTab> {
     baseUrl: '',
   );
 
-  /// A new connection for the Open WebUI account (M4): OpenAI-compatible
+  /// A new connection for the Open WebUI account: OpenAI-compatible
   /// only, and named by Open WebUI after its host.
   static const _blankAccount = DirectConnectionSummary(
     id: '',

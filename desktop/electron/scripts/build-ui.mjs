@@ -36,12 +36,12 @@ const tailwindBin = join(
   process.platform === 'win32' ? 'tailwindcss.cmd' : 'tailwindcss',
 )
 
-// The render sandbox and the libraries it runs (WP-3.5). Copied rather than
+// The render sandbox and the libraries it runs. Copied rather than
 // bundled: they are loaded by `app://conduit/sandbox.html`, which is framed
 // with an opaque origin and has its own CSP, so they must be real URLs under
 // the web root and not part of the Dart bundle.
 //
-// Vendored through npm, never a CDN (section 5.1). The sandbox has no
+// Vendored through npm, never a CDN. The sandbox has no
 // `connect-src` at all, so a CDN would not even be reachable from it.
 console.log('> sandbox')
 const webDir = join(uiDir, 'web')
@@ -78,7 +78,7 @@ for (const [pkg, dir, file] of [
   cpSync(from, join(vendorDir, dir, file.split('/').pop()))
 }
 
-// Quill 2, the notes editor (M5). Unlike the libraries above it runs in the
+// Quill 2, the notes editor. Unlike the libraries above it runs in the
 // app's own origin -- it edits the user's text, not model output -- so it is
 // loaded by index.html, not the sandbox.
 for (const file of ['quill.js', 'quill.snow.css']) {
@@ -91,7 +91,7 @@ for (const file of ['quill.js', 'quill.snow.css']) {
   cpSync(from, join(vendorDir, 'quill', file))
 }
 
-// xterm.js, the terminal (M7). App origin like Quill: it draws the shell
+// xterm.js, the terminal. App origin like Quill: it draws the shell
 // the user types into, and loads from index.html.
 for (const [pkg, file] of [
   ['@xterm/xterm', 'lib/xterm.js'],

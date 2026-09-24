@@ -28,7 +28,7 @@ abstract class ChatSummary with _$ChatSummary {
       _$ChatSummaryFromJson(json);
 }
 
-/// A folder as the sidebar shows it (WP-3.1).
+/// A folder as the sidebar shows it.
 ///
 /// No member list: a chat names its folder through
 /// [ChatSummary.folderId], and carrying the relation both ways would give
@@ -80,7 +80,7 @@ abstract class ChatList with _$ChatList {
 
 /// One message, flattened for rendering.
 ///
-/// The parsed segments the plan calls `turn.blocks` are a later addition;
+/// The parsed segments (`turn.blocks`) come separately;
 /// this carries the raw markdown plus the fields the renderer needs to show
 /// a message at all. The parsing still happens once, in the daemon -- it is
 /// simply not yet split out of [content].
@@ -99,7 +99,7 @@ abstract class ChatMessageDto with _$ChatMessageDto {
     /// Set when the turn failed; localized in the UI like every other code.
     String? errorCode,
 
-    /// Other answers to the same prompt, oldest first (WP-3.8).
+    /// Other answers to the same prompt, oldest first.
     ///
     /// A regenerate creates a sibling on the server instead of replacing
     /// the answer. Without these, the answer that was regenerated away
@@ -107,17 +107,16 @@ abstract class ChatMessageDto with _$ChatMessageDto {
     @Default(<ChatMessageVersionDto>[]) List<ChatMessageVersionDto> versions,
 
     /// What the answer drew on -- web results, files, a knowledge base --
-    /// in the order its `[1]`, `[2]` markers count (WP-3.2).
+    /// in the order its `[1]`, `[2]` markers count.
     @Default(<ChatSourceDto>[]) List<ChatSourceDto> sources,
 
-    /// Tokens and timing, when the provider reported them (WP-3.2).
+    /// Tokens and timing, when the provider reported them.
     ChatUsageDto? usage,
 
-    /// The user's thumb: 1 up, -1 down, null unrated (WP-3.8).
+    /// The user's thumb: 1 up, -1 down, null unrated.
     int? rating,
 
-    /// What was attached to a question, or generated with an answer
-    /// (WP-3.2).
+    /// What was attached to a question, or generated with an answer.
     @Default(<ChatFileDto>[]) List<ChatFileDto> files,
   }) = _ChatMessageDto;
 
@@ -125,7 +124,7 @@ abstract class ChatMessageDto with _$ChatMessageDto {
       _$ChatMessageDtoFromJson(json);
 }
 
-/// One source an answer cites (WP-3.2).
+/// One source an answer cites.
 ///
 /// Already reduced to what the renderer shows: Open WebUI's source records
 /// are nested several ways depending on where they came from, and deciding
@@ -144,7 +143,7 @@ abstract class ChatSourceDto with _$ChatSourceDto {
       _$ChatSourceDtoFromJson(json);
 }
 
-/// A file on a message (WP-3.2).
+/// A file on a message.
 ///
 /// By id: the renderer loads it from the daemon's `/files/{server}/{id}`,
 /// which proxies it with the server's credentials, so the window never
@@ -165,7 +164,7 @@ abstract class ChatFileDto with _$ChatFileDto {
       _$ChatFileDtoFromJson(json);
 }
 
-/// How an answer was produced, in the figures people read (WP-3.2).
+/// How an answer was produced, in the figures people read.
 ///
 /// Computed by the core's `UsageSummary` from whichever of the four shapes
 /// the provider used, so a field is null when that provider did not say --
@@ -213,7 +212,7 @@ abstract class ChatDetail with _$ChatDetail {
     required ChatSummary summary,
     @Default(<ChatMessageDto>[]) List<ChatMessageDto> messages,
 
-    /// The conversation's own system prompt, when it has one (WP-3.4).
+    /// The conversation's own system prompt, when it has one.
     /// Null means turns use the account's default from its settings.
     String? systemPrompt,
   }) = _ChatDetail;
@@ -222,7 +221,7 @@ abstract class ChatDetail with _$ChatDetail {
       _$ChatDetailFromJson(json);
 }
 
-/// One message in a conversation's tree, for the overview (WP-3.4).
+/// One message in a conversation's tree, for the overview.
 @freezed
 abstract class ChatTreeNode with _$ChatTreeNode {
   const factory ChatTreeNode({
@@ -270,7 +269,7 @@ abstract class ChatCurrent with _$ChatCurrent {
       _$ChatCurrentFromJson(json);
 }
 
-/// Params for `chats.folder` (WP-3.1).
+/// Params for `chats.folder`.
 @freezed
 abstract class FolderRef with _$FolderRef {
   const factory FolderRef({required String folderId}) = _FolderRef;
@@ -295,7 +294,7 @@ abstract class FolderContents with _$FolderContents {
       _$FolderContentsFromJson(json);
 }
 
-/// Params for `chats.setSystemPrompt` (WP-3.4).
+/// Params for `chats.setSystemPrompt`.
 @freezed
 abstract class ChatSystemPrompt with _$ChatSystemPrompt {
   const factory ChatSystemPrompt({
@@ -309,7 +308,7 @@ abstract class ChatSystemPrompt with _$ChatSystemPrompt {
       _$ChatSystemPromptFromJson(json);
 }
 
-/// A tag, as Open WebUI keeps it (WP-3.8).
+/// A tag, as Open WebUI keeps it.
 ///
 /// [id] is what a chat's `tags` lists -- the name lower-cased, spaces as
 /// underscores -- and [name] is what the user typed.
@@ -330,7 +329,7 @@ abstract class TagList with _$TagList {
       _$TagListFromJson(json);
 }
 
-/// What `chats.bulk` does to every conversation it is given (WP-3.8).
+/// What `chats.bulk` does to every conversation it is given.
 enum BulkChatAction { archive, unarchive, delete, move }
 
 /// Params for `chats.bulk`.
@@ -364,7 +363,7 @@ abstract class BulkChatsResult with _$BulkChatsResult {
       _$BulkChatsResultFromJson(json);
 }
 
-/// Params for `chats.move` (WP-3.1): into a folder, or out of all of them.
+/// Params for `chats.move`: into a folder, or out of all of them.
 @freezed
 abstract class MoveChat with _$MoveChat {
   const factory MoveChat({
@@ -512,7 +511,7 @@ abstract class ChatsChanged with _$ChatsChanged {
       _$ChatsChangedFromJson(json);
 }
 
-/// Payload of `route.remap` (M4).
+/// Payload of `route.remap`.
 ///
 /// A chat made on this computer -- a direct-connection chat mirrored to
 /// Open WebUI -- starts with a `local:` id and is given the server's on its
@@ -527,7 +526,7 @@ abstract class RouteRemap with _$RouteRemap {
       _$RouteRemapFromJson(json);
 }
 
-/// Payload of `sync.status` (WP-3.1).
+/// Payload of `sync.status`.
 ///
 /// Published whenever the sync engine starts or finishes a cycle. The
 /// sidebar shows it, and search re-runs on it, because the index fills
@@ -548,7 +547,7 @@ abstract class SyncState with _$SyncState {
     /// The last cycle's failure, as the engine reported it.
     String? lastError,
 
-    /// False when this computer has no network at all (WP-3.3). Narrow on
+    /// False when this computer has no network at all. Narrow on
     /// purpose: "an interface exists" is all the daemon can know without
     /// asking the server, and a server that will not answer is what
     /// [lastError] is for.

@@ -12,7 +12,7 @@ import 'package:uuid/uuid.dart';
 
 import 'settled.dart';
 
-/// Implements `mcp.*`: MCP servers the app talks to itself (M4).
+/// Implements `mcp.*`: MCP servers the app talks to itself.
 ///
 /// As with `direct.*`, what is safe is the core's to decide: which
 /// credentials survive an address change, when approvals are forgotten,

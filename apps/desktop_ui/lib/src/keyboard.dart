@@ -11,7 +11,7 @@ import 'package:universal_web/web.dart' as web;
 import 'shortcuts.dart';
 import 'window_commands.dart';
 
-/// Binds [shortcuts] to the document (WP-3.7).
+/// Binds [shortcuts] to the document.
 ///
 /// One listener on `document` rather than one per control. A shortcut is a
 /// property of the window, not of whatever happens to hold focus, and
@@ -263,7 +263,7 @@ KeyStroke? strokeFrom(web.KeyboardEvent event, {required bool isMac}) {
 /// Whether [target] is something the user is typing into.
 ///
 /// `isContentEditable` as well as the two tags: a rich-text surface is a
-/// field even though it is a `div`, and M3's composer may become one.
+/// field even though it is a `div`, and the composer may become one.
 bool isEditable(web.EventTarget? target) {
   if (!target.isA<web.HTMLElement>()) return false;
   final element = target as web.HTMLElement;
@@ -291,7 +291,7 @@ EventCallback sendOnEnter(void Function() send) => (web.Event event) {
   send();
 };
 
-/// Arrow keys and Enter inside the command palette's field (WP-3.1).
+/// Arrow keys and Enter inside the command palette's field.
 ///
 /// On the field rather than the document: the palette is the one place
 /// arrows mean "move the highlight", and everywhere else they must keep
@@ -361,7 +361,7 @@ EventCallback resizeKeys(
   move(sign * step * (key.shiftKey ? 10 : 1));
 };
 
-/// The composer's keys, with the `/` menu open or not (WP-3.3).
+/// The composer's keys, with the `/` menu open or not.
 ///
 /// While the menu shows, the arrows move its highlight, Enter and Tab
 /// choose, and Esc closes it -- and goes no further, because the document
@@ -405,7 +405,7 @@ EventCallback composerKeys({
 }
 
 /// Enter and Esc in a one-line field that is its own small form -- naming a
-/// tag, say (WP-3.8). Esc stops here: the document listener would take it
+/// tag, say. Esc stops here: the document listener would take it
 /// as "stop the running turn" otherwise.
 EventCallback submitOrCancel({
   required void Function() submit,
@@ -426,7 +426,7 @@ EventCallback submitOrCancel({
 };
 
 /// A right-click, claimed so the browser's own menu does not open over the
-/// app's (WP-3.1). [open] gets where the pointer was.
+/// app's. [open] gets where the pointer was.
 EventCallback contextMenuAt(void Function(double x, double y) open) =>
     (web.Event event) {
       final mouse = event as web.MouseEvent;
@@ -440,7 +440,7 @@ EventCallback suppressContextMenu(void Function() close) => (web.Event event) {
   close();
 };
 
-/// Starts dragging a sidebar row (WP-3.1). "Move" rather than "copy" so the
+/// Starts dragging a sidebar row. "Move" rather than "copy" so the
 /// pointer says what a drop will do.
 EventCallback startDrag(void Function() onStart) => (web.Event event) {
   final transfer = (event as web.DragEvent).dataTransfer;
@@ -488,7 +488,7 @@ final class WindowNetworkEvents implements NetworkEventsPort {
   Stream<bool> get changes => _changes.stream;
 }
 
-/// Records one key combination into [onStroke] (WP-9.4): a modifier alone
+/// Records one key combination into [onStroke]: a modifier alone
 /// is still being held, and Esc means "never mind". The event stops here,
 /// so recording a key never also does what it did before.
 EventCallback captureStroke({

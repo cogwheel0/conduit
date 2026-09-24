@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Produces every generated artifact the desktop build needs, in dependency
-# order, from a fresh clone (WP-0.2).
+# order, from a fresh clone.
 #
 #   ./scripts/bootstrap_desktop.sh
 #
@@ -26,7 +26,7 @@ step 'Generating mobile code (freezed, json_serializable, riverpod, drift)'
 dart run build_runner build
 
 step 'Generating conduit_core models'
-# The freezed/json_serializable models moved out of lib/core/models in M1, so
+# The freezed/json_serializable models moved out of lib/core/models, so
 # their generated code is produced here now, not by the root build.
 (cd packages/conduit_core && dart run build_runner build)
 

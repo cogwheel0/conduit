@@ -4,7 +4,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import 'chat_providers.dart';
 import 'rpc_providers.dart';
 
-/// The direct connections, secrets reported only as present (WP-4.2).
+/// The direct connections, secrets reported only as present.
 final directConnectionsProvider = FutureProvider<DirectConnectionList>((
   ref,
 ) async {

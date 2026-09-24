@@ -11,7 +11,7 @@ import 'conversation_map.dart';
 import 'form_field.dart';
 import 'ui.dart';
 
-/// Beside the transcript: this conversation's own settings (WP-3.4).
+/// Beside the transcript: this conversation's own settings.
 ///
 /// Only what both apps can honour. Open WebUI's pane also holds sampling
 /// parameters, which the core does not send yet; a field that is saved

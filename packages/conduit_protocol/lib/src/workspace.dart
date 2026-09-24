@@ -3,7 +3,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 part 'workspace.freezed.dart';
 part 'workspace.g.dart';
 
-/// The five sections of the workspace (M6).
+/// The five sections of the workspace.
 enum WorkspaceKind { models, knowledge, prompts, tools, skills }
 
 /// What the signed-in user may do in one section.

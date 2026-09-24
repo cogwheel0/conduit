@@ -15,7 +15,7 @@ class DaemonDirectories implements PathsPort {
 
   final DaemonPaths paths;
 
-  // PathsPort (WP-1.5). The core asks for these by role; the daemon already
+  // PathsPort. The core asks for these by role; the daemon already
   // resolved them from Electron's userData at startup, so each is a lookup
   // rather than a probe.
   @override

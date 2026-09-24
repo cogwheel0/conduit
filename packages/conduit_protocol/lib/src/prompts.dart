@@ -3,7 +3,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 part 'prompts.freezed.dart';
 part 'prompts.g.dart';
 
-/// A saved prompt, as the `/` menu lists it (WP-3.3).
+/// A saved prompt, as the `/` menu lists it.
 ///
 /// Without its content: the menu shows what a prompt is called, and the
 /// text it expands to is decided by `prompts.render`, which is where its

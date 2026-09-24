@@ -308,7 +308,7 @@ void main() {
       expect(afterFirst.activeServerId, first.id);
       expect(afterFirst.servers.where((s) => s.isActive).single.id, first.id);
 
-      // The one this whole work package exists for: switching accounts must
+      // The one that matters most: switching accounts must
       // not delete the account you switched away from.
       expect(afterFirst.servers.map((s) => s.id), contains(second.id));
 

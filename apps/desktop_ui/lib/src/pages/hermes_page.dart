@@ -14,7 +14,7 @@ import '../widgets/ui.dart';
 import 'workspace/workspace_common.dart'
     show actionButton, badge, confirmBox, dayOf, statusLine, workspaceGo;
 
-/// Hermes Agent (M7): its conversations, which open in the chat, and its
+/// Hermes Agent: its conversations, which open in the chat, and its
 /// scheduled agents.
 class HermesPage extends StatelessComponent {
   const HermesPage({super.key});

@@ -3,7 +3,7 @@ import 'package:jaspr/jaspr.dart';
 
 import '../l10n/strings.g.dart';
 
-/// An opt-in, inert preview of model-written HTML (WP-3.5).
+/// An opt-in, inert preview of model-written HTML.
 ///
 /// Two independent things stop it executing, because one of them being
 /// wrong is how this kind of feature becomes an exploit:

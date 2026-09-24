@@ -12,7 +12,7 @@ import 'package:test/test.dart';
 import 'support/fake_hermes_server.dart';
 import 'support/null_sink.dart';
 
-/// Hermes Agent (M7), against a fake of its API server: the connection,
+/// Hermes Agent, against a fake of its API server: the connection,
 /// a conversation in a session, an approval, sessions and jobs.
 void main() {
   late Directory temporary;

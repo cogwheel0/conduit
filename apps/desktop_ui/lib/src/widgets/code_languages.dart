@@ -37,7 +37,7 @@ import 'package:highlight/languages/typescript.dart';
 import 'package:highlight/languages/xml.dart';
 import 'package:highlight/languages/yaml.dart';
 
-/// The languages a code block can be highlighted in (WP-3.5).
+/// The languages a code block can be highlighted in.
 ///
 /// Its own library, and one that never imports Jaspr: the language modes are
 /// top-level names like `css` and `code`, and half of them collide with the

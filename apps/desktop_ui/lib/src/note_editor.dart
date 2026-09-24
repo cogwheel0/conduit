@@ -1,4 +1,4 @@
-/// The notes editor (M5), as a port.
+/// The notes editor, as a port.
 ///
 /// Quill lives in the browser, and the pages that use it are tested on the
 /// VM where it does not exist -- the same reason [WindowCommandsPort] is a

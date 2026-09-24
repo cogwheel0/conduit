@@ -96,7 +96,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     staging: '/home/u/.config/Conduit/staging',
   ),
 
-  // servers.* and auth.* (WP-2.1). Two variants of ServerSummary on purpose:
+  // servers.* and auth.*. Two variants of ServerSummary on purpose:
   // the redacted-secrets shape is the one that carries the security claim, so
   // it is golden-checked rather than trusted.
   'serverSummaryMinimal': const ServerSummary(

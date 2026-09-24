@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Points the package manifests at one release (WP-9.6):
+// Points the package manifests at one release:
 //
 //   node desktop/packaging/update-manifests.mjs <version> [artifacts-dir]
 //

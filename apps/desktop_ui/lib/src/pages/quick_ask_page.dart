@@ -16,7 +16,7 @@ import '../widgets/form_field.dart';
 import '../widgets/markdown_view.dart';
 import '../widgets/ui.dart';
 
-/// The quick-ask panel (WP-9.1): one question from anywhere, answered in
+/// The quick-ask panel: one question from anywhere, answered in
 /// place, and continued in the main window when it turns into more.
 ///
 /// Its own window with its own connection to the daemon, so it asks in a

@@ -191,7 +191,7 @@ apps/
   desktop_ui/           Jaspr client-mode renderer
 desktop/
   electron/             Electron main + preload, build scripts, Playwright tests
-  packaging/            Homebrew, winget, AUR and Flathub manifests (M9)
+  packaging/            Homebrew, winget, AUR and Flathub manifests
 ```
 
 `packages/conduit_theme` is the source of truth for the colour palettes;

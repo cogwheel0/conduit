@@ -1,6 +1,6 @@
 part of 'turns_service.dart';
 
-/// Turns answered by a direct connection rather than Open WebUI (M4).
+/// Turns answered by a direct connection rather than Open WebUI.
 ///
 /// The daemon talks to the provider itself, through the core's adapters,
 /// and writes the conversation to the database the way the mobile app

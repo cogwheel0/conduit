@@ -1,6 +1,6 @@
 import 'shortcuts.dart';
 
-/// The two things a shortcut needs the window to do (WP-3.7).
+/// The two things a shortcut needs the window to do.
 ///
 /// A port for the same reason [ThemeApplierPort] is one: focusing an element
 /// and writing the clipboard are `document` operations, and the pages that
@@ -52,7 +52,7 @@ abstract interface class WindowCommandsPort {
   void openExternal(String url);
 
   /// Tells [onChange] whether the element [id] is near enough the viewport
-  /// to be worth drawing, now and as that changes (WP-10.1). Returns what
+  /// to be worth drawing, now and as that changes. Returns what
   /// stops it.
   void Function() observeNearView(String id, void Function(bool near) onChange);
 
@@ -156,7 +156,7 @@ final class RecordingWindowCommands implements WindowCommandsPort {
 abstract interface class ShortcutBindingPort {
   void install(void Function(ShortcutAction action) onAction);
 
-  /// Matches keys against [table] from now on (WP-9.4).
+  /// Matches keys against [table] from now on.
   void rebind(List<Shortcut> table);
   void dispose();
 }
@@ -178,7 +178,7 @@ final class NoShortcutBinding implements ShortcutBindingPort {
   void dispose() => handler = null;
 }
 
-/// The window's `online` and `offline` events (WP-3.3).
+/// The window's `online` and `offline` events.
 ///
 /// A port for the same reason as the others: `window` is not there on the
 /// VM. [online] is `navigator.onLine` at the time of asking.

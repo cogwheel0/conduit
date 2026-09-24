@@ -23,7 +23,7 @@ abstract class SendTurn with _$SendTurn {
     required String text,
     @Default(<String>[]) List<String> toolIds,
 
-    /// Knowledge bases to draw on, chosen with `#` (WP-3.3).
+    /// Knowledge bases to draw on, chosen with `#`.
     @Default(<KnowledgeSummary>[]) List<KnowledgeSummary> knowledge,
     @Default(false) bool webSearch,
     @Default(false) bool imageGeneration,
@@ -32,7 +32,7 @@ abstract class SendTurn with _$SendTurn {
     /// Ids of files already uploaded through `/upload`.
     @Default(<String>[]) List<String> fileIds,
 
-    /// Start a conversation the server never stores (WP-3.4).
+    /// Start a conversation the server never stores.
     ///
     /// Only meaningful with no [chatId]. The daemon assigns a `local:` id,
     /// which Open WebUI declines to persist, and keeps the transcript in
@@ -88,7 +88,7 @@ abstract class RegenerateTurn with _$RegenerateTurn {
       _$RegenerateTurnFromJson(json);
 }
 
-/// Params for `turns.rate` (WP-3.8): a thumb up or down on an answer.
+/// Params for `turns.rate`: a thumb up or down on an answer.
 @freezed
 abstract class RateTurn with _$RateTurn {
   const factory RateTurn({
@@ -106,7 +106,7 @@ abstract class RateTurn with _$RateTurn {
       _$RateTurnFromJson(json);
 }
 
-/// Params for `turns.edit` (WP-3.2).
+/// Params for `turns.edit`.
 ///
 /// Sends a replacement for one of the user's messages and answers it. On
 /// the server this is a branch, not an overwrite: the new question becomes

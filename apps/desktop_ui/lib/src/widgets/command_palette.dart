@@ -11,7 +11,7 @@ import '../rpc/chat_providers.dart';
 import '../rpc/rpc_providers.dart';
 import '../shortcuts.dart';
 
-/// `Cmd/Ctrl+K`: find a conversation or run a command (WP-3.1).
+/// `Cmd/Ctrl+K`: find a conversation or run a command.
 ///
 /// A combobox in the ARIA sense -- the field keeps focus while the arrows
 /// move a highlight through the list -- so a screen reader announces the

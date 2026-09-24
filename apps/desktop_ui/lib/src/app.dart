@@ -30,8 +30,7 @@ import 'widgets/workspace_frame.dart';
 
 /// The desktop app shell and its routes.
 ///
-/// WP-0.6 had to establish whether `jaspr_router` can carry the Open WebUI
-/// information architecture before the chat vertical is built on it. It can:
+/// `jaspr_router` carries the Open WebUI information architecture:
 /// [ShellRoute] gives the persistent sidebar/main split, `redirect` works at
 /// both the router and route level, and `RouteState.params` carries path
 /// parameters. A hand-written history-API fallback is therefore not needed.
@@ -40,7 +39,7 @@ class ConduitDesktopApp extends StatelessComponent {
 
   @override
   Component build(BuildContext context) {
-    // The quick-ask panel (WP-9.1) is its own small window, not a route of
+    // The quick-ask panel is its own small window, not a route of
     // this one: no sidebar, no session redirects.
     if (context.read(shellBridgeProvider).windowKind == WindowKind.quickAsk) {
       return const Component.fragment([_PreferencesApplier(), QuickAskPage()]);
@@ -66,7 +65,7 @@ class ConduitDesktopApp extends StatelessComponent {
               title: 'Conduit',
               builder: (context, state) => const ChatPage(),
             ),
-            // The M0 screen that proved the daemon chain works, kept because
+            // The first screen, which proved the daemon chain works, kept because
             // it is the fastest way to see a handshake, a port and a session
             // id when something is wrong.
             Route(

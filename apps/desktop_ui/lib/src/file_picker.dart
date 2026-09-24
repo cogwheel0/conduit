@@ -1,7 +1,7 @@
 /// A file the user chose, read as text.
 typedef PickedTextFile = ({String name, String content});
 
-/// Picking a small text file (WP-2.2).
+/// Picking a small text file.
 ///
 /// A port, like [ExternalSignInPort] and [ThemeApplierPort], so the pages
 /// that use it stay testable on the VM -- `package:web`'s `File` and
@@ -22,7 +22,7 @@ abstract interface class FilePickerPort {
 
   /// Opens the OS picker for an image and returns it scaled to cover
   /// [size] pixels square, cropped to the middle, as a PNG `data:` URL, or null if cancelled or
-  /// not an image. A model's profile image is stored that way (M6), and
+  /// not an image. A model's profile image is stored that way, and
   /// Open WebUI's own editor scales it to the same 250 pixels.
   Future<String?> pickImageDataUrl({int size = 250});
 }

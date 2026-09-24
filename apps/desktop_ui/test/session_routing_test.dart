@@ -36,7 +36,7 @@ String? redirect({
 );
 
 void main() {
-  group('direct connections and no server (M4)', () {
+  group('direct connections and no server', () {
     const signedOut = AsyncValue<AuthSnapshot>.data(
       AuthSnapshot(phase: AuthPhase.unauthenticated),
     );

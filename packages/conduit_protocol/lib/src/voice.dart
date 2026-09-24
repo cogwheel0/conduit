@@ -3,7 +3,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 part 'voice.freezed.dart';
 part 'voice.g.dart';
 
-/// Dictation, read aloud and call mode settings (M8), with what the active
+/// Dictation, read aloud and call mode settings, with what the active
 /// server can do. The same stored preferences the phone app keeps.
 @freezed
 abstract class VoiceSettings with _$VoiceSettings {
@@ -11,7 +11,7 @@ abstract class VoiceSettings with _$VoiceSettings {
     /// Whether the active server transcribes speech.
     @Default(false) bool serverStt,
 
-    /// Whether this build can transcribe on this computer (M11): it has the
+    /// Whether this build can transcribe on this computer: it has the
     /// whisper library. A model must be downloaded too; see [localReady].
     @Default(false) bool localStt,
 
@@ -139,7 +139,7 @@ abstract class VoiceTranscript with _$VoiceTranscript {
       _$VoiceTranscriptFromJson(json);
 }
 
-/// A whisper model for transcribing on this computer (M11).
+/// A whisper model for transcribing on this computer.
 @freezed
 abstract class VoiceModel with _$VoiceModel {
   const factory VoiceModel({

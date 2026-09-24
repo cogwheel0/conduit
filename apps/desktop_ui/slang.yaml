@@ -1,4 +1,4 @@
-# WP-0.8: the desktop UI's typed string accessors.
+# The desktop UI's typed string accessors.
 #
 # The ARB files in lib/l10n stay the single source of truth for both apps.
 # The mobile app keeps `gen-l10n`; this reads the very same files with slang,

@@ -4,7 +4,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import 'rpc_providers.dart';
 import 'session_providers.dart';
 
-/// Every call the workspace makes to the daemon (M6), in one place so a
+/// Every call the workspace makes to the daemon, in one place so a
 /// test replaces the daemon by overriding this.
 final workspaceActionsProvider = Provider<WorkspaceActions>(
   WorkspaceActions.new,

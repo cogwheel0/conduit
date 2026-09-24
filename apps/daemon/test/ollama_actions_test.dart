@@ -10,7 +10,7 @@ import 'package:test/test.dart';
 
 import 'support/null_sink.dart';
 
-/// `direct.ollama*` (M4) against a fake Ollama server: which models are
+/// `direct.ollama*` against a fake Ollama server: which models are
 /// loaded, loading and unloading them, and the per-model settings.
 void main() {
   late Directory temporary;

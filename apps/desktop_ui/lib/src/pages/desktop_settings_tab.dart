@@ -18,7 +18,7 @@ final RegExp quickAskShortcutPattern = RegExp(
   r"([A-Z0-9]|F([1-9]|1[0-9]|2[0-4])|Space|Enter|Tab|Up|Down|Left|Right|[`\-=\[\];',./\\])$",
 );
 
-/// Settings → Desktop (M9): the tray, login, quick ask and notifications.
+/// Settings → Desktop: the tray, login, quick ask and notifications.
 class DesktopSettingsTab extends StatelessComponent {
   const DesktopSettingsTab({super.key});
 

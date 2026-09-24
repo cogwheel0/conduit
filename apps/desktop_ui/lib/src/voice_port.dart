@@ -1,6 +1,6 @@
 import 'dart:async';
 
-/// A recording the browser holds, ready to be transcribed (M8).
+/// A recording the browser holds, ready to be transcribed.
 class CapturedAudio {
   const CapturedAudio({
     required this.handle,
@@ -31,7 +31,7 @@ class DeviceVoice {
 typedef LevelListener = void Function(double level, Duration elapsed);
 
 /// The window's audio: the microphone, the system's voices, and an audio
-/// element for the server's (M8). Everything else about voice is logic,
+/// element for the server's. Everything else about voice is logic,
 /// and lives outside this port so it can be tested.
 abstract interface class VoicePort {
   /// Starts recording from the microphone. False when there is none or it
@@ -46,7 +46,7 @@ abstract interface class VoicePort {
 
   /// The transcription of [audio], through the daemon. With [wav], the
   /// recording is sent as 16 kHz mono WAV, which transcribing on this
-  /// computer needs (M11).
+  /// computer needs.
   Future<String> transcribe(CapturedAudio audio, {bool wav = false});
 
   /// The system's voices; empty when it has none.

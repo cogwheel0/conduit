@@ -1,4 +1,4 @@
-// Converts the ARB catalog in lib/l10n into slang's input format (WP-0.8).
+// Converts the ARB catalog in lib/l10n into slang's input format.
 //
 //   dart run tool/arb_to_slang.dart
 //

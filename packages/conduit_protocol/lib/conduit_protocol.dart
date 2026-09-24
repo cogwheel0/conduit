@@ -3,7 +3,7 @@
 ///
 /// Everything here must compile with `dart compile js` — the desktop UI
 /// imports it from a browser context. That rules out `dart:io` and anything
-/// that reaches it transitively. CI enforces this (WP-0.9); the golden
+/// that reaches it transitively. CI enforces this; the golden
 /// fixtures under `test/` run both natively and as compiled JS so a
 /// regression shows up as a failing build, not as a runtime surprise.
 library;

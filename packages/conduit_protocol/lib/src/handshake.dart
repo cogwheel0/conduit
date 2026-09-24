@@ -15,7 +15,7 @@ enum WindowKind {
   @JsonValue('main')
   main,
 
-  /// Frameless always-on-top global-hotkey window (WP-9.1).
+  /// Frameless always-on-top global-hotkey window.
   @JsonValue('quickAsk')
   quickAsk,
 

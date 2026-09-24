@@ -136,16 +136,15 @@ final class CoreRuntime {
         // deliberate choice rather than an omission:
         //
         // * `appLifecycleProvider` -- a headless sidecar has no lifecycle of
-        //   its own. Electron's window focus/blur arrives over RPC in a later
-        //   work package; until then `resumed` is the truth, since the daemon
-        //   only runs while Electron does.
+        //   its own. `resumed` is the truth, since the daemon only runs
+        //   while Electron does.
         // * `flushScheduler` / `postFrameScheduler` -- both exist to align
         //   work with a Flutter frame. There is no frame here; the microtask
         //   defaults are the correct degenerate case.
         // * `clipboardPortProvider` -- the clipboard belongs to the
         //   renderer's process, not this one, so it crosses as RPC.
-        // * `cookieJarProvider` -- filled in by WP-2.3, where Electron's auth
-        //   windows are what actually hold cookies.
+        // * `cookieJarProvider` -- filled in by external sign-in, where
+        //   Electron's auth windows are what actually hold cookies.
       ],
     );
 
@@ -156,7 +155,7 @@ final class CoreRuntime {
     // in the sidecar would ever construct it.
     container.read(openWebUiAccountStorageIsolationProvider);
 
-    // The Socket.IO connection, held open for the daemon's lifetime (WP-3.6).
+    // The Socket.IO connection, held open for the daemon's lifetime.
     //
     // The manager is lazy and nothing else in the sidecar reads it, so until
     // now the daemon had no socket at all. Turns went out as plain HTTP

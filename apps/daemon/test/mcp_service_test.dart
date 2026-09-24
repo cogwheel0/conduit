@@ -11,7 +11,7 @@ import 'package:test/test.dart';
 import 'support/mcp_fixture.dart';
 import 'support/null_sink.dart';
 
-/// `mcp.*` over the real core (M4), against a real MCP server on a
+/// `mcp.*` over the real core, against a real MCP server on a
 /// loopback port.
 void main() {
   late Directory temporary;

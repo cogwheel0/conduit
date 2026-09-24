@@ -24,7 +24,7 @@ import 'settled.dart';
 import 'temporary_chats.dart';
 import 'hermes_service.dart';
 
-/// Implements `chats.*` over the core's conversation providers (M3).
+/// Implements `chats.*` over the core's conversation providers.
 ///
 /// Reads `conversationsProvider` rather than the DAO directly. That provider
 /// is what merges the Open WebUI chats with the direct-local ones, applies
@@ -50,7 +50,7 @@ final class ChatsService {
     }
   }
 
-  /// Hermes sessions, which open as chats (M7).
+  /// Hermes sessions, which open as chats.
   final HermesService? _hermes;
 
   /// Whether this computer has a network at all, as the port last said.
@@ -67,7 +67,7 @@ final class ChatsService {
     online: _online,
   );
 
-  /// Republishes `sync.status` when the network comes or goes (WP-3.3), so
+  /// Republishes `sync.status` when the network comes or goes, so
   /// a window can say it is offline rather than letting a send fail.
   void _announceConnectivity() {
     final port = _container.read(connectivityPortProvider);
@@ -91,7 +91,7 @@ final class ChatsService {
 
   StreamSubscription<RemapEvent>? _remaps;
 
-  /// Publishes `route.remap` when a chat made here gets its server id (M4),
+  /// Publishes `route.remap` when a chat made here gets its server id,
   /// so a window showing the `local:` chat follows it instead of losing it.
   void _announceRemaps() {
     _remaps = _container
@@ -112,7 +112,7 @@ final class ChatsService {
   /// Publishes `sync.status` when a cycle starts or ends, and on progress
   /// in steps a person would notice.
   ///
-  /// Declared in the protocol since M0 and never sent. It matters now
+  /// Declared in the protocol from the start and long never sent. It matters
   /// because a list answered from the database can be ahead of the search
   /// index: a sync that writes message bodies changes the index without
   /// changing the list, so nothing told a search typed during the first sync
@@ -250,7 +250,7 @@ final class ChatsService {
     }
   }
 
-  /// Pages archived chats into the list, or out of it (WP-3.1).
+  /// Pages archived chats into the list, or out of it.
   Future<ChatList> setArchivedVisible({required bool visible}) async {
     await _conversations.setArchivedChatsVisible(visible);
     return list();
@@ -282,7 +282,7 @@ final class ChatsService {
   /// onto a chat that has since been deleted elsewhere is an ordinary thing,
   /// not an error worth a banner.
   Future<ChatDetail?> get(String id) async {
-    // A Hermes session (M7): its transcript is Hermes's, not the database's.
+    // A Hermes session: its transcript is Hermes's, not the database's.
     if (hermesSessionOf(id) case final sessionId? when _hermes != null) {
       final hermes = _hermes;
       final messages = await hermes.transcript(sessionId);
@@ -437,7 +437,7 @@ final class ChatsService {
   }
 
   // -----------------------------------------------------------------------
-  // Tags (WP-3.8)
+  // Tags
   // -----------------------------------------------------------------------
 
   Future<TagList> allTags() async =>
@@ -534,7 +534,7 @@ final class ChatsService {
     return _refresh();
   }
 
-  /// Many conversations at once (WP-3.8), one server call each -- Open
+  /// Many conversations at once, one server call each -- Open
   /// WebUI has no bulk endpoints -- and one refresh at the end rather than
   /// a pull per conversation.
   ///
@@ -568,7 +568,7 @@ final class ChatsService {
     return BulkChatsResult(list: await _refresh(), failed: failed);
   }
 
-  /// Every message on every branch, for the overview (WP-3.4), from the
+  /// Every message on every branch, for the overview, from the
   /// local copy -- which keeps the whole tree, not just the path shown.
   Future<ChatTree> tree(String chatId) async {
     final database = _container.read(appDatabaseProvider);
@@ -593,7 +593,7 @@ final class ChatsService {
     );
   }
 
-  /// Shows the branch through [ChatCurrent.messageId] (WP-3.4).
+  /// Shows the branch through [ChatCurrent.messageId].
   ///
   /// Follows the newest reply down from there to the end of the branch --
   /// choosing an old question should show where that line of conversation
@@ -656,7 +656,7 @@ final class ChatsService {
     return text.length <= 80 ? text : '${text.substring(0, 79)}…';
   }
 
-  /// Every conversation in a folder, for its page (WP-3.1). From the
+  /// Every conversation in a folder, for its page. From the
   /// database, so older conversations the sidebar has not paged in are
   /// there too.
   Future<FolderContents> folder(String folderId) async {
@@ -681,7 +681,7 @@ final class ChatsService {
     );
   }
 
-  /// Sets or clears a conversation's own system prompt (WP-3.4). Open
+  /// Sets or clears a conversation's own system prompt. Open
   /// WebUI merges the chat's top-level keys, so sending `system` alone
   /// leaves the transcript as it was.
   Future<ChatDetail?> setSystemPrompt(ChatSystemPrompt request) async {

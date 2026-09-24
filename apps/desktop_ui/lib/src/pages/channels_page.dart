@@ -17,7 +17,7 @@ import '../widgets/form_field.dart';
 import '../widgets/markdown_view.dart';
 import '../widgets/ui.dart';
 
-/// Channels (M5): the list on the left, the conversation on the right, and
+/// Channels: the list on the left, the conversation on the right, and
 /// a thread beside it when one is open.
 ///
 /// Open WebUI's channels, through the daemon: what anyone posts, edits or

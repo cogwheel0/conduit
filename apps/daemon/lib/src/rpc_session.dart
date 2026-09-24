@@ -287,7 +287,7 @@ class RpcSession {
       final method = params.method;
       throw RpcError(
         code: ConduitMethods.isReserved(method)
-            // A reserved namespace that is not wired up yet is a milestone
+            // A reserved namespace that is not wired up yet is a feature
             // that has not landed, which is worth telling apart from a typo.
             ? ConduitErrorCodes.unsupported
             : ConduitErrorCodes.methodNotFound,
@@ -1073,7 +1073,7 @@ class RpcSession {
       },
     );
 
-    // hermes.* (M7).
+    // hermes.*.
     void hermes<P, R>(
       String method,
       P Function(Map<String, dynamic>) decode,
@@ -1187,7 +1187,7 @@ class RpcSession {
       (s, _) => s.catalog(),
     );
 
-    // voice.* (M8).
+    // voice.*.
     void voice<P, R>(
       String method,
       P Function(Map<String, dynamic>) decode,
@@ -1246,7 +1246,7 @@ class RpcSession {
       (s, p) async => s.deleteModel(p.id),
     );
 
-    // terminal.* (M7).
+    // terminal.*.
     void terminal<P, R>(
       String method,
       P Function(Map<String, dynamic>) decode,
@@ -1317,7 +1317,7 @@ class RpcSession {
       (s, p) => s.previewPort(p),
     );
 
-    // workspace.* (M6).
+    // workspace.*.
     void workspace<P, R>(
       String method,
       P Function(Map<String, dynamic>) decode,

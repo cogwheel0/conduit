@@ -7,7 +7,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import '../rpc/rpc_providers.dart';
 import '../sandbox_port.dart';
 
-/// Draws [payload] inside the render sandbox (WP-3.5).
+/// Draws [payload] inside the render sandbox.
 ///
 /// The frame is `app://conduit/sandbox.html` with `sandbox="allow-scripts"`
 /// and nothing else, which gives it an opaque origin: it cannot read this
