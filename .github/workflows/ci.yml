@@ -110,9 +110,18 @@ jobs:
           channel: 'stable'
           cache: true
       - run: flutter pub get
-      - name: Generate protocol code
-        working-directory: packages/conduit_protocol
-        run: dart run build_runner build
+      # Every workspace member with codegen, not only this job's own: a
+      # package is analyzed against the generated code of what it imports.
+      - name: Generate code
+        shell: bash
+        run: |
+          for dir in . packages/* apps/*; do
+            if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+              echo "::group::build_runner in $dir"
+              (cd "$dir" && dart run build_runner build)
+              echo "::endgroup::"
+            fi
+          done
       - name: Convert ARB for slang
         run: dart run tool/arb_to_slang.dart
       - name: Generate translations
@@ -149,9 +158,18 @@ jobs:
       - run: flutter pub get
       - name: Check package boundaries
         run: dart run tool/check_package_boundaries.dart
-      - name: Generate protocol code
-        working-directory: packages/conduit_protocol
-        run: dart run build_runner build
+      # Every workspace member with codegen, not only this job's own: a
+      # package is analyzed against the generated code of what it imports.
+      - name: Generate code
+        shell: bash
+        run: |
+          for dir in . packages/* apps/*; do
+            if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+              echo "::group::build_runner in $dir"
+              (cd "$dir" && dart run build_runner build)
+              echo "::endgroup::"
+            fi
+          done
       # Compiling the goldens to JS and running them under Node is the real
       # proof: it catches the VM/JS differences (number precision, type
       # coercion) that a native `dart test` cannot.
@@ -222,15 +240,18 @@ jobs:
           cache-dependency-path: desktop/electron/package-lock.json
       - run: flutter pub get
 
-      - name: Generate protocol code
-        working-directory: packages/conduit_protocol
-        run: dart run build_runner build
-
-      # `dart compile exe` produces a native binary per OS/arch; there is no
-      # cross-compilation, which is why this matrix exists.
-      - name: Build conduitd
-        working-directory: apps/daemon
-        run: dart compile exe bin/conduitd.dart -o build/conduitd${{ runner.os == 'Windows' && '.exe' || '' }}
+      # Every workspace member with codegen, not only this job's own: a
+      # package is analyzed against the generated code of what it imports.
+      - name: Generate code
+        shell: bash
+        run: |
+          for dir in . packages/* apps/*; do
+            if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+              echo "::group::build_runner in $dir"
+              (cd "$dir" && dart run build_runner build)
+              echo "::endgroup::"
+            fi
+          done
 
       - name: Convert ARB for slang
         run: dart run tool/arb_to_slang.dart
@@ -242,7 +263,10 @@ jobs:
         working-directory: desktop/electron
         run: npm ci
 
-      - name: Build renderer and main process
+      # The daemon (`dart build cli`, a native binary per OS/arch; there is no
+      # cross-compilation, which is why this matrix exists), the renderer and
+      # the main process.
+      - name: Build
         working-directory: desktop/electron
         run: npm run build
 
