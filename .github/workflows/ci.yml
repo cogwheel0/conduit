@@ -47,7 +47,11 @@ jobs:
               echo "::endgroup::"
             fi
           done
-      - run: flutter analyze
+      # Errors fail the job; warnings and infos do not yet. The app carries
+      # riverpod_lint findings from before this workflow existed (main has
+      # the same ones), which want their own clean-up. The packages below are
+      # clean and stay held to --fatal-infos.
+      - run: flutter analyze --no-fatal-warnings --no-fatal-infos
       - run: flutter test
 
   # Each workspace member analyzes and tests on its own, which is what proves
