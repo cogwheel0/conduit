@@ -360,6 +360,9 @@ class _FontSizeSection extends StatefulComponent {
 class _FontSizeSectionState extends State<_FontSizeSection> {
   int? _pending;
 
+  /// Counts writes, so only the latest one settles the slider.
+  int _writes = 0;
+
   int get _shown => _pending ?? component.stored;
 
   @override
@@ -368,14 +371,21 @@ class _FontSizeSectionState extends State<_FontSizeSection> {
     if (component.stored == _pending) _pending = null;
   }
 
+  /// Writes [size], then lets the slider follow the stored size again once
+  /// the reread after the latest write is in: that size may be another
+  /// window's, or a rejected write's, rather than this one.
   Future<void> _write(int size) async {
+    final write = ++_writes;
+    final actions = context.read(settingsActionsProvider);
     try {
-      await context
-          .read(settingsActionsProvider)
-          .update(AppPreferencesPatch(uiFontSize: size));
+      await actions.update(AppPreferencesPatch(uiFontSize: size));
+      if (!mounted) return;
+      await context.read(appPreferencesProvider.future);
     } catch (_) {
-      // The reread shows what was stored instead.
-      if (mounted && _pending == size) setState(() => _pending = null);
+      // Settled all the same: the page shows what was stored, or the error.
+    }
+    if (mounted && write == _writes && _pending != null) {
+      setState(() => _pending = null);
     }
   }
 
