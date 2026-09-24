@@ -609,7 +609,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   onInteractivePrompt,
 
   /// Asks the user when the server interrupts a stream for a confirmation or
-  /// a value, and surfaces server notifications (WP-1.7).
+  /// a value, and surfaces server notifications.
   ///
   /// Defaults to declining: with no UI attached the stream must still make
   /// progress, and silently approving a server-initiated prompt is the one

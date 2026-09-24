@@ -5,7 +5,7 @@ import '../services/apple_pcc_adapter.dart';
 
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 
-/// Apple Intelligence providers (WP-1.12).
+/// Apple Intelligence providers.
 ///
 /// Split out of `direct_connection_providers.dart` so that file could move
 /// into `conduit_core`. These cannot follow it: `ApplePccAdapter` implements

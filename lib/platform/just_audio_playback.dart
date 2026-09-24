@@ -1,7 +1,7 @@
 import 'package:conduit_core/conduit_core.dart';
 import 'package:just_audio/just_audio.dart';
 
-/// The mobile app's [AudioPlaybackPort], backed by `just_audio` (WP-1.14).
+/// The mobile app's [AudioPlaybackPort], backed by `just_audio`.
 ///
 /// A thin mapping and nothing more: the gapless-queue behaviour the spoken
 /// reply depends on is `just_audio`'s, so this deliberately does not add

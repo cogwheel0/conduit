@@ -89,7 +89,7 @@ void main() {
   late List<String> drains;
   // The real adapter, not a fake: these tests drive lifecycle through
   // `binding.handleAppLifecycleStateChanged`, so using the production port
-  // keeps them end-to-end and covers the adapter's mapping too (WP-1.4).
+  // keeps them end-to-end and covers the adapter's mapping too.
   late FlutterAppLifecycle lifecycle;
 
   setUp(() {

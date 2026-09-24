@@ -2,7 +2,7 @@ import 'package:conduit_core/error/api_error.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/conduit_core.dart';
 
-/// Renders a core [ErrorMessage] in the user's language (WP-1.6).
+/// Renders a core [ErrorMessage] in the user's language.
 ///
 /// The core classifies failures but cannot render them: it has no locale, and
 /// once `conduitd` hosts it there may be several windows in several
@@ -48,7 +48,7 @@ String describeApiError(ApiError error, AppLocalizations l10n) {
 
 /// [describeApiError] plus a line of actionable advice.
 ///
-/// Moved out of `ApiErrorHandler` in WP-1.6: composing user-facing prose is
+/// Moved out of `ApiErrorHandler`: composing user-facing prose is
 /// presentation, and it was the last thing keeping `lib/core/error` bound to
 /// the localization chain.
 String userFacingApiError(ApiError error, AppLocalizations l10n) {

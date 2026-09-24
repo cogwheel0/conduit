@@ -181,7 +181,7 @@ mixin _FoldersTagsApi on _ApiServiceBase {
     );
   }
 
-  // ---- Chat tags (WP-3.8) ----------------------------------------------
+  // ---- Chat tags ----------------------------------------------
   // Open WebUI keeps a chat's tags as ids in `meta.tags` -- the name
   // lower-cased with spaces as underscores -- and the names in a per-user
   // tag table. Every call below answers with `{id, name}` records.

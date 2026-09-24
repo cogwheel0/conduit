@@ -7,7 +7,7 @@ import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/database/account_storage_isolation.dart';
-// Re-exported because these lived here until M3 and a dozen callers, and the
+// Re-exported because these used to live here and a dozen callers, and the
 // tests, still reach them through this library. An imported symbol is not
 // re-exported, so the move would otherwise be a breaking rename.
 export 'package:conduit_core/database/account_storage_isolation.dart';

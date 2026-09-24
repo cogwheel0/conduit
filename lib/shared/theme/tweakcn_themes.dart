@@ -5,7 +5,7 @@ import 'package:material_ui/material_ui.dart';
 /// Flutter-side adapter over `package:conduit_theme`.
 ///
 /// The palette numbers live in `conduit_theme` as plain ARGB integers so the
-/// desktop UI can generate CSS from the same source (WP-0.7). This file exists
+/// desktop UI can generate CSS from the same source. This file exists
 /// only to wrap them in `Color` and to attach the localization closures that a
 /// pure-Dart package cannot hold. Adding or tweaking a palette means editing
 /// `packages/conduit_theme/lib/src/registry.dart`, not this file.

@@ -15,16 +15,16 @@ import 'dart:convert';
 import 'dart:io';
 
 /// Directories of `lib/` that no longer import Flutter and must stay that
-/// way (M1).
+/// way.
 ///
-/// Extraction into `packages/conduit_core` proceeds one work package at a
-/// time. Each time a directory comes off Flutter it is added here, so the
-/// next WP cannot silently put the dependency back — which is exactly how an
+/// Extraction into `packages/conduit_core` proceeds a piece at a time. Each
+/// time a directory comes off Flutter it is added here, so the next change
+/// cannot silently put the dependency back — which is exactly how an
 /// extraction stalls.
 const List<String> _flutterFreeDirectories = <String>[
-  'lib/core/database', // WP-1.1, WP-1.8
-  'lib/core/models', // WP-1.8
-  'lib/core/sync', // WP-1.1, WP-1.4, WP-1.8
+  'lib/core/database',
+  'lib/core/models',
+  'lib/core/sync',
 ];
 
 /// Individual libraries that are Flutter-free ahead of their directory.
@@ -33,8 +33,8 @@ const List<String> _flutterFreeDirectories = <String>[
 /// the Flutter host implementations and is meant to. That is no reason to
 /// leave the rest of the directory unlocked.
 const List<String> _flutterFreeFiles = <String>[
-  'lib/core/providers/app_providers.dart', // WP-1.8, WP-1.12
-  'lib/core/providers/host_ports.dart', // M1
+  'lib/core/providers/app_providers.dart',
+  'lib/core/providers/host_ports.dart',
 ];
 
 /// Imports that make a directory non-portable to the daemon.
@@ -53,7 +53,6 @@ const List<String> _flutterImports = <String>[
 const List<String> _webSafePackages = <String>[
   'packages/conduit_protocol/lib',
   'packages/conduit_theme/lib',
-  // Added by WP-1.13.
   'packages/conduit_markdown/lib',
 ];
 
@@ -121,7 +120,7 @@ void main() {
       _scan(
         Directory(path),
         _flutterImports,
-        'was taken off Flutter by an M1 work package and must stay portable '
+        'was taken off Flutter and must stay portable '
         'to the conduitd sidecar; put the platform-specific part behind a '
         'port in packages/conduit_core/lib/ports and implement it in '
         'lib/platform',
@@ -134,7 +133,7 @@ void main() {
       _scanFile(
         File(path),
         _flutterImports,
-        'was taken off Flutter by an M1 work package and must stay portable '
+        'was taken off Flutter and must stay portable '
         'to the conduitd sidecar; put the platform-specific part behind a '
         'port in packages/conduit_core/lib/ports and implement it in '
         'lib/platform',
@@ -156,8 +155,7 @@ void main() {
 }
 
 List<String> _scan(Directory dir, List<String> forbidden, String because) {
-  // A package that does not exist yet is not a violation; several are
-  // scheduled for later milestones.
+  // A package that does not exist yet is not a violation.
   if (!dir.existsSync()) return const <String>[];
   return _scanFiles(dir.listSync(recursive: true), forbidden, because);
 }
@@ -205,7 +203,7 @@ List<String> _scanFiles(
 ///
 /// The named lists above only catch packages someone thought to write down,
 /// which is not good enough for this package's central promise. During the
-/// WP-1.12 extraction two files reached Flutter through
+/// extraction two files reached Flutter through
 /// `cached_network_image_ce` and `pdfrx`, passed every other check, and would
 /// have voided the guarantee silently. This asks each imported package's own
 /// pubspec instead, so a dependency added later cannot smuggle Flutter in

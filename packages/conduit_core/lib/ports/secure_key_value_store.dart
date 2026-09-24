@@ -1,4 +1,4 @@
-/// Credential-grade key/value storage (WP-1.3).
+/// Credential-grade key/value storage.
 ///
 /// Server tokens, API keys and the cookie jar live here, never in the
 /// ordinary preferences store. The backing store differs sharply by host:

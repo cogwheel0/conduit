@@ -1,6 +1,6 @@
 part of 'api_service.dart';
 
-/// Open WebUI's `/api/v1/evaluations` family: feedback on answers (WP-3.8).
+/// Open WebUI's `/api/v1/evaluations` family: feedback on answers.
 ///
 /// Only the two calls a rating needs. The leaderboard and the admin exports
 /// live in the same router and belong to the workspace, not the chat.

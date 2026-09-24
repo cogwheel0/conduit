@@ -1,7 +1,7 @@
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:riverpod/riverpod.dart';
 
-/// The running build's name, version and number (WP-1.12).
+/// The running build's name, version and number.
 ///
 /// Lives in the app rather than `app_providers`, because `package_info_plus`
 /// is a Flutter plugin and was the single import keeping that file off the

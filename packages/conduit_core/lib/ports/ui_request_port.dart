@@ -1,7 +1,7 @@
 /// How prominent a transient notice is.
 enum UiNoticeLevel { info, success, warning, error }
 
-/// Asks the user something, from inside the core (WP-1.7).
+/// Asks the user something, from inside the core.
 ///
 /// Open WebUI can interrupt a stream to ask for a confirmation or a value,
 /// and a tool call can need approval before it runs. The logic deciding

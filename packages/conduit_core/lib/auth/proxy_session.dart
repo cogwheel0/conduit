@@ -89,7 +89,7 @@ final class ProxySessionRejected extends ProxySessionPrevalidation {
 
 /// Validates an external sign-in before any of it is persisted.
 ///
-/// Extracted from the mobile connection page (WP-2.1). The sequence is the
+/// Extracted from the mobile connection page. The sequence is the
 /// business logic of "did this proxy session actually work", and it was
 /// sitting in a Flutter widget where the sidecar could not reach it --
 /// so the desktop would have had to reimplement it, which for an auth path

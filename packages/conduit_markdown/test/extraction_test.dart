@@ -1,7 +1,7 @@
 import 'package:conduit_markdown/conduit_markdown.dart';
 import 'package:test/test.dart';
 
-/// Guards the WP-1.13 extraction itself.
+/// Guards the extraction itself.
 ///
 /// The parsers' detailed behaviour is covered by the Flutter app's suite,
 /// which still exercises them through the renderer. What is new — and what

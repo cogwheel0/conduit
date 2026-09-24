@@ -1,4 +1,4 @@
-/// Asks the platform to hold the display at its peak refresh rate (WP-1.12).
+/// Asks the platform to hold the display at its peak refresh rate.
 ///
 /// ProMotion idles the panel down to 10-40 Hz and only ramps back up
 /// reactively once frames start arriving, so a drag after an idle gap can

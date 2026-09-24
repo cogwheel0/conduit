@@ -1,6 +1,6 @@
 import 'dart:async';
 
-/// Schedules a coalesced UI flush (WP-1.10).
+/// Schedules a coalesced UI flush.
 ///
 /// The streaming pipeline buffers deltas and flushes them as a batch, and
 /// *when* that batch lands decides whether the tail renders in the same frame

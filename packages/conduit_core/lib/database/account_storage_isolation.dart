@@ -7,7 +7,7 @@
 /// may open it, and `appDatabaseProvider` yields null until this notifier has
 /// certified the current identity against an on-disk owner marker.
 ///
-/// Extracted from the mobile app's startup flow (M3). It is not startup
+/// Extracted from the mobile app's startup flow. It is not startup
 /// plumbing -- it decides whether there is a local database at all, which the
 /// sidecar needs just as much: without it the daemon has no conversation
 /// list, no offline history and no sync, because every one of those reads

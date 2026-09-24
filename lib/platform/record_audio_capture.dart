@@ -4,7 +4,7 @@ import 'package:conduit_core/conduit_core.dart';
 import 'package:meta/meta.dart';
 import 'package:record/record.dart';
 
-/// The mobile app's [AudioCapturePort], backed by `record` (WP-1.14).
+/// The mobile app's [AudioCapturePort], backed by `record`.
 ///
 /// This is where the platform routing decisions live. The core asks for a
 /// profile — dictation or a live call — and everything below is the

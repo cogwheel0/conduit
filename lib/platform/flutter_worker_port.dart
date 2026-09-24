@@ -1,7 +1,7 @@
 import 'package:conduit_core/conduit_core.dart';
 import 'package:flutter/foundation.dart';
 
-/// The Flutter app's [WorkerPort] (WP-1.5, WP-1.16).
+/// The Flutter app's [WorkerPort].
 ///
 /// `compute` spawns a short-lived isolate through the Flutter engine's entry
 /// point, so it exists only inside a Flutter app — which is exactly why the

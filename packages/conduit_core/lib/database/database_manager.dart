@@ -19,7 +19,7 @@ import 'app_database.dart';
 /// work for the previous server.
 class DatabaseManager {
   /// Production code passes [opener]; the host decides where database files
-  /// live (WP-1.1). [databaseDirectory] and [openDatabase] remain individual
+  /// live. [databaseDirectory] and [openDatabase] remain individual
   /// test seams and win over [opener] when both are supplied.
   ///
   /// [opener] is a callback rather than an instance so that constructing a

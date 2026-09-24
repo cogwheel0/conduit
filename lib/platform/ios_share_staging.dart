@@ -4,7 +4,7 @@ import 'package:conduit_core/conduit_core.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as path;
 
-/// The iOS [ShareStagingPort] (WP-1.12).
+/// The iOS [ShareStagingPort].
 ///
 /// Asks the share-receiver channel where the extension's container is. The
 /// validation is deliberately kept here with the channel: a path that comes

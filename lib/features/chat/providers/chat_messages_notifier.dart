@@ -3551,7 +3551,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
   }
 
-  /// Reacts to the host's foreground/background transitions (WP-1.4).
+  /// Reacts to the host's foreground/background transitions.
   ///
   /// The three-branch shape of the previous version collapses into two,
   /// because `inactive` and `resumed` were already being treated alike --

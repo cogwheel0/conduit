@@ -1,7 +1,7 @@
 import 'package:conduit_core/conduit_core.dart';
 import 'package:flutter/foundation.dart';
 
-/// The Flutter app's [LogSink] (WP-1.5, WP-1.16).
+/// The Flutter app's [LogSink].
 ///
 /// Keeps `debugPrint` and `kDebugMode` — both Flutter — out of
 /// `lib/core/utils/debug_logger.dart`, while preserving exactly what the

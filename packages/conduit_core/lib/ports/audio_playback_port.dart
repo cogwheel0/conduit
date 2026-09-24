@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:meta/meta.dart';
 
-/// Plays a queue of audio clips (WP-1.14).
+/// Plays a queue of audio clips.
 ///
 /// Spoken assistant replies arrive as a sequence of chunks that must play
 /// back to back without an audible gap, which is why this is a queue with an

@@ -11,7 +11,7 @@ import 'dart:io';
 ///
 /// ARB files are grouped into namespaces by their filename prefix, so
 /// `app_*.arb` is validated against `app_en.arb` and `desktop_*.arb` against
-/// `desktop_en.arb` (WP-0.8). Without this the desktop catalog would be
+/// `desktop_en.arb`. Without this the desktop catalog would be
 /// compared against the mobile template and every key would look missing.
 ///
 /// Exit codes:
@@ -89,7 +89,7 @@ Future<void> main(List<String> args) async {
 
       // Keys this locale has but EN does not. Usually a translation left
       // behind when the English key was renamed or deleted: it is dead
-      // weight, and it makes every non-Flutter generator (slang, WP-0.8)
+      // weight, and it makes every non-Flutter generator (slang)
       // emit a locale class that does not match the base.
       final orphaned = keys.difference(baseKeys);
       if (orphaned.isNotEmpty) {

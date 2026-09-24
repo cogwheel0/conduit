@@ -1,9 +1,9 @@
-/// Which phase the host application is in (WP-1.4).
+/// Which phase the host application is in.
 ///
 /// The values mirror Flutter's `AppLifecycleState` one for one, deliberately:
 /// the mobile adapter is then a pure rename, and the desktop adapter has an
-/// unambiguous target to map Electron's focus/blur/suspend/resume events onto
-/// (section 3.3). Reusing the names also means the switch statements that
+/// unambiguous target to map Electron's focus/blur/suspend/resume events onto.
+/// Reusing the names also means the switch statements that
 /// move into the core keep the same shape and stay reviewable as diffs.
 enum AppLifecyclePhase {
   /// Visible and receiving input.

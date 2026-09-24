@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:record/record.dart';
 
 /// Moved here from voice_input_service_test.dart along with the mapping
-/// itself (WP-1.14). The core now asks for a capture profile and this adapter
+/// itself. The core now asks for a capture profile and this adapter
 /// decides what that means on each platform, so this is where the decision
 /// is worth pinning — both of these encode routing bugs that were expensive
 /// to find.

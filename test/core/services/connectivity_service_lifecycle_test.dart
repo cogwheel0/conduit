@@ -468,7 +468,7 @@ Future<void> _waitForRequestCount(
 
 /// A device that always has an interface and never reports a change.
 ///
-/// Since WP-1.5 the service takes a [ConnectivityPort] rather than
+/// The service takes a [ConnectivityPort] rather than
 /// `connectivity_plus` directly, so this fake no longer has to model the
 /// plugin's list-of-interface-kinds shape.
 final class _OnlineConnectivity implements ConnectivityPort {

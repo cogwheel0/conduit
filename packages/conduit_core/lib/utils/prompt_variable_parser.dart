@@ -298,7 +298,7 @@ class _TypeAndProperties {
 class SystemVariableResolver {
   /// [clipboard] resolves `{{CLIPBOARD}}`. It defaults to an always-empty
   /// clipboard because reaching the system one is a host capability the core
-  /// does not have (WP-1.5) — Flutter uses a platform channel, the renderer
+  /// does not have — Flutter uses a platform channel, the renderer
   /// the async Clipboard API.
   const SystemVariableResolver({
     this.userName,

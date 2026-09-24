@@ -55,7 +55,7 @@ class EnhancedErrorService {
   /// Turns a `DioException` into something a person can read.
   ///
   /// Lives here rather than on `ApiErrorInterceptor` because it is the
-  /// localisation step, and WP-1.6 put localisation in the UI: the core
+  /// localisation step, and localisation belongs to the UI: the core
   /// raises `{code, args}` and each front-end renders it. Leaving it in
   /// the interceptor is what pulled the whole l10n tree into the core's
   /// dependency closure.

@@ -1,5 +1,5 @@
 /// Markdown preprocessing and the parsers that turn a model's output into a
-/// block model (WP-1.13).
+/// block model.
 ///
 /// Pure Dart with no Flutter and no `dart:io`, so the desktop renderer can
 /// import it: parsing happens once, here, and each front-end only turns the

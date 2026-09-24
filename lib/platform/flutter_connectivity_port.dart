@@ -1,7 +1,7 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:conduit_core/conduit_core.dart';
 
-/// The Flutter app's [ConnectivityPort] (WP-1.5, WP-1.16).
+/// The Flutter app's [ConnectivityPort].
 ///
 /// Collapses `connectivity_plus`'s list of interface kinds into the single
 /// optimistic boolean the core wants. Which kind of interface came up —

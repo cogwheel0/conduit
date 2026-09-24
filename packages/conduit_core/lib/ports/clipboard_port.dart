@@ -1,4 +1,4 @@
-/// The system clipboard (WP-1.5).
+/// The system clipboard.
 ///
 /// Needed by prompt variables, which can substitute `{{CLIPBOARD}}`. Flutter
 /// reaches it through a platform channel and the renderer through the async

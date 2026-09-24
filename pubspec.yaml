@@ -7,7 +7,7 @@ environment:
   sdk: ">=3.13.0 <4.0.0"
   flutter: ">=3.47.0"
 
-# Pub workspace (WP-0.1). The Flutter mobile app stays the workspace root so
+# Pub workspace. The Flutter mobile app stays the workspace root so
 # `flutter run`/`flutter test` keep working from here with no extra flags;
 # the desktop packages resolve against the same single lockfile, which is what
 # stops the two front-ends from drifting onto different dependency versions.
@@ -43,7 +43,7 @@ dependencies:
   # State Management
   flutter_riverpod: ^3.4.3
   # Non-UI code imports the Flutter-free Riverpod directly, so that those
-  # files can move into packages/conduit_core unchanged (WP-1.8).
+  # files can move into packages/conduit_core unchanged.
   riverpod: ^3.4.3
   
   # Navigation

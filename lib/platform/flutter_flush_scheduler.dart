@@ -1,7 +1,7 @@
 import 'package:conduit_core/conduit_core.dart';
 import 'package:flutter/scheduler.dart';
 
-/// The Flutter app's [FlushScheduler] (WP-1.10, WP-1.16).
+/// The Flutter app's [FlushScheduler].
 ///
 /// Uses `scheduleFrameCallback`, not a post-frame callback, and the
 /// distinction is load-bearing. A frame callback runs at the *start* of the

@@ -2,7 +2,7 @@ import 'package:parchment/parchment.dart';
 
 import 'note_document_codec.dart';
 
-/// Notes between the stored markdown and a Quill 2 editor (M5).
+/// Notes between the stored markdown and a Quill 2 editor.
 ///
 /// Quill and Parchment both describe a document as a Delta -- inserts with
 /// attributes, line formats on the newline that ends the line -- but they

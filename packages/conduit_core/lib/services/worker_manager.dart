@@ -23,7 +23,7 @@ typedef WorkerTask<Q, R> = WorkerCallback<Q, R>;
 class WorkerManager {
   /// [worker] decides whether a job leaves the calling isolate. It defaults
   /// to inline, because "spawn an isolate" is a host capability the core
-  /// cannot assume (WP-1.5); `main.dart` injects the `compute`-backed one.
+  /// cannot assume; `main.dart` injects the `compute`-backed one.
   WorkerManager({
     int maxConcurrentTasks = _defaultMaxConcurrentTasks,
     WorkerPort worker = const InlineWorkerPort(),

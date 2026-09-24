@@ -163,7 +163,7 @@ void _registerBundledLicenses() {
 }
 
 void main() {
-  // Diagnostics have no destination until a host gives them one (WP-1.5).
+  // Diagnostics have no destination until a host gives them one.
   // Installed first, so startup itself is logged.
   DebugLogger.sink = const FlutterLogSink();
   AudioPlaybackPort.hostFactory = JustAudioPlayback.new;
@@ -173,7 +173,7 @@ void main() {
     stagingDirectoryName: shareStagingDirectoryName,
   );
   AudioCapturePort.hostFactory = RecordAudioCapture.new;
-  // The preference store is a host capability too (WP-1.2); installed
+  // The preference store is a host capability too; installed
   // before bootstrap awaits its first synchronous read.
   PreferencesStore.installLoader(FlutterKeyValueStore.load);
 
@@ -226,8 +226,7 @@ void main() {
       _startupTimeline?.instant('edge_to_edge_configured');
 
       // Platform options now live inside the adapter, so they cannot drift
-      // apart from the ones SecureCredentialStorage used to keep separately
-      // (WP-1.3).
+      // apart from the ones SecureCredentialStorage used to keep separately.
       final secureStorage = FlutterSecureKeyValueStore();
 
       // Start independent platform/file work together. Quick Actions still
@@ -296,12 +295,12 @@ void main() {
       });
 
       // One WidgetsBindingObserver for the whole app; every engine that
-      // cares about foreground/background now shares it (WP-1.4).
+      // cares about foreground/background now shares it.
       final appLifecycle = FlutterAppLifecycle();
 
       final providerContainer = ProviderContainer(
         overrides: [
-          // Host ports (M1). `lib/core` declares these without a value so it
+          // Host ports. `lib/core` declares these without a value so it
           // stays free of Flutter plugins; each host binds its own.
           databaseOpenerProvider.overrideWithValue(
             const FlutterDatabaseOpener(),

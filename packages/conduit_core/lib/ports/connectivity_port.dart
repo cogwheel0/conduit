@@ -1,4 +1,4 @@
-/// Whether this device has a usable network interface (WP-1.5).
+/// Whether this device has a usable network interface.
 ///
 /// Deliberately *not* "is the server reachable" — that is a health probe the
 /// core already owns. This is the cheap, OS-level signal that says a probe is

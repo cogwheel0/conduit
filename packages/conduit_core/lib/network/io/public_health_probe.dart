@@ -1,4 +1,4 @@
-/// The raw-socket health prober (WP-1.11).
+/// The raw-socket health prober.
 ///
 /// A health check may be redirected, and following a redirect blindly is an
 /// SSRF: a malicious or compromised server could point the probe at the

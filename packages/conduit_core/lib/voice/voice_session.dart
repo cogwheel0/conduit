@@ -1,4 +1,4 @@
-/// The voice session's observable state (WP-1.14).
+/// The voice session's observable state.
 ///
 /// Pure: a phase, the text either side has produced so far, and the
 /// predicates that say what the user is allowed to do next. No audio, no
@@ -7,7 +7,7 @@
 /// microphone, and the phase rules are the part that must not be
 /// reimplemented per host.
 ///
-/// This is the state half of the `VoiceSessionMachine` the plan calls for.
+/// This is the state half of a `VoiceSessionMachine`.
 /// The transitions still live in `ChatVoiceModeController`, interleaved with
 /// the resources they drive; moving them is the remaining work.
 library;

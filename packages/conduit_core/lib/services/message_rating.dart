@@ -1,6 +1,6 @@
 import 'api_service.dart';
 
-/// Rates an answer the way Open WebUI's web client does (WP-3.8).
+/// Rates an answer the way Open WebUI's web client does.
 ///
 /// Two records change, and both have to: the evaluation (what the
 /// leaderboard and the admin's feedback list read) and the message's own

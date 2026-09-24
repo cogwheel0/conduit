@@ -1,5 +1,5 @@
 // Prints a class's members as TSV, so a large class can be split along real
-// boundaries instead of hand-counted lines (WP-1.11).
+// boundaries instead of hand-counted lines.
 //
 //   dart run tool/list_class_members.dart <file.dart> <ClassName>
 //

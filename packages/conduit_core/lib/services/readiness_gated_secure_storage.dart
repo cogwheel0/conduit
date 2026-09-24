@@ -9,7 +9,7 @@ import 'package:conduit_core/conduit_core.dart';
 /// out the warmup and constructing providers can start a second iOS Keychain
 /// operation concurrently with the still-running first access.
 ///
-/// Since WP-1.3 this decorates a [SecureKeyValueStore] rather than extending
+/// This decorates a [SecureKeyValueStore] rather than extending
 /// `FlutterSecureStorage`. The gating is ordering logic that belongs to the
 /// core; the six platform option bags it used to forward were plugin
 /// configuration it never read.

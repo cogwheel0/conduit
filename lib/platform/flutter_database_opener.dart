@@ -5,7 +5,7 @@ import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 
-/// The Flutter app's [DatabaseOpenerPort] (WP-1.1, WP-1.16).
+/// The Flutter app's [DatabaseOpenerPort].
 ///
 /// Keeps `drift_flutter` and `path_provider` — both of which need a Flutter
 /// engine — out of `lib/core`, so the database layer can be hosted by the

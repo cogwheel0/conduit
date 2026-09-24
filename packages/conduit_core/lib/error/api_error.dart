@@ -242,7 +242,7 @@ class ApiError implements Exception {
   /// Server-supplied prose, when the API returned any.
   ///
   /// Null for failures the core classified itself: the core has no locale and
-  /// must not invent English (WP-1.6). Render with `resolveApiErrorMessage`
+  /// must not invent English. Render with `resolveApiErrorMessage`
   /// from lib/shared, which falls back to [messageCode].
   final String? message;
 
