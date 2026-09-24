@@ -90,6 +90,9 @@ class DaemonServer {
   HermesService? _hermes;
   VoiceService? _voice;
 
+  /// What sessions see of the services above: none until [attachCore].
+  CoreServices _coreServices = const CoreServices();
+
   /// The broker the core asks its questions through. Exposed so tests can
   /// ask one and watch it cross the RPC boundary.
   UiRequestsService? get uiRequests => _uiRequests;
@@ -169,6 +172,26 @@ class DaemonServer {
       whisperDirectory: Directory(
         p.join(core.directories.paths.userData, 'whisper'),
       ),
+    );
+    // Every session reads this, including one that connected before now.
+    _coreServices = CoreServices(
+      servers: _servers,
+      auth: _auth,
+      settings: _settings,
+      chats: _chats,
+      turns: _turns,
+      models: _models,
+      uiRequests: _uiRequests,
+      composer: _composer,
+      prompts: _prompts,
+      direct: _direct,
+      mcp: _mcp,
+      notes: _notes,
+      channels: _channels,
+      workspace: _workspace,
+      terminals: _terminals,
+      hermes: _hermes,
+      voice: _voice,
     );
     // An MCP sign-in opens the provider's page through a window.
     core.openUrl.attach(events);
@@ -610,23 +633,9 @@ class DaemonServer {
         system: _system,
         events: events,
         log: _log,
-        servers: _servers,
-        auth: _auth,
-        settings: _settings,
-        chats: _chats,
-        turns: _turns,
-        models: _models,
-        uiRequests: _uiRequests,
-        composer: _composer,
-        prompts: _prompts,
-        direct: _direct,
-        mcp: _mcp,
-        notes: _notes,
-        channels: _channels,
-        workspace: _workspace,
-        terminals: _terminals,
-        hermes: _hermes,
-        voice: _voice,
+        // Read on every call, so a window that connected before the core
+        // attached gets the services once they exist.
+        services: () => _coreServices,
         reportNetwork: (online) => _core?.reportNetwork(online: online),
       );
       _sessions[sessionId] = session;

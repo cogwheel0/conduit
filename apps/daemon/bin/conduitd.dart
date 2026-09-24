@@ -6,8 +6,9 @@ import 'package:args/args.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 
-/// Kept in step with the Electron app version by scripts/release.sh; the
-/// handshake reports it so a mismatched pair is obvious in diagnostics.
+/// Set from the release tag, with the Electron app's version, by
+/// .github/workflows/release-desktop.yml; the handshake reports it so a
+/// mismatched pair is obvious in diagnostics.
 const String daemonVersion = '0.1.0';
 
 Future<void> main(List<String> args) async {

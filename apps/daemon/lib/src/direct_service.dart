@@ -117,7 +117,7 @@ final class DirectService {
       return _saveToAccount(edit, record);
     }
     final previous = await _existing(edit.id);
-    final profile = _apply(edit, previous);
+    final profile = apply(edit, previous);
     try {
       await _container
           .read(directConnectionProfilesProvider.notifier)
@@ -126,11 +126,7 @@ final class DirectService {
             expectedPrevious: previous,
             // Only a key typed again in this edit may move with the URL; the
             // core strips the stored ones otherwise.
-            secretsConfirmedForNewOrigin:
-                edit.apiKey != null ||
-                edit.customHeaders != null ||
-                edit.certificatePem != null ||
-                edit.privateKeyPem != null,
+            secretsConfirmedForNewOrigin: _secretsConfirmed(edit),
           );
     } on DirectConnectionProfileConflictException {
       throw const RpcError(
@@ -166,7 +162,7 @@ final class DirectService {
         : edit.copyWith(
             name: Uri.tryParse(edit.baseUrl.trim())?.host ?? 'Open WebUI',
           );
-    final profile = _apply(named, record?.profile);
+    final profile = apply(named, record?.profile);
     final invalid = profile.validateOrNull();
     if (invalid != null) {
       throw RpcError(
@@ -227,7 +223,7 @@ final class DirectService {
   /// The connection as edited, tried without being saved.
   Future<DirectTestResult> test(DirectConnectionEdit edit) async {
     final previous = await _existing(edit.id);
-    final profile = _apply(edit, previous);
+    final profile = apply(edit, previous);
     final invalid = profile.validateOrNull();
     if (invalid != null) {
       return DirectTestResult(reachable: false, message: invalid);
@@ -407,8 +403,35 @@ final class DirectService {
     return found;
   }
 
+  /// Whether [edit] typed any secret again, which is what lets secrets move
+  /// with a URL to a new origin.
+  static bool _secretsConfirmed(DirectConnectionEdit edit) =>
+      edit.apiKey != null ||
+      edit.customHeaders != null ||
+      edit.certificatePem != null ||
+      edit.privateKeyPem != null;
+
   /// [edit] over [previous], or a new profile. Secrets follow the servers
   /// rule: null keeps, empty clears.
+  ///
+  /// When the edit moves the connection to another origin, the stored
+  /// secrets stay behind unless this edit typed them again -- the core's
+  /// [DirectConnectionProfile.secureUpdate] rule. Here rather than only in
+  /// the local store, because a test probe and a save into the Open WebUI
+  /// account both take this profile too. Public for the daemon's tests.
+  static DirectConnectionProfile apply(
+    DirectConnectionEdit edit,
+    DirectConnectionProfile? previous,
+  ) {
+    final applied = _apply(edit, previous);
+    if (previous == null) return applied;
+    return DirectConnectionProfile.secureUpdate(
+      previous: previous,
+      next: applied,
+      secretsConfirmedForNewOrigin: _secretsConfirmed(edit),
+    );
+  }
+
   static DirectConnectionProfile _apply(
     DirectConnectionEdit edit,
     DirectConnectionProfile? previous,

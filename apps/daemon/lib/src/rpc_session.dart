@@ -25,6 +25,48 @@ import 'terminals_service.dart';
 import 'hermes_service.dart';
 import 'voice_service.dart';
 
+/// The services that need the core. The daemon swaps in a full set when the
+/// core attaches; until then every one is null.
+final class CoreServices {
+  const CoreServices({
+    this.servers,
+    this.auth,
+    this.settings,
+    this.chats,
+    this.turns,
+    this.models,
+    this.uiRequests,
+    this.composer,
+    this.prompts,
+    this.direct,
+    this.mcp,
+    this.notes,
+    this.channels,
+    this.workspace,
+    this.terminals,
+    this.hermes,
+    this.voice,
+  });
+
+  final ServersService? servers;
+  final AuthService? auth;
+  final SettingsService? settings;
+  final ChatsService? chats;
+  final TurnsService? turns;
+  final ModelsService? models;
+  final UiRequestsService? uiRequests;
+  final ComposerService? composer;
+  final PromptsService? prompts;
+  final DirectService? direct;
+  final McpService? mcp;
+  final NotesService? notes;
+  final ChannelsService? channels;
+  final WorkspaceService? workspace;
+  final TerminalsService? terminals;
+  final HermesService? hermes;
+  final VoiceService? voice;
+}
+
 /// One connected renderer window.
 ///
 /// A [json_rpc.Peer] rather than a server, because requests flow both ways:
@@ -37,45 +79,13 @@ class RpcSession {
     required SystemService system,
     required EventBus events,
     required DaemonLog log,
-    ServersService? servers,
-    AuthService? auth,
-    SettingsService? settings,
-    ChatsService? chats,
-    TurnsService? turns,
-    ModelsService? models,
-    UiRequestsService? uiRequests,
-    ComposerService? composer,
-    PromptsService? prompts,
-    DirectService? direct,
-    McpService? mcp,
-    NotesService? notes,
-    ChannelsService? channels,
-    WorkspaceService? workspace,
-    TerminalsService? terminals,
-    HermesService? hermes,
-    VoiceService? voice,
+    required CoreServices Function() services,
     void Function(bool online)? reportNetwork,
   }) : _events = events,
-       _channels = channels,
-       _workspace = workspace,
-       _terminals = terminals,
-       _hermes = hermes,
-       _voice = voice,
-       _notes = notes,
-       _direct = direct,
-       _mcp = mcp,
        _reportNetwork = reportNetwork,
-       _composer = composer,
-       _prompts = prompts,
-       _uiRequests = uiRequests,
        _log = log,
+       _services = services,
        _system = system,
-       _servers = servers,
-       _auth = auth,
-       _settings = settings,
-       _chats = chats,
-       _turns = turns,
-       _models = models,
        _peer = json_rpc.Peer(channel) {
     _register();
   }
@@ -85,16 +95,19 @@ class RpcSession {
   final DaemonLog _log;
   final SystemService _system;
 
-  /// Null until the core is up. A session can exist before then -- the window
-  /// opens while the daemon is still restoring state -- and answering
-  /// `servers.list` with an empty list in that window would look to the UI
-  /// like a fresh install. It gets `rpc.daemonUnavailable` instead.
-  final ServersService? _servers;
-  final AuthService? _auth;
-  final SettingsService? _settings;
-  final ChatsService? _chats;
-  final TurnsService? _turns;
-  final ModelsService? _models;
+  /// The daemon's services as they are now: null until the core is up. A
+  /// session can exist before then -- the window opens while the daemon is
+  /// still restoring state -- and answering `servers.list` with an empty
+  /// list in that window would look to the UI like a fresh install. It gets
+  /// `rpc.daemonUnavailable` instead, and the real services once the core
+  /// attaches, without reconnecting.
+  final CoreServices Function() _services;
+  ServersService? get _servers => _services().servers;
+  AuthService? get _auth => _services().auth;
+  SettingsService? get _settings => _services().settings;
+  ChatsService? get _chats => _services().chats;
+  TurnsService? get _turns => _services().turns;
+  ModelsService? get _models => _services().models;
   final json_rpc.Peer _peer;
 
   /// Set by a successful `system.handshake`. Until then every other method is
@@ -106,17 +119,17 @@ class RpcSession {
 
   /// Questions from the core, shared by every window. Null until the core
   /// is attached, when there is nothing to ask yet.
-  final UiRequestsService? _uiRequests;
-  final ComposerService? _composer;
-  final PromptsService? _prompts;
-  final DirectService? _direct;
-  final McpService? _mcp;
-  final NotesService? _notes;
-  final ChannelsService? _channels;
-  final WorkspaceService? _workspace;
-  final TerminalsService? _terminals;
-  final HermesService? _hermes;
-  final VoiceService? _voice;
+  UiRequestsService? get _uiRequests => _services().uiRequests;
+  ComposerService? get _composer => _services().composer;
+  PromptsService? get _prompts => _services().prompts;
+  DirectService? get _direct => _services().direct;
+  McpService? get _mcp => _services().mcp;
+  NotesService? get _notes => _services().notes;
+  ChannelsService? get _channels => _services().channels;
+  WorkspaceService? get _workspace => _services().workspace;
+  TerminalsService? get _terminals => _services().terminals;
+  HermesService? get _hermes => _services().hermes;
+  VoiceService? get _voice => _services().voice;
 
   /// Where a window's `online`/`offline` events go: the connectivity port,
   /// which then tells every window. Null before the core is up.

@@ -45,13 +45,6 @@ void main() {
       log: log,
     );
     port = await server.start();
-    server.attachCore(
-      await CoreRuntime.start(
-        config: config,
-        directories: directories,
-        log: log,
-      ),
-    );
 
     final socket = IOWebSocketChannel.connect(
       Uri.parse('ws://127.0.0.1:$port${ConduitHttpRoutes.rpc}'),
@@ -72,6 +65,27 @@ void main() {
         locale: 'en',
       ).toJson(),
       decodeResult: HandshakeResponse.fromJson,
+    );
+
+    // This window connected before the core was up, as one can while the
+    // daemon restores state: it is told so, and then, once the core
+    // attaches, it is served -- every test below runs on it.
+    await expectLater(
+      peer.sendRequest(ConduitMethods.serversList),
+      throwsA(
+        isA<json_rpc.RpcException>().having(
+          (e) => (e.data as Map?)?['code'],
+          'code',
+          ConduitErrorCodes.daemonUnavailable,
+        ),
+      ),
+    );
+    server.attachCore(
+      await CoreRuntime.start(
+        config: config,
+        directories: directories,
+        log: log,
+      ),
     );
   });
 

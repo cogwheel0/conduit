@@ -75,12 +75,24 @@ jobs:
           (cd packages/conduit_core && dart run build_runner build --delete-conflicting-outputs)
           dart run tool/arb_to_slang.dart
           (cd apps/desktop_ui && dart run slang)
+      # The Electron app and the daemon both report this version; the
+      # handshake shows a mismatched pair, so they are set together.
       - name: Version from the tag
         shell: bash
         working-directory: desktop/electron
         run: |
           TAG="${{ inputs.tag || github.ref_name }}"
-          npm version --no-git-tag-version --allow-same-version "${TAG#desktop-v}"
+          VERSION="${TAG#desktop-v}"
+          npm version --no-git-tag-version --allow-same-version "$VERSION"
+          node -e '
+            const fs = require("fs");
+            const file = "../../apps/daemon/bin/conduitd.dart";
+            const before = fs.readFileSync(file, "utf8");
+            const pattern = /const String daemonVersion = \x27[^\x27]*\x27;/;
+            if (!pattern.test(before)) throw new Error("daemonVersion not found in " + file);
+            fs.writeFileSync(file, before.replace(pattern, `const String daemonVersion = \x27${process.argv[1]}\x27;`));
+          ' "$VERSION"
+          grep -n "daemonVersion = " ../../apps/daemon/bin/conduitd.dart
       - run: npm ci
         working-directory: desktop/electron
       - name: Build and package

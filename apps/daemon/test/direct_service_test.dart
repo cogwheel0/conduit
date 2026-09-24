@@ -171,4 +171,94 @@ void main() {
     expect((await direct.setHistory(localOnly: false)).localHistory, isFalse);
     expect((await direct.remove(id)).connections, isEmpty);
   });
+
+  group('a URL moved to another origin', () {
+    const stored = DirectConnectionEdit(
+      name: 'Probe me',
+      kind: DirectKind.openai,
+      baseUrl: 'https://llm.example.com/v1',
+      apiKey: 'sk-probe-secret',
+      customHeaders: <String, String>{'X-Probe': 'team-secret'},
+    );
+
+    test('takes no stored secret along, in the shared edit', () {
+      final previous = DirectService.apply(stored, null);
+      final moved = DirectService.apply(
+        stored.copyWith(
+          baseUrl: 'https://elsewhere.example.net/v1',
+          apiKey: null,
+          customHeaders: null,
+        ),
+        previous,
+      );
+      expect(moved.apiKey, isNull);
+      expect(moved.customHeaders, isEmpty);
+
+      // The same origin keeps them; one typed again goes with the URL.
+      final samePlace = DirectService.apply(
+        stored.copyWith(name: 'Renamed', apiKey: null, customHeaders: null),
+        previous,
+      );
+      expect(samePlace.apiKey, 'sk-probe-secret');
+      final retyped = DirectService.apply(
+        stored.copyWith(
+          baseUrl: 'https://elsewhere.example.net/v1',
+          apiKey: 'sk-typed-again',
+          customHeaders: null,
+        ),
+        previous,
+      );
+      expect(retyped.apiKey, 'sk-typed-again');
+    });
+
+    test('a test probe sends the new server no stored secret', () async {
+      final heard = <Map<String, String?>>[];
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) async {
+        heard.add(<String, String?>{
+          'authorization': request.headers.value('authorization'),
+          'x-probe': request.headers.value('x-probe'),
+        });
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode(<String, Object>{'data': <Object>[]}),
+        );
+        await request.response.close();
+      });
+      final id = (await direct.save(stored)).connections
+          .firstWhere((connection) => connection.name == 'Probe me')
+          .id;
+      addTearDown(() => direct.remove(id));
+      final elsewhere = 'http://127.0.0.1:${server.port}/v1';
+
+      await direct.test(
+        stored.copyWith(
+          id: id,
+          baseUrl: elsewhere,
+          apiKey: null,
+          customHeaders: null,
+        ),
+      );
+      expect(heard, isNotEmpty);
+      for (final request in heard) {
+        expect(request['authorization'] ?? '', isNot(contains('sk-probe')));
+        expect(request['x-probe'], isNull);
+      }
+
+      heard.clear();
+      await direct.test(
+        stored.copyWith(
+          id: id,
+          baseUrl: elsewhere,
+          apiKey: 'sk-typed-again',
+          customHeaders: null,
+        ),
+      );
+      expect(
+        heard.map((request) => request['authorization']),
+        contains('Bearer sk-typed-again'),
+      );
+    });
+  });
 }
