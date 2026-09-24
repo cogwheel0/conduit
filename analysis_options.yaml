@@ -21,6 +21,9 @@ analyzer:
     - pigeons/**
     # Its own package, with its own pubspec; the root does not resolve it.
     - tool/pigeon_codegen/**
+    # Their own packages, analyzed by their own CI jobs after their own
+    # codegen (the renderer's slang catalog is not build_runner output).
+    - apps/**
     - third_party/**
 
 plugins:
