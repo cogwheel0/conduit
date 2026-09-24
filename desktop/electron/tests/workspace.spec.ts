@@ -47,7 +47,10 @@ test('the sidebar resizes, stays that size, and hides', async () => {
     const before = await width()
     expect(before).toBeGreaterThan(150)
 
-    // Dragged by its edge, as a pointer does it.
+    // Dragged by its edge, as a pointer does it. The window has focus first:
+    // a macOS window that does not spends the first press on activating.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.focus())
+    await page.locator('#transcript').click()
     const handle = page.getByRole('separator', { name: /resize the sidebar/i })
     const box = (await handle.boundingBox())!
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
@@ -71,7 +74,7 @@ test('the sidebar resizes, stays that size, and hides', async () => {
 
     // Hidden by its shortcut, and back from the title bar.
     await page.locator('body').click()
-    await page.keyboard.press('Control+Shift+S')
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+S' : 'Control+Shift+S')
     await expect(column).toBeHidden()
     await page.getByRole('button', { name: /^sidebar$/i }).click()
     await expect(column).toBeVisible()

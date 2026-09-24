@@ -143,6 +143,14 @@ test('keeps Node out of the renderer', async () => {
 
 test('refuses to navigate the app origin away to the web', async () => {
   const window = await appWindow(app)
+  // The refused address goes to the system browser, which a test must not
+  // actually launch: on a CI runner, xdg-open kept Electron from exiting.
+  await app.evaluate(({ shell }) => {
+    ;(globalThis as { __opened?: string[] }).__opened = []
+    shell.openExternal = async (url: string) => {
+      ;(globalThis as unknown as { __opened: string[] }).__opened.push(url)
+    }
+  })
   // Chromium may tear the execution context down as it begins the navigation
   // that `will-navigate` then vetoes, so the evaluate itself can reject. What
   // matters is where the window ends up.
@@ -156,6 +164,9 @@ test('refuses to navigate the app origin away to the web', async () => {
   // window to /onboarding on a first run, and pinning the path would make
   // this security check fail for an unrelated reason.
   expect(new URL(window.url()).origin).toBe(new URL(APP_URL).origin)
+  expect(await app.evaluate(() => (globalThis as { __opened?: string[] }).__opened)).toEqual([
+    'https://example.com/',
+  ])
 })
 
 test('a previewed reply cannot run a script, twice over', async () => {

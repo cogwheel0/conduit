@@ -74,15 +74,19 @@ test('a shortcut is rebound, and a taken key is refused', async () => {
   const row = page.locator('li[data-shortcut="newChat"]')
   await row.getByRole('button', { name: /^change the shortcut for new chat$/i }).click()
   await expect(page.locator('#shortcut-capture')).toBeFocused()
-  // Ctrl+K belongs to search: refused, and the reason given.
-  await page.keyboard.press('Control+k')
+  // The primary modifier is Cmd on macOS and Ctrl elsewhere, and the keys
+  // are written the way each platform writes them.
+  const mac = process.platform === 'darwin'
+  const mod = mac ? 'Meta' : 'Control'
+  // Mod+K belongs to search: refused, and the reason given.
+  await page.keyboard.press(`${mod}+k`)
   await expect(page.getByText(/is already used by search conversations and commands/i)).toBeVisible()
-  await page.keyboard.press('Control+j')
-  await expect(row.locator('kbd')).toHaveText('Ctrl+J')
+  await page.keyboard.press(`${mod}+j`)
+  await expect(row.locator('kbd')).toHaveText(mac ? '⌘J' : 'Ctrl+J')
   const saved = JSON.parse(readFileSync(join(userDataDir, 'shell-settings.json'), 'utf8'))
   expect(saved.shortcuts).toEqual({ newChat: 'mod+j' })
   await row.getByRole('button', { name: /^reset$/i }).click()
-  await expect(row.locator('kbd')).toHaveText('Ctrl+Shift+O')
+  await expect(row.locator('kbd')).toHaveText(mac ? '⌘⇧O' : 'Ctrl+Shift+O')
 })
 
 test('with close to tray on, closing the window keeps the app', async () => {
