@@ -183,7 +183,7 @@ class _AppearanceTab extends StatelessComponent {
       data: (prefs) => div(classes: 'space-y-8', [
         _modeSection(context, prefs),
         _paletteSection(context, prefs),
-        _fontSizeSection(context, prefs),
+        _FontSizeSection(stored: prefs.uiFontSize),
         _languageSection(context, prefs),
       ]),
     );
@@ -290,51 +290,6 @@ class _AppearanceTab extends StatelessComponent {
       (t['app.${palette.labelKey}'] as String?) ??
       palette.id;
 
-  /// The interface text size, which the whole `text-ui-*` scale follows.
-  ///
-  /// Applied as the slider moves: the size is only judged by seeing it.
-  Component _fontSizeSection(BuildContext context, AppPreferences prefs) =>
-      div(classes: 'space-y-1.5', [
-        div(classes: 'flex items-center justify-between', [
-          label(
-            htmlFor: 'ui-font-size',
-            classes: 'text-ui-sm font-medium text-foreground',
-            [Component.text(t.desktop.desktopUiFontSize)],
-          ),
-          span(classes: 'text-ui-xs text-foreground-subtle', [
-            Component.text(
-              t.desktop.desktopUiFontSizeValue(size: prefs.uiFontSize),
-            ),
-          ]),
-        ]),
-        input<Object?>(
-          id: 'ui-font-size',
-          type: InputType.range,
-          classes: 'w-full accent-primary',
-          value: '${prefs.uiFontSize}',
-          attributes: <String, String>{
-            'min': '$kMinUiFontSize',
-            'max': '$kMaxUiFontSize',
-            'step': '1',
-            'aria-describedby': 'ui-font-size-hint',
-          },
-          onInput: (raw) {
-            final size = int.tryParse(numberFieldText(raw));
-            if (size == null || size == prefs.uiFontSize) return;
-            unawaited(
-              context
-                  .read(settingsActionsProvider)
-                  .update(AppPreferencesPatch(uiFontSize: size)),
-            );
-          },
-        ),
-        p(
-          id: 'ui-font-size-hint',
-          classes: 'text-ui-xs text-foreground-subtle',
-          [Component.text(t.desktop.desktopUiFontSizeHint)],
-        ),
-      ]);
-
   Component _languageSection(BuildContext context, AppPreferences prefs) => div(
     classes: 'space-y-2',
     [
@@ -385,6 +340,81 @@ class _AppearanceTab extends StatelessComponent {
 }
 
 /// The server list, which is a list now rather than a single entry.
+/// The interface text size, which the whole `text-ui-*` scale follows.
+///
+/// Applied as the slider moves: the size is only judged by seeing it.
+///
+/// The slider shows where it was last moved until the stored size catches
+/// up. Each step is a write and then a reread; drawn from the stored size
+/// alone, a step taken before the reread lands would start from the old
+/// size and be lost.
+class _FontSizeSection extends StatefulComponent {
+  const _FontSizeSection({required this.stored});
+
+  final int stored;
+
+  @override
+  State<_FontSizeSection> createState() => _FontSizeSectionState();
+}
+
+class _FontSizeSectionState extends State<_FontSizeSection> {
+  int? _pending;
+
+  int get _shown => _pending ?? component.stored;
+
+  @override
+  void didUpdateComponent(covariant _FontSizeSection oldComponent) {
+    super.didUpdateComponent(oldComponent);
+    if (component.stored == _pending) _pending = null;
+  }
+
+  Future<void> _write(int size) async {
+    try {
+      await context
+          .read(settingsActionsProvider)
+          .update(AppPreferencesPatch(uiFontSize: size));
+    } catch (_) {
+      // The reread shows what was stored instead.
+      if (mounted && _pending == size) setState(() => _pending = null);
+    }
+  }
+
+  @override
+  Component build(BuildContext context) => div(classes: 'space-y-1.5', [
+    div(classes: 'flex items-center justify-between', [
+      label(
+        htmlFor: 'ui-font-size',
+        classes: 'text-ui-sm font-medium text-foreground',
+        [Component.text(t.desktop.desktopUiFontSize)],
+      ),
+      span(classes: 'text-ui-xs text-foreground-subtle', [
+        Component.text(t.desktop.desktopUiFontSizeValue(size: _shown)),
+      ]),
+    ]),
+    input<Object?>(
+      id: 'ui-font-size',
+      type: InputType.range,
+      classes: 'w-full accent-primary',
+      value: '$_shown',
+      attributes: <String, String>{
+        'min': '$kMinUiFontSize',
+        'max': '$kMaxUiFontSize',
+        'step': '1',
+        'aria-describedby': 'ui-font-size-hint',
+      },
+      onInput: (raw) {
+        final size = int.tryParse(numberFieldText(raw));
+        if (size == null || size == _shown) return;
+        setState(() => _pending = size);
+        unawaited(_write(size));
+      },
+    ),
+    p(id: 'ui-font-size-hint', classes: 'text-ui-xs text-foreground-subtle', [
+      Component.text(t.desktop.desktopUiFontSizeHint),
+    ]),
+  ]);
+}
+
 class _ConnectionsTab extends StatelessComponent {
   const _ConnectionsTab();
 
