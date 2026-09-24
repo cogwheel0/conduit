@@ -47,16 +47,39 @@ test('the sidebar resizes, stays that size, and hides', async () => {
     const before = await width()
     expect(before).toBeGreaterThan(150)
 
-    // Dragged by its edge, as a pointer does it. The window has focus first:
-    // a macOS window that does not spends the first press on activating.
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.focus())
-    await page.locator('#transcript').click()
+    // Dragged by its edge, as a pointer does it.
     const handle = page.getByRole('separator', { name: /resize the sidebar/i })
     const box = (await handle.boundingBox())!
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-    await page.mouse.down()
-    await page.mouse.move(box.x + 80, box.y + box.height / 2, { steps: 5 })
-    await page.mouse.up()
+    const x = box.x + box.width / 2
+    const y = box.y + box.height / 2
+    if (process.platform === 'darwin') {
+      // A macOS runner's window never becomes key, and a drag sent through
+      // the devtools input path never reaches it; the same events, from the
+      // page, stand in.
+      await page.evaluate(
+        ({ x, y }) => {
+          const init = (clientX: number): PointerEventInit => ({
+            bubbles: true,
+            clientX,
+            clientY: y,
+            pointerId: 1,
+            isPrimary: true,
+          })
+          const handle = document.querySelector('[aria-label="Resize the sidebar"]')!
+          handle.dispatchEvent(new PointerEvent('pointerdown', { ...init(x), buttons: 1 }))
+          for (const step of [16, 32, 48, 64, 80]) {
+            document.dispatchEvent(new PointerEvent('pointermove', { ...init(x + step), buttons: 1 }))
+          }
+          document.dispatchEvent(new PointerEvent('pointerup', init(x + 80)))
+        },
+        { x, y },
+      )
+    } else {
+      await page.mouse.move(x, y)
+      await page.mouse.down()
+      await page.mouse.move(x + 80, y, { steps: 5 })
+      await page.mouse.up()
+    }
     await expect.poll(width).toBeGreaterThan(before + 60)
     await expect(handle).toHaveAttribute('aria-valuenow', String(Math.round(await width())))
 
