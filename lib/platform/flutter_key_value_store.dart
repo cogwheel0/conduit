@@ -1,7 +1,7 @@
 import 'package:conduit_core/conduit_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// The Flutter app's [KeyValueStore] (WP-1.2, WP-1.16).
+/// The Flutter app's [KeyValueStore].
 ///
 /// Wraps the **legacy** `SharedPreferences` API deliberately. The app reads
 /// theme, locale and UI state synchronously while building providers on a

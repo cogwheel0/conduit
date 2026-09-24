@@ -4,7 +4,7 @@ import 'package:conduit_core/conduit_core.dart';
 
 import '../core/services/background_streaming_handler.dart';
 
-/// The mobile [BackgroundExecutionPort] (M3).
+/// The mobile [BackgroundExecutionPort].
 ///
 /// Wraps the existing `BackgroundStreamingHandler`, which owns the pigeon
 /// channel to the iOS background task and the Android foreground service.

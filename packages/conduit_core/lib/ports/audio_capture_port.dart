@@ -2,7 +2,7 @@ import 'dart:typed_data';
 
 import 'package:meta/meta.dart';
 
-/// Streams microphone audio as PCM frames (WP-1.14).
+/// Streams microphone audio as PCM frames.
 ///
 /// Deliberately a raw PCM stream rather than "record to a file": server-side
 /// voice activity detection needs the frames as they arrive, and the caller

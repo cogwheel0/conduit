@@ -61,8 +61,8 @@ class AppDatabase extends _$AppDatabase {
   /// Opens the database file for [serverId] through [opener].
   ///
   /// The opener decides where the file lives and how it is opened, because
-  /// that answer differs between the Flutter app and the `conduitd` sidecar
-  /// (WP-1.1). It is also the single seam where at-rest encryption
+  /// that answer differs between the Flutter app and the `conduitd` sidecar.
+  /// It is also the single seam where at-rest encryption
   /// (SQLCipher) can be introduced later (CDT-RFC-001 D-08).
   factory AppDatabase.forServer(
     String serverId, {

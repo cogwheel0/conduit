@@ -5,9 +5,8 @@
 /// Flutter is not. That split is what lets the same engines run inside the
 /// mobile app and inside the `conduitd` sidecar.
 ///
-/// M1 is extracting `lib/core` and the feature providers into this package one
-/// work package at a time. Right now it holds the ports — the seams where the
-/// core stops and a host platform begins.
+/// It holds the core's logic and its ports — the seams where the core stops
+/// and a host platform begins.
 library;
 
 /// The models are deliberately *not* re-exported here.

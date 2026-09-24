@@ -12,7 +12,7 @@ import 'package:conduit_core/services/worker_manager.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:test/test.dart';
 
-/// The per-server token vault (M2).
+/// The per-server token vault.
 ///
 /// The vault exists so switching between two servers you are signed into does
 /// not mean signing in twice. It sits *beside* the single active token rather

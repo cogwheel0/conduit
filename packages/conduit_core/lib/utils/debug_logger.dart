@@ -6,7 +6,7 @@ import 'package:conduit_core/conduit_core.dart';
 /// to keep Flutter's debug console readable while still providing
 /// machine-friendly key/value pairs for quick scanning.
 ///
-/// Formatting lives here; *destination* does not (WP-1.5). The Flutter app
+/// Formatting lives here; *destination* does not. The Flutter app
 /// sends records to `debugPrint`, the `conduitd` sidecar to rotating files
 /// under `userData/logs` — it has no attached console, and "Export
 /// diagnostics" needs something to zip.

@@ -1,5 +1,5 @@
 // Moves members of one oversized class into `part` files, wrapping each group
-// in its own declaration (WP-1.11).
+// in its own declaration.
 //
 //   dart run tool/split_class_into_mixins.dart <library.dart> <plan.tsv>
 //

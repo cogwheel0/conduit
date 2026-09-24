@@ -1,4 +1,4 @@
-// Moves line ranges of a Dart library into `part` files (WP-1.10).
+// Moves line ranges of a Dart library into `part` files.
 //
 //   dart run tool/split_into_parts.dart <library.dart> <plan.tsv>
 //

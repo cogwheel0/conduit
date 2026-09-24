@@ -1,7 +1,6 @@
 import 'package:meta/meta.dart';
 
-/// Why a request failed, in a form the core can produce without a locale
-/// (WP-1.6).
+/// Why a request failed, in a form the core can produce without a locale.
 ///
 /// The core has no `AppLocalizations` and, once it is hosted by `conduitd`,
 /// no way to get one — the daemon serves several windows that may not even

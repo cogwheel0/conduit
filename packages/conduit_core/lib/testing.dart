@@ -2,7 +2,7 @@
 ///
 /// These live in `lib/` rather than the package's own `test/` because they are
 /// shared across a package boundary: the mobile app's tests, the package's own
-/// tests and — from M2 — the desktop UI and the daemon all need to stand up a
+/// tests and the desktop UI and daemon all need to stand up a
 /// fake OpenWebUI server or a fake `AppLifecyclePort`. A `test/` directory is
 /// not importable from outside its package, so a helper kept there can only
 /// ever serve one side. This is the same reason `package:http` ships

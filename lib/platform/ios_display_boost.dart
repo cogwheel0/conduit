@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/conduit_core.dart';
 
-/// The iOS [DisplayBoostPort] (WP-1.12).
+/// The iOS [DisplayBoostPort].
 ///
 /// ProMotion idles the panel down to 10–40 Hz and only ramps back up
 /// reactively after frames start arriving; frame-cadence profiling showed

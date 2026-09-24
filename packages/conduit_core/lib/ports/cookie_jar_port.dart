@@ -1,4 +1,4 @@
-/// The browser surface an external sign-in flow runs in (WP-1.5).
+/// The browser surface an external sign-in flow runs in.
 ///
 /// Proxy auth (oauth2-proxy, Authelia, Authentik, Cloudflare Tunnel) and SSO
 /// finish somewhere the core does not own: an in-app WebView on mobile, a

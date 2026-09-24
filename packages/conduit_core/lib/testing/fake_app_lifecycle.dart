@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:conduit_core/conduit_core.dart';
 
-/// A drivable [AppLifecyclePort] for tests (WP-1.4).
+/// A drivable [AppLifecyclePort] for tests.
 ///
 /// Before the port existed, engines observed `WidgetsBinding` directly and a
 /// test had to push states through the real binding to exercise

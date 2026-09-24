@@ -1,6 +1,6 @@
 // The tweakcn palette registry.
 //
-// Extracted verbatim from lib/shared/theme/tweakcn_themes.dart in WP-0.7, and
+// Extracted verbatim from lib/shared/theme/tweakcn_themes.dart, and
 // now the single source of truth: that file is a thin `Color` adapter over
 // these numbers, and apps/desktop_ui/web/theme.css is generated from them.
 // Edit a palette here and both front-ends move together.

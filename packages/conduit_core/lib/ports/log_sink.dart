@@ -1,7 +1,7 @@
 /// Severity of a log record, ordered least to most serious.
 enum LogLevel { debug, info, warning, error }
 
-/// Where diagnostics go (WP-1.5).
+/// Where diagnostics go.
 ///
 /// `debugPrint` is a Flutter function and, on desktop, the wrong destination
 /// anyway: the daemon has no attached console, so records have to reach

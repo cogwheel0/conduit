@@ -327,8 +327,8 @@ Future<bool> dispatchChatTransport({
 
   // 5. Attach streaming
   final activeStream = attachUnifiedChunkedStreaming(
-    // The Flutter surface for server-initiated prompts and notices
-    // (WP-1.7); the core decides when to ask, this renders it.
+    // The Flutter surface for server-initiated prompts and notices;
+    // the core decides when to ask, this renders it.
     uiRequests: const FlutterUiRequests(),
     session: session,
     webSearchEnabled: webSearchEnabled,

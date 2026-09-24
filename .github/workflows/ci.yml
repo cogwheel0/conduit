@@ -41,7 +41,7 @@ jobs:
       - run: flutter test
 
   # Each workspace member analyzes and tests on its own, which is what proves
-  # the pub workspace actually works per package (WP-0.1, WP-0.2).
+  # the pub workspace actually works per package.
   packages:
     name: Dart packages
     runs-on: ubuntu-latest

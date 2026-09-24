@@ -1,4 +1,4 @@
-/// Theme and locale selection for the mobile app (WP-1.12).
+/// Theme and locale selection for the mobile app.
 ///
 /// These left `app_providers.dart` because they are the one group of
 /// providers there that is genuinely presentation: they resolve to

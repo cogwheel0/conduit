@@ -15,7 +15,7 @@ import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
-/// Credential-grade storage for this host (WP-1.3).
+/// Credential-grade storage for this host.
 ///
 /// `main.dart` binds `FlutterSecureKeyValueStore` behind a readiness gate,
 /// and the `conduitd` sidecar binds its own AES-GCM file store.

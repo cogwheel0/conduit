@@ -1639,7 +1639,7 @@ void main() {
   });
 
   test('a rating and its evaluation id survive into metadata', () {
-    // WP-3.8: a thumb given in Open WebUI's web client shows here, and one
+    // A thumb given in Open WebUI's web client shows here, and one
     // given here updates the same evaluation instead of filing another.
     final conversation = parseFullConversationModel({
       'id': 'conv-1',

@@ -3,7 +3,7 @@ import 'package:conduit_core/conduit_core.dart';
 import 'webview_cookie_helper.dart';
 import '../features/hermes/services/hermes_dashboard_cookie_store.dart';
 
-/// The Flutter app's [CookieJarPort] (WP-1.5, WP-1.16).
+/// The Flutter app's [CookieJarPort].
 ///
 /// Delegates to `WebViewCookieHelper`, now beside it in `lib/platform`:
 /// it drives `flutter_inappwebview`, so it never belonged under `lib/core`.

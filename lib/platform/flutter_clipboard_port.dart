@@ -1,7 +1,7 @@
 import 'package:conduit_core/conduit_core.dart';
 import 'package:flutter/services.dart';
 
-/// The Flutter app's [ClipboardPort] (WP-1.5, WP-1.16).
+/// The Flutter app's [ClipboardPort].
 class FlutterClipboardPort implements ClipboardPort {
   const FlutterClipboardPort();
 

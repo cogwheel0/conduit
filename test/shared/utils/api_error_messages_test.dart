@@ -1,4 +1,4 @@
-/// WP-1.6 moved user-facing error phrasing out of `lib/core/error` and into
+/// User-facing error phrasing moved out of `lib/core/error` and into
 /// `lib/shared`, because composing prose needs a locale and the core will not
 /// have one once `conduitd` hosts it. These cases came with it unchanged, so
 /// the wording users see is provably the same.

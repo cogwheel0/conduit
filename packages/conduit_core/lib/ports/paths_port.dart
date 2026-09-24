@@ -1,6 +1,6 @@
 import 'dart:io';
 
-/// Where the core may write (WP-1.5).
+/// Where the core may write.
 ///
 /// The Flutter app asks `path_provider`; the daemon is handed Electron's
 /// `userData` and lays out subdirectories beneath it. Neither answer belongs

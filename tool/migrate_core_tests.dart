@@ -1,4 +1,4 @@
-// Moves tests of extracted code into `packages/conduit_core/test` (WP-1.15).
+// Moves tests of extracted code into `packages/conduit_core/test`.
 //
 //   dart run tool/migrate_core_tests.dart [--apply]
 //
@@ -22,7 +22,7 @@
 // The one rewrite applied is the test framework: `flutter_test` exists to
 // drive a widget tree, and these tests have none. Swapping it for
 // `package:test` is what lets `dart test` in the package cover the extracted
-// code without a Flutter toolchain -- which is the point of the milestone.
+// code without a Flutter toolchain -- which is the point of the extraction.
 // Relative imports are repointed, because `test/core/database/x_test.dart`
 // and `test/database/x_test.dart` are not the same distance from `support/`.
 import 'dart:io';
@@ -199,8 +199,8 @@ void _apply(List<String> files, Map<String, _Node> graph) {
 ///
 /// This is the useful half of the report. Each entry is a dependency the
 /// extraction has not reached yet, and the count is how many tests would
-/// follow it into the package -- so it doubles as a worklist for whichever
-/// work package comes next.
+/// follow it into the package -- so it doubles as a worklist for whatever
+/// is extracted next.
 void _reportBlockers(
   List<String> blocked,
   Map<String, _Node> graph,

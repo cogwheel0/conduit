@@ -5,7 +5,7 @@ import 'package:conduit_core/services/performance_profiler.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:flutter/scheduler.dart';
 
-/// Frame instrumentation for the Flutter app (WP-1.12).
+/// Frame instrumentation for the Flutter app.
 ///
 /// Split out of [PerformanceProfiler] because frames are the one thing in it
 /// that only a Flutter host has. The task and timeline half is used from 38

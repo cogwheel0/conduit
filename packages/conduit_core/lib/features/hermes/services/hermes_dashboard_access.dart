@@ -1,4 +1,4 @@
-/// Whether Hermes' dashboard can be reached on this platform (WP-1.12).
+/// Whether Hermes' dashboard can be reached on this platform.
 ///
 /// Split from the WebView policy so the transport layer can ask the question
 /// without importing `flutter_inappwebview`. The rule itself is one line and

@@ -6,7 +6,7 @@ import '../theme/theme_extensions.dart';
 import '../widgets/themed_dialogs.dart';
 import 'navigation_service.dart';
 
-/// The Flutter app's [UiRequestPort] (WP-1.7).
+/// The Flutter app's [UiRequestPort].
 ///
 /// These three dialogs used to live inside `streaming_helper.dart`, which is
 /// why that file reached for `NavigationService.context` and built widgets

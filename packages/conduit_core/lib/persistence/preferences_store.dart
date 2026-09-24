@@ -26,7 +26,7 @@ typedef PreferenceWriteInterceptor = Future<bool?> Function(
 /// against the in-memory view and writes update that view synchronously (the
 /// returned Future is just the disk flush).
 ///
-/// The backing store is injected (WP-1.2) rather than reached for directly,
+/// The backing store is injected rather than reached for directly,
 /// because `shared_preferences` is a Flutter plugin and the `conduitd`
 /// sidecar has to answer the same questions from its own file store. The
 /// static facade stays: most readers arrive from non-Riverpod code and need

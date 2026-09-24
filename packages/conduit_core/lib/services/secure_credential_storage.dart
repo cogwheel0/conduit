@@ -11,7 +11,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 /// Values are protected by the platform keychain/keystore via
 /// SecureKeyValueStore; no additional app-level encryption is applied.
 class SecureCredentialStorage {
-  /// [instance] is required since WP-1.3. It used to default to a
+  /// [instance] is required. It used to default to a
   /// `FlutterSecureStorage` configured here, which quietly made this class a
   /// second place platform options had to be kept in step; they now live
   /// once, in `FlutterSecureKeyValueStore`.

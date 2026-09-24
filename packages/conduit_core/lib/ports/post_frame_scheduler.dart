@@ -1,6 +1,6 @@
 import 'dart:async';
 
-/// Defers work until the current frame has been presented (WP-1.12).
+/// Defers work until the current frame has been presented.
 ///
 /// Distinct from [FlushScheduler], which asks for the *next* frame so a
 /// buffered update renders in it. This one is the opposite concern: the work

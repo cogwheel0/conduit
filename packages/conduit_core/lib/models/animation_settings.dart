@@ -1,4 +1,4 @@
-/// Animation preferences (WP-1.12).
+/// Animation preferences.
 ///
 /// Pure values — a flag, an enum and a multiplier. They live here rather than
 /// beside the animation widgets because `SettingsService` derives them from

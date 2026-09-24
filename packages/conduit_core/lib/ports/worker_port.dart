@@ -8,7 +8,7 @@ import 'dart:async';
 /// and their arguments sendable, or the isolate-backed hosts will reject them.
 typedef WorkerCallback<Q, R> = FutureOr<R> Function(Q message);
 
-/// Runs a pure function off the calling isolate (WP-1.5).
+/// Runs a pure function off the calling isolate.
 ///
 /// Flutter's `compute` spawns an isolate through the engine's entry point,
 /// which does not exist in the `conduitd` sidecar; there the equivalent is

@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:drift/drift.dart';
 
-/// Where the database lives and how it is opened (WP-1.1).
+/// Where the database lives and how it is opened.
 ///
 /// The core owns the schema, the migrations and the FTS DDL, but it must not
 /// know whether it is running inside a Flutter app or the `conduitd` sidecar.
@@ -11,7 +11,7 @@ import 'package:drift/drift.dart';
 /// desktop — and only this port sees the difference.
 ///
 /// Implementations live outside the core: `lib/platform/` for the Flutter app
-/// (WP-1.16) and `apps/daemon` for the desktop sidecar.
+/// and `apps/daemon` for the desktop sidecar.
 abstract interface class DatabaseOpenerPort {
   /// Opens, creating if needed, the executor backing [serverId]'s database.
   ///

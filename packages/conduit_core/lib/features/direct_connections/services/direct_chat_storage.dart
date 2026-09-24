@@ -4,7 +4,7 @@ import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/utils/openwebui_message_payload.dart';
 import 'package:conduit_core/utils/persisted_message_content.dart';
 
-/// How a direct-provider chat is written to the local database (M4).
+/// How a direct-provider chat is written to the local database.
 ///
 /// Lifted out of the mobile app, where these were private to its send
 /// path, so the desktop daemon writes direct chats the same way: the same

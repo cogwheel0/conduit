@@ -143,7 +143,7 @@ void main() {
 
       // The default-model half of this test on main is not ported:
       // `updateUserDefaultModel` had no callers and this branch removed
-      // it in WP-1.11 along with 47 other unreferenced methods.
+      // it along with 47 other unreferenced methods.
     });
   });
 }

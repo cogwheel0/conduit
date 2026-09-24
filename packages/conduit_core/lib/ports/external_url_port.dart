@@ -1,4 +1,4 @@
-/// Hands a URL to the platform's browser (WP-1.5).
+/// Hands a URL to the platform's browser.
 ///
 /// Never an in-app view. Model output and server-supplied citations contain
 /// links; opening those inside the app's own origin would give an

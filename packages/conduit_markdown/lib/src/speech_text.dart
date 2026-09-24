@@ -1,4 +1,4 @@
-/// Turning a model's answer into the pieces a voice speaks (M8).
+/// Turning a model's answer into the pieces a voice speaks.
 ///
 /// Mirrors Open WebUI's `getMessageContentParts` family, so an answer is split
 /// the same way whether a phone or a desktop reads it aloud, and the cursor

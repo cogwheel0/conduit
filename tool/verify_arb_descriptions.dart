@@ -5,7 +5,7 @@ import 'dart:io';
 /// corresponding @key entry with a non-empty `description`.
 ///
 /// Covers every namespace template in lib/l10n — `app_en.arb` for the shared
-/// catalog and `desktop_en.arb` for desktop-only strings (WP-0.8) — so a new
+/// catalog and `desktop_en.arb` for desktop-only strings — so a new
 /// front-end cannot quietly skip the description requirement.
 ///
 /// Usage: dart run tool/verify_arb_descriptions.dart

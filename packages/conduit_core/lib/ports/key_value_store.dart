@@ -1,4 +1,4 @@
-/// Plain, non-secret key/value storage (WP-1.2).
+/// Plain, non-secret key/value storage.
 ///
 /// Theme, locale, feature flags and UI state live here — everything the app
 /// reads *synchronously* while building providers and widgets on a cold

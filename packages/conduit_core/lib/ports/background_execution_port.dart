@@ -1,4 +1,4 @@
-/// Keeps a stream alive while the host is not in the foreground (M3).
+/// Keeps a stream alive while the host is not in the foreground.
 ///
 /// Only mobile needs this, and only mobile can do it: iOS grants a bounded
 /// background task on request, Android holds a foreground service, and the

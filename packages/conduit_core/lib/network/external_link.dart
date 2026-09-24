@@ -1,4 +1,4 @@
-/// Which links may be handed to the operating system (WP-1.12).
+/// Which links may be handed to the operating system.
 ///
 /// A security boundary, not a formatting helper. The URLs reaching this come
 /// from LLM output and other remote-authored content — chat messages,

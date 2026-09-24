@@ -209,7 +209,7 @@ class TtsManager {
   StreamSubscription<NativeTtsEvent>? _nativeTtsSub;
   bool _nativeTtsAvailable = false;
 
-  // Server TTS playback goes through the host's audio port (WP-1.14).
+  // Server TTS playback goes through the host's audio port.
   final AudioPlaybackPort _player = AudioPlaybackPort.hostFactory();
   bool _playerConfigured = false;
   StreamSubscription<AudioPlaybackState>? _playerStateSub;

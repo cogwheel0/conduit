@@ -1,4 +1,4 @@
-/// The dashboard's cookie-authenticated HTTP surface (WP-1.12).
+/// The dashboard's cookie-authenticated HTTP surface.
 ///
 /// Hermes' dashboard authenticates with cookies a WebView holds, so requests
 /// to it have to be issued from inside that WebView rather than from a Dart

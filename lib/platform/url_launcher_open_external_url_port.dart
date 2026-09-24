@@ -2,7 +2,7 @@ import 'package:conduit_core/conduit_core.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-/// The Flutter app's [OpenExternalUrlPort] (WP-1.5): the system browser.
+/// The Flutter app's [OpenExternalUrlPort]: the system browser.
 ///
 /// Always an external application, never an in-app view, and only for
 /// web addresses -- what the port's contract asks of every host. MCP and

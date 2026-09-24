@@ -1,6 +1,6 @@
 import 'dart:io';
 
-/// Where the OS share extension leaves incoming files (WP-1.12).
+/// Where the OS share extension leaves incoming files.
 ///
 /// On iOS a share-sheet hand-off writes into a container the extension and
 /// the app both see, and only the native side can say where that is. Every

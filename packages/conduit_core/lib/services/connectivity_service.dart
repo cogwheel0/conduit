@@ -34,7 +34,7 @@ enum ConnectivityStatus { online, offline }
 class ConnectivityService {
   /// [lifecycle] defaults to [StaticAppLifecycle], meaning a host that never
   /// reports foreground/background; the service then polls as though always
-  /// visible (WP-1.4).
+  /// visible.
   ConnectivityService(
     this._dio,
     this._ref, [

@@ -1,7 +1,7 @@
 import 'package:conduit_core/conduit_core.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-/// The Flutter app's [SecureKeyValueStore] (WP-1.3, WP-1.16).
+/// The Flutter app's [SecureKeyValueStore].
 ///
 /// Wraps `flutter_secure_storage` and pins the platform options that keep
 /// existing installs readable. Those options are the reason this adapter

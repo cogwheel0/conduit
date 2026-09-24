@@ -1,6 +1,6 @@
 # Intentionally minimal.
 #
-# The models in lib/models moved here from the Flutter app in M1, and their
+# The models in lib/models moved here from the Flutter app, and their
 # generated code must stay byte-identical: the app has no root build.yaml, so
 # json_serializable's defaults are what produced the wire format existing
 # installs already read. Setting `explicit_to_json` here — tempting, and the
