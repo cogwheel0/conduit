@@ -234,11 +234,15 @@ class _HermesConnectionFormState extends State<HermesConnectionForm> {
                 _apiKey = '';
                 _memoryKey = '';
                 // Saved is not done while the gateway still waits for its
-                // sign-in, which the button beside this starts.
+                // sign-in, which the button beside this starts -- when the
+                // form still shows that choice. Changed while Save was out,
+                // the button is gone, and so is the instruction.
                 _say(
                   saved.mode == 'desktop' &&
                           saved.desktopAuthKind == 'nativePkce' &&
-                          !saved.desktopSignedIn
+                          !saved.desktopSignedIn &&
+                          _mode == 'desktop' &&
+                          _authKind == 'nativePkce'
                       ? t.desktop.desktopHermesSignInToFinish
                       : t.app.saved,
                 );

@@ -51,7 +51,10 @@ extension _HermesTurns on TurnsService {
       );
     }
     // Said as what it is: without this the request failed further in, and
-    // the window could only call it a connection problem.
+    // the window could only call it a connection problem. After the saved
+    // secrets have loaded: on a cold start the tokens are not there yet,
+    // and a signed-in user's first message was refused.
+    await config.waitForSecretsHydration();
     if (hermesAwaitsSignIn(_container.read(hermesConfigProvider))) {
       throw const RpcError(
         code: ConduitErrorCodes.unauthenticated,
