@@ -263,6 +263,23 @@ class RpcSession {
             ),
           );
         }
+        // And a chat already answering: see [TurnsService.progress].
+        if (subscription.events.isEmpty ||
+            subscription.events.contains(ConduitEvents.turnDelta)) {
+          for (final scope in subscription.scopes) {
+            final progress = _turns?.progress(scope);
+            if (progress == null) continue;
+            sendEvent(
+              _peer,
+              EventEnvelope(
+                event: ConduitEvents.turnDelta,
+                seq: _events.lastSeq,
+                scope: scope,
+                payload: progress.toJson(),
+              ),
+            );
+          }
+        }
         // Echo the accepted filter back so the client can assert on what the
         // daemon actually stored rather than on what it hoped it sent.
         return subscription;

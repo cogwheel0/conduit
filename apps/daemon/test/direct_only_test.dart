@@ -87,6 +87,12 @@ void main() {
     final accepted = await turns.send(
       SendTurn(model: offered!.id, text: 'Hello there'),
     );
+    // Running already when the window can first subscribe to the new chat,
+    // and what it missed is ready for it.
+    expect(
+      turns.progress(accepted.chatId)?.messageId,
+      accepted.assistantMessageId,
+    );
     events.subscribe(
       'window',
       EventSubscription(scopes: <String>[accepted.chatId]),

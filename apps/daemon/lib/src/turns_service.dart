@@ -150,6 +150,22 @@ final class TurnsService {
   /// Chats currently generating, for the sidebar's spinner.
   Iterable<String> get activeChatIds => _active.keys;
 
+  /// [chatId]'s running turn as a window that subscribes now needs it: the
+  /// whole answer so far, or null when nothing is running there.
+  ///
+  /// A new chat's id reaches the window with the reply to `turns.send`, and
+  /// `turn.started` has gone out by then to no one subscribed to it -- so
+  /// until the first token the composer offered Send in a busy chat.
+  TurnDelta? progress(String chatId) {
+    final turn = _active[chatId];
+    if (turn == null) return null;
+    return TurnDelta(
+      chatId: turn.chatId,
+      messageId: turn.messageId,
+      text: turn.text,
+    );
+  }
+
   /// The signed-in server, or the error that says why there is none.
   ///
   /// Both checks, and in this order. A configured-but-signed-out server
