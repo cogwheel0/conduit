@@ -37,6 +37,11 @@ extension _HermesTurns on TurnsService {
       );
     }
     final config = _container.read(hermesConfigProvider.notifier);
+    // Before anything reads the connection: on a cold start the saved
+    // tokens are still loading, and loading them rebuilds the service. Read
+    // before, a signed-in user's first message was judged signed out, or
+    // went out through a service already closed.
+    await config.waitForSecretsHydration();
     if (_container.read(hermesConfigProvider).mode ==
         HermesBackendMode.responsesApi) {
       // The long-term memory key, made before the first turn as mobile
@@ -51,10 +56,7 @@ extension _HermesTurns on TurnsService {
       );
     }
     // Said as what it is: without this the request failed further in, and
-    // the window could only call it a connection problem. After the saved
-    // secrets have loaded: on a cold start the tokens are not there yet,
-    // and a signed-in user's first message was refused.
-    await config.waitForSecretsHydration();
+    // the window could only call it a connection problem.
     if (hermesAwaitsSignIn(_container.read(hermesConfigProvider))) {
       throw const RpcError(
         code: ConduitErrorCodes.unauthenticated,
