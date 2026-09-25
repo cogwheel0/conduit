@@ -661,6 +661,7 @@ class _Transcript extends StatelessComponent {
                 onCopyCode: onCopyCode,
                 mathIdPrefix: mathIdPrefix,
                 sources: sources,
+                streaming: streaming,
               ),
             if (failure case final message?)
               p(

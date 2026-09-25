@@ -3,6 +3,7 @@ library;
 
 import 'package:conduit_desktop_ui/src/widgets/markdown_view.dart';
 import 'package:jaspr_test/jaspr_test.dart';
+import 'package:markdown/markdown.dart' as md;
 
 /// The renderer turns a model's markdown into DOM.
 ///
@@ -48,6 +49,53 @@ void main() {
       );
       expect(find.tag('table'), findsOneComponent);
       expect(find.tag('td'), findsNComponents(2));
+    });
+  });
+
+  group('streaming', () {
+    // A streamed answer keeps the blocks that can no longer change and
+    // re-parses only the tail; that is only a speed-up if it draws what
+    // parsing the whole answer draws, at every length it passes through.
+    const answer =
+        '# Plan\n\n'
+        'A paragraph that runs\nacross two lines.\n\n'
+        '- tight one\n- tight two\n\n'
+        '1. loose one\n\n2. loose two\n   continued\n\n'
+        '```dart\nvoid main() {\n\n  print(1);\n}\n```\n\n'
+        '| a | b |\n| --- | --- |\n| 1 | 2 |\n\n'
+        '> quoted\nlazy continuation\n\n'
+        '<details type="reasoning" done="true">\n<summary>Thought</summary>\n'
+        'Inside.\n\nStill inside.\n</details>\n\n'
+        'Title\n=====\n\n'
+        r'Inline $x^2$ and `code`.'
+        '\n\n---\n\nThe end.';
+
+    // The tree the walker reads, written out. A raw HTML block's text keeps
+    // the newline before it when it follows another block, and not when it
+    // starts the document -- which is where a half-arrived `<details` lands
+    // when the blocks before it are kept. It is a text node, so the
+    // difference is whitespace the page collapses.
+    String tree(List<md.Node> nodes) => nodes
+        .map(
+          (node) => switch (node) {
+            md.Element() =>
+              '<${node.tag} ${node.attributes}>'
+                  '${tree(node.children ?? const <md.Node>[])}</${node.tag}>',
+            md.Text() => '"${node.text.replaceFirst(RegExp(r'^\n'), '')}"',
+            _ => node.textContent,
+          },
+        )
+        .join();
+
+    test('matches a whole parse at every length', () {
+      for (var length = 1; length <= answer.length; length++) {
+        final text = answer.substring(0, length);
+        expect(
+          tree(MarkdownView(text, streaming: true).debugParse()),
+          tree(MarkdownView(text).debugParse()),
+          reason: 'at length $length',
+        );
+      }
     });
   });
 

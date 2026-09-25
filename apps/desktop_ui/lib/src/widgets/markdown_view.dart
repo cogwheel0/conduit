@@ -1,4 +1,5 @@
-import 'package:conduit_markdown/conduit_markdown.dart' show DetailsBlockSyntax;
+import 'package:conduit_markdown/conduit_markdown.dart'
+    show DetailsBlockSyntax, splitStreamingMarkdown;
 import 'package:conduit_protocol/conduit_protocol.dart' show ChatSourceDto;
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
@@ -29,6 +30,7 @@ class MarkdownView extends StatelessComponent {
     this.onCopyCode,
     this.mathIdPrefix,
     this.sources = const <ChatSourceDto>[],
+    this.streaming = false,
     super.key,
   });
 
@@ -51,6 +53,15 @@ class MarkdownView extends StatelessComponent {
   /// What the reply cites, in `[1]`, `[2]` order. Empty leaves
   /// bracketed numbers as the text they are.
   final List<ChatSourceDto> sources;
+
+  /// Whether [markdown] is an answer still arriving.
+  ///
+  /// A streamed answer is a new string every frame, so the parse cache
+  /// never hits, and parsing all of a long one every frame costs more than
+  /// the frame. While it streams, the blocks that can no longer change are
+  /// parsed once and kept, and only the tail is parsed again. A finished
+  /// message is parsed whole.
+  final bool streaming;
 
   /// Reset at the top of every build, so a formula keeps its frame across
   /// rebuilds as long as it keeps its position in the message.
@@ -103,7 +114,7 @@ class MarkdownView extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     _mathIndex = 0;
-    final nodes = _parse(markdown);
+    final nodes = streaming ? _parseStreaming(markdown) : _parse(markdown);
     return div(
       classes: 'conduit-markdown space-y-3 text-ui-base leading-relaxed',
       nodes.map(_node).toList(growable: false),
@@ -134,6 +145,38 @@ class MarkdownView extends StatelessComponent {
     _parsed[key] = nodes;
     if (_parsed.length > _parsedLimit) _parsed.remove(_parsed.keys.first);
     return nodes;
+  }
+
+  /// The blocks [build] walks, so a test can hold the two parse paths
+  /// against each other.
+  @visibleForTesting
+  List<md.Node> debugParse() =>
+      streaming ? _parseStreaming(markdown) : _parse(markdown);
+
+  /// The streamed prefix whose blocks are final, and its parse.
+  ///
+  /// One entry: only the answer being streamed goes through here.
+  static String _frozenKey = '';
+  static List<md.Node> _frozenNodes = const <md.Node>[];
+
+  List<md.Node> _parseStreaming(String markdown) {
+    final split = splitStreamingMarkdown(markdown);
+    if (!split.canIncrementallyCompile || split.frozenPrefix.isEmpty) {
+      return _parseFresh(markdown);
+    }
+    final key = '${sources.isNotEmpty ? 1 : 0}\u0000${split.frozenPrefix}';
+    if (key != _frozenKey) {
+      // The prefix parsed last time ended on a block boundary, so what was
+      // added after it starts on one and parses on its own.
+      _frozenNodes = _frozenKey.isNotEmpty && key.startsWith(_frozenKey)
+          ? <md.Node>[
+              ..._frozenNodes,
+              ..._parseFresh(key.substring(_frozenKey.length)),
+            ]
+          : _parseFresh(split.frozenPrefix);
+      _frozenKey = key;
+    }
+    return <md.Node>[..._frozenNodes, ..._parseFresh(split.mutableTail)];
   }
 
   List<md.Node> _parseFresh(String markdown) => md.Document(
