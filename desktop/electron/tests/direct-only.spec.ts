@@ -144,10 +144,14 @@ test('chats through a direct connection with no server', async () => {
     // streamed answer has become the stored one -- which once kept the
     // same frame under a new id and left it empty. The echo reverses, so
     // this asks for `$E = mc^2$`.
+    // After the first answer has finished: while it is still closing the
+    // composer offers Stop, and Enter sends nothing.
+    const send = page.getByRole('button', { name: /^send$/i })
+    await expect(send).toBeVisible({ timeout: 30_000 })
     await composer.fill('$2^cm = E$')
     await composer.press('Enter')
-    await expect(transcript).toContainText('echo:', { timeout: 30_000 })
-    await expect(page.getByRole('button', { name: /^send$/i })).toBeVisible({ timeout: 30_000 })
+    await expect(transcript.locator('article')).toHaveCount(4, { timeout: 30_000 })
+    await expect(send).toBeVisible({ timeout: 30_000 })
     const formula = transcript.locator('iframe[src="/sandbox.html"]').last()
     await expect(formula.contentFrame().locator('.katex').first()).toBeVisible({
       timeout: 30_000,
