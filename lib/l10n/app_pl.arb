@@ -5526,6 +5526,8 @@
   "@directConnectionName": {
     "description": "Label for a user-defined direct connection profile name."
   },
+  "directDefaultConnectionName": "Mój dostawca",
+  "sidebarButtonLabel": "Pasek boczny",
   "directConnectionNameRequired": "Wpisz nazwę połączenia.",
   "@directConnectionNameRequired": {
     "description": "Validation error shown when a direct connection name is empty."

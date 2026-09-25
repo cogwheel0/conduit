@@ -1285,6 +1285,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       leading: ConduitAdaptiveAppBarIconButton(
         icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
         iosSymbol: 'line.3.horizontal',
+        semanticLabel: AppLocalizations.of(context)!.sidebarButtonLabel,
         onPressed: _toggleDrawer,
         iconColor: tintColor,
       ),

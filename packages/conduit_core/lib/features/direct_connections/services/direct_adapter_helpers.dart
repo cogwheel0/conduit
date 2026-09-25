@@ -636,6 +636,68 @@ DirectProviderException normalizeDirectProviderError(Object error) {
   return DirectProviderException('The provider request failed.', cause: error);
 }
 
+const int _kMaxDirectErrorBodyBytes = 64 * 1024;
+const String _kDirectUnreportedError = 'The provider reported an error.';
+
+/// Like [normalizeDirectProviderError], but also reads the bounded JSON body of
+/// a failed HTTP response so the provider's own explanation (for example "Free
+/// tier users do not have access to this model") reaches the user instead of a
+/// bare status code. The message keeps its `HTTP <status>` prefix so
+/// [directAuthModeHintApplies] still recognizes auth failures.
+///
+/// Pass the profile's [sensitiveValues]: the detail is redacted before it is
+/// clipped, so a reflected credential cannot survive as a truncated fragment.
+Future<DirectProviderException> normalizeDirectProviderErrorWithBody(
+  Object error, {
+  Iterable<String> sensitiveValues = const <String>[],
+}) async {
+  final normalized = normalizeDirectProviderError(error);
+  final status = normalized.statusCode;
+  // Only a rejected request carries an error document. A successful status
+  // here means the completion stream itself failed; never re-read it.
+  if (error is! DioException || status == null || status < 400) {
+    return normalized;
+  }
+  final detail = await _directErrorBodyDetail(
+    error.response?.data,
+    sensitiveValues: sensitiveValues,
+  );
+  if (detail == null) return normalized;
+  return DirectProviderException(
+    'The provider returned HTTP $status: $detail',
+    statusCode: status,
+    cause: error,
+  );
+}
+
+Future<String?> _directErrorBodyDetail(
+  Object? data, {
+  required Iterable<String> sensitiveValues,
+}) async {
+  try {
+    // Error documents arrive with the headers; keep the wait short so an
+    // open body cannot hold back a failure the status code already reports.
+    final decoded = data is ResponseBody
+        ? await decodeDirectJsonValue(
+            data,
+            maxBytes: _kMaxDirectErrorBodyBytes,
+            idleTimeout: const Duration(seconds: 1),
+            maxDuration: const Duration(seconds: 2),
+            maxTransferBytes: _kMaxDirectErrorBodyBytes,
+          )
+        : data;
+    if (decoded is! Map) return null;
+    final message = directErrorMessage(
+      decoded,
+      sensitiveValues: sensitiveValues,
+    );
+    return message == _kDirectUnreportedError ? null : message;
+  } catch (_) {
+    // An unreadable body is not worth masking the status code over.
+    return null;
+  }
+}
+
 /// Hint appended to an authentication failure when the profile sends its
 /// credential in the Azure `api-key` header. Most OpenAI-compatible servers
 /// (llama.cpp, vLLM, LM Studio, Ollama) only honor `Authorization: Bearer`.
@@ -796,7 +858,7 @@ String directErrorMessage(
     if (nested == null || identical(nested, current)) break;
     current = nested;
   }
-  return 'The provider reported an error.';
+  return _kDirectUnreportedError;
 }
 
 String sanitizeDirectProviderErrorMessage(

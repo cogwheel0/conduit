@@ -91,6 +91,7 @@ final class DirectConnectionGeneralSection extends StatelessWidget {
           trailing: AdaptiveSwitch(
             value: form.enabled,
             onChanged: form.setEnabled,
+            semanticLabel: l10n.enabledLabel,
           ),
           onTap: () => form.setEnabled(!form.enabled),
         ),
@@ -308,7 +309,7 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
           ? l10n.ollamaCloudDefaultName
           : isOpenRouter
           ? l10n.openRouterProviderName
-          : 'My provider',
+          : l10n.directDefaultConnectionName,
       controller: form.name,
       errorText: directDraftValidationMessage(l10n, form.errors.name),
       isRequired: true,
@@ -380,7 +381,9 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
       errorText: directDraftValidationMessage(l10n, form.errors.apiKey),
       isRequired: form.apiKeyRequired,
       keyboardType: TextInputType.visiblePassword,
-      textInputAction: TextInputAction.next,
+      // Last field in the group; "next" had nowhere to go and left the
+      // keyboard up.
+      textInputAction: TextInputAction.done,
       autocorrect: false,
       iosSettingsRow: native,
       iosLabelFlex: 4,

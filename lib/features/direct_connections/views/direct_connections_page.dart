@@ -28,6 +28,7 @@ import 'package:conduit_core/features/direct_connections/providers/direct_mcp_pr
 import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
 
 import '../providers/apple_pcc_providers.dart';
+import '../services/apple_pcc_adapter.dart';
 
 const List<int> _directContextLengthOptions = <int>[
   4096,
@@ -399,6 +400,7 @@ class DirectConnectionsContent extends StatelessWidget {
               trailing: AdaptiveSwitch(
                 value: syncWithOpenWebUi,
                 onChanged: onSyncChanged,
+                semanticLabel: l10n.syncDirectHistory,
               ),
               onTap: () => onSyncChanged(!syncWithOpenWebUi),
             ),
@@ -562,7 +564,7 @@ class _AppleModelSection extends StatelessWidget {
       );
     } else {
       details.add(_availabilityLabel(l10n, value));
-      if (value.contextSize case final tokens?) {
+      if (reportedApplePccContextSize(value) case final tokens?) {
         details.add(
           l10n.directContextLimit(_formatTokenCount(context, tokens)),
         );
@@ -629,6 +631,7 @@ class _AppleModelSection extends StatelessWidget {
             trailing: AdaptiveSwitch(
               value: onDeviceFallback,
               onChanged: onFallbackChanged,
+              semanticLabel: l10n.applePccOnDeviceFallback,
             ),
             onTap: onFallbackChanged == null
                 ? null

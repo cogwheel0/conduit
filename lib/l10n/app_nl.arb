@@ -838,7 +838,7 @@
   "previous7Days": "Afgelopen 7 dagen",
   "previous30Days": "Afgelopen 30 dagen",
   "older": "Ouder",
-  "wordCount": "{count} woorden",
+  "wordCount": "{count, plural, one{{count} woord} other{{count} woorden}}",
   "@wordCount": {
     "placeholders": {
       "count": {
@@ -847,7 +847,7 @@
       }
     }
   },
-  "charCount": "{count} tekens",
+  "charCount": "{count, plural, one{{count} teken} other{{count} tekens}}",
   "@charCount": {
     "placeholders": {
       "count": {
@@ -2981,6 +2981,8 @@
   "addDirectConnection": "Add connection",
   "editDirectConnection": "Edit connection",
   "directConnectionName": "Connection name",
+  "directDefaultConnectionName": "Mijn provider",
+  "sidebarButtonLabel": "Zijbalk",
   "directConnectionNameRequired": "Enter a connection name.",
   "directConnectionUrlInvalid": "Use a valid http:// or https:// URL.",
   "directConnectionCredentialsReentryRequired": "Re-enter credentials when changing servers.",

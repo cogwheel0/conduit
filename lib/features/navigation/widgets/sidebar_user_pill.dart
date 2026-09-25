@@ -413,45 +413,51 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               .asData
               ?.value;
 
+    Future<void> openProfile() async {
+      await Navigator.of(context).maybePop();
+      if (!context.mounted) return;
+
+      if (nativeProfilePresenter != null) {
+        // Pre-load the Hermes avatar bytes (the config builder is sync, and
+        // avatarBytes must be supplied up front).
+        final hermesAvatarBytes = hermesOnly
+            ? await _loadHermesAvatarBytes()
+            : null;
+        if (!context.mounted) return;
+        final config = _buildNativeProfileSheetConfig(
+          context: context,
+          ref: ref,
+          user: user,
+          api: api,
+          displayName: displayName,
+          initials: initial,
+          canManageWorkspace: canManageWorkspace,
+          hermesAvatarBytes: hermesAvatarBytes,
+        );
+        final presented = await nativeProfilePresenter(config);
+        if (presented) return;
+      }
+
+      if (context.mounted) {
+        context.pushNamed(
+          sidebarProfileFallbackRouteName(
+            directPrimary: directPrimary,
+            hasOpenWebUiUser: user != null,
+          ),
+        );
+      }
+    }
+
+    // Exclude the native glass button's own node so VoiceOver announces one
+    // labelled control instead of an unlabelled avatar image.
     return Semantics(
       label: l10n.manage,
       button: true,
+      excludeSemantics: true,
+      onTap: openProfile,
       child: buildSidebarProfileButton(
         supportsNativeGlass: supportsNativeGlass,
-        onPressed: () async {
-          await Navigator.of(context).maybePop();
-          if (!context.mounted) return;
-
-          if (nativeProfilePresenter != null) {
-            // Pre-load the Hermes avatar bytes (the config builder is sync, and
-            // avatarBytes must be supplied up front).
-            final hermesAvatarBytes = hermesOnly
-                ? await _loadHermesAvatarBytes()
-                : null;
-            if (!context.mounted) return;
-            final config = _buildNativeProfileSheetConfig(
-              context: context,
-              ref: ref,
-              user: user,
-              api: api,
-              displayName: displayName,
-              initials: initial,
-              canManageWorkspace: canManageWorkspace,
-              hermesAvatarBytes: hermesAvatarBytes,
-            );
-            final presented = await nativeProfilePresenter(config);
-            if (presented) return;
-          }
-
-          if (context.mounted) {
-            context.pushNamed(
-              sidebarProfileFallbackRouteName(
-                directPrimary: directPrimary,
-                hasOpenWebUiUser: user != null,
-              ),
-            );
-          }
-        },
+        onPressed: openProfile,
         fallbackStyle: style,
         fallbackColor: useOpaqueFallback ? iconColor : null,
         nativeAvatarBytes: nativeAvatarBytes,

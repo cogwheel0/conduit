@@ -249,8 +249,14 @@ typedef DirectDeleteConfirmation = Future<bool> Function(
 final class DirectConnectionEditorWorkflow extends ChangeNotifier {
   DirectConnectionEditorWorkflow({
     required DirectConnectionEditorGateway gateway,
+    String? defaultConnectionName,
   }) : _gateway = gateway,
-       form = DirectConnectionEditorForm(mode: gateway.mode),
+       form = defaultConnectionName == null
+           ? DirectConnectionEditorForm(mode: gateway.mode)
+           : DirectConnectionEditorForm(
+               mode: gateway.mode,
+               defaultName: defaultConnectionName,
+             ),
        _resourceState = gateway.resourceState {
     form.addListener(_handleFormChanged);
     _resourceSubscription = gateway.subscribe(

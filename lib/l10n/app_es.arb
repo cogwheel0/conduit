@@ -838,7 +838,7 @@
   "previous7Days": "Últimos 7 días",
   "previous30Days": "Últimos 30 días",
   "older": "Más antiguo",
-  "wordCount": "{count} palabras",
+  "wordCount": "{count, plural, one{{count} palabra} other{{count} palabras}}",
   "@wordCount": {
     "placeholders": {
       "count": {
@@ -847,7 +847,7 @@
       }
     }
   },
-  "charCount": "{count} caracteres",
+  "charCount": "{count, plural, one{{count} carácter} other{{count} caracteres}}",
   "@charCount": {
     "placeholders": {
       "count": {
@@ -2981,6 +2981,8 @@
   "addDirectConnection": "Añadir conexión",
   "editDirectConnection": "Editar conexión",
   "directConnectionName": "Nombre de la conexión",
+  "directDefaultConnectionName": "Mi proveedor",
+  "sidebarButtonLabel": "Barra lateral",
   "directConnectionNameRequired": "Introduce un nombre para la conexión.",
   "directConnectionUrlInvalid": "Usa una URL válida con http:// o https://.",
   "directConnectionCredentialsReentryRequired": "Vuelve a introducir las credenciales al cambiar de servidor.",
