@@ -224,6 +224,9 @@ test('talks to Hermes Agent with no server, approvals and all', async () => {
     const transcript = page.getByRole('log')
     await expect(transcript).toContainText('Echo: Hello Hermes', { timeout: 30_000 })
     expect(hermes.sessions.size).toBe(1)
+    // Finished, not only shown: a message sent while the turn is still
+    // closing is refused as one turn at a time.
+    await expect(page.getByRole('button', { name: /^send$/i })).toBeVisible({ timeout: 30_000 })
 
     // The agent asks before it acts; the answer goes back to it.
     await composer.fill('Please approve the cleanup')
