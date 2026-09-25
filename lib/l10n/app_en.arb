@@ -156,7 +156,7 @@
   },
   "releaseNotesAnnouncementTitle": "What's new in {version}",
   "@releaseNotesAnnouncementTitle": {
-    "description": "Title shown in the chat banner. {version} is the major.minor series, such as 4.1.",
+    "description": "Title shown in the chat banner. {version} is the full app version, such as 4.1.7.",
     "placeholders": {
       "version": {
         "type": "String"

@@ -29,7 +29,8 @@ class AccessibleFormField extends StatelessWidget {
   final TextStyle? style;
   final bool iosSettingsRow;
 
-  /// Caps the iOS row label at `(iosLabelFlex + 1) / 10` of the row width.
+  /// Caps the iOS row label at `(iosLabelFlex + 1) / 10` of the row width;
+  /// the value field always keeps a touch target's width.
   final int iosLabelFlex;
 
   const AccessibleFormField({
@@ -215,14 +216,17 @@ class AccessibleFormField extends StatelessWidget {
                 children: [
                   ConstrainedBox(
                     constraints: BoxConstraints(
-                      maxWidth: constraints.maxWidth * (iosLabelFlex + 1) / 10,
+                      maxWidth: _iosSettingsRowLabelMaxWidth(
+                        constraints.maxWidth,
+                        iosLabelFlex: iosLabelFlex,
+                      ),
                     ),
                     // In an iOS settings list, required fields are conveyed by
                     // validation and Save availability. Red asterisks make the
                     // row read like a web form and add visual noise.
                     child: Text(
                       label!,
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: labelStyle,
                     ),
@@ -346,4 +350,16 @@ class AccessibleFormField extends StatelessWidget {
       cupertinoDecoration: cupertinoBoxDecoration,
     );
   }
+}
+
+/// Widest the label of an iOS settings-style form row may be: its
+/// `iosLabelFlex` share, but always leaving the gap and a touch target's
+/// width for the value field.
+double _iosSettingsRowLabelMaxWidth(
+  double rowWidth, {
+  required int iosLabelFlex,
+}) {
+  final share = rowWidth * (iosLabelFlex + 1) / 10;
+  final reserved = rowWidth - Spacing.md - TouchTarget.minimum;
+  return share.clamp(0.0, reserved.clamp(0.0, double.infinity)).toDouble();
 }

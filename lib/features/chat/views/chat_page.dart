@@ -4949,6 +4949,9 @@ List<ChatGroupingPlacement> debugResolveAssistantGroupingForTesting(
     if (showModelHeader[index]) {
       lastAnnouncedModelName = row.displayModelName;
     }
+    // A versioned row can display a historical version from another model,
+    // which this pass cannot see, so the next answer must announce itself.
+    if (row.hasVersions) lastAnnouncedModelName = null;
     openGroupModelName = row.displayModelName;
 
     if (!continuesGroup || row.hasVersions) {

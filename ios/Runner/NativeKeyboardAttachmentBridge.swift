@@ -575,8 +575,10 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
             row.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
             row.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
             row.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
-            row.heightAnchor.constraint(equalToConstant: rowHeight),
-            scroll.heightAnchor.constraint(equalToConstant: rowHeight),
+            // The strip is as tall as its tiles, which grow with Dynamic Type.
+            scroll.frameLayoutGuide.heightAnchor.constraint(
+                equalTo: scroll.contentLayoutGuide.heightAnchor
+            ),
         ])
 
         actions.forEach { action in
@@ -585,8 +587,19 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
                 self?.onSelect(action)
             }, for: .touchUpInside)
             row.addArrangedSubview(button)
-            button.widthAnchor.constraint(equalToConstant: 78).isActive = true
-            button.heightAnchor.constraint(equalToConstant: rowHeight).isActive = true
+            // Compact by default; wider for long localized labels ("Appareil
+            // photo") and taller for larger text, within these bounds.
+            let preferredWidth = button.widthAnchor.constraint(equalToConstant: 78)
+            preferredWidth.priority = .defaultLow - 1
+            let preferredHeight = button.heightAnchor.constraint(equalToConstant: rowHeight)
+            preferredHeight.priority = .defaultLow - 1
+            NSLayoutConstraint.activate([
+                preferredWidth,
+                preferredHeight,
+                button.widthAnchor.constraint(greaterThanOrEqualToConstant: 78),
+                button.widthAnchor.constraint(lessThanOrEqualToConstant: 160),
+                button.heightAnchor.constraint(greaterThanOrEqualToConstant: rowHeight),
+            ])
         }
 
         stackView.addArrangedSubview(scroll)
@@ -724,9 +737,12 @@ private final class NativeKeyboardAttachmentTile: UIControl {
             background.trailingAnchor.constraint(equalTo: trailingAnchor),
             background.topAnchor.constraint(equalTo: topAnchor),
             background.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stack.centerXAnchor.constraint(equalTo: centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 8),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
+            stack.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 6),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -6),
         ])
     }
 
@@ -789,6 +805,11 @@ private final class NativeKeyboardAttachmentTile: UIControl {
         row.translatesAutoresizingMaskIntoConstraints = false
         addSubview(row)
 
+        // Below required so the stack's zero-width hiding constraint wins
+        // when the option is off, without an Auto Layout conflict.
+        let accessoryWidth = accessory.widthAnchor.constraint(equalToConstant: 20)
+        accessoryWidth.priority = .defaultHigh
+
         // A selected option also reads as selected to VoiceOver.
         isAccessibilityElement = true
         accessibilityLabel = action.label
@@ -805,7 +826,7 @@ private final class NativeKeyboardAttachmentTile: UIControl {
             row.topAnchor.constraint(equalTo: topAnchor, constant: 7),
             row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -7),
             icon.widthAnchor.constraint(equalToConstant: 22),
-            accessory.widthAnchor.constraint(equalToConstant: 20),
+            accessoryWidth,
         ])
     }
 }

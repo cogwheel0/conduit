@@ -16,7 +16,8 @@ void main() {
       ],
     );
 
-    check(channelDisplayName(dm)).equals('cogwheel, Tapas');
+    check(channelDisplayName(dm, fallback: 'Unknown'))
+        .equals('cogwheel, Tapas');
     check(channelIcon(dm)).equals(Icons.person_outline);
   });
 
@@ -30,13 +31,19 @@ void main() {
       ],
     );
 
-    check(channelDisplayName(dm)).equals('fallback');
+    check(channelDisplayName(dm, fallback: 'Unknown')).equals('fallback');
+  });
+
+  test('a DM with no name and no participants uses the fallback', () {
+    const dm = Channel(id: 'dm-3', name: '', type: 'dm');
+
+    check(channelDisplayName(dm, fallback: 'Unknown')).equals('Unknown');
   });
 
   test('standard channels keep their name and privacy glyph', () {
     const channel = Channel(id: 'c-1', name: 'general', isPrivate: true);
 
-    check(channelDisplayName(channel)).equals('general');
+    check(channelDisplayName(channel, fallback: 'Unknown')).equals('general');
     check(channelIcon(channel)).equals(Icons.lock_outlined);
   });
 }

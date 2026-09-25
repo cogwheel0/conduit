@@ -1131,7 +1131,12 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     Channel? channel, {
     required double maxWidth,
   }) {
-    final label = channel == null ? '' : channelDisplayName(channel);
+    final label = channel == null
+        ? ''
+        : channelDisplayName(
+            channel,
+            fallback: AppLocalizations.of(context)!.channelUnknownMember,
+          );
     final textStyle = conduitAdaptiveToolbarLeadingTitleTextStyle(context);
     final controlExtent = conduitScaledControlExtent(context);
     final iconExtent = conduitScaledIconExtent(context, IconSize.appBar);

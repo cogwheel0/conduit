@@ -23,6 +23,18 @@ void _logNativeSheetBridgeError(
   );
 }
 
+/// Orders a light palette's page and card colors for a grouped sheet: the
+/// darker (tinted) color becomes the page and the lighter one the cards.
+///
+/// Palettes disagree on which token is tinted, so an unconditional swap
+/// would invert palettes that already put white cards on a tinted page.
+(Color, Color) resolveGroupedSheetColors({
+  required Color page,
+  required Color card,
+}) => page.computeLuminance() <= card.computeLuminance()
+    ? (page, card)
+    : (card, page);
+
 @immutable
 class NativeSheetThemeConfig {
   const NativeSheetThemeConfig({

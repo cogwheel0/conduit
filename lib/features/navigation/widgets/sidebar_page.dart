@@ -530,13 +530,13 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
         _usesFloatingNewChat(activeTab) && !isSearchExpanded
         ? activeTab.createAction
         : null;
-    // Clear the native overlay tab bar; Material places its bar below body.
-    final floatingPillBottom =
-        Spacing.md +
-        (hasBottomNavigationBar && !Platform.isAndroid
-            ? MediaQuery.viewPaddingOf(context).bottom +
-                  sidebarNativeBottomBarContentHeight
-            : MediaQuery.viewPaddingOf(context).bottom);
+    // Sit exactly where the lists' own bottom inset ends, so the pill clears
+    // the tab bar the same way their last row does on every platform. This
+    // context is outside the tab layout scope, so no accessory is added.
+    final floatingPillBottom = sidebarTabContentBottomPadding(
+      context,
+      includeNativeBottomBar: hasBottomNavigationBar,
+    );
 
     Widget withSyncProgress(Widget child) => Stack(
       fit: StackFit.expand,
@@ -606,6 +606,13 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
           final sidebarBody = SidebarTabLayoutScope(
             parentOwnsHeaderInset: false,
             bottomNavigationVisible: hasBottomNavigationBar,
+            bottomAccessoryExtent: floatingCreateAction == null
+                ? 0
+                : conduitScaledControlExtent(
+                        context,
+                        baseExtent: TouchTarget.minimum,
+                      ) +
+                      Spacing.sm,
             child: tabContent,
           );
 
@@ -655,10 +662,17 @@ class _SidebarNewChatPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    void handleTap() {
+      ConduitHaptics.lightImpact();
+      onPressed();
+    }
+
+    // The labelled node replaces the InkWell's, so it must carry the tap.
     return Semantics(
       button: true,
       label: label,
       excludeSemantics: true,
+      onTap: handleTap,
       child: DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(AppBorderRadius.pill),
@@ -676,12 +690,11 @@ class _SidebarNewChatPill extends StatelessWidget {
           shape: const StadiumBorder(),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
-            onTap: () {
-              ConduitHaptics.lightImpact();
-              onPressed();
-            },
+            onTap: handleTap,
             child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: TouchTarget.minimum),
+              constraints: BoxConstraints(
+                minHeight: conduitScaledControlExtent(context),
+              ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: Spacing.md + Spacing.xxs,

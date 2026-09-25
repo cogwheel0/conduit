@@ -10,6 +10,7 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/horizontal_gesture_ownership.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/horizontal_overflow_fade.dart';
+
 import 'package:conduit_core/models/toggle_filter.dart';
 import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -48,21 +49,25 @@ class ToggleTile extends StatelessWidget {
   Widget build(BuildContext context) {
     // A flat menu row: plain glyph, regular-weight title, and a
     // checkmark only while the option is on.
+    void handleTap() {
+      ConduitHaptics.selectionClick();
+      onToggle();
+    }
+
+    // The labelled node replaces the InkWell's, so it must carry the tap.
     return Semantics(
       button: true,
       toggled: selected,
       label: title,
       hint: (subtitle?.isEmpty ?? true) ? null : subtitle,
       excludeSemantics: true,
+      onTap: handleTap,
       child: Material(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(AppBorderRadius.md),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () {
-            ConduitHaptics.selectionClick();
-            onToggle();
-          },
+          onTap: handleTap,
           child: Padding(
             padding: const EdgeInsets.symmetric(
               horizontal: Spacing.xs,
@@ -440,7 +445,7 @@ class _ComposerAttachmentKeyboardState
 
     final listItems = <Widget>[
       SizedBox(
-        height: _attachmentTileHeight,
+        height: MediaQuery.textScalerOf(context).scale(_attachmentTileHeight),
         child: HorizontalOverflowFade(
           child: HorizontalScrollGestureBoundary(
             child: ListView.separated(
@@ -450,9 +455,13 @@ class _ComposerAttachmentKeyboardState
               padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
               itemCount: attachments.length,
               separatorBuilder: (_, _) => const SizedBox(width: Spacing.sm),
-              itemBuilder: (_, index) => SizedBox(
-                width: _attachmentTileWidth,
-                child: attachments[index],
+              // Tiles widen to fit longer localized labels.
+              itemBuilder: (_, index) => ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minWidth: _attachmentTileWidth,
+                  maxWidth: _attachmentTileMaxWidth,
+                ),
+                child: IntrinsicWidth(child: attachments[index]),
               ),
             ),
           ),
@@ -662,6 +671,7 @@ class _ComposerAttachmentKeyboardState
   }
 
   static const double _attachmentTileWidth = 78;
+  static const double _attachmentTileMaxWidth = 160;
   static const double _attachmentTileHeight = 58;
 
   /// Attach tile: a filled rounded square holding its icon and
@@ -673,12 +683,21 @@ class _ComposerAttachmentKeyboardState
     final theme = context.conduitTheme;
     final bool enabled = onTap != null;
     final Color foreground = enabled ? theme.textPrimary : theme.iconDisabled;
+    final VoidCallback? handleTap = onTap == null
+        ? null
+        : () {
+            ConduitHaptics.lightImpact();
+            widget.onDismiss?.call();
+            Future.microtask(onTap);
+          };
 
+    // The labelled node replaces the InkWell's, so it must carry the tap.
     return Semantics(
       button: true,
       enabled: enabled,
       label: item.label,
       excludeSemantics: true,
+      onTap: handleTap,
       child: Opacity(
         opacity: enabled ? 1.0 : Alpha.disabled,
         child: Material(
@@ -686,15 +705,9 @@ class _ComposerAttachmentKeyboardState
           borderRadius: BorderRadius.circular(AppBorderRadius.md + 2),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
-            onTap: onTap == null
-                ? null
-                : () {
-                    ConduitHaptics.lightImpact();
-                    widget.onDismiss?.call();
-                    Future.microtask(onTap);
-                  },
+            onTap: handleTap,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
+              padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [

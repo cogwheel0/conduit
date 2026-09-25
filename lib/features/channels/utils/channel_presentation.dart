@@ -4,7 +4,10 @@ import 'package:conduit_core/models/channel.dart';
 
 /// Name shown for [channel] in the list and its page header. Direct messages
 /// carry no channel name, so they are titled by their participants.
-String channelDisplayName(Channel channel) {
+///
+/// [fallback] is used when neither participants nor a name are available,
+/// such as a DM response that omits `users`, so the title is never blank.
+String channelDisplayName(Channel channel, {required String fallback}) {
   final users = channel.users;
   if (channel.isDm && users != null && users.isNotEmpty) {
     final names = users
@@ -13,7 +16,8 @@ String channelDisplayName(Channel channel) {
         .toList();
     if (names.isNotEmpty) return names.join(', ');
   }
-  return channel.name;
+  final name = channel.name.trim();
+  return name.isEmpty ? fallback : name;
 }
 
 /// Leading glyph that distinguishes DMs, groups, and private channels.

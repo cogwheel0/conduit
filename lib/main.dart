@@ -1088,15 +1088,17 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             : lightTheme;
         final nativeTheme = materialTheme.extension<ConduitThemeExtension>();
         if (nativeTheme != null) {
-          // Light sheets use the grouped iOS settings look:
-          // white cards on a tinted page. Dark keeps cards lifted off black.
+          // Light sheets use the grouped iOS settings look: white cards on
+          // a tinted page. Palettes differ on which token is the tinted one
+          // (Conduit tints its card, Catppuccin its page), so pick by
+          // luminance rather than swapping. Dark keeps cards lifted off black.
           final isDarkSheet = brightness == Brightness.dark;
-          final sheetBackground = isDarkSheet
-              ? nativeTheme.surfaceBackground
-              : nativeTheme.cardBackground;
-          final sheetSurface = isDarkSheet
-              ? nativeTheme.cardBackground
-              : nativeTheme.surfaceBackground;
+          final (sheetBackground, sheetSurface) = isDarkSheet
+              ? (nativeTheme.surfaceBackground, nativeTheme.cardBackground)
+              : resolveGroupedSheetColors(
+                  page: nativeTheme.surfaceBackground,
+                  card: nativeTheme.cardBackground,
+                );
           unawaited(
             NativeSheetBridge.instance.syncTheme(
               NativeSheetThemeConfig(

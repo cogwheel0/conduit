@@ -51,11 +51,16 @@ class SidebarTabLayoutScope extends InheritedWidget {
     super.key,
     required this.parentOwnsHeaderInset,
     required this.bottomNavigationVisible,
+    this.bottomAccessoryExtent = 0,
     required super.child,
   });
 
   final bool parentOwnsHeaderInset;
   final bool bottomNavigationVisible;
+
+  /// Height of chrome floating over the bottom of the content, such as the
+  /// new-chat button, which lists reserve so their last rows scroll clear.
+  final double bottomAccessoryExtent;
 
   static SidebarTabLayoutScope? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<SidebarTabLayoutScope>();
@@ -63,7 +68,8 @@ class SidebarTabLayoutScope extends InheritedWidget {
   @override
   bool updateShouldNotify(SidebarTabLayoutScope oldWidget) =>
       parentOwnsHeaderInset != oldWidget.parentOwnsHeaderInset ||
-      bottomNavigationVisible != oldWidget.bottomNavigationVisible;
+      bottomNavigationVisible != oldWidget.bottomNavigationVisible ||
+      bottomAccessoryExtent != oldWidget.bottomAccessoryExtent;
 }
 
 /// Marks sidebar content mounted in the persistent tablet pane.
@@ -132,16 +138,17 @@ double sidebarTabContentBottomPadding(
   BuildContext context, {
   bool includeNativeBottomBar = true,
 }) {
-  if (!_usesNativeSidebarChrome(context)) return Spacing.md;
+  final layout = SidebarTabLayoutScope.maybeOf(context);
+  final accessoryExtent = layout?.bottomAccessoryExtent ?? 0.0;
+  if (!_usesNativeSidebarChrome(context)) return Spacing.md + accessoryExtent;
 
   final bottomPadding = MediaQuery.viewPaddingOf(context).bottom;
-  final layout = SidebarTabLayoutScope.maybeOf(context);
   final bottomNavigationVisible =
       layout?.bottomNavigationVisible ?? includeNativeBottomBar;
   final navigationBarHeight = includeNativeBottomBar && bottomNavigationVisible
       ? sidebarNativeBottomBarContentHeight
       : 0.0;
-  return bottomPadding + navigationBarHeight + Spacing.md;
+  return bottomPadding + navigationBarHeight + Spacing.md + accessoryExtent;
 }
 
 /// Height excluded from drawer drag gestures above the native sidebar tab bar.

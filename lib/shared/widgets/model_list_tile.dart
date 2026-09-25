@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 
 import 'package:conduit_core/models/model.dart';
+
 import '../theme/theme_extensions.dart';
 import 'model_avatar.dart';
 import 'horizontal_gesture_ownership.dart';
@@ -167,14 +168,6 @@ class ModelListTile extends StatelessWidget {
   /// Optional row-level action that does not select the model.
   final Widget? trailing;
 
-  /// The opaque surface this row is painted on.
-  ///
-  /// Defaults to the card background because model selectors group rows
-  /// inside a `ConduitCard`. The selected highlight and the trailing overflow
-  /// fade both derive from this color so they match what is actually behind
-  /// the row.
-  final Color? surfaceColor;
-
   const ModelListTile({
     super.key,
     required this.model,
@@ -185,7 +178,6 @@ class ModelListTile extends StatelessWidget {
     this.isPinned = false,
     this.isLoaded = false,
     this.trailing,
-    this.surfaceColor,
   });
 
   @override

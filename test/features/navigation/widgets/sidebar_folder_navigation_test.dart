@@ -169,10 +169,9 @@ void main() {
     container.read(pendingFolderIdProvider.notifier).set('parent-folder');
     container.read(temporaryChatEnabledProvider.notifier).set(false);
 
-    // The chats tab creates from the floating new-chat pill.
-    await tester.tap(
-      find.byKey(const ValueKey<String>('sidebar-new-chat-pill')),
-    );
+    // The chats tab creates from the floating new-chat pill. Activate it
+    // through its semantics node so screen-reader activation is covered too.
+    tester.semantics.tap(find.semantics.byLabel('New Chat'));
     await tester.pumpAndSettle();
 
     expect(NavigationService.currentRoute, '/chat');

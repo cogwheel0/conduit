@@ -350,15 +350,16 @@ class _ChannelTile extends ConsumerWidget {
 
   IconData _channelIcon() => channelIcon(channel);
 
-  String _channelDisplayName() => channelDisplayName(channel);
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final unread = channel.unreadCount;
 
-    final displayName = _channelDisplayName();
+    final displayName = channelDisplayName(
+      channel,
+      fallback: l10n.channelUnknownMember,
+    );
     final description = channel.description.isEmpty
         ? null
         : channel.description;
