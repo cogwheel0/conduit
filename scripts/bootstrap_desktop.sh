@@ -43,11 +43,9 @@ step 'Generating theme.css from the palette registry'
 dart run conduit_theme:generate_theme_css
 
 step 'Building conduitd'
-daemon_out='build/conduitd'
-case "$(uname -s)" in
-  MINGW* | MSYS* | CYGWIN*) daemon_out='build/conduitd.exe' ;;
-esac
-(cd apps/daemon && dart compile exe bin/conduitd.dart -o "$daemon_out")
+# `dart build cli`, not `dart compile exe`: the latter refuses to run once a
+# dependency has build hooks, and drift brings sqlite3, which has them.
+(cd apps/daemon && dart build cli)
 
 if command -v npm >/dev/null 2>&1; then
   step 'Installing Electron dependencies'

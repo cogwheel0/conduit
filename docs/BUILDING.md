@@ -187,7 +187,7 @@ packages/
   conduit_protocol/     DTOs + JSON-RPC contracts shared by the daemon and the desktop UI
   conduit_theme/        tweakcn palettes as plain ARGB ints, plus the CSS generator
 apps/
-  daemon/               conduitd, the desktop sidecar (dart compile exe)
+  daemon/               conduitd, the desktop sidecar (dart build cli)
   desktop_ui/           Jaspr client-mode renderer
 desktop/
   electron/             Electron main + preload, build scripts, Playwright tests
