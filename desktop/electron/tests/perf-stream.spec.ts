@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication } from '@playwright/test'
+import { closeApp } from './support/close-app'
 
 /**
  * Streaming performance, with no server: a fake provider streams a
@@ -72,7 +73,7 @@ test.beforeEach(async () => {
 })
 
 test.afterEach(async () => {
-  await app.close().catch(() => undefined)
+  await closeApp(app)
   rmSync(userDataDir, { recursive: true, force: true })
 })
 

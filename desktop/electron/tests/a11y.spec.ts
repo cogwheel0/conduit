@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import AxeBuilder from '@axe-core/playwright'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { closeApp } from './support/close-app'
 import { fakeProvider, go } from './support/fake-provider'
 
 /**
@@ -25,7 +26,7 @@ test.beforeEach(async () => {
 })
 
 test.afterEach(async () => {
-  await app.close().catch(() => undefined)
+  await closeApp(app)
   rmSync(userDataDir, { recursive: true, force: true })
 })
 

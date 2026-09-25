@@ -10,6 +10,7 @@ import {
   type ElectronApplication,
   type Page,
 } from '@playwright/test'
+import { closeApp } from './support/close-app'
 
 /**
  * The app with Hermes Agent as its only backend: chosen on the
@@ -167,7 +168,7 @@ test.beforeEach(async () => {
 })
 
 test.afterEach(async () => {
-  await app.close().catch(() => undefined)
+  await closeApp(app)
   rmSync(userDataDir, { recursive: true, force: true })
 })
 

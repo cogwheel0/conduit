@@ -9,6 +9,7 @@ import {
   type ElectronApplication,
   type Page,
 } from '@playwright/test'
+import { closeApp } from './support/close-app'
 import electronBinary from 'electron'
 
 /**
@@ -27,22 +28,7 @@ test.beforeEach(async () => {
 })
 
 test.afterEach(async () => {
-  // Bounded: a macOS runner has once left the app running after the quit
-  // that follows close to tray. Said, and ended, rather than left to time
-  // out the worker and the specs after it.
-  const closed = app.close().then(
-    () => true,
-    () => true,
-  )
-  const quit = await Promise.race([
-    closed,
-    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 20_000)),
-  ])
-  if (!quit) {
-    console.warn('the app did not quit within 20 s; killing it')
-    app.process().kill('SIGKILL')
-    await closed
-  }
+  await closeApp(app)
   rmSync(userDataDir, { recursive: true, force: true })
 })
 
