@@ -793,14 +793,9 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       MediaQuery.sizeOf(context).width * 0.78,
       640.0,
     );
-    final bubbleBorderColor = theme.chatBubbleUserText.withValues(
-      alpha: theme.isDark ? 0.16 : 0.08,
-    );
-    const bubbleBorderRadius = BorderRadius.only(
-      topLeft: Radius.circular(AppBorderRadius.chatBubble),
-      topRight: Radius.circular(AppBorderRadius.chatBubble),
-      bottomLeft: Radius.circular(AppBorderRadius.chatBubble),
-      bottomRight: Radius.circular(AppBorderRadius.md),
+    // Tail-less, borderless fill: the neutral tone alone separates the turn.
+    const bubbleBorderRadius = BorderRadius.all(
+      Radius.circular(AppBorderRadius.chatBubble),
     );
     final actions = _buildMessageActions(context);
     final attachmentContent = hasFilesFromArray
@@ -833,14 +828,13 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                       actions: actions,
                       child: Container(
                         key: const Key('user-message-bubble-surface'),
-                        padding: const EdgeInsets.all(Spacing.sm + Spacing.xs),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: Spacing.md,
+                          vertical: Spacing.sm + Spacing.xxs,
+                        ),
                         decoration: BoxDecoration(
                           color: theme.chatBubbleUser,
                           borderRadius: bubbleBorderRadius,
-                          border: Border.all(
-                            color: bubbleBorderColor,
-                            width: BorderWidth.thin,
-                          ),
                         ),
                         child: _isEditing
                             ? Focus(

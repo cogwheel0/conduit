@@ -522,14 +522,10 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
 
   Widget _badge(BuildContext context, IconData icon) {
     final theme = context.conduitTheme;
-    return Container(
-      width: 32,
-      height: 32,
-      decoration: BoxDecoration(
-        color: theme.buttonPrimary.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(AppBorderRadius.sm),
-      ),
-      child: Icon(icon, size: 18, color: theme.buttonPrimary),
+    return SizedBox(
+      width: IconSize.xl,
+      height: IconSize.xl,
+      child: Icon(icon, size: IconSize.medium, color: theme.buttonPrimary),
     );
   }
 }

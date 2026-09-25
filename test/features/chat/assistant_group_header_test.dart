@@ -127,6 +127,27 @@ void main() {
     });
   });
 
+  group('header across turns', () {
+    test('a header appears only when the responding model changes', () {
+      final placements = debugResolveAssistantGroupingForTesting([
+        user,
+        hermes,
+        user,
+        hermes,
+        user,
+        gpt,
+        user,
+        hermes,
+      ]);
+
+      check(placements.map((p) => p.showModelHeader).toList())
+          .deepEquals([false, true, false, false, false, true, false, true]);
+      // Hiding the header never merges answers: each turn keeps its own bar.
+      check(placements.map((p) => p.showActionBar).toList())
+          .deepEquals([false, true, false, true, false, true, false, true]);
+    });
+  });
+
   group('action bar placement', () {
     test(
       'one Hermes turn shows one header on top and one bar at the bottom',

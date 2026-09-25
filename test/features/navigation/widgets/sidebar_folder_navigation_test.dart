@@ -169,11 +169,9 @@ void main() {
     container.read(pendingFolderIdProvider.notifier).set('parent-folder');
     container.read(temporaryChatEnabledProvider.notifier).set(false);
 
+    // The chats tab creates from the floating new-chat pill.
     await tester.tap(
-      find.descendant(
-        of: find.byType(AppBar),
-        matching: find.byIcon(Icons.add),
-      ),
+      find.byKey(const ValueKey<String>('sidebar-new-chat-pill')),
     );
     await tester.pumpAndSettle();
 
@@ -263,7 +261,7 @@ void main() {
     );
     expect(
       tintDecoration.borderRadius,
-      BorderRadius.circular(AppBorderRadius.card),
+      BorderRadius.circular(AppBorderRadius.md),
     );
     expect(
       tester.widget<Text>(find.text('Parent Folder')).style?.color,

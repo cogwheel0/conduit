@@ -168,7 +168,7 @@ Future<Uint8List?> rasterizeSidebarNativeAvatar(
 @visibleForTesting
 NativeSheetItemConfig buildDirectConnectionsNativeSheetItem({
   required String title,
-  required String subtitle,
+  String? subtitle,
 }) => NativeSheetItemConfig(
   id: NativeSheetRoutes.directConnections,
   title: title,
@@ -513,37 +513,34 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
             subtitle: email,
             sfSymbol: 'person.crop.circle',
           );
+    // Single-line settings rows, so each title and its
+    // symbol carry the meaning without a descriptive subtitle.
     final appItems = <NativeSheetItemConfig>[
       NativeSheetItemConfig(
         id: NativeSheetRoutes.appearance,
         title: appearanceTitle,
-        subtitle: l10n.settingsAppearanceSubtitle,
         sfSymbol: 'paintpalette',
       ),
       NativeSheetItemConfig(
         id: NativeSheetRoutes.chats,
         title: chatsTitle,
-        subtitle: l10n.settingsChatSubtitle,
         sfSymbol: 'bubble.left.and.bubble.right',
       ),
       NativeSheetItemConfig(
         id: NativeSheetRoutes.voice,
         title: l10n.voice,
-        subtitle: l10n.audioSettingsSubtitle,
         sfSymbol: 'waveform',
       ),
       if (user != null)
         NativeSheetItemConfig(
           id: NativeSheetRoutes.notificationSettings,
           title: l10n.notificationsTitle,
-          subtitle: l10n.notificationsSubtitle,
           sfSymbol: 'bell',
         ),
       if (user != null)
         NativeSheetItemConfig(
           id: NativeSheetRoutes.aiMemory,
           title: aiMemoryTitle,
-          subtitle: l10n.personalizationSubtitle,
           sfSymbol: 'wand.and.stars',
         ),
     ];
@@ -551,7 +548,6 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       NativeSheetItemConfig(
         id: NativeSheetRoutes.hermes,
         title: l10n.hermesAgentSettingsTitle,
-        subtitle: l10n.hermesAgentSettingsSubtitle,
         sfSymbol: 'sparkles',
         iconAsset: 'assets/icons/hermes_agent.png',
         iconSize: 26,
@@ -559,15 +555,11 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         actionId: NativeSheetRoutes.hermes,
         actionValue: true,
       ),
-      buildDirectConnectionsNativeSheetItem(
-        title: l10n.directConnectionsTitle,
-        subtitle: l10n.directConnectionsSubtitle,
-      ),
+      buildDirectConnectionsNativeSheetItem(title: l10n.directConnectionsTitle),
       if (canManageWorkspace)
         NativeSheetItemConfig(
           id: NativeSheetRoutes.workspace,
           title: l10n.workspaceTitle,
-          subtitle: l10n.workspaceSubtitle,
           sfSymbol: 'square.grid.2x2',
           dismissOnSelect: true,
           actionId: NativeSheetRoutes.workspace,
@@ -577,14 +569,12 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         NativeSheetItemConfig(
           id: NativeSheetRoutes.dataConnection,
           title: dataConnectionTitle,
-          subtitle: l10n.connectionHealth,
           sfSymbol: 'network',
         ),
       if (user == null)
         NativeSheetItemConfig(
           id: 'add-owui-server',
           title: l10n.connectOpenWebUITitle,
-          subtitle: l10n.connectOpenWebUISubtitle,
           sfSymbol: 'plus.circle',
           dismissOnSelect: true,
           actionId: 'add-owui-server',
@@ -594,7 +584,6 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     final aboutItem = NativeSheetItemConfig(
       id: NativeSheetRoutes.helpAbout,
       title: l10n.aboutApp,
-      subtitle: l10n.aboutAppSubtitle,
       sfSymbol: 'info.circle',
     );
     final signOutItem = user == null

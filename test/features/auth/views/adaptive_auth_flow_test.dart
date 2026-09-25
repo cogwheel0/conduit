@@ -150,7 +150,8 @@ void main() {
         find.byType(AdaptiveTextFormField).first,
       );
       check(renderedField.cupertinoDecoration).isNotNull();
-      check(renderedField.cupertinoDecoration!.border).isNull();
+      // Fields use a hairline outline.
+      check(renderedField.cupertinoDecoration!.border).isNotNull();
 
       await tester.tap(
         find.descendant(of: selectorFinder, matching: find.text('Token')),

@@ -498,7 +498,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   static const Duration _contextSuggestionDelay = Duration(milliseconds: 250);
   static const int _maxContextSuggestionsPerType = 4;
 
-  static const double _composerRadius = AppBorderRadius.card;
+  // The expanded composer keeps a soft, pill-like corner.
+  static const double _composerRadius = AppBorderRadius.xl;
   static const double _composerHorizontalInset = Spacing.sm;
   static const double _composerControlSize = TouchTarget.minimum;
   static const double _composerPrimaryVisualSize = 32;

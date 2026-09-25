@@ -36,7 +36,7 @@ class ReleaseNotesBanner extends ConsumerWidget {
           : Builder(
               builder: (context) {
                 final title = l10n.releaseNotesAnnouncementTitle(
-                  data.releaseSeries,
+                  data.currentVersion,
                 );
                 final learnMore = l10n.releaseNotesLearnMore;
                 return Padding(
@@ -123,12 +123,5 @@ class ReleaseNotesBanner extends ConsumerWidget {
               },
             ),
     );
-  }
-}
-
-extension on ReleaseNotesBannerData {
-  String get releaseSeries {
-    final segments = currentVersion.split('.');
-    return segments.take(2).join('.');
   }
 }

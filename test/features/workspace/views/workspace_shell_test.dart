@@ -573,10 +573,9 @@ void main() {
     expect(find.byKey(const Key('workspace-entry')), findsOneWidget);
     expect(find.byKey(const Key('data-connection-entry')), findsOneWidget);
 
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('workspace-entry')),
-      -300,
-    );
+    // The centered profile header is tall; bring the whole row on screen.
+    await tester.ensureVisible(find.byKey(const Key('workspace-entry')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('workspace-entry')));
     await tester.pumpAndSettle();
     expect(find.text('workspace target'), findsOneWidget);

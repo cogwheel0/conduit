@@ -634,22 +634,11 @@ class AppCustomizationPage extends ConsumerWidget {
   }
 
   Widget _buildPromptLoadingTile(BuildContext context, String title) {
-    final theme = context.conduitTheme;
-    final color = theme.buttonPrimary;
     return CustomizationTile(
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(AppBorderRadius.small),
-          border: Border.all(
-            color: color.withValues(alpha: 0.2),
-            width: BorderWidth.thin,
-          ),
-        ),
-        alignment: Alignment.center,
-        child: const ConduitLoadingIndicator(isCompact: true),
+      leading: const SizedBox(
+        width: IconSize.xl,
+        height: IconSize.xl,
+        child: Center(child: ConduitLoadingIndicator(isCompact: true)),
       ),
       title: title,
       subtitle: '',
@@ -1846,28 +1835,13 @@ class AppCustomizationPage extends ConsumerWidget {
     );
   }
 
+  /// Current value shown trailing a row in secondary ink, the way iOS
+  /// settings show values ("System", "English").
   Widget _buildValueBadge(BuildContext context, String label) {
     final theme = context.conduitTheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Spacing.md,
-        vertical: Spacing.xs,
-      ),
-      decoration: BoxDecoration(
-        color: theme.buttonPrimary.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(AppBorderRadius.small),
-        border: Border.all(
-          color: theme.buttonPrimary.withValues(alpha: 0.25),
-          width: BorderWidth.thin,
-        ),
-      ),
-      child: Text(
-        label,
-        style: theme.bodySmall?.copyWith(
-          color: theme.buttonPrimary,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
+    return Text(
+      label,
+      style: AppTypography.bodyMediumStyle.copyWith(color: theme.textSecondary),
     );
   }
 
@@ -1876,20 +1850,7 @@ class AppCustomizationPage extends ConsumerWidget {
     IconData icon, {
     required Color color,
   }) {
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(AppBorderRadius.small),
-        border: Border.all(
-          color: color.withValues(alpha: 0.2),
-          width: BorderWidth.thin,
-        ),
-      ),
-      alignment: Alignment.center,
-      child: Icon(icon, color: color, size: IconSize.medium),
-    );
+    return SettingsIconBadge(icon: icon, color: color);
   }
 
   Future<void> _showPaletteSelectorSheet(

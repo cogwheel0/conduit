@@ -352,14 +352,10 @@ class _HermesJobSheetRowState extends ConsumerState<_HermesJobSheetRow> {
         children: [
           Padding(
             padding: const EdgeInsets.only(top: Spacing.xxs),
-            child: Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: (job.enabled ? theme.success : theme.textSecondary)
-                    .withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(AppBorderRadius.button),
-              ),
+            // The glyph's color carries the enabled state; no tinted box.
+            child: SizedBox(
+              width: IconSize.xl,
+              height: IconSize.xl,
               child: Icon(
                 job.enabled ? Icons.schedule_rounded : Icons.pause_rounded,
                 size: IconSize.listItem,

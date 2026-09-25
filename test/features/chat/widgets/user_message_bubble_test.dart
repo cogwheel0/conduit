@@ -130,7 +130,7 @@ void main() {
     },
   );
 
-  testWidgets('uses the redesigned rounded user bubble surface', (
+  testWidgets('uses a tail-less borderless user bubble surface', (
     WidgetTester tester,
   ) async {
     final message = ChatMessage(
@@ -148,17 +148,18 @@ void main() {
     );
     final decoration = bubble.decoration! as BoxDecoration;
 
-    expect(bubble.padding, const EdgeInsets.all(Spacing.sm + Spacing.xs));
     expect(
-      decoration.borderRadius,
-      const BorderRadius.only(
-        topLeft: Radius.circular(AppBorderRadius.chatBubble),
-        topRight: Radius.circular(AppBorderRadius.chatBubble),
-        bottomLeft: Radius.circular(AppBorderRadius.chatBubble),
-        bottomRight: Radius.circular(AppBorderRadius.md),
+      bubble.padding,
+      const EdgeInsets.symmetric(
+        horizontal: Spacing.md,
+        vertical: Spacing.sm + Spacing.xxs,
       ),
     );
-    expect(decoration.border, isNotNull);
+    expect(
+      decoration.borderRadius,
+      const BorderRadius.all(Radius.circular(AppBorderRadius.chatBubble)),
+    );
+    expect(decoration.border, isNull);
   });
 
   testWidgets('wrapped user text uses longest-line width basis', (

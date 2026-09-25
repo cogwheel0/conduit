@@ -562,7 +562,7 @@ List<NativeSheetItemConfig> nativeSocketHealthItems(
       NativeSheetItemConfig(
         id: 'socket-health-null',
         title: l10n.socketNotConnected,
-        sfSymbol: 'cloud.fill',
+        sfSymbol: 'cloud',
         kind: NativeSheetItemKind.info,
       ),
     ];
@@ -609,7 +609,7 @@ List<NativeSheetItemConfig> nativeSocketHealthItems(
         title: l10n.socketLastHeartbeat(
           _nativeFormatHeartbeatRelative(l10n, health.lastHeartbeat!),
         ),
-        sfSymbol: 'heart.fill',
+        sfSymbol: 'heart',
         kind: NativeSheetItemKind.info,
       ),
     );

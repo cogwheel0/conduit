@@ -457,7 +457,7 @@ void main() {
 
     expect(find.text('1 Source'), findsOneWidget);
     expect(find.text('2/2'), findsOneWidget);
-    expect(find.byIcon(Icons.content_copy), findsOneWidget);
+    expect(find.byIcon(Icons.content_copy_outlined), findsOneWidget);
     expect(find.byIcon(Icons.refresh), findsOneWidget);
     expect(find.byIcon(Icons.chevron_left), findsNothing);
     expect(find.byIcon(Icons.chevron_right), findsNothing);
@@ -470,10 +470,10 @@ void main() {
       find.byIcon(Icons.more_horiz_rounded),
     );
 
-    expect(sourcePosition.dx, greaterThan(refreshPosition.dx));
+    // Order: icon buttons, the inline overflow, then info chips.
+    expect(overflowPosition.dx, greaterThan(refreshPosition.dx));
+    expect(sourcePosition.dx, greaterThan(overflowPosition.dx));
     expect(versionPosition.dx, greaterThan(sourcePosition.dx));
-    expect(overflowPosition.dx, greaterThan(sourcePosition.dx));
-    expect(overflowPosition.dx, greaterThan(versionPosition.dx));
 
     await tester.tap(find.byIcon(Icons.more_horiz_rounded));
     await tester.pumpAndSettle();
@@ -514,7 +514,7 @@ void main() {
 
       check(find.text('1 Source').evaluate()).length.equals(1);
       check(find.byType(ChatActionButton).evaluate()).isEmpty();
-      check(find.byIcon(Icons.content_copy).evaluate()).isEmpty();
+      check(find.byIcon(Icons.content_copy_outlined).evaluate()).isEmpty();
       check(find.byIcon(Icons.refresh).evaluate()).isEmpty();
       check(find.byIcon(Icons.more_horiz_rounded).evaluate()).isEmpty();
     },
@@ -560,7 +560,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.volume_up));
+    await tester.tap(find.byIcon(Icons.volume_up_outlined));
     await tester.pumpAndSettle();
 
     check(spoken).length.equals(1);
@@ -686,7 +686,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Older version'), findsOneWidget);
-    expect(find.byIcon(Icons.content_copy), findsOneWidget);
+    expect(find.byIcon(Icons.content_copy_outlined), findsOneWidget);
     expect(
       tester
           .widget<StreamingMarkdownWidget>(find.byType(StreamingMarkdownWidget))
@@ -877,7 +877,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('actions')), findsOneWidget);
-    expect(find.byIcon(Icons.content_copy), findsOneWidget);
+    expect(find.byIcon(Icons.content_copy_outlined), findsOneWidget);
     expect(find.byIcon(Icons.refresh), findsOneWidget);
     expect(find.byType(FollowUpSuggestionBar), findsOneWidget);
     expect(find.text('Ask again'), findsOneWidget);
@@ -888,7 +888,7 @@ void main() {
       isFalse,
     );
 
-    await tester.tap(find.byIcon(Icons.content_copy));
+    await tester.tap(find.byIcon(Icons.content_copy_outlined));
     await tester.pump();
     await tester.tap(find.byIcon(Icons.refresh));
     await tester.pump();
@@ -1191,9 +1191,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byIcon(Icons.content_copy), findsOneWidget);
+    expect(find.byIcon(Icons.content_copy_outlined), findsOneWidget);
 
-    await tester.tap(find.byIcon(Icons.content_copy));
+    await tester.tap(find.byIcon(Icons.content_copy_outlined));
     await tester.pump();
 
     expect(copyTapCount, 1);
@@ -1307,10 +1307,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byIcon(Icons.volume_up), findsOneWidget);
+    expect(find.byIcon(Icons.volume_up_outlined), findsOneWidget);
     final ttsButton = tester.widget<ChatActionButton>(
       find.ancestor(
-        of: find.byIcon(Icons.volume_up),
+        of: find.byIcon(Icons.volume_up_outlined),
         matching: find.byType(ChatActionButton),
       ),
     );
@@ -1523,7 +1523,7 @@ void main() {
     );
     expect(find.text('Retry'), findsOneWidget);
     expect(find.text('Cancel'), findsOneWidget);
-    expect(find.byIcon(Icons.content_copy), findsNothing);
+    expect(find.byIcon(Icons.content_copy_outlined), findsNothing);
   });
 
   testWidgets('failed queued completion keeps partial content and recovery', (
@@ -1584,7 +1584,7 @@ void main() {
     expect(find.text('Send failed'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
     expect(find.text('Cancel'), findsOneWidget);
-    expect(find.byIcon(Icons.content_copy), findsNothing);
+    expect(find.byIcon(Icons.content_copy_outlined), findsNothing);
   });
 
   testWidgets('pending queued completion keeps partial content and recovery', (
@@ -1645,6 +1645,6 @@ void main() {
     expect(find.text('Queued offline'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
     expect(find.text('Cancel'), findsOneWidget);
-    expect(find.byIcon(Icons.content_copy), findsNothing);
+    expect(find.byIcon(Icons.content_copy_outlined), findsNothing);
   });
 }

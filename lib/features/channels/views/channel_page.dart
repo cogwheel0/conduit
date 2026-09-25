@@ -15,6 +15,7 @@ import 'package:conduit_core/models/channel_message.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 
+import '../utils/channel_presentation.dart';
 import '../../../core/services/haptic_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../shared/services/navigation_service.dart';
@@ -1122,25 +1123,26 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     return _buildScaffold(context, theme);
   }
 
+  // Equal side insets keep the icon and name centered in the title pill.
+  static const double _channelTitleInset = 12;
+
   Widget _buildChannelTitlePill(
     BuildContext context,
     Channel? channel, {
     required double maxWidth,
   }) {
-    final label = channel?.name ?? '';
+    final label = channel == null ? '' : channelDisplayName(channel);
     final textStyle = conduitAdaptiveToolbarLeadingTitleTextStyle(context);
     final controlExtent = conduitScaledControlExtent(context);
     final iconExtent = conduitScaledIconExtent(context, IconSize.appBar);
-    final leadingIcon = channel?.isPrivate == true
-        ? Icons.lock_outlined
-        : Icons.tag;
+    final leadingIcon = channel == null ? Icons.tag : channelIcon(channel);
     final targetWidth = resolveConduitAdaptiveTextPillWidth(
       context: context,
       label: label,
       textStyle: textStyle,
       maxWidth: maxWidth,
       minWidth: 96,
-      horizontalPadding: 10 + Spacing.xs,
+      horizontalPadding: _channelTitleInset * 2,
       leadingWidth: iconExtent + Spacing.xs,
     );
 
@@ -1150,7 +1152,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       child: ConstrainedBox(
         constraints: BoxConstraints(minHeight: controlExtent),
         child: Padding(
-          padding: const EdgeInsets.only(left: 10, right: Spacing.xs),
+          padding: const EdgeInsets.symmetric(horizontal: _channelTitleInset),
           child: Center(
             widthFactor: 1,
             child: Row(
