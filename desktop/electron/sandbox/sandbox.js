@@ -17,6 +17,14 @@
     parent.postMessage({ conduit: 'size', height }, '*')
   }
 
+  // And again whenever the drawing changes size. KaTeX's fonts can arrive
+  // after it has drawn, so the first measurement is of a fallback font and a
+  // formula ended up a pixel taller than its frame. Nothing to report until
+  // something has been drawn.
+  new ResizeObserver(() => {
+    if (out.childNodes.length > 0) reportHeight()
+  }).observe(out)
+
   function fail(message) {
     out.textContent = ''
     const node = document.createElement('div')
