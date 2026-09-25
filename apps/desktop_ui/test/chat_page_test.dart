@@ -725,6 +725,38 @@ void main() {
       expect(actions!.calls, ['send(Hello from the microphone)']);
     });
 
+    testComponents('while an answer streams, what was said waits', (
+      tester,
+    ) async {
+      _RecordingActions? actions;
+      final commands = RecordingWindowCommands();
+      tester.pumpComponent(
+        voiced(
+          _scoped(
+            detail: _detail,
+            selected: 'chat-1',
+            live: const LiveTurn(chatId: 'chat-1', messageId: 'm3', text: 'x'),
+            commands: commands,
+            onActions: (recording) => actions = recording,
+          ),
+          autoSend: true,
+        ),
+      );
+      await pumpEventQueue();
+      await tester.click(_byId('dictate'));
+      await pumpEventQueue();
+      port
+        ..level(0.2, const Duration(milliseconds: 100))
+        ..level(0, const Duration(milliseconds: 600));
+      await pumpEventQueue();
+      // Not sent into a chat that is still answering -- and not lost.
+      expect(actions!.calls.where((call) => call.startsWith('send(')), isEmpty);
+      expect(commands.values.last, (
+        id: 'composer',
+        text: 'Hello from the microphone',
+      ));
+    });
+
     testComponents('an answer can be read aloud, and stopped', (tester) async {
       tester.pumpComponent(
         voiced(_scoped(detail: _detail, selected: 'chat-1')),

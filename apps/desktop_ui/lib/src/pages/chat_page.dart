@@ -995,7 +995,7 @@ class _ComposerState extends State<_Composer> {
     // screen while the sync catches up -- so a completed turn left this
     // reading "still streaming" and the composer offered Stop forever,
     // with no way back to Send short of starting another conversation.
-    final streaming = live != null && !live.settled && !live.failed;
+    final streaming = _generating(live);
 
     final models = context.watch(modelListProvider).value;
 
@@ -1358,7 +1358,7 @@ class _ComposerState extends State<_Composer> {
                     const DictationButton(),
                     const VoiceCallButton(),
                   ],
-                  if (streaming)
+                  if (streaming && live != null)
                     button(
                       [
                         icon(LucideIcon.square, classes: 'size-3 fill-current'),
@@ -1832,11 +1832,20 @@ class _ComposerState extends State<_Composer> {
     }
   }
 
+  /// Whether [live] is an answer still arriving. The composer offers Stop
+  /// then, and sends nothing.
+  static bool _generating(LiveTurn? live) =>
+      live != null && !live.settled && !live.failed;
+
   Future<void> _send(BuildContext context) async {
     final text = _text.trim();
     // A message may be attachments alone -- "look at this" with a file is a
     // complete thought -- but it may not be nothing.
     if ((text.isEmpty && _attachments.isEmpty) || _busy) return;
+    // Nor into a chat still answering: Stop stands where Send was, and
+    // Enter used to go round it into the daemon's one-turn-at-a-time
+    // refusal. The text stays in the box for when the answer is done.
+    if (_generating(context.read(liveTurnProvider).value)) return;
     // Enter as well as the button: the banner already says why.
     if (context.read(onlineProvider).value == false) return;
     if (_attachments.any((file) => !file.ready && !file.failed)) {
