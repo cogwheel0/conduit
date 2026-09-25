@@ -1207,6 +1207,7 @@ class _ActiveTurn {
 
   final StringBuffer _content = StringBuffer();
   String? _pending;
+  String Function()? _render;
   bool dirty = false;
 
   Timer? ticker;
@@ -1217,7 +1218,17 @@ class _ActiveTurn {
 
   void fail(String message) => failure = message;
 
-  String get text => _pending ?? _content.toString();
+  String get text {
+    _renderPending();
+    return _pending ?? _content.toString();
+  }
+
+  void _renderPending() {
+    if (_render case final render?) {
+      _render = null;
+      _pending = render();
+    }
+  }
 
   void append(String chunk) {
     _flushPendingIntoBuffer();
@@ -1231,11 +1242,25 @@ class _ActiveTurn {
   /// content (a reasoning split, a tool-call rerender). Keeping it as a
   /// pending string means the common append path never pays for a rebuild.
   void buffer(String content) {
+    _render = null;
     _pending = content;
     dirty = true;
   }
 
+  /// A whole-content replacement rendered only when something reads it.
+  ///
+  /// A fast provider sends hundreds of events a second, but a frame goes
+  /// out at most once per [TurnsService._deltaInterval]. Rendering the whole
+  /// answer on every event made the cost grow with the event count rather
+  /// than the frame count, and once the answer held code it stalled the
+  /// stream for minutes.
+  void project(String Function() render) {
+    _render = render;
+    dirty = true;
+  }
+
   void replace(String content) {
+    _render = null;
     _pending = null;
     _content
       ..clear()
@@ -1251,6 +1276,7 @@ class _ActiveTurn {
   void flush() => _flushPendingIntoBuffer();
 
   void _flushPendingIntoBuffer() {
+    _renderPending();
     final pending = _pending;
     if (pending == null) return;
     _pending = null;

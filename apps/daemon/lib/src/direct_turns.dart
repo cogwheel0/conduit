@@ -523,7 +523,7 @@ extension _DirectTurns on TurnsService {
             const DirectStreamError('The model returned an empty answer.'),
           );
         }
-        turn.replace(accumulator.render(done: false));
+        turn.project(() => accumulator.render(done: false));
         if (event is DirectStreamDone || event is DirectStreamError) break;
       }
       if (timedOut && accumulator.error == null) {
