@@ -52,6 +52,9 @@ void main() {
     );
 
     check(normalized.statusCode).equals(401);
+    // Redaction must keep the provider's explanation, not fall back to the
+    // bare status code.
+    check(normalized.message).contains('invalid key');
     check(normalized.message).not((it) => it.contains(key.substring(0, 16)));
     check(normalized.message).not((it) => it.contains('a1b2c3d4a1b2'));
   });
