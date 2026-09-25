@@ -13,6 +13,7 @@ class AdaptiveSwitch extends StatelessWidget {
     required this.onChanged,
     this.activeColor,
     this.thumbColor,
+    this.semanticLabel,
   });
 
   final bool value;
@@ -20,8 +21,18 @@ class AdaptiveSwitch extends StatelessWidget {
   final Color? activeColor;
   final Color? thumbColor;
 
+  /// Accessibility label. Without it, VoiceOver announces only the value.
+  final String? semanticLabel;
+
   @override
   Widget build(BuildContext context) {
+    final label = semanticLabel;
+    final control = _buildControl(context);
+    if (label == null) return control;
+    return Semantics(label: label, child: control);
+  }
+
+  Widget _buildControl(BuildContext context) {
     final effectiveOnChanged = onChanged == null
         ? null
         : PlatformUiCapabilities.isIOS

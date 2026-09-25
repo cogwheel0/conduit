@@ -2234,7 +2234,7 @@
   "@older": {
     "description": "Time range label for items older than 30 days."
   },
-  "wordCount": "{count} words",
+  "wordCount": "{count, plural, one{{count} word} other{{count} words}}",
   "@wordCount": {
     "description": "Status bar text showing word count.",
     "placeholders": {
@@ -2244,7 +2244,7 @@
       }
     }
   },
-  "charCount": "{count} characters",
+  "charCount": "{count, plural, one{{count} character} other{{count} characters}}",
   "@charCount": {
     "description": "Status bar text showing character count.",
     "placeholders": {
@@ -4770,6 +4770,14 @@
   "directConnectionName": "Connection name",
   "@directConnectionName": {
     "description": "Label for a user-defined direct connection profile name."
+  },
+  "directDefaultConnectionName": "My provider",
+  "@directDefaultConnectionName": {
+    "description": "Name prefilled for a new OpenAI-compatible direct connection."
+  },
+  "sidebarButtonLabel": "Sidebar",
+  "@sidebarButtonLabel": {
+    "description": "Accessibility label for the toolbar button that shows or hides the sidebar."
   },
   "directConnectionNameRequired": "Enter a connection name.",
   "@directConnectionNameRequired": {

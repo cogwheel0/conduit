@@ -504,6 +504,7 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
     this.iosSymbol,
     this.onPressed,
     this.iconColor,
+    this.semanticLabel,
   });
 
   /// Icon shown inside the control.
@@ -518,8 +519,26 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
   /// Optional icon tint.
   final Color? iconColor;
 
+  /// Accessibility label. Without it, VoiceOver reads the native glass
+  /// button's generated SF Symbol description (e.g. "drag").
+  final String? semanticLabel;
+
   @override
   Widget build(BuildContext context) {
+    final label = semanticLabel;
+    final button = _buildButton(context);
+    if (label == null) return button;
+    return Semantics(
+      label: label,
+      button: true,
+      enabled: onPressed != null,
+      excludeSemantics: true,
+      onTap: onPressed,
+      child: button,
+    );
+  }
+
+  Widget _buildButton(BuildContext context) {
     final effectiveIconColor = iconColor ?? context.conduitTheme.textPrimary;
     final controlExtent = conduitScaledControlExtent(context);
     final iconExtent = conduitScaledIconExtent(context, IconSize.appBar);

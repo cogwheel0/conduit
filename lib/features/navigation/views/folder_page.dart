@@ -225,6 +225,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         key: const ValueKey<String>('folder-page-drawer-button'),
         icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
         iosSymbol: 'line.3.horizontal',
+        semanticLabel: AppLocalizations.of(context)!.sidebarButtonLabel,
         onPressed: _toggleDrawer,
         iconColor: tintColor,
       ),

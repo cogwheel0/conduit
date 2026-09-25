@@ -4427,6 +4427,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         key: const ValueKey('chat-sidebar-toggle'),
         icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
         iosSymbol: 'line.3.horizontal',
+        semanticLabel: AppLocalizations.of(context)!.sidebarButtonLabel,
         onPressed: () => _toggleResponsiveDrawer(context),
         iconColor: tintColor,
       ),

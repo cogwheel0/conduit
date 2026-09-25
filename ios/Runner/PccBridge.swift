@@ -638,7 +638,8 @@ private extension PccBridge {
             quotaLimitReached: false,
             canIncreaseQuota: false,
             message: message,
-            contextSize: Int64(model.contextSize),
+            // The simulator reports 0 when the model cannot say; treat that as unknown.
+            contextSize: model.contextSize > 0 ? Int64(model.contextSize) : nil,
             supportsCurrentLocale: model.supportsLocale(Locale.current)
         )
     }
@@ -845,7 +846,7 @@ private extension PccBridge {
         @unknown default:
             .unknown
         }
-        let contextSize = try? await model.contextSize
+        let contextSize = (try? await model.contextSize).flatMap { $0 > 0 ? $0 : nil }
         let supportsCurrentLocale = try? await model.supportsLocale(Locale.current)
         let canIncreaseQuota = model.quotaUsage.limitIncreaseSuggestion != nil
         switch model.availability {

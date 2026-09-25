@@ -215,6 +215,49 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
+  testWidgets('icon-only controls expose their semantic labels', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    var taps = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Column(
+            children: [
+              ConduitAdaptiveAppBarIconButton(
+                icon: Icons.menu,
+                iosSymbol: 'line.3.horizontal',
+                semanticLabel: 'Sidebar',
+                onPressed: () => taps++,
+              ),
+              AdaptiveSwitch(
+                value: false,
+                onChanged: (_) {},
+                semanticLabel: 'On-device fallback',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      tester.getSemantics(find.byType(ConduitAdaptiveAppBarIconButton)),
+      matchesSemantics(
+        label: 'Sidebar',
+        isButton: true,
+        hasEnabledState: true,
+        isEnabled: true,
+        hasTapAction: true,
+      ),
+    );
+    tester.semantics.tap(find.semantics.byLabel('Sidebar'));
+    expect(taps, 1);
+    expect(find.bySemanticsLabel('On-device fallback'), findsOneWidget);
+    semantics.dispose();
+  });
+
   testWidgets('primary control adapters stay Flutter before iOS 26', (
     tester,
   ) async {

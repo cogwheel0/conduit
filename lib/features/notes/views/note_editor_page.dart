@@ -1720,6 +1720,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       leading: ConduitAdaptiveAppBarIconButton(
         icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
         iosSymbol: 'line.3.horizontal',
+        semanticLabel: AppLocalizations.of(context)!.sidebarButtonLabel,
         onPressed: () =>
             SidebarDrawerControllerScope.maybeOf(context)?.toggle(),
         iconColor: tintColor,

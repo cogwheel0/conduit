@@ -61,12 +61,19 @@ class _DirectConnectionEditorPageState
   ConnectionAttemptState get _attempt => _editorState.attempt;
   String? get _operationError => _editorState.operationError;
 
+  bool _workflowCreated = false;
+
   @override
-  void initState() {
-    super.initState();
-    final mode = widget.mode;
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Created here rather than in initState so the new-connection default name
+    // can be localized.
+    if (_workflowCreated) return;
+    _workflowCreated = true;
     _workflow = DirectConnectionEditorWorkflow(
-      gateway: riverpodDirectConnectionEditorGateway(ref, mode),
+      gateway: riverpodDirectConnectionEditorGateway(ref, widget.mode),
+      defaultConnectionName: AppLocalizations.of(context)!
+          .directDefaultConnectionName,
     );
     _workflow.addListener(_handleEditorChanged);
   }

@@ -56,6 +56,33 @@ void main() {
     expect(await events, isEmpty);
   });
 
+  test('an unreported on-device context size falls back to the default', () {
+    // The simulator reports 0 when the on-device model has no context size.
+    PlatformPccStatus status(int? contextSize) => PlatformPccStatus(
+      availability: PlatformPccAvailability.available,
+      quotaStatus: PlatformPccQuotaStatus.unknown,
+      quotaLimitReached: false,
+      canIncreaseQuota: false,
+      contextSize: contextSize,
+    );
+
+    expect(reportedApplePccContextSize(status(0)), isNull);
+    expect(reportedApplePccContextSize(status(-1)), isNull);
+    expect(reportedApplePccContextSize(status(null)), isNull);
+    expect(reportedApplePccContextSize(status(4096)), 4096);
+  });
+
+  test('on-device listing ignores a zero context size', () async {
+    final host = _FakePccHost()..onDeviceContextSize = 0;
+    final adapter = ApplePccAdapter(hostApi: host);
+
+    final models = await adapter.listModels(
+      DirectConnectionProfile.appleOnDevice(),
+    );
+
+    expect(models.single.capabilities['context_length'], 4096);
+  });
+
   test('PCC adapter maps keyed native events into a Direct run', () async {
     final host = _FakePccHost();
     final adapter = ApplePccAdapter(
@@ -522,6 +549,7 @@ final class _FakePccHost extends PccHostApi {
   final Completer<void> started = Completer<void>();
   PlatformPccCompletionRequest? request;
   String? cancelledRunId;
+  int onDeviceContextSize = 4096;
 
   @override
   Future<PlatformPccStatus> getStatus(PlatformAppleModel model) async =>
@@ -530,7 +558,9 @@ final class _FakePccHost extends PccHostApi {
         quotaStatus: PlatformPccQuotaStatus.belowLimit,
         quotaLimitReached: false,
         canIncreaseQuota: false,
-        contextSize: model == PlatformAppleModel.onDevice ? 4096 : 32768,
+        contextSize: model == PlatformAppleModel.onDevice
+            ? onDeviceContextSize
+            : 32768,
       );
 
   @override

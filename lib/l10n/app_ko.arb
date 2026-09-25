@@ -2759,6 +2759,8 @@
   "addDirectConnection": "연결 추가",
   "editDirectConnection": "연결 편집",
   "directConnectionName": "연결 이름",
+  "directDefaultConnectionName": "내 제공자",
+  "sidebarButtonLabel": "사이드바",
   "directConnectionNameRequired": "연결 이름을 입력하세요.",
   "directConnectionUrlInvalid": "올바른 http:// 또는 https:// URL을 입력하세요.",
   "directConnectionCredentialsReentryRequired": "서버를 변경할 때 자격 증명을 다시 입력하세요.",

@@ -884,12 +884,16 @@ final class OllamaAdapter
           if (!expectedDrainFailure &&
               !cancelToken.isCancelled &&
               !controller.isClosed) {
-            final normalized = normalizeDirectProviderError(error);
+            final normalized = await normalizeDirectProviderErrorWithBody(
+              error,
+            );
             final safeMessage = sanitizeDirectProviderErrorMessage(
               normalized.message,
               sensitiveValues: sensitiveValues,
             );
-            emitSafeError(safeMessage, statusCode: normalized.statusCode);
+            if (!cancelToken.isCancelled && !controller.isClosed) {
+              emitSafeError(safeMessage, statusCode: normalized.statusCode);
+            }
             DebugLogger.error(
               'completion-failed',
               scope: 'direct-connections/ollama',
