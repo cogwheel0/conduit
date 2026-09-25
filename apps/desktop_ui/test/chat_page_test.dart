@@ -188,6 +188,9 @@ class _RecordingActions extends ChatActions {
 
   final List<String> calls = <String>[];
 
+  /// Thrown by [send] instead of accepting, when set.
+  RpcError? sendError;
+
   @override
   Future<void> rename(String id, String title) async =>
       calls.add('rename($id,$title)');
@@ -252,6 +255,7 @@ class _RecordingActions extends ChatActions {
     bool imageGeneration = false,
   }) async {
     calls.add('send($text${fileIds.isEmpty ? '' : ',files=$fileIds'})');
+    if (sendError case final error?) throw error;
     return const SendTurnAccepted(
       chatId: 'chat-1',
       userMessageId: 'u1',
@@ -723,6 +727,35 @@ void main() {
         ..level(0, const Duration(milliseconds: 600));
       await pumpEventQueue();
       expect(actions!.calls, ['send(Hello from the microphone)']);
+    });
+
+    testComponents('a Hermes gateway not signed in says so, not "offline"', (
+      tester,
+    ) async {
+      tester.pumpComponent(
+        voiced(
+          _scoped(
+            onActions: (recording) => recording.sendError = const RpcError(
+              code: ConduitErrorCodes.unauthenticated,
+              args: <String, String>{'backend': 'hermes'},
+            ),
+          ),
+          autoSend: true,
+        ),
+      );
+      await pumpEventQueue();
+      await tester.click(_byId('dictate'));
+      await pumpEventQueue();
+      port
+        ..level(0.2, const Duration(milliseconds: 100))
+        ..level(0, const Duration(milliseconds: 600));
+      await pumpEventQueue();
+      expect(
+        find.text(t.desktop.desktopHermesSignInRequired),
+        findsOneComponent,
+      );
+      expect(find.text(t.app.couldNotConnectGeneric), findsNothing);
+      expect(find.text(t.app.authSessionExpired), findsNothing);
     });
 
     testComponents('while an answer streams, what was said waits', (

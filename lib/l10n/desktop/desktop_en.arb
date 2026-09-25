@@ -637,6 +637,14 @@
   "@desktopHermesMode": {
     "description": "Label of the choice between Hermes's API server (with a key) and its desktop gateway."
   },
+  "desktopHermesSignInToFinish": "Saved. Sign in with Hermes to finish.",
+  "@desktopHermesSignInToFinish": {
+    "description": "Status after saving a Hermes desktop gateway that still needs its native sign-in."
+  },
+  "desktopHermesSignInRequired": "Sign in to Hermes in Settings to talk to the agent.",
+  "@desktopHermesSignInRequired": {
+    "description": "Error when a message is sent to Hermes before signing in to its desktop gateway."
+  },
   "desktopStopDictation": "Stop dictation",
   "@desktopStopDictation": {
     "description": "Button that ends dictation and transcribes what was said."

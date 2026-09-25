@@ -339,6 +339,8 @@
   "desktopHermesTestUnreachable": "해당 주소의 Hermes에 연결할 수 없습니다.",
   "desktopHermesOpenSession": "열기",
   "desktopHermesMode": "연결 유형",
+  "desktopHermesSignInToFinish": "저장했습니다. Hermes에 로그인하여 완료하세요.",
+  "desktopHermesSignInRequired": "에이전트와 대화하려면 설정에서 Hermes에 로그인하세요.",
   "desktopStopDictation": "받아쓰기 중지",
   "desktopMicrophoneUnavailable": "Conduit에서 마이크를 사용할 수 없습니다. 마이크가 연결되어 있고 Conduit에 사용 권한이 있는지 확인하세요.",
   "desktopNothingHeard": "아무 소리도 들리지 않았습니다.",

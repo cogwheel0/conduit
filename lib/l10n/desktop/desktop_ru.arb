@@ -339,6 +339,8 @@
   "desktopHermesTestUnreachable": "Не удалось подключиться к Hermes по этому адресу.",
   "desktopHermesOpenSession": "Открыть",
   "desktopHermesMode": "Тип подключения",
+  "desktopHermesSignInToFinish": "Сохранено. Войдите в Hermes, чтобы завершить.",
+  "desktopHermesSignInRequired": "Войдите в Hermes в настройках, чтобы общаться с агентом.",
   "desktopStopDictation": "Остановить диктовку",
   "desktopMicrophoneUnavailable": "Conduit не может использовать микрофон. Убедитесь, что он подключён и что Conduit разрешено его использовать.",
   "desktopNothingHeard": "Ничего не слышно.",

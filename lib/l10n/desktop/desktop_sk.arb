@@ -339,6 +339,8 @@
   "desktopHermesTestUnreachable": "Hermes na tejto adrese nie je dostupný.",
   "desktopHermesOpenSession": "Otvoriť",
   "desktopHermesMode": "Typ pripojenia",
+  "desktopHermesSignInToFinish": "Uložené. Dokončite prihlásením do Hermes.",
+  "desktopHermesSignInRequired": "Ak chcete hovoriť s agentom, prihláste sa do Hermes v Nastaveniach.",
   "desktopStopDictation": "Zastaviť diktovanie",
   "desktopMicrophoneUnavailable": "Conduit nemôže použiť mikrofón. Skontrolujte, či je pripojený a či má Conduit povolenie ho používať.",
   "desktopNothingHeard": "Nič nebolo počuť.",

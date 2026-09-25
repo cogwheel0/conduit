@@ -1907,6 +1907,9 @@ class _ComposerState extends State<_Composer> {
       setState(() {
         _busy = false;
         _error = switch (error.code) {
+          ConduitErrorCodes.unauthenticated
+              when error.args['backend'] == 'hermes' =>
+            t.desktop.desktopHermesSignInRequired,
           ConduitErrorCodes.unauthenticated => t.app.authSessionExpired,
           ConduitErrorCodes.unsupported => t.app.noModelsAvailable,
           // Not `stopGenerating`, which is a button's label and reads as

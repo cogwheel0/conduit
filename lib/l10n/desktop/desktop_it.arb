@@ -339,6 +339,8 @@
   "desktopHermesTestUnreachable": "Impossibile raggiungere Hermes a questo indirizzo.",
   "desktopHermesOpenSession": "Apri",
   "desktopHermesMode": "Tipo di connessione",
+  "desktopHermesSignInToFinish": "Salvato. Accedi con Hermes per completare.",
+  "desktopHermesSignInRequired": "Accedi a Hermes nelle Impostazioni per parlare con l’agente.",
   "desktopStopDictation": "Interrompi dettatura",
   "desktopMicrophoneUnavailable": "Conduit non può usare un microfono. Verifica che ne sia collegato uno e che Conduit abbia il permesso di usarlo.",
   "desktopNothingHeard": "Non è stato sentito nulla.",

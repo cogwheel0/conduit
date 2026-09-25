@@ -339,6 +339,8 @@
   "desktopHermesTestUnreachable": "Hermes ist unter dieser Adresse nicht erreichbar.",
   "desktopHermesOpenSession": "Öffnen",
   "desktopHermesMode": "Verbindungstyp",
+  "desktopHermesSignInToFinish": "Gespeichert. Melde dich zum Abschluss bei Hermes an.",
+  "desktopHermesSignInRequired": "Melde dich in den Einstellungen bei Hermes an, um mit dem Agenten zu sprechen.",
   "desktopStopDictation": "Diktat beenden",
   "desktopMicrophoneUnavailable": "Conduit kann kein Mikrofon verwenden. Prüfe, ob eines angeschlossen ist und Conduit darauf zugreifen darf.",
   "desktopNothingHeard": "Es wurde nichts gehört.",

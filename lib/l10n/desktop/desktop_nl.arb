@@ -339,6 +339,8 @@
   "desktopHermesTestUnreachable": "Hermes is niet bereikbaar op dat adres.",
   "desktopHermesOpenSession": "Openen",
   "desktopHermesMode": "Verbindingstype",
+  "desktopHermesSignInToFinish": "Opgeslagen. Log in bij Hermes om af te ronden.",
+  "desktopHermesSignInRequired": "Log in bij Hermes in Instellingen om met de agent te praten.",
   "desktopStopDictation": "Dicteren stoppen",
   "desktopMicrophoneUnavailable": "Conduit kan geen microfoon gebruiken. Controleer of er een is aangesloten en of Conduit toestemming heeft om hem te gebruiken.",
   "desktopNothingHeard": "Er werd niets gehoord.",

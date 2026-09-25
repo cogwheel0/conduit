@@ -232,4 +232,51 @@ void main() {
     jobs = await hermes.deleteJob(job.id);
     expect(jobs.jobs, isEmpty);
   });
+
+  test('a desktop gateway that signs in natively waits for it', () async {
+    addTearDown(
+      () => hermes.saveSettings(
+        HermesSettingsEdit(
+          baseUrl: hermesServer.baseUrl,
+          apiKey: hermesServer.key,
+        ),
+      ),
+    );
+    final saved = await hermes.saveSettings(
+      HermesSettingsEdit(
+        baseUrl: hermesServer.baseUrl,
+        mode: 'desktop',
+        desktopAuthKind: 'nativePkce',
+      ),
+    );
+    expect(saved.desktopSignedIn, isFalse);
+    // Kept on the form with its sign-in button, rather than sent on to a
+    // chat that cannot answer.
+    expect(saved.usable, isFalse);
+
+    // And a message sent anyway is refused as a sign-in, not a connection.
+    final events = EventBus();
+    final turns = TurnsService(runtime.container, events, hermes: hermes);
+    addTearDown(turns.dispose);
+    final models = ModelsService(runtime.container);
+    ModelSummary? agent;
+    final deadline = DateTime.now().add(const Duration(seconds: 20));
+    while (agent == null && DateTime.now().isBefore(deadline)) {
+      agent = (await models.list()).models
+          .where((m) => m.id.startsWith('hermes:'))
+          .firstOrNull;
+      if (agent == null) {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+    }
+    expect(agent, isNotNull);
+    await expectLater(
+      turns.send(SendTurn(model: agent!.id, text: 'hello')),
+      throwsA(
+        isA<RpcError>()
+            .having((e) => e.code, 'code', ConduitErrorCodes.unauthenticated)
+            .having((e) => e.args['backend'], 'backend', 'hermes'),
+      ),
+    );
+  });
 }

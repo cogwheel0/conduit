@@ -339,6 +339,8 @@
   "desktopHermesTestUnreachable": "无法通过该地址连接到 Hermes。",
   "desktopHermesOpenSession": "打开",
   "desktopHermesMode": "连接类型",
+  "desktopHermesSignInToFinish": "已保存。登录 Hermes 以完成设置。",
+  "desktopHermesSignInRequired": "请在设置中登录 Hermes 以与代理对话。",
   "desktopStopDictation": "停止听写",
   "desktopMicrophoneUnavailable": "Conduit 无法使用麦克风。请检查麦克风是否已连接，以及是否允许 Conduit 使用它。",
   "desktopNothingHeard": "没有听到任何声音。",

@@ -50,6 +50,15 @@ extension _HermesTurns on TurnsService {
         debugMessage: 'Hermes is not configured',
       );
     }
+    // Said as what it is: without this the request failed further in, and
+    // the window could only call it a connection problem.
+    if (hermesAwaitsSignIn(_container.read(hermesConfigProvider))) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unauthenticated,
+        args: <String, String>{'backend': 'hermes'},
+        debugMessage: 'sign in to Hermes first',
+      );
+    }
 
     String sessionId;
     if (request.chatId case final chatId?) {

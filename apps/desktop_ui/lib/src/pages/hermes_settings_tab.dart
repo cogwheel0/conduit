@@ -230,10 +230,18 @@ class _HermesConnectionFormState extends State<HermesConnectionForm> {
             disabled: _busy || _url.trim().isEmpty,
             onClick: () => unawaited(
               _run((actions) async {
-                await actions.save(_edit);
+                final saved = await actions.save(_edit);
                 _apiKey = '';
                 _memoryKey = '';
-                _say(t.app.saved);
+                // Saved is not done while the gateway still waits for its
+                // sign-in, which the button beside this starts.
+                _say(
+                  saved.mode == 'desktop' &&
+                          saved.desktopAuthKind == 'nativePkce' &&
+                          !saved.desktopSignedIn
+                      ? t.desktop.desktopHermesSignInToFinish
+                      : t.app.saved,
+                );
               }),
             ),
           ),
