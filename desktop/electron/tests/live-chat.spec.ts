@@ -88,6 +88,11 @@ function readCredentials(): Credentials | null {
 
 const credentials = readCredentials()
 
+/// The platform's primary modifier: shortcuts are `mod+…`, which is Cmd on
+/// macOS and Ctrl elsewhere, and the overlay names them the platform's way.
+const mac = process.platform === 'darwin'
+const mod = mac ? 'Meta' : 'Control'
+
 /// Where screenshots land for review.
 ///
 /// Outside `test-results/`, which is wiped between runs, and gitignored for
@@ -512,8 +517,9 @@ const speechSample =
 
 test.describe('against a real server', () => {
   test.skip(credentials === null, 'no OWUI_* credentials in .env')
-  // A cold start, a sign-in round trip and a model reply.
-  test.setTimeout(300_000)
+  // A cold start, a sign-in round trip and a model reply -- and by now most
+  // of the product after them, which on a real server outgrew five minutes.
+  test.setTimeout(600_000)
 
   let app: ElectronApplication
   let userData: string
@@ -728,17 +734,17 @@ test.describe('against a real server', () => {
     // the button: this account has conversations *titled* "New Chat", so
     // the accessible name is ambiguous -- and pressing the key exercises
     // the binding while it is at it.
-    await page.keyboard.press('Control+Shift+O')
+    await page.keyboard.press(`${mod}+Shift+O`)
     await expect
       .poll(() => transcript.locator('article').count(), { timeout: 15_000 })
       .toBe(0)
 
     // 7. The keyboard layer. Ctrl+/ is bound at the document, so
     // it has to work with focus wherever the last step left it.
-    await page.keyboard.press('Control+Slash')
+    await page.keyboard.press(`${mod}+Slash`)
     const overlay = page.getByRole('dialog', { name: /keyboard shortcuts/i })
     await expect(overlay).toBeVisible()
-    await expect(overlay).toContainText('Ctrl+K')
+    await expect(overlay).toContainText(mac ? '⌘K' : 'Ctrl+K')
     await shot(page, '07-shortcuts')
     // Esc closes what is in front before it reaches anything behind it.
     await page.keyboard.press('Escape')
@@ -747,7 +753,7 @@ test.describe('against a real server', () => {
     // 7b. The command palette. Ctrl+K from anywhere opens it with
     // the caret in its field, and Enter runs the highlighted row -- here a
     // command, found by a fragment of its name.
-    await page.keyboard.press('Control+k')
+    await page.keyboard.press(`${mod}+k`)
     const palette = page.getByRole('dialog', { name: /command palette/i })
     await expect(palette).toBeVisible()
     const paletteInput = palette.getByRole('combobox')
@@ -778,7 +784,7 @@ test.describe('against a real server', () => {
     // is the locator being wrong -- which silently skipped this once.
     expect(title, 'no titled conversation in the sidebar').toBeDefined()
     if (title !== undefined) {
-      await page.keyboard.press('Control+k')
+      await page.keyboard.press(`${mod}+k`)
       await expect(paletteInput).toBeFocused()
       await page.keyboard.type(title)
       const hit = palette.getByRole('option').filter({ hasText: title })
@@ -801,7 +807,7 @@ test.describe('against a real server', () => {
       await expect(
         page.locator('nav[aria-label] button[aria-current="true"]'),
       ).toContainText(chosen)
-      await page.keyboard.press('Control+Shift+O')
+      await page.keyboard.press(`${mod}+Shift+O`)
       await expect
         .poll(() => transcript.locator('article').count(), { timeout: 15_000 })
         .toBe(0)
@@ -882,20 +888,30 @@ test.describe('against a real server', () => {
       const existing = new Set((await listFeedback()).map((f) => f.id))
       const made = async () =>
         (await listFeedback()).filter((f) => !existing.has(f.id))
+      // An admin can switch rating off, and the app then offers none --
+      // which is the thing to check on such a server.
+      const config = (await (
+        await evals.get('/api/config', { headers: evalAuth })
+      ).json()) as { features?: { enable_message_rating?: boolean } }
+      const ratingOn = config.features?.enable_message_rating !== false
       try {
         const good = transcript
           .getByRole('button', { name: /good response/i })
           .last()
-        await good.click()
-        await expect(good).toHaveAttribute('aria-pressed', 'true')
-        await expect
-          .poll(async () => (await made()).length, { timeout: 30_000 })
-          .toBe(1)
-        // Still pressed once the stored copy is back, not only while the
-        // window remembers the click.
-        await idle(page)
-        await expect(good).toHaveAttribute('aria-pressed', 'true')
-        await shot(page, '08bb-rated')
+        if (!ratingOn) {
+          await expect(good).toHaveCount(0)
+        } else {
+          await good.click()
+          await expect(good).toHaveAttribute('aria-pressed', 'true')
+          await expect
+            .poll(async () => (await made()).length, { timeout: 30_000 })
+            .toBe(1)
+          // Still pressed once the stored copy is back, not only while the
+          // window remembers the click.
+          await idle(page)
+          await expect(good).toHaveAttribute('aria-pressed', 'true')
+          await shot(page, '08bb-rated')
+        }
       } finally {
         for (const feedback of await made()) {
           await evals.delete(`/api/v1/evaluations/feedback/${feedback.id}`, {
@@ -1038,13 +1054,19 @@ test.describe('against a real server', () => {
         folderItem.locator('button[aria-current="true"]'),
       ).toBeVisible({ timeout: 30_000 })
       await shot(page, '08g-in-folder')
-      // Dragged out onto the recent list.
+      // Dragged out onto the recent list. Any dated section takes it, and
+      // Today may not be showing: the run's conversation can be the only
+      // one from today, and it is in the folder now.
       const today = page
         .locator('nav[aria-label] section')
         .filter({ has: page.getByRole('heading', { name: /^today$/i }) })
+      const recentHeading = page
+        .locator('nav[aria-label] section')
+        .getByRole('heading', { name: /^(today|yesterday|earlier)$/i })
+        .first()
       await folderItem
         .locator('button[aria-current="true"]')
-        .dragTo(today.getByRole('heading', { name: /^today$/i }))
+        .dragTo(recentHeading)
       await expect(
         folderItem.locator('button[aria-current="true"]'),
       ).toBeHidden({ timeout: 30_000 })
@@ -1233,13 +1255,18 @@ test.describe('against a real server', () => {
     if ((await math.count()) > 0) {
       const frame = math.last()
       // KaTeX ran: its output carries the class it always emits, and the
-      // frame grew past the placeholder height it starts at.
+      // frame took the height the sandbox measured for it. Not "grew past
+      // the 24px placeholder": one line of inline math measures exactly that.
       await expect(
         frame.contentFrame().locator('.katex').first(),
       ).toBeVisible({ timeout: 30_000 })
+      const measured = await frame
+        .contentFrame()
+        .locator('#out')
+        .evaluate((n) => Math.ceil(n.getBoundingClientRect().height) + 4)
       await expect
         .poll(() => frame.evaluate((n) => n.getBoundingClientRect().height))
-        .toBeGreaterThan(24)
+        .toBe(measured)
       await shot(page, '11-math')
     }
 
@@ -1460,7 +1487,9 @@ test.describe('against a real server', () => {
       await page.keyboard.type('@gem')
       const models = page.getByRole('listbox', { name: /^models$/i })
       await expect(models).toBeVisible()
-      await expect(models.getByRole('option').first()).toContainText(/gemma/i)
+      // What was typed, not a model name: the servers this runs against
+      // offer different ones, and `gem` finds Gemma on one, Gemini on another.
+      await expect(models.getByRole('option').first()).toContainText(/gem/i)
       await page.keyboard.press('Enter')
       await expect(models).toBeHidden()
       await expect(page.getByText(/^next answer from /i)).toBeVisible()
@@ -1569,7 +1598,7 @@ test.describe('against a real server', () => {
     ).toHaveCount(0)
     expect(await page.locator('nav[aria-label] li').count()).toBe(rowsBefore)
     await shot(page, '12b-temporary')
-    await page.keyboard.press('Control+Shift+O')
+    await page.keyboard.press(`${mod}+Shift+O`)
     await page.getByLabel(/temporary chat/i).uncheck()
 
     // Settings, which nothing else exercises visually.
@@ -1844,9 +1873,9 @@ test.describe('against a real server', () => {
         await expect(quill).toBeVisible({ timeout: 30_000 })
         await quill.click()
         await page.keyboard.type('Buy milk and ')
-        await page.keyboard.press('Control+b')
+        await page.keyboard.press(`${mod}+b`)
         await page.keyboard.type('eggs')
-        await page.keyboard.press('Control+b')
+        await page.keyboard.press(`${mod}+b`)
         await expect(page.getByRole('status').filter({ hasText: /^saved$/i })).toBeVisible({
           timeout: 30_000,
         })
@@ -2231,7 +2260,7 @@ test.describe('against a real server', () => {
         await page.keyboard.type('echo conduit-$((6*7)) > answer.txt; cat answer.txt\r')
         await expect(shell.locator('.xterm-rows')).toContainText('conduit-42', { timeout: 30_000 })
         // Ctrl+K is the shell's here, not the command palette's.
-        await page.keyboard.press('Control+k')
+        await page.keyboard.press(`${mod}+k`)
         await expect(page.getByRole('dialog', { name: /command/i })).toBeHidden()
 
         // The file the shell made, in the files panel.
@@ -2423,6 +2452,23 @@ test.describe('against a real server', () => {
           .toBeGreaterThan(0)
         await listen.click()
         await expect(listen).toHaveAttribute('aria-pressed', 'false')
+
+        // The conversation this step made, deleted as step 13 does: every
+        // run otherwise left one in the account's sidebar.
+        await idle(page)
+        const spoken = page.locator('nav[aria-label] li').filter({
+          has: page.locator('button[aria-current="true"]'),
+        })
+        if ((await spoken.count()) === 1) {
+          await spoken.getByRole('button', { name: 'Delete', exact: true }).click()
+          await page
+            .getByRole('alertdialog')
+            .getByRole('button', { name: 'Delete', exact: true })
+            .click()
+          await expect(
+            page.locator('nav[aria-label] button[aria-current="true"]'),
+          ).toHaveCount(0, { timeout: 30_000 })
+        }
       }
 
       // "Open with Conduit". A second launch with a file, as the OS
