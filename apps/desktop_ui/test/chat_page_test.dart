@@ -758,6 +758,32 @@ void main() {
       expect(find.text(t.app.authSessionExpired), findsNothing);
     });
 
+    testComponents('another chat answering does not hold this one', (
+      tester,
+    ) async {
+      _RecordingActions? actions;
+      tester.pumpComponent(
+        voiced(
+          _scoped(
+            detail: _detail,
+            selected: 'chat-1',
+            live: const LiveTurn(chatId: 'chat-2', messageId: 'm9', text: 'x'),
+            onActions: (recording) => actions = recording,
+          ),
+          autoSend: true,
+        ),
+      );
+      await pumpEventQueue();
+      expect(find.text(t.app.stopGenerating), findsNothing);
+      await tester.click(_byId('dictate'));
+      await pumpEventQueue();
+      port
+        ..level(0.2, const Duration(milliseconds: 100))
+        ..level(0, const Duration(milliseconds: 600));
+      await pumpEventQueue();
+      expect(actions!.calls, contains('send(Hello from the microphone)'));
+    });
+
     testComponents('while an answer streams, what was said waits', (
       tester,
     ) async {

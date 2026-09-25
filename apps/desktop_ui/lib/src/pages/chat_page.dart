@@ -995,7 +995,7 @@ class _ComposerState extends State<_Composer> {
     // screen while the sync catches up -- so a completed turn left this
     // reading "still streaming" and the composer offered Stop forever,
     // with no way back to Send short of starting another conversation.
-    final streaming = _generating(live);
+    final streaming = _generating(live, context.watch(selectedChatIdProvider));
 
     final models = context.watch(modelListProvider).value;
 
@@ -1832,10 +1832,12 @@ class _ComposerState extends State<_Composer> {
     }
   }
 
-  /// Whether [live] is an answer still arriving. The composer offers Stop
-  /// then, and sends nothing.
-  static bool _generating(LiveTurn? live) =>
-      live != null && !live.settled && !live.failed;
+  /// Whether [live] is an answer still arriving in [chatId], the chat on
+  /// screen. The composer offers Stop then, and sends nothing. Another
+  /// chat's answer is not this one's business: the daemon runs one turn per
+  /// chat, and a window that has moved on may never hear that one finish.
+  static bool _generating(LiveTurn? live, String? chatId) =>
+      live != null && live.chatId == chatId && !live.settled && !live.failed;
 
   Future<void> _send(BuildContext context) async {
     final text = _text.trim();
@@ -1845,7 +1847,12 @@ class _ComposerState extends State<_Composer> {
     // Nor into a chat still answering: Stop stands where Send was, and
     // Enter used to go round it into the daemon's one-turn-at-a-time
     // refusal. The text stays in the box for when the answer is done.
-    if (_generating(context.read(liveTurnProvider).value)) return;
+    if (_generating(
+      context.read(liveTurnProvider).value,
+      context.read(selectedChatIdProvider),
+    )) {
+      return;
+    }
     // Enter as well as the button: the banner already says why.
     if (context.read(onlineProvider).value == false) return;
     if (_attachments.any((file) => !file.ready && !file.failed)) {
