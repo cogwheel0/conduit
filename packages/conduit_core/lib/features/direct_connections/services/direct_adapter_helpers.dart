@@ -644,9 +644,13 @@ const String _kDirectUnreportedError = 'The provider reported an error.';
 /// tier users do not have access to this model") reaches the user instead of a
 /// bare status code. The message keeps its `HTTP <status>` prefix so
 /// [directAuthModeHintApplies] still recognizes auth failures.
+///
+/// Pass the profile's [sensitiveValues]: the detail is redacted before it is
+/// clipped, so a reflected credential cannot survive as a truncated fragment.
 Future<DirectProviderException> normalizeDirectProviderErrorWithBody(
-  Object error,
-) async {
+  Object error, {
+  Iterable<String> sensitiveValues = const <String>[],
+}) async {
   final normalized = normalizeDirectProviderError(error);
   final status = normalized.statusCode;
   // Only a rejected request carries an error document. A successful status
@@ -654,7 +658,10 @@ Future<DirectProviderException> normalizeDirectProviderErrorWithBody(
   if (error is! DioException || status == null || status < 400) {
     return normalized;
   }
-  final detail = await _directErrorBodyDetail(error.response?.data);
+  final detail = await _directErrorBodyDetail(
+    error.response?.data,
+    sensitiveValues: sensitiveValues,
+  );
   if (detail == null) return normalized;
   return DirectProviderException(
     'The provider returned HTTP $status: $detail',
@@ -663,19 +670,27 @@ Future<DirectProviderException> normalizeDirectProviderErrorWithBody(
   );
 }
 
-Future<String?> _directErrorBodyDetail(Object? data) async {
+Future<String?> _directErrorBodyDetail(
+  Object? data, {
+  required Iterable<String> sensitiveValues,
+}) async {
   try {
+    // Error documents arrive with the headers; keep the wait short so an
+    // open body cannot hold back a failure the status code already reports.
     final decoded = data is ResponseBody
         ? await decodeDirectJsonValue(
             data,
             maxBytes: _kMaxDirectErrorBodyBytes,
-            idleTimeout: const Duration(seconds: 5),
-            maxDuration: const Duration(seconds: 10),
+            idleTimeout: const Duration(seconds: 1),
+            maxDuration: const Duration(seconds: 2),
             maxTransferBytes: _kMaxDirectErrorBodyBytes,
           )
         : data;
     if (decoded is! Map) return null;
-    final message = directErrorMessage(decoded);
+    final message = directErrorMessage(
+      decoded,
+      sensitiveValues: sensitiveValues,
+    );
     return message == _kDirectUnreportedError ? null : message;
   } catch (_) {
     // An unreadable body is not worth masking the status code over.

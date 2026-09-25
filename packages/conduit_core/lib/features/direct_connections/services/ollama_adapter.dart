@@ -886,19 +886,21 @@ final class OllamaAdapter
               !controller.isClosed) {
             final normalized = await normalizeDirectProviderErrorWithBody(
               error,
+              sensitiveValues: sensitiveValues,
             );
             final safeMessage = sanitizeDirectProviderErrorMessage(
               normalized.message,
               sensitiveValues: sensitiveValues,
             );
+            // The run may have been cancelled while the error body was read.
             if (!cancelToken.isCancelled && !controller.isClosed) {
               emitSafeError(safeMessage, statusCode: normalized.statusCode);
+              DebugLogger.error(
+                'completion-failed',
+                scope: 'direct-connections/ollama',
+                error: safeMessage,
+              );
             }
-            DebugLogger.error(
-              'completion-failed',
-              scope: 'direct-connections/ollama',
-              error: safeMessage,
-            );
           }
         } finally {
           if (!transportCompletedCleanly && !transportCancelToken.isCancelled) {

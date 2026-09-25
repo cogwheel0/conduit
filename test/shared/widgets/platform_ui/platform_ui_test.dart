@@ -215,47 +215,90 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
-  testWidgets('icon-only controls expose their semantic labels', (
+  testWidgets('toolbar icon buttons expose their semantic label', (
     tester,
   ) async {
+    // Disposed in finally: flutter_test checks for live handles before
+    // tear-downs run.
     final semantics = tester.ensureSemantics();
-    var taps = 0;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Column(
-            children: [
-              ConduitAdaptiveAppBarIconButton(
-                icon: Icons.menu,
-                iosSymbol: 'line.3.horizontal',
-                semanticLabel: 'Sidebar',
-                onPressed: () => taps++,
-              ),
-              AdaptiveSwitch(
-                value: false,
-                onChanged: (_) {},
-                semanticLabel: 'On-device fallback',
-              ),
-            ],
+    try {
+      var taps = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ConduitAdaptiveAppBarIconButton(
+              icon: Icons.menu,
+              iosSymbol: 'line.3.horizontal',
+              semanticLabel: 'Sidebar',
+              onPressed: () => taps++,
+            ),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(
-      tester.getSemantics(find.byType(ConduitAdaptiveAppBarIconButton)),
-      matchesSemantics(
-        label: 'Sidebar',
-        isButton: true,
-        hasEnabledState: true,
-        isEnabled: true,
-        hasTapAction: true,
-      ),
-    );
-    tester.semantics.tap(find.semantics.byLabel('Sidebar'));
-    expect(taps, 1);
-    expect(find.bySemanticsLabel('On-device fallback'), findsOneWidget);
-    semantics.dispose();
+      expect(
+        tester.getSemantics(find.byType(ConduitAdaptiveAppBarIconButton)),
+        matchesSemantics(
+          label: 'Sidebar',
+          isButton: true,
+          hasEnabledState: true,
+          isEnabled: true,
+          hasTapAction: true,
+        ),
+      );
+      tester.semantics.tap(find.semantics.byLabel('Sidebar'));
+      expect(taps, 1);
+    } finally {
+      semantics.dispose();
+    }
+  });
+
+  testWidgets('iOS switch is one labelled, toggleable control', (tester) async {
+    // Disposed in finally: flutter_test checks for live handles before
+    // tear-downs run.
+    final semantics = tester.ensureSemantics();
+    try {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      var value = false;
+      await tester.pumpWidget(
+        CupertinoApp(
+          home: LegacyDesignCompatibility(
+            child: CupertinoPageScaffold(
+              child: Material(
+                type: MaterialType.transparency,
+                child: StatefulBuilder(
+                  builder: (context, setState) => AdaptiveSwitch(
+                    value: value,
+                    onChanged: (next) => setState(() => value = next),
+                    semanticLabel: 'On-device fallback',
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(find.byType(CupertinoSwitch), findsOneWidget);
+
+      // The label must sit on the same node as the toggle state and action;
+      // a label beside an unlabelled "0"/"1" switch would fail here.
+      expect(
+        tester.getSemantics(find.byType(CupertinoSwitch)),
+        isSemantics(
+          label: 'On-device fallback',
+          hasToggledState: true,
+          isToggled: false,
+          hasTapAction: true,
+        ),
+      );
+      tester.semantics.tap(find.semantics.byLabel('On-device fallback'));
+      await tester.pump();
+      expect(value, isTrue);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+      semantics.dispose();
+    }
   });
 
   testWidgets('primary control adapters stay Flutter before iOS 26', (

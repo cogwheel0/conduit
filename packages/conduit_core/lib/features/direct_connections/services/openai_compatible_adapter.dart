@@ -450,19 +450,21 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
               !controller.isClosed) {
             final normalized = await normalizeDirectProviderErrorWithBody(
               error,
+              sensitiveValues: sensitiveValues,
             );
             final safeMessage = sanitizeDirectProviderErrorMessage(
               normalized.message,
               sensitiveValues: sensitiveValues,
             );
+            // The run may have been cancelled while the error body was read.
             if (!cancelToken.isCancelled && !controller.isClosed) {
               emitter.error(safeMessage, statusCode: normalized.statusCode);
+              DebugLogger.error(
+                'completion-failed',
+                scope: 'direct-connections/openai',
+                error: safeMessage,
+              );
             }
-            DebugLogger.error(
-              'completion-failed',
-              scope: 'direct-connections/openai',
-              error: safeMessage,
-            );
           }
         } finally {
           if (!transportCompletedCleanly) {

@@ -36,6 +36,26 @@ void main() {
     );
   });
 
+  test('a reflected key is redacted before the detail is clipped', () async {
+    final key = 'sk-${'a1b2c3d4' * 8}';
+    final error = _httpError(
+      401,
+      ResponseBody.fromString(
+        '{"error":{"message":"${'x' * 449} invalid key $key"}}',
+        401,
+      ),
+    );
+
+    final normalized = await normalizeDirectProviderErrorWithBody(
+      error,
+      sensitiveValues: [key],
+    );
+
+    check(normalized.statusCode).equals(401);
+    check(normalized.message).not((it) => it.contains(key.substring(0, 16)));
+    check(normalized.message).not((it) => it.contains('a1b2c3d4a1b2'));
+  });
+
   test('an unreadable error body falls back to the status code', () async {
     final error = _httpError(502, ResponseBody.fromString('<html>', 502));
 
