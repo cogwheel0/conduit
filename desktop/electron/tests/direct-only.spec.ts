@@ -139,6 +139,26 @@ test('chats through a direct connection with no server', async () => {
     ).toBeVisible({ timeout: 30_000 })
     await shot(page, 'direct-03-chat')
 
+    // A formula draws, and its frame takes the drawing's height once the
+    // streamed answer has become the stored one -- which once kept the
+    // same frame under a new id and left it empty. The echo reverses, so
+    // this asks for `$E = mc^2$`.
+    await composer.fill('$2^cm = E$')
+    await composer.press('Enter')
+    await expect(transcript).toContainText('echo:', { timeout: 30_000 })
+    await expect(page.getByRole('button', { name: /^send$/i })).toBeVisible({ timeout: 30_000 })
+    const formula = transcript.locator('iframe[src="/sandbox.html"]').last()
+    await expect(formula.contentFrame().locator('.katex').first()).toBeVisible({
+      timeout: 30_000,
+    })
+    const drawn = await formula
+      .contentFrame()
+      .locator('#out')
+      .evaluate((n) => Math.ceil(n.getBoundingClientRect().height) + 4)
+    await expect
+      .poll(() => formula.evaluate((n) => n.getBoundingClientRect().height))
+      .toBe(drawn)
+
     // It stays that way across a restart: no onboarding, no sign-in.
     await page.reload()
     await expect

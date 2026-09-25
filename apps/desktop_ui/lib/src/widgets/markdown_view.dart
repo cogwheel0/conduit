@@ -246,8 +246,10 @@ class MarkdownView extends StatelessComponent {
         // exactly as a formula does.
         final drawable = sandboxKindFor(_fenceLanguage(inner));
         if (drawable != null && mathIdPrefix != null) {
+          final id = '$mathIdPrefix-draw-${_mathIndex++}';
           return SandboxedRender(
-            id: '$mathIdPrefix-draw-${_mathIndex++}',
+            key: ValueKey(id),
+            id: id,
             payload: SandboxPayload(
               kind: drawable,
               source: inner.textContent,
@@ -407,9 +409,15 @@ class MarkdownView extends StatelessComponent {
     // Keyed by content as well as position: a streaming reply re-parses on
     // every delta, and a frame whose id stayed put while its neighbours
     // shifted would show the previous formula.
+    //
+    // And the component keyed by that id. The frame is found by it, so a
+    // new id is a new frame: when a streamed answer became the stored one,
+    // the same iframe was kept and only its id attribute changed, and its
+    // messages then matched nothing -- an empty frame at placeholder height.
     final id = '$prefix-math-${_mathIndex++}';
     return span(classes: display ? 'block my-2' : 'inline-block align-middle', [
       SandboxedRender(
+        key: ValueKey(id),
         id: id,
         payload: SandboxPayload(kind: 'math', source: source, display: display),
         title: source,
