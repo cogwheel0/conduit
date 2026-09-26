@@ -1525,9 +1525,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     final refreshAt = clock();
     final renderedAt = pendingReasoningRenderedAt;
     if (renderedAt != null) {
-      final wait =
-          _pendingReasoningRefreshInterval - refreshAt.difference(renderedAt);
-      if (wait > Duration.zero) {
+      final elapsed = refreshAt.difference(renderedAt);
+      // A wall clock set back makes the elapsed time negative; treat the
+      // window as over rather than wait out the adjustment.
+      if (!elapsed.isNegative && elapsed < _pendingReasoningRefreshInterval) {
+        final wait = _pendingReasoningRefreshInterval - elapsed;
         // Publish what is held back once the window ends, so a model pausing
         // mid-thought does not leave an opened body stale.
         pendingReasoningRefreshTimer ??= Timer(wait, () {

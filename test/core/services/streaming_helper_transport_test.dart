@@ -2107,6 +2107,49 @@ void main() {
       },
     );
 
+    test('a wall clock set back does not hold reasoning back', () async {
+      var now = DateTime(2026, 1, 1, 12);
+      final log = _CallbackLog(
+        initialMessages: fakeStreamingAssistantMessages(content: 'Intro'),
+      );
+      final byteStream = StreamController<List<int>>();
+      final snapshots = <String Function()>[];
+
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          byteStream: byteStream.stream,
+          abort: () async {},
+        ),
+        log: log,
+        bufferProgressiveLastMessageSnapshot: snapshots.add,
+        clock: () => now,
+      );
+
+      void reason(String chunk) => byteStream.add(
+        _sseFrame({
+          'choices': [
+            {
+              'delta': {'reasoning_content': chunk},
+            },
+          ],
+        }),
+      );
+
+      reason('Plan ');
+      await pumpMicrotasks();
+      now = now.subtract(const Duration(hours: 1));
+      reason('more');
+      await pumpMicrotasks();
+
+      // Published at once instead of an hour-long wait for the window.
+      check(snapshots.length).equals(2);
+      check(snapshots.last()).contains('&gt; Plan more');
+
+      await byteStream.close();
+    });
+
     test('httpStream finalizes reasoning-only responses on done', () async {
       final log = _CallbackLog();
       final byteStream = Stream<List<int>>.fromIterable([
