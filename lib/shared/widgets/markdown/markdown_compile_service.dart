@@ -893,12 +893,17 @@ CompiledMarkdownDocument _compilePreparedMarkdownDocument(
   }
 
   final latexPreprocessor = LatexPreprocessor();
-  final preprocessed = latexPreprocessor.extract(preparedContent);
+  final preprocessed = _extractLatexOutsideDetailsTags(
+    latexPreprocessor,
+    preparedContent,
+  );
 
   final document = md.Document(
-    extensionSet: md.ExtensionSet.gitHubWeb,
+    // gitHubWeb with linear-time handling of long unbroken runs; the run guard
+    // must stay the first inline syntax.
+    extensionSet: conduitGitHubWebExtensionSet,
     blockSyntaxes: const [DetailsBlockSyntax()],
-    inlineSyntaxes: [MentionInlineSyntax()],
+    inlineSyntaxes: [LongAlphanumericRunSyntax(), MentionInlineSyntax()],
     encodeHtml: false,
   );
   final nodes = document.parse(preprocessed);
@@ -921,6 +926,34 @@ CompiledMarkdownDocument _compilePreparedMarkdownDocument(
     nodes: compiledNodes,
     blockLatexExpressions: latexPreprocessor.blockExpressions,
     inlineLatexExpressions: latexPreprocessor.inlineExpressions,
+  );
+}
+
+/// A whole `<details ...>` opening tag on one line. The preprocessor has
+/// already joined multi-line tags and escaped `<`/`>` inside quoted values.
+final _detailsOpeningTagForLatex = RegExp(
+  r'<details\b[^>\n]*>',
+  caseSensitive: false,
+);
+
+/// Extracts LaTeX everywhere except inside `<details>` opening tags.
+///
+/// Tool-call attributes carry JSON-encoded arguments and results. Their
+/// escaped text often looks like LaTeX delimiters (`\[`...`\]`, `$$`), and
+/// block extraction wraps its placeholder in blank lines, which split the
+/// opening tag so the details parser rendered the whole tool call as a raw
+/// wall (issue #677). Attributes are data, never math.
+String _extractLatexOutsideDetailsTags(
+  LatexPreprocessor latexPreprocessor,
+  String content,
+) {
+  if (!_detailsOpeningTagForLatex.hasMatch(content)) {
+    return latexPreprocessor.extract(content);
+  }
+  return content.splitMapJoin(
+    _detailsOpeningTagForLatex,
+    onMatch: (match) => match[0]!,
+    onNonMatch: latexPreprocessor.extract,
   );
 }
 
@@ -1329,12 +1362,14 @@ CompiledMarkdownToolCallData _compileToolCallData(
       ? ''
       : _formatDetailJsonString(argumentsText);
 
-  final resultCode = parsedResult is Map || parsedResult is List
+  final resultPartsText = _toolResultPartsText(parsedResult);
+  final resultCode =
+      resultPartsText == null && (parsedResult is Map || parsedResult is List)
       ? const JsonEncoder.withIndent('  ').convert(parsedResult)
       : '';
   final resultDisplayText = resultText.isEmpty || resultCode.isNotEmpty
       ? ''
-      : _stringifyDetailValue(parsedResult);
+      : resultPartsText ?? _stringifyDetailValue(parsedResult);
 
   final embeds = normalizeEmbedList(rawEmbeds)
       .map(extractEmbedSource)
@@ -1354,6 +1389,38 @@ CompiledMarkdownToolCallData _compileToolCallData(
     embedSources: embeds,
     imageUrls: imageUrls,
   );
+}
+
+const Set<String> _toolResultTextPartTypes = {
+  'input_text',
+  'output_text',
+  'text',
+};
+
+/// The text of a tool result that is a list of content parts, as Open WebUI's
+/// `getToolResultText` shows a `function_call_output`: image parts are
+/// skipped and the other parts' text is concatenated with nothing between.
+/// Null for any other shape, which keeps its JSON view.
+String? _toolResultPartsText(Object? result) {
+  if (result is! List || result.isEmpty) return null;
+  final text = StringBuffer();
+  var hasTextPart = false;
+  for (final part in result) {
+    if (part is! Map) return null;
+    final type = part['type'];
+    if (type == 'input_image') continue;
+    if (!_toolResultTextPartTypes.contains(type)) return null;
+    final value = part['text'];
+    if (value is String) {
+      text.write(value);
+    } else if (value is num || value is bool) {
+      text.write(value.toString());
+    } else if (value != null) {
+      return null;
+    }
+    hasTextPart = true;
+  }
+  return hasTextPart ? text.toString() : null;
 }
 
 String _decodeDetailAttribute(String? input) {

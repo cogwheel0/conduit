@@ -41,11 +41,16 @@ final class _DetailsOpener {
     required this.start,
     required this.end,
     required this.attributes,
+    required this.closed,
   });
 
   final int start;
   final int end;
   final Map<String, String> attributes;
+
+  /// Whether the scan reached the tag's unquoted `>`. False means the tag is
+  /// still open at the end of the content (streaming or truncated).
+  final bool closed;
 
   bool get isSemantic =>
       _semanticDetailsTypes.contains(attributes['type']?.toLowerCase());
@@ -86,6 +91,7 @@ _DetailsOpener? _parseDetailsOpener(String content, int start) {
         start: start,
         end: cursor + 1,
         attributes: attributes,
+        closed: true,
       );
     }
     if (_isWhitespace(unit) || unit == 0x2F) {
@@ -144,21 +150,20 @@ _DetailsOpener? _parseDetailsOpener(String content, int start) {
     start: start,
     end: content.length,
     attributes: attributes,
+    closed: false,
   );
 }
 
 /// The next `<details` opener at or after [from], semantic or not.
 _DetailsOpener? _nextDetailsOpener(String content, int from) {
-  var cursor = from;
-  while (true) {
-    final match = _detailsTagHint.matchAsPrefix(content, cursor) == null
-        ? content.toLowerCase().indexOf('<details', cursor)
-        : cursor;
-    if (match == -1) return null;
-    final opener = _parseDetailsOpener(content, match);
+  // Lazily walk the case-insensitive hint so each call costs only the distance
+  // to the next candidate (lower-casing the whole content per call made
+  // callers that visit every opener quadratic).
+  for (final match in _detailsTagHint.allMatches(content, from)) {
+    final opener = _parseDetailsOpener(content, match.start);
     if (opener != null) return opener;
-    cursor = match + 1;
   }
+  return null;
 }
 
 /// The next semantic `<details` opener at or after [from].
@@ -231,6 +236,180 @@ String dropUnterminatedSemanticDetails(String content) {
     return content;
   }
   return content.substring(0, opener.start).trimRight();
+}
+
+/// Drops a trailing semantic `<details` opening tag whose `>` never arrived.
+///
+/// A stream interrupted mid-attributes (or a message saved at that moment)
+/// ends inside the opening tag. The block parser can never match it, so the
+/// partial tag would render as raw text. Only the final line is considered,
+/// the opener must start that line, and its `type` must be exactly one of the
+/// semantic wrapper types, so prose that merely mentions `<details` keeps
+/// every character. Callers must mask code first: this does not know about
+/// code spans or fences.
+String dropTruncatedSemanticDetailsOpener(String content) {
+  if (!_detailsTagHint.hasMatch(content)) {
+    return content;
+  }
+  var cursor = 0;
+  while (true) {
+    final opener = _nextDetailsOpener(content, cursor);
+    if (opener == null) return content;
+    if (opener.closed) {
+      cursor = opener.end;
+      continue;
+    }
+    // An opener without its `>` consumes the rest of the content, so this is
+    // the trailing tag. Leave it unless it is a whole-line semantic opener on
+    // the final line.
+    final lineStart = opener.start == 0
+        ? 0
+        : content.lastIndexOf('\n', opener.start - 1) + 1;
+    final indent = content.substring(lineStart, opener.start);
+    if (indent.length > 3 || indent.trim().isNotEmpty) return content;
+    if (content.contains('\n', opener.start)) return content;
+    if (!opener.isSemantic) return content;
+    return content.substring(0, opener.start).trimRight();
+  }
+}
+
+/// Semantic wrapper types Open WebUI's message renderer turns into reasoning,
+/// tool-call, and code-interpreter sections.
+const Set<String> _openWebUiMessageDetailsTypes = {
+  'reasoning',
+  'tool_calls',
+  'code_interpreter',
+};
+
+/// A `<details` tag name on one line: followed by whitespace, `/`, `>`, or
+/// the end of the line (the preprocessor joins such a tag with the next line).
+final RegExp _detailsMarkerOnLine = RegExp(
+  r'<details(?=[\s/>]|$)',
+  caseSensitive: false,
+);
+final RegExp _detailsCloseMarker = RegExp('</details', caseSensitive: false);
+final RegExp _detailsCloseLine = RegExp(
+  r'^[ \t]*</details>[ \t]*$',
+  caseSensitive: false,
+);
+
+/// The opening tag [DetailsBlockSyntax] counts, anchored to one whole tag.
+final RegExp _rendererOpeningTag = RegExp(
+  r'^<details(?:\s+[^>]*)?>$',
+  caseSensitive: false,
+);
+
+/// [DetailsBlockSyntax]'s attribute pattern; its map keeps the last match.
+final RegExp _rendererAttribute = RegExp(r'(\w+)="(.*?)"');
+
+const int _detailsLineText = 0;
+const int _detailsLineOpen = 1;
+const int _detailsLineSemanticOpen = 2;
+const int _detailsLineClose = 3;
+const int _detailsLineInvalid = 4;
+
+/// Classifies one line (without its terminator) for
+/// [matchWellFormedSemanticDetailsBlocks].
+int _classifyDetailsLine(String line) {
+  if (!line.contains('<')) return _detailsLineText;
+  final hasClose = _detailsCloseMarker.hasMatch(line);
+  final openMarkers = _detailsMarkerOnLine.allMatches(line).length;
+  if (!hasClose && openMarkers == 0) return _detailsLineText;
+  if (hasClose) {
+    return openMarkers == 0 && _detailsCloseLine.hasMatch(line)
+        ? _detailsLineClose
+        : _detailsLineInvalid;
+  }
+  if (openMarkers != 1) return _detailsLineInvalid;
+
+  final tagStart = line.length - line.trimLeft().length;
+  final opener = _parseDetailsOpener(line, tagStart);
+  if (opener == null || !opener.closed) return _detailsLineInvalid;
+  final tag = line.substring(opener.start, opener.end);
+  final rest = line.substring(opener.end);
+  // One unambiguous tag alone on its line: no `<`/`>` inside it, so the
+  // renderer's per-line counting, the preprocessor's quoted-value escaping,
+  // and this scanner all agree on where it ends.
+  if (tag.indexOf('<', 1) != -1 ||
+      tag.indexOf('>') != tag.length - 1 ||
+      !_rendererOpeningTag.hasMatch(tag) ||
+      rest.trim().isNotEmpty) {
+    return _detailsLineInvalid;
+  }
+
+  final type = opener.attributes['type'];
+  String? rendererType;
+  for (final match in _rendererAttribute.allMatches(tag)) {
+    if (match.group(1) == 'type') rendererType = match.group(2);
+  }
+  // Open WebUI's tokenizer requires the tag at column 0 followed directly by
+  // a newline.
+  final isSemanticOpener =
+      tagStart == 0 &&
+      rest.isEmpty &&
+      type != null &&
+      _openWebUiMessageDetailsTypes.contains(type) &&
+      rendererType == type;
+  return isSemanticOpener ? _detailsLineSemanticOpen : _detailsLineOpen;
+}
+
+/// Maps each line that opens a complete, well-formed semantic `<details>`
+/// block (reasoning, tool_calls, or code_interpreter) to the line that closes
+/// it.
+///
+/// Open WebUI renders these blocks from assistant message text, so a pipe or
+/// server can emit them there. Only a strict shape qualifies, so every
+/// consumer agrees on where the block ends:
+///
+/// * the opener sits at column 0, alone on its line, with an exact `type`
+///   that the quote-aware scanner and the renderer's attribute pattern both
+///   read the same way;
+/// * every nested opener and every `</details>` sits alone on its own line,
+///   and no tag contains a raw `<` or `>`;
+/// * the block closes with balanced nesting before the end of [lines];
+/// * no generic `<details>` wrapper encloses it.
+///
+/// Any other line inside the span that mentions a details tag rejects the
+/// block. [lines] must not contain line terminators. This does not know
+/// about code: lines the caller knows are code go in [codeLines] and count
+/// as plain text (a `<details>` example in a fence wraps nothing), and
+/// callers must still reject blocks that start inside code.
+Map<int, int> matchWellFormedSemanticDetailsBlocks(
+  List<String> lines, {
+  Set<int> codeLines = const <int>{},
+}) {
+  final blocks = <int, int>{};
+  final open = <int>[];
+  final semanticStarts = <int>{};
+  // Generic wrappers still open. Their tags are escaped, so a semantic block
+  // inside one would otherwise surface on its own, out of its wrapper.
+  var genericOpen = 0;
+  final invalidBefore = List<int>.filled(lines.length + 1, 0);
+  for (var index = 0; index < lines.length; index++) {
+    final kind = codeLines.contains(index)
+        ? _detailsLineText
+        : _classifyDetailsLine(lines[index]);
+    invalidBefore[index + 1] =
+        invalidBefore[index] + (kind == _detailsLineInvalid ? 1 : 0);
+    switch (kind) {
+      case _detailsLineSemanticOpen:
+        semanticStarts.add(index);
+        open.add(index);
+      case _detailsLineOpen:
+        open.add(index);
+        genericOpen += 1;
+      case _detailsLineClose:
+        if (open.isEmpty) break;
+        final start = open.removeLast();
+        if (!semanticStarts.contains(start)) {
+          genericOpen -= 1;
+        } else if (genericOpen == 0 &&
+            invalidBefore[index + 1] == invalidBefore[start]) {
+          blocks[start] = index;
+        }
+    }
+  }
+  return blocks;
 }
 
 /// Removes every `<details>` block, nesting included, and truncates at a

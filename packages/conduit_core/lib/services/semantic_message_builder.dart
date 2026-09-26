@@ -1,5 +1,10 @@
 import 'dart:convert';
 
+import 'package:conduit_markdown/conduit_markdown.dart'
+    show
+        LongAlphanumericRunSyntax,
+        conduitGitHubWebExtensionSet,
+        matchWellFormedSemanticDetailsBlocks;
 import 'package:html_unescape/html_unescape.dart';
 import 'package:markdown/markdown.dart' as md;
 
@@ -25,9 +30,25 @@ sealed class SemanticMessageBlock {
 }
 
 final class SemanticTextBlock extends SemanticMessageBlock {
-  const SemanticTextBlock(this.text);
+  /// Model answer text. Every tag outside code is escaped, including
+  /// well-formed semantic `<details>` blocks, so a model cannot spoof a
+  /// reasoning or tool section (issue #549).
+  const SemanticTextBlock(this.text) : preservesSemanticDetails = false;
+
+  /// Open WebUI answer text.
+  ///
+  /// Open WebUI renders semantic `<details>` blocks (reasoning, tool_calls,
+  /// code_interpreter) that appear in message text, and pipes rely on that to
+  /// show their own tool calls (issue #677). Complete, well-formed blocks
+  /// outside code pass through unchanged; every other tag is escaped. See
+  /// [_escapeText].
+  const SemanticTextBlock.openWebUI(this.text)
+    : preservesSemanticDetails = true;
 
   final String text;
+
+  /// Whether complete semantic `<details>` blocks outside code pass through.
+  final bool preservesSemanticDetails;
 }
 
 final class SemanticDetailsBlock extends SemanticMessageBlock {
@@ -132,14 +153,27 @@ String renderSemanticMessageBlocks(List<SemanticMessageBlock> blocks) {
   if (blocks.isEmpty) return '';
 
   final parts = <String>[];
-  for (final block in blocks) {
+  for (var index = 0; index < blocks.length; index++) {
+    final block = blocks[index];
     switch (block) {
-      case SemanticTextBlock(:final text):
+      case SemanticTextBlock(:final text, :final preservesSemanticDetails):
         // Whitespace-only blocks must survive: dropping them here loses the
         // blank line between a reasoning/tool section and the answer, and the
         // streaming append delta never re-emits the swallowed prefix.
         if (text.isNotEmpty) {
-          parts.add(_escapeText(text));
+          final escaped = _escapeText(
+            text,
+            preserveSemanticDetails: preservesSemanticDetails,
+          );
+          final openFence = escaped.openFence;
+          // A text block that leaves a fence open would swallow the next
+          // reasoning/tool section into its code block. Close the fence here;
+          // only this block's own code is affected.
+          parts.add(
+            openFence != null && _nextContentIsDetails(blocks, index + 1)
+                ? _closeOpenFence(escaped.text, openFence)
+                : escaped.text,
+          );
         }
       case SemanticDetailsBlock():
         final rendered = _renderDetailsBlock(block);
@@ -154,6 +188,29 @@ String renderSemanticMessageBlocks(List<SemanticMessageBlock> blocks) {
   // paragraph, causing clients to render the tag as literal text.
   return parts.join('\n\n');
 }
+
+/// Whether the next block with visible content after [from] renders a
+/// details section: a details block, or Open WebUI text that carries one it
+/// passes through. Whitespace-only text blocks in between are skipped.
+bool _nextContentIsDetails(List<SemanticMessageBlock> blocks, int from) {
+  for (var index = from; index < blocks.length; index++) {
+    switch (blocks[index]) {
+      case SemanticDetailsBlock():
+        return true;
+      case SemanticTextBlock(:final text, :final preservesSemanticDetails):
+        if (text.trim().isEmpty) continue;
+        return preservesSemanticDetails &&
+            _semanticDetailsBlocksOutsideFences(
+              text,
+              text.split('\n'),
+            ).isNotEmpty;
+    }
+  }
+  return false;
+}
+
+String _closeOpenFence(String text, String fence) =>
+    text.endsWith('\n') ? '$text$fence' : '$text\n$fence';
 
 /// Escapes one plain-text streaming fragment without allowing it to create
 /// Conduit-owned semantic HTML.
@@ -367,8 +424,9 @@ Set<int> _parserConfirmedIndentedCodeLines(String value) {
   );
   try {
     md.Document(
-      extensionSet: md.ExtensionSet.gitHubWeb,
+      extensionSet: conduitGitHubWebExtensionSet,
       blockSyntaxes: <md.BlockSyntax>[recorder],
+      inlineSyntaxes: <md.InlineSyntax>[LongAlphanumericRunSyntax()],
       encodeHtml: false,
     ).parse(markedLines.join('\n'));
   } catch (_) {
@@ -420,8 +478,8 @@ List<_SourceSpan> _parserConfirmedMultilineCodeSpans(String value) {
   );
   try {
     md.Document(
-      extensionSet: md.ExtensionSet.gitHubWeb,
-      inlineSyntaxes: <md.InlineSyntax>[recorder],
+      extensionSet: conduitGitHubWebExtensionSet,
+      inlineSyntaxes: <md.InlineSyntax>[LongAlphanumericRunSyntax(), recorder],
       encodeHtml: false,
     ).parse(marked.toString());
   } catch (_) {
@@ -507,7 +565,13 @@ String _transformInlineMarkdownSegment(
 /// entity references inside code spans/fences; escaping there would leak literal
 /// entities into rendered output (e.g. `List&lt;int&gt;`, `https:&#47;&#47;`).
 /// Text outside code is still escaped so a model cannot emit a literal
-/// `<details>`/`<summary>` that renders as a spoofed reasoning/tool section.
+/// `<details>`/`<summary>` that renders as a spoofed section.
+///
+/// With [preserveSemanticDetails] (Open WebUI answer text), a complete,
+/// well-formed reasoning/tool_calls/code_interpreter block that starts outside
+/// code passes through unchanged, as Open WebUI's own renderer shows it. The
+/// shape rules live in [matchWellFormedSemanticDetailsBlocks]; anything
+/// malformed or unterminated is escaped, and blocks inside code stay code.
 ///
 /// The scan is line-based and mirrors the block parser's fenced-code handling,
 /// including unclosed fences (which extend to end of input, e.g. mid-stream).
@@ -522,26 +586,153 @@ String _transformInlineMarkdownSegment(
 /// Unlike [_escape], this is only safe for top-level answer text; `<details>`
 /// attributes/summaries/bodies are HTML-unescaped wholesale at parse time and
 /// must keep full escaping.
-String _escapeText(String value) =>
-    _transformAnswerText(value, _semanticTextEscape.convert);
+({String text, String? openFence}) _escapeText(
+  String value, {
+  required bool preserveSemanticDetails,
+}) => _transformAnswerText(
+  value,
+  _semanticTextEscape.convert,
+  preserveSemanticDetails: preserveSemanticDetails,
+);
 
 final _renderedAnswerUnescape = HtmlUnescape();
 
 /// Inverse of [_escapeText] for answer text Conduit rendered once and later
 /// reads back (for example from the persisted chat). It walks the exact same
-/// parser-confirmed code regions, so entities are decoded only where the
-/// escaper wrote them and stored code keeps its literal `&lt;`.
-String unescapeRenderedAnswerText(String value) => value.contains('&')
-    ? _transformAnswerText(value, _renderedAnswerUnescape.convert)
+/// parser-confirmed code regions and passed-through semantic blocks, so
+/// entities are decoded only where the escaper wrote them: stored code keeps
+/// its literal `&lt;`, and a preserved block keeps the `&quot;` inside its
+/// attributes. Pass the same [preserveSemanticDetails] the text was rendered
+/// with.
+String unescapeRenderedAnswerText(
+  String value, {
+  bool preserveSemanticDetails = false,
+}) => value.contains('&')
+    ? _transformAnswerText(
+        value,
+        _renderedAnswerUnescape.convert,
+        preserveSemanticDetails: preserveSemanticDetails,
+      ).text
     : value;
 
+String _withoutCarriageReturn(String line) =>
+    line.endsWith('\r') ? line.substring(0, line.length - 1) : line;
+
+final _detailsTagHint = RegExp('<details', caseSensitive: false);
+
+/// Complete semantic blocks (first line -> last line) that start outside
+/// fenced code.
+Map<int, int> _semanticDetailsBlocksOutsideFences(
+  String value,
+  List<String> rawLines,
+) {
+  if (!_detailsTagHint.hasMatch(value)) return const <int, int>{};
+  final lines = rawLines.map(_withoutCarriageReturn).toList(growable: false);
+  final first = _walkSemanticDetailsBlocks(
+    lines,
+    matchWellFormedSemanticDetailsBlocks(lines),
+  );
+  if (first.codeLines.isEmpty) return first.blocks;
+  // Match again with fenced lines as plain text, so a `<details>` example in
+  // a code fence cannot count as a wrapper around the blocks after it.
+  return _walkSemanticDetailsBlocks(
+    lines,
+    matchWellFormedSemanticDetailsBlocks(lines, codeLines: first.codeLines),
+  ).blocks;
+}
+
+/// Keeps the [candidates] that start outside fenced code, and reports the
+/// lines that are fenced code. Fence lines inside a block do not toggle
+/// fence state: the details parser consumes the whole block before any fence
+/// rule runs.
+({Map<int, int> blocks, Set<int> codeLines}) _walkSemanticDetailsBlocks(
+  List<String> lines,
+  Map<int, int> candidates,
+) {
+  final blocks = <int, int>{};
+  final codeLines = <int>{};
+  String? openFenceChar;
+  var openFenceLength = 0;
+  for (var index = 0; index < lines.length; index++) {
+    final line = lines[index];
+    if (openFenceChar != null) {
+      codeLines.add(index);
+      final close = _closingFence.firstMatch(line);
+      if (close != null) {
+        final run = close.group(1)!;
+        if (run[0] == openFenceChar && run.length >= openFenceLength) {
+          openFenceChar = null;
+          openFenceLength = 0;
+        }
+      }
+      continue;
+    }
+    final end = candidates[index];
+    if (end != null) {
+      blocks[index] = end;
+      index = end;
+      continue;
+    }
+    final open =
+        _openingBacktickFence.firstMatch(line) ??
+        _openingTildeFence.firstMatch(line);
+    if (open != null) {
+      codeLines.add(index);
+      final run = open.group(1)!;
+      openFenceChar = run[0];
+      openFenceLength = run.length;
+    }
+  }
+  return (blocks: blocks, codeLines: codeLines);
+}
+
+/// [value] with the lines of [blocks] blanked (same offsets), so parser
+/// confirmation sees each block as a block boundary, as the details parser
+/// does, and no code span or indented code can extend into or out of one.
+String _blankSemanticBlockLines(List<String> rawLines, Map<int, int> blocks) {
+  final lines = List<String>.from(rawLines);
+  for (final entry in blocks.entries) {
+    for (var index = entry.key; index <= entry.value; index++) {
+      lines[index] = ' ' * lines[index].length;
+    }
+  }
+  return lines.join('\n');
+}
+
+bool _overlapsProtectedSpan(
+  List<_SourceSpan> spans,
+  int fromIndex,
+  int start,
+  int end,
+) {
+  for (var index = fromIndex; index < spans.length; index++) {
+    final span = spans[index];
+    if (span.start >= end) return false;
+    if (span.end > start) return true;
+  }
+  return false;
+}
+
 /// Applies [transform] to plain answer text outside fenced/indented code,
-/// inline code spans, and angle autolinks. See [_escapeText] for the region
-/// rules; both directions must share this walk so they cannot drift.
-String _transformAnswerText(String value, String Function(String) transform) {
+/// inline code spans, angle autolinks, and (with [preserveSemanticDetails])
+/// passed-through semantic blocks. See [_escapeText] for the region rules;
+/// both directions must share this walk so they cannot drift.
+///
+/// [openFence] is the fence that is still open at the end of [value], or null.
+({String text, String? openFence}) _transformAnswerText(
+  String value,
+  String Function(String) transform, {
+  required bool preserveSemanticDetails,
+}) {
   final lines = value.split('\n');
-  final multilineCodeSpans = _parserConfirmedMultilineCodeSpans(value);
-  final indentedCodeLines = _parserConfirmedIndentedCodeLines(value);
+  final semanticBlocks = preserveSemanticDetails
+      ? _semanticDetailsBlocksOutsideFences(value, lines)
+      : const <int, int>{};
+  final parserValue = semanticBlocks.isEmpty
+      ? value
+      : _blankSemanticBlockLines(lines, semanticBlocks);
+  final multilineCodeSpans = _parserConfirmedMultilineCodeSpans(parserValue);
+  final indentedCodeLines = _parserConfirmedIndentedCodeLines(parserValue);
   final result = <String>[];
   String? openFenceChar;
   var openFenceLength = 0;
@@ -553,9 +744,7 @@ String _transformAnswerText(String value, String Function(String) transform) {
     final rawLine = lines[index];
     // Normalize CRLF: split('\n') leaves a trailing '\r' the fence patterns
     // (and the downstream renderer) would otherwise mishandle.
-    final line = rawLine.endsWith('\r')
-        ? rawLine.substring(0, rawLine.length - 1)
-        : rawLine;
+    final line = _withoutCarriageReturn(rawLine);
     if (openFenceChar != null) {
       // Inside a fenced block: emit verbatim, closing on a matching fence line.
       result.add(line);
@@ -569,6 +758,29 @@ String _transformAnswerText(String value, String Function(String) transform) {
       }
       sourceStart += rawLine.length + 1;
       continue;
+    }
+
+    final semanticEnd = semanticBlocks[index];
+    if (semanticEnd != null) {
+      var blockEnd = sourceStart;
+      for (var blockIndex = index; blockIndex <= semanticEnd; blockIndex++) {
+        blockEnd += lines[blockIndex].length + 1;
+      }
+      if (!_overlapsProtectedSpan(
+        multilineCodeSpans,
+        multilineSpanIndex,
+        sourceStart,
+        blockEnd,
+      )) {
+        // A complete semantic block outside code: pass it through verbatim.
+        for (var blockIndex = index; blockIndex <= semanticEnd; blockIndex++) {
+          result.add(_withoutCarriageReturn(lines[blockIndex]));
+        }
+        inIndentedCode = false;
+        sourceStart = blockEnd;
+        index = semanticEnd;
+        continue;
+      }
     }
 
     final isBlank = line.trim().isEmpty;
@@ -618,5 +830,8 @@ String _transformAnswerText(String value, String Function(String) transform) {
     sourceStart += rawLine.length + 1;
   }
 
-  return result.join('\n');
+  return (
+    text: result.join('\n'),
+    openFence: openFenceChar == null ? null : openFenceChar * openFenceLength,
+  );
 }

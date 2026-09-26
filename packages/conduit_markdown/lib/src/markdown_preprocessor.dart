@@ -1,5 +1,7 @@
 import 'package:html_unescape/html_unescape.dart';
 
+import 'semantic_details.dart';
+
 /// Content preprocessing, sanitization, and transformation for Markdown.
 ///
 /// Provides:
@@ -207,7 +209,15 @@ class ConduitMarkdownPreprocessor {
     // run in one quote-aware scan that locates the true end-of-tag (the first
     // `>` outside quotes), joins if needed, and escapes quoted values.
     // Everything operates outside code spans and fences.
-    output = _maskCodeAndTransform(output, _normalizeDetailsOpenTags);
+    //
+    // The same masked pass drops a trailing semantic opener that was cut off
+    // before its `>` (an interrupted stream saved mid-tag), which the block
+    // parser could only show as raw text.
+    output = _maskCodeAndTransform(
+      output,
+      (masked) =>
+          _dropTruncatedSemanticOpener(_normalizeDetailsOpenTags(masked)),
+    );
 
     // Raw model output can attach Open WebUI's tool-call block directly to
     // answer text. Put it on a Markdown block boundary without rewriting
@@ -462,6 +472,14 @@ class ConduitMarkdownPreprocessor {
       final index = int.parse(match[1]!);
       return index < codeSpans.length ? codeSpans[index] : match[0]!;
     });
+  }
+
+  /// [dropTruncatedSemanticDetailsOpener] on code-masked content. A tag that
+  /// would swallow masked code is not a stream cut mid-tag, so it stays.
+  static String _dropTruncatedSemanticOpener(String masked) {
+    final dropped = dropTruncatedSemanticDetailsOpener(masked);
+    if (dropped.length == masked.length) return masked;
+    return masked.contains('\u0000', dropped.length) ? masked : dropped;
   }
 
   /// Normalizes `<details ...>` opening tags in one quote-aware scan:

@@ -1186,14 +1186,20 @@ void main() {
       final projector = StructuredOutputStreamingProjector();
       final text = StringBuffer('`code` ');
       projector.project([StructuredOutputTextBlock(text: text.toString())]);
-      // Grow past the projected content without crossing the re-render
-      // threshold so the latest snapshot stays deferred.
-      text.write('x');
-      projector.project([StructuredOutputTextBlock(text: text.toString())]);
+      // An indented line may be code, so escapable text on it cannot be
+      // appended; short of the re-render threshold, the snapshot defers.
+      text.write('\n    x < y');
+      check(
+        projector.project([StructuredOutputTextBlock(text: text.toString())]),
+      ).isNull();
 
       final synced = projector.syncProjectionToLatest();
       check(synced).isNotNull();
-      check(synced!.content).equals(text.toString());
+      check(synced!.content).equals(
+        renderStructuredOutputBlocks([
+          StructuredOutputTextBlock(text: text.toString()),
+        ]),
+      );
     });
 
     test('forceReplace overrides an otherwise appendable update', () {
@@ -1241,9 +1247,8 @@ void main() {
     });
 
     test('code-bearing streams re-render on the bounded additive schedule', () {
-      // Once a backtick disables the append fast path, the schedule
-      // deliberately switches from geometric doubling (which would leave
-      // the tail up to 50% stale until completion) to additive steps of
+      // Code-bearing text appends through the tail cursor, and full renders
+      // switch from geometric doubling to additive steps of
       // max(64, length / 8): denser than geometric, still bounded.
       const chunkCount = 4096;
       final projector = StructuredOutputStreamingProjector();
@@ -1453,6 +1458,160 @@ void main() {
       check(completed).isNotNull();
       check(completed!.content).contains('`List<int>`');
       check(completed.content).contains('<https://example.test/a&b>');
+    });
+
+    test('renders a streamed semantic details block as soon as it closes', () {
+      // Issue #677: a pipe streams its own tool call as a <details> block in
+      // the answer text. Appends escape it; the closing tag must re-render.
+      const block =
+          '<details type="tool_calls" done="true" id="c1" name="t" '
+          'arguments="{&quot;q&quot;: 1}" result="&quot;ok&quot;">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>';
+      final projector = StructuredOutputStreamingProjector();
+      projector.project([
+        const StructuredOutputTextBlock(text: 'Searching.\n'),
+      ]);
+      final partial = block.substring(0, block.length - 5);
+      projector.project([
+        StructuredOutputTextBlock(text: 'Searching.\n$partial'),
+      ]);
+
+      final closed = projector.project([
+        const StructuredOutputTextBlock(text: 'Searching.\n$block'),
+      ]);
+
+      check(closed).isA<StructuredOutputStreamingReplace>();
+      check((closed! as StructuredOutputStreamingReplace).content)
+          .equals('Searching.\n$block');
+    });
+
+    test('a CRLF closing fence ends the fence for later text', () {
+      // The escaper matches fences without the `\r`; so must the cursor, or
+      // text after the fence is appended unescaped as if it were code.
+      const head = 'Code:\r\n```\r\nx\r\n```\r\n';
+      final projector = StructuredOutputStreamingProjector();
+      final initial = projector.project([
+        const StructuredOutputTextBlock(text: head),
+      ]);
+      final next = projector.project([
+        const StructuredOutputTextBlock(text: '${head}after <b>bold</b>'),
+      ]);
+
+      check(next).isA<StructuredOutputStreamingAppend>();
+      final visible =
+          (initial! as StructuredOutputStreamingReplace).content +
+          (next! as StructuredOutputStreamingAppend).content;
+      check(visible).equals(
+        renderStructuredOutputBlocks([
+          const StructuredOutputTextBlock(text: '${head}after <b>bold</b>'),
+        ]),
+      );
+    });
+
+    test('keeps an answer after reasoning visible once it contains code', () {
+      // Issue #751: the first backtick used to disable appends while the
+      // doubling threshold armed by the reasoning-sized render stayed in
+      // place, so the answer stopped updating until it was nearly as long as
+      // the reasoning, usually until completion.
+      final reasoning = StructuredOutputReasoningBlock(
+        text: 'Weighing the options. ' * 200,
+        done: true,
+        duration: '3',
+      );
+      const answer =
+          'Use `List<int>` with `where`, so a && b holds.\n\n'
+          '```dart\nfinal xs = <int>[1, 2].where((x) => x > 1);\n```\n\n'
+          'Then `print(xs)`; the result is (2).';
+      final projector = StructuredOutputStreamingProjector();
+      var visible = StringBuffer();
+      var projections = 0;
+      var chunks = 0;
+      for (var end = 4; end <= answer.length + 3; end += 4) {
+        final blocks = [
+          reasoning,
+          StructuredOutputTextBlock(
+            text: answer.substring(0, end.clamp(0, answer.length)),
+          ),
+        ];
+        chunks += 1;
+        final projection = projector.project(blocks);
+        switch (projection) {
+          case StructuredOutputStreamingAppend(:final content):
+            visible.write(content);
+          case StructuredOutputStreamingReplace(:final content):
+            visible = StringBuffer(content);
+          case null:
+            continue;
+        }
+        projections += 1;
+        check(visible.toString()).equals(renderStructuredOutputBlocks(blocks));
+      }
+
+      check(projections).equals(chunks);
+      check(projector.metrics.deferredProjectionCount).equals(0);
+      check(projector.fullProjectionCount).isLessOrEqual(4);
+    });
+
+    test('streams code-bearing answers exactly as the full renderer', () {
+      // The tail cursor may only append what renderSemanticMessageBlocks
+      // would emit for the same text, so every update it produces must match
+      // a full render of the snapshot it answers.
+      final answers = <String>[
+        'Intro with `code` then a < b & c > d.\n'
+            '```html\n<details type="reasoning">x</details>\n<b>&amp;</b>\n```\n'
+            'After the fence: <details type="reasoning">spoof</details>\n',
+        'Inline `List<int>` and `a && b` and `x -> y`, then <https://a.test/x?q=1&r=2> '
+            'and <mail@example.test> and a <b>tag</b>.\n',
+        '> quoted `code` with a > b\n> > nested & deeper\n>not spaced < x\n',
+        '- item `one`\n    indented < code & more\n\n    real indented <b>\n\n'
+            'para after\n',
+        'Start of `a multi\nline span < x` and after & more\n\nnext para `x`\n',
+        '~~~\ntilde <fence> & stuff\n~~~\n````md\n```\ninner < x\n```\n````\n'
+            'done & dusted\n',
+        '``double `tick` span`` then < and `unclosed <x\nnext line > y\n',
+        'crlf `line`\r\nnext < line\r\n```\r\ncode <x>\r\n```\r\n',
+        'Table:\n\n| a | `b<c>` |\n|---|---|\n| 1 & 2 | <br> |\n',
+        'Run `tool`:\n'
+            '<details type="tool_calls" done="true" id="c1" name="t" '
+            'arguments="{&quot;q&quot;: 1}" result="&quot;a &lt; b&quot;">\n'
+            '<summary>Tool Executed</summary>\n'
+            '</details>\n'
+            'After the tile, x < y & `z<w>` and ```\nnot a fence\n',
+        // An unmatched backtick keeps the rest of its line unsettled, and a
+        // long fenced line never settles into anything but itself.
+        'Press the ` key, then ${'type words & more < less ' * 12}'
+            'and `close` it.\nnext `line` > x\n',
+        '```json\n${'{"a":"<b>&amp;","c":[1,2]},' * 12}\n```\nafter & more\n',
+        '${'Plain words that stream ' * 10}then `code` and '
+            '${'more text <b> & ' * 8}\n',
+      ];
+      for (final answer in answers) {
+        for (final size in const [1, 2, 3, 5, 8, 13]) {
+          final projector = StructuredOutputStreamingProjector();
+          var visible = StringBuffer();
+          for (var end = size; ; end += size) {
+            final text = answer.substring(0, end.clamp(0, answer.length));
+            final blocks = [StructuredOutputTextBlock(text: text)];
+            final projection = projector.project(blocks);
+            switch (projection) {
+              case StructuredOutputStreamingAppend(:final content):
+                visible.write(content);
+              case StructuredOutputStreamingReplace(:final content):
+                visible = StringBuffer(content);
+              case null:
+                break;
+            }
+            if (projection != null && RegExp('[`~]').hasMatch(text)) {
+              check(
+                because: 'chunk size $size at $end of ${jsonEncode(answer)}',
+                visible.toString(),
+              ).equals(renderStructuredOutputBlocks(blocks));
+            }
+            if (end >= answer.length) break;
+          }
+        }
+      }
     });
   });
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/services/worker_manager.dart';
@@ -533,6 +534,75 @@ void main() {
           document.blocks.first as CompiledMarkdownDetailsBlock;
       expect(detailsBlock.detailsData, detailsData);
       expect(detailsBlock.toolCallData, toolCallData);
+    });
+
+    // Open WebUI shows a function_call_output as the text of its parts
+    // (getToolResultText), not as the JSON of the part list (issue #677).
+    test('shows a text-part tool result as its joined text', () {
+      String escapeAttribute(String value) => value
+          .replaceAll('&', '&amp;')
+          .replaceAll('"', '&quot;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;');
+      CompiledMarkdownToolCallData compileResult(Object result) {
+        final document = compilePreparedMarkdownSync(
+          [
+            '<details type="tool_calls" done="true" name="fetch" '
+                'result="${escapeAttribute(jsonEncode(result))}">',
+            '<summary>Tool Executed</summary>',
+            '</details>',
+          ].join('\n'),
+        );
+        final details = document.nodes.first as CompiledMarkdownElement;
+        return details.detailsData!.toolCallData!;
+      }
+
+      final parts = compileResult([
+        {'type': 'input_text', 'text': 'line one\n<b>line</b> two'},
+        {'type': 'input_image', 'image_url': 'https://example.com/a.png'},
+        {'type': 'output_text', 'text': ' and '},
+        {'type': 'text', 'text': 'more'},
+      ]);
+      expect(parts.resultCode, isEmpty);
+      expect(parts.resultDisplayText, 'line one\n<b>line</b> two and more');
+
+      final mixed = compileResult([
+        {'type': 'input_text', 'text': 'a'},
+        {'title': 'not a content part'},
+      ]);
+      expect(mixed.resultDisplayText, isEmpty);
+      expect(mixed.resultCode, contains('"title": "not a content part"'));
+
+      final imagesOnly = compileResult([
+        {'type': 'input_image', 'image_url': 'https://example.com/a.png'},
+      ]);
+      expect(imagesOnly.resultCode, contains('input_image'));
+    });
+
+    // Issue #677: JSON-escaped tool text looks like LaTeX delimiters. Block
+    // extraction inserted blank lines into the opening tag, so the whole tool
+    // call rendered as a raw wall.
+    test('keeps LaTeX extraction out of details attributes', () {
+      const resultText = r'Solve \[x^2\] then $$y$$ and \(z\).';
+      final attribute = jsonEncode(resultText)
+          .replaceAll('&', '&amp;')
+          .replaceAll('"', '&quot;');
+      final document = compilePreparedMarkdownSync(
+        [
+          'Math \\[a+b\\] stays math.',
+          '',
+          '<details type="tool_calls" done="true" name="fetch" '
+              'result="$attribute">',
+          '<summary>Tool Executed</summary>',
+          '</details>',
+        ].join('\n'),
+      );
+
+      final details = document.nodes
+          .whereType<CompiledMarkdownElement>()
+          .singleWhere((node) => node.tag == 'details');
+      expect(details.detailsData!.toolCallData!.resultDisplayText, resultText);
+      expect(document.blockLatexExpressions.values, ['a+b']);
     });
 
     test('stores details bodies as lazy markdown payloads', () {
