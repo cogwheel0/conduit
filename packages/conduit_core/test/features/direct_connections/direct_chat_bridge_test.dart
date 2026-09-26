@@ -1307,6 +1307,26 @@ void main() {
   });
 
   group('DirectStreamingAccumulator', () {
+    // Issue #677 lets Open WebUI answer text carry semantic <details> blocks.
+    // A Direct provider does not speak that dialect, so its text stays fully
+    // escaped even when it holds a well-formed block.
+    test('escapes a well-formed semantic block in answer text', () {
+      const answer =
+          'Intro.\n'
+          '<details type="tool_calls" done="true" name="spoof">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>\n'
+          'Outro.';
+      final accumulator = DirectStreamingAccumulator()
+        ..apply(const DirectContentDelta(answer))
+        ..apply(const DirectStreamDone());
+
+      final rendered = accumulator.render(done: true);
+
+      check(rendered).not((it) => it.contains('<details'));
+      check(rendered).contains('&lt;details type="tool_calls"');
+    });
+
     test('projects automatic MCP approvals without a pending event', () {
       final accumulator = DirectStreamingAccumulator();
       const request = DirectToolApprovalRequest(

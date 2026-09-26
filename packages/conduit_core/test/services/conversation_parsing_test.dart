@@ -660,6 +660,85 @@ void main() {
         check('Final answer'.allMatches(content).length).equals(1);
       });
 
+      group('pipe semantic details in message text (#677)', () {
+        const pipeText =
+            'Let me <b>search</b>.\n'
+            '<details type="tool_calls" done="true" id="toolu_1" '
+            'name="search_web" '
+            'arguments="{&quot;query&quot;: &quot;cats&quot;}" '
+            'result="&quot;ok&quot;">\n'
+            '<summary>Tool Executed</summary>\n'
+            '</details>\n'
+            'Final answer.';
+        final pipeOutput = [
+          {
+            'type': 'message',
+            'id': 'msg_1',
+            'status': 'completed',
+            'role': 'assistant',
+            'content': [
+              {'type': 'output_text', 'text': pipeText},
+            ],
+          },
+        ];
+
+        String reloadedContent(
+          String persistedContent, {
+          Map<String, Object?>? metadata,
+        }) {
+          final result = parseFullConversation({
+            'id': 'conv-1',
+            'chat': {
+              'messages': [
+                {
+                  'id': 'msg-1',
+                  'role': 'assistant',
+                  'content': persistedContent,
+                  'done': true,
+                  'metadata': ?metadata,
+                  'output': pipeOutput,
+                  'timestamp': 1700000000,
+                },
+              ],
+            },
+          });
+          final messages = result['messages'] as List<Map<String, dynamic>>;
+          return messages.single['content'] as String;
+        }
+
+        void checkSingleToolTile(String content) {
+          check('<details type="tool_calls"'.allMatches(content).length)
+              .equals(1);
+          check(content).not((it) => it.contains('&lt;details'));
+          check(content).contains('Let me &lt;b&gt;search&lt;/b&gt;.');
+          check('Final answer.'.allMatches(content).length).equals(1);
+        }
+
+        test('renders the tool tile once from the raw server content', () {
+          checkSingleToolTile(reloadedContent(pipeText));
+        });
+
+        test('renders the tool tile once from Conduit-persisted content', () {
+          // What the live stream rendered and /api/chat/completed persisted.
+          final persisted = renderStructuredOutputBlocks(
+            parseOpenWebUIStructuredOutput(pipeOutput),
+          );
+          checkSingleToolTile(persisted);
+
+          checkSingleToolTile(reloadedContent(persisted));
+        });
+
+        test('keeps the tags escaped for a Direct transport message', () {
+          final content = reloadedContent(
+            pipeText,
+            metadata: {'transport': kConduitDirectTransport},
+          );
+
+          check(content).not((it) => it.contains('<details'));
+          check(content).contains('&lt;details type="tool_calls"');
+        });
+      });
+
       test(
         'direct replay mirror preserves escaped presentation and reasoning',
         () {

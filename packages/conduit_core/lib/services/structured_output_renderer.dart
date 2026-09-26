@@ -933,10 +933,10 @@ List<SemanticMessageBlock> structuredOutputBlocksToSemanticMessage(
         if (replacementTextParts != null) {
           final replacementPart = replacementTextParts[replacementTextIndex++];
           if (replacementPart.isNotEmpty) {
-            semanticBlocks.add(SemanticTextBlock(replacementPart));
+            semanticBlocks.add(SemanticTextBlock.openWebUI(replacementPart));
           }
         } else {
-          semanticBlocks.add(SemanticTextBlock(text));
+          semanticBlocks.add(SemanticTextBlock.openWebUI(text));
         }
       case StructuredOutputReasoningBlock(
         :final text,
@@ -990,7 +990,7 @@ List<SemanticMessageBlock> structuredOutputBlocksToSemanticMessage(
   }
 
   if (replacementText != null && replacementTextParts == null) {
-    semanticBlocks.add(SemanticTextBlock(replacementText));
+    semanticBlocks.add(SemanticTextBlock.openWebUI(replacementText));
   }
 
   return semanticBlocks;

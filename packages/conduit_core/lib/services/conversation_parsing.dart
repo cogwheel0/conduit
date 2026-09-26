@@ -362,6 +362,7 @@ Map<String, dynamic>? _parseSiblingAsVersion(
     final outputContent = _mergeContentWithStructuredOutput(
       contentString,
       outputBlocks,
+      preserveSemanticDetails: !_isDirectTransport(metadata),
     );
     if (outputContent.isNotEmpty) {
       contentString = outputContent;
@@ -670,6 +671,7 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
     final outputContent = _mergeContentWithStructuredOutput(
       contentString,
       outputBlocks,
+      preserveSemanticDetails: !_isDirectTransport(metadata),
     );
     if (outputContent.isNotEmpty) {
       contentString = outputContent;
@@ -1030,6 +1032,12 @@ _resolveDirectReplayForMessage(
   );
 }
 
+/// Direct connections talk to the provider without Open WebUI, so their model
+/// text never carries Open WebUI's semantic `<details>` blocks and must keep
+/// every tag escaped.
+bool _isDirectTransport(Map<String, dynamic>? metadata) =>
+    metadata?['transport'] == kConduitDirectTransport;
+
 bool _hasTerminalDirectReplayProvenance(
   Map<String, dynamic> msgData, {
   required Map<String, dynamic>? historyMsg,
@@ -1076,10 +1084,35 @@ String _reconcileDirectReplayContent(
   return replayPresentation;
 }
 
+/// Renders structured output the way the live stream does, except that a
+/// Direct transport's answer text keeps every tag escaped
+/// ([preserveSemanticDetails] false).
+String _renderStructuredOutput(
+  List<StructuredOutputBlock> outputBlocks, {
+  required bool preserveSemanticDetails,
+  String? replacementText,
+}) {
+  final blocks = structuredOutputBlocksToSemanticMessage(
+    outputBlocks,
+    replacementText: replacementText,
+  );
+  return renderSemanticMessageBlocks(
+    preserveSemanticDetails
+        ? blocks
+        : <SemanticMessageBlock>[
+            for (final block in blocks)
+              block is SemanticTextBlock
+                  ? SemanticTextBlock(block.text)
+                  : block,
+          ],
+  );
+}
+
 String _mergeContentWithStructuredOutput(
   String content,
-  List<StructuredOutputBlock> outputBlocks,
-) {
+  List<StructuredOutputBlock> outputBlocks, {
+  required bool preserveSemanticDetails,
+}) {
   final hasDetails = structuredOutputBlocksContainDetails(outputBlocks);
   var baseContent = stripRenderedSemanticDetails(content);
   final strippedSemanticDetails = baseContent != content;
@@ -1087,10 +1120,14 @@ String _mergeContentWithStructuredOutput(
   // escaped once (the /api/chat/completed payload persists into the chat).
   // Re-escaping it shows literal `&lt;` entities, and its longer escaped
   // length shifts the offsets tool/reasoning blocks are spliced back at
-  // (issue #728). Restore the plain text before merging; code regions were
-  // never escaped and stay untouched.
+  // (issue #728). Restore the plain text before merging; code regions (and
+  // semantic blocks the escaper passed through) were never escaped and stay
+  // untouched.
   if (strippedSemanticDetails) {
-    baseContent = unescapeRenderedAnswerText(baseContent);
+    baseContent = unescapeRenderedAnswerText(
+      baseContent,
+      preserveSemanticDetails: preserveSemanticDetails,
+    );
   }
   final outputPlainText = structuredOutputBlocksPlainText(outputBlocks);
   final hasOutputPlainText = outputPlainText.trim().isNotEmpty;
@@ -1101,22 +1138,36 @@ String _mergeContentWithStructuredOutput(
       : baseContent;
 
   if (effectiveContent.trim().isEmpty) {
-    return renderStructuredOutputBlocks(outputBlocks);
+    return _renderStructuredOutput(
+      outputBlocks,
+      preserveSemanticDetails: preserveSemanticDetails,
+    );
   }
   if (hasDetails) {
-    return renderStructuredOutputBlocksWithContent(
+    return _renderStructuredOutput(
       outputBlocks,
-      effectiveContent,
+      preserveSemanticDetails: preserveSemanticDetails,
+      replacementText: effectiveContent,
     );
   }
   if (outputTextIsAuthoritative) {
-    return renderStructuredOutputBlocks(outputBlocks);
+    return _renderStructuredOutput(
+      outputBlocks,
+      preserveSemanticDetails: preserveSemanticDetails,
+    );
   }
   if (strippedSemanticDetails) {
     if (hasOutputPlainText && !baseContent.contains(outputPlainText)) {
-      return renderStructuredOutputBlocks(outputBlocks);
+      return _renderStructuredOutput(
+        outputBlocks,
+        preserveSemanticDetails: preserveSemanticDetails,
+      );
     }
-    return renderSemanticMessageBlocks([SemanticTextBlock(baseContent)]);
+    return renderSemanticMessageBlocks([
+      preserveSemanticDetails
+          ? SemanticTextBlock.openWebUI(baseContent)
+          : SemanticTextBlock(baseContent),
+    ]);
   }
   return '';
 }

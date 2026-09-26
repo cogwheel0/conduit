@@ -460,6 +460,144 @@ void main() {
       check(rendered).contains('&lt;/details&gt;');
     });
   });
+  // Issue #677: Open WebUI renders semantic <details> blocks that a pipe puts
+  // in its message text, so Conduit must too. Everything else keeps the #549
+  // escaping.
+  group('Open WebUI semantic details in answer text', () {
+    const toolBlock =
+        '<details type="tool_calls" done="true" id="toolu_1" '
+        'name="search_web" '
+        'arguments="{&quot;query&quot;: &quot;cats &amp; dogs&quot;}" '
+        'result="&quot;ok&quot;">\n'
+        '<summary>Tool Executed</summary>\n'
+        '</details>';
+
+    test('passes a pipe tool block through and escapes the text around it', () {
+      const text = 'Let me <b>search</b>.\n$toolBlock\nFinal <i>answer</i>.';
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock.openWebUI(text),
+      ]);
+
+      check(rendered).contains(toolBlock);
+      check(rendered).contains('Let me &lt;b&gt;search&lt;/b&gt;.');
+      check(rendered).contains('Final &lt;i&gt;answer&lt;/i&gt;.');
+      final details = _renderedDetails(rendered);
+      check(details).length.equals(1);
+      check(details.single.attributes['type']).equals('tool_calls');
+      check(details.single.attributes['name']).equals('search_web');
+      check(_leakedDetailsText(rendered)).isEmpty();
+    });
+
+    test('keeps every tag escaped for Direct answer text', () {
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock('Intro.\n$toolBlock\nDone.'),
+      ]);
+
+      check(rendered).contains('&lt;details type="tool_calls"');
+      check(rendered).not((it) => it.contains('<details'));
+      check(_renderedDetails(rendered)).isEmpty();
+    });
+
+    test('passes nested well-formed blocks through as one block', () {
+      const text =
+          '<details type="reasoning" done="true" duration="2">\n'
+          '<summary>Thought for 2 seconds</summary>\n'
+          '> planning\n'
+          '$toolBlock\n'
+          '</details>\n'
+          'Answer.';
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock.openWebUI(text),
+      ]);
+
+      check(rendered).equals(text);
+      final details = _renderedDetails(rendered);
+      check(details).length.equals(1);
+      check(details.single.attributes['type']).equals('reasoning');
+    });
+
+    test('keeps well-formed blocks inside code as code', () {
+      for (final text in [
+        'Example:\n```html\n$toolBlock\n```\nAfter.',
+        'Example:\n~~~\n$toolBlock\n~~~',
+        'Unclosed:\n```\n$toolBlock',
+      ]) {
+        final rendered = renderSemanticMessageBlocks([
+          SemanticTextBlock.openWebUI(text),
+        ]);
+
+        check(rendered).contains(toolBlock);
+        check(_renderedDetails(rendered)).isEmpty();
+      }
+    });
+
+    test('escapes malformed and unterminated blocks', () {
+      const opener = '<details type="tool_calls" done="true" name="t">';
+      for (final text in [
+        // Never closed.
+        '$opener\n<summary>Tool Executed</summary>\nstill streaming',
+        // Prefix of a semantic type.
+        '<details type="reasoning_example">\n<summary>x</summary>\n</details>',
+        // Not the exact type the renderer reads.
+        '<details type="TOOL_CALLS">\n<summary>x</summary>\n</details>',
+        "<details type='reasoning'>\n<summary>x</summary>\n</details>",
+        // Content after the opener or the closer on the same line.
+        '$opener<summary>x</summary>\n</details>',
+        '$opener\n<summary>x</summary>\n</details> tail',
+        // Not at column 0.
+        '  $opener\n<summary>x</summary>\n</details>',
+        // Raw angle bracket inside an attribute value.
+        '<details type="tool_calls" result="a>b">\n<summary>x</summary>\n'
+            '</details>',
+        // A details tag mentioned mid-line inside the body.
+        '$opener\n<summary>x</summary>\nuse <details> here\n</details>',
+        // Unbalanced nesting.
+        '$opener\n<details>\n<summary>x</summary>\n</details>',
+      ]) {
+        final rendered = renderSemanticMessageBlocks([
+          SemanticTextBlock.openWebUI(text),
+        ]);
+
+        check(because: text, rendered).contains('&lt;details');
+        check(because: text, rendered).not((it) => it.contains('<details'));
+        check(because: text, _renderedDetails(rendered)).isEmpty();
+      }
+    });
+
+    test('closes a fence left open before a following details block', () {
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock('Here:\n````md\nprint("<x>")'),
+        const SemanticTextBlock('\n'),
+        SemanticDetailsBlock.toolCall(
+          id: 'call-1',
+          name: 'run',
+          arguments: const {'a': 1},
+          done: true,
+          result: 'ok',
+        ),
+        const SemanticTextBlock('Done.'),
+      ]);
+
+      check(rendered).contains('print("<x>")\n````\n\n');
+      final nodes = _renderPipeline(rendered);
+      final elements = _descendantElements(nodes).toList(growable: false);
+      check(elements.where((element) => element.tag == 'details')).length
+          .equals(1);
+      final code = elements.singleWhere((element) => element.tag == 'code');
+      check(code.textContent).equals('print("<x>")\n');
+      check(elements.last.textContent).equals('Done.');
+    });
+
+    test('leaves a fence open when no details block follows', () {
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock('Here:\n```python\nprint(1)'),
+        const SemanticTextBlock('more code'),
+      ]);
+
+      check(rendered).equals('Here:\n```python\nprint(1)\n\nmore code');
+    });
+  });
+
   group('unescapeRenderedAnswerText', () {
     test('round-trips rendered answer text and leaves code regions alone', () {
       const source =
@@ -483,7 +621,61 @@ void main() {
       check(rendered).contains('and &lt; that');
       check(unescapeRenderedAnswerText(rendered)).equals(source);
     });
+
+    test('skips passed-through semantic blocks in both directions', () {
+      const source =
+          'a < b\n'
+          '<details type="tool_calls" done="true" name="t" '
+          'arguments="{&quot;q&quot;: &quot;x &amp; y&quot;}">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>\n'
+          'c > d';
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock.openWebUI(source),
+      ]);
+      check(rendered).contains('a &lt; b');
+      check(rendered).contains('arguments="{&quot;q&quot;');
+
+      check(unescapeRenderedAnswerText(rendered, preserveSemanticDetails: true))
+          .equals(source);
+      final direct = renderSemanticMessageBlocks([
+        const SemanticTextBlock(source),
+      ]);
+      check(unescapeRenderedAnswerText(direct)).equals(source);
+    });
   });
+}
+
+/// The details elements Conduit's renderer builds from [rendered].
+List<md.Element> _renderedDetails(String rendered) =>
+    _descendantElements(_renderPipeline(rendered))
+        .where((element) => element.tag == 'details')
+        .toList(growable: false);
+
+List<md.Node> _renderPipeline(String rendered) => md.Document(
+  extensionSet: md.ExtensionSet.gitHubWeb,
+  blockSyntaxes: const [DetailsBlockSyntax()],
+  encodeHtml: false,
+).parse(ConduitMarkdownPreprocessor.normalize(rendered));
+
+/// Text nodes outside code that still show a raw details tag.
+List<String> _leakedDetailsText(String rendered) {
+  final leaks = <String>[];
+  void walk(md.Node node, {required bool inCode}) {
+    if (node is md.Element) {
+      final code = inCode || node.tag == 'code' || node.tag == 'pre';
+      for (final child in node.children ?? const <md.Node>[]) {
+        walk(child, inCode: code);
+      }
+    } else if (!inCode && node.textContent.contains('<details')) {
+      leaks.add(node.textContent);
+    }
+  }
+
+  for (final node in _renderPipeline(rendered)) {
+    walk(node, inCode: false);
+  }
+  return leaks;
 }
 
 Iterable<md.Element> _descendantElements(Iterable<md.Node> nodes) sync* {
