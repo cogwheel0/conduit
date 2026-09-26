@@ -73,10 +73,9 @@ class AndroidAssistantHandler {
       }
 
       // Navigate to chat if not already there
-      final isOnChatRoute = NavigationService.currentRoute == Routes.chat;
-      if (!isOnChatRoute) {
-        // Navigation will happen via auth state
-        return;
+      if (NavigationService.currentRoute != Routes.chat) {
+        await NavigationService.navigateToChat();
+        if (NavigationService.currentRoute != Routes.chat) return;
       }
 
       // Start a fresh chat context
