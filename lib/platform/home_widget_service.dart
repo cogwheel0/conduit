@@ -296,7 +296,8 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
     // Wait for navigation to settle
     await Future<void>.delayed(const Duration(milliseconds: 100));
 
-    if (!ref.read(chatEntryReadyProvider)) {
+    // Attachments route through the selected model's transport.
+    if (!await waitForChatEntryReady(ref, requireModel: true)) {
       DebugLogger.log('Widget: Chat not ready for camera', scope: 'widget');
       return;
     }
@@ -334,7 +335,8 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
     // Wait for navigation to settle
     await Future<void>.delayed(const Duration(milliseconds: 100));
 
-    if (!ref.read(chatEntryReadyProvider)) {
+    // Attachments route through the selected model's transport.
+    if (!await waitForChatEntryReady(ref, requireModel: true)) {
       DebugLogger.log('Widget: Chat not ready for photos', scope: 'widget');
       return;
     }

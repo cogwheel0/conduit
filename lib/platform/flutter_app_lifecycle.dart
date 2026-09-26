@@ -9,7 +9,9 @@ import 'package:flutter/widgets.dart';
 /// this port existed, four engines each registered their own and each
 /// re-derived what "foreground" meant; now they share one subscription and
 /// one definition.
-class FlutterAppLifecycle with WidgetsBindingObserver implements AppLifecyclePort {
+class FlutterAppLifecycle
+    with WidgetsBindingObserver
+    implements AppLifecyclePort {
   FlutterAppLifecycle() {
     WidgetsBinding.instance.addObserver(this);
   }
@@ -18,7 +20,8 @@ class FlutterAppLifecycle with WidgetsBindingObserver implements AppLifecyclePor
       StreamController<AppLifecyclePhase>.broadcast();
 
   @override
-  AppLifecyclePhase? get current => _map(WidgetsBinding.instance.lifecycleState);
+  AppLifecyclePhase? get current =>
+      _map(WidgetsBinding.instance.lifecycleState);
 
   @override
   Stream<AppLifecyclePhase> get changes => _controller.stream;

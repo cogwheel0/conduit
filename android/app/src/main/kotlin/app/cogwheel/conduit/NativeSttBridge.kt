@@ -640,16 +640,23 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                 Log.w(TAG, "Unable to create Android recognizer for language switching", error)
                 return@withContext null
             }
-            val languages = platformRecognitionLanguages(
-                allowOnlineFallback = allowOnlineFallback,
-                requestLanguageSwitch = true,
-                recognizer = recognizer
-            )?.takeIf { NativeSttLanguagePolicy.hasMultipleLanguages(it) }
-            if (languages == null) {
-                runCatching { recognizer.destroy() }
-                return@withContext null
+            // Destroy on every exit that does not hand the recognizer to the
+            // caller, including cancellation before the support check runs.
+            var ownershipTransferred = false
+            try {
+                val languages = platformRecognitionLanguages(
+                    allowOnlineFallback = allowOnlineFallback,
+                    requestLanguageSwitch = true,
+                    recognizer = recognizer
+                )?.takeIf { NativeSttLanguagePolicy.hasMultipleLanguages(it) }
+                    ?: return@withContext null
+                ownershipTransferred = true
+                PlatformLanguageSwitch(recognizer, languages)
+            } finally {
+                if (!ownershipTransferred) {
+                    runCatching { recognizer.destroy() }
+                }
             }
-            PlatformLanguageSwitch(recognizer, languages)
         }
     }
 

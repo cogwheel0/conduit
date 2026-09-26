@@ -1040,7 +1040,13 @@ class AppIntentCoordinator extends _$AppIntentCoordinator
 
     NavigationService.navigateToChat();
 
-    final chatReady = ref.read(chatEntryReadyProvider);
+    // A cold launch can arrive before Direct profiles or auth finish loading;
+    // resetting only once chat is reachable keeps the prompt out of the
+    // previous conversation.
+    final chatReady = resetChat
+        ? await waitForChatEntryReady(ref)
+        : ref.read(chatEntryReadyProvider);
+    if (!ref.mounted) throw StateError('App not ready');
     if (prompt != null && prompt.isNotEmpty) {
       ref.read(prefilledInputTextProvider.notifier).set(prompt);
     }

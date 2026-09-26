@@ -13,7 +13,6 @@ import '../features/chat/voice_call/presentation/voice_call_launcher.dart';
 import '../shared/services/navigation_service.dart';
 import '../core/services/media_upload_controller.dart';
 
-import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -65,9 +64,7 @@ class AndroidAssistantHandler {
       );
 
       // Wait for app to be ready (chat reachable and model available)
-      final model = _ref.read(selectedModelProvider);
-
-      if (!_ref.read(chatEntryReadyProvider) || model == null) {
+      if (!await waitForChatEntryReady(_ref, requireModel: true)) {
         DebugLogger.log(
           'App not ready for screenshot processing',
           scope: 'assistant',
@@ -160,9 +157,7 @@ class AndroidAssistantHandler {
     try {
       DebugLogger.log('Starting new chat from assistant', scope: 'assistant');
 
-      final model = _ref.read(selectedModelProvider);
-
-      if (!_ref.read(chatEntryReadyProvider) || model == null) {
+      if (!await waitForChatEntryReady(_ref, requireModel: true)) {
         DebugLogger.log('App not ready for new chat', scope: 'assistant');
         return;
       }

@@ -41,6 +41,23 @@ const _usableHermes = HermesConfig(
   apiKey: 'hermes-key',
 );
 
+final _refProvider = Provider<Ref>((ref) => ref);
+
+final class _MutableDirectProfiles
+    extends Notifier<AsyncValue<List<DirectConnectionProfile>>> {
+  @override
+  AsyncValue<List<DirectConnectionProfile>> build() =>
+      const AsyncValue.loading();
+
+  void publish(AsyncValue<List<DirectConnectionProfile>> next) => state = next;
+}
+
+final _mutableDirectProfilesProvider =
+    NotifierProvider<
+      _MutableDirectProfiles,
+      AsyncValue<List<DirectConnectionProfile>>
+    >(_MutableDirectProfiles.new);
+
 ProviderContainer _container({
   required PreferredBackend backend,
   AuthNavigationState auth = AuthNavigationState.needsLogin,
@@ -109,5 +126,47 @@ void main() {
     );
 
     check(container.read(chatEntryReadyProvider)).isTrue();
+  });
+
+  test('a cold launch waits for Direct profiles to finish loading', () async {
+    final container = ProviderContainer(
+      overrides: [
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.needsLogin,
+        ),
+        preferredBackendProvider.overrideWith(
+          () => _FixedPreferredBackend(PreferredBackend.direct),
+        ),
+        effectiveDirectConnectionProfilesProvider.overrideWith(
+          (ref) => ref.watch(_mutableDirectProfilesProvider),
+        ),
+        hermesConfigProvider.overrideWith(
+          () => _FixedHermesConfig(const HermesConfig()),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final ready = waitForChatEntryReady(
+      container.read(_refProvider),
+      pollInterval: const Duration(milliseconds: 5),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    container
+        .read(_mutableDirectProfilesProvider.notifier)
+        .publish(AsyncValue.data([_usableDirectProfile]));
+
+    check(await ready).isTrue();
+  });
+
+  test('a signed-out Open WebUI install does not wait', () async {
+    final container = _container(backend: PreferredBackend.owui);
+
+    final started = DateTime.now();
+    final ready = await waitForChatEntryReady(container.read(_refProvider));
+
+    check(ready).isFalse();
+    check(DateTime.now().difference(started))
+        .isLessThan(const Duration(seconds: 1));
   });
 }
