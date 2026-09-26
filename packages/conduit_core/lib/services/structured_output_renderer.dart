@@ -1,4 +1,5 @@
 import 'dart:collection';
+import 'dart:convert';
 
 import 'semantic_message_builder.dart';
 import 'structured_output.dart';
@@ -41,6 +42,7 @@ class StructuredOutputStreamingMetrics {
   const StructuredOutputStreamingMetrics({
     required this.snapshotCount,
     required this.appendProjectionCount,
+    required this.tailRewriteProjectionCount,
     required this.fullProjectionCount,
     required this.deferredProjectionCount,
     required this.observedWithoutProjectionCount,
@@ -58,6 +60,10 @@ class StructuredOutputStreamingMetrics {
 
   final int snapshotCount;
   final int appendProjectionCount;
+
+  /// Code-bearing deltas applied by splicing the answer's last line rather
+  /// than re-rendering it.
+  final int tailRewriteProjectionCount;
   final int fullProjectionCount;
   final int deferredProjectionCount;
   final int observedWithoutProjectionCount;
@@ -79,11 +85,14 @@ class StructuredOutputStreamingMetrics {
 /// Open WebUI sends the complete accumulated `output` list on each event. A
 /// naive renderer therefore re-parses an ever-growing answer for every token.
 /// Plain trailing text is instead appended after fragment-safe HTML escaping.
-/// Structure-sensitive updates (reasoning, tools, code, or Markdown code
-/// delimiters) receive geometrically spaced authoritative replacements, plus
-/// immediate replacements for structural/status transitions. [finish] always
-/// performs one final authoritative render so streamed approximations cannot
-/// change persisted Markdown semantics.
+/// Once the answer contains Markdown code delimiters, trailing text keeps
+/// appending only where [_AnswerTailCursor] proves the fragment renders the
+/// same as the full escaper would render it. Structure-sensitive updates
+/// (reasoning, tools, or text the cursor cannot place) receive spaced
+/// authoritative replacements, plus immediate replacements for
+/// structural/status transitions. [finish] always performs one final
+/// authoritative render so streamed approximations cannot change persisted
+/// Markdown semantics.
 final class StructuredOutputStreamingProjector {
   List<StructuredOutputBlock> _latestBlocks = const [];
   List<StructuredOutputBlock> _projectedBlocks = const [];
@@ -95,11 +104,22 @@ final class StructuredOutputStreamingProjector {
   bool _appendIsPlain = true;
   bool _finished = false;
   int _nextFullProjectionLength = 1;
+  // A tail delta the cursor refuses cannot wait for the periodic threshold:
+  // every later delta includes it, so the visible answer would stall until
+  // then (issue #751). Re-render sooner, on a denser but still bounded step.
+  int _nextRefusedAppendProjectionLength = 1;
+  // While the answer carries code delimiters, the exact visible rendering and
+  // a cursor at its end let deltas extend it without a full render. The
+  // cursor is built lazily from the projected tail; both are dropped whenever
+  // a replacement changes that tail.
+  StringBuffer? _exactVisible;
+  _AnswerTailCursor? _tailCursor;
   int _snapshotRevision = 0;
   int _latestExactProjectionRevision = -1;
   int _snapshotCount = 0;
   int _fullProjectionCount = 0;
   int _appendProjectionCount = 0;
+  int _tailRewriteCount = 0;
   int _deferredProjectionCount = 0;
   int _observedWithoutProjectionCount = 0;
   int _initialReplacementCount = 0;
@@ -130,6 +150,7 @@ final class StructuredOutputStreamingProjector {
       StructuredOutputStreamingMetrics(
         snapshotCount: _snapshotCount,
         appendProjectionCount: _appendProjectionCount,
+        tailRewriteProjectionCount: _tailRewriteCount,
         fullProjectionCount: _fullProjectionCount,
         deferredProjectionCount: _deferredProjectionCount,
         observedWithoutProjectionCount: _observedWithoutProjectionCount,
@@ -183,25 +204,40 @@ final class StructuredOutputStreamingProjector {
       replacementText: replacementText,
       onPrefixValidation: _recordPrefixValidation,
     );
-    if (appendDelta != null &&
-        appendDelta.isNotEmpty &&
+    final hasTailDelta = appendDelta != null && appendDelta.isNotEmpty;
+    if (hasTailDelta && _closesDetailsTag(_projectedBlocks, appendDelta)) {
+      // A pipe can stream its own tool calls as semantic <details> blocks in
+      // the answer text, and a complete one renders as a tool tile, not text
+      // (issue #677). Appends escape it, so only a full render shows it.
+      return _replace(
+        snapshot,
+        replacementText,
+        logicalLength,
+        reason: StructuredOutputReplacementReason.immediate,
+      );
+    }
+    if (hasTailDelta &&
+        _appendIsPlain &&
         (appendDelta.contains('`') || appendDelta.contains('~'))) {
-      _appendIsPlain = false;
+      // Plain fragments cannot place code-bearing text. Render once so the
+      // visible text is exact, and let the tail cursor extend it from there,
+      // rather than hold the tail until the doubling threshold plain appends
+      // were expected to reach (issue #751).
+      return _replace(
+        snapshot,
+        replacementText,
+        logicalLength,
+        reason: StructuredOutputReplacementReason.immediate,
+      );
     }
 
     if (canAppend &&
-        _appendIsPlain &&
-        appendDelta != null &&
-        appendDelta.isNotEmpty &&
+        hasTailDelta &&
         logicalLength < _nextFullProjectionLength) {
-      _projectedBlocks = snapshot;
-      _projectedReplacementText = replacementText;
-      _appendProjectionCount += 1;
-      _appendProjectionPlainCharacterCount += appendDelta.length;
-      return StructuredOutputStreamingAppend(
-        content: renderSemanticPlainTextFragment(appendDelta),
-        plainContentDelta: appendDelta,
-      );
+      final projection = _appendIsPlain
+          ? _appendPlainTail(snapshot, appendDelta)
+          : _extendCodeBearingTail(snapshot, appendDelta);
+      if (projection != null) return projection;
     }
 
     final requiresImmediateReplacement = _requiresImmediateReplacement(
@@ -219,7 +255,11 @@ final class StructuredOutputStreamingProjector {
         reason: StructuredOutputReplacementReason.immediate,
       );
     }
-    if (logicalLength >= _nextFullProjectionLength) {
+    if (logicalLength >= _nextFullProjectionLength ||
+        (canAppend &&
+            hasTailDelta &&
+            !_appendIsPlain &&
+            logicalLength >= _nextRefusedAppendProjectionLength)) {
       return _replace(
         snapshot,
         replacementText,
@@ -230,6 +270,58 @@ final class StructuredOutputStreamingProjector {
 
     _deferredProjectionCount += 1;
     return null;
+  }
+
+  StructuredOutputStreamingAppend _appendPlainTail(
+    List<StructuredOutputBlock> snapshot,
+    String delta,
+  ) {
+    _projectedBlocks = snapshot;
+    _appendProjectionCount += 1;
+    _appendProjectionPlainCharacterCount += delta.length;
+    return StructuredOutputStreamingAppend(
+      content: renderSemanticPlainTextFragment(delta),
+      plainContentDelta: delta,
+    );
+  }
+
+  StructuredOutputStreamingProjection? _extendCodeBearingTail(
+    List<StructuredOutputBlock> snapshot,
+    String delta,
+  ) {
+    final visible = _exactVisible;
+    // A tail delta implies the projected tail is a text block.
+    final tail = (_projectedBlocks.last as StructuredOutputTextBlock).text;
+    // An empty tail renders as nothing, not even the blank line that will
+    // separate it from the block before once it has text.
+    if (visible == null || (tail.isEmpty && _projectedBlocks.length > 1)) {
+      return null;
+    }
+    final cursor = _tailCursor ??= _AnswerTailCursor(tail);
+    final edit = cursor.render(delta);
+    if (edit == null) return null;
+    _projectedBlocks = snapshot;
+    if (edit.remove == 0) {
+      visible.write(edit.insert);
+      _appendProjectionCount += 1;
+      _appendProjectionPlainCharacterCount += delta.length;
+      return StructuredOutputStreamingAppend(
+        content: edit.insert,
+        plainContentDelta: delta,
+      );
+    }
+    // The delta changed how the current line renders (a closing backtick, a
+    // completed autolink). Splice that line instead of re-rendering the whole
+    // answer.
+    final current = visible.toString();
+    final content =
+        current.substring(0, current.length - edit.remove) + edit.insert;
+    _exactVisible = StringBuffer(content);
+    _tailRewriteCount += 1;
+    return StructuredOutputStreamingReplace(
+      content: content,
+      plainContent: _plainText(snapshot, null),
+    );
   }
 
   /// Materializes the latest observed snapshot as a full replacement when the
@@ -276,6 +368,8 @@ final class StructuredOutputStreamingProjector {
     _projectedBlocks = const [];
     _projectedReplacementText = null;
     _hasProjection = false;
+    _exactVisible = null;
+    _tailCursor = null;
     _appendIsPlain = true;
     _nextFullProjectionLength = 1;
     _observedWithoutProjectionCount += 1;
@@ -328,16 +422,20 @@ final class StructuredOutputStreamingProjector {
     _projectedReplacementText = replacementText;
     _hasProjection = true;
     _appendIsPlain = !plainContent.contains('`') && !plainContent.contains('~');
-    // With appends available, geometric backoff is safe — appends carry the
-    // tail between full renders. Once a backtick/tilde disables appends for
-    // the rest of the turn, doubling would leave the visible tail up to 50%
-    // behind until completion; fall back to a bounded additive step instead.
+    _exactVisible = _appendIsPlain ? null : StringBuffer(content);
+    _tailCursor = null;
+    // With plain appends available, geometric backoff is safe — appends carry
+    // the tail between full renders. Code-bearing text only extends through
+    // the tail cursor, so it refreshes on a bounded additive step, and sooner
+    // still once the cursor refuses a delta.
     _nextFullProjectionLength = logicalLength == 0
         ? 1
         : _appendIsPlain
         ? logicalLength * 2
         : logicalLength +
               ((logicalLength >> 3) > 64 ? (logicalLength >> 3) : 64);
+    _nextRefusedAppendProjectionLength =
+        logicalLength + ((logicalLength >> 5) > 64 ? (logicalLength >> 5) : 64);
     _fullProjectionCount += 1;
     _fullProjectionCharacterCount += content.length;
     switch (reason) {
@@ -360,6 +458,371 @@ final class StructuredOutputStreamingProjector {
   }
 }
 
+// The patterns [renderSemanticMessageBlocks] walks answer text with. They
+// must stay identical to the ones in semantic_message_builder.dart: the cursor
+// below appends only what that escaper provably emits.
+final _cursorOpeningBacktickFence = RegExp(r'^ {0,3}(`{3,})[^`]*$');
+final _cursorOpeningTildeFence = RegExp(r'^ {0,3}(~{3,}).*$');
+final _cursorClosingFence = RegExp(r'^ {0,3}(`{3,}|~{3,})[ \t]*$');
+final _cursorIndentedCodeLine = RegExp(r'^(?:    | {0,3}\t)');
+final _cursorEscapedBlockquotePrefix = RegExp(r'^ {0,3}(?:&gt;[ \t]*)+');
+final _cursorSafeInlineMarkdown = RegExp(
+  r'(?<!`)(`+(?!`))(.*?[^`])\1(?!`)|'
+  r'<(?:[a-zA-Z][a-zA-Z\-\+\.]+):(?://)?[^\s>]*>|'
+  r'''<[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9]'''
+  r'''(?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?'''
+  r'''(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*>''',
+);
+const _cursorElementEscape = HtmlEscape(HtmlEscapeMode.element);
+// A line that starts like a fence may be one once it is complete.
+final _cursorFenceRunStart = RegExp(r'^ {0,3}(?:`{3,}|~{3,})');
+final _cursorDetailsTag = RegExp('<details', caseSensitive: false);
+final _cursorLineContentStart = RegExp(r'[^ \t>]');
+
+/// Follows the end of a streamed answer text block so code-bearing text can
+/// keep appending without a full re-render.
+///
+/// The full escaper walks answer text line by line: fenced code stays
+/// verbatim, and other lines go through one inline transform that depends
+/// only on the line itself. This cursor tracks fences with the escaper's own
+/// patterns, re-renders just the current line, and appends the part of that
+/// rendering that is new. [render] returns null, leaving the cursor
+/// unchanged, when a delta would change what was already emitted (a closing
+/// backtick, say) or when the line's rendering depends on context the cursor
+/// does not follow (indented code, a line that may open a fence, multi-line
+/// code spans, semantic HTML). The projector then falls back to a full
+/// render.
+final class _AnswerTailCursor {
+  _AnswerTailCursor(String text) {
+    var line = const _AnswerTailLine();
+    var start = 0;
+    for (
+      var newline = text.indexOf('\n');
+      newline >= 0;
+      newline = text.indexOf('\n', start)
+    ) {
+      line = line.complete(text.substring(start, newline));
+      start = newline + 1;
+    }
+    _line = line.extend(text.substring(start), emitted: true).line;
+  }
+
+  late _AnswerTailLine _line;
+
+  /// How the emitted text changes to take in [delta]: drop its last
+  /// `remove` characters, then append `insert`. Null when the new rendering
+  /// is unknown; the cursor is then left where it was.
+  ({int remove, String insert})? render(String delta) {
+    if (delta.contains('\r')) return null;
+    final insert = StringBuffer();
+    final segments = delta.split('\n');
+    var remove = 0;
+    var line = _line;
+    for (var index = 0; index < segments.length; index++) {
+      final before = line.unstableRendered;
+      final next = line.extend(segments[index]);
+      final after = next.renderedAfterStable;
+      if (before == null || after == null) return null;
+      if (after.startsWith(before)) {
+        insert.write(after.substring(before.length));
+      } else {
+        // Only the first segment continues a line that was already emitted;
+        // every later one starts a fresh line whose rendering is empty.
+        remove = before.length;
+        insert.write(after);
+      }
+      if (index == segments.length - 1) {
+        line = next.line;
+      } else {
+        insert.write('\n');
+        line = next.line.complete('');
+      }
+    }
+    _line = line;
+    return (remove: remove, insert: insert.toString());
+  }
+}
+
+/// The unterminated last line of a streamed answer, what the escaper emits
+/// for it, and what it inherits from the lines before it.
+///
+/// The emitted text is kept in two parts so a long line is not re-rendered
+/// from its start for every delta: the first [stableLength] characters of
+/// [text] render as [stableRendered] however the line continues, and only
+/// the rest is rendered again.
+final class _AnswerTailLine {
+  const _AnswerTailLine({
+    this.fenceChar,
+    this.fenceLength = 0,
+    this.paragraphMayContinueCodeSpan = false,
+    this.htmlSeen = false,
+    this.text = '',
+    this.stableLength = 0,
+    this.stableRendered = '',
+    this.unstableRendered = '',
+  });
+
+  final String? fenceChar;
+  final int fenceLength;
+  // An unmatched backtick run earlier in the paragraph may pair with one on
+  // this line, turning text on both lines into a multi-line code span.
+  final bool paragraphMayContinueCodeSpan;
+  // Semantic `<details>` HTML can make the escaper keep whole regions
+  // verbatim, including fence-like lines inside them, so the fence state is
+  // no longer trustworthy once one appears.
+  final bool htmlSeen;
+  final String text;
+  final int stableLength;
+  final String stableRendered;
+  // The rendering of `text.substring(stableLength)`; null when unknown.
+  final String? unstableRendered;
+
+  /// This line with [segment] appended, and the new rendering of everything
+  /// after the current stable prefix (null when it cannot be known without
+  /// the rest of the answer). [emitted] marks text the full escaper already
+  /// rendered, so no later delta is responsible for changing it.
+  ({_AnswerTailLine line, String? renderedAfterStable}) extend(
+    String segment, {
+    bool emitted = false,
+  }) {
+    final updated = text + segment;
+    final tail = text.length > 8 ? text.substring(text.length - 8) : text;
+    final html = htmlSeen || _cursorDetailsTag.hasMatch(tail + segment);
+    ({_AnswerTailLine line, String? renderedAfterStable}) unstable(
+      String? rendered,
+    ) => (
+      line: _next(html: html, text: updated, unstableRendered: rendered),
+      renderedAfterStable: rendered,
+    );
+
+    if (fenceChar != null && !html) {
+      return unstable(updated.substring(stableLength));
+    }
+    // A backtick here may close a span opened on an earlier line, changing
+    // how text already emitted there renders.
+    if (!emitted && paragraphMayContinueCodeSpan && segment.contains('`')) {
+      return unstable(null);
+    }
+    // Indented code, a fence opener, the inside of a multi-line code span or
+    // semantic HTML may each leave the line verbatim instead of rendering it
+    // inline. Only a line that renders the same either way is certain.
+    if (paragraphMayContinueCodeSpan ||
+        html ||
+        _cursorIndentedCodeLine.hasMatch(updated) ||
+        _cursorFenceRunStart.hasMatch(updated)) {
+      if (stableLength > 0) return unstable(null);
+      final inline = _cursorRenderInlineLine(updated).rendered;
+      return unstable(inline == updated ? inline : null);
+    }
+
+    final rendered = _cursorRenderInlineLine(
+      updated.substring(stableLength),
+      atLineStart: stableLength == 0,
+    );
+    return (
+      line: _next(
+        html: html,
+        text: updated,
+        stableLength: stableLength + rendered.stableLength,
+        stableRendered:
+            stableRendered +
+            rendered.rendered.substring(0, rendered.stableRenderedLength),
+        unstableRendered: rendered.rendered.substring(
+          rendered.stableRenderedLength,
+        ),
+      ),
+      renderedAfterStable: rendered.rendered,
+    );
+  }
+
+  /// Ends this line with [segment] and returns the empty line after it.
+  _AnswerTailLine complete(String segment) {
+    final line = text + segment;
+    final html = htmlSeen || _cursorDetailsTag.hasMatch(line);
+    final openFence = fenceChar;
+    if (openFence != null) {
+      final run = _cursorClosingFence.firstMatch(line)?.group(1);
+      if (run != null && run[0] == openFence && run.length >= fenceLength) {
+        return _AnswerTailLine(htmlSeen: html);
+      }
+      return _AnswerTailLine(
+        fenceChar: openFence,
+        fenceLength: fenceLength,
+        htmlSeen: html,
+      );
+    }
+    final open =
+        _cursorOpeningBacktickFence.firstMatch(line) ??
+        _cursorOpeningTildeFence.firstMatch(line);
+    if (open != null) {
+      final run = open.group(1)!;
+      return _AnswerTailLine(
+        fenceChar: run[0],
+        fenceLength: run.length,
+        htmlSeen: html,
+      );
+    }
+    if (line.trim().isEmpty) return _AnswerTailLine(htmlSeen: html);
+    return _AnswerTailLine(
+      paragraphMayContinueCodeSpan:
+          paragraphMayContinueCodeSpan ||
+          line.replaceAll(_cursorSafeInlineMarkdown, '').contains('`'),
+      htmlSeen: html,
+    );
+  }
+
+  _AnswerTailLine _next({
+    required bool html,
+    required String text,
+    int? stableLength,
+    String? stableRendered,
+    required String? unstableRendered,
+  }) => _AnswerTailLine(
+    fenceChar: fenceChar,
+    fenceLength: fenceLength,
+    paragraphMayContinueCodeSpan: paragraphMayContinueCodeSpan,
+    htmlSeen: html,
+    text: text,
+    stableLength: stableLength ?? this.stableLength,
+    stableRendered: stableRendered ?? this.stableRendered,
+    unstableRendered: unstableRendered,
+  );
+}
+
+/// The escaper's rendering of answer text outside code blocks: inline code
+/// and autolinks stay verbatim, everything else is escaped, and at the start
+/// of a line a leading run of blockquote markers is restored.
+///
+/// Also reports the longest prefix whose rendering later text cannot change:
+/// it stops before any backtick run still waiting for its closer, before any
+/// `<` that could still open an autolink (whitespace or `>` rules that out),
+/// and extends past the line's blockquote markers.
+({String rendered, int stableLength, int stableRenderedLength})
+_cursorRenderInlineLine(String text, {bool atLineStart = true}) {
+  final rendered = StringBuffer();
+  var stableLength = 0;
+  var stableRenderedLength = 0;
+  var settled = true;
+  var openAngle = -1;
+  var consumed = 0;
+  final contentStart = atLineStart ? text.indexOf(_cursorLineContentStart) : 0;
+  // A `<` outside any match may still open an autolink that swallows later
+  // text, even across what now matches as code, until whitespace or `>`
+  // follows it. [opens] is false inside a match, whose `<` is consumed.
+  void settleAngles(String part, int end, int offset, {required bool opens}) {
+    for (var index = 0; index < end; index++) {
+      final unit = part.codeUnitAt(index);
+      if (unit == 0x3C) {
+        if (opens && openAngle < 0) openAngle = offset + index;
+      } else if (unit == 0x3E || _cursorIsWhitespace(unit)) {
+        openAngle = -1;
+      }
+    }
+  }
+
+  for (final match in _cursorSafeInlineMarkdown.allMatches(text)) {
+    final gap = text.substring(consumed, match.start);
+    final matched = match[0]!;
+    if (settled) {
+      final tick = gap.indexOf('`');
+      final limit = tick < 0 ? gap.length : tick;
+      settleAngles(gap, limit, consumed, opens: true);
+      _cursorStablePoint(
+        gap,
+        start: consumed,
+        end: openAngle >= 0 ? openAngle - consumed : limit,
+        contentStart: contentStart,
+        renderedBefore: rendered.length,
+        onStable: (length, renderedLength) {
+          stableLength = length;
+          stableRenderedLength = renderedLength;
+        },
+      );
+      if (tick >= 0) {
+        settled = false;
+      } else {
+        settleAngles(matched, matched.length, match.start, opens: false);
+      }
+    }
+    rendered
+      ..write(_cursorElementEscape.convert(gap))
+      ..write(matched);
+    consumed = match.end;
+  }
+  final gap = text.substring(consumed);
+  if (settled) {
+    final tick = gap.indexOf('`');
+    final limit = tick < 0 ? gap.length : tick;
+    settleAngles(gap, limit, consumed, opens: true);
+    _cursorStablePoint(
+      gap,
+      start: consumed,
+      end: openAngle >= 0 ? openAngle - consumed : limit,
+      contentStart: contentStart,
+      renderedBefore: rendered.length,
+      onStable: (length, renderedLength) {
+        stableLength = length;
+        stableRenderedLength = renderedLength;
+      },
+    );
+  }
+  rendered.write(_cursorElementEscape.convert(gap));
+
+  if (!atLineStart) {
+    return (
+      rendered: rendered.toString(),
+      stableLength: stableLength,
+      stableRenderedLength: stableRenderedLength,
+    );
+  }
+  // Restoring markers only shortens text before the first content character,
+  // which lies inside the stable prefix whenever there is one.
+  final raw = rendered.toString();
+  final restored = raw.replaceFirstMapped(
+    _cursorEscapedBlockquotePrefix,
+    (match) => match[0]!.replaceAll('&gt;', '>'),
+  );
+  return (
+    rendered: restored,
+    stableLength: stableLength,
+    stableRenderedLength: stableLength == 0
+        ? 0
+        : stableRenderedLength - (raw.length - restored.length),
+  );
+}
+
+/// Reports `gap.substring(0, end)` as settled when it adds text past the
+/// line's first content character.
+void _cursorStablePoint(
+  String gap, {
+  required int start,
+  required int end,
+  required int contentStart,
+  required int renderedBefore,
+  required void Function(int length, int renderedLength) onStable,
+}) {
+  if (end <= 0 || contentStart < 0 || start + end <= contentStart) return;
+  onStable(
+    start + end,
+    renderedBefore + _cursorElementEscape.convert(gap.substring(0, end)).length,
+  );
+}
+
+/// Whether [unit] is whitespace to the escaper's `\s`, which ends any
+/// autolink candidate.
+bool _cursorIsWhitespace(int unit) =>
+    (unit >= 0x09 && unit <= 0x0D) ||
+    unit == 0x20 ||
+    unit == 0xA0 ||
+    unit == 0x1680 ||
+    (unit >= 0x2000 && unit <= 0x200A) ||
+    unit == 0x2028 ||
+    unit == 0x2029 ||
+    unit == 0x202F ||
+    unit == 0x205F ||
+    unit == 0x3000 ||
+    unit == 0xFEFF;
+
 String _render(List<StructuredOutputBlock> blocks, String? replacementText) {
   return replacementText == null
       ? renderStructuredOutputBlocks(blocks)
@@ -368,6 +831,17 @@ String _render(List<StructuredOutputBlock> blocks, String? replacementText) {
 
 String _plainText(List<StructuredOutputBlock> blocks, String? replacementText) {
   return replacementText ?? structuredOutputBlocksPlainText(blocks);
+}
+
+final _closingDetailsTag = RegExp('</details', caseSensitive: false);
+
+/// Whether [delta] completes a `</details` closing tag at the end of the
+/// projected text tail, including one split across deltas.
+bool _closesDetailsTag(List<StructuredOutputBlock> projected, String delta) {
+  final tail = (projected.last as StructuredOutputTextBlock).text;
+  // Eight characters is one short of the tag, so a match needs the delta.
+  final overlap = tail.length > 8 ? tail.substring(tail.length - 8) : tail;
+  return _closingDetailsTag.hasMatch(overlap + delta);
 }
 
 int _logicalLength(

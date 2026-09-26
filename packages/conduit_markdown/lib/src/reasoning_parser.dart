@@ -688,21 +688,29 @@ class StreamingReasoningTagSplitter {
 
   static bool _isXmlTag(String tag) => tag.startsWith('<') && tag.endsWith('>');
 
+  // Compiled once per tag: [feed] runs on every streamed chunk.
+  static final Map<String, RegExp> _openPatterns = {};
+  static final Map<String, RegExp> _unclosedOpenPatterns = {};
+
   /// Same opening-tag grammar as the server (`_start_tag_pattern`) and
   /// [ReasoningParser.segments]: XML-like tags may carry attributes.
-  static RegExp _openPattern(String startTag) {
-    if (_isXmlTag(startTag)) {
-      final name = RegExp.escape(startTag.substring(1, startTag.length - 1));
-      return RegExp('<$name(?:\\s[^>]*)?>');
-    }
-    return RegExp(RegExp.escape(startTag));
-  }
+  static RegExp _openPattern(String startTag) =>
+      _openPatterns[startTag] ??= () {
+        if (_isXmlTag(startTag)) {
+          final name = RegExp.escape(
+            startTag.substring(1, startTag.length - 1),
+          );
+          return RegExp('<$name(?:\\s[^>]*)?>');
+        }
+        return RegExp(RegExp.escape(startTag));
+      }();
 
   /// An attributed XML opening tag that has started but not yet closed.
-  static RegExp _unclosedOpenPattern(String startTag) {
-    final name = RegExp.escape(startTag.substring(1, startTag.length - 1));
-    return RegExp('<$name\\s[^>]*\$');
-  }
+  static RegExp _unclosedOpenPattern(String startTag) =>
+      _unclosedOpenPatterns[startTag] ??= RegExp(
+        '<${RegExp.escape(startTag.substring(1, startTag.length - 1))}'
+        '\\s[^>]*\$',
+      );
 
   /// Whether the last consumed tag opened a reasoning block.
   bool get isInsideReasoning => _open != null;

@@ -1030,6 +1030,72 @@ void main() {
       },
     );
 
+    test('cumulative content snapshots stream only their new text', () async {
+      // Issue #751: every cumulative snapshot used to re-render the whole
+      // message and publish it immediately, costing O(n) per token.
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+      await pumpMicrotasks();
+
+      for (final content in const [
+        'Klar!<think>\nPlan',
+        'Klar!<think>\nPlan more</think>\n\nAnswer',
+        'Klar!<think>\nPlan more</think>\n\nAnswer grows',
+        'Klar!<think>\nPlan more</think>\n\nAnswer grows further',
+      ]) {
+        registrar.emitChatEvent('chat:message', {
+          'content': content,
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+      }
+
+      final content = log.messages.last.content;
+      check(content).startsWith('Klar!\n<details type="reasoning" done="true"');
+      check(content).endsWith('</details>\n\n\nAnswer grows further');
+      // The closing tag needs the full path; the plain growth after it only
+      // appends.
+      check(log.replacedContents.length).equals(2);
+      check(log.appendedChunks).deepEquals([' grows', ' further']);
+    });
+
+    test('a snapshot after other visible changes re-renders in full', () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('chat:message', {
+        'content': 'Hello',
+      }, messageId: 'msg-1');
+      registrar.emitChatEvent('chat:message:delta', {
+        'content': ' world',
+      }, messageId: 'msg-1');
+      // Extends the last snapshot, but the delta has changed what is visible.
+      registrar.emitChatEvent('chat:message', {
+        'content': 'Hello there',
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
+
+      check(log.messages.last.content).equals('Hello there');
+    });
+
     test(
       'deltas after a snapshot continue its unterminated reasoning block',
       () async {
@@ -1802,7 +1868,9 @@ void main() {
           await pumpMicrotasks();
         }
 
-        check(snapshots.length).equals(3);
+        // The collapsed body refreshes a few times a second, not per delta,
+        // and the pending projection reads the reasoning when it is realized.
+        check(snapshots.length).equals(1);
         check(materializations).equals(0);
         check(log.replacedContents).isEmpty();
 
