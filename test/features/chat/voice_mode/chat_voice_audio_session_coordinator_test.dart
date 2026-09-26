@@ -491,6 +491,63 @@ void main() {
           .equals(AVAudioSessionCategory.playback);
     });
   });
+  group('iosSpeakerphoneChangeApplied', () {
+    Map<Object?, Object?> route(List<String> outputs) => {
+      'currentOutputs': [
+        for (final type in outputs) {'type': type},
+      ],
+    };
+
+    test('follows the route read back, not just the override', () {
+      check(
+        ChatVoiceAudioSessionCoordinator.iosSpeakerphoneChangeApplied(
+          route(['Speaker']),
+          enabled: true,
+        ),
+      ).isTrue();
+      check(
+        ChatVoiceAudioSessionCoordinator.iosSpeakerphoneChangeApplied(
+          route(['Receiver']),
+          enabled: false,
+        ),
+      ).isTrue();
+      // No receiver to fall back to: the override succeeded, the call did not
+      // leave the loudspeaker.
+      check(
+        ChatVoiceAudioSessionCoordinator.iosSpeakerphoneChangeApplied(
+          route(['Speaker']),
+          enabled: false,
+        ),
+      ).isFalse();
+      check(
+        ChatVoiceAudioSessionCoordinator.iosSpeakerphoneChangeApplied(
+          route(['Receiver']),
+          enabled: true,
+        ),
+      ).isFalse();
+    });
+
+    test('fails on errors and trusts the override without outputs', () {
+      check(
+        ChatVoiceAudioSessionCoordinator.iosSpeakerphoneChangeApplied(
+          null,
+          enabled: true,
+        ),
+      ).isFalse();
+      check(
+        ChatVoiceAudioSessionCoordinator.iosSpeakerphoneChangeApplied({
+          ...route(['Speaker']),
+          'error': 'override failed',
+        }, enabled: true),
+      ).isFalse();
+      check(
+        ChatVoiceAudioSessionCoordinator.iosSpeakerphoneChangeApplied(
+          route(const []),
+          enabled: false,
+        ),
+      ).isTrue();
+    });
+  });
 }
 
 /// Stands in for audio_session's Android audio manager on a test host.

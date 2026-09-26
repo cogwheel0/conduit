@@ -263,6 +263,18 @@ String _buildStreamingReasoningDetails(
   return rendered.isEmpty ? '' : '$rendered\n';
 }
 
+/// Whether [text] ends in what may be the start of an HTML entity, such as
+/// `&quo`, that the next snapshot could complete.
+bool _endsInsidePossibleEntity(String text) {
+  final amp = text.lastIndexOf('&');
+  if (amp < 0 || text.length - amp > 40) return false;
+  for (var index = amp + 1; index < text.length; index++) {
+    final unit = text.codeUnitAt(index);
+    if (unit == 0x3B || unit <= 0x20) return false;
+  }
+  return true;
+}
+
 /// How often an open reasoning block's collapsed body is re-rendered while it
 /// streams.
 const Duration _pendingReasoningRefreshInterval = Duration(milliseconds: 500);
@@ -641,6 +653,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   /// Whether the model uses reasoning/thinking (needs longer watchdog window).
   bool modelUsesReasoning = false,
 
+  /// Wall clock for reasoning durations and collapsed-body refresh pacing;
+  /// tests pin it.
+  @visibleForTesting DateTime Function() clock = DateTime.now,
+
   /// Whether tools are enabled (needs longer watchdog window).
   bool toolsEnabled = false,
 
@@ -980,13 +996,19 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   // `reasoning_content` delta path renders.
   final rawReasoningTags = StreamingReasoningTagSplitter();
   late final void Function() flushRawReasoningTags;
-  late final void Function(String chunk) appendRawSnapshotSuffix;
+  // Feeds a snapshot suffix through the splitter and returns how many
+  // reasoning blocks it closed.
+  late final int Function(String chunk) appendRawSnapshotSuffix;
   // The raw text of the last content snapshot, kept while the visible content
   // is still exactly what that snapshot produced. Every other visible-content
   // change clears it. A snapshot that extends it then only feeds its new
   // suffix through instead of re-rendering the whole text on every
   // cumulative event (issue #751).
   String? lastRawContentSnapshot;
+  // Reasoning blocks closed within the content `lastRawContentSnapshot` was
+  // rendered from, so a snapshot can tell whether its open block is the same
+  // one that was already open.
+  var rawSnapshotClosedReasoningBlocks = 0;
   var reasoningPrefix = '';
   var reasoningContent = _StreamingTextAccumulator();
 
@@ -995,7 +1017,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   int elapsedReasoningSeconds() {
     final startedAt = reasoningStartedAt;
     if (startedAt == null) return 0;
-    final elapsed = DateTime.now().difference(startedAt).inSeconds;
+    final elapsed = clock().difference(startedAt).inSeconds;
     return elapsed < 0 ? 0 : elapsed;
   }
 
@@ -1111,10 +1133,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       // full path would put in the plain accumulator unchanged qualify: `<`
       // may start a middleware <details> wrapper it strips, `&` an entity it
       // decodes.
+      // An entity split at the boundary (`&quo` + `t;`) would also escape
+      // that decoding.
       final suffix = content.substring(previous.length);
-      if (!suffix.contains('<') && !suffix.contains('&')) {
-        appendRawSnapshotSuffix(suffix);
+      if (!suffix.contains('<') &&
+          !suffix.contains('&') &&
+          !_endsInsidePossibleEntity(previous)) {
+        final closed = appendRawSnapshotSuffix(suffix);
         lastRawContentSnapshot = content;
+        rawSnapshotClosedReasoningBlocks += closed;
         return;
       }
     }
@@ -1126,12 +1153,16 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     final openReasoningStartedAt = inReasoningBlock ? reasoningStartedAt : null;
     rawReasoningTags.reset();
     final events = rawReasoningTags.feed(content);
+    final closedBlocks = events.whereType<RawReasoningTagEnd>().length;
+    // The open block is the one already open only if no block closed since.
+    final sameOpenBlock = closedBlocks == rawSnapshotClosedReasoningBlocks;
     final snapshot = _renderRawReasoningEvents(
       events,
       insideReasoning: rawReasoningTags.isInsideReasoning,
     );
     replaceVisibleAssistantContent(snapshot.content);
     lastRawContentSnapshot = content;
+    rawSnapshotClosedReasoningBlocks = closedBlocks;
     final openReasoning = snapshot.openReasoning;
     if (openReasoning == null) return;
     // The snapshot ends inside an unterminated block: seed the reasoning
@@ -1139,8 +1170,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     // block instead of starting a second one. A block that was already open
     // keeps its start, or its duration would restart with every snapshot.
     inReasoningBlock = true;
-    reasoningStartedAt = openReasoningStartedAt ?? DateTime.now();
-    pendingReasoningRenderedAt = DateTime.now();
+    reasoningStartedAt =
+        (sameOpenBlock ? openReasoningStartedAt : null) ?? clock();
+    pendingReasoningRenderedAt = clock();
     reasoningPrefix = snapshot.openPrefix ?? '';
     reasoningContent = _StreamingTextAccumulator(openReasoning);
   }
@@ -1472,7 +1504,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (!inReasoningBlock) {
       syncRenderedStreamingContentFromState();
       inReasoningBlock = true;
-      reasoningStartedAt = DateTime.now();
+      reasoningStartedAt = clock();
       reasoningPrefix = renderedStreamingContent.value;
       reasoningContent = _StreamingTextAccumulator();
       pendingReasoningRenderedAt = null;
@@ -1484,13 +1516,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     // every delta made the markdown pipeline re-parse it at the full flush
     // cadence for nothing (issue #751), so refresh it a few times a second.
     // Closing the block renders it in full regardless.
-    final now = DateTime.now();
+    final refreshAt = clock();
     final renderedAt = pendingReasoningRenderedAt;
     if (renderedAt != null &&
-        now.difference(renderedAt) < _pendingReasoningRefreshInterval) {
+        refreshAt.difference(renderedAt) < _pendingReasoningRefreshInterval) {
       return;
     }
-    pendingReasoningRenderedAt = now;
+    pendingReasoningRenderedAt = refreshAt;
     final deferredSnapshot = bufferProgressiveLastMessageSnapshot;
     if (deferredSnapshot != null) {
       final activePrefix = reasoningPrefix;
@@ -1531,12 +1563,22 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   /// reasoning details as they stream. Conduit-owned semantic HTML (tool
   /// status tiles) must go through [appendVisibleAssistantChunk] directly.
   void appendVisibleAssistantText(String chunk) {
+    // The splitter can change state without emitting anything (a held `<thi`
+    // completed by `nk>`), so any delta ends the snapshot basis.
+    lastRawContentSnapshot = null;
     for (final event in rawReasoningTags.feed(chunk)) {
       applyRawReasoningTagEvent(event);
     }
   }
 
-  appendRawSnapshotSuffix = appendVisibleAssistantText;
+  appendRawSnapshotSuffix = (chunk) {
+    var closed = 0;
+    for (final event in rawReasoningTags.feed(chunk)) {
+      if (event is RawReasoningTagEnd) closed += 1;
+      applyRawReasoningTagEvent(event);
+    }
+    return closed;
+  };
 
   flushRawReasoningTags = () {
     for (final event in rawReasoningTags.flush()) {

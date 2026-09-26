@@ -366,7 +366,8 @@ int _classifyDetailsLine(String line) {
 ///   read the same way;
 /// * every nested opener and every `</details>` sits alone on its own line,
 ///   and no tag contains a raw `<` or `>`;
-/// * the block closes with balanced nesting before the end of [lines].
+/// * the block closes with balanced nesting before the end of [lines];
+/// * no generic `<details>` wrapper encloses it.
 ///
 /// Any other line inside the span that mentions a details tag rejects the
 /// block. [lines] must not contain line terminators. This does not know
@@ -375,6 +376,9 @@ Map<int, int> matchWellFormedSemanticDetailsBlocks(List<String> lines) {
   final blocks = <int, int>{};
   final open = <int>[];
   final semanticStarts = <int>{};
+  // Generic wrappers still open. Their tags are escaped, so a semantic block
+  // inside one would otherwise surface on its own, out of its wrapper.
+  var genericOpen = 0;
   final invalidBefore = List<int>.filled(lines.length + 1, 0);
   for (var index = 0; index < lines.length; index++) {
     final kind = _classifyDetailsLine(lines[index]);
@@ -386,10 +390,13 @@ Map<int, int> matchWellFormedSemanticDetailsBlocks(List<String> lines) {
         open.add(index);
       case _detailsLineOpen:
         open.add(index);
+        genericOpen += 1;
       case _detailsLineClose:
         if (open.isEmpty) break;
         final start = open.removeLast();
-        if (semanticStarts.contains(start) &&
+        if (!semanticStarts.contains(start)) {
+          genericOpen -= 1;
+        } else if (genericOpen == 0 &&
             invalidBefore[index + 1] == invalidBefore[start]) {
           blocks[start] = index;
         }

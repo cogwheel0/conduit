@@ -189,15 +189,21 @@ String renderSemanticMessageBlocks(List<SemanticMessageBlock> blocks) {
   return parts.join('\n\n');
 }
 
-/// Whether the next block with visible content after [from] is a details
-/// block. Whitespace-only text blocks in between are skipped.
+/// Whether the next block with visible content after [from] renders a
+/// details section: a details block, or Open WebUI text that carries one it
+/// passes through. Whitespace-only text blocks in between are skipped.
 bool _nextContentIsDetails(List<SemanticMessageBlock> blocks, int from) {
   for (var index = from; index < blocks.length; index++) {
     switch (blocks[index]) {
       case SemanticDetailsBlock():
         return true;
-      case SemanticTextBlock(:final text):
-        if (text.trim().isNotEmpty) return false;
+      case SemanticTextBlock(:final text, :final preservesSemanticDetails):
+        if (text.trim().isEmpty) continue;
+        return preservesSemanticDetails &&
+            _semanticDetailsBlocksOutsideFences(
+              text,
+              text.split('\n'),
+            ).isNotEmpty;
     }
   }
   return false;

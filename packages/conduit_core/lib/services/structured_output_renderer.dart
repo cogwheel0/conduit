@@ -477,6 +477,8 @@ const _cursorElementEscape = HtmlEscape(HtmlEscapeMode.element);
 // A line that starts like a fence may be one once it is complete.
 final _cursorFenceRunStart = RegExp(r'^ {0,3}(?:`{3,}|~{3,})');
 final _cursorDetailsTag = RegExp('<details', caseSensitive: false);
+final _cursorInlineSensitive = RegExp('[`<>&]');
+const int _cursorMaxUnstableRender = 4096;
 final _cursorLineContentStart = RegExp(r'[^ \t>]');
 
 /// Follows the end of a streamed answer text block so code-bearing text can
@@ -504,7 +506,16 @@ final class _AnswerTailCursor {
       line = line.complete(text.substring(start, newline));
       start = newline + 1;
     }
-    _line = line.extend(text.substring(start), emitted: true).line;
+    final partial = text.substring(start);
+    // A partial line whose rendering cannot be known is kept as unknown, so
+    // every delta onto it waits for a full render.
+    _line =
+        line.extend(partial, emitted: true)?.line ??
+        line._next(
+          html: line.htmlSeen || _cursorDetailsTag.hasMatch(partial),
+          text: partial,
+          unstableRenderedLength: null,
+        );
   }
 
   late _AnswerTailLine _line;
@@ -519,23 +530,17 @@ final class _AnswerTailCursor {
     var remove = 0;
     var line = _line;
     for (var index = 0; index < segments.length; index++) {
-      final before = line.unstableRendered;
-      final next = line.extend(segments[index]);
-      final after = next.renderedAfterStable;
-      if (before == null || after == null) return null;
-      if (after.startsWith(before)) {
-        insert.write(after.substring(before.length));
-      } else {
-        // Only the first segment continues a line that was already emitted;
-        // every later one starts a fresh line whose rendering is empty.
-        remove = before.length;
-        insert.write(after);
-      }
+      final edit = line.extend(segments[index]);
+      if (edit == null) return null;
+      // Only the first segment continues a line that was already emitted;
+      // every later one starts a fresh line with nothing to remove.
+      if (edit.remove > 0) remove = edit.remove;
+      insert.write(edit.insert);
       if (index == segments.length - 1) {
-        line = next.line;
+        line = edit.line;
       } else {
         insert.write('\n');
-        line = next.line.complete('');
+        line = edit.line.complete('');
       }
     }
     _line = line;
@@ -543,13 +548,12 @@ final class _AnswerTailCursor {
   }
 }
 
-/// The unterminated last line of a streamed answer, what the escaper emits
-/// for it, and what it inherits from the lines before it.
+/// The unterminated last line of a streamed answer, how much of its
+/// rendering can still change, and what it inherits from the lines before.
 ///
-/// The emitted text is kept in two parts so a long line is not re-rendered
-/// from its start for every delta: the first [stableLength] characters of
-/// [text] render as [stableRendered] however the line continues, and only
-/// the rest is rendered again.
+/// The first [stableLength] characters of [text] render the same however the
+/// line continues, so only the rest is ever rendered again, and only when a
+/// delta could change it.
 final class _AnswerTailLine {
   const _AnswerTailLine({
     this.fenceChar,
@@ -558,8 +562,7 @@ final class _AnswerTailLine {
     this.htmlSeen = false,
     this.text = '',
     this.stableLength = 0,
-    this.stableRendered = '',
-    this.unstableRendered = '',
+    this.unstableRenderedLength = 0,
   });
 
   final String? fenceChar;
@@ -573,66 +576,97 @@ final class _AnswerTailLine {
   final bool htmlSeen;
   final String text;
   final int stableLength;
-  final String stableRendered;
-  // The rendering of `text.substring(stableLength)`; null when unknown.
-  final String? unstableRendered;
+  // Length of the emitted rendering of `text.substring(stableLength)`; null
+  // when that rendering is unknown.
+  final int? unstableRenderedLength;
 
-  /// This line with [segment] appended, and the new rendering of everything
-  /// after the current stable prefix (null when it cannot be known without
-  /// the rest of the answer). [emitted] marks text the full escaper already
+  /// This line with [segment] appended, and the edit from what was emitted
+  /// for it to its new rendering: drop the last `remove` characters, then
+  /// append `insert`. Null when the new rendering cannot be known without the
+  /// rest of the answer. [emitted] marks text the full escaper already
   /// rendered, so no later delta is responsible for changing it.
-  ({_AnswerTailLine line, String? renderedAfterStable}) extend(
+  ({_AnswerTailLine line, int remove, String insert})? extend(
     String segment, {
     bool emitted = false,
   }) {
+    if (unstableRenderedLength == null) return null;
     final updated = text + segment;
     final tail = text.length > 8 ? text.substring(text.length - 8) : text;
     final html = htmlSeen || _cursorDetailsTag.hasMatch(tail + segment);
-    ({_AnswerTailLine line, String? renderedAfterStable}) unstable(
-      String? rendered,
-    ) => (
-      line: _next(html: html, text: updated, unstableRendered: rendered),
-      renderedAfterStable: rendered,
-    );
 
+    // Fenced lines, closing fence included, are emitted verbatim: nothing
+    // already emitted can change, so the whole line is stable.
     if (fenceChar != null && !html) {
-      return unstable(updated.substring(stableLength));
+      return (
+        line: _next(
+          html: html,
+          text: updated,
+          stableLength: updated.length,
+          unstableRenderedLength: 0,
+        ),
+        remove: 0,
+        insert: segment,
+      );
     }
     // A backtick here may close a span opened on an earlier line, changing
     // how text already emitted there renders.
     if (!emitted && paragraphMayContinueCodeSpan && segment.contains('`')) {
-      return unstable(null);
+      return null;
     }
-    // Indented code, a fence opener, the inside of a multi-line code span or
-    // semantic HTML may each leave the line verbatim instead of rendering it
-    // inline. Only a line that renders the same either way is certain.
-    if (paragraphMayContinueCodeSpan ||
-        html ||
-        _cursorIndentedCodeLine.hasMatch(updated) ||
-        _cursorFenceRunStart.hasMatch(updated)) {
-      if (stableLength > 0) return unstable(null);
-      final inline = _cursorRenderInlineLine(updated).rendered;
-      return unstable(inline == updated ? inline : null);
+    final uncertain = _isUncertain(updated, html: html);
+    // Text without a backtick or anything escapable can neither open nor
+    // close inline code or an autolink, and escapes to itself, so it extends
+    // the current rendering unchanged (issue #751: no re-render per delta).
+    if (html == htmlSeen &&
+        uncertain == _isUncertain(text, html: htmlSeen) &&
+        !_cursorInlineSensitive.hasMatch(segment)) {
+      return (
+        line: _next(
+          html: html,
+          text: updated,
+          unstableRenderedLength: unstableRenderedLength! + segment.length,
+        ),
+        remove: 0,
+        insert: segment,
+      );
     }
+    // Re-rendering is linear in the unsettled part of the line; past this a
+    // full render of the answer is the cheaper fallback.
+    if (updated.length - stableLength > _cursorMaxUnstableRender) return null;
+    final before = _emittedUnstable();
+    if (before == null) return null;
 
-    final rendered = _cursorRenderInlineLine(
-      updated.substring(stableLength),
-      atLineStart: stableLength == 0,
-    );
-    return (
-      line: _next(
+    final String after;
+    final _AnswerTailLine line;
+    if (uncertain) {
+      // Indented code, a fence opener, the inside of a multi-line code span or
+      // semantic HTML may each leave the line verbatim instead of rendering it
+      // inline. Only a line that renders the same either way is certain.
+      if (stableLength > 0) return null;
+      after = _cursorRenderInlineLine(updated).rendered;
+      if (after != updated) return null;
+      line = _next(
+        html: html,
+        text: updated,
+        unstableRenderedLength: after.length,
+      );
+    } else {
+      final rendered = _cursorRenderInlineLine(
+        updated.substring(stableLength),
+        atLineStart: stableLength == 0,
+      );
+      after = rendered.rendered;
+      line = _next(
         html: html,
         text: updated,
         stableLength: stableLength + rendered.stableLength,
-        stableRendered:
-            stableRendered +
-            rendered.rendered.substring(0, rendered.stableRenderedLength),
-        unstableRendered: rendered.rendered.substring(
-          rendered.stableRenderedLength,
-        ),
-      ),
-      renderedAfterStable: rendered.rendered,
-    );
+        unstableRenderedLength:
+            rendered.rendered.length - rendered.stableRenderedLength,
+      );
+    }
+    return after.startsWith(before)
+        ? (line: line, remove: 0, insert: after.substring(before.length))
+        : (line: line, remove: before.length, insert: after);
   }
 
   /// Ends this line with [segment] and returns the empty line after it.
@@ -671,12 +705,28 @@ final class _AnswerTailLine {
     );
   }
 
+  bool _isUncertain(String line, {required bool html}) =>
+      paragraphMayContinueCodeSpan ||
+      html ||
+      _cursorIndentedCodeLine.hasMatch(line) ||
+      _cursorFenceRunStart.hasMatch(line);
+
+  /// What was emitted for `text.substring(stableLength)`. It is a pure
+  /// function of the text, so it is recomputed rather than kept.
+  String? _emittedUnstable() {
+    if (unstableRenderedLength == 0) return '';
+    if (_isUncertain(text, html: htmlSeen)) return text;
+    return _cursorRenderInlineLine(
+      text.substring(stableLength),
+      atLineStart: stableLength == 0,
+    ).rendered;
+  }
+
   _AnswerTailLine _next({
     required bool html,
     required String text,
     int? stableLength,
-    String? stableRendered,
-    required String? unstableRendered,
+    required int? unstableRenderedLength,
   }) => _AnswerTailLine(
     fenceChar: fenceChar,
     fenceLength: fenceLength,
@@ -684,8 +734,7 @@ final class _AnswerTailLine {
     htmlSeen: html,
     text: text,
     stableLength: stableLength ?? this.stableLength,
-    stableRendered: stableRendered ?? this.stableRendered,
-    unstableRendered: unstableRendered,
+    unstableRenderedLength: unstableRenderedLength,
   );
 }
 

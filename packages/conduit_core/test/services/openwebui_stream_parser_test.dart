@@ -1534,7 +1534,7 @@ void main() {
       // The tail cursor may only append what renderSemanticMessageBlocks
       // would emit for the same text, so every update it produces must match
       // a full render of the snapshot it answers.
-      const answers = <String>[
+      final answers = <String>[
         'Intro with `code` then a < b & c > d.\n'
             '```html\n<details type="reasoning">x</details>\n<b>&amp;</b>\n```\n'
             'After the fence: <details type="reasoning">spoof</details>\n',
@@ -1555,6 +1555,13 @@ void main() {
             '<summary>Tool Executed</summary>\n'
             '</details>\n'
             'After the tile, x < y & `z<w>` and ```\nnot a fence\n',
+        // An unmatched backtick keeps the rest of its line unsettled, and a
+        // long fenced line never settles into anything but itself.
+        'Press the ` key, then ${'type words & more < less ' * 12}'
+            'and `close` it.\nnext `line` > x\n',
+        '```json\n${'{"a":"<b>&amp;","c":[1,2]},' * 12}\n```\nafter & more\n',
+        '${'Plain words that stream ' * 10}then `code` and '
+            '${'more text <b> & ' * 8}\n',
       ];
       for (final answer in answers) {
         for (final size in const [1, 2, 3, 5, 8, 13]) {

@@ -516,6 +516,29 @@ void main() {
       check(details.single.attributes['type']).equals('reasoning');
     });
 
+    test('keeps a semantic block inside a generic wrapper escaped', () {
+      // The generic wrapper's tags are escaped, so passing the inner block
+      // through would surface it on its own, out of its wrapper.
+      const text =
+          '<details>\n<summary>Notes</summary>\n$toolBlock\n</details>';
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock.openWebUI(text),
+      ]);
+
+      check(rendered).not((it) => it.contains('<details type="tool_calls"'));
+      check(_renderedDetails(rendered)).isEmpty();
+    });
+
+    test('closes a fence before Open WebUI text that carries a block', () {
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock.openWebUI('Here:\n```python\nprint(1)'),
+        const SemanticTextBlock.openWebUI('$toolBlock\nDone.'),
+      ]);
+
+      check(rendered).contains('print(1)\n```\n\n');
+      check(_renderedDetails(rendered)).length.equals(1);
+    });
+
     test('keeps well-formed blocks inside code as code', () {
       for (final text in [
         'Example:\n```html\n$toolBlock\n```\nAfter.',

@@ -445,8 +445,10 @@ ActiveChatStream _attach({
   Future<Conversation?> Function(String chatId)? pullChatSnapshot,
   void Function(String Function())? bufferProgressiveLastMessageSnapshot,
   void Function(String path)? onTerminalDisplayFile,
+  DateTime Function() clock = DateTime.now,
 }) {
   return attachUnifiedChunkedStreaming(
+    clock: clock,
     session: session,
     webSearchEnabled: webSearchEnabled,
     assistantMessageId: assistantMessageId,
@@ -1094,6 +1096,101 @@ void main() {
       await pumpMicrotasks();
 
       check(log.messages.last.content).equals('Hello there');
+    });
+
+    test('a delta that completes a held tag ends the snapshot basis', () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('chat:message', {
+        'content': 'A <thi',
+      }, messageId: 'msg-1');
+      // Completes the held opener without emitting anything visible.
+      registrar.emitChatEvent('chat:message:delta', {
+        'content': 'nk>',
+      }, messageId: 'msg-1');
+      // Extends the first snapshot with a clean suffix, `nk>Plan`, which
+      // must not be fed to a splitter the delta already moved into reasoning.
+      registrar.emitChatEvent('chat:message', {
+        'content': 'A <think>Plan',
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
+
+      final content = log.messages.last.content;
+      check(content).contains('&gt; Plan');
+      check(content).not((it) => it.contains('nk&gt;'));
+    });
+
+    test('an entity split across snapshots is decoded in the plain text', () {
+      // `&quo` + `t;` must not reach the plain accumulator as `&quot;`, or a
+      // later structured projection escapes it into visible entity text.
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+
+      registrar.emitChatEvent('chat:message', {
+        'content': 'Say &quo',
+      }, messageId: 'msg-1');
+      registrar.emitChatEvent('chat:message', {
+        'content': 'Say &quot;',
+      }, messageId: 'msg-1');
+
+      // The boundary falls inside an entity, so the second snapshot takes the
+      // full path, which decodes it, instead of appending a bare `t;`.
+      check(log.replacedContents.last).equals('Say &quot;');
+      check(log.appendedChunks).isEmpty();
+    });
+
+    test('a snapshot that opens a new reasoning block restarts its timer', () {
+      var now = DateTime(2026);
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+        clock: () => now,
+      );
+
+      registrar.emitChatEvent('chat:message', {
+        'content': '<think>First',
+      }, messageId: 'msg-1');
+      now = now.add(const Duration(seconds: 10));
+      // Closes the first block and opens a second one.
+      registrar.emitChatEvent('chat:message', {
+        'content': '<think>First</think>\n\nA<think>Second',
+      }, messageId: 'msg-1');
+      now = now.add(const Duration(seconds: 2));
+      registrar.emitChatEvent('chat:message:delta', {
+        'content': '</think>\n\nB',
+      }, messageId: 'msg-1');
+
+      final content = log.messages.last.content;
+      // Two seconds for the second block, not the first block's twelve.
+      check(content).contains('duration="2"');
+      check(content).not((it) => it.contains('duration="12"'));
     });
 
     test(
@@ -1853,6 +1950,8 @@ void main() {
               return snapshot();
             });
           },
+          // Time stands still, so every delta lands inside one refresh window.
+          clock: () => DateTime(2026),
         );
 
         for (final chunk in const ['Plan ', 'the ', 'answer']) {

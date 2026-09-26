@@ -1229,13 +1229,29 @@ class ChatVoiceAudioSessionCoordinator {
       operation: 'set-speakerphone',
       phase: phase,
     );
-    // The handler always answers with the current route and only carries an
-    // `error` when overrideOutputAudioPort threw, so a missing payload means
-    // the channel itself never got there.
     return (
-      applied: payload != null && payload['error'] == null,
+      applied: iosSpeakerphoneChangeApplied(payload, enabled: enabled),
       loudspeaker: _iosLoudspeakerFromPayload(payload),
     );
+  }
+
+  /// Whether an iOS `setSpeakerphoneEnabled` answer shows the call where
+  /// [enabled] asked for it.
+  ///
+  /// The handler always answers with the current route and only carries an
+  /// `error` when overrideOutputAudioPort threw, so a missing payload means
+  /// the channel itself never got there. A successful override can still
+  /// leave the call elsewhere, as on a device with no receiver to fall back
+  /// to, so the route read back decides; a payload listing no outputs says
+  /// nothing, and the override is trusted (issue #716).
+  @visibleForTesting
+  static bool iosSpeakerphoneChangeApplied(
+    Map<Object?, Object?>? payload, {
+    required bool enabled,
+  }) {
+    if (payload == null || payload['error'] != null) return false;
+    final loudspeaker = _iosLoudspeakerFromPayload(payload);
+    return loudspeaker == null || loudspeaker == enabled;
   }
 
   /// Whether an iOS route payload has the call on the built-in speaker, or
