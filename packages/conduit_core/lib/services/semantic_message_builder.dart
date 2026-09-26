@@ -621,23 +621,42 @@ String _withoutCarriageReturn(String line) =>
 final _detailsTagHint = RegExp('<details', caseSensitive: false);
 
 /// Complete semantic blocks (first line -> last line) that start outside
-/// fenced code. Fence lines inside a block do not toggle fence state: the
-/// details parser consumes the whole block before any fence rule runs.
+/// fenced code.
 Map<int, int> _semanticDetailsBlocksOutsideFences(
   String value,
   List<String> rawLines,
 ) {
   if (!_detailsTagHint.hasMatch(value)) return const <int, int>{};
   final lines = rawLines.map(_withoutCarriageReturn).toList(growable: false);
-  final candidates = matchWellFormedSemanticDetailsBlocks(lines);
-  if (candidates.isEmpty) return const <int, int>{};
+  final first = _walkSemanticDetailsBlocks(
+    lines,
+    matchWellFormedSemanticDetailsBlocks(lines),
+  );
+  if (first.codeLines.isEmpty) return first.blocks;
+  // Match again with fenced lines as plain text, so a `<details>` example in
+  // a code fence cannot count as a wrapper around the blocks after it.
+  return _walkSemanticDetailsBlocks(
+    lines,
+    matchWellFormedSemanticDetailsBlocks(lines, codeLines: first.codeLines),
+  ).blocks;
+}
 
+/// Keeps the [candidates] that start outside fenced code, and reports the
+/// lines that are fenced code. Fence lines inside a block do not toggle
+/// fence state: the details parser consumes the whole block before any fence
+/// rule runs.
+({Map<int, int> blocks, Set<int> codeLines}) _walkSemanticDetailsBlocks(
+  List<String> lines,
+  Map<int, int> candidates,
+) {
   final blocks = <int, int>{};
+  final codeLines = <int>{};
   String? openFenceChar;
   var openFenceLength = 0;
   for (var index = 0; index < lines.length; index++) {
     final line = lines[index];
     if (openFenceChar != null) {
+      codeLines.add(index);
       final close = _closingFence.firstMatch(line);
       if (close != null) {
         final run = close.group(1)!;
@@ -658,12 +677,13 @@ Map<int, int> _semanticDetailsBlocksOutsideFences(
         _openingBacktickFence.firstMatch(line) ??
         _openingTildeFence.firstMatch(line);
     if (open != null) {
+      codeLines.add(index);
       final run = open.group(1)!;
       openFenceChar = run[0];
       openFenceLength = run.length;
     }
   }
-  return blocks;
+  return (blocks: blocks, codeLines: codeLines);
 }
 
 /// [value] with the lines of [blocks] blanked (same offsets), so parser

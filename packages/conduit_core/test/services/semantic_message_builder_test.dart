@@ -529,6 +529,19 @@ void main() {
       check(_renderedDetails(rendered)).isEmpty();
     });
 
+    test('ignores a details example in a fence when matching wrappers', () {
+      // An unclosed generic <details> inside a code example wraps nothing, so
+      // the tool block after it still renders.
+      const text =
+          'Example:\n```html\n<details>\n<summary>x</summary>\n```\n'
+          '$toolBlock\nDone.';
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock.openWebUI(text),
+      ]);
+
+      check(_renderedDetails(rendered)).length.equals(1);
+    });
+
     test('closes a fence before Open WebUI text that carries a block', () {
       final rendered = renderSemanticMessageBlocks([
         const SemanticTextBlock.openWebUI('Here:\n```python\nprint(1)'),

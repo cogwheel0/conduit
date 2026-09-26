@@ -371,8 +371,13 @@ int _classifyDetailsLine(String line) {
 ///
 /// Any other line inside the span that mentions a details tag rejects the
 /// block. [lines] must not contain line terminators. This does not know
-/// about code; callers must reject blocks that start inside code.
-Map<int, int> matchWellFormedSemanticDetailsBlocks(List<String> lines) {
+/// about code: lines the caller knows are code go in [codeLines] and count
+/// as plain text (a `<details>` example in a fence wraps nothing), and
+/// callers must still reject blocks that start inside code.
+Map<int, int> matchWellFormedSemanticDetailsBlocks(
+  List<String> lines, {
+  Set<int> codeLines = const <int>{},
+}) {
   final blocks = <int, int>{};
   final open = <int>[];
   final semanticStarts = <int>{};
@@ -381,7 +386,9 @@ Map<int, int> matchWellFormedSemanticDetailsBlocks(List<String> lines) {
   var genericOpen = 0;
   final invalidBefore = List<int>.filled(lines.length + 1, 0);
   for (var index = 0; index < lines.length; index++) {
-    final kind = _classifyDetailsLine(lines[index]);
+    final kind = codeLines.contains(index)
+        ? _detailsLineText
+        : _classifyDetailsLine(lines[index]);
     invalidBefore[index + 1] =
         invalidBefore[index] + (kind == _detailsLineInvalid ? 1 : 0);
     switch (kind) {

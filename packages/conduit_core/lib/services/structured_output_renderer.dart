@@ -508,9 +508,12 @@ final class _AnswerTailCursor {
     }
     final partial = text.substring(start);
     // A partial line whose rendering cannot be known is kept as unknown, so
-    // every delta onto it waits for a full render.
+    // every delta onto it waits for a full render. The escaper drops a line's
+    // trailing `\r`, which this cursor does not model.
     _line =
-        line.extend(partial, emitted: true)?.line ??
+        (partial.contains('\r')
+            ? null
+            : line.extend(partial, emitted: true)?.line) ??
         line._next(
           html: line.htmlSeen || _cursorDetailsTag.hasMatch(partial),
           text: partial,
@@ -671,7 +674,9 @@ final class _AnswerTailLine {
 
   /// Ends this line with [segment] and returns the empty line after it.
   _AnswerTailLine complete(String segment) {
-    final line = text + segment;
+    final raw = text + segment;
+    // Fence patterns see the line as the escaper does, without a CRLF's `\r`.
+    final line = raw.endsWith('\r') ? raw.substring(0, raw.length - 1) : raw;
     final html = htmlSeen || _cursorDetailsTag.hasMatch(line);
     final openFence = fenceChar;
     if (openFence != null) {

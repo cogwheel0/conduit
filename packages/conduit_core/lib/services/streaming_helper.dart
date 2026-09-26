@@ -264,16 +264,16 @@ String _buildStreamingReasoningDetails(
 }
 
 /// Whether [text] ends in what may be the start of an HTML entity, such as
-/// `&quo`, that the next snapshot could complete.
+/// `&quo` or `&#x2`, that the next snapshot could complete. Ordinary `&`
+/// text that cannot become one (`a & b`, `x=1&y=2`) keeps the fast path.
 bool _endsInsidePossibleEntity(String text) {
-  final amp = text.lastIndexOf('&');
-  if (amp < 0 || text.length - amp > 40) return false;
-  for (var index = amp + 1; index < text.length; index++) {
-    final unit = text.codeUnitAt(index);
-    if (unit == 0x3B || unit <= 0x20) return false;
-  }
-  return true;
+  final tail = text.length > 40 ? text.substring(text.length - 40) : text;
+  return _trailingEntityPrefix.hasMatch(tail);
 }
+
+final _trailingEntityPrefix = RegExp(
+  r'&(?:#[xX]?[0-9A-Fa-f]*|[A-Za-z][A-Za-z0-9]*)?$',
+);
 
 /// How often an open reasoning block's collapsed body is re-rendered while it
 /// streams.
@@ -996,19 +996,17 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   // `reasoning_content` delta path renders.
   final rawReasoningTags = StreamingReasoningTagSplitter();
   late final void Function() flushRawReasoningTags;
-  // Feeds a snapshot suffix through the splitter and returns how many
-  // reasoning blocks it closed.
-  late final int Function(String chunk) appendRawSnapshotSuffix;
+  late final void Function(String chunk) appendRawSnapshotSuffix;
   // The raw text of the last content snapshot, kept while the visible content
   // is still exactly what that snapshot produced. Every other visible-content
   // change clears it. A snapshot that extends it then only feeds its new
   // suffix through instead of re-rendering the whole text on every
   // cumulative event (issue #751).
   String? lastRawContentSnapshot;
-  // Reasoning blocks closed within the content `lastRawContentSnapshot` was
-  // rendered from, so a snapshot can tell whether its open block is the same
-  // one that was already open.
-  var rawSnapshotClosedReasoningBlocks = 0;
+  // Reasoning blocks the splitter has closed since it was last reset, by
+  // deltas and snapshots alike, so a snapshot can tell whether its open block
+  // is the same one that was already open.
+  var splitterClosedReasoningBlocks = 0;
   var reasoningPrefix = '';
   var reasoningContent = _StreamingTextAccumulator();
 
@@ -1139,9 +1137,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       if (!suffix.contains('<') &&
           !suffix.contains('&') &&
           !_endsInsidePossibleEntity(previous)) {
-        final closed = appendRawSnapshotSuffix(suffix);
+        appendRawSnapshotSuffix(suffix);
         lastRawContentSnapshot = content;
-        rawSnapshotClosedReasoningBlocks += closed;
         return;
       }
     }
@@ -1155,14 +1152,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     final events = rawReasoningTags.feed(content);
     final closedBlocks = events.whereType<RawReasoningTagEnd>().length;
     // The open block is the one already open only if no block closed since.
-    final sameOpenBlock = closedBlocks == rawSnapshotClosedReasoningBlocks;
+    final sameOpenBlock = closedBlocks == splitterClosedReasoningBlocks;
     final snapshot = _renderRawReasoningEvents(
       events,
       insideReasoning: rawReasoningTags.isInsideReasoning,
     );
     replaceVisibleAssistantContent(snapshot.content);
     lastRawContentSnapshot = content;
-    rawSnapshotClosedReasoningBlocks = closedBlocks;
+    splitterClosedReasoningBlocks = closedBlocks;
     final openReasoning = snapshot.openReasoning;
     if (openReasoning == null) return;
     // The snapshot ends inside an unterminated block: seed the reasoning
@@ -1567,18 +1564,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     // completed by `nk>`), so any delta ends the snapshot basis.
     lastRawContentSnapshot = null;
     for (final event in rawReasoningTags.feed(chunk)) {
+      if (event is RawReasoningTagEnd) splitterClosedReasoningBlocks += 1;
       applyRawReasoningTagEvent(event);
     }
   }
 
-  appendRawSnapshotSuffix = (chunk) {
-    var closed = 0;
-    for (final event in rawReasoningTags.feed(chunk)) {
-      if (event is RawReasoningTagEnd) closed += 1;
-      applyRawReasoningTagEvent(event);
-    }
-    return closed;
-  };
+  appendRawSnapshotSuffix = appendVisibleAssistantText;
 
   flushRawReasoningTags = () {
     for (final event in rawReasoningTags.flush()) {

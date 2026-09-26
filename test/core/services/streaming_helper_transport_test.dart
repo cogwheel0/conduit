@@ -1193,6 +1193,42 @@ void main() {
       check(content).not((it) => it.contains('duration="12"'));
     });
 
+    test('a snapshot keeps the timer of a block a delta opened', () {
+      var now = DateTime(2026);
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+        clock: () => now,
+      );
+
+      registrar.emitChatEvent('chat:message', {
+        'content': '<think>First',
+      }, messageId: 'msg-1');
+      now = now.add(const Duration(seconds: 10));
+      // A delta closes the first block and opens the second.
+      registrar.emitChatEvent('chat:message:delta', {
+        'content': '</think>\n\nA<think>Second',
+      }, messageId: 'msg-1');
+      now = now.add(const Duration(seconds: 3));
+      // The snapshot's open block is that same second block.
+      registrar.emitChatEvent('chat:message', {
+        'content': '<think>First</think>\n\nA<think>Second more',
+      }, messageId: 'msg-1');
+      now = now.add(const Duration(seconds: 2));
+      registrar.emitChatEvent('chat:message:delta', {
+        'content': '</think>\n\nB',
+      }, messageId: 'msg-1');
+
+      check(log.messages.last.content).contains('duration="5"');
+    });
+
     test(
       'deltas after a snapshot continue its unterminated reasoning block',
       () async {

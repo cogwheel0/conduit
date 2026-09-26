@@ -1486,6 +1486,29 @@ void main() {
           .equals('Searching.\n$block');
     });
 
+    test('a CRLF closing fence ends the fence for later text', () {
+      // The escaper matches fences without the `\r`; so must the cursor, or
+      // text after the fence is appended unescaped as if it were code.
+      const head = 'Code:\r\n```\r\nx\r\n```\r\n';
+      final projector = StructuredOutputStreamingProjector();
+      final initial = projector.project([
+        const StructuredOutputTextBlock(text: head),
+      ]);
+      final next = projector.project([
+        const StructuredOutputTextBlock(text: '${head}after <b>bold</b>'),
+      ]);
+
+      check(next).isA<StructuredOutputStreamingAppend>();
+      final visible =
+          (initial! as StructuredOutputStreamingReplace).content +
+          (next! as StructuredOutputStreamingAppend).content;
+      check(visible).equals(
+        renderStructuredOutputBlocks([
+          const StructuredOutputTextBlock(text: '${head}after <b>bold</b>'),
+        ]),
+      );
+    });
+
     test('keeps an answer after reasoning visible once it contains code', () {
       // Issue #751: the first backtick used to disable appends while the
       // doubling threshold armed by the reasoning-sized render stayed in
