@@ -145,6 +145,29 @@ void main() {
     );
   });
 
+  testWidgets('new-chat pill stays on screen at large text sizes', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390 * 3, 844 * 3);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        textScale: 3,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final pill = tester.getRect(
+      find.byKey(const ValueKey<String>('sidebar-new-chat-pill')),
+    );
+    expect(pill.left, greaterThanOrEqualTo(0));
+    expect(pill.right, lessThanOrEqualTo(390));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('chat tab new chat clears stale folder target', (tester) async {
     final controllers = SidebarTestSidebarHarnessControllers();
 

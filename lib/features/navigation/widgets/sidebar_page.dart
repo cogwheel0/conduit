@@ -544,11 +544,17 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
         Positioned.fill(child: child),
         if (floatingCreateAction != null)
           Positioned(
+            // Bounded on both sides so large text cannot push the pill off
+            // the leading edge; it stays pinned to the trailing corner.
+            left: Spacing.md,
             right: Spacing.md,
             bottom: floatingPillBottom,
-            child: _SidebarNewChatPill(
-              label: localizations.newChat,
-              onPressed: () => floatingCreateAction.run(context, ref),
+            child: Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: _SidebarNewChatPill(
+                label: localizations.newChat,
+                onPressed: () => floatingCreateAction.run(context, ref),
+              ),
             ),
           ),
         Positioned(
@@ -710,11 +716,15 @@ class _SidebarNewChatPill extends StatelessWidget {
                       size: IconSize.md,
                     ),
                     const SizedBox(width: Spacing.sm),
-                    Text(
-                      label,
-                      style: AppTypography.bodyLargeStyle.copyWith(
-                        color: theme.buttonPrimaryText,
-                        fontWeight: FontWeight.w600,
+                    Flexible(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.bodyLargeStyle.copyWith(
+                          color: theme.buttonPrimaryText,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ],
