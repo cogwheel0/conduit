@@ -2024,6 +2024,60 @@ void main() {
       },
     );
 
+    test(
+      'held-back reasoning is published when the refresh window ends',
+      () async {
+        final log = _CallbackLog(
+          initialMessages: fakeStreamingAssistantMessages(content: 'Intro'),
+        );
+        final byteStream = StreamController<List<int>>();
+        final snapshots = <String Function()>[];
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            byteStream: byteStream.stream,
+            abort: () async {},
+          ),
+          log: log,
+          bufferProgressiveLastMessageSnapshot: snapshots.add,
+          clock: () => DateTime(2026),
+        );
+
+        void reason(String chunk) => byteStream.add(
+          _sseFrame({
+            'choices': [
+              {
+                'delta': {'reasoning_content': chunk},
+              },
+            ],
+          }),
+        );
+
+        reason('Plan ');
+        await pumpMicrotasks();
+        // A flush realizes the projection before the next delta arrives.
+        final flushed = snapshots.single();
+        check(flushed).contains('&gt; Plan');
+        check(flushed).not((it) => it.contains('more'));
+
+        reason('more');
+        await pumpMicrotasks();
+        // Inside the refresh window: nothing new is published yet.
+        check(snapshots.length).equals(1);
+
+        // The model pauses: no further delta arrives.
+        for (var i = 0; i < 40 && snapshots.length < 2; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+        check(snapshots.length).equals(2);
+        check(snapshots.last()).contains('&gt; Plan more');
+
+        await byteStream.close();
+      },
+    );
+
     test('httpStream finalizes reasoning-only responses on done', () async {
       final log = _CallbackLog();
       final byteStream = Stream<List<int>>.fromIterable([

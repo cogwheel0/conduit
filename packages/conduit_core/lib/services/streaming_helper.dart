@@ -990,6 +990,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   var inReasoningBlock = false;
   DateTime? reasoningStartedAt;
   DateTime? pendingReasoningRenderedAt;
+  // Publishes reasoning held back by the refresh window once it ends.
+  Timer? pendingReasoningRefreshTimer;
   // Raw `<think>`-style tags reach the plain-text append paths verbatim when
   // the server did not convert them (SSE fallback, pipes, tag-emitting
   // backends). Split them client-side into the same reasoning details the
@@ -997,6 +999,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   final rawReasoningTags = StreamingReasoningTagSplitter();
   late final void Function() flushRawReasoningTags;
   late final void Function(String chunk) appendRawSnapshotSuffix;
+  // Renders the open reasoning block into the visible content.
+  late final void Function() publishPendingReasoning;
   // The raw text of the last content snapshot, kept while the visible content
   // is still exactly what that snapshot produced. Every other visible-content
   // change clears it. A snapshot that extends it then only feeds its new
@@ -1020,6 +1024,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }
 
   void resetStreamingReasoning() {
+    pendingReasoningRefreshTimer?.cancel();
+    pendingReasoningRefreshTimer = null;
     inReasoningBlock = false;
     reasoningStartedAt = null;
     reasoningPrefix = '';
@@ -1515,11 +1521,28 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     // Closing the block renders it in full regardless.
     final refreshAt = clock();
     final renderedAt = pendingReasoningRenderedAt;
-    if (renderedAt != null &&
-        refreshAt.difference(renderedAt) < _pendingReasoningRefreshInterval) {
-      return;
+    if (renderedAt != null) {
+      final wait =
+          _pendingReasoningRefreshInterval - refreshAt.difference(renderedAt);
+      if (wait > Duration.zero) {
+        // Publish what is held back once the window ends, so a model pausing
+        // mid-thought does not leave an opened body stale.
+        pendingReasoningRefreshTimer ??= Timer(wait, () {
+          pendingReasoningRefreshTimer = null;
+          if (!inReasoningBlock || localResourcesDisposed) return;
+          pendingReasoningRenderedAt = clock();
+          publishPendingReasoning();
+        });
+        return;
+      }
     }
+    pendingReasoningRefreshTimer?.cancel();
+    pendingReasoningRefreshTimer = null;
     pendingReasoningRenderedAt = refreshAt;
+    publishPendingReasoning();
+  }
+
+  publishPendingReasoning = () {
     final deferredSnapshot = bufferProgressiveLastMessageSnapshot;
     if (deferredSnapshot != null) {
       final activePrefix = reasoningPrefix;
@@ -1543,7 +1566,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     (bufferProgressiveLastMessageContent ?? bufferLastMessageContent)(
       renderedStreamingContent.value,
     );
-  }
+  };
 
   void applyRawReasoningTagEvent(RawReasoningTagEvent event) {
     switch (event) {
@@ -2903,6 +2926,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     finishStructuredOutputProfile(abandoned: abandonStream);
 
     disposeSocketSubscriptions();
+    pendingReasoningRefreshTimer?.cancel();
+    pendingReasoningRefreshTimer = null;
 
     final controller = streamController;
     if (controller != null) {
