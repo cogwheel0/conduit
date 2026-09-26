@@ -470,6 +470,43 @@ void main() {
           .equals(AVAudioSessionMode.spokenAudio);
     });
 
+    test(
+      'hands the Android route over to a call placed while hanging up',
+      () async {
+        final coordinator = ChatVoiceAudioSessionCoordinator()
+          ..debugTreatAsAndroid = true;
+        addTearDown(coordinator.dispose);
+        final replacement = ChatVoiceAudioSessionCoordinator()
+          ..debugTreatAsAndroid = true;
+        addTearDown(replacement.dispose);
+        final idleMode = audioManager.mode;
+
+        await coordinator.configureForListening();
+        final callMode = audioManager.mode;
+        check(callMode).not((it) => it.equals(idleMode));
+        final gate = audioManager.speakerphoneGate = Completer<void>();
+        final hangingUp = coordinator.deactivate();
+        await pumpEventQueue();
+
+        // The next call takes the route while the old teardown is part-way
+        // through putting it back.
+        await replacement.setSpeakerphoneEnabled(true);
+        gate.complete();
+        await hangingUp;
+
+        // The old teardown stops instead of putting the phone back in normal
+        // mode and taking the new call off the loudspeaker.
+        check(audioManager.mode).equals(callMode);
+        check(audioManager.communicationDeviceId)
+            .equals(_FakeAndroidAudioManagerChannel.speakerId);
+
+        // The new call restores what the phone had before either call, not the
+        // call mode it found when it started.
+        await replacement.deactivate();
+        check(audioManager.mode).equals(idleMode);
+      },
+    );
+
     test('drops a configure pass that arrives while hanging up', () async {
       final coordinator = ChatVoiceAudioSessionCoordinator()
         ..debugTreatAsAndroid = true;
@@ -573,6 +610,11 @@ class _FakeAndroidAudioManagerChannel {
   /// While set, `setMode` waits for it, which parks a teardown part-way
   /// through putting the platform route back.
   Completer<void>? setModeGate;
+
+  /// While set, `setSpeakerphoneOn` waits for it, which parks a teardown
+  /// before it restores the mode.
+  Completer<void>? speakerphoneGate;
+  Object? mode = 0;
   int? communicationDeviceId;
   bool speakerphoneOn = false;
 
@@ -590,13 +632,15 @@ class _FakeAndroidAudioManagerChannel {
     final args = call.arguments as List<dynamic>? ?? const <dynamic>[];
     switch (call.method) {
       case 'getMode':
-        return 0;
+        return mode;
       case 'setMode':
         await setModeGate?.future;
+        mode = args[0];
         return null;
       case 'isSpeakerphoneOn':
         return speakerphoneOn;
       case 'setSpeakerphoneOn':
+        await speakerphoneGate?.future;
         final enabled = args[0] as bool;
         if (enabled ? honourLoudspeaker : honourEarpiece) {
           speakerphoneOn = enabled;

@@ -1159,6 +1159,35 @@ void main() {
       check(log.appendedChunks).isEmpty();
     });
 
+    test('a snapshot completing a split closing tag re-renders in full', () {
+      // The full path strips a completed <details> wrapper from the plain
+      // text that later merges build on; a bare `>` appended must not skip it.
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+      const head =
+          'Result:\n<details type="tool_calls" done="true" id="c1" name="t">\n'
+          '<summary>Tool Executed</summary>\n</details';
+
+      registrar.emitChatEvent('chat:message', {
+        'content': head,
+      }, messageId: 'msg-1');
+      registrar.emitChatEvent('chat:message', {
+        'content': '$head>\n\nDone.',
+      }, messageId: 'msg-1');
+
+      check(log.appendedChunks).isEmpty();
+      check(log.replacedContents.last).endsWith('</details>\n\nDone.');
+    });
+
     test('a snapshot that opens a new reasoning block restarts its timer', () {
       var now = DateTime(2026);
       final log = _CallbackLog();

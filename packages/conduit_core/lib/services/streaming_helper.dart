@@ -1138,11 +1138,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       // may start a middleware <details> wrapper it strips, `&` an entity it
       // decodes.
       // An entity split at the boundary (`&quo` + `t;`) would also escape
-      // that decoding.
+      // that decoding, and so would a `>` completing a tag `previous` left
+      // open (a `</details` split at the boundary).
       final suffix = content.substring(previous.length);
       if (!suffix.contains('<') &&
           !suffix.contains('&') &&
-          !_endsInsidePossibleEntity(previous)) {
+          !_endsInsidePossibleEntity(previous) &&
+          !(suffix.contains('>') &&
+              previous.lastIndexOf('<') > previous.lastIndexOf('>'))) {
         appendRawSnapshotSuffix(suffix);
         lastRawContentSnapshot = content;
         return;

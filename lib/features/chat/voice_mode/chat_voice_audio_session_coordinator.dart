@@ -46,6 +46,12 @@ class ChatVoiceAudioSessionCoordinator {
   /// the session out from under a call that began in the meantime.
   static int _callConfigurationEpoch = 0;
 
+  /// The coordinator whose call the Android route belongs to. A replacement
+  /// call can configure while the previous one is still putting the route
+  /// back; claiming the route stops that teardown from pulling it out from
+  /// under the new call.
+  static ChatVoiceAudioSessionCoordinator? _androidRouteOwner;
+
   ChatVoiceAudioSessionCoordinator() {
     if (Platform.isIOS) {
       _iosFailureHandlerOwner = this;
@@ -885,6 +891,7 @@ class ChatVoiceAudioSessionCoordinator {
 
     final manager = _androidAudioManager ??= AndroidAudioManager();
 
+    _claimAndroidRoute();
     _previousAndroidMode ??= await _safeAndroidRouteCall(
       () => manager.getMode(),
       operation: 'get-mode',
@@ -1101,6 +1108,20 @@ class ChatVoiceAudioSessionCoordinator {
     return false;
   }
 
+  /// Takes the Android call route over from any coordinator still holding
+  /// it. That coordinator's call is ending, and the state it saved from before
+  /// its call is what to hand back when this call ends, not the call mode it
+  /// leaves behind.
+  void _claimAndroidRoute() {
+    final owner = _androidRouteOwner;
+    if (identical(owner, this)) return;
+    if (owner != null) {
+      _previousAndroidMode ??= owner._previousAndroidMode;
+      _previousAndroidSpeakerphone ??= owner._previousAndroidSpeakerphone;
+    }
+    _androidRouteOwner = this;
+  }
+
   Future<void> _restoreAndroidVoiceRoute() async {
     if (!_isAndroid) {
       return;
@@ -1111,40 +1132,51 @@ class ChatVoiceAudioSessionCoordinator {
       return;
     }
 
-    await _safeAndroidRouteCall(
-      () => manager.clearCommunicationDevice(),
-      operation: 'clear-communication-device',
-      phase: 'deactivate',
-    );
-    await _safeAndroidRouteCall(
-      () async {
-        await manager.setBluetoothScoOn(false);
-        await manager.stopBluetoothSco();
-      },
-      operation: 'stop-bluetooth-sco',
-      phase: 'deactivate',
-    );
-
-    final previousSpeakerphone = _previousAndroidSpeakerphone;
-    if (previousSpeakerphone != null) {
+    // A replacement call that claims the route meanwhile has inherited what
+    // to restore, so stop before touching its route. A call already on the
+    // wire reaches the platform ahead of anything the replacement sends.
+    bool ownsRoute() => identical(_androidRouteOwner, this);
+    try {
+      if (!ownsRoute()) return;
       await _safeAndroidRouteCall(
-        () => manager.setSpeakerphoneOn(previousSpeakerphone),
-        operation: 'restore-speakerphone',
+        () => manager.clearCommunicationDevice(),
+        operation: 'clear-communication-device',
         phase: 'deactivate',
       );
-    }
-
-    final previousMode = _previousAndroidMode;
-    if (previousMode != null) {
+      if (!ownsRoute()) return;
       await _safeAndroidRouteCall(
-        () => manager.setMode(previousMode),
-        operation: 'restore-mode',
+        () async {
+          await manager.setBluetoothScoOn(false);
+          await manager.stopBluetoothSco();
+        },
+        operation: 'stop-bluetooth-sco',
         phase: 'deactivate',
       );
-    }
 
-    _previousAndroidMode = null;
-    _previousAndroidSpeakerphone = null;
+      final previousSpeakerphone = _previousAndroidSpeakerphone;
+      if (previousSpeakerphone != null) {
+        if (!ownsRoute()) return;
+        await _safeAndroidRouteCall(
+          () => manager.setSpeakerphoneOn(previousSpeakerphone),
+          operation: 'restore-speakerphone',
+          phase: 'deactivate',
+        );
+      }
+
+      final previousMode = _previousAndroidMode;
+      if (previousMode != null) {
+        if (!ownsRoute()) return;
+        await _safeAndroidRouteCall(
+          () => manager.setMode(previousMode),
+          operation: 'restore-mode',
+          phase: 'deactivate',
+        );
+      }
+    } finally {
+      if (ownsRoute()) _androidRouteOwner = null;
+      _previousAndroidMode = null;
+      _previousAndroidSpeakerphone = null;
+    }
   }
 
   /// [_safeAndroidRouteCall] for calls that answer with nothing, where a null
