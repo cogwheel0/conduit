@@ -89,6 +89,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.2.4"
+  bazel_worker:
+    dependency: transitive
+    description:
+      name: bazel_worker
+      sha256: "87cae9150fcf9942b8057e5f51c4848a3efde1289e97411e1c8f01e350120999"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.5"
   boolean_selector:
     dependency: transitive
     description:
@@ -129,6 +137,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.16.1"
+  build_web_compilers:
+    dependency: transitive
+    description:
+      name: build_web_compilers
+      sha256: f8e2a2b3c45b0754fccb284e6f5d890b9d7ff3bed758293e55d29bcdc2821b78
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.8.10"
   built_collection:
     dependency: transitive
     description:
@@ -297,6 +313,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.7"
+  cryptography:
+    dependency: transitive
+    description:
+      name: cryptography
+      sha256: "3eda3029d34ec9095a27a198ac9785630fe525c0eb6a49f3d575272f8e792ef0"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.9.0"
   csslib:
     dependency: transitive
     description:
@@ -1014,6 +1038,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.2.0"
+  hotreloader:
+    dependency: transitive
+    description:
+      name: hotreloader
+      sha256: "66871df468fc24eee81f1a0a7cb98acc104716f9b7376d355437b48d633c4ebf"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.4.0"
   html:
     dependency: transitive
     description:
@@ -1150,6 +1182,38 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.6.1"
+  jaspr:
+    dependency: transitive
+    description:
+      name: jaspr
+      sha256: ce9fa2b852a07d538d39c3cf45487184a24a5d329a5c5ec2de47f251995be6aa
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.23.4"
+  jaspr_riverpod:
+    dependency: transitive
+    description:
+      name: jaspr_riverpod
+      sha256: "76858bb0dd6ad618bc808f33cff304bd70e62c21d8ef98d4e06dbd71df772fa1"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.4.6"
+  jaspr_router:
+    dependency: transitive
+    description:
+      name: jaspr_router
+      sha256: "5c9347395d75e501f02e79469eb588534ae306db6fa556c8f26421381ac6cba7"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.9.0"
+  jaspr_test:
+    dependency: transitive
+    description:
+      name: jaspr_test
+      sha256: "60a5e954039ef4af485bcb51d5613f76c072e94eebb85e28b5921d22214fa1ed"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.23.4"
   jni:
     dependency: transitive
     description:
@@ -1198,6 +1262,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.12.0"
+  json_rpc_2:
+    dependency: transitive
+    description:
+      name: json_rpc_2
+      sha256: "82dfd37d3b2e5030ae4729e1d7f5538cbc45eb1c73d618b9272931facac3bec1"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.1.0"
   json_serializable:
     dependency: "direct dev"
     description:
@@ -1667,6 +1739,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "5.0.6"
+  protobuf:
+    dependency: transitive
+    description:
+      name: protobuf
+      sha256: "13b6717366aa7ec3792dd62c19c7d33a785708224365f2db23c5ca01f1c1a0f2"
+      url: "https://pub.dev"
+    source: hosted
+    version: "6.1.0"
   pub_semver:
     dependency: transitive
     description:
@@ -1859,6 +1939,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.28.0"
+  scratch_space:
+    dependency: transitive
+    description:
+      name: scratch_space
+      sha256: "55f141cf286eca871f739518b689af61cb994d671f3fd8efabd63aba7578c309"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.2.2"
   scroll_drag_detector:
     dependency: transitive
     description:
@@ -1867,6 +1955,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.1.0+2"
+  serial_csv:
+    dependency: transitive
+    description:
+      name: serial_csv
+      sha256: "2d62bb70cb3ce7251383fc86ea9aae1298ab1e57af6ef4e93b6a9751c5c268dd"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.5.2"
   share_plus:
     dependency: "direct main"
     description:
@@ -1947,6 +2043,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.2"
+  shelf_gzip:
+    dependency: transitive
+    description:
+      name: shelf_gzip
+      sha256: "4f4b793c0f969f348aece1ab4cc05fceba9fea431c1ce76b1bc0fa369cecfc15"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.1.0"
   shelf_packages_handler:
     dependency: transitive
     description:
@@ -1955,6 +2059,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.2"
+  shelf_proxy:
+    dependency: transitive
+    description:
+      name: shelf_proxy
+      sha256: "0c3a7b2b4c111cae8a6d9077701e0622c6013d38a780373ac359d6d45b3aa10b"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.5"
   shelf_static:
     dependency: transitive
     description:
@@ -1976,6 +2088,14 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  slang:
+    dependency: transitive
+    description:
+      name: slang
+      sha256: "6091c2b4cd9f663080ede24fde6bcb9ee43f9fad1f9eaa66e2801eee47684e24"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.19.2"
   socket_io_client:
     dependency: "direct main"
     description:
@@ -2224,6 +2344,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.3.1"
+  universal_web:
+    dependency: transitive
+    description:
+      name: universal_web
+      sha256: "618a9d8659e9429875f69d4da0fb9c0c143d3d4cdab28b4545502088aa50ed62"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.1+1"
   url_launcher:
     dependency: "direct main"
     description:
@@ -2513,5 +2641,5 @@ packages:
     source: hosted
     version: "0.0.6"
 sdks:
-  dart: ">=3.13.0 <4.0.0"
+  dart: ">=3.13.0 <3.14.0-z"
   flutter: ">=3.47.0"

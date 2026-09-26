@@ -9,15 +9,18 @@ environment:
 
 # Pub workspace. The Flutter mobile app stays the workspace root so
 # `flutter run`/`flutter test` keep working from here with no extra flags;
-# the shared packages resolve against the same single lockfile, which is what
-# stops the app and the packages from drifting onto different versions.
+# the desktop packages resolve against the same single lockfile, which is what
+# stops the two front-ends from drifting onto different dependency versions.
 #
 # Members declare `resolution: workspace`. Add new members here *and* there —
 # pub fails loudly if only one side is updated.
 workspace:
   - packages/conduit_core
   - packages/conduit_markdown
+  - packages/conduit_protocol
   - packages/conduit_theme
+  - apps/daemon
+  - apps/desktop_ui
 
 dependencies:
   flutter:

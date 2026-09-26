@@ -1,0 +1,982 @@
+{
+  "@@locale": "en",
+  "desktopCoreConnecting": "Starting the core…",
+  "@desktopCoreConnecting": {
+    "description": "Shown while the desktop app waits for the conduitd sidecar to accept its first connection."
+  },
+  "desktopCoreConnected": "Connected to the core",
+  "@desktopCoreConnected": {
+    "description": "Status line on the desktop diagnostics screen once the RPC handshake has succeeded."
+  },
+  "desktopCoreReconnecting": "Reconnecting to the core (attempt {attempt})",
+  "@desktopCoreReconnecting": {
+    "description": "Banner shown while the desktop app retries a dropped connection to the local sidecar.",
+    "placeholders": {
+      "attempt": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "desktopCoreUnavailable": "The core is unavailable",
+  "@desktopCoreUnavailable": {
+    "description": "Headline shown when the desktop app has exhausted its reconnection attempts to the sidecar."
+  },
+  "desktopCoreVersionMismatch": "This app and its core are different versions. Reinstall Conduit to continue.",
+  "@desktopCoreVersionMismatch": {
+    "description": "Error shown when the desktop UI and the conduitd sidecar report different protocol versions, which retrying cannot fix."
+  },
+  "desktopKeyringUnavailable": "No system keyring found, so saved credentials are less protected. Install gnome-keyring or kwallet.",
+  "@desktopKeyringUnavailable": {
+    "description": "One-time warning on Linux systems where Electron safeStorage has no encryption backend available."
+  },
+  "desktopQuickAskPlaceholder": "Ask Conduit…",
+  "@desktopQuickAskPlaceholder": {
+    "description": "Placeholder text in the composer of the global-hotkey quick-ask window."
+  },
+  "desktopQuickAskContinue": "Continue in main window",
+  "@desktopQuickAskContinue": {
+    "description": "Button in the quick-ask window that moves the current exchange into the full desktop window."
+  },
+  "desktopSettingsKeyboardTab": "Keyboard",
+  "@desktopSettingsKeyboardTab": {
+    "description": "Title of the desktop-only Settings tab where keyboard shortcuts are rebound."
+  },
+  "desktopShortcutConflict": "{shortcut} is already used by {command}.",
+  "@desktopShortcutConflict": {
+    "description": "Warning shown when a user assigns a keyboard shortcut that another desktop command already owns.",
+    "placeholders": {
+      "shortcut": {
+        "type": "String",
+        "example": "Cmd+K"
+      },
+      "command": {
+        "type": "String",
+        "example": "Search"
+      }
+    }
+  },
+  "desktopSettingsTitle": "Settings",
+  "@desktopSettingsTitle": {
+    "description": "Heading of the desktop settings dialog."
+  },
+  "desktopSettingsNoServers": "No servers configured yet.",
+  "@desktopSettingsNoServers": {
+    "description": "Shown in the desktop settings Connections tab when no server has been added."
+  },
+  "desktopSettingsAddServer": "Add a server",
+  "@desktopSettingsAddServer": {
+    "description": "Link in the desktop settings Connections tab that opens server setup."
+  },
+  "desktopSettingsSignedIn": "Signed in",
+  "@desktopSettingsSignedIn": {
+    "description": "Marker next to a configured server the user is still signed into, shown only for servers that are not the active one."
+  },
+  "desktopSettingsSwitchServer": "Switch",
+  "@desktopSettingsSwitchServer": {
+    "description": "Button that makes another configured server the active one."
+  },
+  "desktopSettingsRemoveServer": "Remove",
+  "@desktopSettingsRemoveServer": {
+    "description": "Button that forgets a configured server."
+  },
+  "desktopSigningOut": "Signing out…",
+  "@desktopSigningOut": {
+    "description": "Label on the desktop sign-out button while the request is in flight."
+  },
+  "desktopSignedOut": "Signed out.",
+  "@desktopSignedOut": {
+    "description": "Confirmation shown after a sign-out that removed everything it was asked to."
+  },
+  "desktopSignOutSuperseded": "A newer sign-in replaced this one, so nothing was removed.",
+  "@desktopSignOutSuperseded": {
+    "description": "Shown when sign-out stopped because the user signed in again while it was running."
+  },
+  "desktopSignOutIncomplete": "Signed out here, but this device has not finished forgetting. Conduit will retry on the next launch.",
+  "@desktopSignOutIncomplete": {
+    "description": "Shown when sign-out could not remove everything; the core keeps suppressing cookie reuse until cleanup finishes."
+  },
+  "desktopChooseFile": "Choose file…",
+  "@desktopChooseFile": {
+    "description": "Button that opens the file picker for a PEM certificate or key on desktop."
+  },
+  "desktopReplaceFile": "Replace…",
+  "@desktopReplaceFile": {
+    "description": "Button that opens the file picker to replace an already-chosen PEM file on desktop."
+  },
+  "desktopChatsLabel": "Conversations",
+  "@desktopChatsLabel": {
+    "description": "Accessible name for the desktop conversation sidebar."
+  },
+  "desktopNoChatsYet": "No conversations yet. Send a message to start one.",
+  "@desktopNoChatsYet": {
+    "description": "Empty state in the desktop conversation sidebar."
+  },
+  "desktopSending": "Sending…",
+  "@desktopSending": {
+    "description": "Label on the desktop send button while a turn is being accepted."
+  },
+  "desktopSignInMethod": "Sign-in method",
+  "@desktopSignInMethod": {
+    "description": "Accessible group label for the desktop sign-in method radios (password, LDAP, API key)."
+  },
+  "desktopChatActions": "Actions for {title}",
+  "@desktopChatActions": {
+    "description": "Accessible label for the per-conversation action menu in the desktop sidebar. {title} is the conversation title.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopRenameChat": "Rename",
+  "@desktopRenameChat": {
+    "description": "Menu item that renames a conversation in the desktop sidebar."
+  },
+  "desktopPinChat": "Pin",
+  "@desktopPinChat": {
+    "description": "Menu item that pins a conversation to the top of the desktop sidebar."
+  },
+  "desktopUnpinChat": "Unpin",
+  "@desktopUnpinChat": {
+    "description": "Menu item that removes a conversation from the pinned section of the desktop sidebar."
+  },
+  "desktopArchiveChat": "Archive",
+  "@desktopArchiveChat": {
+    "description": "Menu item that archives a conversation from the desktop sidebar."
+  },
+  "desktopDeleteChat": "Delete",
+  "@desktopDeleteChat": {
+    "description": "Menu item that permanently deletes a conversation from the desktop sidebar."
+  },
+  "desktopConfirmDelete": "Delete this conversation? This cannot be undone.",
+  "@desktopConfirmDelete": {
+    "description": "Confirmation shown before deleting a conversation on desktop."
+  },
+  "desktopRenamePrompt": "New title",
+  "@desktopRenamePrompt": {
+    "description": "Label of the inline field for renaming a conversation on desktop."
+  },
+  "desktopSearchChats": "Search conversations",
+  "@desktopSearchChats": {
+    "description": "Accessible label and placeholder for the desktop sidebar search field."
+  },
+  "desktopSearchNoResults": "Nothing matched.",
+  "@desktopSearchNoResults": {
+    "description": "Shown in the desktop sidebar when a search returns no conversations."
+  },
+  "desktopSearchClear": "Clear search",
+  "@desktopSearchClear": {
+    "description": "Button that clears the desktop sidebar search field."
+  },
+  "desktopPickAConversation": "Pick a conversation",
+  "@desktopPickAConversation": {
+    "description": "Heading of the desktop empty transcript, shown when no conversation is selected."
+  },
+  "desktopPickAConversationHint": "Choose one from the sidebar, or type below to start a new one.",
+  "@desktopPickAConversationHint": {
+    "description": "Body of the desktop empty transcript, shown when no conversation is selected."
+  },
+  "desktopNewConversation": "New conversation",
+  "@desktopNewConversation": {
+    "description": "Title shown in the desktop transcript header before a conversation has been created."
+  },
+  "desktopShortcutsTitle": "Keyboard shortcuts",
+  "@desktopShortcutsTitle": {
+    "description": "Title of the desktop keyboard shortcut overlay, opened with Cmd+/."
+  },
+  "desktopShortcutFocusComposer": "Focus the message box",
+  "@desktopShortcutFocusComposer": {
+    "description": "Name of the desktop shortcut that moves focus to the composer."
+  },
+  "desktopShortcutOpenPalette": "Search conversations and commands",
+  "@desktopShortcutOpenPalette": {
+    "description": "Name of the desktop shortcut that opens the command palette, which finds both conversations and app commands."
+  },
+  "desktopShortcutFocusModelPicker": "Choose a model",
+  "@desktopShortcutFocusModelPicker": {
+    "description": "Name of the desktop shortcut that moves focus to the model picker."
+  },
+  "desktopShortcutShowShortcuts": "Show this list",
+  "@desktopShortcutShowShortcuts": {
+    "description": "Name of the desktop shortcut that opens the keyboard shortcut overlay."
+  },
+  "desktopShortcutCopyLastResponse": "Copy the last reply",
+  "@desktopShortcutCopyLastResponse": {
+    "description": "Name of the desktop shortcut that copies the most recent assistant message."
+  },
+  "desktopShortcutCopyLastCodeBlock": "Copy the last code block",
+  "@desktopShortcutCopyLastCodeBlock": {
+    "description": "Name of the desktop shortcut that copies the most recent code block in the transcript."
+  },
+  "desktopComposerHint": "Enter to send, Shift+Enter for a new line",
+  "@desktopComposerHint": {
+    "description": "Hint under the desktop composer explaining how to send a message."
+  },
+  "desktopCopied": "Copied",
+  "@desktopCopied": {
+    "description": "Confirmation shown briefly after a keyboard shortcut copies text to the clipboard."
+  },
+  "desktopNothingToCopy": "Nothing to copy yet",
+  "@desktopNothingToCopy": {
+    "description": "Shown when a copy shortcut runs with no reply or code block in the transcript."
+  },
+  "desktopPreview": "Preview",
+  "@desktopPreview": {
+    "description": "Button that renders a model-written HTML block in a sandboxed frame."
+  },
+  "desktopHidePreview": "Hide preview",
+  "@desktopHidePreview": {
+    "description": "Button that closes the sandboxed preview of a model-written HTML block."
+  },
+  "desktopAttachFiles": "Attach files",
+  "@desktopAttachFiles": {
+    "description": "Button in the desktop composer that opens the file picker."
+  },
+  "desktopRemoveAttachment": "Remove {name}",
+  "@desktopRemoveAttachment": {
+    "description": "Accessible label for the button that removes one attachment from the desktop composer. {name} is the file name.",
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "desktopAttachmentFailed": "Could not attach {name}",
+  "@desktopAttachmentFailed": {
+    "description": "Shown under the desktop composer when an attachment upload fails. {name} is the file name.",
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "desktopAttachmentsUploading": "Waiting for attachments to finish",
+  "@desktopAttachmentsUploading": {
+    "description": "Shown when the desktop send button is pressed while an attachment is still uploading."
+  },
+  "desktopAlreadyGenerating": "Wait for the current reply to finish, or stop it.",
+  "@desktopAlreadyGenerating": {
+    "description": "Shown when a message is sent to a conversation that is already generating a reply."
+  },
+  "desktopPreviousAnswer": "Previous answer",
+  "@desktopPreviousAnswer": {
+    "description": "Button that shows the previous alternative answer to the same prompt, created by regenerating."
+  },
+  "desktopNextAnswer": "Next answer",
+  "@desktopNextAnswer": {
+    "description": "Button that shows the next alternative answer to the same prompt, created by regenerating."
+  },
+  "desktopAnswerPosition": "Answer {index} of {count}",
+  "@desktopAnswerPosition": {
+    "description": "Accessible description of which alternative answer is on screen, e.g. 'Answer 2 of 3'.",
+    "placeholders": {
+      "index": { "type": "int" },
+      "count": { "type": "int" }
+    }
+  },
+  "desktopSearchIncomplete": "Still syncing, so some conversations may not show up yet.",
+  "@desktopSearchIncomplete": {
+    "description": "Shown under desktop search results while the first sync is still filling the local index."
+  },
+  "desktopSyncing": "Syncing…",
+  "@desktopSyncing": {
+    "description": "Shown in the desktop sidebar footer while conversations are syncing and the progress is unknown."
+  },
+  "desktopSyncingPercent": "Syncing… {percent}%",
+  "@desktopSyncingPercent": {
+    "description": "Shown in the desktop sidebar footer while conversations are syncing. {percent} is 0 to 100.",
+    "placeholders": { "percent": { "type": "int" } }
+  },
+  "desktopSyncFailed": "Sync failed",
+  "@desktopSyncFailed": {
+    "description": "Shown in the desktop sidebar footer when the last sync failed. The error is in its tooltip."
+  },
+  "desktopTemporaryHint": "Not saved. It disappears when you close the app.",
+  "@desktopTemporaryHint": {
+    "description": "Explains a temporary chat in the desktop composer and transcript header."
+  },
+  "desktopAllow": "Allow",
+  "@desktopAllow": {
+    "description": "Button that approves a server's request, such as a tool asking to run, in the desktop app."
+  },
+  "desktopDeny": "Deny",
+  "@desktopDeny": {
+    "description": "Button that declines a server's request, such as a tool asking to run, in the desktop app."
+  },
+  "desktopServerAsks": "The server is asking",
+  "@desktopServerAsks": {
+    "description": "Accessible name of the desktop card that shows a question the server sent during a reply."
+  },
+  "desktopShortcutAllowRequest": "Allow the server's request",
+  "@desktopShortcutAllowRequest": {
+    "description": "Name of the desktop keyboard shortcut that approves a waiting server request."
+  },
+  "desktopShortcutDenyRequest": "Deny the server's request",
+  "@desktopShortcutDenyRequest": {
+    "description": "Name of the desktop keyboard shortcut that declines a waiting server request."
+  },
+  "desktopToolRunning": "Running {name}…",
+  "@desktopToolRunning": {
+    "description": "Closed label of a tool call in a desktop reply while the tool is still running.",
+    "placeholders": { "name": { "type": "String", "example": "web_search" } }
+  },
+  "desktopToolUsed": "Used {name}",
+  "@desktopToolUsed": {
+    "description": "Closed label of a finished tool call in a desktop reply. Opening it shows the tool's input and output.",
+    "placeholders": { "name": { "type": "String", "example": "web_search" } }
+  },
+  "desktopToolInput": "Input",
+  "@desktopToolInput": {
+    "description": "Heading over the arguments a model passed to a tool, inside an opened tool call in a desktop reply."
+  },
+  "desktopDetails": "Details",
+  "@desktopDetails": {
+    "description": "Label of a collapsible section in a desktop reply that carried no title of its own."
+  },
+  "desktopDropToAttach": "Drop files to attach",
+  "@desktopDropToAttach": {
+    "description": "Shown under the desktop composer while files are dragged over it."
+  },
+  "desktopPaletteLabel": "Command palette",
+  "@desktopPaletteLabel": {
+    "description": "Accessible name of the desktop command palette dialog."
+  },
+  "desktopPalettePlaceholder": "Search conversations and commands",
+  "@desktopPalettePlaceholder": {
+    "description": "Placeholder in the desktop command palette's search field."
+  },
+  "desktopPaletteCommands": "Commands",
+  "@desktopPaletteCommands": {
+    "description": "Heading over app commands, such as New Chat or Settings, in the desktop command palette."
+  },
+  "desktopPaletteRecent": "Recent conversations",
+  "@desktopPaletteRecent": {
+    "description": "Heading over the most recent conversations in the desktop command palette before anything is typed."
+  },
+  "desktopPaletteConversations": "Conversations",
+  "@desktopPaletteConversations": {
+    "description": "Heading over conversations that match the search in the desktop command palette."
+  },
+  "desktopNewTemporaryChat": "New temporary chat",
+  "@desktopNewTemporaryChat": {
+    "description": "Command in the desktop command palette that starts a chat which is not saved."
+  },
+  "desktopPromptMenu": "Prompts",
+  "@desktopPromptMenu": {
+    "description": "Accessible name of the list of saved prompts that opens when typing / in the desktop composer."
+  },
+  "desktopPromptInsert": "Insert",
+  "@desktopPromptInsert": {
+    "description": "Button that puts a filled-in saved prompt into the desktop composer."
+  },
+  "desktopPromptFill": "Fill in {title}",
+  "@desktopPromptFill": {
+    "description": "Heading of the small form that asks for a saved prompt's values before inserting it in the desktop composer.",
+    "placeholders": { "title": { "type": "String", "example": "Stand-up notes" } }
+  },
+  "desktopSourcesCount": "Sources ({count})",
+  "@desktopSourcesCount": {
+    "description": "Label of the collapsible list of sources under an answer in the desktop app.",
+    "placeholders": { "count": { "type": "int", "example": "3" } }
+  },
+  "desktopGoodResponse": "Good response",
+  "@desktopGoodResponse": {
+    "description": "Thumbs-up button under an answer in the desktop app. Rates the answer as good."
+  },
+  "desktopBadResponse": "Bad response",
+  "@desktopBadResponse": {
+    "description": "Thumbs-down button under an answer in the desktop app. Rates the answer as bad."
+  },
+  "desktopAddTag": "Add tag",
+  "@desktopAddTag": {
+    "description": "Button in the desktop conversation header that opens a field for tagging the conversation."
+  },
+  "desktopTagName": "Tag name",
+  "@desktopTagName": {
+    "description": "Placeholder and label of the field that names a new tag in the desktop conversation header."
+  },
+  "desktopRemoveTag": "Remove tag {name}",
+  "@desktopRemoveTag": {
+    "description": "Accessible name of the small button that takes a tag off the conversation in the desktop app.",
+    "placeholders": { "name": { "type": "String", "example": "work" } }
+  },
+  "desktopShowTagged": "Show conversations tagged {name}",
+  "@desktopShowTagged": {
+    "description": "Tooltip of a tag in the desktop conversation header. Clicking it filters the sidebar to conversations with that tag.",
+    "placeholders": { "name": { "type": "String", "example": "work" } }
+  },
+  "desktopMoveTo": "Move to {folder}",
+  "@desktopMoveTo": {
+    "description": "Context-menu item that moves a conversation into the named folder in the desktop sidebar.",
+    "placeholders": { "folder": { "type": "String", "example": "Work" } }
+  },
+  "desktopRemoveFromFolder": "Remove from folder",
+  "@desktopRemoveFromFolder": {
+    "description": "Context-menu item that takes a conversation out of its folder in the desktop sidebar."
+  },
+  "desktopSelect": "Select",
+  "@desktopSelect": {
+    "description": "Button above the desktop sidebar list that turns on choosing several conversations at once."
+  },
+  "desktopSelectedCount": "{count} selected",
+  "@desktopSelectedCount": {
+    "description": "How many conversations are chosen in the desktop sidebar's selection mode.",
+    "placeholders": { "count": { "type": "int", "example": "3" } }
+  },
+  "desktopDone": "Done",
+  "@desktopDone": {
+    "description": "Leaves the desktop sidebar's selection mode."
+  },
+  "desktopMoveSelected": "Move to…",
+  "@desktopMoveSelected": {
+    "description": "First entry of the folder picker that moves the chosen conversations in the desktop sidebar."
+  },
+  "desktopNoFolder": "No folder",
+  "@desktopNoFolder": {
+    "description": "Folder-picker entry that takes the chosen conversations out of any folder in the desktop sidebar."
+  },
+  "desktopBulkDeleteConfirm": "Delete {count} conversations? This cannot be undone.",
+  "@desktopBulkDeleteConfirm": {
+    "description": "Confirmation before deleting several chosen conversations at once in the desktop sidebar.",
+    "placeholders": { "count": { "type": "int", "example": "3" } }
+  },
+  "desktopBulkFailed": "{count} could not be changed.",
+  "@desktopBulkFailed": {
+    "description": "Shown after a bulk action in the desktop sidebar when some conversations could not be archived, moved or deleted.",
+    "placeholders": { "count": { "type": "int", "example": "1" } }
+  },
+  "desktopOffline": "You're offline. Your conversations are still here; sending waits until you're connected again.",
+  "@desktopOffline": {
+    "description": "Banner over the desktop conversation when the computer has no network. The Send button is paused until it returns."
+  },
+  "desktopControls": "Controls",
+  "@desktopControls": {
+    "description": "Button in the desktop conversation header that opens the side pane with this conversation's settings, such as its system prompt."
+  },
+  "desktopSystemPromptHint": "Only for this conversation. Leave it empty to use your default from Open WebUI's settings.",
+  "@desktopSystemPromptHint": {
+    "description": "Explains the per-conversation system prompt field in the desktop controls pane."
+  },
+  "desktopSaved": "Saved",
+  "@desktopSaved": {
+    "description": "Status after the desktop controls pane stores a change."
+  },
+  "desktopOpenImage": "Open image {name}",
+  "@desktopOpenImage": {
+    "description": "Accessible name of an image thumbnail in a desktop message; activating it shows the image full size.",
+    "placeholders": { "name": { "type": "String", "example": "diagram.png" } }
+  },
+  "desktopModelMenu": "Models",
+  "@desktopModelMenu": {
+    "description": "Accessible name of the list of models that opens when typing @ in the desktop composer."
+  },
+  "desktopAnswerWith": "Next answer from {model}",
+  "@desktopAnswerWith": {
+    "description": "Chip above the desktop composer after choosing a model with @: only the next message goes to that model.",
+    "placeholders": { "model": { "type": "String", "example": "gpt-4o" } }
+  },
+  "desktopClearMention": "Use the selected model instead",
+  "@desktopClearMention": {
+    "description": "Accessible name of the button that removes the @-chosen model from the desktop composer."
+  },
+  "desktopSortBy": "Sort by",
+  "@desktopSortBy": {
+    "description": "Label of the sort control on a desktop folder page."
+  },
+  "desktopSortUpdated": "Last updated",
+  "@desktopSortUpdated": {
+    "description": "Sort option on a desktop folder page: newest conversations first."
+  },
+  "desktopSortTitle": "Title",
+  "@desktopSortTitle": {
+    "description": "Sort option on a desktop folder page: conversations alphabetically."
+  },
+  "desktopFolderEmpty": "Nothing in this folder yet.",
+  "@desktopFolderEmpty": {
+    "description": "Shown on a desktop folder page with no conversations."
+  },
+  "desktopToggleFolder": "Show or hide what is in {name}",
+  "@desktopToggleFolder": {
+    "description": "Accessible name of the small arrow beside a folder in the desktop sidebar.",
+    "placeholders": { "name": { "type": "String", "example": "Work" } }
+  },
+  "desktopOverview": "Overview",
+  "@desktopOverview": {
+    "description": "Heading of the map of every branch of a conversation, in the desktop controls pane."
+  },
+  "desktopOverviewHint": "Every branch of this conversation. Choose a message to show its branch.",
+  "@desktopOverviewHint": {
+    "description": "Explains the conversation map in the desktop controls pane."
+  },
+  "desktopKnowledgeMenu": "Knowledge",
+  "@desktopKnowledgeMenu": {
+    "description": "Accessible name of the list of knowledge bases that opens when typing # in the desktop composer."
+  },
+  "desktopOpenAiCompatible": "OpenAI-compatible",
+  "@desktopOpenAiCompatible": {
+    "description": "Provider type of a desktop direct connection: any server that speaks the OpenAI API, including OpenRouter, Azure and LM Studio."
+  },
+  "desktopDirectHistoryLocal": "Keep direct chats on this computer only",
+  "@desktopDirectHistoryLocal": {
+    "description": "Setting on the desktop direct connections page: direct chats are not mirrored to the Open WebUI server."
+  },
+  "desktopDirectEnable": "Use {name}",
+  "@desktopDirectEnable": {
+    "description": "Accessible name of the switch that turns one desktop direct connection on or off.",
+    "placeholders": { "name": { "type": "String", "example": "OpenRouter" } }
+  },
+  "desktopMcpReachabilityHelp": "Add a Streamable HTTP endpoint that this computer can reach. Its tools can then be offered to models from your direct connections.",
+  "@desktopMcpReachabilityHelp": {
+    "description": "Explanation at the top of the desktop MCP servers settings page."
+  },
+  "desktopMcpSignedIn": "Signed in",
+  "@desktopMcpSignedIn": {
+    "description": "Badge on an MCP server whose OAuth sign-in is complete."
+  },
+  "desktopMcpNotSignedIn": "Not signed in",
+  "@desktopMcpNotSignedIn": {
+    "description": "Badge on an OAuth MCP server that has not been signed in yet."
+  },
+  "desktopMcpHeadersConfigured": "Configured: {names}. Type new headers to replace them.",
+  "@desktopMcpHeadersConfigured": {
+    "description": "Hint under the custom headers field of an MCP server that already has headers stored; values are never shown.",
+    "placeholders": { "names": { "type": "String", "example": "X-Team, X-Region" } }
+  },
+  "desktopMcpSaveFirst": "Save the server before signing in.",
+  "@desktopMcpSaveFirst": {
+    "description": "Shown when OAuth sign-in is attempted on an MCP server that has not been saved."
+  },
+  "desktopNoteSaveFailed": "Not saved yet; trying again with the next change",
+  "@desktopNoteSaveFailed": {
+    "description": "Status beside a note's title when saving it failed; the pending edit is kept and sent with the next save."
+  },
+  "desktopLoadOlderMessages": "Load older messages",
+  "@desktopLoadOlderMessages": {
+    "description": "Button at the top of a channel or thread that loads the previous page of messages."
+  },
+  "desktopMessageEdited": "edited",
+  "@desktopMessageEdited": {
+    "description": "Marker beside a channel message that was changed after it was posted."
+  },
+  "desktopWorkspaceImport": "Import",
+  "@desktopWorkspaceImport": {
+    "description": "Workspace toolbar button that imports items of the open section from an exported JSON file."
+  },
+  "desktopWorkspaceExportAll": "Export all",
+  "@desktopWorkspaceExportAll": {
+    "description": "Workspace toolbar button that saves every item of the open section to a JSON file."
+  },
+  "desktopWorkspaceExport": "Export",
+  "@desktopWorkspaceExport": {
+    "description": "Workspace editor button that saves the open item to a file."
+  },
+  "desktopWorkspaceUpdated": "Updated {date}",
+  "@desktopWorkspaceUpdated": {
+    "description": "Workspace list: when the item last changed.",
+    "placeholders": { "date": { "type": "String" } }
+  },
+  "desktopWorkspaceImportFailed": "Not imported: {items}",
+  "@desktopWorkspaceImportFailed": {
+    "description": "Workspace import result: the items that did not go in, each with the reason.",
+    "placeholders": { "items": { "type": "String" } }
+  },
+  "desktopWorkspaceOnePerLine": "One per line",
+  "@desktopWorkspaceOnePerLine": {
+    "description": "Hint under a workspace field that takes a list, one entry per line."
+  },
+  "desktopWorkspaceCommaSeparated": "Separate with commas",
+  "@desktopWorkspaceCommaSeparated": {
+    "description": "Hint under a workspace field that takes a comma-separated list."
+  },
+  "desktopWorkspaceActive": "Active",
+  "@desktopWorkspaceActive": {
+    "description": "Workspace checkbox and list toggle: whether the item is switched on."
+  },
+  "desktopWorkspaceNoSections": "There is nothing in the workspace you can manage on this server.",
+  "@desktopWorkspaceNoSections": {
+    "description": "Workspace page when the account may manage none of its sections."
+  },
+  "desktopWorkspaceNotFound": "This item no longer exists.",
+  "@desktopWorkspaceNotFound": {
+    "description": "Workspace editor for an item that was deleted, here or elsewhere."
+  },
+  "desktopWorkspaceCleanupFailed": "Remove failed files",
+  "@desktopWorkspaceCleanupFailed": {
+    "description": "Knowledge file browser button that takes out the files that could not be read in."
+  },
+  "desktopWorkspaceAccessSaved": "Access saved.",
+  "@desktopWorkspaceAccessSaved": {
+    "description": "Status after the workspace access editor saved who may read and write an item."
+  },
+  "desktopWorkspaceAccessAdd": "Add",
+  "@desktopWorkspaceAccessAdd": {
+    "description": "Button beside a person or group found in the access editor search."
+  },
+  "desktopWorkspaceValvesUserHint": "Your own settings for this tool; the server valves apply to everyone.",
+  "@desktopWorkspaceValvesUserHint": {
+    "description": "Explains user valves in the tool editor."
+  },
+  "desktopWorkspaceDefaultFeaturesHint": "Features switched on in a new chat with this model, e.g. web_search, code_interpreter.",
+  "@desktopWorkspaceDefaultFeaturesHint": {
+    "description": "Hint under the default features field of the model editor."
+  },
+  "desktopHermesTestOk": "Connected to Hermes.",
+  "@desktopHermesTestOk": {
+    "description": "Result of testing a Hermes connection that answered."
+  },
+  "desktopHermesTestUnauthorized": "Hermes refused the key.",
+  "@desktopHermesTestUnauthorized": {
+    "description": "Result of testing a Hermes connection whose API key was not accepted."
+  },
+  "desktopHermesTestUnreachable": "Could not reach Hermes at that address.",
+  "@desktopHermesTestUnreachable": {
+    "description": "Result of testing a Hermes connection that did not answer."
+  },
+  "desktopHermesOpenSession": "Open",
+  "@desktopHermesOpenSession": {
+    "description": "Button that opens a Hermes conversation in the chat view."
+  },
+  "desktopHermesMode": "Connection type",
+  "@desktopHermesMode": {
+    "description": "Label of the choice between Hermes's API server (with a key) and its desktop gateway."
+  },
+  "desktopHermesSignInToFinish": "Saved. Sign in with Hermes to finish.",
+  "@desktopHermesSignInToFinish": {
+    "description": "Status after saving a Hermes desktop gateway that still needs its native sign-in."
+  },
+  "desktopHermesSignInRequired": "Sign in to Hermes in Settings to talk to the agent.",
+  "@desktopHermesSignInRequired": {
+    "description": "Error when a message is sent to Hermes before signing in to its desktop gateway."
+  },
+  "desktopStopDictation": "Stop dictation",
+  "@desktopStopDictation": {
+    "description": "Button that ends dictation and transcribes what was said."
+  },
+  "desktopMicrophoneUnavailable": "Conduit can't use a microphone. Check that one is connected and that Conduit is allowed to use it.",
+  "@desktopMicrophoneUnavailable": {
+    "description": "Shown when dictation or a voice call cannot open the microphone."
+  },
+  "desktopNothingHeard": "Nothing was heard.",
+  "@desktopNothingHeard": {
+    "description": "Shown when a dictation ends with no speech in it."
+  },
+  "desktopTranscriptionFailed": "That couldn't be transcribed. Try again.",
+  "@desktopTranscriptionFailed": {
+    "description": "Shown when the server could not transcribe a dictation."
+  },
+  "desktopShortcutDictate": "Start or stop dictation",
+  "@desktopShortcutDictate": {
+    "description": "Shortcuts overlay: the dictation shortcut."
+  },
+  "desktopMilliseconds": "{ms} ms",
+  "@desktopMilliseconds": {
+    "description": "A duration in milliseconds, next to a slider.",
+    "placeholders": {
+      "ms": {}
+    }
+  },
+  "desktopReadAloud": "Read aloud",
+  "@desktopReadAloud": {
+    "description": "Button under an answer that reads it aloud."
+  },
+  "desktopStopReading": "Stop reading",
+  "@desktopStopReading": {
+    "description": "Button under an answer being read aloud, which stops it."
+  },
+  "desktopVoiceCallHeard": "You said: {text}",
+  "@desktopVoiceCallHeard": {
+    "description": "Under the voice call's status: what the user's last question was transcribed as.",
+    "placeholders": {
+      "text": {}
+    }
+  },
+  "desktopSettingsDesktopTab": "Desktop",
+  "@desktopSettingsDesktopTab": {
+    "description": "Settings tab for how the app lives on the desktop: tray, login, quick ask, notifications."
+  },
+  "desktopCloseToTray": "Keep running when the window is closed",
+  "@desktopCloseToTray": {
+    "description": "Checkbox: closing the window leaves Conduit in the system tray."
+  },
+  "desktopCloseToTrayDescription": "Conduit stays in the tray, so notifications and quick ask keep working.",
+  "@desktopCloseToTrayDescription": {
+    "description": "Help under the close-to-tray checkbox."
+  },
+  "desktopLaunchAtLogin": "Open at login",
+  "@desktopLaunchAtLogin": {
+    "description": "Checkbox: start Conduit when the user signs in to the computer."
+  },
+  "desktopLaunchAtLoginDescription": "Starts in the tray when you sign in. Installed builds only.",
+  "@desktopLaunchAtLoginDescription": {
+    "description": "Help under the open-at-login checkbox."
+  },
+  "desktopQuickAskTitle": "Quick ask",
+  "@desktopQuickAskTitle": {
+    "description": "Name of the small floating window for a fast question, and its settings section."
+  },
+  "desktopQuickAskEnabled": "Open quick ask with a shortcut from anywhere",
+  "@desktopQuickAskEnabled": {
+    "description": "Checkbox: register the global quick-ask shortcut."
+  },
+  "desktopQuickAskShortcut": "Shortcut",
+  "@desktopQuickAskShortcut": {
+    "description": "Label of the quick-ask shortcut field, e.g. CommandOrControl+Shift+Space."
+  },
+  "desktopQuickAskShortcutInvalid": "Use one or more modifiers and a key, like CommandOrControl+Shift+Space.",
+  "@desktopQuickAskShortcutInvalid": {
+    "description": "Error under a quick-ask shortcut that is not valid."
+  },
+  "desktopQuickAskShortcutTaken": "Another app is using this shortcut. Choose a different one.",
+  "@desktopQuickAskShortcutTaken": {
+    "description": "Shown when the OS refused to register the quick-ask shortcut."
+  },
+  "desktopQuickAskNeedsSetup": "Open Conduit to finish setting it up first.",
+  "@desktopQuickAskNeedsSetup": {
+    "description": "Quick-ask window, when there is no server or model to ask yet."
+  },
+  "desktopNotificationsSection": "Notifications",
+  "@desktopNotificationsSection": {
+    "description": "Settings section heading for OS notifications."
+  },
+  "desktopShortcutPressKeys": "Press the new keys, or Esc to cancel",
+  "@desktopShortcutPressKeys": {
+    "description": "Placeholder of the field that records a new keyboard shortcut."
+  },
+  "desktopShortcutChange": "Change",
+  "@desktopShortcutChange": {
+    "description": "Button that starts recording a new key for a shortcut."
+  },
+  "desktopShortcutReset": "Reset",
+  "@desktopShortcutReset": {
+    "description": "Button that puts one shortcut back to its default key."
+  },
+  "desktopShortcutResetAll": "Reset all shortcuts",
+  "@desktopShortcutResetAll": {
+    "description": "Button that puts every shortcut back to its default key."
+  },
+  "desktopShortcutChangeLabel": "Change the shortcut for {command}",
+  "@desktopShortcutChangeLabel": {
+    "description": "Accessible name of a shortcut's Change button.",
+    "placeholders": { "command": { "type": "String" } }
+  },
+  "desktopReleaseSeeChanges": "See what changed",
+  "@desktopReleaseSeeChanges": {
+    "description": "Link in the What's new banner to the release's notes on GitHub."
+  },
+  "desktopReleaseDismiss": "Dismiss",
+  "@desktopReleaseDismiss": {
+    "description": "Accessible name of the button that closes the What's new banner."
+  },
+  "desktopAboutDaemon": "Core",
+  "@desktopAboutDaemon": {
+    "description": "About tab: the version of the conduitd core process."
+  },
+  "desktopAboutProtocol": "Protocol",
+  "@desktopAboutProtocol": {
+    "description": "About tab: the version of the protocol between the window and its core."
+  },
+  "desktopAboutPlatform": "Platform",
+  "@desktopAboutPlatform": {
+    "description": "About tab: the operating system the app runs on."
+  },
+  "desktopAboutUserData": "User data",
+  "@desktopAboutUserData": {
+    "description": "About tab: the folder where the app keeps its data."
+  },
+  "desktopAboutLogs": "Logs",
+  "@desktopAboutLogs": {
+    "description": "About tab: the folder where the app writes its logs."
+  },
+  "desktopSttEngineLocal": "On this computer",
+  "@desktopSttEngineLocal": {
+    "description": "Speech-to-text engine choice: Whisper running locally, nothing sent to a server."
+  },
+  "desktopSttEngineLocalDescription": "Transcribed by Whisper on this computer. Your voice never leaves it.",
+  "@desktopSttEngineLocalDescription": {
+    "description": "Help under the on-this-computer speech-to-text choice."
+  },
+  "desktopSttModelsTitle": "Speech models",
+  "@desktopSttModelsTitle": {
+    "description": "Heading of the list of downloadable Whisper models."
+  },
+  "desktopSttModelsDescription": "Downloaded once from Hugging Face and kept on this computer. Larger models hear better and take longer.",
+  "@desktopSttModelsDescription": {
+    "description": "Help above the list of downloadable Whisper models."
+  },
+  "desktopSttModelDownload": "Download ({size})",
+  "@desktopSttModelDownload": {
+    "description": "Button that downloads a speech model; size is e.g. 148 MB.",
+    "placeholders": { "size": { "type": "String" } }
+  },
+  "desktopSttModelDownloading": "Downloading… {percent}%",
+  "@desktopSttModelDownloading": {
+    "description": "Progress of a speech model download.",
+    "placeholders": { "percent": { "type": "String" } }
+  },
+  "desktopSttModelDelete": "Delete",
+  "@desktopSttModelDelete": {
+    "description": "Button that deletes a downloaded speech model."
+  },
+  "desktopSttModelUse": "Use",
+  "@desktopSttModelUse": {
+    "description": "Button that makes a downloaded speech model the one used."
+  },
+  "desktopSttModelInUse": "In use",
+  "@desktopSttModelInUse": {
+    "description": "Label on the speech model currently used."
+  },
+  "desktopSttModelEnglishOnly": "English only",
+  "@desktopSttModelEnglishOnly": {
+    "description": "Label on a speech model that only understands English."
+  },
+  "desktopSttModelFailedChecksum": "The download was not the file expected, so it was thrown away.",
+  "@desktopSttModelFailedChecksum": {
+    "description": "Shown when a downloaded speech model failed its checksum."
+  },
+  "desktopSttModelFailedNetwork": "The download failed. Check the connection and try again.",
+  "@desktopSttModelFailedNetwork": {
+    "description": "Shown when a speech model download failed on the network."
+  },
+  "desktopSttLocalNeedsModel": "Download a model to transcribe on this computer; until then the server does.",
+  "@desktopSttLocalNeedsModel": {
+    "description": "Shown when on-this-computer is chosen but no model is downloaded."
+  },
+  "themePaletteZaiLabel": "Zai",
+  "@themePaletteZaiLabel": {
+    "description": "Name of the desktop's default monochrome palette, after ZCode's Zai theme. A proper name; usually left untranslated."
+  },
+  "themePaletteZaiDescription": "Monochrome, calm and dense",
+  "@themePaletteZaiDescription": {
+    "description": "One-line description of the Zai palette."
+  },
+  "desktopUiFontSize": "Text size",
+  "@desktopUiFontSize": {
+    "description": "Label of the interface text-size slider in Settings > Appearance."
+  },
+  "desktopUiFontSizeValue": "{size} px",
+  "@desktopUiFontSizeValue": {
+    "description": "The chosen text size in pixels, shown beside the slider.",
+    "placeholders": {
+      "size": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopUiFontSizeHint": "Code, diffs and the terminal keep their own sizes.",
+  "@desktopUiFontSizeHint": {
+    "description": "Explains what the text-size slider does not change."
+  },
+  "desktopSidebar": "Sidebar",
+  "@desktopSidebar": {
+    "description": "Accessible name and tooltip of the title-bar button that shows or hides the conversation sidebar (a toggle)."
+  },
+  "desktopSidePane": "Side pane",
+  "@desktopSidePane": {
+    "description": "Accessible name and tooltip of the button that shows or hides the pane beside the conversation (controls, files, notes, previews). A toggle."
+  },
+  "desktopShortcutToggleSidebar": "Show or hide the sidebar",
+  "@desktopShortcutToggleSidebar": {
+    "description": "Keyboard shortcut list entry."
+  },
+  "desktopShortcutToggleSidePane": "Show or hide the side pane",
+  "@desktopShortcutToggleSidePane": {
+    "description": "Keyboard shortcut list entry."
+  },
+  "desktopSearch": "Search",
+  "@desktopSearch": {
+    "description": "Title-bar button that opens the command palette, which searches conversations and commands."
+  },
+  "desktopMinimizeWindow": "Minimize",
+  "@desktopMinimizeWindow": {
+    "description": "Window control button (Windows and Linux)."
+  },
+  "desktopMaximizeWindow": "Maximize",
+  "@desktopMaximizeWindow": {
+    "description": "Window control button (Windows and Linux)."
+  },
+  "desktopRestoreWindow": "Restore",
+  "@desktopRestoreWindow": {
+    "description": "Window control button shown instead of Maximize when the window is maximized."
+  },
+  "desktopCloseWindow": "Close",
+  "@desktopCloseWindow": {
+    "description": "Window control button that closes the window (Windows and Linux)."
+  },
+  "desktopResizeSidebar": "Resize the sidebar",
+  "@desktopResizeSidebar": {
+    "description": "Accessible name of the draggable divider between the sidebar and the conversation; arrow keys also resize."
+  },
+  "desktopResizeSidePane": "Resize the side pane",
+  "@desktopResizeSidePane": {
+    "description": "Accessible name of the draggable divider between the conversation and the side pane."
+  },
+  "desktopEarlier": "Earlier",
+  "@desktopEarlier": {
+    "description": "Sidebar group heading for conversations older than yesterday (after Today and Yesterday)."
+  },
+  "desktopChatRunning": "Answering",
+  "@desktopChatRunning": {
+    "description": "Screen-reader text for the sidebar status dot while an answer is being written in that conversation."
+  },
+  "desktopChatUnread": "New answer",
+  "@desktopChatUnread": {
+    "description": "Screen-reader text for the sidebar status dot when an answer finished in a conversation the user is not looking at."
+  },
+  "desktopChatFailed": "Answer failed",
+  "@desktopChatFailed": {
+    "description": "Screen-reader text for the sidebar status dot when an answer failed in a conversation the user is not looking at."
+  },
+  "desktopShell": "Shell",
+  "@desktopShell": {
+    "description": "Name of the frame under the conversation that holds a terminal shell on the account's terminal server."
+  },
+  "desktopSources": "Sources",
+  "@desktopSources": {
+    "description": "Heading in the side pane for every source cited in the conversation."
+  },
+  "desktopNoSources": "No sources cited in this conversation yet.",
+  "@desktopNoSources": {
+    "description": "Shown under Sources when no answer in the conversation cites anything."
+  },
+  "desktopClosePane": "Close the side pane",
+  "@desktopClosePane": {
+    "description": "Accessible name and tooltip of the button that closes the side pane."
+  },
+  "desktopNoPreview": "Nothing to preview yet. When an answer writes a web page, it shows here.",
+  "@desktopNoPreview": {
+    "description": "Empty state of the Preview tab."
+  },
+  "desktopPreviewPosition": "{index} of {count}",
+  "@desktopPreviewPosition": {
+    "description": "Which of several previewable pages is shown, e.g. '2 of 3'.",
+    "placeholders": {
+      "index": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopPreviousPreview": "Previous page",
+  "@desktopPreviousPreview": {
+    "description": "Button showing the previous previewable page in the Preview tab."
+  },
+  "desktopNextPreview": "Next page",
+  "@desktopNextPreview": {
+    "description": "Button showing the next previewable page in the Preview tab."
+  },
+  "desktopOpenShell": "Open the shell",
+  "@desktopOpenShell": {
+    "description": "Button in the side pane's Terminal tab that opens a shell in a frame under the conversation."
+  },
+  "desktopCloseShell": "Close the shell",
+  "@desktopCloseShell": {
+    "description": "Button that closes the shell frame under the conversation."
+  },
+  "desktopResizeShell": "Resize the shell",
+  "@desktopResizeShell": {
+    "description": "Accessible name of the draggable divider between the conversation and the shell under it; arrow keys also resize."
+  },
+  "desktopAllNotes": "All notes",
+  "@desktopAllNotes": {
+    "description": "Button in the side pane's Notes tab that goes back from a note to the list of notes."
+  }
+}

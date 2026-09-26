@@ -1,0 +1,445 @@
+{
+  "@@locale": "fr",
+  "desktopCoreConnecting": "Démarrage du cœur…",
+  "desktopCoreConnected": "Connecté au cœur",
+  "desktopCoreReconnecting": "Reconnexion au cœur (tentative {attempt})",
+  "@desktopCoreReconnecting": {
+    "placeholders": {
+      "attempt": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "desktopCoreUnavailable": "Le cœur est indisponible",
+  "desktopCoreVersionMismatch": "Cette application et son cœur n’ont pas la même version. Réinstallez Conduit pour continuer.",
+  "desktopKeyringUnavailable": "Aucun trousseau système trouvé : les identifiants enregistrés sont moins protégés. Installez gnome-keyring ou kwallet.",
+  "desktopQuickAskPlaceholder": "Demandez à Conduit…",
+  "desktopQuickAskContinue": "Continuer dans la fenêtre principale",
+  "desktopSettingsKeyboardTab": "Clavier",
+  "desktopShortcutConflict": "{shortcut} est déjà utilisé par {command}.",
+  "@desktopShortcutConflict": {
+    "placeholders": {
+      "shortcut": {
+        "type": "String",
+        "example": "Cmd+K"
+      },
+      "command": {
+        "type": "String",
+        "example": "Search"
+      }
+    }
+  },
+  "desktopSettingsTitle": "Paramètres",
+  "desktopSettingsNoServers": "Aucun serveur configuré pour l’instant.",
+  "desktopSettingsAddServer": "Ajouter un serveur",
+  "desktopSettingsSignedIn": "Connecté",
+  "desktopSettingsSwitchServer": "Basculer",
+  "desktopSettingsRemoveServer": "Supprimer",
+  "desktopSigningOut": "Déconnexion…",
+  "desktopSignedOut": "Déconnecté.",
+  "desktopSignOutSuperseded": "Une connexion plus récente a remplacé celle-ci, rien n’a donc été supprimé.",
+  "desktopSignOutIncomplete": "Déconnecté ici, mais cet appareil n’a pas fini d’effacer vos données. Conduit réessaiera au prochain lancement.",
+  "desktopChooseFile": "Choisir un fichier…",
+  "desktopReplaceFile": "Remplacer…",
+  "desktopChatsLabel": "Conversations",
+  "desktopNoChatsYet": "Aucune conversation pour l’instant. Envoyez un message pour en commencer une.",
+  "desktopSending": "Envoi…",
+  "desktopSignInMethod": "Méthode de connexion",
+  "desktopChatActions": "Actions pour {title}",
+  "@desktopChatActions": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopRenameChat": "Renommer",
+  "desktopPinChat": "Épingler",
+  "desktopUnpinChat": "Détacher",
+  "desktopArchiveChat": "Archiver",
+  "desktopDeleteChat": "Supprimer",
+  "desktopConfirmDelete": "Supprimer cette conversation ? Cette action est irréversible.",
+  "desktopRenamePrompt": "Nouveau titre",
+  "desktopSearchChats": "Rechercher des conversations",
+  "desktopSearchNoResults": "Aucun résultat.",
+  "desktopSearchClear": "Effacer la recherche",
+  "desktopPickAConversation": "Choisissez une conversation",
+  "desktopPickAConversationHint": "Sélectionnez-en une dans la barre latérale, ou écrivez ci-dessous pour en commencer une nouvelle.",
+  "desktopNewConversation": "Nouvelle conversation",
+  "desktopShortcutsTitle": "Raccourcis clavier",
+  "desktopShortcutFocusComposer": "Aller au champ de message",
+  "desktopShortcutOpenPalette": "Rechercher des conversations et des commandes",
+  "desktopShortcutFocusModelPicker": "Choisir un modèle",
+  "desktopShortcutShowShortcuts": "Afficher cette liste",
+  "desktopShortcutCopyLastResponse": "Copier la dernière réponse",
+  "desktopShortcutCopyLastCodeBlock": "Copier le dernier bloc de code",
+  "desktopComposerHint": "Enter pour envoyer, Shift+Enter pour une nouvelle ligne",
+  "desktopCopied": "Copié",
+  "desktopNothingToCopy": "Rien à copier pour l’instant",
+  "desktopPreview": "Aperçu",
+  "desktopHidePreview": "Masquer l’aperçu",
+  "desktopAttachFiles": "Joindre des fichiers",
+  "desktopRemoveAttachment": "Retirer {name}",
+  "@desktopRemoveAttachment": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAttachmentFailed": "Impossible de joindre {name}",
+  "@desktopAttachmentFailed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAttachmentsUploading": "En attente de la fin de l’envoi des pièces jointes",
+  "desktopAlreadyGenerating": "Attendez la fin de la réponse en cours, ou arrêtez-la.",
+  "desktopPreviousAnswer": "Réponse précédente",
+  "desktopNextAnswer": "Réponse suivante",
+  "desktopAnswerPosition": "Réponse {index} sur {count}",
+  "@desktopAnswerPosition": {
+    "placeholders": {
+      "index": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSearchIncomplete": "Synchronisation en cours : certaines conversations peuvent ne pas encore apparaître.",
+  "desktopSyncing": "Synchronisation…",
+  "desktopSyncingPercent": "Synchronisation… {percent} %",
+  "@desktopSyncingPercent": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSyncFailed": "Échec de la synchronisation",
+  "desktopTemporaryHint": "Non enregistré. Disparaît à la fermeture de l’application.",
+  "desktopAllow": "Autoriser",
+  "desktopDeny": "Refuser",
+  "desktopServerAsks": "Le serveur demande",
+  "desktopShortcutAllowRequest": "Autoriser la demande du serveur",
+  "desktopShortcutDenyRequest": "Refuser la demande du serveur",
+  "desktopToolRunning": "Exécution de {name}…",
+  "@desktopToolRunning": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "web_search"
+      }
+    }
+  },
+  "desktopToolUsed": "{name} utilisé",
+  "@desktopToolUsed": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "web_search"
+      }
+    }
+  },
+  "desktopToolInput": "Entrée",
+  "desktopDetails": "Détails",
+  "desktopDropToAttach": "Déposez des fichiers pour les joindre",
+  "desktopPaletteLabel": "Palette de commandes",
+  "desktopPalettePlaceholder": "Rechercher des conversations et des commandes",
+  "desktopPaletteCommands": "Commandes",
+  "desktopPaletteRecent": "Conversations récentes",
+  "desktopPaletteConversations": "Conversations",
+  "desktopNewTemporaryChat": "Nouveau chat temporaire",
+  "desktopPromptMenu": "Prompts",
+  "desktopPromptInsert": "Insérer",
+  "desktopPromptFill": "Compléter {title}",
+  "@desktopPromptFill": {
+    "placeholders": {
+      "title": {
+        "type": "String",
+        "example": "Stand-up notes"
+      }
+    }
+  },
+  "desktopSourcesCount": "Sources ({count})",
+  "@desktopSourcesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopGoodResponse": "Bonne réponse",
+  "desktopBadResponse": "Mauvaise réponse",
+  "desktopAddTag": "Ajouter un tag",
+  "desktopTagName": "Nom du tag",
+  "desktopRemoveTag": "Retirer le tag {name}",
+  "@desktopRemoveTag": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "work"
+      }
+    }
+  },
+  "desktopShowTagged": "Afficher les conversations avec le tag {name}",
+  "@desktopShowTagged": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "work"
+      }
+    }
+  },
+  "desktopMoveTo": "Déplacer vers {folder}",
+  "@desktopMoveTo": {
+    "placeholders": {
+      "folder": {
+        "type": "String",
+        "example": "Work"
+      }
+    }
+  },
+  "desktopRemoveFromFolder": "Retirer du dossier",
+  "desktopSelect": "Sélectionner",
+  "desktopSelectedCount": "{count} sélectionnée(s)",
+  "@desktopSelectedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopDone": "Terminé",
+  "desktopMoveSelected": "Déplacer vers…",
+  "desktopNoFolder": "Aucun dossier",
+  "desktopBulkDeleteConfirm": "Supprimer {count} conversations ? Cette action est irréversible.",
+  "@desktopBulkDeleteConfirm": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopBulkFailed": "{count} n’ont pas pu être modifiées.",
+  "@desktopBulkFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "1"
+      }
+    }
+  },
+  "desktopOffline": "Vous êtes hors ligne. Vos conversations sont toujours là ; l’envoi reprendra une fois la connexion rétablie.",
+  "desktopControls": "Contrôles",
+  "desktopSystemPromptHint": "Uniquement pour cette conversation. Laissez vide pour utiliser votre prompt par défaut des paramètres d’Open WebUI.",
+  "desktopSaved": "Enregistré",
+  "desktopOpenImage": "Ouvrir l’image {name}",
+  "@desktopOpenImage": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "diagram.png"
+      }
+    }
+  },
+  "desktopModelMenu": "Modèles",
+  "desktopAnswerWith": "Prochaine réponse de {model}",
+  "@desktopAnswerWith": {
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "gpt-4o"
+      }
+    }
+  },
+  "desktopClearMention": "Utiliser plutôt le modèle sélectionné",
+  "desktopSortBy": "Trier par",
+  "desktopSortUpdated": "Dernière mise à jour",
+  "desktopSortTitle": "Titre",
+  "desktopFolderEmpty": "Ce dossier est encore vide.",
+  "desktopToggleFolder": "Afficher ou masquer le contenu de {name}",
+  "@desktopToggleFolder": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Work"
+      }
+    }
+  },
+  "desktopOverview": "Vue d’ensemble",
+  "desktopOverviewHint": "Toutes les branches de cette conversation. Choisissez un message pour afficher sa branche.",
+  "desktopKnowledgeMenu": "Connaissances",
+  "desktopOpenAiCompatible": "Compatible OpenAI",
+  "desktopDirectHistoryLocal": "Garder les chats directs uniquement sur cet ordinateur",
+  "desktopDirectEnable": "Utiliser {name}",
+  "@desktopDirectEnable": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "OpenRouter"
+      }
+    }
+  },
+  "desktopMcpReachabilityHelp": "Ajoutez un point de terminaison Streamable HTTP accessible depuis cet ordinateur. Ses outils pourront alors être proposés aux modèles de vos connexions directes.",
+  "desktopMcpSignedIn": "Connecté",
+  "desktopMcpNotSignedIn": "Non connecté",
+  "desktopMcpHeadersConfigured": "Configurés : {names}. Saisissez de nouveaux en-têtes pour les remplacer.",
+  "@desktopMcpHeadersConfigured": {
+    "placeholders": {
+      "names": {
+        "type": "String",
+        "example": "X-Team, X-Region"
+      }
+    }
+  },
+  "desktopMcpSaveFirst": "Enregistrez le serveur avant de vous connecter.",
+  "desktopNoteSaveFailed": "Pas encore enregistré ; nouvel essai à la prochaine modification",
+  "desktopLoadOlderMessages": "Charger les messages plus anciens",
+  "desktopMessageEdited": "modifié",
+  "desktopWorkspaceImport": "Importer",
+  "desktopWorkspaceExportAll": "Tout exporter",
+  "desktopWorkspaceExport": "Exporter",
+  "desktopWorkspaceUpdated": "Mis à jour {date}",
+  "@desktopWorkspaceUpdated": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceImportFailed": "Non importés : {items}",
+  "@desktopWorkspaceImportFailed": {
+    "placeholders": {
+      "items": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceOnePerLine": "Un par ligne",
+  "desktopWorkspaceCommaSeparated": "Séparez par des virgules",
+  "desktopWorkspaceActive": "Actif",
+  "desktopWorkspaceNoSections": "Il n’y a rien dans le workspace que vous puissiez gérer sur ce serveur.",
+  "desktopWorkspaceNotFound": "Cet élément n’existe plus.",
+  "desktopWorkspaceCleanupFailed": "Retirer les fichiers en échec",
+  "desktopWorkspaceAccessSaved": "Accès enregistré.",
+  "desktopWorkspaceAccessAdd": "Ajouter",
+  "desktopWorkspaceValvesUserHint": "Vos propres réglages pour cet outil ; les valves du serveur s’appliquent à tout le monde.",
+  "desktopWorkspaceDefaultFeaturesHint": "Fonctionnalités activées dans un nouveau chat avec ce modèle, par ex. web_search, code_interpreter.",
+  "desktopHermesTestOk": "Connecté à Hermes.",
+  "desktopHermesTestUnauthorized": "Hermes a refusé la clé.",
+  "desktopHermesTestUnreachable": "Impossible de joindre Hermes à cette adresse.",
+  "desktopHermesOpenSession": "Ouvrir",
+  "desktopHermesMode": "Type de connexion",
+  "desktopHermesSignInToFinish": "Enregistré. Connectez-vous à Hermes pour terminer.",
+  "desktopHermesSignInRequired": "Connectez-vous à Hermes dans les réglages pour parler à l’agent.",
+  "desktopStopDictation": "Arrêter la dictée",
+  "desktopMicrophoneUnavailable": "Conduit ne peut pas utiliser de microphone. Vérifiez qu’un microphone est branché et que Conduit est autorisé à l’utiliser.",
+  "desktopNothingHeard": "Rien n’a été entendu.",
+  "desktopTranscriptionFailed": "Impossible de transcrire cet enregistrement. Réessayez.",
+  "desktopShortcutDictate": "Démarrer ou arrêter la dictée",
+  "desktopMilliseconds": "{ms} ms",
+  "@desktopMilliseconds": {
+    "placeholders": {
+      "ms": {}
+    }
+  },
+  "desktopReadAloud": "Lire à voix haute",
+  "desktopStopReading": "Arrêter la lecture",
+  "desktopVoiceCallHeard": "Vous avez dit : {text}",
+  "@desktopVoiceCallHeard": {
+    "placeholders": {
+      "text": {}
+    }
+  },
+  "desktopSettingsDesktopTab": "Bureau",
+  "desktopCloseToTray": "Continuer à s’exécuter après la fermeture de la fenêtre",
+  "desktopCloseToTrayDescription": "Conduit reste dans la zone de notification, pour que les notifications et la question rapide continuent de fonctionner.",
+  "desktopLaunchAtLogin": "Ouvrir à la connexion",
+  "desktopLaunchAtLoginDescription": "Démarre dans la zone de notification à l’ouverture de session. Versions installées uniquement.",
+  "desktopQuickAskTitle": "Question rapide",
+  "desktopQuickAskEnabled": "Ouvrir la question rapide avec un raccourci depuis n’importe où",
+  "desktopQuickAskShortcut": "Raccourci",
+  "desktopQuickAskShortcutInvalid": "Utilisez une ou plusieurs touches de modification et une touche, comme CommandOrControl+Shift+Space.",
+  "desktopQuickAskShortcutTaken": "Une autre application utilise ce raccourci. Choisissez-en un autre.",
+  "desktopQuickAskNeedsSetup": "Ouvrez d’abord Conduit pour terminer la configuration.",
+  "desktopNotificationsSection": "Notifications",
+  "desktopShortcutPressKeys": "Appuyez sur les nouvelles touches, ou sur Esc pour annuler",
+  "desktopShortcutChange": "Modifier",
+  "desktopShortcutReset": "Réinitialiser",
+  "desktopShortcutResetAll": "Réinitialiser tous les raccourcis",
+  "desktopShortcutChangeLabel": "Modifier le raccourci de {command}",
+  "@desktopShortcutChangeLabel": {
+    "placeholders": {
+      "command": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopReleaseSeeChanges": "Voir les nouveautés",
+  "desktopReleaseDismiss": "Fermer",
+  "desktopAboutDaemon": "Cœur",
+  "desktopAboutProtocol": "Protocole",
+  "desktopAboutPlatform": "Plateforme",
+  "desktopAboutUserData": "Données utilisateur",
+  "desktopAboutLogs": "Journaux",
+  "desktopSttEngineLocal": "Sur cet ordinateur",
+  "desktopSttEngineLocalDescription": "Transcrit par Whisper sur cet ordinateur. Votre voix ne le quitte jamais.",
+  "desktopSttModelsTitle": "Modèles vocaux",
+  "desktopSttModelsDescription": "Téléchargés une seule fois depuis Hugging Face et conservés sur cet ordinateur. Les modèles plus grands comprennent mieux mais prennent plus de temps.",
+  "desktopSttModelDownload": "Télécharger ({size})",
+  "@desktopSttModelDownload": {
+    "placeholders": { "size": { "type": "String" } }
+  },
+  "desktopSttModelDownloading": "Téléchargement… {percent}%",
+  "@desktopSttModelDownloading": {
+    "placeholders": { "percent": { "type": "String" } }
+  },
+  "desktopSttModelDelete": "Supprimer",
+  "desktopSttModelUse": "Utiliser",
+  "desktopSttModelInUse": "Utilisé",
+  "desktopSttModelEnglishOnly": "Anglais uniquement",
+  "desktopSttModelFailedChecksum": "Le fichier téléchargé n’était pas celui attendu ; il a donc été supprimé.",
+  "desktopSttModelFailedNetwork": "Le téléchargement a échoué. Vérifiez la connexion et réessayez.",
+  "desktopSttLocalNeedsModel": "Téléchargez un modèle pour transcrire sur cet ordinateur ; en attendant, le serveur s’en charge.",
+  "themePaletteZaiLabel": "Zai",
+  "themePaletteZaiDescription": "Monochrome, calme et dense",
+  "desktopUiFontSize": "Taille du texte",
+  "desktopUiFontSizeValue": "{size} px",
+  "desktopUiFontSizeHint": "Le code, les diffs et le terminal conservent leurs propres tailles.",
+  "desktopSidebar": "Barre latérale",
+  "desktopSidePane": "Panneau latéral",
+  "desktopShortcutToggleSidebar": "Afficher ou masquer la barre latérale",
+  "desktopShortcutToggleSidePane": "Afficher ou masquer le panneau latéral",
+  "desktopSearch": "Rechercher",
+  "desktopMinimizeWindow": "Réduire",
+  "desktopMaximizeWindow": "Agrandir",
+  "desktopRestoreWindow": "Restaurer",
+  "desktopCloseWindow": "Fermer",
+  "desktopResizeSidebar": "Redimensionner la barre latérale",
+  "desktopResizeSidePane": "Redimensionner le panneau latéral",
+  "desktopEarlier": "Plus ancien",
+  "desktopChatRunning": "Réponse en cours",
+  "desktopChatUnread": "Nouvelle réponse",
+  "desktopChatFailed": "Échec de la réponse",
+  "desktopShell": "Shell",
+  "desktopSources": "Sources",
+  "desktopNoSources": "Aucune source citée dans cette conversation pour l’instant.",
+  "desktopClosePane": "Fermer le panneau latéral",
+  "desktopNoPreview": "Rien à prévisualiser pour l’instant. Quand une réponse écrit une page web, elle s’affiche ici.",
+  "desktopPreviewPosition": "{index} sur {count}",
+  "desktopPreviousPreview": "Page précédente",
+  "desktopNextPreview": "Page suivante",
+  "desktopOpenShell": "Ouvrir le shell",
+  "desktopCloseShell": "Fermer le shell",
+  "desktopResizeShell": "Redimensionner le shell",
+  "desktopAllNotes": "Toutes les notes"
+}

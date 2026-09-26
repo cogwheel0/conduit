@@ -1,0 +1,20 @@
+# Maintainer: cogwheel
+pkgname=conduit-desktop-bin
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Desktop client for Open WebUI and Hermes Agent'
+arch=('x86_64' 'aarch64')
+url='https://github.com/cogwheel0/conduit'
+license=('GPL-3.0-only')
+depends=('gtk3' 'nss' 'libsecret' 'alsa-lib')
+optdepends=('gnome-keyring: encrypted storage for saved credentials')
+provides=('conduit-desktop')
+conflicts=('conduit-desktop')
+source_x86_64=("https://github.com/cogwheel0/conduit/releases/download/desktop-v${pkgver}/Conduit-${pkgver}-linux-x64.deb")
+source_aarch64=("https://github.com/cogwheel0/conduit/releases/download/desktop-v${pkgver}/Conduit-${pkgver}-linux-arm64.deb")
+sha256sums_x86_64=('0000000000000000000000000000000000000000000000000000000000000000')
+sha256sums_aarch64=('0000000000000000000000000000000000000000000000000000000000000000')
+
+package() {
+  bsdtar -xf data.tar.* -C "$pkgdir"
+}

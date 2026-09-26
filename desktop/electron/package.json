@@ -1,0 +1,44 @@
+{
+  "name": "conduit-desktop",
+  "productName": "Conduit",
+  "version": "0.1.0",
+  "description": "Conduit desktop client — Electron shell around the conduitd sidecar and the Jaspr renderer.",
+  "license": "GPL-3.0-only",
+  "private": true,
+  "main": "out/main.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build:ts": "tsc",
+    "build:ui": "node scripts/build-ui.mjs",
+    "build:daemon": "node scripts/build-daemon.mjs",
+    "build": "npm run build:daemon && npm run build:ui && npm run build:ts",
+    "dev": "node scripts/dev.mjs",
+    "start": "electron .",
+    "test": "playwright test",
+    "test:unit": "tsc -p tsconfig.test.json && node --test \"out-test/tests/unit/**/*.test.js\"",
+    "stage": "node scripts/stage.mjs",
+    "package": "npm run build:daemon && npm run build:whisper && npm run build:ui -- --release && npm run build:ts && npm run stage && electron-builder",
+    "build:whisper": "node scripts/build-whisper.mjs"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.56.1",
+    "@tailwindcss/cli": "4.3.3",
+    "@types/node": "24.10.1",
+    "@types/ws": "8.18.1",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "chart.js": "4.5.1",
+    "electron": "44.4.3",
+    "electron-builder": "26.15.3",
+    "katex": "0.18.7",
+    "lucide-static": "1.47.0",
+    "mermaid": "12.0.0",
+    "quill": "2.0.3",
+    "typescript": "5.9.3",
+    "ws": "8.21.3"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9"
+  }
+}

@@ -1,0 +1,39 @@
+# The desktop UI's typed string accessors.
+#
+# The ARB files in lib/l10n stay the single source of truth for both apps.
+# The mobile app keeps `gen-l10n`; this reads the very same files with slang,
+# which is Flutter-independent and so usable from a browser bundle.
+#
+# Regenerate with `dart run tool/arb_to_slang.dart` from the repo root,
+# then `dart run slang` from apps/desktop_ui.
+
+base_locale: en
+fallback_strategy: base_locale
+
+# Both front-ends read the same directory. Nothing is copied or duplicated,
+# so a translator's PR against lib/l10n lands in the desktop app too.
+# Not lib/l10n directly: slang's ARB importer cannot read this catalog (see
+# tool/arb_to_slang.dart for the three reasons). That tool writes normalized
+# slang JSON here, and this directory is generated — never edit it.
+input_directory: build/slang
+input_file_pattern: .i18n.json
+output_directory: lib/src/l10n
+output_file_name: strings.g.dart
+
+# `app_*.arb` and `desktop/desktop_*.arb` become the `app` and `desktop`
+# namespaces, which keeps desktop-only strings out of the mobile app's catalog
+# while still validating them with the same tooling. The desktop files sit in
+# a subdirectory because `flutter gen-l10n` scans lib/l10n non-recursively and
+# rejects two files declaring the same @@locale.
+namespaces: true
+
+# ARB uses {name}; slang defaults to Dart-style $name.
+string_interpolation: braces
+
+translate_var: t
+enum_name: AppLocale
+class_name: Translations
+
+# Pure Dart: no Flutter widget integration, no locale detection from a
+# BuildContext. The renderer sets the locale from the handshake.
+flutter_integration: false

@@ -15,4 +15,5 @@ export 'src/message_segments.dart';
 export 'src/reasoning_parser.dart';
 export 'src/semantic_details.dart';
 export 'src/speech_text.dart';
+export 'src/streaming_markdown_split.dart';
 export 'src/tool_calls_parser.dart';
