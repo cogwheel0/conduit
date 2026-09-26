@@ -48,13 +48,17 @@ final chatEntryReadyProvider = Provider<bool>((ref) {
 /// Native entry points can arrive while auth, Direct profiles, Hermes
 /// secrets, or model discovery are still hydrating. Returns immediately when
 /// nothing is loading, so a signed-out Open WebUI install is not delayed.
+/// Model discovery can be slow on a cold start, so [requireModel] callers
+/// get the same 30 s window as the home widget's cold-start wait.
 Future<bool> waitForChatEntryReady(
   Ref ref, {
   bool requireModel = false,
-  Duration timeout = const Duration(seconds: 5),
+  Duration? timeout,
   Duration pollInterval = const Duration(milliseconds: 100),
 }) async {
-  final deadline = DateTime.now().add(timeout);
+  final deadline = DateTime.now().add(
+    timeout ?? Duration(seconds: requireModel ? 30 : 5),
+  );
   while (true) {
     if (!ref.mounted) return false;
     final ready = ref.read(chatEntryReadyProvider);
