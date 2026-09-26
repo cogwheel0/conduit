@@ -20,6 +20,19 @@ String channelDisplayName(Channel channel, {required String fallback}) {
   return name.isEmpty ? fallback : name;
 }
 
+/// Whether [channel] matches a lowercase search [query], by its channel name
+/// or by the title the list shows (a DM's participants).
+bool channelMatchesQuery(
+  Channel channel,
+  String query, {
+  required String fallback,
+}) =>
+    channel.name.toLowerCase().contains(query) ||
+    channelDisplayName(
+      channel,
+      fallback: fallback,
+    ).toLowerCase().contains(query);
+
 /// Leading glyph that distinguishes DMs, groups, and private channels.
 IconData channelIcon(Channel channel) {
   if (channel.isDm) return Icons.person_outline;

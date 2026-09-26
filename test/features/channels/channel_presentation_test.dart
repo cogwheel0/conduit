@@ -40,6 +40,20 @@ void main() {
     check(channelDisplayName(dm, fallback: 'Unknown')).equals('Unknown');
   });
 
+  test('search finds a DM by the participant names it shows', () {
+    const dm = Channel(
+      id: 'dm-4',
+      name: '',
+      type: 'dm',
+      users: [
+        {'name': 'Tapas'},
+      ],
+    );
+
+    check(channelMatchesQuery(dm, 'tap', fallback: 'Unknown')).isTrue();
+    check(channelMatchesQuery(dm, 'zzz', fallback: 'Unknown')).isFalse();
+  });
+
   test('standard channels keep their name and privacy glyph', () {
     const channel = Channel(id: 'c-1', name: 'general', isPrivate: true);
 

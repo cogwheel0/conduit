@@ -253,7 +253,13 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
             final filtered = queryLower.isEmpty
                 ? channels
                 : channels
-                      .where((c) => c.name.toLowerCase().contains(queryLower))
+                      .where(
+                        (c) => channelMatchesQuery(
+                          c,
+                          queryLower,
+                          fallback: l10n.channelUnknownMember,
+                        ),
+                      )
                       .toList();
 
             if (filtered.isEmpty) {
