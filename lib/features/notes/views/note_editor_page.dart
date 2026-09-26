@@ -951,18 +951,14 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         children: [
           // Dictation option
           AdaptiveListTile(
-            leading: Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: conduitTheme.buttonPrimary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(AppBorderRadius.md),
-              ),
+            leading: SizedBox(
+              width: IconSize.xl,
+              height: IconSize.xl,
               child: Icon(
                 Platform.isIOS
                     ? CupertinoIcons.keyboard
                     : Icons.keyboard_voice_rounded,
-                color: conduitTheme.buttonPrimary,
+                color: conduitTheme.textPrimary,
                 size: IconSize.md,
               ),
             ),
@@ -987,16 +983,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           const SizedBox(height: Spacing.xs),
           // Audio recording option
           AdaptiveListTile(
-            leading: Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: Colors.red.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(AppBorderRadius.md),
-              ),
+            leading: SizedBox(
+              width: IconSize.xl,
+              height: IconSize.xl,
               child: Icon(
-                Platform.isIOS ? CupertinoIcons.mic_fill : Icons.mic_rounded,
-                color: Colors.red,
+                Platform.isIOS ? CupertinoIcons.mic : Icons.mic_none_rounded,
+                color: conduitTheme.textPrimary,
                 size: IconSize.md,
               ),
             ),

@@ -621,22 +621,11 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
   }
 
   Widget _buildLoadingTile(BuildContext context, {required String title}) {
-    final theme = context.conduitTheme;
-    final color = theme.buttonPrimary;
     return CustomizationTile(
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(AppBorderRadius.small),
-          border: Border.all(
-            color: color.withValues(alpha: 0.2),
-            width: BorderWidth.thin,
-          ),
-        ),
-        alignment: Alignment.center,
-        child: const ConduitLoadingIndicator(isCompact: true),
+      leading: const SizedBox(
+        width: IconSize.xl,
+        height: IconSize.xl,
+        child: Center(child: ConduitLoadingIndicator(isCompact: true)),
       ),
       title: title,
       subtitle: '',

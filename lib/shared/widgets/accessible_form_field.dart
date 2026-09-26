@@ -28,6 +28,9 @@ class AccessibleFormField extends StatelessWidget {
   final bool autocorrect;
   final TextStyle? style;
   final bool iosSettingsRow;
+
+  /// Caps the iOS row label at `(iosLabelFlex + 1) / 10` of the row width;
+  /// the value field always keeps a touch target's width.
   final int iosLabelFlex;
 
   const AccessibleFormField({
@@ -60,6 +63,16 @@ class AccessibleFormField extends StatelessWidget {
     this.iosSettingsRow = false,
     this.iosLabelFlex = 4,
   }) : assert(iosLabelFlex > 0 && iosLabelFlex < 10);
+
+  static const double _fieldRadius = AppBorderRadius.lg;
+
+  static OutlineInputBorder _outline(
+    Color color, {
+    double width = BorderWidth.regular,
+  }) => OutlineInputBorder(
+    borderRadius: BorderRadius.circular(_fieldRadius),
+    borderSide: BorderSide(color: color, width: width),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -117,42 +130,20 @@ class AccessibleFormField extends StatelessWidget {
               hintStyle: AppTypography.inputHintStyle.copyWith(
                 color: context.conduitTheme.inputPlaceholder,
               ),
+              // Outlined field: page-colored fill, a hairline
+              // outline, and a firmer ink outline while focused.
               filled: true,
-              fillColor: context.conduitTheme.inputBackground,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppBorderRadius.input),
-                borderSide: BorderSide(
-                  color: context.conduitTheme.inputBorder,
-                  width: BorderWidth.standard,
-                ),
+              fillColor: context.conduitTheme.surfaceBackground,
+              border: _outline(context.conduitTheme.inputBorder),
+              enabledBorder: _outline(context.conduitTheme.inputBorder),
+              focusedBorder: _outline(
+                context.conduitTheme.textPrimary,
+                width: BorderWidth.medium,
               ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppBorderRadius.input),
-                borderSide: BorderSide(
-                  color: context.conduitTheme.inputBorder,
-                  width: BorderWidth.standard,
-                ),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppBorderRadius.input),
-                borderSide: BorderSide(
-                  color: context.conduitTheme.buttonPrimary,
-                  width: BorderWidth.thick,
-                ),
-              ),
-              errorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppBorderRadius.input),
-                borderSide: BorderSide(
-                  color: context.conduitTheme.error,
-                  width: BorderWidth.standard,
-                ),
-              ),
-              focusedErrorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppBorderRadius.input),
-                borderSide: BorderSide(
-                  color: context.conduitTheme.error,
-                  width: BorderWidth.thick,
-                ),
+              errorBorder: _outline(context.conduitTheme.error),
+              focusedErrorBorder: _outline(
+                context.conduitTheme.error,
+                width: BorderWidth.medium,
               ),
               contentPadding: EdgeInsets.symmetric(
                 horizontal: isCompact ? Spacing.md : Spacing.inputPadding,
@@ -167,15 +158,15 @@ class AccessibleFormField extends StatelessWidget {
             ),
             cupertinoBoxDecoration: BoxDecoration(
               color: enabled
-                  ? CupertinoColors.tertiarySystemFill.resolveFrom(context)
+                  ? CupertinoColors.systemBackground.resolveFrom(context)
                   : CupertinoColors.quaternarySystemFill.resolveFrom(context),
-              border: hasExternalError
-                  ? Border.all(
-                      color: CupertinoColors.systemRed.resolveFrom(context),
-                      width: BorderWidth.standard,
-                    )
-                  : null,
-              borderRadius: BorderRadius.circular(AppBorderRadius.input),
+              border: Border.all(
+                color: hasExternalError
+                    ? CupertinoColors.systemRed.resolveFrom(context)
+                    : CupertinoColors.separator.resolveFrom(context),
+                width: BorderWidth.regular,
+              ),
+              borderRadius: BorderRadius.circular(_fieldRadius),
             ),
           ),
         ),
@@ -217,77 +208,79 @@ class AccessibleFormField extends StatelessWidget {
           constraints: const BoxConstraints(minHeight: TouchTarget.comfortable),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-            child: Row(
-              children: [
-                Expanded(
-                  flex: iosLabelFlex,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Flexible(
-                        child: Text(
-                          label!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: labelStyle,
-                        ),
+            // Like iOS Settings, the label keeps its natural width (capped so
+            // a long label cannot starve the value) and the value takes the
+            // rest; a fixed split truncated labels such as "Connection name".
+            child: LayoutBuilder(
+              builder: (context, constraints) => Row(
+                children: [
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: _iosSettingsRowLabelMaxWidth(
+                        constraints.maxWidth,
+                        iosLabelFlex: iosLabelFlex,
                       ),
-                      // In an iOS settings list, required fields are conveyed
-                      // by validation and Save availability. Red asterisks make
-                      // the row read like a web form and add visual noise.
-                    ],
+                    ),
+                    // In an iOS settings list, required fields are conveyed by
+                    // validation and Save availability. Red asterisks make the
+                    // row read like a web form and add visual noise.
+                    child: Text(
+                      label!,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: labelStyle,
+                    ),
                   ),
-                ),
-                const SizedBox(width: Spacing.md),
-                Expanded(
-                  flex: 10 - iosLabelFlex,
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Semantics(
-                          label: resolvedLabel,
-                          textField: true,
-                          child: _buildInput(
-                            context,
-                            textAlign: TextAlign.end,
-                            inputStyle:
-                                style ??
-                                AppTypography.bodyMediumStyle.copyWith(
-                                  color: theme.textPrimary,
-                                ),
-                            inputPadding: EdgeInsetsDirectional.only(
-                              end: suffixIcon == null ? 0 : Spacing.sm,
-                              top: Spacing.md,
-                              bottom: Spacing.md,
-                            ),
-                            materialDecoration: const InputDecoration(
-                              border: InputBorder.none,
-                              enabledBorder: InputBorder.none,
-                              focusedBorder: InputBorder.none,
-                              contentPadding: EdgeInsets.zero,
-                            ),
-                            cupertinoBoxDecoration: const BoxDecoration(
-                              color: Colors.transparent,
+                  const SizedBox(width: Spacing.md),
+                  Expanded(
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Semantics(
+                            label: resolvedLabel,
+                            textField: true,
+                            child: _buildInput(
+                              context,
+                              textAlign: TextAlign.end,
+                              inputStyle:
+                                  style ??
+                                  AppTypography.bodyMediumStyle.copyWith(
+                                    color: theme.textPrimary,
+                                  ),
+                              inputPadding: EdgeInsetsDirectional.only(
+                                end: suffixIcon == null ? 0 : Spacing.sm,
+                                top: Spacing.md,
+                                bottom: Spacing.md,
+                              ),
+                              materialDecoration: const InputDecoration(
+                                border: InputBorder.none,
+                                enabledBorder: InputBorder.none,
+                                focusedBorder: InputBorder.none,
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                              cupertinoBoxDecoration: const BoxDecoration(
+                                color: Colors.transparent,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      if (suffixIcon != null)
-                        SizedBox(
-                          width: IconSize.small,
-                          height: TouchTarget.minimum,
-                          child: OverflowBox(
-                            minWidth: TouchTarget.minimum,
-                            maxWidth: TouchTarget.minimum,
-                            minHeight: TouchTarget.minimum,
-                            maxHeight: TouchTarget.minimum,
-                            child: suffixIcon,
+                        if (suffixIcon != null)
+                          SizedBox(
+                            width: IconSize.small,
+                            height: TouchTarget.minimum,
+                            child: OverflowBox(
+                              minWidth: TouchTarget.minimum,
+                              maxWidth: TouchTarget.minimum,
+                              minHeight: TouchTarget.minimum,
+                              maxHeight: TouchTarget.minimum,
+                              child: suffixIcon,
+                            ),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -357,4 +350,16 @@ class AccessibleFormField extends StatelessWidget {
       cupertinoDecoration: cupertinoBoxDecoration,
     );
   }
+}
+
+/// Widest the label of an iOS settings-style form row may be: its
+/// `iosLabelFlex` share, but always leaving the gap and a touch target's
+/// width for the value field.
+double _iosSettingsRowLabelMaxWidth(
+  double rowWidth, {
+  required int iosLabelFlex,
+}) {
+  final share = rowWidth * (iosLabelFlex + 1) / 10;
+  final reserved = rowWidth - Spacing.md - TouchTarget.minimum;
+  return share.clamp(0.0, reserved.clamp(0.0, double.infinity)).toDouble();
 }

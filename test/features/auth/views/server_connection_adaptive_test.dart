@@ -115,7 +115,8 @@ void main() {
       ),
     );
     check(renderedUrlField.cupertinoDecoration).isNotNull();
-    check(renderedUrlField.cupertinoDecoration!.border).isNull();
+    // Fields use a hairline outline.
+    check(renderedUrlField.cupertinoDecoration!.border).isNotNull();
 
     final disclosure = tester.widget<UtilityDisclosureSection>(toggle);
     check(disclosure.contentPadding).equals(EdgeInsets.zero);
@@ -144,7 +145,8 @@ void main() {
     )) {
       check(field.prefixIcon).isNull();
       check(field.cupertinoDecoration).isNotNull();
-      check(field.cupertinoDecoration!.border).isNull();
+      // Fields use a hairline outline.
+      check(field.cupertinoDecoration!.border).isNotNull();
     }
     final addHeaderFinder = find.byKey(
       const ValueKey<String>('add-custom-header-button'),

@@ -10,7 +10,6 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/horizontal_gesture_ownership.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/horizontal_overflow_fade.dart';
-import '../../../shared/widgets/platform_ui/platform_ui.dart';
 
 import 'package:conduit_core/models/toggle_filter.dart';
 import 'package:conduit_core/models/tool.dart';
@@ -48,54 +47,77 @@ class ToggleTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A flat menu row: plain glyph, regular-weight title, and a
+    // checkmark only while the option is on.
+    void handleTap() {
+      ConduitHaptics.selectionClick();
+      onToggle();
+    }
+
+    // The labelled node replaces the InkWell's, so it must carry the tap.
     return Semantics(
       button: true,
       toggled: selected,
       label: title,
       hint: (subtitle?.isEmpty ?? true) ? null : subtitle,
-      child: ConduitCard(
-        padding: const EdgeInsets.all(Spacing.md),
-        onTap: () {
-          ConduitHaptics.selectionClick();
-          onToggle();
-        },
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            glyph,
-            const SizedBox(width: Spacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: AppTypography.bodyMediumStyle.copyWith(
-                      color: theme.sidebarForeground,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (subtitle != null && subtitle!.isNotEmpty) ...[
-                    const SizedBox(height: Spacing.xs),
-                    Text(
-                      subtitle!,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.bodySmallStyle.copyWith(
-                        color: theme.sidebarForeground.withValues(alpha: 0.75),
+      excludeSemantics: true,
+      onTap: handleTap,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(AppBorderRadius.md),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: handleTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Spacing.xs,
+              vertical: Spacing.xs + Spacing.xxs,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                glyph,
+                const SizedBox(width: Spacing.sm + Spacing.xs),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: AppTypography.bodyMediumStyle.copyWith(
+                          color: theme.textPrimary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                  ],
-                ],
-              ),
+                      if (subtitle != null && subtitle!.isNotEmpty)
+                        Text(
+                          subtitle!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.labelSmallStyle.copyWith(
+                            color: theme.textSecondary,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: Spacing.sm),
+                SizedBox(
+                  width: IconSize.small,
+                  child: selected
+                      ? Icon(
+                          Platform.isIOS
+                              ? CupertinoIcons.checkmark_alt
+                              : Icons.check_rounded,
+                          color: theme.textPrimary,
+                          size: IconSize.small,
+                        )
+                      : null,
+                ),
+              ],
             ),
-            const SizedBox(width: Spacing.sm),
-            IgnorePointer(
-              child: AdaptiveSwitch(value: selected, onChanged: (_) {}),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -423,7 +445,7 @@ class _ComposerAttachmentKeyboardState
 
     final listItems = <Widget>[
       SizedBox(
-        height: 94,
+        height: MediaQuery.textScalerOf(context).scale(_attachmentTileHeight),
         child: HorizontalOverflowFade(
           child: HorizontalScrollGestureBoundary(
             child: ListView.separated(
@@ -433,15 +455,21 @@ class _ComposerAttachmentKeyboardState
               padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
               itemCount: attachments.length,
               separatorBuilder: (_, _) => const SizedBox(width: Spacing.sm),
-              itemBuilder: (_, index) =>
-                  SizedBox(width: 76, child: attachments[index]),
+              // Tiles widen to fit longer localized labels.
+              itemBuilder: (_, index) => ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minWidth: _attachmentTileWidth,
+                  maxWidth: _attachmentTileMaxWidth,
+                ),
+                child: IntrinsicWidth(child: attachments[index]),
+              ),
             ),
           ),
         ),
       ),
       if (featureTiles.isNotEmpty) ...[
-        const SizedBox(height: Spacing.xs),
-        ...withVerticalSpacing(featureTiles, Spacing.xxs),
+        const SizedBox(height: Spacing.sm),
+        ...featureTiles,
       ],
       if (!widget.localAttachmentsOnly) ...[
         const SizedBox(height: Spacing.sm),
@@ -516,7 +544,7 @@ class _ComposerAttachmentKeyboardState
       padding: const EdgeInsets.only(bottom: Spacing.xxs),
       child: Text(
         text,
-        style: AppTypography.labelStyle.copyWith(
+        style: AppTypography.labelSmallStyle.copyWith(
           color: context.conduitTheme.textSecondary.withValues(
             alpha: Alpha.strong,
           ),
@@ -642,74 +670,66 @@ class _ComposerAttachmentKeyboardState
     }
   }
 
+  static const double _attachmentTileWidth = 78;
+  static const double _attachmentTileMaxWidth = 160;
+  static const double _attachmentTileHeight = 58;
+
+  /// Attach tile: a filled rounded square holding its icon and
+  /// label, so a row of them reads as one control group.
   Widget _buildAction({
     required ComposerOverflowItem item,
     VoidCallback? onTap,
   }) {
     final theme = context.conduitTheme;
     final bool enabled = onTap != null;
-    final Color iconColor = enabled ? theme.buttonPrimary : theme.iconDisabled;
-    final Color textColor = enabled
-        ? theme.sidebarForeground
-        : theme.sidebarForeground.withValues(alpha: Alpha.disabled);
+    final Color foreground = enabled ? theme.textPrimary : theme.iconDisabled;
+    final VoidCallback? handleTap = onTap == null
+        ? null
+        : () {
+            ConduitHaptics.lightImpact();
+            widget.onDismiss?.call();
+            Future.microtask(onTap);
+          };
 
+    // The labelled node replaces the InkWell's, so it must carry the tap.
     return Semantics(
       button: true,
       enabled: enabled,
       label: item.label,
       excludeSemantics: true,
+      onTap: handleTap,
       child: Opacity(
         opacity: enabled ? 1.0 : Alpha.disabled,
         child: Material(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(AppBorderRadius.small),
+          color: theme.surfaceContainer,
+          borderRadius: BorderRadius.circular(AppBorderRadius.md + 2),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
-            onTap: onTap == null
-                ? null
-                : () {
-                    ConduitHaptics.lightImpact();
-                    widget.onDismiss?.call();
-                    Future.microtask(onTap);
-                  },
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 76,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: enabled
-                        ? iconColor.withValues(alpha: 0.10)
-                        : theme.surfaceContainer.withValues(alpha: 0.60),
-                    borderRadius: BorderRadius.circular(AppBorderRadius.round),
-                    border: Border.all(
-                      color: enabled
-                          ? iconColor.withValues(alpha: 0.18)
-                          : Colors.transparent,
-                      width: BorderWidth.thin,
+            onTap: handleTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    item.iconFor(useCupertino: Platform.isIOS),
+                    color: foreground,
+                    size: IconSize.message,
+                  ),
+                  const SizedBox(height: Spacing.xxs),
+                  Text(
+                    item.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: AppTypography.labelSmallStyle.copyWith(
+                      color: foreground,
+                      height: 1.1,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
-                  alignment: Alignment.center,
-                  child: Icon(
-                    item.iconFor(useCupertino: Platform.isIOS),
-                    color: iconColor,
-                    size: IconSize.medium,
-                  ),
-                ),
-                const SizedBox(height: Spacing.xs),
-                Text(
-                  item.label,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: AppTypography.labelMediumStyle.copyWith(
-                    color: textColor,
-                    height: 1.1,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -777,21 +797,7 @@ class _ComposerAttachmentKeyboardState
     required bool selected,
     required ConduitThemeExtension theme,
   }) {
-    final color = selected ? theme.buttonPrimary : theme.iconPrimary;
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(AppBorderRadius.small),
-        border: Border.all(
-          color: color.withValues(alpha: 0.2),
-          width: BorderWidth.thin,
-        ),
-      ),
-      alignment: Alignment.center,
-      child: Icon(icon, color: color, size: IconSize.medium),
-    );
+    return Icon(icon, color: theme.iconPrimary, size: IconSize.message);
   }
 
   Widget _buildFilterGlyph({
@@ -799,27 +805,17 @@ class _ComposerAttachmentKeyboardState
     required bool selected,
     required ConduitThemeExtension theme,
   }) {
-    final color = selected ? theme.buttonPrimary : theme.iconPrimary;
-    final fallback = Icon(
+    if (iconUrl != null && iconUrl.isNotEmpty) {
+      return ModelAvatar(
+        size: IconSize.message,
+        imageUrl: iconUrl,
+        label: null,
+      );
+    }
+    return Icon(
       Platform.isIOS ? CupertinoIcons.sparkles : Icons.auto_awesome,
-      color: color,
-      size: IconSize.medium,
-    );
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(AppBorderRadius.small),
-        border: Border.all(
-          color: color.withValues(alpha: 0.2),
-          width: BorderWidth.thin,
-        ),
-      ),
-      alignment: Alignment.center,
-      child: iconUrl != null && iconUrl.isNotEmpty
-          ? ModelAvatar(size: 40, imageUrl: iconUrl, label: null)
-          : fallback,
+      color: theme.iconPrimary,
+      size: IconSize.message,
     );
   }
 }

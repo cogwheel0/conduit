@@ -3851,7 +3851,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             (attachments) => attachments.isNotEmpty,
           ),
         );
-
     return RepaintBoundary(
       child: MeasureSize(
         onChange: (size) {
@@ -4885,7 +4884,8 @@ typedef ChatGroupingPlacement = ({
 /// A single Hermes turn lands as several assistant messages. Repeating the
 /// avatar + model name and the copy/listen/regenerate bar for each one reads as
 /// several answers rather than one, so the first member carries the header and
-/// the last carries the bar.
+/// the last carries the bar. Across turns the header is shown only when the
+/// responding model differs from the last announced one.
 ///
 /// [rows] is the transcript in display order. A row is `isSkipped` when it
 /// renders no response of its own — archived variants (zero-size placeholders)
@@ -4903,6 +4903,10 @@ List<ChatGroupingPlacement> debugResolveAssistantGroupingForTesting(
   // Display model of the response currently being grouped; null once a user
   // turn closes it. Drives header suppression only.
   String? openGroupModelName;
+  // Model most recently announced by a header. Unlike [openGroupModelName] it
+  // survives user turns, so consecutive answers from the same model stay
+  // unlabeled and a header appears only when the responding model changes.
+  String? lastAnnouncedModelName;
   // Members of the action group being accumulated. It tracks the header group
   // except that a versioned row is always alone in its own.
   var openActionGroup = <int>[];
@@ -4936,7 +4940,18 @@ List<ChatGroupingPlacement> debugResolveAssistantGroupingForTesting(
       openGroupModelName: openGroupModelName,
       displayModelName: row.displayModelName,
     );
-    showModelHeader[index] = !continuesGroup;
+    showModelHeader[index] =
+        !continuesGroup &&
+        !debugAssistantRowContinuesGroupForTesting(
+          openGroupModelName: lastAnnouncedModelName,
+          displayModelName: row.displayModelName,
+        );
+    if (showModelHeader[index]) {
+      lastAnnouncedModelName = row.displayModelName;
+    }
+    // A versioned row can display a historical version from another model,
+    // which this pass cannot see, so the next answer must announce itself.
+    if (row.hasVersions) lastAnnouncedModelName = null;
     openGroupModelName = row.displayModelName;
 
     if (!continuesGroup || row.hasVersions) {

@@ -744,4 +744,22 @@ void main() {
       await presented;
     });
   });
+
+  group('resolveGroupedSheetColors', () {
+    const white = Color(0xFFFFFFFF);
+
+    test('puts white cards on the tinted page when the card is tinted', () {
+      // Conduit light: white page, tinted card.
+      const tinted = Color(0xFFF4F4F4);
+      check(resolveGroupedSheetColors(page: white, card: tinted))
+          .equals((tinted, white));
+    });
+
+    test('keeps palettes that already tint the page', () {
+      // Catppuccin light: tinted page, white card.
+      const tinted = Color(0xFFEFF1F5);
+      check(resolveGroupedSheetColors(page: tinted, card: white))
+          .equals((tinted, white));
+    });
+  });
 }

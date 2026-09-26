@@ -122,10 +122,8 @@ class ProfilePage extends ConsumerWidget {
       ),
       children: [
         if (hasOpenWebUiAccount) ...[
-          InsetGroupedList(
-            children: [_buildProfileHeader(context, userData, api)],
-          ),
-          const SizedBox(height: Spacing.sm),
+          _buildProfileHeader(context, userData, api),
+          const SizedBox(height: Spacing.lg),
         ],
         ...items,
         const SizedBox(height: Spacing.xl),
@@ -246,13 +244,42 @@ class ProfilePage extends ConsumerWidget {
     }
 
     final email = extractEmail(user) ?? l10n.noEmailLabel;
-    return UtilityRow(
-      onTap: () => context.pushNamed(RouteNames.accountSettings),
-      leading: UserAvatar(size: 56, imageUrl: avatarUrl, fallbackText: initial),
-      title: displayName,
-      subtitle: email,
-      showChevron: true,
-      padding: const EdgeInsets.all(Spacing.md),
+    final theme = context.conduitTheme;
+    // Identity header: centered avatar, name, and account line,
+    // with an explicit pill that opens the account editor.
+    return Column(
+      children: [
+        UserAvatar(size: 80, imageUrl: avatarUrl, fallbackText: initial),
+        const SizedBox(height: Spacing.sm + Spacing.xxs),
+        Text(
+          displayName,
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: AppTypography.headlineSmallStyle.copyWith(
+            color: theme.textPrimary,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: Spacing.xxs),
+        Text(
+          email,
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: AppTypography.bodyMediumStyle.copyWith(
+            color: theme.textSecondary,
+          ),
+        ),
+        const SizedBox(height: Spacing.md),
+        AdaptiveButton(
+          key: const Key('settings-edit-profile'),
+          onPressed: () => context.pushNamed(RouteNames.accountSettings),
+          label: l10n.edit,
+          style: AdaptiveButtonStyle.bordered,
+          size: AdaptiveButtonSize.small,
+        ),
+      ],
     );
   }
 
@@ -265,6 +292,8 @@ class ProfilePage extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final canManageWorkspace = canManageAnyWorkspaceSection(ref);
 
+    // Single-line settings rows, so each title and its
+    // icon carry the meaning without a descriptive subtitle.
     final appItems = <Widget>[
       _buildAccountOption(
         context,
@@ -273,7 +302,6 @@ class ProfilePage extends ConsumerWidget {
           android: Icons.palette_outlined,
         ),
         title: l10n.settingsAppearance,
-        subtitle: l10n.settingsAppearanceSubtitle,
         onTap: () => context.pushNamed(RouteNames.appearanceSettings),
       ),
       _buildAccountOption(
@@ -283,7 +311,6 @@ class ProfilePage extends ConsumerWidget {
           android: Icons.chat_bubble_outline,
         ),
         title: l10n.chatSettings,
-        subtitle: l10n.settingsChatSubtitle,
         onTap: () => context.pushNamed(RouteNames.chatSettings),
       ),
       _buildAccountOption(
@@ -293,7 +320,6 @@ class ProfilePage extends ConsumerWidget {
           android: Icons.graphic_eq,
         ),
         title: l10n.audioSettingsTitle,
-        subtitle: l10n.audioSettingsSubtitle,
         onTap: () => context.pushNamed(RouteNames.audioSettings),
       ),
       if (hasOpenWebUiAccount)
@@ -304,7 +330,6 @@ class ProfilePage extends ConsumerWidget {
             android: Icons.notifications_outlined,
           ),
           title: l10n.notificationsTitle,
-          subtitle: l10n.notificationsSubtitle,
           onTap: () => context.pushNamed(RouteNames.notificationSettings),
         ),
       if (hasOpenWebUiAccount || directPrimary)
@@ -315,7 +340,6 @@ class ProfilePage extends ConsumerWidget {
             android: Icons.auto_awesome,
           ),
           title: l10n.personalization,
-          subtitle: l10n.personalizationSubtitle,
           onTap: () => context.pushNamed(RouteNames.personalization),
         ),
     ];
@@ -324,7 +348,6 @@ class ProfilePage extends ConsumerWidget {
         context,
         iconAsset: 'assets/icons/hermes_agent.png',
         title: l10n.hermesAgentSettingsTitle,
-        subtitle: l10n.hermesAgentSettingsSubtitle,
         onTap: () => context.pushNamed(RouteNames.hermesSettings),
       ),
       if (canManageWorkspace)
@@ -336,7 +359,6 @@ class ProfilePage extends ConsumerWidget {
             android: Icons.dashboard_customize_outlined,
           ),
           title: l10n.workspaceTitle,
-          subtitle: l10n.workspaceSubtitle,
           onTap: () => context.pushNamed(RouteNames.workspace),
         ),
       if (hasOpenWebUiAccount)
@@ -348,7 +370,6 @@ class ProfilePage extends ConsumerWidget {
             android: Icons.hub_outlined,
           ),
           title: l10n.settingsDataAndConnection,
-          subtitle: l10n.connectionHealth,
           onTap: () => context.pushNamed(RouteNames.dataConnectionSettings),
         ),
       _buildAccountOption(
@@ -358,7 +379,6 @@ class ProfilePage extends ConsumerWidget {
           android: Icons.hub_outlined,
         ),
         title: l10n.directConnectionsTitle,
-        subtitle: l10n.directConnectionsSubtitle,
         onTap: () => context.pushNamed(RouteNames.directConnections),
       ),
       if (!hasOpenWebUiAccount)
@@ -369,7 +389,6 @@ class ProfilePage extends ConsumerWidget {
             android: Icons.add_circle_outline,
           ),
           title: l10n.connectOpenWebUITitle,
-          subtitle: l10n.connectOpenWebUISubtitle,
           onTap: () => context.goNamed(RouteNames.serverConnection),
         ),
     ];
@@ -392,7 +411,6 @@ class ProfilePage extends ConsumerWidget {
         android: Icons.logout,
       ),
       title: l10n.signOut,
-      subtitle: l10n.endYourSession,
       onTap: () => _signOut(context, ref),
       showChevron: false,
       destructive: true,
@@ -405,7 +423,7 @@ class ProfilePage extends ConsumerWidget {
     IconData? icon,
     String? iconAsset,
     required String title,
-    required String subtitle,
+    String? subtitle,
     required VoidCallback onTap,
     bool showChevron = true,
     bool destructive = false,
@@ -429,23 +447,16 @@ class ProfilePage extends ConsumerWidget {
     );
   }
 
+  // Plain monochrome glyphs instead of tinted
+  // badges; the fixed box keeps every row's title on the same leading edge.
   Widget _buildIconBadge(
     BuildContext context,
     IconData icon, {
     required Color color,
   }) {
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(AppBorderRadius.small),
-        border: Border.all(
-          color: color.withValues(alpha: 0.2),
-          width: BorderWidth.thin,
-        ),
-      ),
-      alignment: Alignment.center,
+    return SizedBox(
+      width: IconSize.xl,
+      height: IconSize.xl,
       child: Icon(icon, color: color, size: IconSize.medium),
     );
   }
@@ -455,26 +466,19 @@ class ProfilePage extends ConsumerWidget {
     String asset, {
     required Color color,
   }) {
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(AppBorderRadius.small),
-        border: Border.all(
-          color: color.withValues(alpha: 0.2),
-          width: BorderWidth.thin,
+    return SizedBox(
+      width: IconSize.xl,
+      height: IconSize.xl,
+      child: Center(
+        child: Image.asset(
+          asset,
+          key: const Key('hermes-settings-logo'),
+          width: IconSize.medium + 2,
+          height: IconSize.medium + 2,
+          color: color,
+          colorBlendMode: BlendMode.srcIn,
+          filterQuality: FilterQuality.high,
         ),
-      ),
-      alignment: Alignment.center,
-      child: Image.asset(
-        asset,
-        key: const Key('hermes-settings-logo'),
-        width: IconSize.medium + 2,
-        height: IconSize.medium + 2,
-        color: color,
-        colorBlendMode: BlendMode.srcIn,
-        filterQuality: FilterQuality.high,
       ),
     );
   }
@@ -489,7 +493,6 @@ class ProfilePage extends ConsumerWidget {
         android: Icons.info_outline,
       ),
       title: AppLocalizations.of(context)!.aboutApp,
-      subtitle: AppLocalizations.of(context)!.aboutAppSubtitle,
       onTap: () => context.pushNamed(RouteNames.about),
     );
   }

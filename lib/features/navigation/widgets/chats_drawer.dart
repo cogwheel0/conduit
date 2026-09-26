@@ -1186,13 +1186,13 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: theme.buttonPrimary.withValues(alpha: 0.12),
+              color: theme.surfaceContainer,
               borderRadius: BorderRadius.circular(AppBorderRadius.pill),
             ),
             child: Text(
               '$count',
               style: AppTypography.labelMediumStyle.copyWith(
-                color: theme.buttonPrimary.withValues(alpha: 0.9),
+                color: theme.textSecondary,
                 fontWeight: FontWeight.w600,
                 decoration: TextDecoration.none,
               ),

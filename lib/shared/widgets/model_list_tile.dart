@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 
 import 'package:conduit_core/models/model.dart';
+
 import '../theme/theme_extensions.dart';
 import 'model_avatar.dart';
 import 'horizontal_gesture_ownership.dart';
@@ -167,14 +168,6 @@ class ModelListTile extends StatelessWidget {
   /// Optional row-level action that does not select the model.
   final Widget? trailing;
 
-  /// The opaque surface this row is painted on.
-  ///
-  /// Defaults to the card background because model selectors group rows
-  /// inside a `ConduitCard`. The selected highlight and the trailing overflow
-  /// fade both derive from this color so they match what is actually behind
-  /// the row.
-  final Color? surfaceColor;
-
   const ModelListTile({
     super.key,
     required this.model,
@@ -185,7 +178,6 @@ class ModelListTile extends StatelessWidget {
     this.isPinned = false,
     this.isLoaded = false,
     this.trailing,
-    this.surfaceColor,
   });
 
   @override
@@ -194,28 +186,19 @@ class ModelListTile extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final borderRadius = BorderRadius.circular(AppBorderRadius.card);
 
-    final baseBackground = surfaceColor ?? theme.cardBackground;
-    final rowSurface = isSelected
-        ? Color.alphaBlend(
-            theme.buttonPrimary.withValues(alpha: 0.1),
-            baseBackground,
-          )
-        : baseBackground;
-    final background = isSelected ? rowSurface : Colors.transparent;
+    // Selection is carried by the trailing checkmark, as in the native iOS
+    // picker; rows themselves stay unfilled.
+    const background = Colors.transparent;
 
     final Widget leading;
     if (isAutoSelect) {
-      leading = Container(
+      leading = SizedBox(
         width: 32,
         height: 32,
-        decoration: BoxDecoration(
-          color: theme.buttonPrimary.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(AppBorderRadius.xs),
-        ),
         child: Icon(
           Platform.isIOS ? CupertinoIcons.wand_stars : Icons.auto_awesome,
-          color: theme.buttonPrimary,
-          size: IconSize.small,
+          color: theme.textPrimary,
+          size: IconSize.medium,
         ),
       );
     } else {
@@ -273,12 +256,8 @@ class ModelListTile extends StatelessWidget {
                       style: AppTypography.bodyLargeStyle.copyWith(
                         fontSize: 16,
                         height: 1.35,
-                        color: isSelected
-                            ? theme.textPrimary
-                            : theme.textSecondary,
-                        fontWeight: isSelected
-                            ? FontWeight.w600
-                            : FontWeight.w400,
+                        color: theme.textPrimary,
+                        fontWeight: FontWeight.w400,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,

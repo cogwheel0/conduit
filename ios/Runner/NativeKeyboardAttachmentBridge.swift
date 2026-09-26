@@ -410,7 +410,7 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         guard #available(iOS 26.0, *) else {
             return 14
         }
-        return traitCollection.verticalSizeClass == .compact ? 20 : 36
+        return traitCollection.verticalSizeClass == .compact ? 14 : 20
     }
 
     private var horizontalContentInset: CGFloat {
@@ -424,7 +424,11 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         self.onSelect = onSelect
         super.init(frame: .zero, inputViewStyle: .keyboard)
 
-        allowsSelfSizing = false
+        // Let Auto Layout honor `heightConstraint`. Without self-sizing, UIKit
+        // sizes a custom input view to the bare key plane, which leaves the
+        // panel shorter than the keyboard it replaces (no predictive bar or
+        // dictation strip) and drops the composer when the panel opens.
+        allowsSelfSizing = true
         backgroundColor = if #available(iOS 26.0, *) {
             .clear
         } else {
@@ -446,7 +450,7 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         scrollView.contentInsetAdjustmentBehavior = .never
 
         stackView.axis = .vertical
-        stackView.spacing = 18
+        stackView.spacing = 12
         stackView.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(scrollView)
@@ -522,7 +526,7 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         }
 
         if let strip = attachmentStrip {
-            stackView.setCustomSpacing(10, after: strip)
+            stackView.setCustomSpacing(8, after: strip)
         }
     }
 
@@ -535,18 +539,19 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         let label = UILabel()
         label.text = title
         label.font = UIFont.systemFont(
-            ofSize: UIFont.preferredFont(forTextStyle: .footnote).pointSize,
+            ofSize: UIFont.preferredFont(forTextStyle: .caption1).pointSize,
             weight: .semibold
         )
         label.adjustsFontForContentSizeCategory = true
         label.textColor = .tertiaryLabel
         label.setContentHuggingPriority(.required, for: .vertical)
         stackView.addArrangedSubview(label)
+        stackView.setCustomSpacing(2, after: label)
     }
 
-    /// Row height: tall enough for icon + caption without clipping; extra height reads as a gap below the row.
+    /// Attach tiles: a filled rounded square holding icon and label.
     private var attachmentRowScrollHeight: CGFloat {
-        traitCollection.verticalSizeClass == .compact ? 92 : 108
+        traitCollection.verticalSizeClass == .compact ? 52 : 58
     }
 
     @discardableResult
@@ -559,8 +564,8 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
 
         let row = UIStackView()
         row.axis = .horizontal
-        row.alignment = .top
-        row.spacing = 12
+        row.alignment = .fill
+        row.spacing = 8
         row.translatesAutoresizingMaskIntoConstraints = false
 
         let rowHeight = attachmentRowScrollHeight
@@ -570,8 +575,10 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
             row.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
             row.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
             row.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
-            row.heightAnchor.constraint(equalToConstant: rowHeight),
-            scroll.heightAnchor.constraint(equalToConstant: rowHeight),
+            // The strip is as tall as its tiles, which grow with Dynamic Type.
+            scroll.frameLayoutGuide.heightAnchor.constraint(
+                equalTo: scroll.contentLayoutGuide.heightAnchor
+            ),
         ])
 
         actions.forEach { action in
@@ -580,7 +587,19 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
                 self?.onSelect(action)
             }, for: .touchUpInside)
             row.addArrangedSubview(button)
-            button.widthAnchor.constraint(equalToConstant: 76).isActive = true
+            // Compact by default; wider for long localized labels ("Appareil
+            // photo") and taller for larger text, within these bounds.
+            let preferredWidth = button.widthAnchor.constraint(equalToConstant: 78)
+            preferredWidth.priority = .defaultLow - 1
+            let preferredHeight = button.heightAnchor.constraint(equalToConstant: rowHeight)
+            preferredHeight.priority = .defaultLow - 1
+            NSLayoutConstraint.activate([
+                preferredWidth,
+                preferredHeight,
+                button.widthAnchor.constraint(greaterThanOrEqualToConstant: 78),
+                button.widthAnchor.constraint(lessThanOrEqualToConstant: 160),
+                button.heightAnchor.constraint(greaterThanOrEqualToConstant: rowHeight),
+            ])
         }
 
         stackView.addArrangedSubview(scroll)
@@ -590,7 +609,7 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
     private func addListSection(_ actions: [NativeKeyboardAttachmentAction]) {
         let sectionStack = UIStackView()
         sectionStack.axis = .vertical
-        sectionStack.spacing = 8
+        sectionStack.spacing = 0
 
         actions.forEach { action in
             let button = NativeKeyboardAttachmentTile(action: action, style: .list)
@@ -625,7 +644,6 @@ private final class NativeKeyboardAttachmentTile: UIControl {
 
     private let action: NativeKeyboardAttachmentAction
     private let style: Style
-    private var gridButtonHeightConstraint: NSLayoutConstraint?
 
     init(action: NativeKeyboardAttachmentAction, style: Style) {
         self.action = action
@@ -648,193 +666,167 @@ private final class NativeKeyboardAttachmentTile: UIControl {
         nil
     }
 
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        guard style == .grid,
-              previousTraitCollection?.verticalSizeClass != traitCollection.verticalSizeClass
-        else {
-            return
-        }
-        gridButtonHeightConstraint?.constant = gridButtonHeight
-    }
+    private weak var highlightView: UIView?
 
     override var isHighlighted: Bool {
         didSet {
             UIView.animate(withDuration: 0.14) {
-                self.transform = self.isHighlighted
-                    ? CGAffineTransform(scaleX: 0.92, y: 0.92)
-                    : .identity
-                self.alpha = self.action.enabled
-                    ? (self.isHighlighted ? 0.84 : 1)
-                    : 0.48
+                self.highlightView?.alpha = self.isHighlighted ? 1 : 0
+                if self.style == .grid {
+                    self.alpha = self.action.enabled
+                        ? (self.isHighlighted ? 0.7 : 1)
+                        : 0.48
+                }
             }
         }
     }
 
-    private var gridButtonHeight: CGFloat {
-        traitCollection.verticalSizeClass == .compact ? 40 : 50
-    }
-
-    private var listCornerRadius: CGFloat {
-        if #available(iOS 26.0, *) {
-            return 22
-        }
-        return 18
-    }
-
-    private func makeSignalStyleButton(
-        symbolName: String,
-        preferredSize: CGSize
-    ) -> UIButton {
-        let button: UIButton
-        if #available(iOS 26.0, *) {
-            button = UIButton(configuration: .glass())
-        } else {
-            button = UIButton(configuration: .gray())
-            button.configuration?.background.backgroundColorTransformer = UIConfigurationColorTransformer {
-                _ in UIColor.secondarySystemFill
-            }
-        }
-        button.isUserInteractionEnabled = false
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.configuration?.image = UIImage(systemName: symbolName)
-        button.configuration?.baseForegroundColor = action.enabled
-            ? (action.selected ? tintColor : .label)
-            : .tertiaryLabel
-        button.configuration?.cornerStyle = .capsule
-        button.configuration?.contentInsets = NSDirectionalEdgeInsets(
-            top: 10,
-            leading: 10,
-            bottom: 10,
-            trailing: 10
-        )
-        button.widthAnchor.constraint(equalToConstant: preferredSize.width).isActive = true
-        button.heightAnchor.constraint(equalToConstant: preferredSize.height).isActive = true
-        return button
+    private var foreground: UIColor {
+        action.enabled ? .label : .tertiaryLabel
     }
 
     private func buildGridContent() {
-        let iconButton = makeSignalStyleButton(
-            symbolName: action.sfSymbol,
-            preferredSize: CGSize(width: 76, height: gridButtonHeight)
-        )
-        gridButtonHeightConstraint = iconButton.constraints.first {
-            $0.firstAttribute == .height
+        let background: UIView
+        if #available(iOS 26.0, *) {
+            background = UIVisualEffectView(effect: UIGlassEffect())
+        } else {
+            background = UIView()
+            background.backgroundColor = .secondarySystemFill
         }
+        background.translatesAutoresizingMaskIntoConstraints = false
+        background.isUserInteractionEnabled = false
+        background.layer.cornerRadius = 14
+        background.layer.cornerCurve = .continuous
+        background.clipsToBounds = true
+        addSubview(background)
+
+        let icon = UIImageView(image: UIImage(systemName: action.sfSymbol))
+        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+            textStyle: .body,
+            scale: .medium
+        )
+        icon.tintColor = foreground
+        icon.contentMode = .scaleAspectFit
 
         let label = UILabel()
         label.text = action.label
         label.font = UIFont.systemFont(
-            ofSize: UIFont.preferredFont(forTextStyle: .footnote).pointSize,
+            ofSize: UIFont.preferredFont(forTextStyle: .caption1).pointSize,
             weight: .medium
         )
         label.adjustsFontForContentSizeCategory = true
-        label.textColor = if #available(iOS 26.0, *) {
-            action.enabled ? .label : .tertiaryLabel
-        } else {
-            action.enabled ? .secondaryLabel : .tertiaryLabel
-        }
+        label.textColor = foreground
         label.textAlignment = .center
-        label.numberOfLines = 2
-        label.setContentCompressionResistancePriority(.required, for: .vertical)
+        label.numberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
 
-        let stack = UIStackView(arrangedSubviews: [iconButton, label])
+        isAccessibilityElement = true
+        accessibilityLabel = action.label
+        accessibilityTraits = .button
+
+        let stack = UIStackView(arrangedSubviews: [icon, label])
         stack.axis = .vertical
         stack.alignment = .center
-        stack.spacing = 6
+        stack.spacing = 3
         stack.isUserInteractionEnabled = false
         stack.translatesAutoresizingMaskIntoConstraints = false
-
         addSubview(stack)
+
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 2),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -2),
+            background.leadingAnchor.constraint(equalTo: leadingAnchor),
+            background.trailingAnchor.constraint(equalTo: trailingAnchor),
+            background.topAnchor.constraint(equalTo: topAnchor),
+            background.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stack.centerXAnchor.constraint(equalTo: centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 8),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
+            stack.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 6),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -6),
         ])
     }
 
+    /// A flat menu row: plain symbol, regular-weight title, and a
+    /// checkmark only while the option is on.
     private func buildListContent() {
-        let backgroundView = UIVisualEffectView(
-            effect: UIBlurEffect(style: .systemThinMaterial)
-        )
-        backgroundView.translatesAutoresizingMaskIntoConstraints = false
-        backgroundView.isUserInteractionEnabled = false
-        backgroundView.layer.cornerRadius = listCornerRadius
-        backgroundView.layer.cornerCurve = .continuous
-        backgroundView.layer.masksToBounds = true
-        addSubview(backgroundView)
+        let highlight = UIView()
+        highlight.translatesAutoresizingMaskIntoConstraints = false
+        highlight.isUserInteractionEnabled = false
+        highlight.backgroundColor = .tertiarySystemFill
+        highlight.layer.cornerRadius = 12
+        highlight.layer.cornerCurve = .continuous
+        highlight.alpha = 0
+        addSubview(highlight)
+        highlightView = highlight
 
-        let selectionOverlay = UIView()
-        selectionOverlay.translatesAutoresizingMaskIntoConstraints = false
-        selectionOverlay.isUserInteractionEnabled = false
-        selectionOverlay.backgroundColor = tintColor.withAlphaComponent(0.14)
-        selectionOverlay.alpha = action.selected ? 1 : 0
-        backgroundView.contentView.addSubview(selectionOverlay)
-
-        let iconChip = makeSignalStyleButton(
-            symbolName: action.sfSymbol,
-            preferredSize: CGSize(width: 44, height: 38)
+        let icon = UIImageView(image: UIImage(systemName: action.sfSymbol))
+        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+            textStyle: .subheadline,
+            scale: .large
         )
-        iconChip.configuration?.contentInsets = NSDirectionalEdgeInsets(
-            top: 8,
-            leading: 8,
-            bottom: 8,
-            trailing: 8
-        )
+        icon.tintColor = foreground
+        icon.contentMode = .scaleAspectFit
+        icon.translatesAutoresizingMaskIntoConstraints = false
 
         let titleLabel = UILabel()
         titleLabel.text = action.label
-        titleLabel.font = UIFont.systemFont(
-            ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize,
-            weight: .semibold
-        )
+        titleLabel.font = .preferredFont(forTextStyle: .subheadline)
         titleLabel.adjustsFontForContentSizeCategory = true
-        titleLabel.textColor = .label
+        titleLabel.textColor = foreground
         titleLabel.numberOfLines = 1
 
         let subtitleLabel = UILabel()
         subtitleLabel.text = action.subtitle
-        subtitleLabel.font = .preferredFont(forTextStyle: .footnote)
+        subtitleLabel.font = .preferredFont(forTextStyle: .caption1)
         subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.textColor = .secondaryLabel
-        subtitleLabel.numberOfLines = 2
+        subtitleLabel.numberOfLines = 1
         subtitleLabel.isHidden = (action.subtitle ?? "").isEmpty
 
         let textStack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel])
         textStack.axis = .vertical
-        textStack.spacing = 2
+        textStack.spacing = 0
 
-        let accessory = UIImageView(
-            image: UIImage(systemName: action.selected ? "checkmark.circle.fill" : "circle")
+        let accessory = UIImageView(image: UIImage(systemName: "checkmark"))
+        accessory.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+            textStyle: .subheadline,
+            scale: .medium
         )
-        accessory.tintColor = action.selected ? tintColor : .tertiaryLabel
+        accessory.tintColor = .label
         accessory.contentMode = .scaleAspectFit
+        accessory.isHidden = !action.selected
         accessory.translatesAutoresizingMaskIntoConstraints = false
 
-        let row = UIStackView(arrangedSubviews: [iconChip, textStack, accessory])
+        let row = UIStackView(arrangedSubviews: [icon, textStack, accessory])
         row.axis = .horizontal
         row.alignment = .center
-        row.spacing = 14
+        row.spacing = 12
         row.isUserInteractionEnabled = false
         row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
 
-        backgroundView.contentView.addSubview(row)
+        // Below required so the stack's zero-width hiding constraint wins
+        // when the option is off, without an Auto Layout conflict.
+        let accessoryWidth = accessory.widthAnchor.constraint(equalToConstant: 20)
+        accessoryWidth.priority = .defaultHigh
+
+        // A selected option also reads as selected to VoiceOver.
+        isAccessibilityElement = true
+        accessibilityLabel = action.label
+        accessibilityHint = action.subtitle
+        accessibilityTraits = action.selected ? [.button, .selected] : .button
+
         NSLayoutConstraint.activate([
-            backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            backgroundView.topAnchor.constraint(equalTo: topAnchor),
-            backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            selectionOverlay.leadingAnchor.constraint(equalTo: backgroundView.contentView.leadingAnchor),
-            selectionOverlay.trailingAnchor.constraint(equalTo: backgroundView.contentView.trailingAnchor),
-            selectionOverlay.topAnchor.constraint(equalTo: backgroundView.contentView.topAnchor),
-            selectionOverlay.bottomAnchor.constraint(equalTo: backgroundView.contentView.bottomAnchor),
-            row.leadingAnchor.constraint(equalTo: backgroundView.contentView.leadingAnchor, constant: 14),
-            row.trailingAnchor.constraint(equalTo: backgroundView.contentView.trailingAnchor, constant: -14),
-            row.topAnchor.constraint(equalTo: backgroundView.contentView.topAnchor, constant: 12),
-            row.bottomAnchor.constraint(equalTo: backgroundView.contentView.bottomAnchor, constant: -12),
-            accessory.widthAnchor.constraint(equalToConstant: 22),
-            accessory.heightAnchor.constraint(equalToConstant: 22),
+            highlight.leadingAnchor.constraint(equalTo: leadingAnchor, constant: -8),
+            highlight.trailingAnchor.constraint(equalTo: trailingAnchor, constant: 8),
+            highlight.topAnchor.constraint(equalTo: topAnchor),
+            highlight.bottomAnchor.constraint(equalTo: bottomAnchor),
+            row.leadingAnchor.constraint(equalTo: leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor),
+            row.topAnchor.constraint(equalTo: topAnchor, constant: 7),
+            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -7),
+            icon.widthAnchor.constraint(equalToConstant: 22),
+            accessoryWidth,
         ])
     }
 }

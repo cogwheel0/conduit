@@ -541,15 +541,10 @@ final class _ProviderIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    return Container(
-      width: 36,
-      height: 36,
-      decoration: BoxDecoration(
-        color: theme.buttonPrimary.withValues(alpha: Alpha.subtle),
-        borderRadius: BorderRadius.circular(AppBorderRadius.sm),
-      ),
-      alignment: Alignment.center,
-      child: Icon(icon, size: IconSize.small, color: theme.buttonPrimary),
+    return SizedBox(
+      width: IconSize.xl,
+      height: IconSize.xl,
+      child: Icon(icon, size: IconSize.medium, color: theme.buttonPrimary),
     );
   }
 }

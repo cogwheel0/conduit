@@ -839,34 +839,28 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
     final hasIcon = iconUrl != null && iconUrl.isNotEmpty;
 
+    // A quiet speaker label, like a group-chat sender name: it names a model
+    // change without competing with the answer below it.
     final Widget leading = hasIcon
-        ? ModelAvatar(size: 20, imageUrl: iconUrl, label: modelName)
-        : Container(
-            width: 20,
-            height: 20,
-            decoration: BoxDecoration(
-              color: theme.buttonPrimary,
-              borderRadius: BorderRadius.circular(AppBorderRadius.small),
-            ),
-            child: Icon(
-              Icons.auto_awesome,
-              color: theme.buttonPrimaryText,
-              size: 12,
-            ),
+        ? ModelAvatar(size: 16, imageUrl: iconUrl, label: modelName)
+        : Icon(
+            Icons.auto_awesome,
+            color: theme.textTertiary,
+            size: IconSize.sm - 2,
           );
 
     _cachedAvatar = Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.md),
+      padding: const EdgeInsets.only(bottom: Spacing.sm),
       child: Row(
         children: [
           leading,
-          const SizedBox(width: Spacing.xs),
+          const SizedBox(width: Spacing.xs + Spacing.xxs),
           Flexible(
             child: MiddleEllipsisText(
               modelName,
               style: AppTypography.bodySmallStyle.copyWith(
-                color: theme.textSecondary,
-                fontWeight: FontWeight.w500,
+                color: theme.textTertiary,
+                fontWeight: FontWeight.w400,
                 letterSpacing: AppTypography.letterSpacingNormal,
               ),
             ),
@@ -1857,41 +1851,29 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       return null;
     }
 
-    final leftAlignedWidgets = <Widget>[
+    final overflowButton = overflowActions.isNotEmpty
+        ? _buildOverflowActionButton(overflowActions)
+        : null;
+    // The icon buttons sit edge to edge with the overflow
+    // trailing them inline, and informational chips follow the buttons.
+    final actionButtons = <Widget>[
       for (final action in visibleActions)
         _buildActionButton(
           icon: action.icon,
           label: action.label,
           onTap: action.onTap,
         ),
-      ...infoWidgets,
+      ?overflowButton,
     ];
-    final overflowButton = overflowActions.isNotEmpty
-        ? _buildOverflowActionButton(overflowActions)
-        : null;
 
-    if (overflowButton == null) {
-      return Wrap(
-        spacing: Spacing.sm,
-        runSpacing: Spacing.sm,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: leftAlignedWidgets,
-      );
-    }
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
+    return Wrap(
+      spacing: Spacing.sm,
+      runSpacing: Spacing.sm,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        Expanded(
-          child: Wrap(
-            spacing: Spacing.sm,
-            runSpacing: Spacing.sm,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: leftAlignedWidgets,
-          ),
-        ),
-        const SizedBox(width: Spacing.sm),
-        overflowButton,
+        if (actionButtons.isNotEmpty)
+          Row(mainAxisSize: MainAxisSize.min, children: actionButtons),
+        ...infoWidgets,
       ],
     );
   }
@@ -1981,8 +1963,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
 
     final IconData listenIcon = Platform.isIOS
-        ? CupertinoIcons.speaker_2_fill
-        : Icons.volume_up;
+        ? CupertinoIcons.speaker_2
+        : Icons.volume_up_outlined;
     final IconData stopIcon = Platform.isIOS
         ? CupertinoIcons.stop_fill
         : Icons.stop;
@@ -1991,11 +1973,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _AssistantFooterAction(
         id: 'copy',
         icon: Platform.isIOS
-            ? CupertinoIcons.doc_on_clipboard
-            : Icons.content_copy,
+            ? CupertinoIcons.doc_on_doc
+            : Icons.content_copy_outlined,
         label: l10n.copy,
         onTap: _responseCompleted ? widget.onCopy : null,
-        sfSymbol: 'doc.on.clipboard',
+        sfSymbol: 'doc.on.doc',
       ),
       if (shouldShowTtsButton)
         _AssistantFooterAction(
@@ -2009,7 +1991,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           onTap: ttsOnTap,
           sfSymbol: (showStopState || showPreparingTtsState)
               ? 'stop.fill'
-              : 'speaker.wave.2.fill',
+              : 'speaker.wave.2',
         ),
       if (!widget.readOnly)
         _AssistantFooterAction(

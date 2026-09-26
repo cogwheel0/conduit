@@ -127,6 +127,42 @@ void main() {
     });
   });
 
+  group('header across turns', () {
+    test('a header appears only when the responding model changes', () {
+      final placements = debugResolveAssistantGroupingForTesting([
+        user,
+        hermes,
+        user,
+        hermes,
+        user,
+        gpt,
+        user,
+        hermes,
+      ]);
+
+      check(placements.map((p) => p.showModelHeader).toList())
+          .deepEquals([false, true, false, false, false, true, false, true]);
+      // Hiding the header never merges answers: each turn keeps its own bar.
+      check(placements.map((p) => p.showActionBar).toList())
+          .deepEquals([false, true, false, true, false, true, false, true]);
+    });
+  });
+
+  test('the answer after a versioned row always shows its header', () {
+    // The versioned row may be showing a historical version from another
+    // model; without a header the next answer would appear to be from it.
+    final placements = debugResolveAssistantGroupingForTesting([
+      user,
+      hermes,
+      user,
+      versioned,
+      user,
+      hermes,
+    ]);
+
+    check(placements[5].showModelHeader).isTrue();
+  });
+
   group('action bar placement', () {
     test(
       'one Hermes turn shows one header on top and one bar at the bottom',

@@ -263,7 +263,7 @@ void main() {
     );
     expect(
       tintDecoration.borderRadius,
-      BorderRadius.circular(AppBorderRadius.card),
+      BorderRadius.circular(AppBorderRadius.md),
     );
     expect(
       tester.widget<Text>(find.text('Parent Folder')).style?.color,

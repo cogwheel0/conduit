@@ -1067,7 +1067,8 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
       MediaQuery.textScalerOf(context),
     );
     final boundedLabel = boundConduitNativeModelLabel(label);
-    const leadingPadding = 10.0;
+    // Equal side insets so the label and chevron sit centered in the pill.
+    const horizontalInset = 13.0;
     final targetWidth = isLoading
         ? safeMaxWidth.clamp(0.0, 104.0).toDouble()
         : usesNativeGlass
@@ -1085,7 +1086,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
             textStyle: effectiveTextStyle,
             maxWidth: safeMaxWidth,
             minWidth: 96,
-            horizontalPadding: leadingPadding + Spacing.xs + 12,
+            horizontalPadding: horizontalInset * 2,
             // Only reserve chevron space when a chevron is actually rendered.
             trailingWidth: showChevron ? chevronSize + Spacing.xs : 0,
           );
@@ -1094,7 +1095,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
       child: ConstrainedBox(
         constraints: BoxConstraints(minHeight: controlExtent),
         child: Padding(
-          padding: EdgeInsets.only(left: leadingPadding, right: Spacing.xs),
+          padding: const EdgeInsets.symmetric(horizontal: horizontalInset),
           child: Center(
             widthFactor: 1,
             child: isLoading

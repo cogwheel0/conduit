@@ -666,7 +666,7 @@ class NativeSheetHydrationService {
                 subtitle: models.isEmpty
                     ? l10n.noAccessibleModelsFound
                     : l10n.accessibleModelsCount(models.length),
-                sfSymbol: 'cube.box.fill',
+                sfSymbol: 'cube.box',
               ),
           ],
         ),
@@ -795,7 +795,7 @@ class NativeSheetHydrationService {
         subtitle: s.notificationsEnabled
             ? l10n.notificationsEnabledDescription
             : l10n.notificationRequiresMaster,
-        sfSymbol: 'bell.fill',
+        sfSymbol: 'bell',
         kind: NativeSheetItemKind.toggle,
         value: s.notificationsEnabled,
       );
@@ -826,7 +826,7 @@ class NativeSheetHydrationService {
           id: 'notification-sound',
           title: l10n.notificationSoundTitle,
           subtitle: l10n.notificationSoundDescription,
-          sfSymbol: 'speaker.wave.2.fill',
+          sfSymbol: 'speaker.wave.2',
           kind: s.notificationsEnabled
               ? NativeSheetItemKind.toggle
               : NativeSheetItemKind.info,
@@ -838,7 +838,7 @@ class NativeSheetHydrationService {
           subtitle: s.notificationsEnabled && !s.notificationSound
               ? l10n.notificationRequiresSound
               : l10n.notificationSoundAlwaysDescription,
-          sfSymbol: 'speaker.wave.3.fill',
+          sfSymbol: 'speaker.wave.3',
           kind: s.notificationsEnabled && s.notificationSound
               ? NativeSheetItemKind.toggle
               : NativeSheetItemKind.info,
@@ -850,7 +850,7 @@ class NativeSheetHydrationService {
           id: 'notification-chat',
           title: l10n.notificationChatTitle,
           subtitle: l10n.notificationChatDescription,
-          sfSymbol: 'bubble.left.and.bubble.right.fill',
+          sfSymbol: 'bubble.left.and.bubble.right',
           kind: s.notificationsEnabled
               ? NativeSheetItemKind.toggle
               : NativeSheetItemKind.info,
@@ -1034,7 +1034,7 @@ class NativeSheetHydrationService {
             id: 'quick-pills',
             title: quickActionsTitle,
             subtitle: quickPillsSubtitle,
-            sfSymbol: 'bolt.fill',
+            sfSymbol: 'bolt',
           ),
       ];
       final behaviorItems = <NativeSheetItemConfig>[
@@ -1060,7 +1060,7 @@ class NativeSheetHydrationService {
               id: 'advanced-prompt-overrides',
               title: l10n.advancedPromptOverrides,
               subtitle: l10n.advancedPromptOverridesDescription,
-              sfSymbol: 'cube.box.fill',
+              sfSymbol: 'cube.box',
             )
           : null;
       await _applyNativeDetail(
@@ -1262,7 +1262,7 @@ class NativeSheetHydrationService {
               id: 'display',
               title: l10n.display,
               subtitle: '${activePalette.label(l10n)} · $themeDescription',
-              sfSymbol: 'rectangle.3.group.fill',
+              sfSymbol: 'rectangle.3.group',
             ),
             NativeSheetItemConfig(
               id: 'language',
@@ -1274,14 +1274,14 @@ class NativeSheetHydrationService {
               id: 'app-chat-settings',
               title: l10n.chatSettings,
               subtitle: transportNavLabel,
-              sfSymbol: 'bubble.left.and.bubble.right.fill',
+              sfSymbol: 'bubble.left.and.bubble.right',
             ),
             if (hasOpenWebUiAccount)
               NativeSheetItemConfig(
                 id: 'advanced-prompt-overrides',
                 title: l10n.advancedPromptOverrides,
                 subtitle: advancedPromptSubtitle,
-                sfSymbol: 'cube.box.fill',
+                sfSymbol: 'cube.box',
               ),
             if (socketService != null)
               NativeSheetItemConfig(
@@ -1334,7 +1334,7 @@ class NativeSheetHydrationService {
                   id: 'quick-pills',
                   title: quickActionsTitle,
                   subtitle: quickPillsSubtitle,
-                  sfSymbol: 'bolt.fill',
+                  sfSymbol: 'bolt',
                 ),
             ],
           ),
@@ -1584,7 +1584,7 @@ class NativeSheetHydrationService {
               subtitle: settings.memoryEnabled
                   ? l10n.memoryEnabledDescription
                   : l10n.memoryDisabledDescription,
-              sfSymbol: 'bookmark.fill',
+              sfSymbol: 'bookmark',
               kind: NativeSheetItemKind.toggle,
               value: settings.memoryEnabled,
             ),
@@ -1832,7 +1832,7 @@ class NativeSheetHydrationService {
               id: 'model-prompt-readonly:$encodedModel',
               title: l10n.modelNoWriteAccessDescription,
               subtitle: prompt.isEmpty ? '—' : prompt,
-              sfSymbol: 'lock.fill',
+              sfSymbol: 'lock',
               kind: NativeSheetItemKind.info,
             ),
           ];
