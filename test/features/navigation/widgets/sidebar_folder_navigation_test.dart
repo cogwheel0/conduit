@@ -145,29 +145,6 @@ void main() {
     );
   });
 
-  testWidgets('new-chat pill stays on screen at large text sizes', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(390 * 3, 844 * 3);
-    tester.view.devicePixelRatio = 3;
-    addTearDown(tester.view.reset);
-
-    await tester.pumpWidget(
-      sidebarTestBuildHarness(
-        controllers: SidebarTestSidebarHarnessControllers(),
-        textScale: 3,
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    final pill = tester.getRect(
-      find.byKey(const ValueKey<String>('sidebar-new-chat-pill')),
-    );
-    expect(pill.left, greaterThanOrEqualTo(0));
-    expect(pill.right, lessThanOrEqualTo(390));
-    expect(tester.takeException(), isNull);
-  });
-
   testWidgets('chat tab new chat clears stale folder target', (tester) async {
     final controllers = SidebarTestSidebarHarnessControllers();
 
@@ -192,9 +169,12 @@ void main() {
     container.read(pendingFolderIdProvider.notifier).set('parent-folder');
     container.read(temporaryChatEnabledProvider.notifier).set(false);
 
-    // The chats tab creates from the floating new-chat pill. Activate it
-    // through its semantics node so screen-reader activation is covered too.
-    tester.semantics.tap(find.semantics.byLabel('New Chat'));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.byIcon(Icons.add),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(NavigationService.currentRoute, '/chat');

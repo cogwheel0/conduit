@@ -3,7 +3,6 @@ import 'dart:io' show Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -17,7 +16,6 @@ import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/sidebar_layout_constants.dart';
 import '../../../shared/widgets/sidebar_ios26_scaffold.dart';
-import '../models/sidebar_navigation_model.dart';
 import '../providers/sidebar_providers.dart';
 import '../providers/sidebar_tab_scroll_registry.dart';
 import 'sidebar_user_pill.dart';
@@ -391,11 +389,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
       defaultTint,
     );
 
-    // Chat-style tabs create from the floating pill instead (see
-    // [_SidebarNewChatPill]); other tabs keep their header create action.
-    final createAction = _usesFloatingNewChat(activeTab)
-        ? null
-        : activeTab.createAction;
+    final createAction = activeTab.createAction;
     return [
       AdaptiveAppBarAction(
         iosSymbol: 'magnifyingglass',
@@ -526,37 +520,10 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
       showBottomNavigation: hasBottomNavigationBar,
     );
 
-    final floatingCreateAction =
-        _usesFloatingNewChat(activeTab) && !isSearchExpanded
-        ? activeTab.createAction
-        : null;
-    // Sit exactly where the lists' own bottom inset ends, so the pill clears
-    // the tab bar the same way their last row does on every platform. This
-    // context is outside the tab layout scope, so no accessory is added.
-    final floatingPillBottom = sidebarTabContentBottomPadding(
-      context,
-      includeNativeBottomBar: hasBottomNavigationBar,
-    );
-
     Widget withSyncProgress(Widget child) => Stack(
       fit: StackFit.expand,
       children: [
         Positioned.fill(child: child),
-        if (floatingCreateAction != null)
-          Positioned(
-            // Bounded on both sides so large text cannot push the pill off
-            // the leading edge; it stays pinned to the trailing corner.
-            left: Spacing.md,
-            right: Spacing.md,
-            bottom: floatingPillBottom,
-            child: Align(
-              alignment: AlignmentDirectional.centerEnd,
-              child: _SidebarNewChatPill(
-                label: localizations.newChat,
-                onPressed: () => floatingCreateAction.run(context, ref),
-              ),
-            ),
-          ),
         Positioned(
           top: Spacing.xs,
           left: Spacing.md,
@@ -612,13 +579,6 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
           final sidebarBody = SidebarTabLayoutScope(
             parentOwnsHeaderInset: false,
             bottomNavigationVisible: hasBottomNavigationBar,
-            bottomAccessoryExtent: floatingCreateAction == null
-                ? 0
-                : conduitScaledControlExtent(
-                        context,
-                        baseExtent: TouchTarget.minimum,
-                      ) +
-                      Spacing.sm,
             child: tabContent,
           );
 
@@ -649,90 +609,6 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
             body: sidebarBody,
           );
         },
-      ),
-    );
-  }
-}
-
-bool _usesFloatingNewChat(SidebarTabDescriptor tab) =>
-    tab.id == SidebarTabId.chats || tab.id == SidebarTabId.hermes;
-
-/// Floating new-chat button: a dark capsule pinned to the bottom
-/// trailing corner of the chat list, above the tab bar.
-class _SidebarNewChatPill extends StatelessWidget {
-  const _SidebarNewChatPill({required this.label, required this.onPressed});
-
-  final String label;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    void handleTap() {
-      ConduitHaptics.lightImpact();
-      onPressed();
-    }
-
-    // The labelled node replaces the InkWell's, so it must carry the tap.
-    return Semantics(
-      button: true,
-      label: label,
-      excludeSemantics: true,
-      onTap: handleTap,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AppBorderRadius.pill),
-          boxShadow: [
-            BoxShadow(
-              color: theme.cardShadow.withValues(alpha: 0.18),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: Material(
-          key: const ValueKey<String>('sidebar-new-chat-pill'),
-          color: theme.buttonPrimary,
-          shape: const StadiumBorder(),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: handleTap,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight: conduitScaledControlExtent(context),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Spacing.md + Spacing.xxs,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Platform.isIOS
-                          ? CupertinoIcons.square_pencil
-                          : Icons.edit_square,
-                      color: theme.buttonPrimaryText,
-                      size: IconSize.md,
-                    ),
-                    const SizedBox(width: Spacing.sm),
-                    Flexible(
-                      child: Text(
-                        label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.bodyLargeStyle.copyWith(
-                          color: theme.buttonPrimaryText,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
       ),
     );
   }
