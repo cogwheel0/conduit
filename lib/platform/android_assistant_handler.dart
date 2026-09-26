@@ -14,7 +14,7 @@ import '../shared/services/navigation_service.dart';
 import '../core/services/media_upload_controller.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -64,11 +64,10 @@ class AndroidAssistantHandler {
         scope: 'assistant',
       );
 
-      // Wait for app to be ready (authenticated and model available)
-      final navState = _ref.read(authNavigationStateProvider);
+      // Wait for app to be ready (chat reachable and model available)
       final model = _ref.read(selectedModelProvider);
 
-      if (navState != AuthNavigationState.authenticated || model == null) {
+      if (!_ref.read(chatEntryReadyProvider) || model == null) {
         DebugLogger.log(
           'App not ready for screenshot processing',
           scope: 'assistant',
@@ -161,10 +160,9 @@ class AndroidAssistantHandler {
     try {
       DebugLogger.log('Starting new chat from assistant', scope: 'assistant');
 
-      final navState = _ref.read(authNavigationStateProvider);
       final model = _ref.read(selectedModelProvider);
 
-      if (navState != AuthNavigationState.authenticated || model == null) {
+      if (!_ref.read(chatEntryReadyProvider) || model == null) {
         DebugLogger.log('App not ready for new chat', scope: 'assistant');
         return;
       }

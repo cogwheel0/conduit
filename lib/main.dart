@@ -14,6 +14,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'shared/widgets/error_boundary.dart';
+import 'platform/android_ime_inset_resync.dart';
 import 'platform/flutter_app_lifecycle.dart';
 import 'platform/flutter_clipboard_port.dart';
 import 'platform/flutter_connectivity_port.dart';
@@ -197,6 +198,7 @@ void main() {
 
       _registerBundledLicenses();
       FrameProfiler.instance.attachFrameTimings();
+      AndroidImeInsetResync.instance.install();
 
       // Global error handlers
       FlutterError.onError = (FlutterErrorDetails details) {

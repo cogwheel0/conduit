@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import androidx.activity.enableEdgeToEdge
+import io.flutter.embedding.android.FlutterFragment
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import android.os.Bundle
@@ -15,6 +16,8 @@ import android.system.Os
 import android.system.OsConstants
 import android.util.AtomicFile
 import android.util.Log
+import android.view.View
+import android.view.WindowInsets
 import android.webkit.CookieManager
 import android.webkit.MimeTypeMap
 import androidx.core.view.WindowCompat
@@ -563,6 +566,7 @@ class MainActivity : FlutterFragmentActivity() {
     
     private val ASSISTANT_CHANNEL = "app.cogwheel.conduit/assistant"
     private val SHARE_TEXT_CHANNEL = "conduit/share_receiver_text"
+    private val KEYBOARD_INSETS_CHANNEL = "app.cogwheel.conduit/keyboard_insets"
     private val HOME_WIDGET_LAUNCH_ACTION = "es.antonborri.home_widget.action.LAUNCH"
     private val SHARE_TEXT_PREFS_NAME = "conduit_share_receiver_text"
     private val PENDING_MULTIPLE_SHARE_TEXT_KEY = "pending_multiple_share_text"
@@ -659,6 +663,16 @@ class MainActivity : FlutterFragmentActivity() {
             }
         }
         
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            KEYBOARD_INSETS_CHANNEL
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "resyncImeInsets" -> result.success(resyncStaleImeInsets())
+                else -> result.notImplemented()
+            }
+        }
+
         // Setup cookie manager channel for WebView cookie access
         val cookieChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -685,6 +699,25 @@ class MainActivity : FlutterFragmentActivity() {
         
         // Check if started with context
         handleIntent(intent)
+    }
+
+    /**
+     * Re-applies the window's real insets when Flutter still holds a keyboard
+     * inset but the IME is hidden (#758).
+     *
+     * Flutter's ImeSyncDeferringInsetsCallback defers the final IME inset
+     * until the keyboard animation ends. Backgrounding the app mid-animation
+     * can lose that final update and leave the deferral latched, so ordinary
+     * inset dispatches are swallowed too. Calling the FlutterView directly is
+     * the same path the callback uses for animation frames.
+     */
+    private fun resyncStaleImeInsets(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
+        val flutterView = findViewById<View>(FlutterFragment.FLUTTER_VIEW_ID) ?: return false
+        val insets = flutterView.rootWindowInsets ?: return false
+        if (insets.isVisible(WindowInsets.Type.ime())) return false
+        flutterView.onApplyWindowInsets(insets)
+        return true
     }
 
     override fun onNewIntent(intent: Intent) {

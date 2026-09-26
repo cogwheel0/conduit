@@ -59,11 +59,11 @@ void main() {
     expect(launcher.startNewConversationCalls, [isTrue]);
   });
 
-  test('voice quick action bypasses a signed-out queue head', () {
+  test('voice quick action bypasses a queue head that is not chat-ready', () {
     expect(
       quickActionDispatchIndex(
         queuedTypes: const ['conduit_voice_call'],
-        authState: AuthNavigationState.needsLogin,
+        chatReady: false,
         voiceCanBypassAuthLoading: false,
       ),
       isNull,
@@ -71,7 +71,7 @@ void main() {
     expect(
       quickActionDispatchIndex(
         queuedTypes: const ['conduit_new_chat', 'conduit_voice_call'],
-        authState: AuthNavigationState.needsLogin,
+        chatReady: false,
         voiceCanBypassAuthLoading: false,
       ),
       isNull,
@@ -79,7 +79,7 @@ void main() {
     expect(
       quickActionDispatchIndex(
         queuedTypes: const ['conduit_new_chat', 'conduit_voice_call'],
-        authState: AuthNavigationState.needsLogin,
+        chatReady: false,
         voiceCanBypassAuthLoading: true,
       ),
       1,
@@ -87,7 +87,7 @@ void main() {
     expect(
       quickActionDispatchIndex(
         queuedTypes: const ['conduit_voice_call'],
-        authState: AuthNavigationState.needsLogin,
+        chatReady: false,
         voiceCanBypassAuthLoading: true,
       ),
       0,
@@ -95,23 +95,7 @@ void main() {
     expect(
       quickActionDispatchIndex(
         queuedTypes: const ['conduit_voice_call'],
-        authState: AuthNavigationState.loading,
-        voiceCanBypassAuthLoading: false,
-      ),
-      isNull,
-    );
-    expect(
-      quickActionDispatchIndex(
-        queuedTypes: const ['conduit_new_chat', 'conduit_voice_call'],
-        authState: AuthNavigationState.loading,
-        voiceCanBypassAuthLoading: true,
-      ),
-      1,
-    );
-    expect(
-      quickActionDispatchIndex(
-        queuedTypes: const ['conduit_voice_call'],
-        authState: AuthNavigationState.authenticated,
+        chatReady: true,
         voiceCanBypassAuthLoading: false,
       ),
       0,

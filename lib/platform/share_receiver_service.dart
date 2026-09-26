@@ -9,7 +9,7 @@ import 'package:riverpod/riverpod.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 
 import '../features/chat/providers/chat_providers.dart';
 import '../features/chat/services/file_attachment_service.dart';
@@ -816,9 +816,8 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
   Future<void> prepareShareImportUi(SharedAttachmentImportStatus status) async {
     if (!status.hasPlaceholders) return;
 
-    final navState = ref.read(authNavigationStateProvider);
     final model = ref.read(selectedModelProvider);
-    if (navState != AuthNavigationState.authenticated || model == null) {
+    if (!ref.read(chatEntryReadyProvider) || model == null) {
       return;
     }
 
@@ -851,7 +850,7 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
     return status;
   }
 
-  // Listen for app readiness: authenticated, model available, and chat visible.
+  // Listen for app readiness: chat reachable, model available, chat visible.
   maybeProcessPending = () async {
     if (isProcessingPending) return;
 
@@ -861,9 +860,8 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
       pending,
     );
     if (!isAcknowledgementRetry) {
-      final navState = ref.read(authNavigationStateProvider);
       final model = ref.read(selectedModelProvider);
-      if (navState != AuthNavigationState.authenticated || model == null) {
+      if (!ref.read(chatEntryReadyProvider) || model == null) {
         return;
       }
     }
@@ -1051,9 +1049,9 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
     );
   };
 
-  // React when auth/model changes to process a queued share
-  ref.listen<AuthNavigationState>(
-    authNavigationStateProvider,
+  // React when chat readiness/model changes to process a queued share
+  ref.listen<bool>(
+    chatEntryReadyProvider,
     (prev, next) => unawaited(maybeProcessPending()),
   );
   ref.listen(
@@ -1222,6 +1220,7 @@ Future<SharedPayloadProcessResult> _processPayload(
       if (svc != null) {
         final preparation = await _prepareSharedAttachments(
           payload.filePaths,
+          nativeImportId: payload.id,
           nativeStagingRootResolver: nativeStagingRootResolver,
           incomingFileStager: incomingFileStager,
           stagedFileRollback: stagedFileRollback,
@@ -1434,8 +1433,39 @@ Future<Directory?> _resolveLegacyPluginSourceRoot({
   return Directory(path.dirname(path.normalize(nativeStagingRoot.path)));
 }
 
+final _nativeStagedItemPrefix = RegExp(
+  r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-\d+-',
+  caseSensitive: false,
+);
+
+/// Recovers the sender's file name from a native share staging path.
+///
+/// Android (`uniqueStagingFileName`) and iOS (`nativeShareStagedFileName`)
+/// stage each item as `<importId>-<itemId>-<ordinal>-<name>`. The prefix is
+/// stripped only when it carries this payload's own import ID, so unrelated
+/// file names pass through unchanged.
+@visibleForTesting
+String sharedAttachmentDisplayName(String filePath, {String? nativeImportId}) {
+  final basename = path.basename(filePath);
+  final importId = nativeImportId?.trim().toLowerCase();
+  if (importId == null || importId.isEmpty) return basename;
+  final importPrefix = '$importId-';
+  if (basename.length <= importPrefix.length ||
+      basename.substring(0, importPrefix.length).toLowerCase() !=
+          importPrefix) {
+    return basename;
+  }
+  final remainder = basename.substring(importPrefix.length);
+  final itemPrefix = _nativeStagedItemPrefix.matchAsPrefix(remainder);
+  if (itemPrefix == null || itemPrefix.end == remainder.length) {
+    return basename;
+  }
+  return remainder.substring(itemPrefix.end);
+}
+
 Future<_SharedAttachmentPreparation> _prepareSharedAttachments(
   List<String> filePaths, {
+  String? nativeImportId,
   NativeShareStagingRootResolver? nativeStagingRootResolver,
   SharedIncomingFileStager? incomingFileStager,
   SharedStagedFileRollback? stagedFileRollback,
@@ -1472,7 +1502,10 @@ Future<_SharedAttachmentPreparation> _prepareSharedAttachments(
   // malformed, or oversized entries must not consume a slot that a later
   // valid file could use.
   for (final filePath in filePaths) {
-    final displayName = path.basename(filePath);
+    final displayName = sharedAttachmentDisplayName(
+      filePath,
+      nativeImportId: nativeImportId,
+    );
 
     final FileSystemEntityType initialType;
     try {

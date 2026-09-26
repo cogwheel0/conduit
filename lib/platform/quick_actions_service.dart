@@ -9,6 +9,7 @@ import 'package:quick_actions/quick_actions.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -106,7 +107,7 @@ class QuickActionsCoordinator extends _$QuickActionsCoordinator {
     ref.listen<Locale?>(appLocaleProvider, (prev, next) {
       _scheduleShortcutRefresh();
     });
-    ref.listen<AuthNavigationState>(authNavigationStateProvider, (prev, next) {
+    ref.listen<bool>(chatEntryReadyProvider, (prev, next) {
       unawaited(_maybeProcessPendingActions());
     });
     ref.listen(selectedModelProvider, (prev, next) {
@@ -187,7 +188,7 @@ class QuickActionsCoordinator extends _$QuickActionsCoordinator {
           queuedTypes: _pendingEvents
               .map((event) => event.type)
               .toList(growable: false),
-          authState: authState,
+          chatReady: ref.read(chatEntryReadyProvider),
           voiceCanBypassAuthLoading: voiceCallCanResolveWithoutOpenWebUiAuth(
             ref,
           ),
@@ -258,11 +259,11 @@ class QuickActionsCoordinator extends _$QuickActionsCoordinator {
 @visibleForTesting
 int? quickActionDispatchIndex({
   required List<String> queuedTypes,
-  required AuthNavigationState authState,
+  required bool chatReady,
   required bool voiceCanBypassAuthLoading,
 }) {
   if (queuedTypes.isEmpty) return null;
-  if (authState == AuthNavigationState.authenticated) return 0;
+  if (chatReady) return 0;
 
   final voiceIndex = queuedTypes.indexOf(_quickActionVoiceCall);
   if (voiceIndex < 0) return null;

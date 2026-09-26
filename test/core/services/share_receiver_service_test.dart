@@ -162,6 +162,55 @@ void main() {
     });
   });
 
+  group('sharedAttachmentDisplayName', () {
+    const importId = '540f82e5-30cc-40c4-9d7a-1b2c3d4e5f60';
+    const itemId = '0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b';
+
+    test('strips the native staging prefix for its own import', () {
+      expect(
+        sharedAttachmentDisplayName(
+          '/cache/conduit-shared-intents/$importId-$itemId-0-share_test.png',
+          nativeImportId: importId,
+        ),
+        'share_test.png',
+      );
+      expect(
+        sharedAttachmentDisplayName(
+          '/cache/$importId-$itemId-12-report-2026-09.pdf',
+          nativeImportId: importId.toUpperCase(),
+        ),
+        'report-2026-09.pdf',
+      );
+    });
+
+    test('keeps names that are not this import\'s staging copies', () {
+      const otherImport = '11111111-2222-3333-4444-555555555555';
+      final staged = '$importId-$itemId-0-share_test.png';
+      expect(
+        sharedAttachmentDisplayName(
+          '/cache/$staged',
+          nativeImportId: otherImport,
+        ),
+        staged,
+      );
+      expect(sharedAttachmentDisplayName('/cache/$staged'), staged);
+      expect(
+        sharedAttachmentDisplayName(
+          '/cache/$importId-notes.txt',
+          nativeImportId: importId,
+        ),
+        '$importId-notes.txt',
+      );
+      expect(
+        sharedAttachmentDisplayName(
+          '/cache/$importId-$itemId-0-',
+          nativeImportId: importId,
+        ),
+        '$importId-$itemId-0-',
+      );
+    });
+  });
+
   group('SharedAttachmentImportStatusNotifier', () {
     test('preserves prepared composer marker for the same native import', () {
       final container = ProviderContainer();
@@ -852,6 +901,68 @@ void main() {
         expect(await database.attachmentQueueDao.getAll(), isEmpty);
       },
     );
+
+    test('native staged attachments keep the sender file name', () async {
+      const importId = '540f82e5-30cc-40c4-9d7a-1b2c3d4e5f60';
+      final root = await Directory.systemTemp.createTemp(
+        'conduit_share_receiver_name_',
+      );
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(() async {
+        await database.close();
+        if (await root.exists()) await root.delete(recursive: true);
+      });
+      final source = File(
+        p.join(
+          root.path,
+          '$importId-0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b-0-notes.txt',
+        ),
+      );
+      await source.writeAsString('shared bytes');
+      final queue = AttachmentUploadQueue();
+      await queue.initialize(
+        onUpload: (filePath, fileName, {cancelToken}) async => 'unused',
+        database: () => database,
+      );
+      addTearDown(queue.dispose);
+      final container = ProviderContainer(
+        overrides: [
+          fileAttachmentServiceProvider.overrideWithValue(Object()),
+          apiServiceProvider.overrideWithValue(null),
+          attachmentUploadQueueProvider.overrideWithValue(queue),
+          selectedModelProvider.overrideWith(
+            () => _ShareSelectedModel(hermesSyntheticModel()),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      _markComposerPrepared(container, importId);
+      final staged = <File>[];
+      addTearDown(() async {
+        for (final file in staged) {
+          if (await file.exists()) await deleteShareStagingFile(file.path);
+        }
+      });
+
+      final result = await processSharedPayloadForTest(
+        container,
+        SharedPayload(id: importId, filePaths: [source.path]),
+        incomingFileStager: (filePath) async {
+          final result = await stageIncomingSharedFileWithResult(
+            filePath,
+            deletePluginSourceAfterCopy: false,
+          );
+          staged.add(result.file);
+          return result;
+        },
+      );
+
+      expect(result, SharedPayloadProcessResult.processed);
+      expect(
+        container.read(attachedFilesProvider).single.fileName,
+        'notes.txt',
+      );
+    });
 
     test('consumes invalid file-only payloads instead of retrying', () async {
       final root = await Directory.systemTemp.createTemp(
