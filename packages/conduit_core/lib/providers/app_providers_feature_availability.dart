@@ -180,6 +180,15 @@ class FoldersFeatureEnabledNotifier extends Notifier<bool> {
   }
 }
 
+/// Whether folder UI can be offered in the current session.
+///
+/// Folders are stored on the Open WebUI server, so accountless Direct or
+/// Hermes sessions (no signed-in server) have nowhere to create or list them.
+final foldersAvailableProvider = Provider<bool>((ref) {
+  return ref.watch(openWebUiAccountAvailableProvider) &&
+      ref.watch(foldersFeatureEnabledProvider);
+});
+
 /// Tracks whether the notes feature is enabled on the server.
 /// Set to false when the server returns 401 or 403 for the notes endpoint.
 final notesFeatureEnabledProvider =

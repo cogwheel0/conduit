@@ -10,6 +10,7 @@ import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 
 import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -170,8 +171,9 @@ class RouterNotifier extends ChangeNotifier {
         !directProfiles.isLoading &&
         !directProfiles.hasError &&
         (directProfiles.value?.any((profile) => profile.isUsable) ?? false);
-    final usesAccountlessPrimaryBackend =
-        (prefersDirect && directUsable) || (prefersHermes && hermesUsable);
+    final usesAccountlessPrimaryBackend = ref.read(
+      accountlessPrimaryBackendUsableProvider,
+    );
     final isLocalBackendSetup =
         location == Routes.backendChooser ||
         location == Routes.hermesSettings ||

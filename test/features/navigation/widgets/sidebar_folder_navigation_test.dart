@@ -182,6 +182,25 @@ void main() {
     expect(container.read(temporaryChatEnabledProvider), isTrue);
   });
 
+  testWidgets('sessions without an Open WebUI account hide folders', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        hasApiService: false,
+        folders: const [Folder(id: 'folder', name: 'Folder')],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('folders-section-leading')),
+      findsNothing,
+    );
+    expect(find.text('Folder'), findsNothing);
+  });
+
   testWidgets('tapping a folder row opens the folder route', (tester) async {
     final controllers = SidebarTestSidebarHarnessControllers();
 

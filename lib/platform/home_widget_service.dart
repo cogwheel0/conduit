@@ -10,7 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as path;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 
 import '../features/chat/providers/chat_providers.dart';
 import '../features/chat/services/file_attachment_service.dart';
@@ -114,7 +114,7 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
     }
   }
 
-  /// Process initial widget action after ensuring router and auth are ready.
+  /// Process initial widget action after ensuring router and chat are ready.
   Future<void> _processInitialWidgetAction() async {
     if (_pendingWidgetAction == null) return;
 
@@ -125,7 +125,7 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
 
       if (NavigationService.currentRoute != null) {
         DebugLogger.log(
-          'Widget: Router ready, waiting for authentication',
+          'Widget: Router ready, waiting for chat readiness',
           scope: 'widget',
         );
         break;
@@ -155,13 +155,13 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
       return;
     }
 
-    // Non-voice actions retain their existing authentication wait.
+    // Non-voice actions wait until chat is reachable.
     for (var i = 0; i < 300; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
       if (!ref.mounted) {
         DebugLogger.log(
-          'Widget: Provider disposed while waiting for auth',
+          'Widget: Provider disposed while waiting for chat readiness',
           scope: 'widget',
         );
         _pendingWidgetAction = null;
@@ -181,10 +181,11 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
         return;
       }
 
-      final authState = ref.read(authNavigationStateProvider);
-      if (authState == AuthNavigationState.authenticated) {
+      // Accountless Direct/Hermes installs are ready without an Open WebUI
+      // session; otherwise keep waiting because the user might be signing in.
+      if (ref.read(chatEntryReadyProvider)) {
         DebugLogger.log(
-          'Widget: Authenticated, processing pending action',
+          'Widget: Chat ready, processing pending action',
           scope: 'widget',
         );
         final uri = _pendingWidgetAction;
@@ -192,18 +193,10 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
         await _handleWidgetClick(uri);
         return;
       }
-
-      // If user is on login page and not loading, they need to authenticate
-      // Don't clear the pending action yet - keep waiting
-      if (authState == AuthNavigationState.needsLogin ||
-          authState == AuthNavigationState.error) {
-        // Continue waiting - user might be logging in
-        continue;
-      }
     }
 
     DebugLogger.log(
-      'Widget: Timeout waiting for authentication, clearing pending action',
+      'Widget: Timeout waiting for chat readiness, clearing pending action',
       scope: 'widget',
     );
     _pendingWidgetAction = null;
@@ -303,10 +296,9 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
     // Wait for navigation to settle
     await Future<void>.delayed(const Duration(milliseconds: 100));
 
-    // Check auth state
-    final navState = ref.read(authNavigationStateProvider);
-    if (navState != AuthNavigationState.authenticated) {
-      DebugLogger.log('Widget: Not authenticated for camera', scope: 'widget');
+    // Attachments route through the selected model's transport.
+    if (!await waitForChatEntryReady(ref, requireModel: true)) {
+      DebugLogger.log('Widget: Chat not ready for camera', scope: 'widget');
       return;
     }
 
@@ -343,10 +335,9 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
     // Wait for navigation to settle
     await Future<void>.delayed(const Duration(milliseconds: 100));
 
-    // Check auth state
-    final navState = ref.read(authNavigationStateProvider);
-    if (navState != AuthNavigationState.authenticated) {
-      DebugLogger.log('Widget: Not authenticated for photos', scope: 'widget');
+    // Attachments route through the selected model's transport.
+    if (!await waitForChatEntryReady(ref, requireModel: true)) {
+      DebugLogger.log('Widget: Chat not ready for photos', scope: 'widget');
       return;
     }
 

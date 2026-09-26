@@ -20,7 +20,7 @@ import '../shared/services/navigation_service.dart';
 import '../features/chat/providers/chat_providers.dart';
 import '../features/chat/providers/context_attachments_provider.dart';
 
-import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 
 import '../features/chat/voice_call/presentation/voice_call_launcher.dart';
 import '../features/chat/services/file_attachment_service.dart';
@@ -1040,12 +1040,18 @@ class AppIntentCoordinator extends _$AppIntentCoordinator
 
     NavigationService.navigateToChat();
 
-    final navState = ref.read(authNavigationStateProvider);
+    // A cold launch can arrive before Direct profiles or auth finish loading;
+    // resetting only once chat is reachable keeps the prompt out of the
+    // previous conversation.
+    final chatReady = resetChat
+        ? await waitForChatEntryReady(ref)
+        : ref.read(chatEntryReadyProvider);
+    if (!ref.mounted) throw StateError('App not ready');
     if (prompt != null && prompt.isNotEmpty) {
       ref.read(prefilledInputTextProvider.notifier).set(prompt);
     }
 
-    if (navState == AuthNavigationState.authenticated && resetChat) {
+    if (chatReady && resetChat) {
       startNewChat(ref);
     }
 

@@ -13,8 +13,7 @@ import '../features/chat/voice_call/presentation/voice_call_launcher.dart';
 import '../shared/services/navigation_service.dart';
 import '../core/services/media_upload_controller.dart';
 
-import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -64,11 +63,8 @@ class AndroidAssistantHandler {
         scope: 'assistant',
       );
 
-      // Wait for app to be ready (authenticated and model available)
-      final navState = _ref.read(authNavigationStateProvider);
-      final model = _ref.read(selectedModelProvider);
-
-      if (navState != AuthNavigationState.authenticated || model == null) {
+      // Wait for app to be ready (chat reachable and model available)
+      if (!await waitForChatEntryReady(_ref, requireModel: true)) {
         DebugLogger.log(
           'App not ready for screenshot processing',
           scope: 'assistant',
@@ -77,10 +73,9 @@ class AndroidAssistantHandler {
       }
 
       // Navigate to chat if not already there
-      final isOnChatRoute = NavigationService.currentRoute == Routes.chat;
-      if (!isOnChatRoute) {
-        // Navigation will happen via auth state
-        return;
+      if (NavigationService.currentRoute != Routes.chat) {
+        await NavigationService.navigateToChat();
+        if (NavigationService.currentRoute != Routes.chat) return;
       }
 
       // Start a fresh chat context
@@ -161,10 +156,7 @@ class AndroidAssistantHandler {
     try {
       DebugLogger.log('Starting new chat from assistant', scope: 'assistant');
 
-      final navState = _ref.read(authNavigationStateProvider);
-      final model = _ref.read(selectedModelProvider);
-
-      if (navState != AuthNavigationState.authenticated || model == null) {
+      if (!await waitForChatEntryReady(_ref, requireModel: true)) {
         DebugLogger.log('App not ready for new chat', scope: 'assistant');
         return;
       }

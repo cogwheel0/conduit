@@ -196,7 +196,7 @@ List<ConduitContextMenuAction> buildConversationActions({
   required WidgetRef ref,
   required dynamic conversation,
 }) {
-  final foldersEnabled = ref.watch(foldersFeatureEnabledProvider);
+  final foldersEnabled = ref.watch(foldersAvailableProvider);
   final folders = foldersEnabled
       ? ref
             .watch(foldersProvider)
