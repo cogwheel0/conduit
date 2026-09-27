@@ -470,6 +470,50 @@ void main() {
           .equals(AVAudioSessionMode.spokenAudio);
     });
 
+    test('replacement call wins after an in-flight idle restore', () async {
+      const channel = MethodChannel('com.ryanheise.audio_session');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final restoring = Completer<void>();
+      final releaseRestore = Completer<void>();
+      AudioSessionConfiguration? platformConfiguration;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method != 'setConfiguration') return null;
+        final values = (call.arguments as List).single as Map;
+        final configuration = AudioSessionConfiguration.fromJson(
+          values.cast<String, dynamic>(),
+        );
+        if (configuration.avAudioSessionCategory ==
+                AVAudioSessionCategory.playback &&
+            !restoring.isCompleted) {
+          restoring.complete();
+          await releaseRestore.future;
+        }
+        platformConfiguration = configuration;
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      final coordinator = ChatVoiceAudioSessionCoordinator();
+      addTearDown(coordinator.dispose);
+      final replacement = ChatVoiceAudioSessionCoordinator();
+      addTearDown(replacement.dispose);
+
+      await coordinator.configureForListening();
+      final hangingUp = coordinator.deactivate();
+      await restoring.future;
+      final starting = replacement.configureForSpeaking();
+      // audio_session's Darwin setCategory runs on a concurrent queue.
+      // Hold the old configuration while the new call requests its own.
+      await pumpEventQueue();
+      releaseRestore.complete();
+      await Future.wait([hangingUp, starting]);
+
+      check(platformConfiguration?.avAudioSessionMode)
+          .equals(AVAudioSessionMode.spokenAudio);
+      check((await sessionConfiguration())?.avAudioSessionMode)
+          .equals(AVAudioSessionMode.spokenAudio);
+    });
+
     for (final bluetooth in [false, true]) {
       test(
         'hands the Android ${bluetooth ? 'Bluetooth' : 'speaker'} route over '

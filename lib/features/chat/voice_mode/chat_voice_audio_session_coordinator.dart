@@ -46,6 +46,11 @@ class ChatVoiceAudioSessionCoordinator {
   /// the session out from under a call that began in the meantime.
   static int _callConfigurationEpoch = 0;
 
+  // audio_session's Darwin setCategory uses a concurrent native queue. Share
+  // this queue across coordinators so an old idle restore cannot finish after
+  // the replacement call's configuration, even when teardown already began.
+  static Future<void> _sessionConfigurationSerial = Future<void>.value();
+
   /// The coordinator whose call the Android route belongs to. A replacement
   /// call can configure while the previous one is still putting the route
   /// back; claiming the route stops that teardown from pulling it out from
@@ -1399,21 +1404,29 @@ class ChatVoiceAudioSessionCoordinator {
     AudioSessionConfiguration configuration,
     String phase,
   ) async {
-    try {
-      await session.configure(configuration);
-    } catch (error, stackTrace) {
-      if (_shouldIgnoreAudioSessionError(error)) {
-        developer.log(
-          'Ignoring iOS audio session configure failure during $phase: $error',
-          name: 'chat_voice_audio_session',
-          level: 900,
-          error: error,
-          stackTrace: stackTrace,
-        );
-        return;
+    final operation = _sessionConfigurationSerial.then((_) async {
+      try {
+        await session.configure(configuration);
+      } catch (error, stackTrace) {
+        if (_shouldIgnoreAudioSessionError(error)) {
+          developer.log(
+            'Ignoring iOS audio session configure failure during $phase: $error',
+            name: 'chat_voice_audio_session',
+            level: 900,
+            error: error,
+            stackTrace: stackTrace,
+          );
+          return;
+        }
+        rethrow;
       }
-      rethrow;
-    }
+    });
+    // Report failure to this caller without poisoning the next call's setup.
+    _sessionConfigurationSerial = operation.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    await operation;
   }
 
   Future<void> _setActive(
