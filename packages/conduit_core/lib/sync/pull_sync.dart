@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:conduit_core/database/app_database.dart';
@@ -591,8 +592,26 @@ class PullSync {
     // blob. The assembler lifts this reserved field back to ChatResponse.tasks.
     final meta = <String, dynamic>{
       if (rawMeta is Map) ...Map<String, dynamic>.from(rawMeta),
-      '_conduit_tasks': resp['tasks'] is List ? resp['tasks'] : const [],
     };
+    final tasks = resp['tasks'];
+    if (tasks is List || meta.isNotEmpty) {
+      final stored = await _db.chatsDao.getChat(id);
+      Map<String, dynamic> previous = const {};
+      if (stored != null) {
+        try {
+          final decoded = jsonDecode(stored.meta);
+          if (decoded is Map) previous = Map<String, dynamic>.from(decoded);
+        } on FormatException {
+          /* Treat malformed stored metadata as absent. */
+        }
+      }
+      if (meta.isEmpty) meta.addAll(previous);
+      if (tasks is List) {
+        meta['_conduit_tasks'] = tasks;
+      } else if (previous.containsKey('_conduit_tasks')) {
+        meta['_conduit_tasks'] = previous['_conduit_tasks'];
+      }
+    }
     final rowsParser = _rowsParseOffload;
     final rows =
         rowsParser != null &&

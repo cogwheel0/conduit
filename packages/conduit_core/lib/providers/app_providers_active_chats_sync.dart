@@ -207,6 +207,7 @@ class ActiveChatsSync extends _$ActiveChatsSync {
         }
         _handleChatActiveEvent(map);
         _handleChatTitleEvent(map);
+        _handleChatTasksEvent(map);
       },
     );
 
@@ -250,6 +251,19 @@ class ActiveChatsSync extends _$ActiveChatsSync {
     } else {
       notifier.setInactive(chatId);
     }
+  }
+
+  void _handleChatTasksEvent(Map<String, dynamic> map) {
+    final data = map['data'];
+    if (data is! Map || data['type'] != 'chat:message:tasks') return;
+    final payload = data['data'];
+    final tasks = payload is Map ? payload['tasks'] : null;
+    final chatId = _extractChatEventId(map);
+    if (tasks is! List || chatId == null || chatId.isEmpty) return;
+    ref.read(conversationsProvider.notifier).applyServerTasks(chatId, [
+      for (final task in tasks)
+        if (task is Map) Map<String, dynamic>.from(task),
+    ]);
   }
 
   void _handleChatTitleEvent(Map<String, dynamic> map) {

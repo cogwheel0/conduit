@@ -730,6 +730,10 @@ void main() {
         check(log.messages.last.error!.content)
             .equals('Failed to connect to MCP server');
         check(log.finishCount).equals(0);
+        expect(
+          log.messages.last.metadata?['openwebuiRecoverableError'],
+          isTrue,
+        );
         socket.reconnects.add(null);
         await waitForCondition(
           () => log.messages.last.content == 'Recovered output',

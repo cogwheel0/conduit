@@ -63,6 +63,9 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
       _,
       request,
     ) {
+      final route = _displayRoute;
+      _displayRoute = null;
+      if (route?.isActive == true) route!.navigator?.removeRoute(route);
       if (request == null) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_displayFile(request));
@@ -181,6 +184,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   }
 
   TerminalFileRequest? _displayingRequest;
+  ModalRoute<dynamic>? _displayRoute;
 
   Future<void> _displayFile(TerminalFileRequest request) async {
     // Discovery and fallback selection can still be loading when the event
@@ -221,15 +225,18 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
       isDirectory: false,
     );
     if (ref.read(terminalDisplayFileProvider) != request) return;
-    final shown = await showTerminalFilePreview(
+    await showTerminalFilePreview(
       context,
       _coordinator,
       entry,
       page: request.page,
+      onShown: (route) => _displayRoute = route,
       isCurrent: () =>
           mounted && ref.read(terminalDisplayFileProvider) == request,
     );
-    if (shown && mounted && ref.read(terminalDisplayFileProvider) == request) {
+    // Read failures are handled by the coordinator. Consume the attempt so a
+    // later tab activation cannot unexpectedly reopen an old failed request.
+    if (mounted && ref.read(terminalDisplayFileProvider) == request) {
       ref.read(terminalDisplayFileProvider.notifier).clear();
     }
   }

@@ -6473,7 +6473,7 @@
   }
   ,"directBearerDescription": "Wysyła dane logowania w nagłówku Authorization: Bearer. Większość serwerów zgodnych z OpenAI (llama.cpp, vLLM, LM Studio, Ollama) tego oczekuje."
   ,"directApiKeyHeaderAzureOnlyDescription": "Wysyła dane logowania w nagłówku api-key. Używaj tego tylko dla Azure OpenAI; inne serwery zgodne z OpenAI oczekują tokenu Bearer.",
-  "chatTaskProgress": "Tasks: {completed} of {total} completed",
+  "chatTaskProgress": "Zadania: ukończono {completed} z {total}",
   "@chatTaskProgress": {
     "description": "Summary of the Open WebUI task checklist above the chat composer.",
     "placeholders": {
@@ -6485,8 +6485,8 @@
       }
     }
   },
-  "chatTaskPending": "Pending",
-  "chatTaskInProgress": "In progress",
-  "chatTaskCompleted": "Completed",
-  "chatTaskCancelled": "Cancelled"
+  "chatTaskPending": "Oczekujące",
+  "chatTaskInProgress": "W toku",
+  "chatTaskCompleted": "Ukończone",
+  "chatTaskCancelled": "Anulowane"
 }

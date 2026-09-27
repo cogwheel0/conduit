@@ -3308,7 +3308,7 @@
   "sharedFolderOwner": "Geteilt von {name}",
   "@sharedFolderOwner": {"description": "Owner label on a folder another user shared with this account.", "placeholders": {"name": {"type": "String", "example": "Alex"}}},
   "transcribingAudio": "Wird transkribiert...",
-  "chatTaskProgress": "Tasks: {completed} of {total} completed",
+  "chatTaskProgress": "Aufgaben: {completed} von {total} abgeschlossen",
   "@chatTaskProgress": {
     "description": "Summary of the Open WebUI task checklist above the chat composer.",
     "placeholders": {
@@ -3320,8 +3320,8 @@
       }
     }
   },
-  "chatTaskPending": "Pending",
-  "chatTaskInProgress": "In progress",
-  "chatTaskCompleted": "Completed",
-  "chatTaskCancelled": "Cancelled"
+  "chatTaskPending": "Ausstehend",
+  "chatTaskInProgress": "In Bearbeitung",
+  "chatTaskCompleted": "Abgeschlossen",
+  "chatTaskCancelled": "Abgebrochen"
 }

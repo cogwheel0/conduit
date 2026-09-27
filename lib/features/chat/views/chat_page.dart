@@ -3870,7 +3870,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               const SizedBox(height: Spacing.xl),
-              const OpenWebUiTaskList(),
+              OpenWebUiTaskList(
+                keyboardVisible: MediaQuery.viewInsetsOf(context).bottom > 0,
+              ),
               const FileAttachmentWidget(),
               const ContextAttachmentWidget(),
               if (hasAttachments) const SizedBox(height: Spacing.sm),

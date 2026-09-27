@@ -61,9 +61,26 @@ void main() {
         expect(container.read(terminalDisplayFileProvider), isNotNull);
         expect(service.readPaths, ['/reports/result.txt']);
         expect(find.text('print("hello from terminal")'), findsOneWidget);
+        events.handleEvent('terminal:display_file', {
+          'path': '/reports/new.txt',
+        });
+        await tester.pumpAndSettle();
+        expect(find.text('result.txt', skipOffstage: false), findsNothing);
+        expect(find.text('new.txt'), findsOneWidget);
         await tester.tap(find.text('Close'));
         await tester.pumpAndSettle();
         expect(container.read(terminalDisplayFileProvider), isNull);
+        expect(
+          find.text('print("hello from terminal")', skipOffstage: false),
+          findsNothing,
+        );
+        service.readError = StateError('File unavailable');
+        events.handleEvent('terminal:display_file', {
+          'path': '/reports/missing.txt',
+        });
+        await tester.pumpAndSettle();
+        expect(container.read(terminalDisplayFileProvider), isNull);
+        final attemptedReads = service.readPaths.length;
         for (final type in [
           'terminal:write_file',
           'terminal:replace_file_content',
@@ -73,6 +90,7 @@ void main() {
           events.handleEvent(type, {'path': '/reports/result.txt'});
           await tester.pumpAndSettle();
           expect(service.listFilesRequestCount, greaterThan(count));
+          expect(service.readPaths.length, attemptedReads);
           expect(
             service.listedDirectories.last,
             type == 'terminal:run_command' ? '/' : '/reports/',
@@ -613,6 +631,7 @@ class _FakeTerminalService extends TerminalService {
   final Map<String, Completer<List<TerminalFileEntry>>> listFileCompleters;
   final Map<int, Completer<bool>> terminalEnabledCompletersByRequest;
   final List<String> readPaths = <String>[];
+  Object? readError;
   final List<String> listedDirectories = [];
   int cwdRequestCount = 0;
   int listFilesRequestCount = 0;
@@ -710,6 +729,7 @@ class _FakeTerminalService extends TerminalService {
     required String sessionScopeId,
   }) async {
     readPaths.add(path);
+    if (readError != null) throw readError!;
     return const TerminalFileReadResult(
       fileName: 'alpha.txt',
       contentType: 'text/plain',

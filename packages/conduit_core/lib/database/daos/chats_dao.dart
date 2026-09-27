@@ -836,6 +836,29 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     );
   }
 
+  /// Stores a checklist event without changing body, dirty state or watermark.
+  /// The caller serializes this with pulls through the chat lock.
+  Future<void> updateServerTasks(
+    String chatId,
+    List<Map<String, dynamic>> tasks,
+  ) {
+    return transaction(() async {
+      final existing = await getChat(chatId);
+      if (existing == null) return;
+      final meta = _decodeMeta(existing.meta);
+      if (const DeepCollectionEquality().equals(
+        meta['_conduit_tasks'],
+        tasks,
+      )) {
+        return;
+      }
+      meta['_conduit_tasks'] = tasks;
+      await (update(chats)..where((t) => t.id.equals(chatId))).write(
+        ChatsCompanion(meta: Value(jsonEncode(meta))),
+      );
+    });
+  }
+
   /// Persists a server-generated title in both the list envelope and the
   /// round-trip blob metadata without advancing the server watermark.
   ///

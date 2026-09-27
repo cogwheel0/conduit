@@ -491,6 +491,13 @@ Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
     metadata.remove('transport');
   }
 
+  if (role == 'assistant' &&
+      _extractErrorData(msgData, historyMsg) != null &&
+      !_isDirectTransport(metadata)) {
+    metadata['openwebuiRecoverableError'] =
+        (historyMsg?['done'] ?? msgData['done']) != true;
+  }
+
   final rawParentId = historyMsg?['parentId'] ?? msgData['parentId'];
   if (rawParentId != null) {
     final parentId = rawParentId.toString().trim();

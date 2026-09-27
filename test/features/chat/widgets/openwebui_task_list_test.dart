@@ -60,7 +60,13 @@ void main() {
           child: MaterialApp(
             localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
-            home: const Scaffold(body: OpenWebUiTaskList()),
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: OpenWebUiTaskList(
+                  keyboardVisible: MediaQuery.viewInsetsOf(context).bottom > 0,
+                ),
+              ),
+            ),
           ),
         ),
       );
@@ -71,6 +77,14 @@ void main() {
       expect(find.text('In progress'), findsOneWidget);
       expect(find.text('Pending'), findsOneWidget);
       expect(find.text('Cancelled'), findsOneWidget);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 350);
+      addTearDown(tester.view.resetViewInsets);
+      await tester.pumpAndSettle();
+      expect(find.byType(ExpansionTile), findsNothing);
+      tester.view.resetViewInsets();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Tasks: 1 of 4 completed'));
+      await tester.pumpAndSettle();
       // Tasks can change without the server bumping the chat body timestamp.
       response['tasks'] = [
         {'id': '2', 'content': 'Check findings', 'status': 'completed'},
@@ -85,6 +99,17 @@ void main() {
       active.set(loaded.copyWith(id: 'chat-2', metadata: {}));
       await tester.pumpAndSettle();
       expect(find.byType(ExpansionTile), findsNothing);
+      response.remove('tasks');
+      response.remove('meta');
+      await tester.runAsync(() => pull.pullChat('chat-1'));
+      final retained = (await tester.runAsync(
+        () async => (await db.chatsDao.getChat('chat-1'))!,
+      ))!;
+      final retainedEnvelope = buildChatResponseEnvelope(retained, const []);
+      expect(retainedEnvelope['meta'], {
+        'tags': ['verification'],
+      });
+      expect((retainedEnvelope['tasks'] as List).single['status'], 'completed');
       response['tasks'] = [];
       active.set(
         (await tester.runAsync(() async => (await pull.pullChat('chat-1'))!))!,

@@ -621,7 +621,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   void Function(String newTitle)? onChatTitleUpdated,
   void Function()? onChatTagsUpdated,
   void Function(String type, Map<String, dynamic> data)? onTerminalEvent,
-  void Function(List<Map<String, dynamic>> tasks)? onChatTasksUpdated,
   void Function(
     String type,
     Map<String, dynamic> data,
@@ -2353,6 +2352,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             content: shouldAdoptContent && !isVisibleTarget ? content : null,
             output: shouldAdoptOutput ? output : null,
             followUps: followUps.isNotEmpty ? followUps : null,
+            metadata: errorContent == null
+                ? null
+                : {'openwebuiRecoverableError': !isDone},
+            mergeMetadata: true,
             error: errorContent == null
                 ? null
                 : errorContent.isNotEmpty
@@ -3529,20 +3532,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         return;
       }
 
-      if (type == 'chat:message:tasks' && payload is Map) {
-        if (resolveTargetMessageIdForStream(
-                  messageId,
-                  eventType: 'chat:message:tasks',
-                  incomingSessionId: incomingSessionId,
-                  allowBindingForeignMessage: true,
-                ) !=
-                null &&
-            payload['tasks'] is List) {
-          onChatTasksUpdated?.call(_normalizeJsonMapList(payload['tasks']));
-        }
-        return;
-      }
-
       if (type == 'response:completion' && payload is Map) {
         // Open WebUI 0.11 streams socket-bound completions token by token as
         // Responses-style events instead of cumulative `chat:completion`
@@ -3995,6 +3984,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                   ? ChatMessageError(content: errorContent)
                   : const ChatMessageError(content: null),
               statusHistory: filtered,
+              metadata: {
+                ...?message.metadata,
+                'openwebuiRecoverableError':
+                    payload is! Map || payload['done'] != true,
+              },
             );
           });
         } catch (_) {}

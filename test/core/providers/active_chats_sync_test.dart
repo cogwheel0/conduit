@@ -1,5 +1,11 @@
 import 'dart:async';
 
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/database/mappers/conversation_assembler.dart';
+import 'package:conduit_core/sync/chat_locks.dart';
+import 'package:drift/native.dart';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -160,12 +166,14 @@ Map<String, dynamic> _titleEnvelope({
 ProviderContainer _makeContainer({
   required _MockSocketService socket,
   _FakeApiService? api,
+  AppDatabase? database,
   List<Conversation> conversations = const <Conversation>[],
 }) {
   final resolvedApi = api ?? _FakeApiService();
   final container = ProviderContainer(
     overrides: [
       socketServiceProvider.overrideWithValue(socket),
+      if (database != null) appDatabaseProvider.overrideWithValue(database),
       apiServiceProvider.overrideWithValue(resolvedApi),
       conversationsProvider.overrideWith(
         () => _FakeConversations(conversations),
@@ -178,6 +186,60 @@ ProviderContainer _makeContainer({
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'global task events persist unseen chats without a body timestamp change',
+    () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'c1',
+        title: 'One',
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      final socket = _MockSocketService();
+      addTearDown(socket.disposeController);
+      final container = _makeContainer(socket: socket, database: db);
+      container.read(activeChatsSyncProvider);
+      await container.read(conversationsProvider.future);
+      container.read(activeConversationProvider.notifier).set(_conv('c2'));
+      final tasks = [
+        {'id': '1', 'content': 'Review references', 'status': 'completed'},
+      ];
+      void emit(List<Map<String, dynamic>> value) =>
+          socket.registrations.single.handler({
+            'chat_id': 'c1',
+            'session_id': 'another-client',
+            'data': {
+              'type': 'chat:message:tasks',
+              'data': {'tasks': value},
+            },
+          }, null);
+      emit(tasks);
+      await container.read(chatLocksProvider).runExclusive('c1', () async {});
+      final row = (await db.chatsDao.getChat('c1'))!;
+      expect(row.updatedAt, 1);
+      expect(row.dirty, isFalse);
+      expect(container.read(activeConversationProvider)!.id, 'c2');
+      final reloaded = assembleConversation(row, const []);
+      expect(reloaded.metadata['openwebui_tasks'], tasks);
+      container.read(activeConversationProvider.notifier).set(reloaded);
+      emit([]);
+      expect(
+        container.read(activeConversationProvider)!.metadata['openwebui_tasks'],
+        isEmpty,
+      );
+      await container.read(chatLocksProvider).runExclusive('c1', () async {});
+      expect(
+        assembleConversation(
+          (await db.chatsDao.getChat('c1'))!,
+          const [],
+        ).metadata['openwebui_tasks'],
+        isEmpty,
+      );
+    },
+  );
 
   group('ActiveChatsSync — chat:active envelope parsing', () {
     test('active:true adds and active:false removes the chat id', () {

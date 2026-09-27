@@ -431,21 +431,6 @@ Future<bool> dispatchChatTransport({
       }
       ref.read(terminalDisplayFileProvider.notifier).handleEvent(type, data);
     },
-    onChatTasksUpdated: (tasks) {
-      if (!ownsConversation()) return;
-      final active = ref.read(activeConversationProvider);
-      if (active == null) return;
-      ref
-          .read(activeConversationProvider.notifier)
-          .set(
-            active.copyWith(
-              metadata: <String, dynamic>{
-                ...active.metadata,
-                'openwebui_tasks': tasks,
-              },
-            ),
-          );
-    },
     onInteractivePrompt: (type, data, acknowledge) {
       final conversationId = activeConversationId;
       if (!ownsConversation() ||

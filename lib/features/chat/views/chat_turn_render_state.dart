@@ -1,4 +1,3 @@
-
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:meta/meta.dart';
 
@@ -18,7 +17,8 @@ ChatTurnPhase chatTurnPhaseForMessage(
   if (message == null || message.role != 'assistant') {
     return ChatTurnPhase.none;
   }
-  if (message.error != null) {
+  if (message.error != null &&
+      message.metadata?['openwebuiRecoverableError'] != true) {
     return ChatTurnPhase.failed;
   }
   final effectiveStreaming = isStreaming ?? message.isStreaming;
@@ -29,7 +29,7 @@ ChatTurnPhase chatTurnPhaseForMessage(
   if (effectiveStreaming && message.metadata?['responseDone'] != true) {
     return ChatTurnPhase.running;
   }
-  return ChatTurnPhase.completed;
+  return message.error != null ? ChatTurnPhase.failed : ChatTurnPhase.completed;
 }
 
 bool chatTurnPhaseShowsRunningFooter(ChatTurnPhase phase) {

@@ -6,10 +6,17 @@ import '../../../l10n/app_localizations.dart';
 
 /// Open WebUI's checklist is chat state, not part of an assistant's answer.
 class OpenWebUiTaskList extends ConsumerWidget {
-  const OpenWebUiTaskList({super.key});
+  const OpenWebUiTaskList({super.key, this.keyboardVisible = false});
+
+  final bool keyboardVisible;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Leave the resized viewport to the composer while the keyboard is open.
+    // The checklist returns when editing is finished.
+    if (keyboardVisible) {
+      return const SizedBox.shrink();
+    }
     final raw = ref.watch(
       activeConversationProvider.select(
         (chat) => chat?.metadata['openwebui_tasks'],
