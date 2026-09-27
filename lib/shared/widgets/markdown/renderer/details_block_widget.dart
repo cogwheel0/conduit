@@ -377,7 +377,10 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
     }
 
     if (_isToolCall) {
-      final failed = _toolCallData.isError || _detailsData.status == 'rejected';
+      final failed =
+          _toolCallData.isError ||
+          _detailsData.status == 'rejected' ||
+          _detailsData.status == 'incomplete';
       return Icon(
         failed ? Icons.cancel_outlined : Icons.check_circle_outline_rounded,
         size: iconSize,
@@ -432,6 +435,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
         return _headerTitle(context);
       }
       if (_detailsData.status == 'rejected') return 'Denied $safeName';
+      if (_detailsData.status == 'incomplete') return 'Incomplete $safeName';
       if (!_isPending && _toolCallData.isError) return 'Failed $safeName';
       return _isPending ? 'Running $safeName…' : 'Used $safeName';
     }

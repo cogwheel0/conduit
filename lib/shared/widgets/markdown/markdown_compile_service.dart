@@ -1306,7 +1306,8 @@ CompiledMarkdownDetailsData _buildCompiledDetailsData({
       type == 'tool_calls' &&
       (status == 'failed' || status == 'incomplete' || status == 'rejected');
   final isDone = done == 'true' || terminalTool;
-  final isPending = done != null && !isDone;
+  final isPending =
+      !isDone && (done != null || (type == 'tool_calls' && status != null));
   final rawDuration = attributes['duration']?.trim() ?? '';
   final durationSeconds =
       int.tryParse(rawDuration.isEmpty ? '0' : rawDuration) ?? 0;
