@@ -411,7 +411,12 @@ Future<void> showTerminalFilePreview(
       return ThemedDialogs.buildBase(
         context: dialogContext,
         title: sanitizeUtf16(entry.displayName),
-        content: _terminalPreviewContent(context, l10n, preview, page: page),
+        content: _terminalPreviewContent(
+          dialogContext,
+          l10n,
+          preview,
+          page: page,
+        ),
         actions: [
           ConduitTextButton(
             text: l10n.close,

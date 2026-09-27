@@ -243,6 +243,7 @@ class PullSync {
   final ChatRowsParseOffload? _rowsParseOffload;
   final SyncItemProgressCallback? _onProgress;
   final PullFetchMemo? _fetchMemo;
+  final _taskVersionsAtFetch = Expando<int>();
 
   /// Whether the overlap-window fetch of [item] can be skipped this cycle:
   /// the same `(id, updatedAt)` was already fetched in two earlier cycles
@@ -432,7 +433,7 @@ class PullSync {
             // provably holds this exact server state already.
             continue;
           }
-          final resp = await _client.getChatRaw(item.id);
+          final resp = await fetchChatRaw(item.id);
           if (resp == null) {
             // Server-deleted: counts as success; no local change in Phase 1
             // (deletion reconcile is Phase 3).
@@ -517,8 +518,12 @@ class PullSync {
   }
 
   /// Full `ChatResponse` fetch; null on 404. Adapter seam.
-  Future<Map<String, dynamic>?> fetchChatRaw(String id) =>
-      _client.getChatRaw(id);
+  Future<Map<String, dynamic>?> fetchChatRaw(String id) async {
+    final taskVersion = _db.chatsDao.taskEventVersion(id);
+    final response = await _client.getChatRaw(id);
+    if (response != null) _taskVersionsAtFetch[response] = taskVersion;
+    return response;
+  }
 
   /// Lock + one-tx merge of a raw `ChatResponse` map with `listLastReadAt: null`
   /// (the max() rule preserves the local value). Returns `mustPush`. Adapter
@@ -532,7 +537,7 @@ class PullSync {
   /// (`listLastReadAt: null` — the max() rule preserves the local value) and
   /// return the assembled [Conversation].
   Future<Conversation?> pullChat(String chatId) async {
-    final resp = await _client.getChatRaw(chatId);
+    final resp = await fetchChatRaw(chatId);
     if (resp == null) return null;
     final id = resp['id'] is String ? resp['id'] as String : chatId;
     return _locks.runExclusive(id, () async {
@@ -587,30 +592,31 @@ class PullSync {
     final id = resp['id'] as String;
     final createdAt = _asEpochSeconds(resp['created_at']) ?? 0;
     final updatedAt = _asEpochSeconds(resp['updated_at']) ?? 0;
+    final stored = await _db.chatsDao.getChat(id);
+    Map<String, dynamic> previous = const {};
+    if (stored != null) {
+      try {
+        final decoded = jsonDecode(stored.meta);
+        if (decoded is Map) previous = Map<String, dynamic>.from(decoded);
+      } on FormatException {
+        /* Treat malformed stored metadata as absent. */
+      }
+    }
     final rawMeta = resp['meta'];
-    // Keep chat-level tasks in the local envelope, outside the model's chat
-    // blob. The assembler lifts this reserved field back to ChatResponse.tasks.
-    final meta = <String, dynamic>{
-      if (rawMeta is Map) ...Map<String, dynamic>.from(rawMeta),
-    };
+    // Server metadata is authoritative when supplied, even when empty. Only
+    // the reserved checklist field survives a response that omits tasks.
+    final meta = rawMeta is Map
+        ? Map<String, dynamic>.from(rawMeta)
+        : Map<String, dynamic>.from(previous);
+    meta.remove('_conduit_tasks');
     final tasks = resp['tasks'];
-    if (tasks is List || meta.isNotEmpty) {
-      final stored = await _db.chatsDao.getChat(id);
-      Map<String, dynamic> previous = const {};
-      if (stored != null) {
-        try {
-          final decoded = jsonDecode(stored.meta);
-          if (decoded is Map) previous = Map<String, dynamic>.from(decoded);
-        } on FormatException {
-          /* Treat malformed stored metadata as absent. */
-        }
-      }
-      if (meta.isEmpty) meta.addAll(previous);
-      if (tasks is List) {
-        meta['_conduit_tasks'] = tasks;
-      } else if (previous.containsKey('_conduit_tasks')) {
-        meta['_conduit_tasks'] = previous['_conduit_tasks'];
-      }
+    final fetchedAt = _taskVersionsAtFetch[resp];
+    final hasNewerTaskEvent =
+        fetchedAt != null && fetchedAt != _db.chatsDao.taskEventVersion(id);
+    if (tasks is List && !hasNewerTaskEvent) {
+      meta['_conduit_tasks'] = tasks;
+    } else if (previous.containsKey('_conduit_tasks')) {
+      meta['_conduit_tasks'] = previous['_conduit_tasks'];
     }
     final rowsParser = _rowsParseOffload;
     final rows =

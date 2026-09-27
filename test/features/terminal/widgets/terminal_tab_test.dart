@@ -17,6 +17,53 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 void main() {
   group('TerminalTab', () {
+    testWidgets('preview survives removal of its terminal tab', (tester) async {
+      final service = _FakeTerminalService(
+        servers: [
+          TerminalServerInfo(
+            kind: TerminalServerKind.direct,
+            selectionId: 'https://terminal.example',
+            baseUrl: Uri.parse('https://terminal.example'),
+            name: 'Workspace',
+          ),
+        ],
+        entries: const [],
+        ports: const [],
+      );
+      final container = ProviderContainer(
+        overrides: [
+          terminalServiceProvider.overrideWithValue(service),
+          terminalAutoConnectProvider.overrideWithValue(false),
+        ],
+      );
+      addTearDown(container.dispose);
+      await tester.pumpWidget(_buildHarnessWithContainer(container));
+      await tester.pumpAndSettle();
+      container.read(terminalDisplayFileProvider.notifier).handleEvent(
+        'terminal:display_file',
+        {'path': '/report.txt'},
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('print("hello from terminal")'), findsOneWidget);
+      await tester.pumpWidget(
+        _buildHarnessWithContainer(container, showTab: false),
+      );
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        _buildHarnessWithContainer(
+          container,
+          showTab: false,
+          theme: ThemeData.dark(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('print("hello from terminal")'), findsOneWidget);
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+      expect(find.text('report.txt'), findsNothing);
+    });
+
     testWidgets(
       'tool file display waits for discovery and writes refresh the browser',
       (tester) async {
@@ -594,13 +641,18 @@ Widget _buildHarnessWithActivity(
 Widget _buildHarnessWithContainer(
   ProviderContainer container, {
   bool isActive = true,
+  bool showTab = true,
+  ThemeData? theme,
 }) {
   return UncontrolledProviderScope(
     container: container,
     child: MaterialApp(
+      theme: theme,
       localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      home: Scaffold(body: TerminalTab(isActive: isActive)),
+      home: Scaffold(
+        body: showTab ? TerminalTab(isActive: isActive) : const SizedBox(),
+      ),
     ),
   );
 }

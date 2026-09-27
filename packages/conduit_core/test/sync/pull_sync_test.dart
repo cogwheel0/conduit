@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
@@ -31,6 +33,23 @@ Map<String, dynamic> blobFor(String id, {int messageCount = 2}) {
     'models': ['llama3'],
     'history': {'messages': messages, 'currentId': '$id-m$messageCount'},
   };
+}
+
+class _ChecklistClient extends FakeSyncApiClient {
+  _ChecklistClient(super.server);
+
+  Map<String, dynamic> fields = {};
+  Future<void> Function()? afterSnapshot;
+
+  @override
+  Future<Map<String, dynamic>?> getChatRaw(String id) async {
+    final raw = await super.getChatRaw(id);
+    if (raw == null) return null;
+    final snapshot = {...raw, ...fields};
+    if (!fields.containsKey('meta')) snapshot.remove('meta');
+    await afterSnapshot?.call();
+    return snapshot;
+  }
 }
 
 class _MalformedFullMainListClient extends FakeSyncApiClient {
@@ -551,6 +570,90 @@ void main() {
       check(await db.syncMetaDao.getPullWatermark()).equals(200);
       check((await allChats()).map((c) => c.id)).deepEquals(['chat-1']);
     });
+  });
+
+  group('checklist persistence', () {
+    const pending = [
+      {'id': '1', 'content': 'Read references', 'status': 'pending'},
+    ];
+    const completed = [
+      {'id': '1', 'content': 'Read references', 'status': 'completed'},
+    ];
+
+    Future<_ChecklistClient> setupChecklist() async {
+      server.seedChat(
+        id: 'chat-1',
+        blob: blobFor('chat-1'),
+        createdAt: 100,
+        updatedAt: 150,
+      );
+      final checklistClient = _ChecklistClient(server)
+        ..fields = {
+          'meta': {
+            'tags': ['old'],
+          },
+          'tasks': pending,
+        };
+      pull = PullSync(client: checklistClient, db: db, locks: locks);
+      await pull.pullChat('chat-1');
+      return checklistClient;
+    }
+
+    test('explicit empty metadata removes tags while omitted metadata preserves them', () async {
+      final checklistClient = await setupChecklist();
+      checklistClient.fields = {'tasks': completed};
+      await pull.pullChat('chat-1');
+      expect(jsonDecode((await db.chatsDao.getChat('chat-1'))!.meta)['tags'], [
+        'old',
+      ]);
+      checklistClient.fields = {
+        'meta': <String, dynamic>{},
+        'tasks': completed,
+      };
+      final reloaded = (await pull.pullChat('chat-1'))!;
+      expect(reloaded.tags, isEmpty);
+      expect(reloaded.metadata['openwebui_tasks'], completed);
+      checklistClient.fields = {'meta': <String, dynamic>{}, 'updated_at': 151};
+      final withoutTasks = (await pull.pullChat('chat-1'))!;
+      expect(withoutTasks.tags, isEmpty);
+      expect(withoutTasks.metadata['openwebui_tasks'], completed);
+    });
+
+    for (final mode in ['single', 'cycle', 'adapter']) {
+      test(
+        '$mode pull cannot overwrite task events received during its fetch',
+        () async {
+          final checklistClient = await setupChecklist();
+          checklistClient.afterSnapshot = () => locks.runExclusive(
+            'chat-1',
+            () => db.chatsDao.updateServerTasks('chat-1', completed),
+          );
+          for (var attempt = 0; attempt < 2; attempt++) {
+            if (mode == 'single') {
+              await pull.pullChat('chat-1');
+            } else if (mode == 'cycle') {
+              await pull.run();
+            } else {
+              final snapshot = (await pull.fetchChatRaw('chat-1'))!;
+              await pull.mergeChatResponseForAdapter(snapshot);
+            }
+            expect(
+              jsonDecode(
+                (await db.chatsDao.getChat('chat-1'))!.meta,
+              )['_conduit_tasks'],
+              completed,
+            );
+          }
+          // With no intervening event, an authoritative reset must still apply.
+          checklistClient.afterSnapshot = null;
+          checklistClient.fields = {'tasks': <Map<String, dynamic>>[]};
+          expect(
+            (await pull.pullChat('chat-1'))!.metadata['openwebui_tasks'],
+            isEmpty,
+          );
+        },
+      );
+    }
   });
 
   group('PullSync.pullChat', () {
