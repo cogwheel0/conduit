@@ -212,12 +212,12 @@ int _intOr(Object? value, int fallback) => value is int ? value : fallback;
 ///
 /// Items pair up by identity (the same id, or the same call id on an item of
 /// the same type), using the latest occurrence: a repeated identity belongs to
-/// this response, which streamed in last. An item without either (older
-/// servers) pairs only within this response, so only when [responseStart] is
-/// known: with the local item of the same type and the same rank among the
-/// response's id-less items, so an item the terminal list adds without having
-/// streamed it (reasoning ahead of the answer, say) shifts nothing, and an
-/// earlier round is never touched. Nothing paired means
+/// this response, which streamed in last. An item that pairs no other way
+/// (older servers, or deltas that carried no item id) pairs only within this
+/// response, so only when [responseStart] is known: with the local id-less
+/// item of the same type and the same rank within it, so an item the terminal
+/// list adds without having streamed it (reasoning ahead of the answer, say)
+/// shifts nothing, and an earlier round is never touched. Nothing paired means
 /// nothing of this response streamed, so its items go last, as the web client
 /// appends them. Otherwise everything before the first paired item stays as
 /// it was, this response follows in its terminal order, and any unpaired
@@ -262,7 +262,7 @@ List<Map<String, dynamic>> _mergeTerminalOutput(
         (callId != null && callId.isNotEmpty
             ? byCall['${item['type']}\u0000$callId']
             : null);
-    if (index == null && !_hasOutputItemIdentity(item)) {
+    if (index == null) {
       final type = item['type'];
       final rank = anonymousRank[type] ?? 0;
       anonymousRank[type] = rank + 1;

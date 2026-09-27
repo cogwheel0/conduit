@@ -374,6 +374,34 @@ void main() {
       check((output.last['content'] as List).single['text']).equals('Answer.');
     });
 
+    test('an identified terminal item pairs with an id-less stream', () {
+      // The deltas carried no item_id, so the streamed message has no id; the
+      // completed copy does, and must not be appended as a second answer.
+      var output = applyOpenWebUIResponseStreamEvent(const [], {
+        'type': 'response.output_text.delta',
+        'output_index': 0,
+        'delta': 'Answ',
+      }, responseStart: 0);
+      output = applyOpenWebUIResponseStreamEvent(output, {
+        'type': 'response.completed',
+        'response': {
+          'output': [
+            {
+              'type': 'message',
+              'id': 'msg_1',
+              'status': 'completed',
+              'content': [
+                {'type': 'output_text', 'text': 'Answer.'},
+              ],
+            },
+          ],
+        },
+      }, responseStart: 0);
+
+      check(output).length.equals(1);
+      check(output.single['id']).equals('msg_1');
+    });
+
     test('an id-less answer from an earlier response is never paired', () {
       // The earlier response's terminal list was empty, so its message is
       // still in progress; this response's own message streamed at 3.
