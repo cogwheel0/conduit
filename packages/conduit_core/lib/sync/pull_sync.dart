@@ -615,8 +615,10 @@ class PullSync {
         fetchedAt != null && fetchedAt != _db.chatsDao.taskEventVersion(id);
     if (tasks is List && !hasNewerTaskEvent) {
       meta['_conduit_tasks'] = tasks;
-    } else if (previous.containsKey('_conduit_tasks')) {
-      meta['_conduit_tasks'] = previous['_conduit_tasks'];
+    } else {
+      final retainedTasks =
+          _db.chatsDao.pendingServerTasks(id) ?? previous['_conduit_tasks'];
+      if (retainedTasks != null) meta['_conduit_tasks'] = retainedTasks;
     }
     final rowsParser = _rowsParseOffload;
     final rows =
@@ -652,6 +654,8 @@ class PullSync {
       listLastReadAt: listLastReadAt,
       refreshWhenClean: refreshWhenClean,
     );
+
+    _db.chatsDao.clearPendingServerTasks(id);
 
     // REQ 4: a merge that retained local-dirty content diverges from the
     // server, so it must be pushed. ChatsDao reasserts the updateChat op inside

@@ -126,6 +126,18 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   ChatsDao(super.db);
 
   final _taskEventVersions = <String, int>{};
+  final _pendingTaskEvents = <String, String>{};
+
+  /// Events can precede the first local row. Keep them until a pull can store
+  /// them without creating a partial chat or advancing its server watermark.
+  List<dynamic>? pendingServerTasks(String chatId) {
+    final encoded = _pendingTaskEvents[chatId];
+    return encoded == null ? null : jsonDecode(encoded) as List<dynamic>;
+  }
+
+  /// Called under the chat lock after a successful pull merge.
+  void clearPendingServerTasks(String chatId) =>
+      _pendingTaskEvents.remove(chatId);
 
   /// A fetch uses this token to avoid overwriting events received while it ran.
   int taskEventVersion(String chatId) => _taskEventVersions[chatId] ?? 0;
@@ -849,18 +861,23 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     _taskEventVersions[chatId] = taskEventVersion(chatId) + 1;
     return transaction(() async {
       final existing = await getChat(chatId);
-      if (existing == null) return;
-      final meta = _decodeMeta(existing.meta);
+      if (existing == null) {
+        _pendingTaskEvents[chatId] = jsonEncode(tasks);
+        return;
+      }
+      final meta = Map<String, dynamic>.from(_decodeMeta(existing.meta));
       if (const DeepCollectionEquality().equals(
         meta['_conduit_tasks'],
         tasks,
       )) {
+        _pendingTaskEvents.remove(chatId);
         return;
       }
       meta['_conduit_tasks'] = tasks;
       await (update(chats)..where((t) => t.id.equals(chatId))).write(
         ChatsCompanion(meta: Value(jsonEncode(meta))),
       );
+      _pendingTaskEvents.remove(chatId);
     });
   }
 

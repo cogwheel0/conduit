@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:typed_data';
+
+import 'package:pdfrx/pdfrx.dart';
 
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
@@ -17,6 +20,57 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 void main() {
   group('TerminalTab', () {
+    testWidgets('PDF cache identity changes for each newly read file', (
+      tester,
+    ) async {
+      final service = _FakeTerminalService(
+        servers: [
+          TerminalServerInfo(
+            kind: TerminalServerKind.direct,
+            selectionId: 'https://terminal.example',
+            baseUrl: Uri.parse('https://terminal.example'),
+            name: 'Workspace',
+          ),
+        ],
+        entries: const [],
+        ports: const [],
+      );
+      final container = ProviderContainer(
+        overrides: [
+          terminalServiceProvider.overrideWithValue(service),
+          terminalAutoConnectProvider.overrideWithValue(false),
+        ],
+      );
+      addTearDown(container.dispose);
+      await tester.pumpWidget(_buildHarnessWithContainer(container));
+      await tester.pumpAndSettle();
+      PdfDocumentRefKey? previous;
+      for (final path in [
+        '/first/report.pdf',
+        '/second/report.pdf',
+        '/second/report.pdf',
+      ]) {
+        // The cache contract is independent of PDF parsing: each network read
+        // has its own bytes, including rewrites of the same file.
+        service.readResult = TerminalFileReadResult(
+          fileName: 'report.pdf',
+          contentType: 'application/pdf',
+          bytes: Uint8List.fromList([1, 2, 3]),
+        );
+        container.read(terminalDisplayFileProvider.notifier).handleEvent(
+          'terminal:display_file',
+          {'path': path, 'page': 3},
+        );
+        await tester.pumpAndSettle();
+        final viewer = tester.widget<PdfViewer>(find.byType(PdfViewer));
+        expect(viewer.initialPageNumber, 3);
+        if (previous != null) expect(viewer.documentRef.key, isNot(previous));
+        previous = viewer.documentRef.key;
+        await tester.tap(find.text('Close'));
+        await tester.pumpAndSettle();
+      }
+    });
+
     testWidgets('preview survives removal of its terminal tab', (tester) async {
       final service = _FakeTerminalService(
         servers: [
@@ -684,6 +738,7 @@ class _FakeTerminalService extends TerminalService {
   final Map<int, Completer<bool>> terminalEnabledCompletersByRequest;
   final List<String> readPaths = <String>[];
   Object? readError;
+  TerminalFileReadResult? readResult;
   final List<String> listedDirectories = [];
   int cwdRequestCount = 0;
   int listFilesRequestCount = 0;
@@ -782,11 +837,12 @@ class _FakeTerminalService extends TerminalService {
   }) async {
     readPaths.add(path);
     if (readError != null) throw readError!;
-    return const TerminalFileReadResult(
-      fileName: 'alpha.txt',
-      contentType: 'text/plain',
-      text: 'print("hello from terminal")',
-    );
+    return readResult ??
+        const TerminalFileReadResult(
+          fileName: 'alpha.txt',
+          contentType: 'text/plain',
+          text: 'print("hello from terminal")',
+        );
   }
 }
 

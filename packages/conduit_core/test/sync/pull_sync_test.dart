@@ -580,7 +580,7 @@ void main() {
       {'id': '1', 'content': 'Read references', 'status': 'completed'},
     ];
 
-    Future<_ChecklistClient> setupChecklist() async {
+    Future<_ChecklistClient> setupChecklist({bool existing = true}) async {
       server.seedChat(
         id: 'chat-1',
         blob: blobFor('chat-1'),
@@ -595,7 +595,7 @@ void main() {
           'tasks': pending,
         };
       pull = PullSync(client: checklistClient, db: db, locks: locks);
-      await pull.pullChat('chat-1');
+      if (existing) await pull.pullChat('chat-1');
       return checklistClient;
     }
 
@@ -619,40 +619,42 @@ void main() {
       expect(withoutTasks.metadata['openwebui_tasks'], completed);
     });
 
-    for (final mode in ['single', 'cycle', 'adapter']) {
-      test(
-        '$mode pull cannot overwrite task events received during its fetch',
-        () async {
-          final checklistClient = await setupChecklist();
-          checklistClient.afterSnapshot = () => locks.runExclusive(
-            'chat-1',
-            () => db.chatsDao.updateServerTasks('chat-1', completed),
-          );
-          for (var attempt = 0; attempt < 2; attempt++) {
-            if (mode == 'single') {
-              await pull.pullChat('chat-1');
-            } else if (mode == 'cycle') {
-              await pull.run();
-            } else {
-              final snapshot = (await pull.fetchChatRaw('chat-1'))!;
-              await pull.mergeChatResponseForAdapter(snapshot);
-            }
-            expect(
-              jsonDecode(
-                (await db.chatsDao.getChat('chat-1'))!.meta,
-              )['_conduit_tasks'],
-              completed,
+    for (final existing in [true, false]) {
+      for (final mode in ['single', 'cycle', 'adapter']) {
+        test(
+          '$mode pull with existing=$existing cannot overwrite task events received during its fetch',
+          () async {
+            final checklistClient = await setupChecklist(existing: existing);
+            checklistClient.afterSnapshot = () => locks.runExclusive(
+              'chat-1',
+              () => db.chatsDao.updateServerTasks('chat-1', completed),
             );
-          }
-          // With no intervening event, an authoritative reset must still apply.
-          checklistClient.afterSnapshot = null;
-          checklistClient.fields = {'tasks': <Map<String, dynamic>>[]};
-          expect(
-            (await pull.pullChat('chat-1'))!.metadata['openwebui_tasks'],
-            isEmpty,
-          );
-        },
-      );
+            for (var attempt = 0; attempt < 2; attempt++) {
+              if (mode == 'single') {
+                await pull.pullChat('chat-1');
+              } else if (mode == 'cycle') {
+                await pull.run();
+              } else {
+                final snapshot = (await pull.fetchChatRaw('chat-1'))!;
+                await pull.mergeChatResponseForAdapter(snapshot);
+              }
+              expect(
+                jsonDecode(
+                  (await db.chatsDao.getChat('chat-1'))!.meta,
+                )['_conduit_tasks'],
+                completed,
+              );
+            }
+            // With no intervening event, an authoritative reset must still apply.
+            checklistClient.afterSnapshot = null;
+            checklistClient.fields = {'tasks': <Map<String, dynamic>>[]};
+            expect(
+              (await pull.pullChat('chat-1'))!.metadata['openwebui_tasks'],
+              isEmpty,
+            );
+          },
+        );
+      }
     }
   });
 

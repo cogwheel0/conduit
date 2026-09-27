@@ -450,9 +450,13 @@ Widget _terminalPreviewContent(
     return SizedBox(
       width: 520,
       height: 360,
-      child: PdfViewer.data(
-        preview.bytes!,
-        sourceName: preview.fileName,
+      child: PdfViewer(
+        PdfDocumentRefData(
+          preview.bytes!,
+          sourceName: preview.fileName,
+          // A fresh read is a new file revision, even at the same server/path.
+          key: PdfDocumentRefKey(preview.fileName, [preview.bytes!]),
+        ),
         initialPageNumber: page != null && page > 0 ? page : 1,
       ),
     );
