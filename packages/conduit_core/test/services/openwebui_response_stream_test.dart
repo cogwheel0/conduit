@@ -99,7 +99,78 @@ void main() {
       check(output.single['duration']).equals(3);
     });
 
-    test('response.completed replaces the whole list and ignores markers', () {
+    test('a tool result does not replace the call it answers', () {
+      // Issue #751: a function call and its output share a call id. Matching
+      // on it alone let the output overwrite the call, and the tool tile
+      // vanished as soon as the tool returned.
+      var output = applyOpenWebUIResponseStreamEvent(const [], {
+        'type': 'response.output_item.added',
+        'output_index': 0,
+        'item': {
+          'type': 'function_call',
+          'id': 'fc_1',
+          'call_id': 'call_1',
+          'name': 'lookup',
+          'arguments': '',
+        },
+      });
+      output = applyOpenWebUIResponseStreamEvent(output, {
+        'type': 'response.output_item.done',
+        'output_index': 1,
+        'item': {
+          'type': 'function_call_output',
+          'id': 'fco_1',
+          'call_id': 'call_1',
+          'output': [
+            {'type': 'input_text', 'text': 'found'},
+          ],
+        },
+      });
+
+      check(output.map((item) => item['type']).toList())
+          .deepEquals(['function_call', 'function_call_output']);
+      check(parseOpenWebUIStructuredOutput(output).single)
+          .isA<StructuredOutputToolCallBlock>();
+    });
+
+    test('a later round completing keeps the earlier tool rounds', () {
+      // A terminal event lists one provider response. Replacing the list with
+      // it erased the tool call and its result once the answer round
+      // completed, so the tile was gone at the end of the turn.
+      final earlier = <Map<String, dynamic>>[
+        {'type': 'function_call', 'id': 'fc_1', 'call_id': 'call_1'},
+        {'type': 'function_call_output', 'id': 'fco_1', 'call_id': 'call_1'},
+        {
+          'type': 'message',
+          'id': 'msg_1',
+          'status': 'in_progress',
+          'content': [
+            {'type': 'output_text', 'text': 'Part'},
+          ],
+        },
+      ];
+      final output = applyOpenWebUIResponseStreamEvent(earlier, {
+        'type': 'response.completed',
+        'response': {
+          'output': [
+            {
+              'type': 'message',
+              'id': 'msg_1',
+              'status': 'completed',
+              'content': [
+                {'type': 'output_text', 'text': 'Partial answer'},
+              ],
+            },
+          ],
+        },
+      });
+
+      check(output.map((item) => item['type']).toList())
+          .deepEquals(['function_call', 'function_call_output', 'message']);
+      check(output.last['status']).equals('completed');
+    });
+
+    test('response.completed updates streamed items and ignores markers', () {
       final seeded = applyOpenWebUIResponseStreamEvent(const [], {
         'type': 'response.output_text.delta',
         'output_index': 0,

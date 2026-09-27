@@ -1159,6 +1159,119 @@ void main() {
       check(log.appendedChunks).isEmpty();
     });
 
+    test('a tool tile stays up while the answer round streams', () async {
+      // Issue #751, replaying the Open WebUI 0.11 socket sequence for a native
+      // tool call: the call streams, the server appends its output, and a
+      // second provider response streams the answer. The tile used to vanish
+      // when the tool returned and only came back with the final snapshot.
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+      await pumpMicrotasks();
+
+      const call = {
+        'type': 'function_call',
+        'id': 'fc_1',
+        'call_id': 'call_1',
+        'name': 'find_place',
+        'arguments': '{"q":"Eiffel Tower"}',
+        'status': 'completed',
+      };
+      const result = {
+        'type': 'function_call_output',
+        'id': 'fco_1',
+        'call_id': 'call_1',
+        'output': [
+          {'type': 'input_text', 'text': '48.858, 2.294'},
+        ],
+        'status': 'completed',
+      };
+      final events = <Map<String, dynamic>>[
+        {
+          'type': 'response.output_item.added',
+          'output_index': 0,
+          'item': {...call, 'arguments': '', 'status': 'in_progress'},
+        },
+        {
+          'type': 'response.function_call_arguments.delta',
+          'output_index': 0,
+          'item_id': 'fc_1',
+          'delta': '{"q":"Eiffel Tower"}',
+        },
+        {'type': 'response.output_item.done', 'output_index': 0, 'item': call},
+        {
+          'type': 'response.completed',
+          'response': {
+            'output': [call],
+          },
+        },
+        {
+          'type': 'response.output_item.done',
+          'output_index': 1,
+          'item': result,
+        },
+        {'type': 'response.created', 'response': <String, dynamic>{}},
+        {
+          'type': 'response.output_item.added',
+          'output_index': 2,
+          'item': {
+            'type': 'message',
+            'id': 'msg_a',
+            'role': 'assistant',
+            'content': <Object?>[],
+          },
+        },
+        for (final delta in const ['It is at ', '48.858, ', '2.294.'])
+          {
+            'type': 'response.output_text.delta',
+            'output_index': 2,
+            'item_id': 'msg_a',
+            'content_index': 0,
+            'delta': delta,
+          },
+        {
+          'type': 'response.completed',
+          'response': {
+            'output': [
+              {
+                'type': 'message',
+                'id': 'msg_a',
+                'role': 'assistant',
+                'status': 'completed',
+                'content': [
+                  {'type': 'output_text', 'text': 'It is at 48.858, 2.294.'},
+                ],
+              },
+            ],
+          },
+        },
+      ];
+
+      for (final event in events) {
+        registrar.emitChatEvent(
+          'response:completion',
+          event,
+          messageId: 'msg-1',
+        );
+        await pumpMicrotasks();
+        check(
+          because: 'after ${event['type']}',
+          log.messages.last.content,
+        ).contains('type="tool_calls"');
+      }
+      final content = log.messages.last.content;
+      check('type="tool_calls"'.allMatches(content)).length.equals(1);
+      check(content).endsWith('It is at 48.858, 2.294.');
+    });
+
     test('a snapshot completing a split closing tag re-renders in full', () {
       // The full path strips a completed <details> wrapper from the plain
       // text that later merges build on; a bare `>` appended must not skip it.

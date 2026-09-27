@@ -15,15 +15,37 @@ List<Map<String, dynamic>> applyOpenWebUIResponseStreamEvent(
   if (!eventType.startsWith('response.')) return output;
 
   if (_isTerminalResponseEvent(eventType)) {
-    // completed, failed, and incomplete all carry the final output list; the
-    // consumer reports failure, the output still replaces the local list.
+    // completed, failed, and incomplete all carry the output of one provider
+    // response, not of the tool-call rounds before it, so merge its items in
+    // as the web client does. Replacing the list with it erased every earlier
+    // tool call once a later round completed (issue #751).
     final response = event['response'];
     final completed = response is Map ? response['output'] : null;
     // An empty terminal list is not authoritative: a failure or cut-off can
     // report no output even though items already streamed, and dropping
     // them would blank a partial answer the user has already seen.
     if (completed is! List || completed.isEmpty) return output;
-    return mergeOpenWebUIReasoningTiming(output, _cloneItems(completed));
+    final next = _cloneItems(output);
+    final items = _cloneItems(completed);
+    for (var position = 0; position < items.length; position++) {
+      final item = items[position];
+      var index = _findOutputItemIndex(next, item);
+      // Items without an id or call id (older servers) only line up by
+      // position, and only with a local item that has no identity either.
+      if (index < 0 &&
+          !_hasOutputItemIdentity(item) &&
+          position < next.length &&
+          next[position]['type'] == item['type'] &&
+          !_hasOutputItemIdentity(next[position])) {
+        index = position;
+      }
+      if (index >= 0) {
+        next[index] = _withPreservedTiming(next[index], item);
+      } else {
+        next.add(item);
+      }
+    }
+    return next;
   }
 
   final next = _cloneItems(output);
@@ -196,6 +218,10 @@ Map<String, dynamic> _cloneMap(Map<dynamic, dynamic> map) => {
 
 int _intOr(Object? value, int fallback) => value is int ? value : fallback;
 
+/// The existing item [item] updates: the same id, or the same call id on an
+/// item of the same type. A function call and its output share a call id, so
+/// without the type check the tool result replaced the call and its tile
+/// vanished mid-stream (issue #751); the web client checks the type too.
 int _findOutputItemIndex(
   List<Map<String, dynamic>> output,
   Map<String, dynamic> item,
@@ -207,9 +233,14 @@ int _findOutputItemIndex(
         (id != null && id.isNotEmpty && existing['id']?.toString() == id) ||
         (callId != null &&
             callId.isNotEmpty &&
+            existing['type'] == item['type'] &&
             existing['call_id']?.toString() == callId),
   );
 }
+
+bool _hasOutputItemIdentity(Map<String, dynamic> item) =>
+    (item['id']?.toString().isNotEmpty ?? false) ||
+    (item['call_id']?.toString().isNotEmpty ?? false);
 
 Map<String, dynamic> _ensureOutputItem(
   List<Map<String, dynamic>> output,
