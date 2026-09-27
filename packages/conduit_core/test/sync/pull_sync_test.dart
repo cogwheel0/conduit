@@ -1010,8 +1010,17 @@ void main() {
         'duplicating, and drops the op', () async {
       final remapper = IdRemapper(db);
       addTearDown(remapper.dispose);
+      final checklistClient = _ChecklistClient(server)
+        ..fields = {
+          'meta': {
+            'tags': ['recovered'],
+          },
+          'tasks': [
+            {'id': '1', 'content': 'Check result', 'status': 'pending'},
+          ],
+        };
       final healingPull = PullSync(
-        client: client,
+        client: checklistClient,
         db: db,
         locks: locks,
         remapper: remapper,
@@ -1043,6 +1052,13 @@ void main() {
       final serverId = serverResp['id'] as String;
       check(serverId.startsWith('local:')).isFalse();
 
+      checklistClient.afterSnapshot = () => locks.runExclusive(
+        serverId,
+        () => db.chatsDao.updateServerTasks(serverId, [
+          {'id': '1', 'content': 'Check result', 'status': 'completed'},
+        ]),
+      );
+
       // 3. A pull sees the new server chat. The heal must remap, not duplicate.
       final result = await healingPull.run();
       check(result.success).isTrue();
@@ -1057,6 +1073,13 @@ void main() {
       check(await db.outboxDao.pendingForChat(serverId)).isEmpty();
       // And only ONE chat exists server-side (no duplicate was minted).
       check(server.getChatById(serverId)).isNotNull();
+      final persistedMeta = jsonDecode(
+        (await db.chatsDao.getChat(serverId))!.meta,
+      );
+      expect(persistedMeta['tags'], ['recovered']);
+      expect(persistedMeta['_conduit_tasks'], [
+        {'id': '1', 'content': 'Check result', 'status': 'completed'},
+      ]);
     });
 
     test('a non-matching content hash does NOT heal (normal merge)', () async {

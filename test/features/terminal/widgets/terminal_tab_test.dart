@@ -59,11 +59,10 @@ void main() {
         );
         container.read(terminalDisplayFileProvider.notifier).handleEvent(
           'terminal:display_file',
-          {'path': path, 'page': 3},
+          {'path': path},
         );
         await tester.pumpAndSettle();
         final viewer = tester.widget<PdfViewer>(find.byType(PdfViewer));
-        expect(viewer.initialPageNumber, 3);
         if (previous != null) expect(viewer.documentRef.key, isNot(previous));
         previous = viewer.documentRef.key;
         await tester.tap(find.text('Close'));

@@ -640,6 +640,12 @@ class PullSync {
       serverUpdatedAt: updatedAt,
       hasPendingCreateHashes: hasPendingCreateHashes,
     )) {
+      await _db.chatsDao.refreshServerEnvelope(
+        id,
+        meta: meta,
+        shareId: resp['share_id'] is String ? resp['share_id'] as String : null,
+      );
+      _db.chatsDao.clearPendingServerTasks(id);
       return false;
     }
 

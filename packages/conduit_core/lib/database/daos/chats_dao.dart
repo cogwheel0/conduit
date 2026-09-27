@@ -517,6 +517,21 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     });
   }
 
+  /// Completes the envelope after create recovery remaps the local rows.
+  /// Caller holds the chat lock; message/dirty/outbox state stays untouched.
+  Future<void> refreshServerEnvelope(
+    String chatId, {
+    required Map<String, dynamic> meta,
+    String? shareId,
+  }) {
+    return transaction(() async {
+      final existing = await getChat(chatId);
+      if (existing != null) {
+        await _refreshEnvelopeIfChanged(existing, meta, shareId);
+      }
+    });
+  }
+
   static Map<String, dynamic> _decodeMeta(String stored) {
     try {
       final decoded = jsonDecode(stored);
