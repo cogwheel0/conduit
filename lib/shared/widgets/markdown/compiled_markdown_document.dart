@@ -969,6 +969,7 @@ class CompiledMarkdownToolCallData {
     this.argumentsCode = '',
     this.resultCode = '',
     this.resultDisplayText = '',
+    this.isError = false,
     required List<String> embedSources,
     required List<String> imageUrls,
   }) : argumentEntries =
@@ -984,6 +985,7 @@ class CompiledMarkdownToolCallData {
   final String argumentsCode;
   final String resultCode;
   final String resultDisplayText;
+  final bool isError;
   final List<String> embedSources;
   final List<String> imageUrls;
 
@@ -1015,6 +1017,7 @@ class CompiledMarkdownToolCallData {
     'argumentsCode': argumentsCode,
     'resultCode': resultCode,
     'resultDisplayText': resultDisplayText,
+    'isError': isError,
     'embedSources': embedSources,
     'imageUrls': imageUrls,
   };
@@ -1036,6 +1039,7 @@ class CompiledMarkdownToolCallData {
       argumentsCode: (map['argumentsCode'] ?? '') as String,
       resultCode: (map['resultCode'] ?? '') as String,
       resultDisplayText: (map['resultDisplayText'] ?? '') as String,
+      isError: map['isError'] == true,
       embedSources:
           ((map['embedSources'] as List<dynamic>? ?? const <dynamic>[]))
               .map((value) => value.toString())
@@ -1055,6 +1059,7 @@ class CompiledMarkdownToolCallData {
         other.argumentsCode == argumentsCode &&
         other.resultCode == resultCode &&
         other.resultDisplayText == resultDisplayText &&
+        other.isError == isError &&
         listEquals(other.embedSources, embedSources) &&
         listEquals(other.imageUrls, imageUrls);
   }
@@ -1067,6 +1072,7 @@ class CompiledMarkdownToolCallData {
     argumentsCode,
     resultCode,
     resultDisplayText,
+    isError,
     Object.hashAll(embedSources),
     Object.hashAll(imageUrls),
   );
@@ -1086,6 +1092,7 @@ class CompiledMarkdownDetailsData {
     required this.isPending,
     required this.durationSeconds,
     this.hasDuration = false,
+    this.status,
     this.toolCallData,
   });
 
@@ -1096,6 +1103,7 @@ class CompiledMarkdownDetailsData {
   final CompiledMarkdownDetailsKind kind;
   final String type;
   final String name;
+  final String? status;
   final bool isDone;
   final bool isPending;
   final int durationSeconds;
@@ -1132,6 +1140,7 @@ class CompiledMarkdownDetailsData {
       kind.name.length +
       type.length +
       name.length +
+      (status?.length ?? 0) +
       durationSeconds +
       (toolCallData?.weight ?? 0);
 
@@ -1143,6 +1152,7 @@ class CompiledMarkdownDetailsData {
     'kind': kind.name,
     'type': type,
     'name': name,
+    'status': status,
     'isDone': isDone,
     'isPending': isPending,
     'durationSeconds': durationSeconds,
@@ -1162,6 +1172,7 @@ class CompiledMarkdownDetailsData {
       kind: _detailsKindFromName((map['kind'] ?? '') as String),
       type: (map['type'] ?? '') as String,
       name: (map['name'] ?? '') as String,
+      status: map['status'] as String?,
       isDone: (map['isDone'] ?? false) as bool,
       isPending: (map['isPending'] ?? false) as bool,
       durationSeconds: (map['durationSeconds'] ?? 0) as int,
@@ -1184,6 +1195,7 @@ class CompiledMarkdownDetailsData {
         other.kind == kind &&
         other.type == type &&
         other.name == name &&
+        other.status == status &&
         other.isDone == isDone &&
         other.isPending == isPending &&
         other.durationSeconds == durationSeconds &&
@@ -1199,6 +1211,7 @@ class CompiledMarkdownDetailsData {
     kind,
     type,
     name,
+    status,
     isDone,
     isPending,
     durationSeconds,

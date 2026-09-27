@@ -254,6 +254,19 @@ void main() {
         ).deepEquals(['once', 'session', 'always', 'deny']);
     });
 
+    test('does not decode an answered gate as a new request', () async {
+      // Issue #769: the runs API follows an approval with approval.responded
+      // (only run_id, choice and resolved), which used to reopen the card.
+      final events = await parseHermesRunStream(
+        _sse([
+          'data: {"event":"approval.request","run_id":"run_0123abcdef","description":"dangerous command"}\n\n',
+          'data: {"event":"approval.responded","run_id":"run_0123abcdef","choice":"once","resolved":1}\n\n',
+        ]),
+      ).toList();
+
+      check(events.whereType<HermesApprovalRequested>()).length.equals(1);
+    });
+
     test('rejects an invalid run_id approval fallback', () async {
       final events = await parseHermesRunStream(
         _sse([

@@ -621,7 +621,10 @@ void main() {
       // The local message id is preserved; cumulative content is the latest.
       check(log.messages.last.id).equals('local-msg-1');
       check(log.messages.last.content).equals('Hello');
-      check(log.replacedContents.last).equals('Hello');
+      // The first snapshot replaces the local content; one that extends it
+      // only streams its new text (issue #751), never a duplicate.
+      check(log.replacedContents).deepEquals(['Hel']);
+      check(log.appendedChunks).deepEquals(['lo']);
 
       registrar.emitChatEvent(
         'chat:completion',

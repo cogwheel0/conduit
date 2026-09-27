@@ -936,7 +936,6 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     final conversationId = conversation?.id;
     if (conversationId == null ||
         conversationId.isEmpty ||
-        isTemporaryChat(conversationId) ||
         !_conversationUsesOpenWebUiContext(conversation)) {
       _teardownPassiveConversationSync();
       return;
@@ -989,6 +988,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         if (_applyPassiveFollowUpsEvent(event)) {
           return;
         }
+        // Outlet filters run after `done` too. This subscription outlives the
+        // stream and receives their final body even from our own session.
+        if (_applyPassiveOutletEvent(event)) {
+          return;
+        }
+        if (isTemporaryChat(conversationId)) return;
         if (!_shouldRefreshFromPassiveSocketEvent(
           event,
           localSessionId: socket.sessionId,
@@ -1002,6 +1007,29 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         );
       },
     );
+  }
+
+  bool _applyPassiveOutletEvent(Map<String, dynamic> event) {
+    final data = event['data'];
+    if (data is! Map || data['type'] != 'chat:outlet') return false;
+    final payload = data['data'];
+    final messages = payload is Map ? payload['messages'] : null;
+    if (messages is! List) return false;
+    var allKnown = true;
+    for (final patch in messages) {
+      if (patch is! Map) continue;
+      final id = patch['id']?.toString();
+      final index = state.indexWhere((message) => message.id == id);
+      if (index < 0) {
+        allKnown = false;
+        continue;
+      }
+      updateMessageById(id!, (current) {
+        return applyOpenWebUiOutletMessage(current, patch);
+      });
+      _persistCompletedTurnForMessage(index);
+    }
+    return allKnown;
   }
 
   /// Applies a pushed `chat:message:follow_ups` payload straight to the
@@ -1875,6 +1903,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       'chat:message:files',
       'chat:message:embeds',
       'chat:message:follow_ups',
+      'chat:outlet',
       'chat:completed',
       'chat:title',
       'chat:tags',
@@ -1883,6 +1912,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (!refreshingTypes.contains(type)) {
       return false;
     }
+    // A filter can add a message or update a branch outside the local window.
+    // Its event is authoritative even when this device started the turn.
+    if (type == 'chat:outlet') return true;
 
     final incomingSessionId = _extractSocketEventSessionId(event);
     if (localSessionId != null &&
@@ -4372,6 +4404,21 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       },
     );
     ref.read(streamingContentProvider.notifier).set(nextContent);
+  }
+
+  /// Reads the current content owned by a streaming row, including updates
+  /// buffered since its last visible flush or canonical message rebuild.
+  String? contentForStreamingMessage(String messageId) {
+    if (state.isEmpty) return null;
+    final message = state.last.id == messageId
+        ? state.last
+        : state.where((message) => message.id == messageId).firstOrNull;
+    if (message == null ||
+        message.role != 'assistant' ||
+        !message.isStreaming) {
+      return null;
+    }
+    return _messageWithBufferedStreamingContent(message).content;
   }
 
   ChatMessage _messageWithBufferedStreamingContent(ChatMessage message) {

@@ -510,11 +510,12 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     return result;
   }
 
-  /// Starts accessory-free calls on the loudspeaker, and follows the
-  /// coordinator when hardware comes and goes mid-call.
+  /// Starts accessory-free calls on the loudspeaker, and follows the route the
+  /// coordinator reads back for the rest of the call.
   ///
   /// The snapshot only ever moves on a route the coordinator confirms, so the
-  /// overlay's speaker button never lights up for a move the platform refused.
+  /// overlay's speaker button never lights up for a move the platform refused,
+  /// and goes back down when the platform moves the call off the loudspeaker.
   Future<void> _applyDefaultSpeakerphoneRoute() async {
     final coordinator = _audioSessionCoordinator;
     if (coordinator == null) {
@@ -525,6 +526,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       enabled,
     ) {
       if (_disposed || !state.isActive) return;
+      // Every configure pass reports the route, mostly unchanged.
+      if (state.isSpeakerphoneEnabled == enabled) return;
       state = state.copyWith(isSpeakerphoneEnabled: enabled);
     });
     await coordinator.applyDefaultSpeakerphoneRoute();
@@ -717,6 +720,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       if (_disposed) return;
       // A route the platform refused leaves audio where it was, so the button
       // stays where it was too rather than promising a route nobody is hearing.
+      // That holds both ways: the coordinator reads the route back on and off
+      // the loudspeaker, and reports the route it finds on every configure
+      // pass, so the button shows the real route and the next press always
+      // asks for the other one.
       if (!applied) return;
       state = state.copyWith(isSpeakerphoneEnabled: enabled);
     });

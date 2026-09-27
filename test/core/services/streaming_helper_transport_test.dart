@@ -445,8 +445,10 @@ ActiveChatStream _attach({
   Future<Conversation?> Function(String chatId)? pullChatSnapshot,
   void Function(String Function())? bufferProgressiveLastMessageSnapshot,
   void Function(String path)? onTerminalDisplayFile,
+  DateTime Function() clock = DateTime.now,
 }) {
   return attachUnifiedChunkedStreaming(
+    clock: clock,
     session: session,
     webSearchEnabled: webSearchEnabled,
     assistantMessageId: assistantMessageId,
@@ -1030,6 +1032,513 @@ void main() {
       },
     );
 
+    test('cumulative content snapshots stream only their new text', () async {
+      // Issue #751: every cumulative snapshot used to re-render the whole
+      // message and publish it immediately, costing O(n) per token.
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+      await pumpMicrotasks();
+
+      for (final content in const [
+        'Klar!<think>\nPlan',
+        'Klar!<think>\nPlan more</think>\n\nAnswer',
+        'Klar!<think>\nPlan more</think>\n\nAnswer grows',
+        'Klar!<think>\nPlan more</think>\n\nAnswer grows further',
+      ]) {
+        registrar.emitChatEvent('chat:message', {
+          'content': content,
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+      }
+
+      final content = log.messages.last.content;
+      check(content).startsWith('Klar!\n<details type="reasoning" done="true"');
+      check(content).endsWith('</details>\n\n\nAnswer grows further');
+      // The closing tag needs the full path; the plain growth after it only
+      // appends.
+      check(log.replacedContents.length).equals(2);
+      check(log.appendedChunks).deepEquals([' grows', ' further']);
+    });
+
+    test('a snapshot after other visible changes re-renders in full', () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('chat:message', {
+        'content': 'Hello',
+      }, messageId: 'msg-1');
+      registrar.emitChatEvent('chat:message:delta', {
+        'content': ' world',
+      }, messageId: 'msg-1');
+      // Extends the last snapshot, but the delta has changed what is visible.
+      registrar.emitChatEvent('chat:message', {
+        'content': 'Hello there',
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
+
+      check(log.messages.last.content).equals('Hello there');
+    });
+
+    test('a delta that completes a held tag ends the snapshot basis', () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('chat:message', {
+        'content': 'A <thi',
+      }, messageId: 'msg-1');
+      // Completes the held opener without emitting anything visible.
+      registrar.emitChatEvent('chat:message:delta', {
+        'content': 'nk>',
+      }, messageId: 'msg-1');
+      // Extends the first snapshot with a clean suffix, `nk>Plan`, which
+      // must not be fed to a splitter the delta already moved into reasoning.
+      registrar.emitChatEvent('chat:message', {
+        'content': 'A <think>Plan',
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
+
+      final content = log.messages.last.content;
+      check(content).contains('&gt; Plan');
+      check(content).not((it) => it.contains('nk&gt;'));
+    });
+
+    test('an entity split across snapshots is decoded in the plain text', () {
+      // `&quo` + `t;` must not reach the plain accumulator as `&quot;`, or a
+      // later structured projection escapes it into visible entity text.
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+
+      registrar.emitChatEvent('chat:message', {
+        'content': 'Say &quo',
+      }, messageId: 'msg-1');
+      registrar.emitChatEvent('chat:message', {
+        'content': 'Say &quot;',
+      }, messageId: 'msg-1');
+
+      // The boundary falls inside an entity, so the second snapshot takes the
+      // full path, which decodes it, instead of appending a bare `t;`.
+      check(log.replacedContents.last).equals('Say &quot;');
+      check(log.appendedChunks).isEmpty();
+    });
+
+    for (final transport in ['socket', 'http', 'resume']) {
+      test(
+        '$transport retains output across legacy text and later deltas',
+        () async {
+          // ContentRenderer.svelte displays output whenever it is nonempty.
+          // A legacy content event cannot replace its tool tiles. A reconnect
+          // must also fold new deltas onto the already saved output.
+          const output = <Map<String, dynamic>>[
+            {
+              'id': 'fc',
+              'type': 'function_call',
+              'call_id': 'call',
+              'name': 'lookup',
+              'arguments': '{}',
+              'status': 'completed',
+            },
+            {
+              'id': 'answer',
+              'type': 'message',
+              'status': 'in_progress',
+              'content': [
+                {'type': 'output_text', 'text': 'Answer'},
+              ],
+            },
+          ];
+          final log = _CallbackLog(
+            initialMessages: [
+              fakeStreamingAssistantMessages().last.copyWith(
+                output: transport == 'resume' ? output : null,
+              ),
+            ],
+          );
+          final registrar = FakeSocketInjector();
+          final bytes = StreamController<List<int>>();
+          final active = _attach(
+            session: transport == 'http'
+                ? ChatCompletionSession.httpStream(
+                    messageId: 'msg-1',
+                    byteStream: bytes.stream,
+                    abort: () async {},
+                  )
+                : ChatCompletionSession.taskSocket(
+                    messageId: 'msg-1',
+                    sessionId: 'sess-1',
+                    taskId: 'task-1',
+                  ),
+            log: log,
+            socketService: transport == 'http'
+                ? null
+                : _MockSocketService(registrar),
+          );
+          addTearDown(active.disposeWatchdog);
+          if (transport == 'http') addTearDown(bytes.close);
+          await pumpMicrotasks();
+          Future<void> emit(String type, Map<String, dynamic> data) async {
+            if (transport == 'http') {
+              bytes.add(_sseFrame({'type': type, 'data': data}));
+            } else {
+              registrar.emitChatEvent(type, data, messageId: 'msg-1');
+            }
+            await pumpMicrotasks();
+          }
+
+          if (transport != 'resume') {
+            if (transport == 'http') {
+              bytes.add(_sseFrame({'output': output}));
+              await pumpMicrotasks();
+            } else {
+              await emit('chat:completion', {'output': output});
+            }
+            await emit('chat:message', {'content': 'Legacy text'});
+            check(log.messages.last.content).contains('type="tool_calls"');
+            check(log.messages.last.content)
+                .not((it) => it.contains('Legacy text'));
+          }
+          final delta = <String, dynamic>{
+            'type': 'response.output_text.delta',
+            'item_id': 'answer',
+            'output_index': 1,
+            'content_index': 0,
+            'delta': ' continued',
+          };
+          if (transport == 'http') {
+            bytes.add(_sseFrame(delta));
+            await pumpMicrotasks();
+          } else {
+            await emit('response:completion', delta);
+          }
+          check(log.messages.last.content).contains('type="tool_calls"');
+          check(log.messages.last.content).endsWith('Answer continued');
+          await emit('chat:completion', {
+            'output': <Object?>[],
+            'content': 'stale',
+          });
+          check(log.messages.last.content).isEmpty();
+        },
+      );
+    }
+
+    for (final terminal in ['cancel', 'json']) {
+      for (final empty in [false, true]) {
+        test(
+          '$terminal applies ${empty ? 'empty' : 'final'} output before ending',
+          () async {
+            const prior = <Map<String, dynamic>>[
+              {
+                'id': 'answer',
+                'type': 'message',
+                'content': [
+                  {'type': 'output_text', 'text': 'Prior answer'},
+                ],
+              },
+            ];
+            final output = empty
+                ? <Map<String, dynamic>>[]
+                : <Map<String, dynamic>>[
+                    {
+                      'id': 'tool',
+                      'type': 'function_call',
+                      'call_id': 'call',
+                      'name': 'lookup',
+                      'arguments': '{}',
+                      'status': 'failed',
+                    },
+                  ];
+            final log = _CallbackLog(
+              initialMessages: [
+                fakeStreamingAssistantMessages(content: 'Prior answer').last
+                    .copyWith(output: prior),
+              ],
+            );
+            final registrar = FakeSocketInjector();
+            final active = _attach(
+              session: terminal == 'json'
+                  ? ChatCompletionSession.jsonCompletion(
+                      messageId: 'msg-1',
+                      jsonPayload: {'output': output},
+                    )
+                  : ChatCompletionSession.taskSocket(
+                      messageId: 'msg-1',
+                      sessionId: 'sess-1',
+                      taskId: 'task-1',
+                    ),
+              log: log,
+              socketService: _MockSocketService(registrar),
+            );
+            addTearDown(active.disposeWatchdog);
+            await pumpMicrotasks();
+            if (terminal == 'cancel') {
+              registrar.emitChatEvent('chat:tasks:cancel', {
+                'output': output,
+              }, messageId: 'msg-1');
+              await pumpMicrotasks();
+            }
+            check(log.finishCount).equals(1);
+            check(log.messages.last.output!).deepEquals(output);
+            if (empty) {
+              check(log.messages.last.content).isEmpty();
+            } else {
+              check(log.messages.last.content).contains('type="tool_calls"');
+              check(log.messages.last.content)
+                  .not((it) => it.contains('Prior answer'));
+            }
+          },
+        );
+      }
+    }
+
+    test('a tool tile stays up while the answer round streams', () async {
+      // Issue #751, replaying the Open WebUI 0.11 socket sequence for a native
+      // tool call: the call streams, the server appends its output, and a
+      // second provider response streams the answer. The tile used to vanish
+      // when the tool returned and only came back with the final snapshot.
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+      await pumpMicrotasks();
+
+      const call = {
+        'type': 'function_call',
+        'id': 'fc_1',
+        'call_id': 'call_1',
+        'name': 'find_place',
+        'arguments': '{"q":"Eiffel Tower"}',
+        'status': 'completed',
+      };
+      const result = {
+        'type': 'function_call_output',
+        'id': 'fco_1',
+        'call_id': 'call_1',
+        'output': [
+          {'type': 'input_text', 'text': '48.858, 2.294'},
+        ],
+        'status': 'completed',
+      };
+      final events = <Map<String, dynamic>>[
+        {
+          'type': 'response.output_item.added',
+          'output_index': 0,
+          'item': {...call, 'arguments': '', 'status': 'in_progress'},
+        },
+        {
+          'type': 'response.function_call_arguments.delta',
+          'output_index': 0,
+          'item_id': 'fc_1',
+          'delta': '{"q":"Eiffel Tower"}',
+        },
+        {'type': 'response.output_item.done', 'output_index': 0, 'item': call},
+        {
+          'type': 'response.completed',
+          'response': {
+            'output': [call],
+          },
+        },
+        {
+          'type': 'response.output_item.done',
+          'output_index': 1,
+          'item': result,
+        },
+        {'type': 'response.created', 'response': <String, dynamic>{}},
+        {
+          'type': 'response.output_item.added',
+          'output_index': 2,
+          'item': {
+            'type': 'message',
+            'id': 'msg_a',
+            'role': 'assistant',
+            'content': <Object?>[],
+          },
+        },
+        for (final delta in const ['It is at ', '48.858, ', '2.294.'])
+          {
+            'type': 'response.output_text.delta',
+            'output_index': 2,
+            'item_id': 'msg_a',
+            'content_index': 0,
+            'delta': delta,
+          },
+        {
+          'type': 'response.completed',
+          'response': {
+            'output': [
+              {
+                'type': 'message',
+                'id': 'msg_a',
+                'role': 'assistant',
+                'status': 'completed',
+                'content': [
+                  {'type': 'output_text', 'text': 'It is at 48.858, 2.294.'},
+                ],
+              },
+            ],
+          },
+        },
+      ];
+
+      for (final event in events) {
+        registrar.emitChatEvent(
+          'response:completion',
+          event,
+          messageId: 'msg-1',
+        );
+        await pumpMicrotasks();
+        check(
+          because: 'after ${event['type']}',
+          log.messages.last.content,
+        ).contains('type="tool_calls"');
+      }
+      final content = log.messages.last.content;
+      check('type="tool_calls"'.allMatches(content)).length.equals(1);
+      check(content).endsWith('It is at 48.858, 2.294.');
+    });
+
+    test('a snapshot completing a split closing tag re-renders in full', () {
+      // The full path strips a completed <details> wrapper from the plain
+      // text that later merges build on; a bare `>` appended must not skip it.
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+      const head =
+          'Result:\n<details type="tool_calls" done="true" id="c1" name="t">\n'
+          '<summary>Tool Executed</summary>\n</details';
+
+      registrar.emitChatEvent('chat:message', {
+        'content': head,
+      }, messageId: 'msg-1');
+      registrar.emitChatEvent('chat:message', {
+        'content': '$head>\n\nDone.',
+      }, messageId: 'msg-1');
+
+      check(log.appendedChunks).isEmpty();
+      check(log.replacedContents.last).endsWith('</details>\n\nDone.');
+    });
+
+    test('a snapshot that opens a new reasoning block restarts its timer', () {
+      var now = DateTime(2026);
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+        clock: () => now,
+      );
+
+      registrar.emitChatEvent('chat:message', {
+        'content': '<think>First',
+      }, messageId: 'msg-1');
+      now = now.add(const Duration(seconds: 10));
+      // Closes the first block and opens a second one.
+      registrar.emitChatEvent('chat:message', {
+        'content': '<think>First</think>\n\nA<think>Second',
+      }, messageId: 'msg-1');
+      now = now.add(const Duration(seconds: 2));
+      registrar.emitChatEvent('chat:message:delta', {
+        'content': '</think>\n\nB',
+      }, messageId: 'msg-1');
+
+      final content = log.messages.last.content;
+      // Two seconds for the second block, not the first block's twelve.
+      check(content).contains('duration="2"');
+      check(content).not((it) => it.contains('duration="12"'));
+    });
+
+    test('a snapshot keeps the timer of a block a delta opened', () {
+      var now = DateTime(2026);
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+        clock: () => now,
+      );
+
+      registrar.emitChatEvent('chat:message', {
+        'content': '<think>First',
+      }, messageId: 'msg-1');
+      now = now.add(const Duration(seconds: 10));
+      // A delta closes the first block and opens the second.
+      registrar.emitChatEvent('chat:message:delta', {
+        'content': '</think>\n\nA<think>Second',
+      }, messageId: 'msg-1');
+      now = now.add(const Duration(seconds: 3));
+      // The snapshot's open block is that same second block.
+      registrar.emitChatEvent('chat:message', {
+        'content': '<think>First</think>\n\nA<think>Second more',
+      }, messageId: 'msg-1');
+      now = now.add(const Duration(seconds: 2));
+      registrar.emitChatEvent('chat:message:delta', {
+        'content': '</think>\n\nB',
+      }, messageId: 'msg-1');
+
+      check(log.messages.last.content).contains('duration="5"');
+    });
+
     test(
       'deltas after a snapshot continue its unterminated reasoning block',
       () async {
@@ -1208,6 +1717,70 @@ void main() {
       check(rewrite.messages.last.content).equals('REWRITTEN BY OUTLET');
     });
 
+    test(
+      'completion outlet output remains authoritative after finish',
+      () async {
+        const output = <Map<String, dynamic>>[
+          {
+            'id': 'tool',
+            'type': 'function_call',
+            'call_id': 'call',
+            'name': 'lookup',
+            'arguments': '{}',
+            'status': 'completed',
+          },
+          {
+            'id': 'result',
+            'type': 'function_call_output',
+            'call_id': 'call',
+            'output': 'Found',
+          },
+          {
+            'id': 'answer',
+            'type': 'message',
+            'content': [
+              {'type': 'output_text', 'text': 'Outlet answer'},
+            ],
+          },
+        ];
+        final log = _CallbackLog();
+        final api = _RecordingChatCompletedApi(
+          responseMessages: [
+            {'id': 'msg-1', 'content': 'stale fallback', 'output': output},
+          ],
+        );
+        final active = _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            byteStream: Stream<List<int>>.fromIterable([
+              _sseFrame({
+                'choices': [
+                  {
+                    'delta': {'content': 'Original'},
+                  },
+                ],
+              }),
+              _sseDone(),
+            ]),
+            abort: () async {},
+          ),
+          log: log,
+          api: api,
+        );
+        addTearDown(active.disposeWatchdog);
+        for (var i = 0; i < 5; i++) {
+          await pumpMicrotasks();
+        }
+        check(log.finishCount).equals(1);
+        check(log.messages.last.content).contains('<details type="tool_calls"');
+        check(log.messages.last.content).endsWith('Outlet answer');
+        check(log.messages.last.content)
+            .not((it) => it.contains('stale fallback'));
+        check(log.messages.last.output!).deepEquals(output);
+      },
+    );
+
     test('httpStream renders output-only structured snapshots', () async {
       final log = _CallbackLog();
       final byteStream = Stream<List<int>>.fromIterable([
@@ -1357,10 +1930,8 @@ void main() {
     test('a plain delta after a deferred structured projection does not drop '
         'the deferred middle of the response', () async {
       final log = _CallbackLog();
-      // First snapshot contains a backtick, which permanently disables the
-      // projector's plain-append fast path; the second snapshot is under
-      // the geometric re-projection threshold (2x), so it is deferred and
-      // the visible content stays at the first snapshot.
+      // Like ContentRenderer, keep output authoritative even if a later
+      // compatibility event still carries plain content.
       final part1 = 'Intro with `code` marker. ${List.filled(60, 'x').join()}';
       const middle = ' MIDDLE-SEGMENT-THAT-MUST-SURVIVE';
       const delta = ' FINAL-DELTA';
@@ -1409,7 +1980,7 @@ void main() {
       await pumpMicrotasks();
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
-      check(log.messages.last.content).equals('$part1$middle$delta');
+      check(log.messages.last.content).equals('$part1$middle');
       check(log.finishCount).equals(1);
     });
 
@@ -1787,6 +2358,8 @@ void main() {
               return snapshot();
             });
           },
+          // Time stands still, so every delta lands inside one refresh window.
+          clock: () => DateTime(2026),
         );
 
         for (final chunk in const ['Plan ', 'the ', 'answer']) {
@@ -1802,7 +2375,9 @@ void main() {
           await pumpMicrotasks();
         }
 
-        check(snapshots.length).equals(3);
+        // The collapsed body refreshes a few times a second, not per delta,
+        // and the pending projection reads the reasoning when it is realized.
+        check(snapshots.length).equals(1);
         check(materializations).equals(0);
         check(log.replacedContents).isEmpty();
 
@@ -1820,6 +2395,103 @@ void main() {
         check(log.finishCount).equals(1);
       },
     );
+
+    test(
+      'held-back reasoning is published when the refresh window ends',
+      () async {
+        final log = _CallbackLog(
+          initialMessages: fakeStreamingAssistantMessages(content: 'Intro'),
+        );
+        final byteStream = StreamController<List<int>>();
+        final snapshots = <String Function()>[];
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            byteStream: byteStream.stream,
+            abort: () async {},
+          ),
+          log: log,
+          bufferProgressiveLastMessageSnapshot: snapshots.add,
+          clock: () => DateTime(2026),
+        );
+
+        void reason(String chunk) => byteStream.add(
+          _sseFrame({
+            'choices': [
+              {
+                'delta': {'reasoning_content': chunk},
+              },
+            ],
+          }),
+        );
+
+        reason('Plan ');
+        await pumpMicrotasks();
+        // A flush realizes the projection before the next delta arrives.
+        final flushed = snapshots.single();
+        check(flushed).contains('&gt; Plan');
+        check(flushed).not((it) => it.contains('more'));
+
+        reason('more');
+        await pumpMicrotasks();
+        // Inside the refresh window: nothing new is published yet.
+        check(snapshots.length).equals(1);
+
+        // The model pauses: no further delta arrives.
+        for (var i = 0; i < 40 && snapshots.length < 2; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+        check(snapshots.length).equals(2);
+        check(snapshots.last()).contains('&gt; Plan more');
+
+        await byteStream.close();
+      },
+    );
+
+    test('a wall clock set back does not hold reasoning back', () async {
+      var now = DateTime(2026, 1, 1, 12);
+      final log = _CallbackLog(
+        initialMessages: fakeStreamingAssistantMessages(content: 'Intro'),
+      );
+      final byteStream = StreamController<List<int>>();
+      final snapshots = <String Function()>[];
+
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          byteStream: byteStream.stream,
+          abort: () async {},
+        ),
+        log: log,
+        bufferProgressiveLastMessageSnapshot: snapshots.add,
+        clock: () => now,
+      );
+
+      void reason(String chunk) => byteStream.add(
+        _sseFrame({
+          'choices': [
+            {
+              'delta': {'reasoning_content': chunk},
+            },
+          ],
+        }),
+      );
+
+      reason('Plan ');
+      await pumpMicrotasks();
+      now = now.subtract(const Duration(hours: 1));
+      reason('more');
+      await pumpMicrotasks();
+
+      // Published at once instead of an hour-long wait for the window.
+      check(snapshots.length).equals(2);
+      check(snapshots.last()).contains('&gt; Plan more');
+
+      await byteStream.close();
+    });
 
     test('httpStream finalizes reasoning-only responses on done', () async {
       final log = _CallbackLog();
@@ -2100,6 +2772,68 @@ void main() {
       },
     );
 
+    test('reconnect seeds output before the next streamed delta', () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      final socket = _MockSocketService(registrar);
+      final api = _buildFakeApi(
+        pollResponse: _serverConversationResponse(
+          messages: [
+            {
+              ..._serverAssistantMessage(
+                content: 'stale legacy body',
+                done: false,
+              ),
+              'output': [
+                {
+                  'id': 'tool',
+                  'type': 'function_call',
+                  'call_id': 'call',
+                  'name': 'lookup',
+                  'arguments': '{}',
+                },
+                {
+                  'id': 'answer',
+                  'type': 'message',
+                  'content': [
+                    {'type': 'output_text', 'text': 'Recovered'},
+                  ],
+                },
+              ],
+            },
+          ],
+        ),
+      );
+      final active = _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        api: api,
+        socketService: socket,
+      );
+      addTearDown(active.disposeWatchdog);
+      await pumpMicrotasks();
+      socket.reconnects.add(null);
+      await waitForCondition(
+        () => log.messages.last.content.endsWith('Recovered'),
+      );
+      registrar.emitChatEvent('response:completion', {
+        'type': 'response.output_text.delta',
+        'item_id': 'answer',
+        'output_index': 1,
+        'delta': ' plus live',
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
+      check(log.messages.last.content).contains('<details type="tool_calls"');
+      check(log.messages.last.content).endsWith('Recovered plus live');
+      check(log.messages.last.content)
+          .not((it) => it.contains('stale legacy body'));
+      check(log.finishCount).equals(0);
+    });
+
     test('reconnect recovery does not finish a live stream from a mid-write snapshot', () async {
       // Returning to the foreground reconnects the socket, which polls the
       // server. Open WebUI persists the in-flight assistant with
@@ -2194,46 +2928,47 @@ void main() {
       },
     );
 
-    test('taskSocket plain snapshots do not clear reasoning details', () async {
-      final log = _CallbackLog();
-      final registrar = FakeSocketInjector();
+    test(
+      'taskSocket content snapshots replace legacy reasoning details',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
 
-      _attach(
-        session: ChatCompletionSession.taskSocket(
-          messageId: 'msg-1',
-          sessionId: 'sess-1',
-          taskId: 'task-1',
-        ),
-        log: log,
-        socketService: _MockSocketService(registrar),
-      );
-      await pumpMicrotasks();
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+        await pumpMicrotasks();
 
-      registrar.emitChatEvent('chat:completion', {
-        'choices': [
-          {
-            'delta': {'reasoning_content': 'Plan'},
-          },
-        ],
-      }, messageId: 'msg-1');
-      await pumpMicrotasks();
-      registrar.emitChatEvent('chat:completion', {
-        'choices': [
-          {
-            'delta': {'content': 'Answer'},
-          },
-        ],
-      }, messageId: 'msg-1');
-      await pumpMicrotasks();
-      registrar.emitChatEvent('chat:completion', {
-        'content': 'Answer',
-      }, messageId: 'msg-1');
-      await pumpMicrotasks();
+        registrar.emitChatEvent('chat:completion', {
+          'choices': [
+            {
+              'delta': {'reasoning_content': 'Plan'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+        registrar.emitChatEvent('chat:completion', {
+          'choices': [
+            {
+              'delta': {'content': 'Answer'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+        registrar.emitChatEvent('chat:completion', {
+          'content': 'Answer',
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
 
-      check(log.messages.last.content)
-        ..contains('<details type="reasoning"')
-        ..contains('Answer');
-    });
+        check(log.messages.last.content).equals('Answer');
+      },
+    );
 
     test(
       'taskSocket helper leaves direct-completion RPC to global relay',
@@ -2422,7 +3157,7 @@ void main() {
     );
 
     test(
-      'chat:completion output snapshot preserves streamed text with details',
+      'chat:completion output snapshot supersedes legacy text with details',
       () async {
         final log = _CallbackLog();
         final registrar = FakeSocketInjector();
@@ -2467,7 +3202,8 @@ void main() {
 
         check(log.appendedChunks).deepEquals(['Visible answer']);
         check(log.replacedContents).has((it) => it.length, 'length').equals(1);
-        check(log.messages.last.content).contains('Visible answer');
+        check(log.messages.last.content)
+            .not((it) => it.contains('Visible answer'));
         check(log.messages.last.content).contains('<details type="tool_calls"');
         check(log.messages.last.content).contains('name="search"');
         check(log.messages.last.output)
@@ -2681,7 +3417,7 @@ void main() {
     });
 
     test(
-      'chat:completion preserves a different same-name pending tool call',
+      'chat:completion output excludes legacy pending tool placeholders',
       () async {
         final log = _CallbackLog();
         final registrar = FakeSocketInjector();
@@ -2717,12 +3453,12 @@ void main() {
         await pumpMicrotasks();
 
         check(log.appendedChunks.any((chunk) => chunk.contains('Executing...')))
-            .isTrue();
+            .isFalse();
         check(
           RegExp('<details type="tool_calls"')
               .allMatches(log.messages.last.content)
               .length,
-        ).equals(2);
+        ).equals(1);
 
         registrar.emitChatEvent('chat:completion', {
           'tool_calls': [
@@ -2752,9 +3488,9 @@ void main() {
           RegExp('<details type="tool_calls"')
               .allMatches(updatedContent)
               .length,
-        ).equals(2);
+        ).equals(1);
         check(updatedContent).contains('updated result');
-        check(updatedContent).contains('Executing...');
+        check(updatedContent).not((it) => it.contains('call-2'));
       },
     );
 
@@ -2906,7 +3642,7 @@ void main() {
     );
 
     test(
-      'chat:completion structured append clears injected tool details',
+      'chat:completion structured output ignores later legacy tool details',
       () async {
         final log = _CallbackLog();
         final registrar = FakeSocketInjector();
@@ -2953,7 +3689,7 @@ void main() {
           messageId: 'msg-1',
         );
         await pumpMicrotasks();
-        check(log.messages.last.content).contains('<summary>Executing...');
+        check(log.messages.last.content).not((it) => it.contains('<details'));
 
         emitOutput('Hello structured world');
         await pumpMicrotasks();
@@ -2967,7 +3703,7 @@ void main() {
           messageId: 'msg-1',
         );
         await pumpMicrotasks();
-        check(log.messages.last.content).contains('<summary>Executing...');
+        check(log.messages.last.content).not((it) => it.contains('<details'));
       },
     );
 
@@ -3018,9 +3754,7 @@ void main() {
         await pumpMicrotasks();
 
         final content = log.messages.last.content;
-        check(content).contains('<details><summary>User details</summary>');
-        check(content).contains('Keep me');
-        check(content).contains('Final answer');
+        check(content).equals('Final answer');
         check(content).not((it) => it.contains('Executing...'));
       },
     );
@@ -3225,7 +3959,7 @@ void main() {
         final content = log.messages.last.content;
         check('<details type="tool_calls"'.allMatches(content).length)
             .equals(1);
-        check(content).contains('Visible answer');
+        check(content).not((it) => it.contains('Visible answer'));
         check(content).contains('second result');
         check(content).not((it) => it.contains('&lt;details'));
       },
@@ -4905,7 +5639,21 @@ void main() {
           messages: [_serverAssistantMessage(content: '')],
         );
         final persistedResponse = _serverConversationResponse(
-          messages: [_serverAssistantMessage(content: 'Final answer')],
+          messages: [
+            {
+              ..._serverAssistantMessage(content: 'stale compatibility text'),
+              'output': [
+                {
+                  'id': 'out-1',
+                  'type': 'message',
+                  'status': 'completed',
+                  'content': [
+                    {'type': 'output_text', 'text': 'Final answer'},
+                  ],
+                },
+              ],
+            },
+          ],
         );
         final api = _buildFakeApi(
           pollResponses: [

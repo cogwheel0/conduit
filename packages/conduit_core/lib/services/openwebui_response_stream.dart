@@ -14,16 +14,24 @@ List<Map<String, dynamic>> applyOpenWebUIResponseStreamEvent(
   final eventType = event['type']?.toString() ?? '';
   if (!eventType.startsWith('response.')) return output;
 
-  if (_isTerminalResponseEvent(eventType)) {
-    // completed, failed, and incomplete all carry the final output list; the
-    // consumer reports failure, the output still replaces the local list.
+  if (eventType == 'response.completed') {
     final response = event['response'];
     final completed = response is Map ? response['output'] : null;
-    // An empty terminal list is not authoritative: a failure or cut-off can
-    // report no output even though items already streamed, and dropping
-    // them would blank a partial answer the user has already seen.
     if (completed is! List || completed.isEmpty) return output;
-    return mergeOpenWebUIReasoningTiming(output, _cloneItems(completed));
+    // Upstream completion covers one provider response. Replace known items
+    // in place and append new ones, preserving earlier tool-call rounds.
+    final next = _cloneItems(output);
+    for (final item in _cloneItems(completed)) {
+      final index = _findOutputItemIndex(next, item);
+      if (index >= 0) {
+        next[index] = _withDerivedDuration(
+          _withPreservedTiming(next[index], item),
+        );
+      } else {
+        next.add(item);
+      }
+    }
+    return next;
   }
 
   final next = _cloneItems(output);
@@ -125,6 +133,10 @@ List<Map<String, dynamic>> applyOpenWebUIResponseStreamEvent(
       part['text'] = _appendDelta(part['text'] ?? '', delta);
       return next;
     }
+    if (item['type'] == 'open_webui:code_interpreter') {
+      item['code'] = '${item['code'] ?? ''}${delta ?? ''}';
+      return next;
+    }
     final key = typeName == 'output_text' || typeName == 'reasoning_text'
         ? 'text'
         : typeName;
@@ -196,6 +208,10 @@ Map<String, dynamic> _cloneMap(Map<dynamic, dynamic> map) => {
 
 int _intOr(Object? value, int fallback) => value is int ? value : fallback;
 
+/// The existing item [item] updates: the same id, or the same call id on an
+/// item of the same type. A function call and its output share a call id, so
+/// without the type check the tool result replaced the call and its tile
+/// vanished mid-stream (issue #751); the web client checks the type too.
 int _findOutputItemIndex(
   List<Map<String, dynamic>> output,
   Map<String, dynamic> item,
@@ -207,6 +223,7 @@ int _findOutputItemIndex(
         (id != null && id.isNotEmpty && existing['id']?.toString() == id) ||
         (callId != null &&
             callId.isNotEmpty &&
+            existing['type'] == item['type'] &&
             existing['call_id']?.toString() == callId),
   );
 }
@@ -359,6 +376,18 @@ List<Map<String, dynamic>> mergeOpenWebUIReasoningTiming(
 
 /// The server's copy of an item (from `output_item.done` or a snapshot)
 /// never carries the client's timing, so keep whatever was measured locally.
+/// A finished reasoning item that knows when it started and ended but not
+/// how long it took, as a terminal item carrying only `ended_at` leaves it.
+Map<String, dynamic> _withDerivedDuration(Map<String, dynamic> item) {
+  if (item['type'] != 'reasoning' || item['duration'] != null) return item;
+  final start = item['started_at'];
+  final end = item['ended_at'];
+  if (start is! num || end is! num) return item;
+  final elapsed = (end - start).floor();
+  item['duration'] = elapsed < 0 ? 0 : elapsed;
+  return item;
+}
+
 Map<String, dynamic> _withPreservedTiming(
   Map<String, dynamic> previous,
   Map<String, dynamic> replacement,

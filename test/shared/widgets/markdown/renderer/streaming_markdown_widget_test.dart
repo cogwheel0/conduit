@@ -2167,6 +2167,64 @@ After
     },
   );
 
+  testWidgets('tool headers show protocol preparation and approval status', (
+    tester,
+  ) async {
+    for (final entry in const [
+      ('in_progress', false, 'Preparing search…'),
+      ('completed', false, 'Executing search…'),
+      ('pending', false, 'Tool Approval Needed: search'),
+      ('failed', true, 'View Result from search'),
+      ('rejected', false, 'Denied search'),
+      ('in_progress', null, 'Preparing search…'),
+      ('completed', null, 'Executing search…'),
+      ('pending', null, 'Tool Approval Needed: search'),
+      ('failed', null, 'View Result from search'),
+      ('incomplete', null, 'View Result from search'),
+      ('rejected', null, 'Denied search'),
+      ('', false, 'Executing search…'),
+    ]) {
+      final content =
+          '<details type="tool_calls" '
+          '${entry.$2 == null ? '' : 'done="${entry.$2}" '}'
+          'name="search" ${entry.$1.isEmpty ? '' : 'status="${entry.$1}"'}>'
+          '<summary>Executing...</summary></details>';
+      await tester.pumpWidget(
+        buildHarness(content, isStreaming: entry.$2 != true),
+      );
+      await tester.pump(const Duration(milliseconds: 120));
+      expect(find.text(entry.$3), findsOneWidget);
+    }
+  });
+
+  testWidgets('unsuccessful tool detail sheets do not show a success icon', (
+    tester,
+  ) async {
+    for (final status in ['failed', 'completed', 'incomplete']) {
+      final result = status == 'completed' ? 'Error: offline' : '';
+      await tester.pumpWidget(
+        buildHarness(
+          '<details type="tool_calls" done="true" status="$status" '
+          'name="search" arguments="{}" result="$result">'
+          '<summary>Tool Executed</summary></details>',
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('View Result from search'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          status == 'incomplete' ? 'Incomplete search' : 'Failed search',
+        ),
+        findsOneWidget,
+      );
+      expect(find.byIcon(Icons.cancel_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.check_circle_outline_rounded), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    }
+  });
+
   testWidgets('renders a tool-call block attached to raw streamed text', (
     tester,
   ) async {

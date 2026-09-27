@@ -365,6 +365,12 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
     return;
   }
 
+  // An answered or lapsed gate is not a new one. The runs API follows every
+  // approval with `approval.responded`, carrying only `run_id`, which would
+  // otherwise decode as a fresh request for the same gate and put the
+  // answered card back up until the run ends (issue #769).
+  if (_approvalOutcomeEvents.contains(eventType)) return;
+
   // Human-approval gate.
   if ((eventType?.contains('approval') ?? false) ||
       data.containsKey('approval_id') ||
@@ -803,3 +809,10 @@ String? _str(dynamic value) {
 }
 
 String? _strictString(dynamic value) => value is String ? value : null;
+
+const Set<String> _approvalOutcomeEvents = {
+  'approval.responded',
+  'approval.resolved',
+  'approval.expire',
+  'approval.expired',
+};

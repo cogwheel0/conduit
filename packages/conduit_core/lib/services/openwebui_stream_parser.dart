@@ -18,6 +18,12 @@ final class OpenWebUIContentDelta extends OpenWebUIStreamUpdate {
   final String content;
 }
 
+/// A cumulative legacy content value, distinct from token deltas.
+final class OpenWebUIContentSnapshot extends OpenWebUIStreamUpdate {
+  const OpenWebUIContentSnapshot(this.content);
+  final String content;
+}
+
 /// A reasoning/thinking content delta from a streamed completion chunk.
 ///
 /// This corresponds to `delta.reasoning_content` in the OpenAI-compatible
@@ -213,25 +219,22 @@ Iterable<OpenWebUIStreamUpdate> parseOpenWebUIParsedPayload(
     yield OpenWebUIUsageUpdate(parsed['usage'] as Map<String, dynamic>);
   }
 
-  // Upstream contract (Chat.svelte): a frame carrying an `output` snapshot
-  // supersedes its own choices deltas — the snapshot already contains the
-  // delta's text (and its reasoning as an output item), so applying both
-  // duplicates content. Mute only when the snapshot parses into renderable
-  // blocks (matching the socket path's predicate): an output whose items all
-  // parse away would otherwise mute the delta AND render nothing.
+  // An output array is authoritative even when it is empty or contains no
+  // renderable text yet. This is the same presence check as Chat.svelte.
   final output = parsed['output'];
-  final outputUpdate = output is List && output.isNotEmpty
-      ? OpenWebUIOutputUpdate(output)
-      : null;
-  final hasOutputSnapshot =
-      outputUpdate != null && outputUpdate.blocks.isNotEmpty;
+  final outputUpdate = output is List ? OpenWebUIOutputUpdate(output) : null;
+  final hasOutputSnapshot = outputUpdate != null;
 
   final choices = parsed['choices'];
   if (!hasOutputSnapshot && choices is List && choices.isNotEmpty) {
     final firstChoice = choices.first;
     if (firstChoice is Map<String, dynamic>) {
+      final message = firstChoice['message'];
+      final messageContent = message is Map ? message['content'] : null;
       final delta = firstChoice['delta'];
-      if (delta is Map<String, dynamic>) {
+      if (messageContent is String && messageContent.isNotEmpty) {
+        yield OpenWebUIContentDelta(messageContent);
+      } else if (delta is Map<String, dynamic>) {
         // Reasoning/thinking content (chain-of-thought tokens).
         final reasoning = openWebUIStreamingReasoningDelta(delta);
         if (reasoning.isNotEmpty) {
@@ -248,6 +251,9 @@ Iterable<OpenWebUIStreamUpdate> parseOpenWebUIParsedPayload(
 
   if (outputUpdate != null) {
     yield outputUpdate;
+  } else if (parsed['content'] is String &&
+      (parsed['content'] as String).isNotEmpty) {
+    yield OpenWebUIContentSnapshot(parsed['content'] as String);
   }
 }
 

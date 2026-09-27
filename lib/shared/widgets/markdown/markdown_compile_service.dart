@@ -11,6 +11,7 @@ import 'package:markdown/markdown.dart' as md;
 import 'package:conduit_core/services/performance_profiler.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
+
 import 'compiled_markdown_document.dart';
 import 'streaming_markdown_preparation.dart';
 import 'renderer/latex_preprocessor.dart';
@@ -893,12 +894,17 @@ CompiledMarkdownDocument _compilePreparedMarkdownDocument(
   }
 
   final latexPreprocessor = LatexPreprocessor();
-  final preprocessed = latexPreprocessor.extract(preparedContent);
+  final preprocessed = _extractLatexOutsideDetailsTags(
+    latexPreprocessor,
+    preparedContent,
+  );
 
   final document = md.Document(
-    extensionSet: md.ExtensionSet.gitHubWeb,
+    // gitHubWeb with linear-time handling of long unbroken runs; the run guard
+    // must stay the first inline syntax.
+    extensionSet: conduitGitHubWebExtensionSet,
     blockSyntaxes: const [DetailsBlockSyntax()],
-    inlineSyntaxes: [MentionInlineSyntax()],
+    inlineSyntaxes: [LongAlphanumericRunSyntax(), MentionInlineSyntax()],
     encodeHtml: false,
   );
   final nodes = document.parse(preprocessed);
@@ -921,6 +927,34 @@ CompiledMarkdownDocument _compilePreparedMarkdownDocument(
     nodes: compiledNodes,
     blockLatexExpressions: latexPreprocessor.blockExpressions,
     inlineLatexExpressions: latexPreprocessor.inlineExpressions,
+  );
+}
+
+/// A whole `<details ...>` opening tag on one line. The preprocessor has
+/// already joined multi-line tags and escaped `<`/`>` inside quoted values.
+final _detailsOpeningTagForLatex = RegExp(
+  r'<details\b[^>\n]*>',
+  caseSensitive: false,
+);
+
+/// Extracts LaTeX everywhere except inside `<details>` opening tags.
+///
+/// Tool-call attributes carry JSON-encoded arguments and results. Their
+/// escaped text often looks like LaTeX delimiters (`\[`...`\]`, `$$`), and
+/// block extraction wraps its placeholder in blank lines, which split the
+/// opening tag so the details parser rendered the whole tool call as a raw
+/// wall (issue #677). Attributes are data, never math.
+String _extractLatexOutsideDetailsTags(
+  LatexPreprocessor latexPreprocessor,
+  String content,
+) {
+  if (!_detailsOpeningTagForLatex.hasMatch(content)) {
+    return latexPreprocessor.extract(content);
+  }
+  return content.splitMapJoin(
+    _detailsOpeningTagForLatex,
+    onMatch: (match) => match[0]!,
+    onNonMatch: latexPreprocessor.extract,
   );
 }
 
@@ -1267,8 +1301,13 @@ CompiledMarkdownDetailsData _buildCompiledDetailsData({
   final type = attributes['type']?.trim() ?? '';
   final name = attributes['name']?.trim() ?? '';
   final done = attributes['done'];
-  final isDone = done == 'true';
-  final isPending = done != null && done != 'true';
+  final status = attributes['status'];
+  final terminalTool =
+      type == 'tool_calls' &&
+      (status == 'failed' || status == 'incomplete' || status == 'rejected');
+  final isDone = done == 'true' || terminalTool;
+  final isPending =
+      !isDone && (done != null || (type == 'tool_calls' && status != null));
   final rawDuration = attributes['duration']?.trim() ?? '';
   final durationSeconds =
       int.tryParse(rawDuration.isEmpty ? '0' : rawDuration) ?? 0;
@@ -1281,6 +1320,7 @@ CompiledMarkdownDetailsData _buildCompiledDetailsData({
     kind: _detailsKindForType(type),
     type: type,
     name: name,
+    status: attributes['status'],
     isDone: isDone,
     isPending: isPending,
     durationSeconds: durationSeconds,
@@ -1329,12 +1369,17 @@ CompiledMarkdownToolCallData _compileToolCallData(
       ? ''
       : _formatDetailJsonString(argumentsText);
 
-  final resultCode = parsedResult is Map || parsedResult is List
+  final resultPartsText = _toolResultPartsText(
+    parsedResult,
+    structuredOpenWebUi: attributes.containsKey('status'),
+  );
+  final resultCode =
+      resultPartsText == null && (parsedResult is Map || parsedResult is List)
       ? const JsonEncoder.withIndent('  ').convert(parsedResult)
       : '';
   final resultDisplayText = resultText.isEmpty || resultCode.isNotEmpty
       ? ''
-      : _stringifyDetailValue(parsedResult);
+      : resultPartsText ?? _stringifyDetailValue(parsedResult);
 
   final embeds = normalizeEmbedList(rawEmbeds)
       .map(extractEmbedSource)
@@ -1351,9 +1396,77 @@ CompiledMarkdownToolCallData _compileToolCallData(
     argumentsCode: argumentsCode,
     resultCode: resultCode,
     resultDisplayText: resultDisplayText,
+    isError:
+        attributes['status'] == 'failed' ||
+        _isToolResultError(resultPartsText ?? parsedResult),
     embedSources: embeds,
     imageUrls: imageUrls,
   );
+}
+
+// Matches ToolCallDisplay.svelte's result-error detection after attribute decoding.
+bool _isToolResultError(Object? result) {
+  if (result is String) {
+    final text = result.trim().toLowerCase();
+    if (text.startsWith('error:') ||
+        text.startsWith('exception:') ||
+        text.startsWith('traceback') ||
+        text.startsWith('http error!')) {
+      return true;
+    }
+    result = _parseDetailJsonString(result);
+  }
+  if (result is! Map) return false;
+  bool hasValue(Object? value) =>
+      value is String ? value.trim().isNotEmpty : value is Map || value is List;
+  if (hasValue(result['error'])) return true;
+  final status = result['status']?.toString().trim().toLowerCase();
+  if (status == 'error' || status == 'failed') return true;
+  return (result['success'] == false || result['ok'] == false) &&
+      hasValue(result['message']);
+}
+
+const Set<String> _toolResultTextPartTypes = {
+  'input_text',
+  'output_text',
+  'text',
+};
+
+/// The text of a tool result that is a list of content parts, as Open WebUI's
+/// `getToolResultText` shows a `function_call_output`: image parts are
+/// skipped and the other parts' text is concatenated with nothing between.
+/// Null for any other shape, which keeps its JSON view.
+String? _toolResultPartsText(
+  Object? result, {
+  required bool structuredOpenWebUi,
+}) {
+  if (result is! List) return null;
+  if (result.isEmpty) return structuredOpenWebUi ? '' : null;
+  final text = StringBuffer();
+  var hasTextPart = false;
+  for (final part in result) {
+    if (part is! Map) {
+      if (structuredOpenWebUi) continue;
+      return null;
+    }
+    final type = part['type'];
+    if (type == 'input_image') continue;
+    if (!structuredOpenWebUi &&
+        !part.containsKey('text') &&
+        !_toolResultTextPartTypes.contains(type)) {
+      return null;
+    }
+    final value = part['text'];
+    if (value is String) {
+      text.write(value);
+    } else if (value is num || value is bool) {
+      text.write(value.toString());
+    } else if (value != null) {
+      return null;
+    }
+    hasTextPart = true;
+  }
+  return hasTextPart || structuredOpenWebUi ? text.toString() : null;
 }
 
 String _decodeDetailAttribute(String? input) {

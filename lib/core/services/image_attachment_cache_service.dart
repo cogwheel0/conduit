@@ -466,12 +466,16 @@ bool imageAttachmentUrlIsSvg(String url) {
   return pathPart.endsWith('.svg') || queryPart.contains('image/svg+xml');
 }
 
+/// Whether [bytes] hold an SVG document rather than a raster image.
+///
+/// Only a document that starts with markup can be SVG. Raster formats can
+/// carry `<svg` in their metadata: the C2PA manifest in OpenRouter-generated
+/// PNGs embeds an SVG icon within the first kilobyte (issue #768).
 bool imageAttachmentBytesAreSvg(Uint8List bytes) {
   final checkLength = bytes.length < 1024 ? bytes.length : 1024;
-  final header = utf8.decode(
-    bytes.sublist(0, checkLength),
-    allowMalformed: true,
-  );
+  var header = utf8.decode(bytes.sublist(0, checkLength), allowMalformed: true);
+  if (header.startsWith('\uFEFF')) header = header.substring(1);
+  if (!header.trimLeft().startsWith('<')) return false;
   return header.toLowerCase().contains('<svg');
 }
 

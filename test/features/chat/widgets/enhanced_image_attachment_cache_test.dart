@@ -189,6 +189,28 @@ void main() {
         .isFalse();
   });
 
+  test('SVG byte detection needs a markup document, not metadata', () {
+    Uint8List ascii(String text) => Uint8List.fromList(text.codeUnits);
+
+    check(imageAttachmentBytesAreSvg(ascii('<svg xmlns="x"></svg>'))).isTrue();
+    // A UTF-8 byte order mark, whitespace and a prolog may precede the root.
+    check(
+      imageAttachmentBytesAreSvg(
+        Uint8List.fromList([
+          0xEF, 0xBB, 0xBF, //
+          ...ascii('  <?xml version="1.0"?>\n<!-- icon -->\n<svg></svg>'),
+        ]),
+      ),
+    ).isTrue();
+    // Issue #768: a PNG whose C2PA metadata embeds an SVG icon early on.
+    final png = Uint8List.fromList([
+      0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, //
+      ...ascii('....caBX c2pa.icon <svg xmlns="http://www.w3.org/2000/svg">'),
+    ]);
+    check(imageAttachmentBytesAreSvg(png)).isFalse();
+    check(imageAttachmentBytesAreSvg(ascii('plain <svg> in text'))).isFalse();
+  });
+
   test('core cache deduplicates concurrent loads for the same owner', () async {
     final scope = ImageAttachmentCacheScope(
       api: null,

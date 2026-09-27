@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 /// Typed representation of Open WebUI structured `output` items.
 ///
 /// These blocks keep protocol parsing separate from UI string rendering. Raw
@@ -30,6 +32,7 @@ final class StructuredOutputToolCallBlock extends StructuredOutputBlock {
     required this.name,
     required this.arguments,
     required this.done,
+    this.status,
     this.result,
     this.files,
     this.embeds,
@@ -39,6 +42,7 @@ final class StructuredOutputToolCallBlock extends StructuredOutputBlock {
   final String name;
   final Object? arguments;
   final bool done;
+  final String? status;
   final Object? result;
   final Object? files;
   final Object? embeds;
@@ -93,31 +97,33 @@ List<StructuredOutputBlock> parseOpenWebUIStructuredOutput(
       case 'reasoning':
         final text = _reasoningTextFromOutputItem(item);
         final done = _isReasoningDone(item, index, output.length);
-        // Responses-API providers add the reasoning item as soon as thinking
-        // starts and only fill its summary at the end, so a pending item is
-        // shown as "Thinking…" even while it has no text yet, matching the
-        // upstream client. Finished items without any text stay hidden.
-        if (text.trim().isNotEmpty || !done) {
-          blocks.add(
-            StructuredOutputReasoningBlock(
-              text: text,
-              done: done,
-              duration: item['duration']?.toString(),
-            ),
-          );
-        }
+        // Keep the same detail item through completion, even when a provider
+        // only exposes the duration and never releases its reasoning text.
+        blocks.add(
+          StructuredOutputReasoningBlock(
+            text: text,
+            done: done,
+            duration: item['duration']?.toString(),
+          ),
+        );
       case 'function_call':
       case 'custom_tool_call':
+        if (itemType == 'function_call' &&
+            item['name'] == 'ask_user' &&
+            (item['status'] == 'pending' || item['status'] == 'in_progress')) {
+          continue;
+        }
         final callId =
             item['call_id']?.toString() ?? item['id']?.toString() ?? '';
         final resultItem = toolOutputs[callId];
         blocks.add(
           StructuredOutputToolCallBlock(
             id: callId,
-            name:
-                item['name']?.toString() ??
-                (itemType == 'custom_tool_call' ? 'Custom Tool' : ''),
+            name: _toolName(item, itemType),
             arguments: item['arguments'] ?? item['input'] ?? '',
+            status: itemType == 'function_call'
+                ? item['status']?.toString() ?? ''
+                : null,
             done:
                 resultItem != null ||
                 _isDoneStatus(item['status'], includeCompleted: false),
@@ -146,12 +152,18 @@ List<StructuredOutputBlock> parseOpenWebUIStructuredOutput(
         blocks.add(
           StructuredOutputCodeInterpreterBlock(
             code: item['code']?.toString() ?? '',
-            language: (item['language'] ?? item['lang'])?.toString() ?? '',
+            language:
+                (item['lang'] ?? item['language'])?.toString() ?? 'python',
             done: _isCodeInterpreterDone(item, index, output.length),
             duration: item['duration']?.toString(),
             output: item['output'],
           ),
         );
+      default:
+        final text = _messageTextFromOutputItem(item);
+        if (text.trim().isNotEmpty) {
+          blocks.add(StructuredOutputTextBlock(text: text));
+        }
     }
   }
 
@@ -171,27 +183,14 @@ String _messageTextFromOutputItem(Map<String, dynamic> item) {
     return '';
   }
 
-  final messageParts = <String>[];
-  for (final part in content) {
-    if (part is! Map) continue;
-    final partType = part['type']?.toString();
-    if (part.containsKey('text') &&
-        (partType == null || partType == 'text' || partType == 'output_text')) {
-      final text = part['text']?.toString() ?? '';
-      if (text.isNotEmpty) {
-        messageParts.add(text);
-      }
-    }
-  }
-  return messageParts.join('\n');
+  return _textFromOutputParts(content);
 }
 
 String _reasoningTextFromOutputItem(Map<String, dynamic> item) {
   final summary = item['summary'];
   final content = item['content'];
-  final summaryText = summary is List ? _textFromOutputParts(summary) : '';
-  if (summaryText.trim().isNotEmpty) {
-    return summaryText;
+  if (summary is List && summary.isNotEmpty) {
+    return _textFromOutputParts(summary);
   }
   if (content is String) {
     return content;
@@ -208,7 +207,7 @@ String _textFromOutputParts(List<dynamic> sourceList) {
       reasoningParts.add(text);
     }
   }
-  return reasoningParts.join('\n');
+  return reasoningParts.join();
 }
 
 /// Mirrors upstream `buildReasoningToken`: a reasoning item that is followed
@@ -217,7 +216,7 @@ String _textFromOutputParts(List<dynamic> sourceList) {
 /// status flip, so the answer item appearing after it is the only signal.
 bool _isReasoningDone(Map<String, dynamic> item, int index, int outputLength) {
   final status = item['status']?.toString();
-  final hasDuration = item['duration'] != null;
+  final hasDuration = item.containsKey('duration');
   final isLastItem = index == outputLength - 1;
   return _isDoneStatus(status) || hasDuration || !isLastItem;
 }
@@ -228,14 +227,41 @@ bool _isCodeInterpreterDone(
   int outputLength,
 ) {
   final status = item['status']?.toString();
-  final hasDuration = item['duration'] != null;
+  final hasDuration = item.containsKey('duration');
   final isLastItem = index == outputLength - 1;
   return _isDoneStatus(status) || hasDuration || !isLastItem;
 }
 
 bool _isDoneStatus(Object? status, {bool includeCompleted = true}) {
   final normalized = status?.toString();
-  return includeCompleted && normalized == 'completed';
+  return (includeCompleted && normalized == 'completed') ||
+      normalized == 'failed' ||
+      normalized == 'incomplete';
+}
+
+String _toolName(Map<String, dynamic> item, String itemType) {
+  final name =
+      item['name']?.toString() ??
+      (itemType == 'custom_tool_call' ? 'Custom Tool' : '');
+  if (name != 'delegate_task') return name;
+  try {
+    final raw = item['arguments'];
+    final arguments = raw is String
+        ? jsonDecode(raw.isEmpty ? '{}' : raw)
+        : raw;
+    final taskValue = arguments is Map ? arguments['task'] : null;
+    final task = taskValue is String && taskValue.isNotEmpty ? taskValue : '?';
+    final background = arguments is Map ? arguments['background'] : null;
+    final isBackground =
+        background != null &&
+        background != false &&
+        background != 0 &&
+        background != '';
+    final label = isBackground ? 'Background sub-agent' : 'Sub-agent';
+    return '$label: "${task.length > 60 ? '${task.substring(0, 60)}...' : task}"';
+  } catch (_) {
+    return 'Sub-agent';
+  }
 }
 
 String _openAiToolName(String itemType) {

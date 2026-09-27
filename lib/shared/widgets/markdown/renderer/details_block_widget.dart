@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
 import 'package:conduit_markdown/conduit_markdown.dart';
+
 import '../../assistant_detail_header.dart';
 import '../../themed_sheets.dart';
 import '../../web_content_embed.dart';
@@ -376,10 +377,14 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
     }
 
     if (_isToolCall) {
+      final failed =
+          _toolCallData.isError ||
+          _detailsData.status == 'rejected' ||
+          _detailsData.status == 'incomplete';
       return Icon(
-        Icons.check_circle_outline_rounded,
+        failed ? Icons.cancel_outlined : Icons.check_circle_outline_rounded,
         size: iconSize,
-        color: theme.statusPalette.success.base,
+        color: failed ? theme.error : theme.statusPalette.success.base,
       );
     }
 
@@ -405,7 +410,13 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
       if (_toolCallData.hasEmbeds) {
         return safeName;
       }
-      return _isPending ? 'Executing $safeName…' : 'View Result from $safeName';
+      final status = _detailsData.status;
+      if (status == 'pending') return 'Tool Approval Needed: $safeName';
+      if (status == 'rejected') return 'Denied $safeName';
+      if (!_isPending) return 'View Result from $safeName';
+      return status != null && status != 'completed'
+          ? 'Preparing $safeName…'
+          : 'Executing $safeName…';
     }
 
     if (_isReasoning) {
@@ -420,6 +431,12 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
     if (_isToolCall) {
       final name = _detailsData.name.trim();
       final safeName = name.isEmpty ? 'tool' : name;
+      if (_isPending && _detailsData.status != null) {
+        return _headerTitle(context);
+      }
+      if (_detailsData.status == 'rejected') return 'Denied $safeName';
+      if (_detailsData.status == 'incomplete') return 'Incomplete $safeName';
+      if (!_isPending && _toolCallData.isError) return 'Failed $safeName';
       return _isPending ? 'Running $safeName…' : 'Used $safeName';
     }
 

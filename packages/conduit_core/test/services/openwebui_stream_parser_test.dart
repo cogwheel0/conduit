@@ -380,10 +380,10 @@ void main() {
     });
 
     test(
-      'a non-renderable output snapshot does not mute the same-frame delta',
+      'a non-renderable output snapshot still supersedes legacy text',
       () async {
-        // A whitespace-only message item parses into zero blocks; muting the
-        // delta on the raw list would render nothing for the frame.
+        // Open WebUI checks array presence, not whether it renders text.
+        // Legacy content in this frame must not undo an explicit empty body.
         final updates = await parseOpenWebUIStream(
           Stream<List<int>>.fromIterable([
             utf8.encode(
@@ -406,14 +406,46 @@ void main() {
           ]),
         ).toList();
 
-        check(updates).has((it) => it.length, 'length').equals(2);
+        check(updates).length.equals(1);
         check(updates[0])
-            .isA<OpenWebUIContentDelta>()
-            .has((u) => u.content, 'content')
-            .equals('hi');
-        check(updates[1])
             .isA<OpenWebUIOutputUpdate>()
             .has((u) => u.blocks, 'blocks')
+            .isEmpty();
+      },
+    );
+
+    test(
+      'SSE distinguishes replacement content and nonstream message text',
+      () {
+        final snapshot = parseOpenWebUIParsedPayload({'content': 'replacement'})
+            .single;
+        check(snapshot)
+            .isA<OpenWebUIContentSnapshot>()
+            .has((u) => u.content, 'content')
+            .equals('replacement');
+        final completion = parseOpenWebUIParsedPayload({
+          'choices': [
+            {
+              'message': {'content': 'answer'},
+            },
+          ],
+        }).single;
+        check(completion)
+            .isA<OpenWebUIContentDelta>()
+            .has((u) => u.content, 'content')
+            .equals('answer');
+        final cleared = parseOpenWebUIParsedPayload({
+          'output': <Object?>[],
+          'content': 'stale',
+          'choices': [
+            {
+              'delta': {'content': 'stale'},
+            },
+          ],
+        }).single;
+        check(cleared)
+            .isA<OpenWebUIOutputUpdate>()
+            .has((u) => u.output, 'output')
             .isEmpty();
       },
     );
@@ -594,52 +626,58 @@ void main() {
         ]),
       );
 
-      check(serialized).equals(' hello \n&lt;world&gt;\n');
+      check(serialized).equals(' hello &lt;world&gt;\n');
     });
 
-    test('extracts text-bearing message parts without a type', () {
-      final serialized = renderStructuredOutputBlocks(
-        parseOpenWebUIStructuredOutput([
-          {
-            'type': 'message',
-            'content': [
-              {'text': 'typeless text'},
-            ],
-          },
-        ]),
-      );
-
-      check(serialized).equals('typeless text');
+    test('renders all text-bearing parts and unknown output content', () {
+      for (final type in ['message', 'provider_specific']) {
+        final serialized = renderStructuredOutputBlocks(
+          parseOpenWebUIStructuredOutput([
+            {
+              'type': type,
+              'content': [
+                {'type': 'custom_text', 'text': 'Hello'},
+                {'text': ' world'},
+                {'text': 2},
+                {'text': null},
+              ],
+            },
+          ]),
+        );
+        check(serialized).equals('Hello world2');
+      }
     });
 
     test('replacement text preserves text block ordering around details', () {
-      final rendered = renderStructuredOutputBlocksWithContent(
-        parseOpenWebUIStructuredOutput([
-          {
-            'type': 'message',
-            'content': [
-              {'type': 'output_text', 'text': 'A'},
-            ],
-          },
-          {
-            'type': 'reasoning',
-            'status': 'completed',
-            'summary': [
-              {'type': 'summary_text', 'text': 'thinking'},
-            ],
-          },
-          {
-            'type': 'message',
-            'content': [
-              {'type': 'output_text', 'text': 'B'},
-            ],
-          },
-        ]),
-        'AB',
-      );
+      for (final replacement in ['AB', 'A\nB']) {
+        final rendered = renderStructuredOutputBlocksWithContent(
+          parseOpenWebUIStructuredOutput([
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': 'A'},
+              ],
+            },
+            {
+              'type': 'reasoning',
+              'status': 'completed',
+              'summary': [
+                {'type': 'summary_text', 'text': 'thinking'},
+              ],
+            },
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': 'B'},
+              ],
+            },
+          ]),
+          replacement,
+        );
 
-      check(rendered).startsWith('A\n\n<details type="reasoning"');
-      check(rendered).endsWith('</details>\n\nB');
+        check(rendered).startsWith('A\n\n<details type="reasoning"');
+        check(rendered).endsWith('</details>\n\nB');
+      }
     });
 
     test('replacement text is appended after detail-only output', () {
@@ -658,6 +696,44 @@ void main() {
 
       check(rendered).startsWith('<details type="reasoning"');
       check(rendered).endsWith('</details>\n\nFinal answer');
+    });
+
+    test('ask_user uses its prompt until the tool completes', () {
+      for (final status in ['pending', 'in_progress', 'completed']) {
+        final blocks = parseOpenWebUIStructuredOutput([
+          {
+            'type': 'function_call',
+            'call_id': 'ask',
+            'name': 'ask_user',
+            'status': status,
+          },
+        ]);
+        check(blocks.length).equals(status == 'completed' ? 1 : 0);
+      }
+    });
+
+    test('delegate_task displays the task and background mode', () {
+      for (final entry in <(Object?, String)>[
+        ('{"task":"Check docs"}', 'Sub-agent: "Check docs"'),
+        (
+          {'task': 'Check docs', 'background': true},
+          'Background sub-agent: "Check docs"',
+        ),
+        ({'task': 'x' * 65}, 'Sub-agent: "${'x' * 60}..."'),
+        ('{', 'Sub-agent'),
+      ]) {
+        final block =
+            parseOpenWebUIStructuredOutput([
+                  {
+                    'type': 'function_call',
+                    'call_id': 'subagent',
+                    'name': 'delegate_task',
+                    'arguments': entry.$1,
+                  },
+                ]).single
+                as StructuredOutputToolCallBlock;
+        check(block.name).equals(entry.$2);
+      }
     });
 
     test('completed function call stays pending until output arrives', () {
@@ -805,7 +881,7 @@ void main() {
       check(serialized).contains('<details type="reasoning" done="false"');
     });
 
-    test('hides a finished reasoning item that never produced text', () {
+    test('keeps a finished reasoning item that never produced text', () {
       final blocks = parseOpenWebUIStructuredOutput([
         {'type': 'reasoning', 'id': 'rs_1', 'status': 'completed'},
         {
@@ -816,8 +892,12 @@ void main() {
         },
       ]);
 
-      check(blocks).length.equals(1);
-      check(blocks.single).isA<StructuredOutputTextBlock>();
+      check(blocks).length.equals(2);
+      check(blocks.first)
+          .isA<StructuredOutputReasoningBlock>()
+          .has((block) => block.done, 'done')
+          .isTrue();
+      check(blocks.last).isA<StructuredOutputTextBlock>();
     });
 
     test('keeps a trailing in-progress reasoning item pending', () {
@@ -837,25 +917,37 @@ void main() {
           .equals(false);
     });
 
-    test('falls back from empty reasoning summary to content', () {
-      final blocks = parseOpenWebUIStructuredOutput([
-        {
-          'type': 'reasoning',
-          'summary': [
-            {'type': 'summary_text', 'text': ''},
-          ],
-          'content': [
-            {'type': 'output_text', 'text': 'content reasoning'},
-          ],
-        },
-      ]);
-      final serialized = renderStructuredOutputBlocks(blocks);
-
-      check(blocks.single)
-          .isA<StructuredOutputReasoningBlock>()
-          .has((block) => block.text, 'text')
-          .equals('content reasoning');
-      check(serialized).contains('&gt; content reasoning');
+    test('prefers a present summary and concatenates its parts', () {
+      for (final summary in <List<Map<String, dynamic>>>[
+        [],
+        [
+          {'type': 'summary_text', 'text': ''},
+        ],
+        [
+          {'text': 'Hel'},
+          {'text': 'lo'},
+        ],
+      ]) {
+        final block =
+            parseOpenWebUIStructuredOutput([
+                  {
+                    'type': 'reasoning',
+                    'summary': summary,
+                    'content': [
+                      {'text': 'content'},
+                      {'text': ' reasoning'},
+                    ],
+                  },
+                ]).single
+                as StructuredOutputReasoningBlock;
+        check(block.text).equals(
+          summary.isEmpty
+              ? 'content reasoning'
+              : summary.length == 1
+              ? ''
+              : 'Hello',
+        );
+      }
     });
 
     test('reads string reasoning content', () {
@@ -869,29 +961,24 @@ void main() {
           .equals('plain reasoning');
     });
 
-    test('keeps failed tool calls and code interpreter blocks open', () {
-      final blocks = parseOpenWebUIStructuredOutput([
-        {
-          'type': 'function_call',
-          'call_id': 'call-1',
-          'name': 'search',
-          'status': 'failed',
-        },
-        {
-          'type': 'code_interpreter',
-          'status': 'incomplete',
-          'code': 'print(1)',
-        },
-      ]);
-
-      check(blocks[0])
-          .isA<StructuredOutputToolCallBlock>()
-          .has((block) => block.done, 'done')
-          .isFalse();
-      check(blocks[1])
-          .isA<StructuredOutputCodeInterpreterBlock>()
-          .has((block) => block.done, 'done')
-          .isFalse();
+    test('failed and incomplete details finish without a result item', () {
+      for (final status in ['failed', 'incomplete']) {
+        for (final type in [
+          'function_call',
+          'reasoning',
+          'open_webui:code_interpreter',
+          'web_search_call',
+          'file_search_call',
+          'computer_call',
+        ]) {
+          final serialized = renderStructuredOutputBlocks(
+            parseOpenWebUIStructuredOutput([
+              {'type': type, 'status': status, 'id': 'item', 'name': 'lookup'},
+            ]),
+          );
+          check(serialized).contains('done="true"');
+        }
+      }
     });
 
     test('serializes upstream code interpreter output shape', () {
@@ -899,7 +986,6 @@ void main() {
         {
           'type': 'open_webui:code_interpreter',
           'status': 'completed',
-          'lang': 'python',
           'code': 'print("ok")',
           'output': {'stdout': 'ok'},
         },
@@ -1186,14 +1272,20 @@ void main() {
       final projector = StructuredOutputStreamingProjector();
       final text = StringBuffer('`code` ');
       projector.project([StructuredOutputTextBlock(text: text.toString())]);
-      // Grow past the projected content without crossing the re-render
-      // threshold so the latest snapshot stays deferred.
-      text.write('x');
-      projector.project([StructuredOutputTextBlock(text: text.toString())]);
+      // An indented line may be code, so escapable text on it cannot be
+      // appended; short of the re-render threshold, the snapshot defers.
+      text.write('\n    x < y');
+      check(
+        projector.project([StructuredOutputTextBlock(text: text.toString())]),
+      ).isNull();
 
       final synced = projector.syncProjectionToLatest();
       check(synced).isNotNull();
-      check(synced!.content).equals(text.toString());
+      check(synced!.content).equals(
+        renderStructuredOutputBlocks([
+          StructuredOutputTextBlock(text: text.toString()),
+        ]),
+      );
     });
 
     test('forceReplace overrides an otherwise appendable update', () {
@@ -1241,9 +1333,8 @@ void main() {
     });
 
     test('code-bearing streams re-render on the bounded additive schedule', () {
-      // Once a backtick disables the append fast path, the schedule
-      // deliberately switches from geometric doubling (which would leave
-      // the tail up to 50% stale until completion) to additive steps of
+      // Code-bearing text appends through the tail cursor, and full renders
+      // switch from geometric doubling to additive steps of
       // max(64, length / 8): denser than geometric, still bounded.
       const chunkCount = 4096;
       final projector = StructuredOutputStreamingProjector();
@@ -1286,6 +1377,62 @@ void main() {
       check(completed).isNotNull();
       check(completed!.content).contains(arguments.toString());
     });
+
+    test('tool status changes project immediately without argument growth', () {
+      for (final hasAnswer in [false, true]) {
+        final projector = StructuredOutputStreamingProjector();
+        final arguments = 'x' * 200;
+        List<StructuredOutputBlock> snapshot(String status, String answer) =>
+            parseOpenWebUIStructuredOutput([
+              {
+                'type': 'function_call',
+                'call_id': 'call',
+                'name': 'search',
+                'arguments': arguments,
+                'status': status,
+              },
+              if (hasAnswer)
+                {
+                  'type': 'message',
+                  'content': [
+                    {'text': answer},
+                  ],
+                },
+            ]);
+        final initial = projector.project(snapshot('in_progress', 'Answer'));
+        check(initial!.content).contains('<summary>Preparing...</summary>');
+        var answer = 'Answer';
+        for (final entry in const [
+          ('completed', 'Executing...'),
+          ('pending', 'Tool Approval Needed'),
+          ('failed', 'Tool Executed'),
+        ]) {
+          answer += '!';
+          final update = projector.project(snapshot(entry.$1, answer));
+          check(update).isA<StructuredOutputStreamingReplace>();
+          check(update!.content).contains('status="${entry.$1}"');
+          check(update.content).contains('<summary>${entry.$2}</summary>');
+        }
+      }
+    });
+
+    test(
+      'plain projections separate message items while tail deltas append',
+      () {
+        final projector = StructuredOutputStreamingProjector();
+        final first = projector.project([
+          const StructuredOutputTextBlock(text: 'First'),
+          const StructuredOutputTextBlock(text: 'Second'),
+        ]) as StructuredOutputStreamingReplace;
+        check(first.plainContent).equals('First\nSecond');
+        final next = projector.project([
+          const StructuredOutputTextBlock(text: 'First'),
+          const StructuredOutputTextBlock(text: 'Second!'),
+        ]) as StructuredOutputStreamingAppend;
+        check(next.plainContentDelta).equals('!');
+        check(projector.finish()!.plainContent).equals('First\nSecond!');
+      },
+    );
 
     test('bounds deeply nested structured values', () {
       Object nested(String leaf) {
@@ -1453,6 +1600,160 @@ void main() {
       check(completed).isNotNull();
       check(completed!.content).contains('`List<int>`');
       check(completed.content).contains('<https://example.test/a&b>');
+    });
+
+    test('renders a streamed semantic details block as soon as it closes', () {
+      // Issue #677: a pipe streams its own tool call as a <details> block in
+      // the answer text. Appends escape it; the closing tag must re-render.
+      const block =
+          '<details type="tool_calls" done="true" id="c1" name="t" '
+          'arguments="{&quot;q&quot;: 1}" result="&quot;ok&quot;">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>';
+      final projector = StructuredOutputStreamingProjector();
+      projector.project([
+        const StructuredOutputTextBlock(text: 'Searching.\n'),
+      ]);
+      final partial = block.substring(0, block.length - 5);
+      projector.project([
+        StructuredOutputTextBlock(text: 'Searching.\n$partial'),
+      ]);
+
+      final closed = projector.project([
+        const StructuredOutputTextBlock(text: 'Searching.\n$block'),
+      ]);
+
+      check(closed).isA<StructuredOutputStreamingReplace>();
+      check((closed! as StructuredOutputStreamingReplace).content)
+          .equals('Searching.\n$block');
+    });
+
+    test('a CRLF closing fence ends the fence for later text', () {
+      // The escaper matches fences without the `\r`; so must the cursor, or
+      // text after the fence is appended unescaped as if it were code.
+      const head = 'Code:\r\n```\r\nx\r\n```\r\n';
+      final projector = StructuredOutputStreamingProjector();
+      final initial = projector.project([
+        const StructuredOutputTextBlock(text: head),
+      ]);
+      final next = projector.project([
+        const StructuredOutputTextBlock(text: '${head}after <b>bold</b>'),
+      ]);
+
+      check(next).isA<StructuredOutputStreamingAppend>();
+      final visible =
+          (initial! as StructuredOutputStreamingReplace).content +
+          (next! as StructuredOutputStreamingAppend).content;
+      check(visible).equals(
+        renderStructuredOutputBlocks([
+          const StructuredOutputTextBlock(text: '${head}after <b>bold</b>'),
+        ]),
+      );
+    });
+
+    test('keeps an answer after reasoning visible once it contains code', () {
+      // Issue #751: the first backtick used to disable appends while the
+      // doubling threshold armed by the reasoning-sized render stayed in
+      // place, so the answer stopped updating until it was nearly as long as
+      // the reasoning, usually until completion.
+      final reasoning = StructuredOutputReasoningBlock(
+        text: 'Weighing the options. ' * 200,
+        done: true,
+        duration: '3',
+      );
+      const answer =
+          'Use `List<int>` with `where`, so a && b holds.\n\n'
+          '```dart\nfinal xs = <int>[1, 2].where((x) => x > 1);\n```\n\n'
+          'Then `print(xs)`; the result is (2).';
+      final projector = StructuredOutputStreamingProjector();
+      var visible = StringBuffer();
+      var projections = 0;
+      var chunks = 0;
+      for (var end = 4; end <= answer.length + 3; end += 4) {
+        final blocks = [
+          reasoning,
+          StructuredOutputTextBlock(
+            text: answer.substring(0, end.clamp(0, answer.length)),
+          ),
+        ];
+        chunks += 1;
+        final projection = projector.project(blocks);
+        switch (projection) {
+          case StructuredOutputStreamingAppend(:final content):
+            visible.write(content);
+          case StructuredOutputStreamingReplace(:final content):
+            visible = StringBuffer(content);
+          case null:
+            continue;
+        }
+        projections += 1;
+        check(visible.toString()).equals(renderStructuredOutputBlocks(blocks));
+      }
+
+      check(projections).equals(chunks);
+      check(projector.metrics.deferredProjectionCount).equals(0);
+      check(projector.fullProjectionCount).isLessOrEqual(4);
+    });
+
+    test('streams code-bearing answers exactly as the full renderer', () {
+      // The tail cursor may only append what renderSemanticMessageBlocks
+      // would emit for the same text, so every update it produces must match
+      // a full render of the snapshot it answers.
+      final answers = <String>[
+        'Intro with `code` then a < b & c > d.\n'
+            '```html\n<details type="reasoning">x</details>\n<b>&amp;</b>\n```\n'
+            'After the fence: <details type="reasoning">spoof</details>\n',
+        'Inline `List<int>` and `a && b` and `x -> y`, then <https://a.test/x?q=1&r=2> '
+            'and <mail@example.test> and a <b>tag</b>.\n',
+        '> quoted `code` with a > b\n> > nested & deeper\n>not spaced < x\n',
+        '- item `one`\n    indented < code & more\n\n    real indented <b>\n\n'
+            'para after\n',
+        'Start of `a multi\nline span < x` and after & more\n\nnext para `x`\n',
+        '~~~\ntilde <fence> & stuff\n~~~\n````md\n```\ninner < x\n```\n````\n'
+            'done & dusted\n',
+        '``double `tick` span`` then < and `unclosed <x\nnext line > y\n',
+        'crlf `line`\r\nnext < line\r\n```\r\ncode <x>\r\n```\r\n',
+        'Table:\n\n| a | `b<c>` |\n|---|---|\n| 1 & 2 | <br> |\n',
+        'Run `tool`:\n'
+            '<details type="tool_calls" done="true" id="c1" name="t" '
+            'arguments="{&quot;q&quot;: 1}" result="&quot;a &lt; b&quot;">\n'
+            '<summary>Tool Executed</summary>\n'
+            '</details>\n'
+            'After the tile, x < y & `z<w>` and ```\nnot a fence\n',
+        // An unmatched backtick keeps the rest of its line unsettled, and a
+        // long fenced line never settles into anything but itself.
+        'Press the ` key, then ${'type words & more < less ' * 12}'
+            'and `close` it.\nnext `line` > x\n',
+        '```json\n${'{"a":"<b>&amp;","c":[1,2]},' * 12}\n```\nafter & more\n',
+        '${'Plain words that stream ' * 10}then `code` and '
+            '${'more text <b> & ' * 8}\n',
+      ];
+      for (final answer in answers) {
+        for (final size in const [1, 2, 3, 5, 8, 13]) {
+          final projector = StructuredOutputStreamingProjector();
+          var visible = StringBuffer();
+          for (var end = size; ; end += size) {
+            final text = answer.substring(0, end.clamp(0, answer.length));
+            final blocks = [StructuredOutputTextBlock(text: text)];
+            final projection = projector.project(blocks);
+            switch (projection) {
+              case StructuredOutputStreamingAppend(:final content):
+                visible.write(content);
+              case StructuredOutputStreamingReplace(:final content):
+                visible = StringBuffer(content);
+              case null:
+                break;
+            }
+            if (projection != null && RegExp('[`~]').hasMatch(text)) {
+              check(
+                because: 'chunk size $size at $end of ${jsonEncode(answer)}',
+                visible.toString(),
+              ).equals(renderStructuredOutputBlocks(blocks));
+            }
+            if (end >= answer.length) break;
+          }
+        }
+      }
     });
   });
 }

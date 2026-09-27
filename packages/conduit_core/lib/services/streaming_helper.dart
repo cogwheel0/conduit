@@ -25,6 +25,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/utils/openwebui_source_parser.dart';
 
 import 'package:conduit_core/services/openwebui_response_stream.dart';
+import 'package:conduit_core/services/openwebui_outlet.dart';
 import 'package:conduit_core/services/openwebui_stream_parser.dart';
 
 import 'package:conduit_core/services/performance_profiler.dart';
@@ -263,6 +264,22 @@ String _buildStreamingReasoningDetails(
   return rendered.isEmpty ? '' : '$rendered\n';
 }
 
+/// Whether [text] ends in what may be the start of an HTML entity, such as
+/// `&quo` or `&#x2`, that the next snapshot could complete. Ordinary `&`
+/// text that cannot become one (`a & b`, `x=1&y=2`) keeps the fast path.
+bool _endsInsidePossibleEntity(String text) {
+  final tail = text.length > 40 ? text.substring(text.length - 40) : text;
+  return _trailingEntityPrefix.hasMatch(tail);
+}
+
+final _trailingEntityPrefix = RegExp(
+  r'&(?:#[xX]?[0-9A-Fa-f]*|[A-Za-z][A-Za-z0-9]*)?$',
+);
+
+/// How often an open reasoning block's collapsed body is re-rendered while it
+/// streams.
+const Duration _pendingReasoningRefreshInterval = Duration(milliseconds: 500);
+
 /// Result of [_renderRawReasoningEvents]. When the events end inside an
 /// unterminated reasoning block, [openPrefix] is the rendered text before that
 /// block and [openReasoning] its text so far, so later deltas can keep
@@ -461,6 +478,7 @@ class ActiveChatStream {
 
 typedef _ServerMessageSnapshot = ({
   String content,
+  List<Map<String, dynamic>>? output,
   List<String> followUps,
   bool isDone,
   String? errorContent,
@@ -513,6 +531,7 @@ Future<void> _handleReconnectRecovery({
     required bool finishIfDone,
     required bool isDone,
     required String source,
+    List<Map<String, dynamic>>? output,
     String? errorContent,
   })
   applyServerContent,
@@ -544,6 +563,7 @@ Future<void> _handleReconnectRecovery({
         finishIfDone: true,
         isDone: result.isDone,
         source: 'Reconnect recovery',
+        output: result.output,
         errorContent: result.errorContent,
       );
       if (applied) {
@@ -636,6 +656,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
   /// Whether the model uses reasoning/thinking (needs longer watchdog window).
   bool modelUsesReasoning = false,
+
+  /// Wall clock for reasoning durations and collapsed-body refresh pacing;
+  /// tests pin it.
+  @visibleForTesting DateTime Function() clock = DateTime.now,
 
   /// Whether tools are enabled (needs longer watchdog window).
   bool toolsEnabled = false,
@@ -961,20 +985,41 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   final structuredOutputProjector = StructuredOutputStreamingProjector();
   // Accumulated Open WebUI `output` items rebuilt from `response:completion`
   // events; a `chat:completion` snapshot always supersedes it.
-  var latestResponseOutputItems = <Map<String, dynamic>>[];
+  var latestResponseOutputItems = _copyJsonMapList(
+    getMessages()
+            .where((message) => message.id == assistantMessageId)
+            .firstOrNull
+            ?.output ??
+        const [],
+  );
   var structuredProjectionIsVisible = false;
   var structuredOutputIsLatest = false;
-  var hasInjectedSemanticDetails = false;
   final seenStreamingToolCallKeys = <String>{};
   var structuredOutputProfileFinished = false;
   var inReasoningBlock = false;
   DateTime? reasoningStartedAt;
+  DateTime? pendingReasoningRenderedAt;
+  // Publishes reasoning held back by the refresh window once it ends.
+  Timer? pendingReasoningRefreshTimer;
   // Raw `<think>`-style tags reach the plain-text append paths verbatim when
   // the server did not convert them (SSE fallback, pipes, tag-emitting
   // backends). Split them client-side into the same reasoning details the
   // `reasoning_content` delta path renders.
   final rawReasoningTags = StreamingReasoningTagSplitter();
   late final void Function() flushRawReasoningTags;
+  late final void Function(String chunk) appendRawSnapshotSuffix;
+  // Renders the open reasoning block into the visible content.
+  late final void Function() publishPendingReasoning;
+  // The raw text of the last content snapshot, kept while the visible content
+  // is still exactly what that snapshot produced. Every other visible-content
+  // change clears it. A snapshot that extends it then only feeds its new
+  // suffix through instead of re-rendering the whole text on every
+  // cumulative event (issue #751).
+  String? lastRawContentSnapshot;
+  // Reasoning blocks the splitter has closed since it was last reset, by
+  // deltas and snapshots alike, so a snapshot can tell whether its open block
+  // is the same one that was already open.
+  var splitterClosedReasoningBlocks = 0;
   var reasoningPrefix = '';
   var reasoningContent = _StreamingTextAccumulator();
 
@@ -983,11 +1028,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   int elapsedReasoningSeconds() {
     final startedAt = reasoningStartedAt;
     if (startedAt == null) return 0;
-    final elapsed = DateTime.now().difference(startedAt).inSeconds;
+    final elapsed = clock().difference(startedAt).inSeconds;
     return elapsed < 0 ? 0 : elapsed;
   }
 
   void resetStreamingReasoning() {
+    pendingReasoningRefreshTimer?.cancel();
+    pendingReasoningRefreshTimer = null;
     inReasoningBlock = false;
     reasoningStartedAt = null;
     reasoningPrefix = '';
@@ -1028,6 +1075,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }
 
   void syncRenderedStreamingContentFromState() {
+    lastRawContentSnapshot = null;
     final visibleContent = getVisibleStreamingContent();
     if (visibleContent != null &&
         visibleContent.isNotEmpty &&
@@ -1061,9 +1109,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     bool fromStructuredOutput = false,
     String? plainContent,
   }) {
+    lastRawContentSnapshot = null;
     resetStreamingReasoning();
     renderedStreamingContent.replace(content);
-    hasInjectedSemanticDetails = false;
     renderedFromStructuredOutput = fromStructuredOutput;
     structuredProjectionIsVisible = fromStructuredOutput;
     structuredOutputIsLatest = fromStructuredOutput;
@@ -1089,25 +1137,59 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   /// including any raw reasoning tag the splitter is still holding or has
   /// open; later deltas continue from the snapshot, not from stale tag state.
   void replaceVisibleAssistantSnapshot(String content) {
+    // Open WebUI renders output while it exists. Legacy text events update
+    // a separate field there and must never erase its tool/reasoning blocks.
+    if (latestResponseOutputItems.isNotEmpty) return;
+    final previous = lastRawContentSnapshot;
+    if (previous != null && content.startsWith(previous)) {
+      // The visible content is still this stream's rendering of `previous`,
+      // and the splitter still holds whatever tag fragment it ended on, so the
+      // new suffix continues it exactly as a re-render would. Only suffixes the
+      // full path would put in the plain accumulator unchanged qualify: `<`
+      // may start a middleware <details> wrapper it strips, `&` an entity it
+      // decodes.
+      // An entity split at the boundary (`&quo` + `t;`) would also escape
+      // that decoding, and so would a `>` completing a tag `previous` left
+      // open (a `</details` split at the boundary).
+      final suffix = content.substring(previous.length);
+      if (!suffix.contains('<') &&
+          !suffix.contains('&') &&
+          !_endsInsidePossibleEntity(previous) &&
+          !(suffix.contains('>') &&
+              previous.lastIndexOf('<') > previous.lastIndexOf('>'))) {
+        appendRawSnapshotSuffix(suffix);
+        lastRawContentSnapshot = content;
+        return;
+      }
+    }
     // Snapshots bypass the per-delta path: the server's non-streaming handler
     // never converts reasoning tags, and pipes that emit chat:message/replace
     // stream their own cumulative text. Re-feed the stream's splitter without
     // flushing so a tag fragment split at the snapshot boundary (`<thi`,
     // `</thi`) stays held for the next delta or the terminal flush.
+    final openReasoningStartedAt = inReasoningBlock ? reasoningStartedAt : null;
     rawReasoningTags.reset();
     final events = rawReasoningTags.feed(content);
+    final closedBlocks = events.whereType<RawReasoningTagEnd>().length;
+    // The open block is the one already open only if no block closed since.
+    final sameOpenBlock = closedBlocks == splitterClosedReasoningBlocks;
     final snapshot = _renderRawReasoningEvents(
       events,
       insideReasoning: rawReasoningTags.isInsideReasoning,
     );
     replaceVisibleAssistantContent(snapshot.content);
+    lastRawContentSnapshot = content;
+    splitterClosedReasoningBlocks = closedBlocks;
     final openReasoning = snapshot.openReasoning;
     if (openReasoning == null) return;
     // The snapshot ends inside an unterminated block: seed the reasoning
     // accumulators so a later delta (`more</think>`) extends and closes that
-    // block instead of starting a second one.
+    // block instead of starting a second one. A block that was already open
+    // keeps its start, or its duration would restart with every snapshot.
     inReasoningBlock = true;
-    reasoningStartedAt = DateTime.now();
+    reasoningStartedAt =
+        (sameOpenBlock ? openReasoningStartedAt : null) ?? clock();
+    pendingReasoningRenderedAt = clock();
     reasoningPrefix = snapshot.openPrefix ?? '';
     reasoningContent = _StreamingTextAccumulator(openReasoning);
   }
@@ -1115,6 +1197,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   void appendVisibleAssistantStructuredOutput(
     StructuredOutputStreamingAppend projection,
   ) {
+    lastRawContentSnapshot = null;
     resetStreamingReasoning();
     renderedStreamingContent.append(projection.content);
     plainStreamingContent.append(projection.plainContentDelta);
@@ -1136,22 +1219,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     return aliases;
   }
 
-  Set<String> structuredToolCallSuppressionKeys(
-    List<StructuredOutputBlock> blocks,
-  ) {
-    final keys = <String>{};
-    for (final block in blocks.whereType<StructuredOutputToolCallBlock>()) {
-      final id = block.id.trim();
-      if (id.isNotEmpty) {
-        keys.add('id:$id');
-        continue;
-      }
-      final name = block.name.trim();
-      if (name.isNotEmpty) keys.add('name:$name');
-    }
-    return keys;
-  }
-
   void syncSeenStructuredToolCalls(List<StructuredOutputBlock> blocks) {
     final aliases = structuredToolCallAliases(blocks);
     seenStreamingToolCallKeys
@@ -1162,89 +1229,31 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   void replaceVisibleAssistantStructuredOutput(
     List<StructuredOutputBlock> blocks,
   ) {
-    if (blocks.isEmpty) return;
-
-    if (structuredProjectionIsVisible &&
-        renderedFromStructuredOutput &&
-        !hasInjectedSemanticDetails) {
-      final projection = structuredOutputProjector.project(
-        blocks,
-        canAppend: true,
+    rawReasoningTags.reset();
+    splitterClosedReasoningBlocks = 0;
+    if (blocks.isEmpty) {
+      replaceVisibleAssistantContent('');
+      seenStreamingToolCallKeys.clear();
+      return;
+    }
+    // Recovery may deliver a newer snapshot after the streaming projector has
+    // finalized. It must still update the visible row and persisted body.
+    if (hasFinished) {
+      replaceVisibleAssistantContent(
+        renderStructuredOutputBlocks(blocks),
+        fromStructuredOutput: true,
+        plainContent: structuredOutputBlocksPlainText(blocks),
       );
       syncSeenStructuredToolCalls(blocks);
-      structuredOutputIsLatest = true;
-      switch (projection) {
-        case StructuredOutputStreamingAppend():
-          appendVisibleAssistantStructuredOutput(projection);
-        case StructuredOutputStreamingReplace(
-          :final content,
-          :final plainContent,
-        ):
-          replaceVisibleAssistantContent(
-            content,
-            fromStructuredOutput: true,
-            plainContent: plainContent,
-          );
-        case null:
-          break;
-      }
       return;
     }
-
-    final hasDetails = structuredOutputBlocksContainDetails(blocks);
-    final snapshotPlainText = structuredOutputBlocksPlainText(blocks);
-    final plainContent = plainStreamingContent.value;
-    final renderedContent = renderedStreamingContent.value;
-    final hasPlainContent = plainContent.trim().isNotEmpty;
-    final replacementPlainText =
-        snapshotPlainText.trim().isNotEmpty &&
-            snapshotPlainText.length > plainStreamingContent.length
-        ? snapshotPlainText
-        : plainContent;
-    final shouldRenderFullSnapshot =
-        renderedContent.trim().isEmpty ||
-        renderedFromStructuredOutput ||
-        !hasPlainContent;
-    final visibleHasStaleDetails =
-        !hasDetails && containsRenderedSemanticDetails(renderedContent);
-    final strippedVisibleContent = visibleHasStaleDetails
-        ? stripRenderedSemanticDetails(renderedContent)
-        : '';
-    final renderedSnapshot = visibleHasStaleDetails
-        ? renderStructuredOutputBlocks(blocks)
-        : '';
-    final strippedVisibleContentMatchesSnapshot =
-        strippedVisibleContent.isNotEmpty &&
-        (renderedSnapshot.trim().isEmpty ||
-            strippedVisibleContent.contains(renderedSnapshot));
-    syncSeenStructuredToolCalls(blocks);
-
-    final replacementText = hasDetails && !shouldRenderFullSnapshot
-        ? replacementPlainText
-        : null;
-    if (visibleHasStaleDetails && strippedVisibleContentMatchesSnapshot) {
-      structuredOutputProjector.observeLatest(
-        blocks,
-        replacementText: replacementText,
-      );
-      replaceVisibleAssistantContent(
-        strippedVisibleContent,
-        fromStructuredOutput: true,
-        plainContent: snapshotPlainText,
-      );
-      structuredProjectionIsVisible = false;
-      structuredOutputIsLatest = true;
-      return;
-    }
-
     final projection = structuredOutputProjector.project(
       blocks,
-      replacementText: replacementText,
       canAppend: structuredProjectionIsVisible,
-      forceReplace: visibleHasStaleDetails,
+      forceReplace: !structuredProjectionIsVisible,
     );
+    syncSeenStructuredToolCalls(blocks);
     structuredOutputIsLatest = true;
-
     switch (projection) {
       case StructuredOutputStreamingAppend():
         appendVisibleAssistantStructuredOutput(projection);
@@ -1254,14 +1263,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       ):
         replaceVisibleAssistantContent(
           content,
-          // A details-only snapshot is merged around already-visible plain
-          // text. Keep that text eligible for the next cumulative snapshot;
-          // only a full output snapshot supersedes it.
-          fromStructuredOutput: replacementText == null,
+          fromStructuredOutput: true,
           plainContent: plainContent,
         );
-        structuredProjectionIsVisible = true;
-        structuredOutputIsLatest = true;
       case null:
         break;
     }
@@ -1277,6 +1281,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     final projection = structuredOutputProjector.finish();
     if (projection == null) return;
     if (projection.content == renderedStreamingContent.value) {
+      lastRawContentSnapshot = null;
       plainStreamingContent.replace(projection.plainContent);
       return;
     }
@@ -1294,6 +1299,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       }
       return;
     }
+    lastRawContentSnapshot = null;
 
     renderedStreamingContent.replace(
       _prependReasoningDetails(
@@ -1372,6 +1378,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     bool includeInPlainContent = true,
   }) {
     if (chunk.isEmpty) return;
+    lastRawContentSnapshot = null;
     if (includeInPlainContent) {
       // The projector defers full re-projections (geometric backoff), so the
       // visible content can trail the logical structured content. Appending a
@@ -1426,7 +1433,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }
 
   void applyStreamingReasoningDelta(String chunk) {
-    if (chunk.isEmpty) return;
+    if (chunk.isEmpty || latestResponseOutputItems.isNotEmpty) return;
+    lastRawContentSnapshot = null;
 
     structuredProjectionIsVisible = false;
     structuredOutputIsLatest = false;
@@ -1434,12 +1442,44 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (!inReasoningBlock) {
       syncRenderedStreamingContentFromState();
       inReasoningBlock = true;
-      reasoningStartedAt = DateTime.now();
+      reasoningStartedAt = clock();
       reasoningPrefix = renderedStreamingContent.value;
       reasoningContent = _StreamingTextAccumulator();
+      pendingReasoningRenderedAt = null;
     }
 
     reasoningContent.append(chunk);
+    // A pending block shows collapsed, as a static "Thinking" header; its body
+    // is only seen once someone opens it. Re-rendering the whole block for
+    // every delta made the markdown pipeline re-parse it at the full flush
+    // cadence for nothing (issue #751), so refresh it a few times a second.
+    // Closing the block renders it in full regardless.
+    final refreshAt = clock();
+    final renderedAt = pendingReasoningRenderedAt;
+    if (renderedAt != null) {
+      final elapsed = refreshAt.difference(renderedAt);
+      // A wall clock set back makes the elapsed time negative; treat the
+      // window as over rather than wait out the adjustment.
+      if (!elapsed.isNegative && elapsed < _pendingReasoningRefreshInterval) {
+        final wait = _pendingReasoningRefreshInterval - elapsed;
+        // Publish what is held back once the window ends, so a model pausing
+        // mid-thought does not leave an opened body stale.
+        pendingReasoningRefreshTimer ??= Timer(wait, () {
+          pendingReasoningRefreshTimer = null;
+          if (!inReasoningBlock || localResourcesDisposed) return;
+          pendingReasoningRenderedAt = clock();
+          publishPendingReasoning();
+        });
+        return;
+      }
+    }
+    pendingReasoningRefreshTimer?.cancel();
+    pendingReasoningRefreshTimer = null;
+    pendingReasoningRenderedAt = refreshAt;
+    publishPendingReasoning();
+  }
+
+  publishPendingReasoning = () {
     final deferredSnapshot = bufferProgressiveLastMessageSnapshot;
     if (deferredSnapshot != null) {
       final activePrefix = reasoningPrefix;
@@ -1463,7 +1503,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     (bufferProgressiveLastMessageContent ?? bufferLastMessageContent)(
       renderedStreamingContent.value,
     );
-  }
+  };
 
   void applyRawReasoningTagEvent(RawReasoningTagEvent event) {
     switch (event) {
@@ -1480,10 +1520,17 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   /// reasoning details as they stream. Conduit-owned semantic HTML (tool
   /// status tiles) must go through [appendVisibleAssistantChunk] directly.
   void appendVisibleAssistantText(String chunk) {
+    if (latestResponseOutputItems.isNotEmpty) return;
+    // The splitter can change state without emitting anything (a held `<thi`
+    // completed by `nk>`), so any delta ends the snapshot basis.
+    lastRawContentSnapshot = null;
     for (final event in rawReasoningTags.feed(chunk)) {
+      if (event is RawReasoningTagEnd) splitterClosedReasoningBlocks += 1;
       applyRawReasoningTagEvent(event);
     }
   }
+
+  appendRawSnapshotSuffix = appendVisibleAssistantText;
 
   flushRawReasoningTags = () {
     for (final event in rawReasoningTags.flush()) {
@@ -1553,7 +1600,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         done: false,
       ),
     ]);
-    hasInjectedSemanticDetails = true;
     // Held-back model text must land before the tile to keep stream order.
     flushRawReasoningTagsForInterleavedEvent();
     appendVisibleAssistantChunk(
@@ -1563,20 +1609,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     );
   }
 
-  void handleStreamingToolCallStatuses(
-    dynamic rawToolCalls, {
-    Set<String> suppressedKeys = const <String>{},
-  }) {
+  void handleStreamingToolCallStatuses(dynamic rawToolCalls) {
+    if (latestResponseOutputItems.isNotEmpty) return;
     if (rawToolCalls is! List) {
       return;
     }
 
     for (final call in rawToolCalls) {
       if (call is! Map) {
-        continue;
-      }
-      final key = toolCallKeyFromPayload(call);
-      if (key != null && suppressedKeys.contains(key)) {
         continue;
       }
       final name = toolCallNameFromPayload(call);
@@ -1601,7 +1641,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     required String targetId,
   }) {
     final eventType = event['type']?.toString() ?? '';
-    if (!openWebUIResponseStreamEventTouchesOutput(eventType)) return;
     if (eventType == 'response.failed') {
       // Terminal failure: keep whatever output landed, then surface the state
       // so a trailing [DONE] cannot finish the turn as a clean success.
@@ -1629,6 +1668,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         scope: 'streaming/helper',
       );
     }
+    if (!openWebUIResponseStreamEventTouchesOutput(eventType)) return;
     latestResponseOutputItems = applyOpenWebUIResponseStreamEvent(
       latestResponseOutputItems,
       event,
@@ -1636,9 +1676,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     final responseBlocks = parseOpenWebUIStructuredOutput(
       latestResponseOutputItems,
     );
-    if (responseBlocks.isNotEmpty) {
-      replaceVisibleAssistantStructuredOutput(responseBlocks);
-    }
+    replaceVisibleAssistantStructuredOutput(responseBlocks);
     if (openWebUIResponseStreamEventIsStructural(eventType) &&
         latestResponseOutputItems.isNotEmpty) {
       final persistedItems = List<Map<String, dynamic>>.unmodifiable(
@@ -1661,19 +1699,26 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       case OpenWebUIContentDelta(:final content):
         appendVisibleAssistantText(content);
 
+      case OpenWebUIContentSnapshot(:final content):
+        replaceVisibleAssistantSnapshot(content);
+
       case OpenWebUIReasoningDelta(:final content):
         flushRawReasoningTagsForInterleavedEvent();
         applyStreamingReasoningDelta(content);
 
-      case OpenWebUIOutputUpdate(:final output, :final blocks):
-        final normalizedOutput = _normalizeJsonMapList(output);
-        if (normalizedOutput.isNotEmpty) {
-          applyAssistantServerPatch(
-            targetId: assistantMessageId,
-            buildPatch: (_) => _AssistantServerPatch(output: normalizedOutput),
-          );
-          replaceVisibleAssistantStructuredOutput(blocks);
-        }
+      case OpenWebUIOutputUpdate(:final output):
+        latestResponseOutputItems = mergeOpenWebUIReasoningTiming(
+          latestResponseOutputItems,
+          _normalizeJsonMapList(output),
+        );
+        replaceVisibleAssistantStructuredOutput(
+          parseOpenWebUIStructuredOutput(latestResponseOutputItems),
+        );
+        applyAssistantServerPatch(
+          targetId: assistantMessageId,
+          buildPatch: (_) =>
+              _AssistantServerPatch(output: latestResponseOutputItems),
+        );
 
       case OpenWebUIUsageUpdate(:final usage):
         if (usage.isNotEmpty) {
@@ -2060,19 +2105,16 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       // socket that missed the final frames can never restore the tail and
       // finishes the turn truncated.
       var content = extractServerMessageContent(serverMsg['content']);
-      if (content.trim().isEmpty) {
-        final rawOutput = serverMsg['output'];
-        if (rawOutput is List && rawOutput.isNotEmpty) {
-          final outputBlocks = parseOpenWebUIStructuredOutput(
+      final rawOutput = serverMsg['output'];
+      if (rawOutput is List && rawOutput.isNotEmpty) {
+        content = renderStructuredOutputBlocks(
+          parseOpenWebUIStructuredOutput(
             mergeOpenWebUIReasoningTiming(
               latestResponseOutputItems,
               _normalizeJsonMapList(rawOutput),
             ),
-          );
-          if (outputBlocks.isNotEmpty) {
-            content = renderStructuredOutputBlocks(outputBlocks);
-          }
-        }
+          ),
+        );
       }
 
       // Extract follow-ups (check both camelCase and snake_case keys)
@@ -2091,6 +2133,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
       return (
         content: content,
+        output: rawOutput is List ? _normalizeJsonMapList(rawOutput) : null,
         followUps: followUps,
         isDone: isDone,
         errorContent: errorContent,
@@ -2206,6 +2249,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     required bool finishIfDone,
     required bool isDone,
     required String source,
+    List<Map<String, dynamic>>? output,
     String? errorContent,
   }) {
     if (isObsoleteStream) {
@@ -2246,24 +2290,49 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     // Equal bodies keep the local render: the server never stores timing
     // for provider-owned reasoning items, so its equal-length copy would
     // only strip the duration the client measured while streaming.
-    final shouldAdoptContent =
-        content.isNotEmpty &&
+    final shouldAdoptOutput =
+        output != null &&
+        !serverBodyTruncatesLocal(
+          comparisonSnapshot.comparisonContent,
+          content,
+        ) &&
         !serverBodyDropsLocalSemanticDetails(
           comparisonSnapshot.comparisonContent,
           content,
-        ) &&
-        !serverBodyDropsLocalReasoningTiming(
-          comparisonSnapshot.comparisonContent,
-          content,
-        ) &&
-        serverComparableBody.length > localComparableBody.length;
+        );
+    final shouldAdoptContent =
+        shouldAdoptOutput ||
+        (content.isNotEmpty &&
+            !serverBodyDropsLocalSemanticDetails(
+              comparisonSnapshot.comparisonContent,
+              content,
+            ) &&
+            !serverBodyDropsLocalReasoningTiming(
+              comparisonSnapshot.comparisonContent,
+              content,
+            ) &&
+            serverComparableBody.length > localComparableBody.length);
     if (shouldAdoptContent) {
       DebugLogger.log(
         '$source: adopting server content (${content.length} chars)',
         scope: 'streaming/helper',
       );
       if (isVisibleTarget) {
-        replaceVisibleAssistantSnapshot(content);
+        if (shouldAdoptOutput) {
+          latestResponseOutputItems = mergeOpenWebUIReasoningTiming(
+            latestResponseOutputItems,
+            output,
+          );
+          if (latestResponseOutputItems.isEmpty) {
+            replaceVisibleAssistantSnapshot(content);
+          } else {
+            replaceVisibleAssistantStructuredOutput(
+              parseOpenWebUIStructuredOutput(latestResponseOutputItems),
+            );
+          }
+        } else if (latestResponseOutputItems.isEmpty) {
+          replaceVisibleAssistantSnapshot(content);
+        }
         applied = true;
       }
     }
@@ -2281,6 +2350,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           targetId: assistantMessageId,
           buildPatch: (_) => _AssistantServerPatch(
             content: shouldAdoptContent && !isVisibleTarget ? content : null,
+            output: shouldAdoptOutput ? output : null,
             followUps: followUps.isNotEmpty ? followUps : null,
             error: errorContent == null
                 ? null
@@ -2384,6 +2454,24 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         return;
       }
 
+      if (recoverAuthoritativeState &&
+          assistant.output != null &&
+          !serverBodyTruncatesLocal(
+            renderedStreamingContent.value,
+            assistant.content,
+          ) &&
+          !serverBodyDropsLocalSemanticDetails(
+            renderedStreamingContent.value,
+            assistant.content,
+          )) {
+        latestResponseOutputItems = mergeOpenWebUIReasoningTiming(
+          latestResponseOutputItems,
+          _normalizeJsonMapList(assistant.output),
+        );
+        replaceVisibleAssistantStructuredOutput(
+          parseOpenWebUIStructuredOutput(latestResponseOutputItems),
+        );
+      }
       applyAssistantServerPatch(
         targetId: assistantMessageId,
         buildPatch: (current) {
@@ -2435,6 +2523,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             metadata: assistant.metadata,
             mergeMetadata: true,
             usage: effectiveUsage,
+            output: recoverAuthoritativeState && !keepLocalContent
+                ? assistant.output
+                : null,
             // Persisted Open WebUI snapshots commonly omit the transient
             // streaming flag. During replay-gap recovery, preserve an active
             // local task until an explicit terminal marker/error or the normal
@@ -2534,6 +2625,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           finishIfDone: true,
           isDone: result.isDone,
           source: source,
+          output: result.output,
           errorContent: result.errorContent,
         );
         if (applied) {
@@ -2817,6 +2909,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     finishStructuredOutputProfile(abandoned: abandonStream);
 
     disposeSocketSubscriptions();
+    pendingReasoningRefreshTimer?.cancel();
+    pendingReasoningRefreshTimer = null;
 
     final controller = streamController;
     if (controller != null) {
@@ -3047,6 +3141,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final id = msg['id']?.toString();
           if (id == null) continue;
           updateMessageById(id, (current) {
+            if (msg['output'] is List ||
+                (current.output?.isNotEmpty ?? false)) {
+              return applyOpenWebUiOutletMessage(current, msg);
+            }
             final newContent = msg['content']?.toString();
             if (newContent == null) return current;
             if (current.content == newContent) return current;
@@ -3235,6 +3333,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 finishIfDone: false,
                 isDone: result.isDone,
                 source: 'done recovery',
+                output: result.output,
                 errorContent: result.errorContent,
               );
             }
@@ -3454,14 +3553,16 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             incomingSessionId: incomingSessionId,
             allowBindingForeignMessage: true,
           );
+          if (completionTargetId == null) return;
           String? terminalFinishReason;
           final selectedModelId = payload['selected_model_id']?.toString();
           final usageData = payload['usage'];
           final usagePatch = usageData is Map && usageData.isNotEmpty
               ? Map<String, dynamic>.from(usageData)
               : null;
+          final hasOutputSnapshot = payload['output'] is List;
           var normalizedOutputItems = _normalizeJsonMapList(payload['output']);
-          if (normalizedOutputItems.isNotEmpty) {
+          if (hasOutputSnapshot) {
             normalizedOutputItems = mergeOpenWebUIReasoningTiming(
               latestResponseOutputItems,
               normalizedOutputItems,
@@ -3471,11 +3572,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final outputBlocks = normalizedOutputItems.isEmpty
               ? const <StructuredOutputBlock>[]
               : parseOpenWebUIStructuredOutput(normalizedOutputItems);
-          final authoritativeToolSuppressionKeys =
-              structuredToolCallSuppressionKeys(outputBlocks);
-          final visibleToolCallKeysBeforeOutput = outputBlocks.isEmpty
-              ? const <String>{}
-              : Set<String>.of(seenStreamingToolCallKeys);
           final rawSources = payload['sources'] ?? payload['citations'];
           final normalizedSources = _normalizeSourcesPayload(rawSources);
           final parsedSources =
@@ -3489,17 +3585,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                   'arena': true,
                 }
               : null;
-          if (completionTargetId != null &&
-              (normalizedOutputItems.isNotEmpty ||
-                  metadataPatch != null ||
-                  usagePatch != null ||
-                  parsedSources.isNotEmpty)) {
+          if ((hasOutputSnapshot ||
+              metadataPatch != null ||
+              usagePatch != null ||
+              parsedSources.isNotEmpty)) {
             applyAssistantServerPatch(
               targetId: completionTargetId,
               buildPatch: (current) => _AssistantServerPatch(
-                output: normalizedOutputItems.isNotEmpty
-                    ? normalizedOutputItems
-                    : null,
+                output: hasOutputSnapshot ? normalizedOutputItems : null,
                 metadata: metadataPatch,
                 mergeMetadata: metadataPatch != null,
                 usage: usagePatch,
@@ -3512,22 +3605,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               ),
             );
           }
-          final deferredToolCallPayloads = <dynamic>[];
-          void handleOrDeferToolCallStatuses(dynamic rawToolCalls) {
-            if (outputBlocks.isEmpty) {
-              handleStreamingToolCallStatuses(
-                rawToolCalls,
-                suppressedKeys: authoritativeToolSuppressionKeys,
-              );
-              return;
-            }
-            deferredToolCallPayloads.add(rawToolCalls);
+          if (!hasOutputSnapshot && payload.containsKey('tool_calls')) {
+            handleStreamingToolCallStatuses(payload['tool_calls']);
           }
-
-          if (payload.containsKey('tool_calls') && completionTargetId != null) {
-            handleOrDeferToolCallStatuses(payload['tool_calls']);
-          }
-          if (completionTargetId != null && payload.containsKey('choices')) {
+          if (payload.containsKey('choices')) {
             final choices = payload['choices'];
             if (choices is List && choices.isNotEmpty) {
               final choice = choices.first;
@@ -3538,53 +3619,34 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               if (isTerminalFinishReason(finishReason)) {
                 terminalFinishReason = finishReason;
               }
-              if (delta is Map) {
-                if (delta.containsKey('tool_calls')) {
-                  handleOrDeferToolCallStatuses(delta['tool_calls']);
+              final message = choice is Map ? choice['message'] : null;
+              final messageContent = message is Map ? message['content'] : null;
+              if (!hasOutputSnapshot &&
+                  messageContent is String &&
+                  messageContent.isNotEmpty) {
+                appendVisibleAssistantText(messageContent);
+              } else if (delta is Map) {
+                if (!hasOutputSnapshot && delta.containsKey('tool_calls')) {
+                  handleStreamingToolCallStatuses(delta['tool_calls']);
                 }
                 // Upstream contract (Chat.svelte): a frame carrying an
                 // `output` snapshot supersedes its own delta/content — the
                 // snapshot already contains the delta's text, so applying
                 // both duplicates it.
-                if (outputBlocks.isEmpty) {
+                if (!hasOutputSnapshot) {
                   handleStreamingChoiceDelta(delta);
                 }
               }
             }
           }
-          if (completionTargetId != null &&
-              outputBlocks.isEmpty &&
-              payload.containsKey('content')) {
+          if (!hasOutputSnapshot && payload.containsKey('content')) {
             final raw = payload['content']?.toString() ?? '';
-            // Cumulative content snapshots must never shrink streamed
-            // content: a strict prefix is a stale/out-of-order frame, and
-            // adopting it would rebase later deltas onto a shortened buffer.
-            // Rendered semantic <details> wrappers are stripped before the
-            // comparison; their attributes differ between renders.
-            final keepLocalContent =
-                serverBodyTruncatesLocal(renderedStreamingContent.value, raw) ||
-                serverBodyDropsLocalSemanticDetails(
-                  renderedStreamingContent.value,
-                  raw,
-                );
-            if (raw.isNotEmpty && !keepLocalContent) {
-              replaceVisibleAssistantSnapshot(raw);
-            }
+            if (raw.isNotEmpty) replaceVisibleAssistantSnapshot(raw);
           }
-          if (completionTargetId != null && outputBlocks.isNotEmpty) {
+          if (hasOutputSnapshot) {
             replaceVisibleAssistantStructuredOutput(outputBlocks);
-            final deferredSuppressionKeys = <String>{
-              ...authoritativeToolSuppressionKeys,
-              if (hasInjectedSemanticDetails)
-                ...visibleToolCallKeysBeforeOutput,
-            };
-            for (final rawToolCalls in deferredToolCallPayloads) {
-              handleStreamingToolCallStatuses(
-                rawToolCalls,
-                suppressedKeys: deferredSuppressionKeys,
-              );
-            }
           }
+
           if (terminalFinishReason != null && !hasFinished) {
             flushStreamingBuffer();
             final msgs = getMessages();
@@ -3607,9 +3669,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             }
           }
           if (payload['done'] == true) {
-            if (completionTargetId == null) {
-              return;
-            }
             handleCompletionDone(
               doneTitle: payload['title'] is String
                   ? payload['title'] as String
@@ -3647,9 +3706,20 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         if (targetId == null) {
           return;
         }
+        final cancelOutput = payload is Map ? payload['output'] : null;
+        if (cancelOutput is List) {
+          latestResponseOutputItems = mergeOpenWebUIReasoningTiming(
+            latestResponseOutputItems,
+            _normalizeJsonMapList(cancelOutput),
+          );
+          replaceVisibleAssistantStructuredOutput(
+            parseOpenWebUIStructuredOutput(latestResponseOutputItems),
+          );
+        }
         applyAssistantServerPatch(
           targetId: targetId,
           buildPatch: (_) => _AssistantServerPatch(
+            output: cancelOutput is List ? latestResponseOutputItems : null,
             metadata: {'tasksCancelled': true},
             mergeMetadata: true,
             isStreaming: false,
@@ -4335,6 +4405,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                     finishIfDone: true,
                     isDone: result.isDone,
                     source: 'httpStream premature-end recovery',
+                    output: result.output,
                     errorContent: result.errorContent,
                   );
                   if (applied) {
@@ -4573,7 +4644,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final normalizedOutputItems = _normalizeJsonMapList(
             payload['output'],
           );
-          if (normalizedOutputItems.isNotEmpty) {
+          final hasOutputSnapshot = payload['output'] is List;
+          if (hasOutputSnapshot) {
+            latestResponseOutputItems = normalizedOutputItems;
             final outputBlocks = parseOpenWebUIStructuredOutput(
               normalizedOutputItems,
             );
@@ -4594,16 +4667,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               ? const <ChatSourceReference>[]
               : parseOpenWebUISourceList(normalizedSources);
           if (usagePatch != null ||
-              normalizedOutputItems.isNotEmpty ||
+              hasOutputSnapshot ||
               metadataPatch != null ||
               parsedSources.isNotEmpty) {
             applyAssistantServerPatch(
               targetId: assistantMessageId,
               buildPatch: (current) => _AssistantServerPatch(
                 usage: usagePatch,
-                output: normalizedOutputItems.isNotEmpty
-                    ? normalizedOutputItems
-                    : null,
+                output: hasOutputSnapshot ? normalizedOutputItems : null,
                 metadata: metadataPatch,
                 mergeMetadata: metadataPatch != null,
                 sources: parsedSources.isEmpty

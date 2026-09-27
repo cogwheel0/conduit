@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
@@ -369,6 +371,179 @@ void main() {
   });
 
   group('ChatMessagesNotifier remote sync', () {
+    test(
+      'outlet output applies after completion and persists for reopen',
+      () async {
+        final timestamp = DateTime(2026, 1, 1);
+        const output = <Map<String, dynamic>>[
+          {
+            'type': 'function_call',
+            'call_id': 'call-1',
+            'name': 'lookup',
+            'status': 'completed',
+          },
+          {
+            'type': 'function_call_output',
+            'call_id': 'call-1',
+            'output': [
+              {'type': 'output_text', 'text': 'Filtered result'},
+            ],
+          },
+          {
+            'type': 'message',
+            'content': [
+              {'type': 'output_text', 'text': 'Filtered answer'},
+            ],
+          },
+        ];
+        for (final chatId in ['chat-1', 'local:local-session']) {
+          final initialMessages = [
+            _userMessage('user-1', 'Hello', timestamp),
+            _assistantMessage(
+              'assistant-1',
+              'Original answer',
+              timestamp,
+            ).copyWith(isStreaming: true),
+          ];
+          final socket = _FakeSocketService();
+          final api = _FakeApiService(
+            _conversation(chatId, initialMessages, timestamp),
+          );
+          final container = ProviderContainer(
+            overrides: [
+              secureStorageProvider.overrideWithValue(
+                FlutterSecureKeyValueStore(),
+              ),
+              ...openWebUiStorageOpenOverrides(),
+              activeConversationProvider.overrideWith(
+                _TestActiveConversationNotifier.new,
+              ),
+              socketServiceProvider.overrideWithValue(socket),
+              apiServiceProvider.overrideWithValue(api),
+            ],
+          );
+          final db = container.read(appDatabaseProvider)!;
+          if (chatId == 'chat-1') {
+            await db.chatsDao.upsertEnvelopeStub(
+              id: chatId,
+              title: 'Test chat',
+              createdAt: 1767225600,
+              updatedAt: 1767225600,
+            );
+          }
+          container
+              .read(activeConversationProvider.notifier)
+              .set(_conversation(chatId, initialMessages, timestamp));
+          final notifier = container.read(chatMessagesProvider.notifier);
+          notifier.finishStreaming();
+          check(container.read(chatMessagesProvider).last.isStreaming)
+              .isFalse();
+
+          socket.emitChatEvent(
+            type: 'chat:outlet',
+            payload: {
+              'chat_id': 'other-chat',
+              'messages': [
+                {'id': 'assistant-1', 'content': 'Wrong chat'},
+              ],
+            },
+          );
+          check(container.read(chatMessagesProvider).last.content)
+              .equals('Original answer');
+
+          socket.emitChatEvent(
+            type: 'chat:outlet',
+            payload: {
+              'chat_id': chatId,
+              'session_id': socket.sessionId,
+              'messages': [
+                {
+                  'id': 'assistant-1',
+                  'content': 'Legacy content must not replace the tool tile',
+                  'output': output,
+                },
+              ],
+            },
+          );
+          final filtered = container.read(chatMessagesProvider).last;
+          check(filtered.content).contains('type="tool_calls"');
+          check(filtered.content).contains('Filtered answer');
+          check(filtered.output!).deepEquals(output);
+          check(filtered.metadata?['originalContent'])
+              .equals('Original answer');
+          check(filtered.isStreaming).isFalse();
+
+          // A content-only filter leaves the structured output authoritative.
+          socket.emitChatEvent(
+            type: 'chat:outlet',
+            payload: {
+              'chat_id': chatId,
+              'messages': [
+                {'id': 'assistant-1', 'content': 'Legacy only'},
+              ],
+            },
+          );
+          check(container.read(chatMessagesProvider).last.content)
+              .equals(filtered.content);
+
+          socket.emitChatEvent(
+            type: 'chat:outlet',
+            payload: {
+              'chat_id': chatId,
+              'messages': [
+                {'id': 'assistant-1', 'output': <Map<String, dynamic>>[]},
+              ],
+            },
+          );
+          check(container.read(chatMessagesProvider).last.content)
+              .equals('Filtered answer');
+
+          // An explicit empty output is an authoritative removal, not a stale
+          // snapshot to merge with the just-completed tool tile.
+          socket.emitChatEvent(
+            type: 'chat:outlet',
+            payload: {
+              'chat_id': chatId,
+              'messages': [
+                {
+                  'id': 'assistant-1',
+                  'content': 'Redacted',
+                  'output': <Map<String, dynamic>>[],
+                },
+              ],
+            },
+          );
+          check(container.read(chatMessagesProvider).last.content)
+              .equals('Redacted');
+          check(container.read(chatMessagesProvider).last.output)
+              .isNotNull()
+              .isEmpty();
+          if (chatId == 'chat-1') {
+            for (var attempt = 0; attempt < 100; attempt++) {
+              final rows = await db.messagesDao.getForChat(chatId);
+              if (rows.any(
+                (row) => row.id == 'assistant-1' && row.content == 'Redacted',
+              )) {
+                break;
+              }
+              await Future<void>.delayed(const Duration(milliseconds: 10));
+            }
+            final saved = (await db.messagesDao.getForChat(chatId))
+                .singleWhere((row) => row.id == 'assistant-1');
+            check(saved.content).equals('Redacted');
+            check((jsonDecode(saved.payload) as Map)['output'] as List? ?? [])
+                .isEmpty();
+            check(container.read(chatMessagesProvider).last.content)
+                .equals('Redacted');
+          } else {
+            check(await db.messagesDao.getForChat(chatId)).isEmpty();
+          }
+          container.dispose();
+          await pumpMicrotasks();
+        }
+      },
+    );
+
     test(
       'tool-call resume resolves but does not stream a non-tail task',
       () async {

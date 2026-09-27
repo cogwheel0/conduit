@@ -20,6 +20,9 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     List<String>? filterIds,
     ApiAuthSnapshot? authSnapshot,
   }) async {
+    // Since 0.9 the server runs these filters before emitting chat:outlet.
+    // The deprecated endpoint would run them a second time.
+    if (_runsOutletFiltersInline) return null;
     // Format messages to match OpenWebUI expected structure exactly
     final formattedMessages = messages.map((msg) {
       final formatted = <String, dynamic>{
