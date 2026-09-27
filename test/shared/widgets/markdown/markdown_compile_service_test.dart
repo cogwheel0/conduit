@@ -536,6 +536,43 @@ void main() {
       expect(detailsBlock.toolCallData, toolCallData);
     });
 
+    test('tool error results survive worker serialization', () {
+      for (final entry in <(Object, bool)>[
+        ('Error: request failed', true),
+        ('Exception: offline', true),
+        ('Traceback (most recent call last)', true),
+        ('HTTP error! 500', true),
+        (
+          {
+            'error': {'message': 'offline'},
+          },
+          true,
+        ),
+        ({'status': 'failed'}, true),
+        ({'ok': false, 'message': 'offline'}, true),
+        (
+          [
+            {'type': 'text', 'text': 'Error: offline'},
+          ],
+          true,
+        ),
+        ({'error': '', 'ok': true}, false),
+        ({'ok': false, 'message': ''}, false),
+        ('ordinary result', false),
+      ]) {
+        final value = jsonEncode(entry.$1)
+            .replaceAll('&', '&amp;')
+            .replaceAll('"', '&quot;');
+        final compiled = compilePreparedMarkdownSync(
+          '<details type="tool_calls" name="fetch" status="completed" '
+          'done="true" result="$value"><summary>Tool Executed</summary></details>',
+        );
+        final restored = CompiledMarkdownDocument.fromMap(compiled.toMap());
+        final block = restored.blocks.single as CompiledMarkdownDetailsBlock;
+        expect(block.toolCallData!.isError, entry.$2, reason: '${entry.$1}');
+      }
+    });
+
     // Open WebUI shows a function_call_output as the text of its parts
     // (getToolResultText), not as the JSON of the part list (issue #677).
     test('shows a text-part tool result as its joined text', () {

@@ -2175,6 +2175,7 @@ After
       ('completed', false, 'Executing search…'),
       ('pending', false, 'Tool Approval Needed: search'),
       ('failed', true, 'View Result from search'),
+      ('rejected', false, 'Denied search'),
       ('', false, 'Executing search…'),
     ]) {
       final content =
@@ -2184,6 +2185,29 @@ After
       await tester.pumpWidget(buildHarness(content, isStreaming: !entry.$2));
       await tester.pump(const Duration(milliseconds: 120));
       expect(find.text(entry.$3), findsOneWidget);
+    }
+  });
+
+  testWidgets('failed tool detail sheets do not show a success icon', (
+    tester,
+  ) async {
+    for (final status in ['failed', 'completed']) {
+      final result = status == 'failed' ? '' : 'Error: offline';
+      await tester.pumpWidget(
+        buildHarness(
+          '<details type="tool_calls" done="true" status="$status" '
+          'name="search" arguments="{}" result="$result">'
+          '<summary>Tool Executed</summary></details>',
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('View Result from search'));
+      await tester.pumpAndSettle();
+      expect(find.text('Failed search'), findsOneWidget);
+      expect(find.byIcon(Icons.cancel_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.check_circle_outline_rounded), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
     }
   });
 

@@ -1301,8 +1301,12 @@ CompiledMarkdownDetailsData _buildCompiledDetailsData({
   final type = attributes['type']?.trim() ?? '';
   final name = attributes['name']?.trim() ?? '';
   final done = attributes['done'];
-  final isDone = done == 'true';
-  final isPending = done != null && done != 'true';
+  final status = attributes['status'];
+  final terminalTool =
+      type == 'tool_calls' &&
+      (status == 'failed' || status == 'incomplete' || status == 'rejected');
+  final isDone = done == 'true' || terminalTool;
+  final isPending = done != null && !isDone;
   final rawDuration = attributes['duration']?.trim() ?? '';
   final durationSeconds =
       int.tryParse(rawDuration.isEmpty ? '0' : rawDuration) ?? 0;
@@ -1391,9 +1395,34 @@ CompiledMarkdownToolCallData _compileToolCallData(
     argumentsCode: argumentsCode,
     resultCode: resultCode,
     resultDisplayText: resultDisplayText,
+    isError:
+        attributes['status'] == 'failed' ||
+        _isToolResultError(resultPartsText ?? parsedResult),
     embedSources: embeds,
     imageUrls: imageUrls,
   );
+}
+
+// Matches ToolCallDisplay.svelte's result-error detection after attribute decoding.
+bool _isToolResultError(Object? result) {
+  if (result is String) {
+    final text = result.trim().toLowerCase();
+    if (text.startsWith('error:') ||
+        text.startsWith('exception:') ||
+        text.startsWith('traceback') ||
+        text.startsWith('http error!')) {
+      return true;
+    }
+    result = _parseDetailJsonString(result);
+  }
+  if (result is! Map) return false;
+  bool hasValue(Object? value) =>
+      value is String ? value.trim().isNotEmpty : value is Map || value is List;
+  if (hasValue(result['error'])) return true;
+  final status = result['status']?.toString().trim().toLowerCase();
+  if (status == 'error' || status == 'failed') return true;
+  return (result['success'] == false || result['ok'] == false) &&
+      hasValue(result['message']);
 }
 
 const Set<String> _toolResultTextPartTypes = {

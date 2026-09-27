@@ -969,6 +969,7 @@ class CompiledMarkdownToolCallData {
     this.argumentsCode = '',
     this.resultCode = '',
     this.resultDisplayText = '',
+    this.isError = false,
     required List<String> embedSources,
     required List<String> imageUrls,
   }) : argumentEntries =
@@ -984,6 +985,7 @@ class CompiledMarkdownToolCallData {
   final String argumentsCode;
   final String resultCode;
   final String resultDisplayText;
+  final bool isError;
   final List<String> embedSources;
   final List<String> imageUrls;
 
@@ -1015,6 +1017,7 @@ class CompiledMarkdownToolCallData {
     'argumentsCode': argumentsCode,
     'resultCode': resultCode,
     'resultDisplayText': resultDisplayText,
+    'isError': isError,
     'embedSources': embedSources,
     'imageUrls': imageUrls,
   };
@@ -1036,6 +1039,7 @@ class CompiledMarkdownToolCallData {
       argumentsCode: (map['argumentsCode'] ?? '') as String,
       resultCode: (map['resultCode'] ?? '') as String,
       resultDisplayText: (map['resultDisplayText'] ?? '') as String,
+      isError: map['isError'] == true,
       embedSources:
           ((map['embedSources'] as List<dynamic>? ?? const <dynamic>[]))
               .map((value) => value.toString())
@@ -1055,6 +1059,7 @@ class CompiledMarkdownToolCallData {
         other.argumentsCode == argumentsCode &&
         other.resultCode == resultCode &&
         other.resultDisplayText == resultDisplayText &&
+        other.isError == isError &&
         listEquals(other.embedSources, embedSources) &&
         listEquals(other.imageUrls, imageUrls);
   }
@@ -1067,6 +1072,7 @@ class CompiledMarkdownToolCallData {
     argumentsCode,
     resultCode,
     resultDisplayText,
+    isError,
     Object.hashAll(embedSources),
     Object.hashAll(imageUrls),
   );
