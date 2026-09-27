@@ -359,13 +359,21 @@ Map<String, dynamic>? _parseSiblingAsVersion(
     contentString = directReplayResolution.content;
   } else if (outputItems.isNotEmpty) {
     final outputBlocks = parseOpenWebUIStructuredOutput(outputItems);
-    final outputContent = _mergeContentWithStructuredOutput(
-      contentString,
-      outputBlocks,
-      preserveSemanticDetails: !_isDirectTransport(metadata),
-    );
-    if (outputContent.isNotEmpty) {
-      contentString = outputContent;
+    if (_isDirectTransport(metadata)) {
+      final outputContent = _mergeContentWithStructuredOutput(
+        contentString,
+        outputBlocks,
+        preserveSemanticDetails: false,
+      );
+      if (outputContent.isNotEmpty) contentString = outputContent;
+    } else {
+      // ContentRenderer.svelte uses output whenever it exists. Choosing the
+      // longer legacy content can resurrect an old answer or erase its tools
+      // on reload after the live structured projection was already correct.
+      contentString = _renderStructuredOutput(
+        outputBlocks,
+        preserveSemanticDetails: true,
+      );
     }
   }
 
@@ -668,13 +676,18 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
       metadata.remove(kConduitDirectRawAssistantReasoningMetadataKey);
     }
     final outputBlocks = parseOpenWebUIStructuredOutput(outputItems);
-    final outputContent = _mergeContentWithStructuredOutput(
-      contentString,
-      outputBlocks,
-      preserveSemanticDetails: !_isDirectTransport(metadata),
-    );
-    if (outputContent.isNotEmpty) {
-      contentString = outputContent;
+    if (_isDirectTransport(metadata)) {
+      final outputContent = _mergeContentWithStructuredOutput(
+        contentString,
+        outputBlocks,
+        preserveSemanticDetails: false,
+      );
+      if (outputContent.isNotEmpty) contentString = outputContent;
+    } else {
+      contentString = _renderStructuredOutput(
+        outputBlocks,
+        preserveSemanticDetails: true,
+      );
     }
   }
 

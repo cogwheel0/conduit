@@ -7,34 +7,31 @@
 /// of cumulative `chat:completion` snapshots. This mirrors the web client's
 /// `applyResponseStreamEvent` so the same `output` list the server persists
 /// can be rebuilt locally while the response is still streaming.
-///
-/// [responseStart] is where the current provider response's items begin in
-/// [output] (its length when `response.created` arrived), or null when that
-/// is unknown. A terminal event's positions count within that response.
 List<Map<String, dynamic>> applyOpenWebUIResponseStreamEvent(
   List<Map<String, dynamic>> output,
-  Map<dynamic, dynamic> event, {
-  int? responseStart,
-}) {
+  Map<dynamic, dynamic> event,
+) {
   final eventType = event['type']?.toString() ?? '';
   if (!eventType.startsWith('response.')) return output;
 
-  if (_isTerminalResponseEvent(eventType)) {
-    // completed, failed, and incomplete all carry the output of one provider
-    // response, not of the tool-call rounds before it, so merge its items in
-    // as the web client does. Replacing the list with it erased every earlier
-    // tool call once a later round completed (issue #751).
+  if (eventType == 'response.completed') {
     final response = event['response'];
     final completed = response is Map ? response['output'] : null;
-    // An empty terminal list is not authoritative: a failure or cut-off can
-    // report no output even though items already streamed, and dropping
-    // them would blank a partial answer the user has already seen.
     if (completed is! List || completed.isEmpty) return output;
-    return _mergeTerminalOutput(
-      _cloneItems(output),
-      _cloneItems(completed),
-      responseStart: responseStart,
-    );
+    // Upstream completion covers one provider response. Replace known items
+    // in place and append new ones, preserving earlier tool-call rounds.
+    final next = _cloneItems(output);
+    for (final item in _cloneItems(completed)) {
+      final index = _findOutputItemIndex(next, item);
+      if (index >= 0) {
+        next[index] = _withDerivedDuration(
+          _withPreservedTiming(next[index], item),
+        );
+      } else {
+        next.add(item);
+      }
+    }
+    return next;
   }
 
   final next = _cloneItems(output);
@@ -136,6 +133,10 @@ List<Map<String, dynamic>> applyOpenWebUIResponseStreamEvent(
       part['text'] = _appendDelta(part['text'] ?? '', delta);
       return next;
     }
+    if (item['type'] == 'open_webui:code_interpreter') {
+      item['code'] = '${item['code'] ?? ''}${delta ?? ''}';
+      return next;
+    }
     final key = typeName == 'output_text' || typeName == 'reasoning_text'
         ? 'text'
         : typeName;
@@ -207,94 +208,6 @@ Map<String, dynamic> _cloneMap(Map<dynamic, dynamic> map) => {
 
 int _intOr(Object? value, int fallback) => value is int ? value : fallback;
 
-/// Merges one provider response's terminal [items] into the accumulated
-/// [output], keeping earlier rounds and the response's own order.
-///
-/// Items pair up by identity (the same id, or the same call id on an item of
-/// the same type), using the latest occurrence: a repeated identity belongs to
-/// this response, which streamed in last. Once [responseStart] is known, an
-/// identity found only in an earlier round does not pair at all. An item that pairs no other way
-/// (older servers, or deltas that carried no item id) pairs only within this
-/// response, so only when [responseStart] is known: with the local id-less
-/// item of the same type and the same rank within it, so an item the terminal
-/// list adds without having streamed it (reasoning ahead of the answer, say)
-/// shifts nothing, and an earlier round is never touched. Nothing paired means
-/// nothing of this response streamed, so its items go last, as the web client
-/// appends them. Otherwise everything before the first paired item stays as
-/// it was, this response follows in its terminal order, and any unpaired
-/// local item after that point is kept behind it.
-List<Map<String, dynamic>> _mergeTerminalOutput(
-  List<Map<String, dynamic>> output,
-  List<Map<String, dynamic>> items, {
-  required int? responseStart,
-}) {
-  final byId = <String, int>{};
-  final byCall = <String, int>{};
-  for (var index = 0; index < output.length; index++) {
-    final item = output[index];
-    final id = item['id']?.toString();
-    if (id != null && id.isNotEmpty) byId[id] = index;
-    final callId = item['call_id']?.toString();
-    if (callId != null && callId.isNotEmpty) {
-      byCall['${item['type']}\u0000$callId'] = index;
-    }
-  }
-
-  // This response's id-less local items, by type, in stream order.
-  final anonymousByType = <Object?, List<int>>{};
-  if (responseStart != null) {
-    for (var index = responseStart; index < output.length; index++) {
-      final item = output[index];
-      if (!_hasOutputItemIdentity(item)) {
-        (anonymousByType[item['type']] ??= <int>[]).add(index);
-      }
-    }
-  }
-  final anonymousRank = <Object?, int>{};
-
-  final matches = List<int>.filled(items.length, -1);
-  final claimed = <int>{};
-  for (var position = 0; position < items.length; position++) {
-    final item = items[position];
-    final id = item['id']?.toString();
-    final callId = item['call_id']?.toString();
-    int? index =
-        (id != null && id.isNotEmpty ? byId[id] : null) ??
-        (callId != null && callId.isNotEmpty
-            ? byCall['${item['type']}\u0000$callId']
-            : null);
-    // The terminal list belongs to this response alone: an identity that only
-    // an earlier round carries names a different item there.
-    if (index != null && responseStart != null && index < responseStart) {
-      index = null;
-    }
-    if (index == null) {
-      final type = item['type'];
-      final rank = anonymousRank[type] ?? 0;
-      anonymousRank[type] = rank + 1;
-      final candidates = anonymousByType[type];
-      if (candidates != null && rank < candidates.length) {
-        index = candidates[rank];
-      }
-    }
-    if (index != null && claimed.add(index)) matches[position] = index;
-  }
-
-  if (claimed.isEmpty) return [...output, ...items];
-  final firstMatch = claimed.reduce((a, b) => a < b ? a : b);
-  return [
-    ...output.take(firstMatch),
-    for (var position = 0; position < items.length; position++)
-      matches[position] < 0
-          ? items[position]
-          : _withDerivedDuration(
-              _withPreservedTiming(output[matches[position]], items[position]),
-            ),
-    for (var index = firstMatch; index < output.length; index++)
-      if (!claimed.contains(index)) output[index],
-  ];
-}
-
 /// The existing item [item] updates: the same id, or the same call id on an
 /// item of the same type. A function call and its output share a call id, so
 /// without the type check the tool result replaced the call and its tile
@@ -314,10 +227,6 @@ int _findOutputItemIndex(
             existing['call_id']?.toString() == callId),
   );
 }
-
-bool _hasOutputItemIdentity(Map<String, dynamic> item) =>
-    (item['id']?.toString().isNotEmpty ?? false) ||
-    (item['call_id']?.toString().isNotEmpty ?? false);
 
 Map<String, dynamic> _ensureOutputItem(
   List<Map<String, dynamic>> output,

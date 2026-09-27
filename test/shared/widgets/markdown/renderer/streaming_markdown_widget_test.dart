@@ -2167,6 +2167,26 @@ After
     },
   );
 
+  testWidgets('tool headers show protocol preparation and approval status', (
+    tester,
+  ) async {
+    for (final entry in const [
+      ('in_progress', false, 'Preparing search…'),
+      ('completed', false, 'Executing search…'),
+      ('pending', false, 'Tool Approval Needed: search'),
+      ('failed', true, 'View Result from search'),
+      ('', false, 'Executing search…'),
+    ]) {
+      final content =
+          '<details type="tool_calls" done="${entry.$2}" '
+          'name="search" ${entry.$1.isEmpty ? '' : 'status="${entry.$1}"'}>'
+          '<summary>Executing...</summary></details>';
+      await tester.pumpWidget(buildHarness(content, isStreaming: !entry.$2));
+      await tester.pump(const Duration(milliseconds: 120));
+      expect(find.text(entry.$3), findsOneWidget);
+    }
+  });
+
   testWidgets('renders a tool-call block attached to raw streamed text', (
     tester,
   ) async {

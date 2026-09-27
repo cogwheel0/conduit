@@ -1129,6 +1129,7 @@ bool _requiresImmediateReplacement(
           name: final beforeName,
           arguments: final beforeArguments,
           done: final beforeDone,
+          status: final beforeStatus,
           result: final beforeResult,
           files: final beforeFiles,
           embeds: final beforeEmbeds,
@@ -1138,6 +1139,7 @@ bool _requiresImmediateReplacement(
           name: final afterName,
           arguments: final afterArguments,
           done: final afterDone,
+          status: final afterStatus,
           result: final afterResult,
           files: final afterFiles,
           embeds: final afterEmbeds,
@@ -1146,6 +1148,7 @@ bool _requiresImmediateReplacement(
         if (beforeId != afterId ||
             beforeName != afterName ||
             beforeDone != afterDone ||
+            beforeStatus != afterStatus ||
             _valueUpdateRequiresImmediateReplacement(
               beforeArguments,
               afterArguments,
@@ -1283,6 +1286,7 @@ bool _blocksEquivalent(
         name: final aName,
         arguments: final aArguments,
         done: final aDone,
+        status: final aStatus,
         result: final aResult,
         files: final aFiles,
         embeds: final aEmbeds,
@@ -1292,6 +1296,7 @@ bool _blocksEquivalent(
         name: final bName,
         arguments: final bArguments,
         done: final bDone,
+        status: final bStatus,
         result: final bResult,
         files: final bFiles,
         embeds: final bEmbeds,
@@ -1300,6 +1305,7 @@ bool _blocksEquivalent(
       aId == bId &&
           aName == bName &&
           aDone == bDone &&
+          aStatus == bStatus &&
           _deepEquals(aArguments, bArguments) &&
           _deepEquals(aResult, bResult) &&
           _deepEquals(aFiles, bFiles) &&
@@ -1438,7 +1444,8 @@ String structuredOutputBlocksPlainText(List<StructuredOutputBlock> blocks) {
   return blocks
       .whereType<StructuredOutputTextBlock>()
       .map((block) => block.text)
-      .join();
+      .where((text) => text.trim().isNotEmpty)
+      .join('\n');
 }
 
 List<SemanticMessageBlock> structuredOutputBlocksToSemanticMessage(
@@ -1483,6 +1490,7 @@ List<SemanticMessageBlock> structuredOutputBlocksToSemanticMessage(
         :final name,
         :final arguments,
         :final done,
+        :final status,
         :final result,
         :final files,
         :final embeds,
@@ -1493,6 +1501,7 @@ List<SemanticMessageBlock> structuredOutputBlocksToSemanticMessage(
             name: name,
             arguments: arguments,
             done: done,
+            status: status,
             result: result,
             files: files,
             embeds: embeds,
@@ -1536,8 +1545,9 @@ List<String>? _replacementTextParts(
     return [replacementText];
   }
 
-  final originalText = textBlocks.map((block) => block.text).join();
-  if (originalText == replacementText) {
+  final originalParts = textBlocks.map((block) => block.text).toList();
+  if (originalParts.join() == replacementText ||
+      originalParts.join('\n') == replacementText) {
     return textBlocks.map((block) => block.text).toList(growable: false);
   }
 

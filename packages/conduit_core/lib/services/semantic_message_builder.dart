@@ -59,6 +59,7 @@ final class SemanticDetailsBlock extends SemanticMessageBlock {
     this.bodyMarkdown = '',
     this.id,
     this.name,
+    this.status,
     this.duration,
     this.arguments,
     this.result,
@@ -97,18 +98,24 @@ final class SemanticDetailsBlock extends SemanticMessageBlock {
     required Object? arguments,
     required bool done,
     Object? result,
+    String? status,
     bool isError = false,
     Object? files,
     Object? embeds,
   }) {
     return SemanticDetailsBlock._(
       type: 'tool_calls',
-      summary: done
+      summary: status == 'pending'
+          ? 'Tool Approval Needed'
+          : done
           ? (isError ? 'Tool Failed' : 'Tool Executed')
+          : status != null && status != 'completed'
+          ? 'Preparing...'
           : 'Executing...',
       done: done,
       id: id,
       name: name,
+      status: status,
       arguments: arguments,
       result: result,
       files: files,
@@ -142,6 +149,7 @@ final class SemanticDetailsBlock extends SemanticMessageBlock {
   final String bodyMarkdown;
   final String? id;
   final String? name;
+  final String? status;
   final String? duration;
   final Object? arguments;
   final Object? result;
@@ -232,6 +240,7 @@ String _renderDetailsBlock(SemanticDetailsBlock block) {
     'done': block.done ? 'true' : 'false',
     if (block.id != null) 'id': block.id!,
     if (block.name != null) 'name': block.name!,
+    if (block.status != null) 'status': block.status!,
     if (block.duration != null) 'duration': block.duration!,
     if (block.arguments != null)
       'arguments': _jsonAttributeValue(block.arguments),
@@ -240,7 +249,7 @@ String _renderDetailsBlock(SemanticDetailsBlock block) {
     if (block.embeds != null) 'embeds': _jsonAttributeValue(block.embeds),
   };
   final attrs = attributes.entries
-      .where((entry) => entry.value.trim().isNotEmpty)
+      .where((entry) => entry.key == 'status' || entry.value.trim().isNotEmpty)
       .map((entry) => '${entry.key}="${_escape(entry.value)}"')
       .join(' ');
   final body = block.bodyMarkdown.trim().isEmpty

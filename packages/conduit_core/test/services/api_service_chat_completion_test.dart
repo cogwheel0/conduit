@@ -1865,6 +1865,43 @@ void main() {
       },
     );
 
+    test(
+      'completion notification only runs filters on legacy or unknown servers',
+      () async {
+        for (final version in <String?>[
+          null,
+          'unknown',
+          '0.8.12',
+          '0.9.0',
+          'v0.11.4',
+        ]) {
+          final adapter = _QueuedFakeAdapter([
+            _FakeAdapter.json({'version': version, 'features': {}}),
+            _FakeAdapter.json({}),
+            _FakeAdapter.json({}),
+            _FakeAdapter.json({'messages': []}),
+          ]);
+          final api = _buildApiServiceForTest(adapter);
+          await api.getBackendConfig();
+          await api.sendChatCompleted(
+            chatId: 'chat-1',
+            messageId: 'msg-1',
+            messages: const [
+              {'id': 'msg-1', 'role': 'assistant', 'content': 'Done'},
+            ],
+            model: 'model',
+          );
+          final notifications = adapter.requests.where(
+            (request) => request.path == '/api/chat/completed',
+          );
+          check(
+            notifications.length,
+            because: 'Server version: $version',
+          ).equals(version == '0.9.0' || version == 'v0.11.4' ? 0 : 1);
+        }
+      },
+    );
+
     test('sendChatCompleted omits null session_id', () async {
       final adapter = _FakeAdapter.json({'ok': true});
       final api = _buildApiServiceForTest(adapter);

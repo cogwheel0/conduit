@@ -11,6 +11,7 @@ import 'package:markdown/markdown.dart' as md;
 import 'package:conduit_core/services/performance_profiler.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
+
 import 'compiled_markdown_document.dart';
 import 'streaming_markdown_preparation.dart';
 import 'renderer/latex_preprocessor.dart';
@@ -1314,6 +1315,7 @@ CompiledMarkdownDetailsData _buildCompiledDetailsData({
     kind: _detailsKindForType(type),
     type: type,
     name: name,
+    status: attributes['status'],
     isDone: isDone,
     isPending: isPending,
     durationSeconds: durationSeconds,
@@ -1362,7 +1364,10 @@ CompiledMarkdownToolCallData _compileToolCallData(
       ? ''
       : _formatDetailJsonString(argumentsText);
 
-  final resultPartsText = _toolResultPartsText(parsedResult);
+  final resultPartsText = _toolResultPartsText(
+    parsedResult,
+    structuredOpenWebUi: attributes.containsKey('status'),
+  );
   final resultCode =
       resultPartsText == null && (parsedResult is Map || parsedResult is List)
       ? const JsonEncoder.withIndent('  ').convert(parsedResult)
@@ -1401,15 +1406,26 @@ const Set<String> _toolResultTextPartTypes = {
 /// `getToolResultText` shows a `function_call_output`: image parts are
 /// skipped and the other parts' text is concatenated with nothing between.
 /// Null for any other shape, which keeps its JSON view.
-String? _toolResultPartsText(Object? result) {
-  if (result is! List || result.isEmpty) return null;
+String? _toolResultPartsText(
+  Object? result, {
+  required bool structuredOpenWebUi,
+}) {
+  if (result is! List) return null;
+  if (result.isEmpty) return structuredOpenWebUi ? '' : null;
   final text = StringBuffer();
   var hasTextPart = false;
   for (final part in result) {
-    if (part is! Map) return null;
+    if (part is! Map) {
+      if (structuredOpenWebUi) continue;
+      return null;
+    }
     final type = part['type'];
     if (type == 'input_image') continue;
-    if (!_toolResultTextPartTypes.contains(type)) return null;
+    if (!structuredOpenWebUi &&
+        !part.containsKey('text') &&
+        !_toolResultTextPartTypes.contains(type)) {
+      return null;
+    }
     final value = part['text'];
     if (value is String) {
       text.write(value);
@@ -1420,7 +1436,7 @@ String? _toolResultPartsText(Object? result) {
     }
     hasTextPart = true;
   }
-  return hasTextPart ? text.toString() : null;
+  return hasTextPart || structuredOpenWebUi ? text.toString() : null;
 }
 
 String _decodeDetailAttribute(String? input) {

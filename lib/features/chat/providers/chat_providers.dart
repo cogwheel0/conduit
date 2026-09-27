@@ -89,6 +89,7 @@ import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_core/services/streaming_response_controller.dart';
 
 import 'package:conduit_core/services/streaming_helper.dart';
+import 'package:conduit_core/services/openwebui_outlet.dart';
 
 import 'package:conduit_core/services/performance_profiler.dart';
 

@@ -1057,7 +1057,7 @@ void main() {
         }
       });
 
-      test('prefers longer structured output text over stale content', () {
+      test('uses structured output even when stale content is longer', () {
         final result = parseFullConversation({
           'id': 'conv-1',
           'chat': {
@@ -1065,12 +1065,12 @@ void main() {
               {
                 'id': 'msg-1',
                 'role': 'assistant',
-                'content': 'Partial',
+                'content': 'An earlier answer that is much longer than the actual output',
                 'output': [
                   {
                     'type': 'message',
                     'content': [
-                      {'type': 'output_text', 'text': 'Partial final answer'},
+                      {'type': 'output_text', 'text': 'Final answer'},
                     ],
                   },
                 ],
@@ -1081,7 +1081,7 @@ void main() {
         });
 
         final messages = result['messages'] as List<Map<String, dynamic>>;
-        check(messages.first['content']).equals('Partial final answer');
+        check(messages.first['content']).equals('Final answer');
       });
 
       test('does not reuse rendered details as replacement text', () {
@@ -1124,8 +1124,8 @@ void main() {
         final content = messages.first['content'] as String;
         check('<details'.allMatches(content).length).equals(1);
         check(content).not((it) => it.contains('&gt; stale'));
-        check(content).contains('&lt;details&gt;&lt;summary&gt;User details');
-        check(content).contains('Keep me');
+        check(content).not((it) => it.contains('User details'));
+        check(content).not((it) => it.contains('Keep me'));
         check('Final answer'.allMatches(content).length).equals(1);
       });
 
@@ -1159,8 +1159,8 @@ void main() {
 
         final messages = result['messages'] as List<Map<String, dynamic>>;
         final content = messages.first['content'] as String;
-        check(content).contains('&lt;details&gt;&lt;summary&gt;User details');
-        check(content).contains('Keep me');
+        check(content).not((it) => it.contains('User details'));
+        check(content).not((it) => it.contains('Keep me'));
         check('Final answer'.allMatches(content).length).equals(1);
         check(content).not((it) => it.contains('Executing...'));
       });

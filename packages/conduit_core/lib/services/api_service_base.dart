@@ -26,6 +26,7 @@ abstract class _ApiServiceBase {
   Future<void> _userSettingsMutationQueue = Future<void>.value();
   bool _disposed = false;
   _ChatRequestMetadataFormat? _chatRequestMetadataFormat;
+  bool _runsOutletFiltersInline = false;
   // Public getter for dio instance
   Dio get dio => _dio;
   // Public getter for base URL
@@ -1115,6 +1116,9 @@ abstract class _ApiServiceBase {
 
   void _setChatRequestMetadataFormatFromVersion(dynamic rawVersion) {
     final inferred = _inferChatRequestMetadataFormatFromVersion(rawVersion);
+    // Open WebUI 0.9 moved outlet filters into completion itself. Keep this
+    // separate from request-shape negotiation, which also updates the format.
+    _runsOutletFiltersInline = inferred == _ChatRequestMetadataFormat.modernV09;
     if (inferred != null) {
       _chatRequestMetadataFormat = inferred;
     }

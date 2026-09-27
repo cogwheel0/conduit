@@ -544,10 +544,14 @@ void main() {
           .replaceAll('"', '&quot;')
           .replaceAll('<', '&lt;')
           .replaceAll('>', '&gt;');
-      CompiledMarkdownToolCallData compileResult(Object result) {
+      CompiledMarkdownToolCallData compileResult(
+        Object result, {
+        bool structured = false,
+      }) {
         final document = compilePreparedMarkdownSync(
           [
             '<details type="tool_calls" done="true" name="fetch" '
+                '${structured ? 'status="completed" ' : ''}'
                 'result="${escapeAttribute(jsonEncode(result))}">',
             '<summary>Tool Executed</summary>',
             '</details>',
@@ -560,8 +564,8 @@ void main() {
       final parts = compileResult([
         {'type': 'input_text', 'text': 'line one\n<b>line</b> two'},
         {'type': 'input_image', 'image_url': 'https://example.com/a.png'},
-        {'type': 'output_text', 'text': ' and '},
-        {'type': 'text', 'text': 'more'},
+        {'text': ' and '},
+        {'type': 'provider_text', 'text': 'more'},
       ]);
       expect(parts.resultCode, isEmpty);
       expect(parts.resultDisplayText, 'line one\n<b>line</b> two and more');
@@ -577,6 +581,20 @@ void main() {
         {'type': 'input_image', 'image_url': 'https://example.com/a.png'},
       ]);
       expect(imagesOnly.resultCode, contains('input_image'));
+
+      final structured = compileResult([
+        {'type': 'input_image', 'image_url': 'https://example.com/a.png'},
+        {'type': 'provider_metadata'},
+        {'text': 'visible'},
+      ], structured: true);
+      expect(structured.resultCode, isEmpty);
+      expect(structured.resultDisplayText, 'visible');
+
+      final structuredImages = compileResult([
+        {'type': 'input_image', 'image_url': 'https://example.com/a.png'},
+      ], structured: true);
+      expect(structuredImages.resultCode, isEmpty);
+      expect(structuredImages.resultDisplayText, isEmpty);
     });
 
     // Issue #677: JSON-escaped tool text looks like LaTeX delimiters. Block

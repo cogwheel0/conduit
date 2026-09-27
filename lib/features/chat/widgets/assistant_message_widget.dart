@@ -33,7 +33,8 @@ import '../providers/chat_providers.dart'
         chatComposerTextInsertionTargetId,
         isChatStreamingProvider,
         sendMessageWithContainer,
-        streamingContentProvider;
+        streamingContentProvider,
+        chatMessagesProvider;
 import '../../../shared/utils/external_link_launcher.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -371,10 +372,23 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   String _resolvedMessageContent([String? overrideContent, int? versionIndex]) {
     final selectedVersionIndex = versionIndex ?? _activeVersionIndex;
+    // The canonical message and the visible-stream provider publish on
+    // different schedules. A row rebuild can otherwise overwrite a newer
+    // tool projection with the older canonical text in the same frame.
+    // Read their shared owner so either publication order uses the current
+    // buffer, including when a virtualized row remounts between flushes.
+    final streamingContent =
+        selectedVersionIndex < 0 &&
+            widget.isStreaming &&
+            ref.exists(chatMessagesProvider)
+        ? ref
+              .read(chatMessagesProvider.notifier)
+              .contentForStreamingMessage(widget.message.id)
+        : null;
     final raw0 = selectedVersionIndex >= 0
         ? (widget.message.versions[selectedVersionIndex].content as String?) ??
               ''
-        : (overrideContent ?? widget.message.content ?? '');
+        : (streamingContent ?? overrideContent ?? widget.message.content ?? '');
 
     // Strip any leftover placeholders from content before parsing
     const ti = '[TYPING_INDICATOR]';

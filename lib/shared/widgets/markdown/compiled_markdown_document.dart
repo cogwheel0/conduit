@@ -1086,6 +1086,7 @@ class CompiledMarkdownDetailsData {
     required this.isPending,
     required this.durationSeconds,
     this.hasDuration = false,
+    this.status,
     this.toolCallData,
   });
 
@@ -1096,6 +1097,7 @@ class CompiledMarkdownDetailsData {
   final CompiledMarkdownDetailsKind kind;
   final String type;
   final String name;
+  final String? status;
   final bool isDone;
   final bool isPending;
   final int durationSeconds;
@@ -1132,6 +1134,7 @@ class CompiledMarkdownDetailsData {
       kind.name.length +
       type.length +
       name.length +
+      (status?.length ?? 0) +
       durationSeconds +
       (toolCallData?.weight ?? 0);
 
@@ -1143,6 +1146,7 @@ class CompiledMarkdownDetailsData {
     'kind': kind.name,
     'type': type,
     'name': name,
+    'status': status,
     'isDone': isDone,
     'isPending': isPending,
     'durationSeconds': durationSeconds,
@@ -1162,6 +1166,7 @@ class CompiledMarkdownDetailsData {
       kind: _detailsKindFromName((map['kind'] ?? '') as String),
       type: (map['type'] ?? '') as String,
       name: (map['name'] ?? '') as String,
+      status: map['status'] as String?,
       isDone: (map['isDone'] ?? false) as bool,
       isPending: (map['isPending'] ?? false) as bool,
       durationSeconds: (map['durationSeconds'] ?? 0) as int,
@@ -1184,6 +1189,7 @@ class CompiledMarkdownDetailsData {
         other.kind == kind &&
         other.type == type &&
         other.name == name &&
+        other.status == status &&
         other.isDone == isDone &&
         other.isPending == isPending &&
         other.durationSeconds == durationSeconds &&
@@ -1199,6 +1205,7 @@ class CompiledMarkdownDetailsData {
     kind,
     type,
     name,
+    status,
     isDone,
     isPending,
     durationSeconds,
