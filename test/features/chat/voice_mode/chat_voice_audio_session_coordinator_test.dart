@@ -470,42 +470,56 @@ void main() {
           .equals(AVAudioSessionMode.spokenAudio);
     });
 
-    test(
-      'hands the Android route over to a call placed while hanging up',
-      () async {
-        final coordinator = ChatVoiceAudioSessionCoordinator()
-          ..debugTreatAsAndroid = true;
-        addTearDown(coordinator.dispose);
-        final replacement = ChatVoiceAudioSessionCoordinator()
-          ..debugTreatAsAndroid = true;
-        addTearDown(replacement.dispose);
-        final idleMode = audioManager.mode;
+    for (final bluetooth in [false, true]) {
+      test(
+        'hands the Android ${bluetooth ? 'Bluetooth' : 'speaker'} route over '
+        'to a call placed while hanging up',
+        () async {
+          final coordinator = ChatVoiceAudioSessionCoordinator()
+            ..debugTreatAsAndroid = true;
+          addTearDown(coordinator.dispose);
+          final replacement = ChatVoiceAudioSessionCoordinator()
+            ..debugTreatAsAndroid = true;
+          addTearDown(replacement.dispose);
+          final idleMode = audioManager.mode;
 
-        await coordinator.configureForListening();
-        final callMode = audioManager.mode;
-        check(callMode).not((it) => it.equals(idleMode));
-        final gate = audioManager.speakerphoneGate = Completer<void>();
-        final hangingUp = coordinator.deactivate();
-        await pumpEventQueue();
+          await coordinator.configureForListening();
+          final callMode = audioManager.mode;
+          check(callMode).not((it) => it.equals(idleMode));
+          final gate = Completer<void>();
+          if (bluetooth) {
+            audioManager.bluetoothScoGate = gate;
+          } else {
+            audioManager.speakerphoneGate = gate;
+          }
+          final hangingUp = coordinator.deactivate();
+          await pumpEventQueue();
 
-        // The next call takes the route while the old teardown is part-way
-        // through putting it back.
-        await replacement.setSpeakerphoneEnabled(true);
-        gate.complete();
-        await hangingUp;
+          // The next call takes the route while the old teardown is part-way
+          // through putting it back.
+          await replacement.setSpeakerphoneEnabled(!bluetooth);
+          if (bluetooth) check(audioManager.bluetoothScoActive).isTrue();
+          gate.complete();
+          await hangingUp;
 
-        // The old teardown stops instead of putting the phone back in normal
-        // mode and taking the new call off the loudspeaker.
-        check(audioManager.mode).equals(callMode);
-        check(audioManager.communicationDeviceId)
-            .equals(_FakeAndroidAudioManagerChannel.speakerId);
+          // The old teardown must not stop the new call's Bluetooth connection
+          // or restore the phone's idle mode under its selected route.
+          check(audioManager.mode).equals(callMode);
+          if (bluetooth) {
+            check(audioManager.bluetoothScoActive).isTrue();
+          } else {
+            check(audioManager.communicationDeviceId)
+                .equals(_FakeAndroidAudioManagerChannel.speakerId);
+          }
 
-        // The new call restores what the phone had before either call, not the
-        // call mode it found when it started.
-        await replacement.deactivate();
-        check(audioManager.mode).equals(idleMode);
-      },
-    );
+          // The new call restores what the phone had before either call, not
+          // the call mode it found when it started.
+          await replacement.deactivate();
+          check(audioManager.mode).equals(idleMode);
+          check(audioManager.bluetoothScoActive).isFalse();
+        },
+      );
+    }
 
     test('drops a configure pass that arrives while hanging up', () async {
       final coordinator = ChatVoiceAudioSessionCoordinator()
@@ -614,6 +628,11 @@ class _FakeAndroidAudioManagerChannel {
   /// While set, `setSpeakerphoneOn` waits for it, which parks a teardown
   /// before it restores the mode.
   Completer<void>? speakerphoneGate;
+
+  /// Only the next SCO flag call waits, so a replacement call can route while
+  /// an old teardown waits for the platform response.
+  Completer<void>? bluetoothScoGate;
+  bool bluetoothScoActive = false;
   Object? mode = 0;
   int? communicationDeviceId;
   bool speakerphoneOn = false;
@@ -631,6 +650,17 @@ class _FakeAndroidAudioManagerChannel {
   Future<Object?> _handle(MethodCall call) async {
     final args = call.arguments as List<dynamic>? ?? const <dynamic>[];
     switch (call.method) {
+      case 'setBluetoothScoOn':
+        final gate = bluetoothScoGate;
+        bluetoothScoGate = null;
+        await gate?.future;
+        return null;
+      case 'startBluetoothSco':
+        bluetoothScoActive = true;
+        return null;
+      case 'stopBluetoothSco':
+        bluetoothScoActive = false;
+        return null;
       case 'getMode':
         return mode;
       case 'setMode':

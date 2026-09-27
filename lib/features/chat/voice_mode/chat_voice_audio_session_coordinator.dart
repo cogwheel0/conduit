@@ -1147,6 +1147,7 @@ class ChatVoiceAudioSessionCoordinator {
       await _safeAndroidRouteCall(
         () async {
           await manager.setBluetoothScoOn(false);
+          if (!ownsRoute()) return;
           await manager.stopBluetoothSco();
         },
         operation: 'stop-bluetooth-sco',
