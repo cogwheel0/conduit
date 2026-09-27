@@ -402,6 +402,27 @@ void main() {
       check(output.single['id']).equals('msg_1');
     });
 
+    test('a repeated id never reaches back into an earlier round', () {
+      // Round one used fc_1; this round streamed its call without an id, and
+      // its terminal copy reuses fc_1.
+      final streamed = <Map<String, dynamic>>[
+        {'type': 'function_call', 'id': 'fc_1', 'arguments': 'round one'},
+        {'type': 'function_call_output', 'id': 'fco_1'},
+        {'type': 'function_call', 'arguments': 'round tw'},
+      ];
+      final output = applyOpenWebUIResponseStreamEvent(streamed, {
+        'type': 'response.completed',
+        'response': {
+          'output': [
+            {'type': 'function_call', 'id': 'fc_1', 'arguments': 'round two'},
+          ],
+        },
+      }, responseStart: 2);
+
+      check(output.map((item) => item['arguments']).toList())
+          .deepEquals(['round one', null, 'round two']);
+    });
+
     test('an id-less answer from an earlier response is never paired', () {
       // The earlier response's terminal list was empty, so its message is
       // still in progress; this response's own message streamed at 3.

@@ -212,7 +212,8 @@ int _intOr(Object? value, int fallback) => value is int ? value : fallback;
 ///
 /// Items pair up by identity (the same id, or the same call id on an item of
 /// the same type), using the latest occurrence: a repeated identity belongs to
-/// this response, which streamed in last. An item that pairs no other way
+/// this response, which streamed in last. Once [responseStart] is known, an
+/// identity found only in an earlier round does not pair at all. An item that pairs no other way
 /// (older servers, or deltas that carried no item id) pairs only within this
 /// response, so only when [responseStart] is known: with the local id-less
 /// item of the same type and the same rank within it, so an item the terminal
@@ -262,6 +263,11 @@ List<Map<String, dynamic>> _mergeTerminalOutput(
         (callId != null && callId.isNotEmpty
             ? byCall['${item['type']}\u0000$callId']
             : null);
+    // The terminal list belongs to this response alone: an identity that only
+    // an earlier round carries names a different item there.
+    if (index != null && responseStart != null && index < responseStart) {
+      index = null;
+    }
     if (index == null) {
       final type = item['type'];
       final rank = anonymousRank[type] ?? 0;
