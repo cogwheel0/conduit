@@ -117,6 +117,7 @@ import 'chat_timeline_render_model.dart';
 import 'chat_turn_render_state.dart';
 import '../widgets/streaming_turn_footer.dart';
 import '../widgets/openwebui_prompt_overlay.dart';
+import '../widgets/openwebui_task_list.dart';
 import '../widgets/chat_timeline_viewport.dart';
 import '../../../platform/frame_profiler.dart';
 
@@ -3869,6 +3870,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               const SizedBox(height: Spacing.xl),
+              const OpenWebUiTaskList(),
               const FileAttachmentWidget(),
               const ContextAttachmentWidget(),
               if (hasAttachments) const SizedBox(height: Spacing.sm),

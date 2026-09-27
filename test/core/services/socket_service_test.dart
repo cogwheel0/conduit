@@ -20,6 +20,35 @@ Future<void> _flushMicrotasks([int count = 1]) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('client execution RPCs fail explicitly without a chat listener and reject foreign sessions', () async {
+    final factory = _RecordingSocketFactory();
+    final service = SocketService(
+      serverConfig: _serverConfig,
+      socketFactory: factory.create,
+    );
+    addTearDown(service.dispose);
+    await service.connect();
+    factory.sockets.single.id = 'local-session';
+    final replies = <dynamic>[];
+    for (final type in ['execute', 'execute:python']) {
+      for (final session in ['other-session', 'local-session']) {
+        service.debugHandleChatEvent({
+          'chat_id': 'background-chat',
+          'message_id': 'assistant',
+          'data': {
+            'type': type,
+            'data': {'session_id': session, 'code': 'untrusted code'},
+          },
+        }, (dynamic result) => replies.add(result));
+      }
+    }
+    expect(replies, hasLength(2));
+    expect(replies[0]['error'], contains('does not support'));
+    expect(replies[1]['stderr'], contains('does not support'));
+    expect(replies[1]['stdout'], isEmpty);
+    expect(replies[1]['result'], isNull);
+  });
+
   test('inactive remains foreground and does not force reconnect', () async {
     final lifecycle = FakeAppLifecycle();
     addTearDown(lifecycle.dispose);

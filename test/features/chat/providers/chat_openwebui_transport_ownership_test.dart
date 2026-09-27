@@ -1174,65 +1174,89 @@ void main() {
     },
   );
 
-  test(
-    'chat inactive clears global activity after foreground ownership changes',
-    () async {
-      final releasePost = Completer<void>()..complete();
-      final api = _GatedCompletionApi(releasePost);
-      final syncEngine = _PersistingSyncEngine(db, api, landResponse: false);
-      final messages = <ChatMessage>[_streamingAssistant('assistant-a', '')];
-      final container = _container(
-        db: db,
-        active: _conversation('chat-a', messages, ChatStorageKind.openWebUi),
-        messages: messages,
-        api: api,
-        syncEngine: syncEngine,
-      );
-      addTearDown(container.dispose);
-      final socket = _CountingPassiveSocketService();
-      addTearDown(socket.dispose);
-      var owns = true;
+  test('checklist updates stay with the foreground chat while global activity clears', () async {
+    final releasePost = Completer<void>()..complete();
+    final api = _GatedCompletionApi(releasePost);
+    final syncEngine = _PersistingSyncEngine(db, api, landResponse: false);
+    final messages = <ChatMessage>[_streamingAssistant('assistant-a', '')];
+    final container = _container(
+      db: db,
+      active: _conversation('chat-a', messages, ChatStorageKind.openWebUi),
+      messages: messages,
+      api: api,
+      syncEngine: syncEngine,
+    );
+    addTearDown(container.dispose);
+    final socket = _CountingPassiveSocketService();
+    addTearDown(socket.dispose);
+    var owns = true;
 
-      final attached = await dispatchChatTransport(
-        ref: container,
-        session: ChatCompletionSession.taskSocket(
-          messageId: 'assistant-a',
-          sessionId: 'passive-socket',
-          conversationId: 'chat-a',
-          taskId: 'task-a',
-        ),
-        assistantMessageId: 'assistant-a',
-        modelId: 'model-1',
-        modelItem: const <String, dynamic>{'id': 'model-1'},
-        activeConversationId: 'chat-a',
-        api: api,
-        socketService: socket,
-        workerManager: WorkerManager(),
-        webSearchEnabled: false,
-        imageGenerationEnabled: false,
-        isBackgroundFlow: false,
-        modelUsesReasoning: false,
-        toolsEnabled: false,
-        isTemporary: false,
-        ownsActiveConversation: () => owns,
-      );
-      check(attached).isTrue();
-      check(container.read(activeChatIdsProvider)).contains('chat-a');
-
-      owns = false;
-      socket.emitChatEvent(
-        type: 'chat:active',
-        payload: const <String, dynamic>{'active': false},
-        chatId: 'chat-a',
+    final attached = await dispatchChatTransport(
+      ref: container,
+      session: ChatCompletionSession.taskSocket(
         messageId: 'assistant-a',
         sessionId: 'passive-socket',
-      );
-      await Future<void>.delayed(Duration.zero);
+        conversationId: 'chat-a',
+        taskId: 'task-a',
+      ),
+      assistantMessageId: 'assistant-a',
+      modelId: 'model-1',
+      modelItem: const <String, dynamic>{'id': 'model-1'},
+      activeConversationId: 'chat-a',
+      api: api,
+      socketService: socket,
+      workerManager: WorkerManager(),
+      webSearchEnabled: false,
+      imageGenerationEnabled: false,
+      isBackgroundFlow: false,
+      modelUsesReasoning: false,
+      toolsEnabled: false,
+      isTemporary: false,
+      ownsActiveConversation: () => owns,
+    );
+    check(attached).isTrue();
+    check(container.read(activeChatIdsProvider)).contains('chat-a');
 
-      check(container.read(activeChatIdsProvider))
-          .not((activeIds) => activeIds.contains('chat-a'));
-    },
-  );
+    void emitTasks(List<Map<String, dynamic>> tasks) => socket.emitChatEvent(
+      type: 'chat:message:tasks',
+      payload: {'tasks': tasks},
+      chatId: 'chat-a',
+      messageId: 'assistant-a',
+      sessionId: 'passive-socket',
+    );
+    for (final status in ['pending', 'completed']) {
+      final tasks = <Map<String, dynamic>>[
+        {'id': '1', 'content': 'Check references', 'status': status},
+      ];
+      emitTasks(tasks);
+      expect(
+        container.read(activeConversationProvider)!.metadata['openwebui_tasks'],
+        tasks,
+      );
+    }
+    emitTasks([]);
+    expect(
+      container.read(activeConversationProvider)!.metadata['openwebui_tasks'],
+      isEmpty,
+    );
+    final previous = container.read(activeConversationProvider);
+    owns = false;
+    emitTasks([
+      {'id': '2', 'content': 'Stale update', 'status': 'pending'},
+    ]);
+    expect(container.read(activeConversationProvider), previous);
+    socket.emitChatEvent(
+      type: 'chat:active',
+      payload: const <String, dynamic>{'active': false},
+      chatId: 'chat-a',
+      messageId: 'assistant-a',
+      sessionId: 'passive-socket',
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    check(container.read(activeChatIdsProvider))
+        .not((activeIds) => activeIds.contains('chat-a'));
+  });
 
   test(
     'synchronous buffered completion is not re-registered after teardown',

@@ -939,7 +939,7 @@ void main() {
     );
 
     test(
-      'chat:message:error fires onChatActiveChanged(chatId, false)',
+      'terminal chat:message:error fires onChatActiveChanged(chatId, false)',
       () async {
         final log = _CallbackLog();
         final registrar = FakeSocketInjector();
@@ -963,6 +963,7 @@ void main() {
           'chat:message:error',
           {
             'error': {'content': 'boom'},
+            'done': true,
           },
           conversationId: 'conv-1',
           sessionId: 'sess-1',

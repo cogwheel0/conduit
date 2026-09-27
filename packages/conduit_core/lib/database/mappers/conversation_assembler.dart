@@ -73,6 +73,8 @@ Map<String, dynamic> buildChatResponseEnvelope(
   ChatRow chat,
   List<MessageRow> messages,
 ) {
+  final meta = _decodeJsonMap(chat.meta);
+  final tasks = meta.remove('_conduit_tasks');
   return <String, dynamic>{
     'id': chat.id,
     'title': chat.title,
@@ -85,7 +87,8 @@ Map<String, dynamic> buildChatResponseEnvelope(
     'folder_id': chat.folderId,
     'share_id': chat.shareId,
     'user_id': chat.userId,
-    'meta': _decodeJsonMap(chat.meta),
+    'meta': meta,
+    if (tasks is List) 'tasks': tasks,
   };
 }
 

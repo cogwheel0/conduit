@@ -586,7 +586,13 @@ class PullSync {
     final id = resp['id'] as String;
     final createdAt = _asEpochSeconds(resp['created_at']) ?? 0;
     final updatedAt = _asEpochSeconds(resp['updated_at']) ?? 0;
-    final meta = resp['meta'];
+    final rawMeta = resp['meta'];
+    // Keep chat-level tasks in the local envelope, outside the model's chat
+    // blob. The assembler lifts this reserved field back to ChatResponse.tasks.
+    final meta = <String, dynamic>{
+      if (rawMeta is Map) ...Map<String, dynamic>.from(rawMeta),
+      '_conduit_tasks': resp['tasks'] is List ? resp['tasks'] : const [],
+    };
     final rowsParser = _rowsParseOffload;
     final rows =
         rowsParser != null &&
@@ -617,9 +623,7 @@ class PullSync {
       server: rows,
       shareId: resp['share_id'] is String ? resp['share_id'] as String : null,
       userId: resp['user_id']?.toString(),
-      meta: meta is Map<String, dynamic>
-          ? meta
-          : (meta is Map ? Map<String, dynamic>.from(meta) : const {}),
+      meta: meta,
       listLastReadAt: listLastReadAt,
       refreshWhenClean: refreshWhenClean,
     );

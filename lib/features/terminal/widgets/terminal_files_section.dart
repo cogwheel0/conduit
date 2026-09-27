@@ -1,3 +1,4 @@
+import 'package:pdfrx/pdfrx.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
@@ -385,21 +386,25 @@ class TerminalFilesSection extends StatelessWidget {
   }
 }
 
-Future<void> showTerminalFilePreview(
+Future<bool> showTerminalFilePreview(
   BuildContext context,
   TerminalCoordinator coordinator,
-  TerminalFileEntry entry,
-) async {
+  TerminalFileEntry entry, {
+  int? page,
+  bool Function()? isCurrent,
+}) async {
   final operationContext = coordinator.captureOperationContext();
-  if (operationContext == null) return;
+  if (operationContext == null) return false;
   final preview = await coordinator.readEntry(operationContext, entry);
-  if (preview == null || !context.mounted) return;
+  if (preview == null || !context.mounted || isCurrent?.call() == false) {
+    return false;
+  }
   final l10n = AppLocalizations.of(context)!;
 
   await ThemedDialogs.show<void>(
     context,
     title: sanitizeUtf16(entry.displayName),
-    content: _terminalPreviewContent(context, l10n, preview),
+    content: _terminalPreviewContent(context, l10n, preview, page: page),
     actions: [
       ConduitTextButton(
         text: l10n.close,
@@ -415,14 +420,28 @@ Future<void> showTerminalFilePreview(
       ),
     ],
   );
+  return true;
 }
 
 Widget _terminalPreviewContent(
   BuildContext context,
   AppLocalizations l10n,
-  TerminalFileReadResult preview,
-) {
+  TerminalFileReadResult preview, {
+  int? page,
+}) {
   final theme = context.conduitTheme;
+  if (preview.contentType.split(';').first == 'application/pdf' &&
+      preview.bytes != null) {
+    return SizedBox(
+      width: 520,
+      height: 360,
+      child: PdfViewer.data(
+        preview.bytes!,
+        sourceName: preview.fileName,
+        initialPageNumber: page != null && page > 0 ? page : 1,
+      ),
+    );
+  }
   if (preview.isText) {
     return SizedBox(
       width: 520,

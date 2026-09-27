@@ -3085,5 +3085,21 @@
   "sharedBadge": "공유됨",
   "sharedFolderOwner": "{name}님이 공유",
   "@sharedFolderOwner": {"description": "Owner label on a folder another user shared with this account.", "placeholders": {"name": {"type": "String", "example": "Alex"}}},
-  "transcribingAudio": "받아쓰는 중..."
+  "transcribingAudio": "받아쓰는 중...",
+  "chatTaskProgress": "Tasks: {completed} of {total} completed",
+  "@chatTaskProgress": {
+    "description": "Summary of the Open WebUI task checklist above the chat composer.",
+    "placeholders": {
+      "completed": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatTaskPending": "Pending",
+  "chatTaskInProgress": "In progress",
+  "chatTaskCompleted": "Completed",
+  "chatTaskCancelled": "Cancelled"
 }

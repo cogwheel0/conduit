@@ -6080,5 +6080,33 @@
   "directBearerDescription": "Sends the credential as an Authorization: Bearer header. Most OpenAI-compatible servers (llama.cpp, vLLM, LM Studio, Ollama) expect this.",
   "@directBearerDescription": {"description":"Help text for the Bearer token authentication mode of a direct connection."},
   "directApiKeyHeaderAzureOnlyDescription": "Sends the credential in the api-key header. Use this only for Azure OpenAI; other OpenAI-compatible servers expect a Bearer token.",
-  "@directApiKeyHeaderAzureOnlyDescription": {"description":"Help text for the Azure OpenAI api-key header authentication mode, noting it is Azure-only."}
+  "@directApiKeyHeaderAzureOnlyDescription": {"description":"Help text for the Azure OpenAI api-key header authentication mode, noting it is Azure-only."},
+  "chatTaskProgress": "Tasks: {completed} of {total} completed",
+  "@chatTaskProgress": {
+    "description": "Summary of the Open WebUI task checklist above the chat composer.",
+    "placeholders": {
+      "completed": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatTaskPending": "Pending",
+  "@chatTaskPending": {
+    "description": "Task checklist status for a task that has not started."
+  },
+  "chatTaskInProgress": "In progress",
+  "@chatTaskInProgress": {
+    "description": "Task checklist status for a task currently running."
+  },
+  "chatTaskCompleted": "Completed",
+  "@chatTaskCompleted": {
+    "description": "Task checklist status for a finished task."
+  },
+  "chatTaskCancelled": "Cancelled",
+  "@chatTaskCancelled": {
+    "description": "Task checklist status for a cancelled task."
+  }
 }

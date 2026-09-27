@@ -420,13 +420,31 @@ Future<bool> dispatchChatTransport({
         } catch (_) {}
       });
     },
-    onTerminalDisplayFile: (path) {
+    onTerminalEvent: (type, data) {
       if (!ownsConversation()) return;
-      ref.read(sidebarActiveTabProvider.notifier).set(SidebarTabId.terminal);
+      if (type == 'terminal:display_file' &&
+          (data['path']?.toString().trim().isNotEmpty ?? false)) {
+        ref.read(sidebarActiveTabProvider.notifier).set(SidebarTabId.terminal);
+        ref
+            .read(terminalSidebarPanelProvider.notifier)
+            .setPanel(TerminalSidebarPanel.files);
+      }
+      ref.read(terminalDisplayFileProvider.notifier).handleEvent(type, data);
+    },
+    onChatTasksUpdated: (tasks) {
+      if (!ownsConversation()) return;
+      final active = ref.read(activeConversationProvider);
+      if (active == null) return;
       ref
-          .read(terminalSidebarPanelProvider.notifier)
-          .setPanel(TerminalSidebarPanel.files);
-      ref.read(terminalDisplayFileProvider.notifier).show(path);
+          .read(activeConversationProvider.notifier)
+          .set(
+            active.copyWith(
+              metadata: <String, dynamic>{
+                ...active.metadata,
+                'openwebui_tasks': tasks,
+              },
+            ),
+          );
     },
     onInteractivePrompt: (type, data, acknowledge) {
       final conversationId = activeConversationId;
