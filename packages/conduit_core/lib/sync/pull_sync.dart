@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:conduit_core/database/app_database.dart';
@@ -242,6 +243,7 @@ class PullSync {
   final ChatRowsParseOffload? _rowsParseOffload;
   final SyncItemProgressCallback? _onProgress;
   final PullFetchMemo? _fetchMemo;
+  final _taskVersionsAtFetch = Expando<int>();
 
   /// Whether the overlap-window fetch of [item] can be skipped this cycle:
   /// the same `(id, updatedAt)` was already fetched in two earlier cycles
@@ -431,7 +433,7 @@ class PullSync {
             // provably holds this exact server state already.
             continue;
           }
-          final resp = await _client.getChatRaw(item.id);
+          final resp = await fetchChatRaw(item.id);
           if (resp == null) {
             // Server-deleted: counts as success; no local change in Phase 1
             // (deletion reconcile is Phase 3).
@@ -516,8 +518,12 @@ class PullSync {
   }
 
   /// Full `ChatResponse` fetch; null on 404. Adapter seam.
-  Future<Map<String, dynamic>?> fetchChatRaw(String id) =>
-      _client.getChatRaw(id);
+  Future<Map<String, dynamic>?> fetchChatRaw(String id) async {
+    final taskVersion = _db.chatsDao.taskEventVersion(id);
+    final response = await _client.getChatRaw(id);
+    if (response != null) _taskVersionsAtFetch[response] = taskVersion;
+    return response;
+  }
 
   /// Lock + one-tx merge of a raw `ChatResponse` map with `listLastReadAt: null`
   /// (the max() rule preserves the local value). Returns `mustPush`. Adapter
@@ -531,7 +537,7 @@ class PullSync {
   /// (`listLastReadAt: null` — the max() rule preserves the local value) and
   /// return the assembled [Conversation].
   Future<Conversation?> pullChat(String chatId) async {
-    final resp = await _client.getChatRaw(chatId);
+    final resp = await fetchChatRaw(chatId);
     if (resp == null) return null;
     final id = resp['id'] is String ? resp['id'] as String : chatId;
     return _locks.runExclusive(id, () async {
@@ -586,7 +592,34 @@ class PullSync {
     final id = resp['id'] as String;
     final createdAt = _asEpochSeconds(resp['created_at']) ?? 0;
     final updatedAt = _asEpochSeconds(resp['updated_at']) ?? 0;
-    final meta = resp['meta'];
+    final stored = await _db.chatsDao.getChat(id);
+    Map<String, dynamic> previous = const {};
+    if (stored != null) {
+      try {
+        final decoded = jsonDecode(stored.meta);
+        if (decoded is Map) previous = Map<String, dynamic>.from(decoded);
+      } on FormatException {
+        /* Treat malformed stored metadata as absent. */
+      }
+    }
+    final rawMeta = resp['meta'];
+    // Server metadata is authoritative when supplied, even when empty. Only
+    // the reserved checklist field survives a response that omits tasks.
+    final meta = rawMeta is Map
+        ? Map<String, dynamic>.from(rawMeta)
+        : Map<String, dynamic>.from(previous);
+    meta.remove('_conduit_tasks');
+    final tasks = resp['tasks'];
+    final fetchedAt = _taskVersionsAtFetch[resp];
+    final hasNewerTaskEvent =
+        fetchedAt != null && fetchedAt != _db.chatsDao.taskEventVersion(id);
+    if (tasks is List && !hasNewerTaskEvent) {
+      meta['_conduit_tasks'] = tasks;
+    } else {
+      final retainedTasks =
+          _db.chatsDao.pendingServerTasks(id) ?? previous['_conduit_tasks'];
+      if (retainedTasks != null) meta['_conduit_tasks'] = retainedTasks;
+    }
     final rowsParser = _rowsParseOffload;
     final rows =
         rowsParser != null &&
@@ -607,6 +640,12 @@ class PullSync {
       serverUpdatedAt: updatedAt,
       hasPendingCreateHashes: hasPendingCreateHashes,
     )) {
+      await _db.chatsDao.refreshServerEnvelope(
+        id,
+        meta: meta,
+        shareId: resp['share_id'] is String ? resp['share_id'] as String : null,
+      );
+      _db.chatsDao.clearPendingServerTasks(id);
       return false;
     }
 
@@ -617,12 +656,12 @@ class PullSync {
       server: rows,
       shareId: resp['share_id'] is String ? resp['share_id'] as String : null,
       userId: resp['user_id']?.toString(),
-      meta: meta is Map<String, dynamic>
-          ? meta
-          : (meta is Map ? Map<String, dynamic>.from(meta) : const {}),
+      meta: meta,
       listLastReadAt: listLastReadAt,
       refreshWhenClean: refreshWhenClean,
     );
+
+    _db.chatsDao.clearPendingServerTasks(id);
 
     // REQ 4: a merge that retained local-dirty content diverges from the
     // server, so it must be pushed. ChatsDao reasserts the updateChat op inside

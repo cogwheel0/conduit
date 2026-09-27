@@ -56,7 +56,10 @@ Map<String, dynamic> parseConversationSummary(Map<String, dynamic> chatData) {
     'model': chatData['model']?.toString(),
     'systemPrompt': systemPrompt,
     'messages': const <Map<String, dynamic>>[],
-    'metadata': _coerceJsonMap(chatData['metadata']),
+    'metadata': {
+      ..._coerceJsonMap(chatData['metadata']),
+      if (chatData['tasks'] is List) 'openwebui_tasks': chatData['tasks'],
+    },
     'pinned': pinned,
     'archived': archived,
     'shareId': shareId,
@@ -195,7 +198,10 @@ Map<String, dynamic> parseFullConversation(Map<String, dynamic> chatData) {
     'model': model,
     'systemPrompt': systemPrompt,
     'messages': messages,
-    'metadata': _coerceJsonMap(chatData['metadata']),
+    'metadata': {
+      ..._coerceJsonMap(chatData['metadata']),
+      if (chatData['tasks'] is List) 'openwebui_tasks': chatData['tasks'],
+    },
     'pinned': pinned,
     'archived': archived,
     'shareId': shareId,
@@ -483,6 +489,13 @@ Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
   );
   if (metadata['transport'] == 'hermesRun') {
     metadata.remove('transport');
+  }
+
+  if (role == 'assistant' &&
+      _extractErrorData(msgData, historyMsg) != null &&
+      !_isDirectTransport(metadata)) {
+    metadata['openwebuiRecoverableError'] =
+        (historyMsg?['done'] ?? msgData['done']) != true;
   }
 
   final rawParentId = historyMsg?['parentId'] ?? msgData['parentId'];

@@ -66,68 +66,140 @@ class FlutterUiRequests implements UiRequestPort {
     String message = '',
     String? placeholder,
     String? initialValue,
+    UiTextInputType inputType = UiTextInputType.text,
+    List<UiSelectOption> options = const [],
     String? confirmLabel,
     String? cancelLabel,
   }) async {
     final ctx = NavigationService.context;
     if (ctx == null) return null;
 
-    final controller = TextEditingController(text: initialValue ?? '');
-    final result = await ThemedDialogs.showCustom<String>(
+    return ThemedDialogs.showCustom<String>(
       context: ctx,
       barrierDismissible: false,
-      builder: (dialogCtx) {
-        return ThemedDialogs.buildBase(
-          context: dialogCtx,
-          title: title,
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (message.isNotEmpty) ...[
-                Text(
-                  message,
-                  style: AppTypography.bodyMediumStyle.copyWith(
-                    color: dialogCtx.conduitTheme.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: Spacing.md),
-              ],
-              AdaptiveTextField(
-                controller: controller,
-                autofocus: true,
-                placeholder: (placeholder == null || placeholder.isEmpty)
-                    ? 'Enter a value'
-                    : placeholder,
-                onSubmitted: (value) => Navigator.of(
-                  dialogCtx,
-                ).pop(value.trim().isEmpty ? null : value.trim()),
-              ),
-            ],
-          ),
-          actions: [
-            AdaptiveButton(
-              onPressed: () => Navigator.of(dialogCtx).pop(null),
-              label: cancelLabel ?? 'Cancel',
-              textColor: dialogCtx.conduitTheme.textSecondary,
-              style: AdaptiveButtonStyle.plain,
-            ),
-            AdaptiveButton(
-              onPressed: () {
-                final trimmed = controller.text.trim();
-                Navigator.of(dialogCtx).pop(trimmed.isEmpty ? null : trimmed);
-              },
-              label: confirmLabel ?? 'Submit',
-              textColor: dialogCtx.conduitTheme.buttonPrimary,
-              style: AdaptiveButtonStyle.plain,
-            ),
-          ],
-        );
-      },
+      builder: (_) => _TextInputDialog(
+        title: title,
+        message: message,
+        placeholder: placeholder,
+        initialValue: initialValue,
+        inputType: inputType,
+        options: options,
+        confirmLabel: confirmLabel,
+        cancelLabel: cancelLabel,
+      ),
     );
+  }
+}
 
-    controller.dispose();
-    final trimmed = result?.trim();
-    return (trimmed == null || trimmed.isEmpty) ? null : trimmed;
+class _TextInputDialog extends StatefulWidget {
+  const _TextInputDialog({
+    required this.title,
+    required this.message,
+    required this.placeholder,
+    required this.initialValue,
+    required this.inputType,
+    required this.options,
+    required this.confirmLabel,
+    required this.cancelLabel,
+  });
+
+  final String title;
+  final String message;
+  final String? placeholder;
+  final String? initialValue;
+  final UiTextInputType inputType;
+  final List<UiSelectOption> options;
+  final String? confirmLabel;
+  final String? cancelLabel;
+
+  @override
+  State<_TextInputDialog> createState() => _TextInputDialogState();
+}
+
+class _TextInputDialogState extends State<_TextInputDialog> {
+  late final _controller = TextEditingController(
+    text: widget.initialValue ?? '',
+  );
+  late final _choices = {
+    for (final option in widget.options) option.value: option.label,
+  };
+  late String? _selection = _choices.containsKey(widget.initialValue)
+      ? widget.initialValue
+      : null;
+  bool get _isSelect =>
+      widget.inputType == UiTextInputType.select && _choices.isNotEmpty;
+
+  String? _answer() {
+    final value = _isSelect ? _selection : _controller.text;
+    return value == null || value.isEmpty ? null : value;
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ThemedDialogs.buildBase(
+      context: context,
+      title: widget.title,
+      scrollable: true,
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (widget.message.isNotEmpty) ...[
+            Text(
+              widget.message,
+              style: AppTypography.bodyMediumStyle.copyWith(
+                color: context.conduitTheme.textSecondary,
+              ),
+            ),
+            const SizedBox(height: Spacing.md),
+          ],
+          if (_isSelect)
+            DropdownButtonFormField<String>(
+              initialValue: _selection,
+              isExpanded: true,
+              hint: widget.placeholder == null
+                  ? null
+                  : Text(widget.placeholder!),
+              items: [
+                for (final entry in _choices.entries)
+                  DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+              ],
+              onChanged: (value) => setState(() => _selection = value),
+            )
+          else
+            AdaptiveTextField(
+              controller: _controller,
+              obscureText: widget.inputType == UiTextInputType.password,
+              autocorrect: widget.inputType != UiTextInputType.password,
+              enableSuggestions: widget.inputType != UiTextInputType.password,
+              autofocus: true,
+              placeholder: widget.placeholder?.isNotEmpty == true
+                  ? widget.placeholder
+                  : 'Enter a value',
+              onSubmitted: (_) => Navigator.of(context).pop(_answer()),
+            ),
+        ],
+      ),
+      actions: [
+        AdaptiveButton(
+          onPressed: () => Navigator.of(context).pop(null),
+          label: widget.cancelLabel ?? 'Cancel',
+          textColor: context.conduitTheme.textSecondary,
+          style: AdaptiveButtonStyle.plain,
+        ),
+        AdaptiveButton(
+          onPressed: () => Navigator.of(context).pop(_answer()),
+          label: widget.confirmLabel ?? 'Submit',
+          textColor: context.conduitTheme.buttonPrimary,
+          style: AdaptiveButtonStyle.plain,
+        ),
+      ],
+    );
   }
 }

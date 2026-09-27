@@ -2,6 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/ports/ui_request_port.dart';
+import 'package:conduit/shared/services/flutter_ui_requests.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
+import 'package:conduit/shared/theme/app_theme.dart';
+import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -444,7 +450,8 @@ ActiveChatStream _attach({
   ApiAuthSnapshot? chatCompletedAuthSnapshot,
   Future<Conversation?> Function(String chatId)? pullChatSnapshot,
   void Function(String Function())? bufferProgressiveLastMessageSnapshot,
-  void Function(String path)? onTerminalDisplayFile,
+  void Function(String type, Map<String, dynamic> data)? onTerminalEvent,
+  UiRequestPort uiRequests = const NullUiRequestPort(),
   DateTime Function() clock = DateTime.now,
 }) {
   return attachUnifiedChunkedStreaming(
@@ -476,7 +483,8 @@ ActiveChatStream _attach({
     flushStreamingBuffer: flushStreamingBuffer ?? log.flushStreamingBuffer,
     ownsStreamContext: ownsStreamContext,
     pullChatSnapshot: pullChatSnapshot,
-    onTerminalDisplayFile: onTerminalDisplayFile,
+    onTerminalEvent: onTerminalEvent,
+    uiRequests: uiRequests,
   );
 }
 
@@ -622,10 +630,10 @@ class _MockSocketService implements SocketService {
 
 void main() {
   group('attachUnifiedChunkedStreaming transport dispatch', () {
-    test('terminal display_file events surface the requested path', () {
+    test('terminal events preserve file pages and changes', () {
       final log = _CallbackLog();
       final registrar = FakeSocketInjector();
-      final displayedPaths = <String>[];
+      final events = <(String, Map<String, dynamic>)>[];
 
       _attach(
         session: ChatCompletionSession.taskSocket(
@@ -635,18 +643,229 @@ void main() {
         ),
         log: log,
         socketService: _MockSocketService(registrar),
-        onTerminalDisplayFile: displayedPaths.add,
+        onTerminalEvent: (type, data) => events.add((type, data)),
       );
 
       registrar.emitChatEvent(
         'terminal:display_file',
-        const <String, dynamic>{'path': '/tmp/result.png'},
+        const <String, dynamic>{'path': '/tmp/result.pdf', 'page': 3},
         messageId: 'msg-1',
         sessionId: 'sess-1',
       );
 
-      check(displayedPaths).deepEquals(<String>['/tmp/result.png']);
+      for (final type in [
+        'terminal:write_file',
+        'terminal:replace_file_content',
+        'terminal:run_command',
+      ]) {
+        registrar.emitChatEvent(
+          type,
+          {'path': '/tmp/result.pdf'},
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+        );
+      }
+      check(events.first.$2).deepEquals({'path': '/tmp/result.pdf', 'page': 3});
+      check(events.map((event) => event.$1).toList()).deepEquals([
+        'terminal:display_file',
+        'terminal:write_file',
+        'terminal:replace_file_content',
+        'terminal:run_command',
+      ]);
     });
+
+    test(
+      'recoverable tool errors keep receiving output until terminal done',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+        final socket = _MockSocketService(registrar);
+        final now = DateTime.now();
+        final stream = _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: socket,
+          api: _buildFakeApi(
+            pollResponse: _serverConversationResponse(
+              messages: [
+                _serverAssistantMessage(
+                  content: 'Recovered output',
+                  done: false,
+                  error: const {'content': 'Failed to connect to MCP server'},
+                ),
+              ],
+            ),
+          ),
+          pullChatSnapshot: (_) async => Conversation(
+            id: 'conv-1',
+            title: 'Recovered',
+            createdAt: now,
+            updatedAt: now,
+            messages: [
+              ChatMessage(
+                id: 'msg-1',
+                role: 'assistant',
+                content: 'Recovered output after gap',
+                timestamp: now,
+                error: const ChatMessageError(
+                  content: 'Failed to connect to MCP server',
+                ),
+              ),
+            ],
+          ),
+        );
+        addTearDown(stream.disposeWatchdog);
+        registrar.emitChatEvent(
+          'chat:message:error',
+          {
+            'error': {'content': 'Failed to connect to MCP server'},
+          },
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+        );
+        check(log.messages.last.error!.content)
+            .equals('Failed to connect to MCP server');
+        check(log.finishCount).equals(0);
+        expect(
+          log.messages.last.metadata?['openwebuiRecoverableError'],
+          isTrue,
+        );
+        socket.reconnects.add(null);
+        await waitForCondition(
+          () => log.messages.last.content == 'Recovered output',
+          timeout: const Duration(seconds: 5),
+        );
+        check(log.finishCount).equals(0);
+        check(log.messages.last.isStreaming).isTrue();
+        registrar.emitReplayGap(SocketReplayGapReason.byteLimit);
+        await waitForCondition(
+          () => log.messages.last.content == 'Recovered output after gap',
+        );
+        check(log.messages.last.isStreaming).isTrue();
+        registrar.emitChatEvent(
+          'chat:message:delta',
+          {'content': 'Continuing with available tools.'},
+          messageId: 'msg-1',
+          sessionId: 'test-session',
+        );
+        check(log.messages.last.content)
+            .endsWith('Continuing with available tools.');
+        registrar.emitChatEvent(
+          'chat:message:error',
+          {
+            'error': {'content': 'Terminal failure'},
+            'done': true,
+          },
+          messageId: 'msg-1',
+          sessionId: 'test-session',
+        );
+        check(log.finishCount).equals(1);
+      },
+    );
+
+    test('compaction reports progress without ending the turn', () {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      final stream = _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+      addTearDown(stream.disposeWatchdog);
+      for (final done in [false, true]) {
+        registrar.emitChatEvent(
+          'context_compaction',
+          {
+            'action': 'context_compaction',
+            'description': done
+                ? 'Context compaction failed'
+                : 'Compacting context',
+            'done': done,
+            'error': done,
+          },
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+        );
+        check(log.messages.last.statusHistory.last.done).equals(done);
+      }
+      check(log.messages.last.statusHistory.last.description)
+          .equals('Context compaction failed');
+      check(log.finishCount).equals(0);
+    });
+
+    for (final type in ['password', 'select']) {
+      testWidgets(
+        'legacy $type input reaches the real dialog and acknowledges its exact value',
+        (tester) async {
+          await tester.pumpWidget(
+            MaterialApp(
+              navigatorKey: NavigationService.navigatorKey,
+              theme: AppTheme.light(TweakcnThemes.t3Chat),
+              home: const Scaffold(),
+            ),
+          );
+          final registrar = FakeSocketInjector();
+          final stream = _attach(
+            session: ChatCompletionSession.taskSocket(
+              messageId: 'msg-1',
+              sessionId: 'sess-1',
+              taskId: 'task-1',
+            ),
+            log: _CallbackLog(),
+            socketService: _MockSocketService(registrar),
+            uiRequests: const FlutterUiRequests(),
+          );
+          addTearDown(stream.disposeWatchdog);
+          final replies = <dynamic>[];
+          registrar.emitChatEvent(
+            'input',
+            {
+              'title': 'Tool input',
+              'type': 'text',
+              'input': {
+                'type': type,
+                'options': [
+                  'red',
+                  {'value': ' blue ', 'label': 'Blue label'},
+                ],
+              },
+            },
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            acknowledge: replies.add,
+          );
+          await tester.pumpAndSettle();
+          if (type == 'password') {
+            final field = tester.widget<EditableText>(
+              find.byType(EditableText),
+            );
+            expect(field.obscureText, isTrue);
+            expect(field.autocorrect, isFalse);
+            expect(field.enableSuggestions, isFalse);
+            await tester.enterText(find.byType(EditableText), ' secret ');
+          } else {
+            expect(find.byType(EditableText), findsNothing);
+            await tester.tap(find.byType(DropdownButtonFormField<String>));
+            await tester.pumpAndSettle();
+            await tester.tap(find.text('Blue label').last);
+            await tester.pumpAndSettle();
+          }
+          await tester.tap(find.text('Submit'));
+          await tester.pumpAndSettle();
+          expect(replies, [type == 'password' ? ' secret ' : ' blue ']);
+          stream.disposeWatchdog();
+          await tester.pump();
+        },
+      );
+    }
 
     test(
       'socket replay gaps request an authoritative conversation snapshot',
@@ -4480,6 +4699,7 @@ void main() {
               'content': 'Hello there.',
               'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
               'done': false,
+              'error': {'content': 'Recoverable tool error'},
               'isStreaming': true,
             },
           ],
@@ -6904,6 +7124,7 @@ void main() {
       // Then terminal error
       registrar.emitChatEvent('chat:message:error', {
         'error': {'content': 'Generation failed halfway'},
+        'done': true,
       });
 
       await pumpMicrotasks();

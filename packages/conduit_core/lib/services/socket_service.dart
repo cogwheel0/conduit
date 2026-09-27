@@ -1443,6 +1443,34 @@ class SocketService {
     final channelId = _extractChannelId(map);
     final messageId = _extractMessageId(map);
 
+    // These RPCs otherwise block the server while waiting for a browser runtime.
+    // Reply even when no chat is open, and consume them once before fan-out or
+    // replay can acknowledge the same call again.
+    final event = map['data'];
+    final type = event is Map ? event['type'] : null;
+    final unsupported = switch (type) {
+      'execute' => const <String, dynamic>{
+        'error':
+            'Conduit does not support client-side JavaScript execution. '
+            'Use a server-side tool or the Open WebUI browser client.',
+      },
+      'execute:python' => const <String, dynamic>{
+        'stdout': '',
+        'stderr':
+            'Conduit does not support client-side Python execution. '
+            'Configure a server-side Jupyter code interpreter or use the '
+            'Open WebUI browser client.',
+        'result': null,
+      },
+      _ => null,
+    };
+    if (unsupported != null &&
+        ackFn != null &&
+        (sessionId == null || sessionId == this.sessionId)) {
+      ackFn(unsupported);
+      return;
+    }
+
     for (final registration in List<_ChatEventRegistration>.from(
       _chatEventHandlers.values,
     )) {

@@ -1,3 +1,4 @@
+import 'package:pdfrx/pdfrx.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
@@ -388,41 +389,78 @@ class TerminalFilesSection extends StatelessWidget {
 Future<void> showTerminalFilePreview(
   BuildContext context,
   TerminalCoordinator coordinator,
-  TerminalFileEntry entry,
-) async {
+  TerminalFileEntry entry, {
+  int? page,
+  bool Function()? isCurrent,
+  void Function(ModalRoute<dynamic> route)? onShown,
+}) async {
   final operationContext = coordinator.captureOperationContext();
   if (operationContext == null) return;
   final preview = await coordinator.readEntry(operationContext, entry);
-  if (preview == null || !context.mounted) return;
+  if (preview == null || !context.mounted || isCurrent?.call() == false) {
+    return;
+  }
   final l10n = AppLocalizations.of(context)!;
 
-  await ThemedDialogs.show<void>(
-    context,
-    title: sanitizeUtf16(entry.displayName),
-    content: _terminalPreviewContent(context, l10n, preview),
-    actions: [
-      ConduitTextButton(
-        text: l10n.close,
-        onPressed: () => Navigator.of(context).pop(),
-      ),
-      ConduitTextButton(
-        text: l10n.download,
-        onPressed: () {
-          Navigator.of(context).pop();
-          coordinator.downloadEntry(operationContext, entry);
-        },
-        isPrimary: true,
-      ),
-    ],
+  final navigator = Navigator.of(context, rootNavigator: true);
+  if (!navigator.mounted) return;
+  final route = DialogRoute<void>(
+    context: context,
+    themes: InheritedTheme.capture(from: context, to: navigator.context),
+    builder: (dialogContext) {
+      return ThemedDialogs.buildBase(
+        context: dialogContext,
+        title: sanitizeUtf16(entry.displayName),
+        content: _terminalPreviewContent(
+          dialogContext,
+          l10n,
+          preview,
+          page: page,
+        ),
+        actions: [
+          ConduitTextButton(
+            text: l10n.close,
+            onPressed: () => Navigator.of(dialogContext).pop(),
+          ),
+          ConduitTextButton(
+            text: l10n.download,
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              coordinator.downloadEntry(operationContext, entry);
+            },
+            isPrimary: true,
+          ),
+        ],
+      );
+    },
   );
+  onShown?.call(route);
+  await navigator.push(route);
 }
 
 Widget _terminalPreviewContent(
   BuildContext context,
   AppLocalizations l10n,
-  TerminalFileReadResult preview,
-) {
+  TerminalFileReadResult preview, {
+  int? page,
+}) {
   final theme = context.conduitTheme;
+  if (preview.contentType.split(';').first == 'application/pdf' &&
+      preview.bytes != null) {
+    return SizedBox(
+      width: 520,
+      height: 360,
+      child: PdfViewer(
+        PdfDocumentRefData(
+          preview.bytes!,
+          sourceName: preview.fileName,
+          // A fresh read is a new file revision, even at the same server/path.
+          key: PdfDocumentRefKey(preview.fileName, [preview.bytes!]),
+        ),
+        initialPageNumber: page != null && page > 0 ? page : 1,
+      ),
+    );
+  }
   if (preview.isText) {
     return SizedBox(
       width: 520,

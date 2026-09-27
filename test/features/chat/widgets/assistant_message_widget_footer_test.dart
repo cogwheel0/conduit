@@ -929,28 +929,45 @@ void main() {
     },
   );
 
-  testWidgets('errored streaming message shows the action footer and error', (
-    tester,
-  ) async {
-    final message = ChatMessage(
-      id: 'assistant-errored-streaming',
-      role: 'assistant',
-      content: 'Partial answer',
-      timestamp: DateTime(2024, 1, 1),
-      isStreaming: true,
-      error: const ChatMessageError(content: 'boom'),
-    );
+  for (final recoverable in [false, true]) {
+    testWidgets(
+      'error footer follows recoverability $recoverable until completion',
+      (tester) async {
+        final message = ChatMessage(
+          id: 'assistant-errored-streaming',
+          role: 'assistant',
+          content: 'Partial answer',
+          timestamp: DateTime(2024, 1, 1),
+          isStreaming: true,
+          error: const ChatMessageError(content: 'boom'),
+          metadata: {'openwebuiRecoverableError': recoverable},
+        );
 
-    await tester.pumpWidget(
-      _buildAssistantHarness(message, isStreaming: true, isChatStreaming: true),
-    );
-    await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _buildAssistantHarness(
+            message,
+            isStreaming: true,
+            isChatStreaming: true,
+          ),
+        );
+        await tester.pumpAndSettle();
 
-    // error -> failed phase takes precedence over the still-set isStreaming
-    // flag: the action row and error banner surface.
-    expect(find.byKey(const ValueKey('actions')), findsOneWidget);
-    expect(find.text('boom'), findsOneWidget);
-  });
+        expect(
+          find.byKey(const ValueKey('actions')),
+          recoverable ? findsNothing : findsOneWidget,
+        );
+        expect(find.text('boom'), findsOneWidget);
+        await tester.pumpWidget(
+          _buildAssistantHarness(
+            message.copyWith(isStreaming: false),
+            isChatStreaming: false,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('actions')), findsOneWidget);
+      },
+    );
+  }
 
   testWidgets('a turn that fails mid-stream reveals the action footer', (
     tester,

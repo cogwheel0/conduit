@@ -1,3 +1,12 @@
+enum UiTextInputType { text, password, select }
+
+final class UiSelectOption {
+  const UiSelectOption({required this.value, required this.label});
+
+  final String value;
+  final String label;
+}
+
 /// How prominent a transient notice is.
 enum UiNoticeLevel { info, success, warning, error }
 
@@ -21,13 +30,15 @@ abstract interface class UiRequestPort {
     String? cancelLabel,
   });
 
-  /// Returns the trimmed text, or null when cancelled, left empty, or
+  /// Returns the entered value unchanged, or null when cancelled, left empty, or
   /// unanswerable.
   Future<String?> promptForText({
     required String title,
     String message,
     String? placeholder,
     String? initialValue,
+    UiTextInputType inputType = UiTextInputType.text,
+    List<UiSelectOption> options = const [],
     String? confirmLabel,
     String? cancelLabel,
   });
@@ -58,6 +69,8 @@ class NullUiRequestPort implements UiRequestPort {
     String message = '',
     String? placeholder,
     String? initialValue,
+    UiTextInputType inputType = UiTextInputType.text,
+    List<UiSelectOption> options = const [],
     String? confirmLabel,
     String? cancelLabel,
   }) async => null;

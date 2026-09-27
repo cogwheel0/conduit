@@ -125,6 +125,23 @@ class ServerChatReconcileEntry {
 class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   ChatsDao(super.db);
 
+  final _taskEventVersions = <String, int>{};
+  final _pendingTaskEvents = <String, String>{};
+
+  /// Events can precede the first local row. Keep them until a pull can store
+  /// them without creating a partial chat or advancing its server watermark.
+  List<dynamic>? pendingServerTasks(String chatId) {
+    final encoded = _pendingTaskEvents[chatId];
+    return encoded == null ? null : jsonDecode(encoded) as List<dynamic>;
+  }
+
+  /// Called under the chat lock after a successful pull merge.
+  void clearPendingServerTasks(String chatId) =>
+      _pendingTaskEvents.remove(chatId);
+
+  /// A fetch uses this token to avoid overwriting events received while it ran.
+  int taskEventVersion(String chatId) => _taskEventVersions[chatId] ?? 0;
+
   /// NARROW projection (REQ §10.2): selectOnly() with exactly the
   /// [ChatListEntry] columns — payload/rawExtra/blobMeta/meta MUST NOT appear
   /// in the SQL. WHERE deleted = false; ORDER BY updatedAt DESC, id ASC.
@@ -312,7 +329,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     /// whole server response.
     String? shareId,
     String? userId,
-    Map<String, dynamic> meta = const {},
+    Map<String, dynamic>? meta,
     int? listLastReadAt,
 
     /// Apply the server's copy to a clean row even when its `updated_at`
@@ -328,6 +345,8 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     final serverChat = server.chat;
     return transaction(() async {
       final existing = await getChat(serverChat.id);
+      // Null is omitted metadata; an explicit empty map clears server tags.
+      final resolvedMeta = meta ?? _decodeMeta(existing?.meta ?? '{}');
 
       // First sync for this id, OR a never-synced envelope stub
       // (serverUpdatedAt == null). Clean stubs can fast-forward to the full
@@ -362,7 +381,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             rows: result.merged,
             shareId: shareId,
             userId: userId,
-            meta: meta,
+            meta: resolvedMeta,
             listLastReadAt: listLastReadAt,
             existingLastReadAt: existing.lastReadAt,
             serverUpdatedAt: result.newServerUpdatedAt,
@@ -381,7 +400,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           rows: server,
           shareId: shareId,
           userId: userId,
-          meta: meta,
+          meta: resolvedMeta,
           listLastReadAt: listLastReadAt,
           existingLastReadAt: existing?.lastReadAt,
           serverUpdatedAt: serverChat.updatedAt,
@@ -429,7 +448,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           rows: server,
           shareId: shareId,
           userId: userId,
-          meta: meta.isEmpty ? _decodeMeta(existing.meta) : meta,
+          meta: resolvedMeta,
           listLastReadAt: listLastReadAt,
           existingLastReadAt: existing.lastReadAt,
           serverUpdatedAt: base,
@@ -449,7 +468,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           // so either change looks like no change at all. Without this a
           // tag or a share made anywhere never reached a chat that had
           // already been pulled once.
-          await _refreshEnvelopeIfChanged(existing, meta, shareId);
+          await _refreshEnvelopeIfChanged(existing, resolvedMeta, shareId);
           return _mergeResultWithUpdateOpIfMissing(
             serverChat.id,
             ChatMergeWriteResult(
@@ -462,7 +481,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             rows: result.merged,
             shareId: shareId,
             userId: userId,
-            meta: meta,
+            meta: resolvedMeta,
             listLastReadAt: listLastReadAt,
             existingLastReadAt: existing.lastReadAt,
             serverUpdatedAt: result.newServerUpdatedAt,
@@ -480,7 +499,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             rows: result.merged,
             shareId: shareId,
             userId: userId,
-            meta: meta,
+            meta: resolvedMeta,
             listLastReadAt: listLastReadAt,
             existingLastReadAt: existing.lastReadAt,
             serverUpdatedAt: result.newServerUpdatedAt,
@@ -498,6 +517,21 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     });
   }
 
+  /// Completes the envelope after create recovery remaps the local rows.
+  /// Caller holds the chat lock; message/dirty/outbox state stays untouched.
+  Future<void> refreshServerEnvelope(
+    String chatId, {
+    required Map<String, dynamic> meta,
+    String? shareId,
+  }) {
+    return transaction(() async {
+      final existing = await getChat(chatId);
+      if (existing != null) {
+        await _refreshEnvelopeIfChanged(existing, meta, shareId);
+      }
+    });
+  }
+
   static Map<String, dynamic> _decodeMeta(String stored) {
     try {
       final decoded = jsonDecode(stored);
@@ -510,10 +544,8 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// Caller is inside [mergeServerChat]'s transaction. Writes the server's
   /// `meta` and share id over the stored ones when they differ.
   ///
-  /// An empty [meta] is left alone: a caller with no meta to give passes the
-  /// default `{}`, which is not the server saying the chat has none. The
-  /// share id has no such ambiguity -- the pull passes the server's
-  /// `share_id` as it is, and null there means the link was deleted.
+  /// Omitted metadata is resolved before this method; an empty map here is
+  /// authoritative. A null share id means the link was deleted.
   Future<void> _refreshEnvelopeIfChanged(
     ChatRow existing,
     Map<String, dynamic> meta,
@@ -528,8 +560,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     // Structurally, not as text: the same map encoded in a different key
     // order would otherwise rewrite the row, and wake every list watcher, on
     // every pull of every chat.
-    final metaChanged =
-        meta.isNotEmpty && !const DeepCollectionEquality().equals(stored, meta);
+    final metaChanged = !const DeepCollectionEquality().equals(stored, meta);
     final shareChanged = shareId != existing.shareId;
     if (!metaChanged && !shareChanged) return;
     await (update(chats)..where((t) => t.id.equals(existing.id))).write(
@@ -834,6 +865,35 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         updatedAt: updatedAt,
       ),
     );
+  }
+
+  /// Stores a checklist event without changing body, dirty state or watermark.
+  /// The caller serializes this with pulls through the chat lock.
+  Future<void> updateServerTasks(
+    String chatId,
+    List<Map<String, dynamic>> tasks,
+  ) {
+    _taskEventVersions[chatId] = taskEventVersion(chatId) + 1;
+    return transaction(() async {
+      final existing = await getChat(chatId);
+      if (existing == null) {
+        _pendingTaskEvents[chatId] = jsonEncode(tasks);
+        return;
+      }
+      final meta = Map<String, dynamic>.from(_decodeMeta(existing.meta));
+      if (const DeepCollectionEquality().equals(
+        meta['_conduit_tasks'],
+        tasks,
+      )) {
+        _pendingTaskEvents.remove(chatId);
+        return;
+      }
+      meta['_conduit_tasks'] = tasks;
+      await (update(chats)..where((t) => t.id.equals(chatId))).write(
+        ChatsCompanion(meta: Value(jsonEncode(meta))),
+      );
+      _pendingTaskEvents.remove(chatId);
+    });
   }
 
   /// Persists a server-generated title in both the list envelope and the

@@ -4647,5 +4647,21 @@
   "sharedBadge": "共有済み",
   "sharedFolderOwner": "{name} が共有",
   "@sharedFolderOwner": {"description": "Owner label on a folder another user shared with this account.", "placeholders": {"name": {"type": "String", "example": "Alex"}}},
-  "transcribingAudio": "文字起こし中..."
+  "transcribingAudio": "文字起こし中...",
+  "chatTaskProgress": "タスク: {total} 件中 {completed} 件完了",
+  "@chatTaskProgress": {
+    "description": "Summary of the Open WebUI task checklist above the chat composer.",
+    "placeholders": {
+      "completed": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatTaskPending": "未着手",
+  "chatTaskInProgress": "進行中",
+  "chatTaskCompleted": "完了",
+  "chatTaskCancelled": "キャンセル済み"
 }

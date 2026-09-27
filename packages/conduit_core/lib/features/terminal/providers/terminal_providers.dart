@@ -310,19 +310,50 @@ final terminalSidebarPanelProvider =
       TerminalSidebarPanelNotifier.new,
     );
 
-class TerminalDisplayFileNotifier extends Notifier<String?> {
-  @override
-  String? build() => null;
+final class TerminalFileRequest {
+  const TerminalFileRequest(this.path, {this.page});
 
-  void show(String path) {
-    state = null;
-    state = path;
+  final String path;
+  final int? page;
+}
+
+class TerminalDisplayFileNotifier extends Notifier<TerminalFileRequest?> {
+  @override
+  TerminalFileRequest? build() {
+    ref.watch(terminalSessionScopeIdProvider);
+    ref.watch(terminalServiceProvider);
+    return null;
+  }
+
+  void show(String path, {int? page}) {
+    state = TerminalFileRequest(
+      path,
+      page: page != null && page > 0 ? page : null,
+    );
+  }
+
+  void handleEvent(String type, Map<String, dynamic> data) {
+    final path = data['path'] is String ? (data['path'] as String).trim() : '';
+    if (type == 'terminal:display_file') {
+      if (path.isEmpty) return;
+      final rawPage = data['page'];
+      final page = rawPage is int ? rawPage : int.tryParse('$rawPage');
+      show(path, page: page);
+    } else if (type == 'terminal:write_file' ||
+        type == 'terminal:replace_file_content' ||
+        type == 'terminal:run_command') {
+      if (type != 'terminal:run_command' && path.isEmpty) return;
+      ref
+          .read(terminalCurrentPathProvider.notifier)
+          .set(type == 'terminal:run_command' ? '/' : parentTerminalPath(path));
+      ref.read(terminalBrowserRefreshTokenProvider.notifier).increment();
+    }
   }
 
   void clear() => state = null;
 }
 
 final terminalDisplayFileProvider =
-    NotifierProvider<TerminalDisplayFileNotifier, String?>(
+    NotifierProvider<TerminalDisplayFileNotifier, TerminalFileRequest?>(
       TerminalDisplayFileNotifier.new,
     );

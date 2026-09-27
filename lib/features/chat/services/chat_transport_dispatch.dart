@@ -420,13 +420,16 @@ Future<bool> dispatchChatTransport({
         } catch (_) {}
       });
     },
-    onTerminalDisplayFile: (path) {
+    onTerminalEvent: (type, data) {
       if (!ownsConversation()) return;
-      ref.read(sidebarActiveTabProvider.notifier).set(SidebarTabId.terminal);
-      ref
-          .read(terminalSidebarPanelProvider.notifier)
-          .setPanel(TerminalSidebarPanel.files);
-      ref.read(terminalDisplayFileProvider.notifier).show(path);
+      if (type == 'terminal:display_file' &&
+          (data['path']?.toString().trim().isNotEmpty ?? false)) {
+        ref.read(sidebarActiveTabProvider.notifier).set(SidebarTabId.terminal);
+        ref
+            .read(terminalSidebarPanelProvider.notifier)
+            .setPanel(TerminalSidebarPanel.files);
+      }
+      ref.read(terminalDisplayFileProvider.notifier).handleEvent(type, data);
     },
     onInteractivePrompt: (type, data, acknowledge) {
       final conversationId = activeConversationId;

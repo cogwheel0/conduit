@@ -3345,5 +3345,21 @@
   "sharedBadge": "Общий",
   "sharedFolderOwner": "Поделился {name}",
   "@sharedFolderOwner": {"description": "Owner label on a folder another user shared with this account.", "placeholders": {"name": {"type": "String", "example": "Alex"}}},
-  "transcribingAudio": "Расшифровка..."
+  "transcribingAudio": "Расшифровка...",
+  "chatTaskProgress": "Задачи: выполнено {completed} из {total}",
+  "@chatTaskProgress": {
+    "description": "Summary of the Open WebUI task checklist above the chat composer.",
+    "placeholders": {
+      "completed": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatTaskPending": "Ожидает",
+  "chatTaskInProgress": "Выполняется",
+  "chatTaskCompleted": "Выполнено",
+  "chatTaskCancelled": "Отменено"
 }

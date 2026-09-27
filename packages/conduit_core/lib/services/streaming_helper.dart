@@ -550,7 +550,7 @@ Future<void> _handleReconnectRecovery({
     // Open WebUI persists the in-progress assistant with `done: false` and no
     // `isStreaming` key, so a missing flag says nothing about completion.
     // Inferring "done" from it here finished a live stream the moment the app
-    // came back to the foreground; only an explicit done/error is terminal.
+    // came back to the foreground; only an explicit done marker is terminal.
     final result = await pollServerForMessage(
       inferDoneFromMissingStreaming: false,
     );
@@ -620,7 +620,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   updateMessageById,
   void Function(String newTitle)? onChatTitleUpdated,
   void Function()? onChatTagsUpdated,
-  void Function(String path)? onTerminalDisplayFile,
+  void Function(String type, Map<String, dynamic> data)? onTerminalEvent,
   void Function(
     String type,
     Map<String, dynamic> data,
@@ -2126,10 +2126,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       // Check completion status
       final isDone =
           serverMsg['done'] == true ||
-          errorContent != null ||
           (inferDoneFromMissingStreaming &&
+              serverMsg['done'] != false &&
               serverMsg['isStreaming'] != true &&
-              content.isNotEmpty);
+              (content.isNotEmpty || errorContent != null));
 
       return (
         content: content,
@@ -2352,6 +2352,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             content: shouldAdoptContent && !isVisibleTarget ? content : null,
             output: shouldAdoptOutput ? output : null,
             followUps: followUps.isNotEmpty ? followUps : null,
+            metadata: errorContent == null
+                ? null
+                : {'openwebuiRecoverableError': !isDone},
+            mergeMetadata: true,
             error: errorContent == null
                 ? null
                 : errorContent.isNotEmpty
@@ -2493,7 +2497,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               ? assistant.sources
               : current.sources;
           final authoritativeTerminal =
-              assistant.error != null ||
               assistant.metadata?['responseDone'] == true;
           final preserveActiveLocalStream =
               current.isStreaming && !authoritativeTerminal;
@@ -2528,7 +2531,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 : null,
             // Persisted Open WebUI snapshots commonly omit the transient
             // streaming flag. During replay-gap recovery, preserve an active
-            // local task until an explicit terminal marker/error or the normal
+            // local task until an explicit terminal marker or the normal
             // completion watchdog authoritatively settles it.
             isStreaming: recoverAuthoritativeState
                 ? recoveredStreamingState
@@ -2581,10 +2584,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         last.codeExecutions.isNotEmpty ||
         last.sources.isNotEmpty;
     final hasTerminalState =
-        last.error != null ||
-        (allowContentOnlyTerminal &&
-            (comparisonSnapshot.comparisonContent.trim().isNotEmpty ||
-                hasNonTextTerminalArtifacts));
+        allowContentOnlyTerminal &&
+        (last.error != null ||
+            comparisonSnapshot.comparisonContent.trim().isNotEmpty ||
+            hasNonTextTerminalArtifacts);
     if (!hasTerminalState) {
       return false;
     }
@@ -3278,6 +3281,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         return true;
 
       case 'status':
+      case 'context_compaction':
         if (payload == null) {
           return false;
         }
@@ -3514,18 +3518,17 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         );
       }
 
-      if (type == 'terminal:display_file' && payload is Map) {
+      if (type is String && type.startsWith('terminal:') && payload is Map) {
         if (resolveTargetMessageIdForStream(
               messageId,
-              eventType: 'terminal:display_file',
+              eventType: type,
               incomingSessionId: incomingSessionId,
               allowBindingForeignMessage: true,
             ) ==
             null) {
           return;
         }
-        final path = payload['path']?.toString().trim() ?? '';
-        if (path.isNotEmpty) onTerminalDisplayFile?.call(path);
+        onTerminalEvent?.call(type, Map<String, dynamic>.from(payload));
         return;
       }
 
@@ -3677,11 +3680,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             );
           }
         }
-      } else if (type == 'status' && payload != null) {
+      } else if ((type == 'status' || type == 'context_compaction') &&
+          payload != null) {
         final statusMap = _asStringMap(payload);
         final targetId = resolveTargetMessageIdForStream(
           messageId,
-          eventType: 'status',
+          eventType: type.toString(),
           incomingSessionId: incomingSessionId,
           allowBindingForeignMessage: true,
         );
@@ -3900,20 +3904,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             ack(false);
           }
         }
-      } else if (type == 'execute' && payload != null) {
-        if (!matchesCurrentStreamSession(incomingSessionId)) {
-          return;
-        }
-        // The backend sends JavaScript code for the web client to eval.
-        // Flutter can't execute JS, so we return null (not an error object)
-        // to let the pipe/function continue with its default behavior.
-        if (ack != null) {
-          try {
-            // Return empty string result (mimics JS code evaluating to
-            // undefined). Returning null or {error:...} causes pipes to abort.
-            ack('');
-          } catch (_) {}
-        }
       } else if (type == 'input' && payload != null) {
         if (!matchesCurrentStreamSession(incomingSessionId)) {
           return;
@@ -3921,12 +3911,31 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         if (ack != null) {
           final map = _asStringMap(payload);
           if (map != null) {
+            final input = _asStringMap(map['input']);
+            final rawOptions = input?['options'] ?? map['options'];
             () async {
               final response = await uiRequests.promptForText(
                 title: map['title']?.toString() ?? 'Input Required',
                 message: map['message']?.toString() ?? '',
                 placeholder: map['placeholder']?.toString(),
                 initialValue: map['value']?.toString(),
+                inputType: switch ((input?['type'] ?? map['type'])
+                    ?.toString()) {
+                  'password' => UiTextInputType.password,
+                  'select' => UiTextInputType.select,
+                  _ => UiTextInputType.text,
+                },
+                options: [
+                  for (final option
+                      in rawOptions is List ? rawOptions : const [])
+                    if (option is String)
+                      UiSelectOption(value: option, label: option)
+                    else if (option is Map && option['value'] is String)
+                      UiSelectOption(
+                        value: option['value'] as String,
+                        label: (option['label'] ?? option['value']).toString(),
+                      ),
+                ],
                 confirmLabel: map['confirm_text']?.toString(),
                 cancelLabel: map['cancel_text']?.toString(),
               );
@@ -3975,17 +3984,22 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                   ? ChatMessageError(content: errorContent)
                   : const ChatMessageError(content: null),
               statusHistory: filtered,
+              metadata: {
+                ...?message.metadata,
+                'openwebuiRecoverableError':
+                    payload is! Map || payload['done'] != true,
+              },
             );
           });
         } catch (_) {}
-        // Paired removal: a terminal error means no `chat:active{false}` may
-        // arrive for this chat, so clear the sidebar spinner directly instead
-        // of stranding it (mirrors the cancel branch + the optimistic START).
-        if (activeConversationId != null && activeConversationId.isNotEmpty) {
-          onChatActiveChanged?.call(activeConversationId, false);
+        // Tool setup can report a recoverable error and continue generation.
+        // Only an explicit terminal error ends the response in Open WebUI.
+        if (payload is Map && payload['done'] == true) {
+          if (activeConversationId != null && activeConversationId.isNotEmpty) {
+            onChatActiveChanged?.call(activeConversationId, false);
+          }
+          wrappedFinishStreaming();
         }
-        // Ensure UI exits streaming state
-        wrappedFinishStreaming();
       } else if ((type == 'chat:message:delta' || type == 'message') &&
           payload != null) {
         if (resolveTargetMessageIdForStream(
@@ -4115,18 +4129,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             }
           }
         } catch (_) {}
-      } else if (type == 'execute:python' && payload != null) {
-        if (!matchesCurrentStreamSession(incomingSessionId)) {
-          return;
-        }
-        // Pyodide code execution request. Flutter can't run Python,
-        // so return an empty result (not an error) to let the pipe
-        // continue with its default behavior.
-        if (ack != null) {
-          try {
-            ack({'stdout': '', 'stderr': '', 'result': null});
-          } catch (_) {}
-        }
       } else if (type == 'execute:tool' && payload != null) {
         // Show an executing tile immediately; also surface any inline files/result
         try {

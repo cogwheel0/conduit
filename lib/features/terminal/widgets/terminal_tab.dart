@@ -59,10 +59,16 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _coordinator.start();
     });
-    ref.listenManual<String?>(terminalDisplayFileProvider, (_, path) {
-      if (path == null) return;
+    ref.listenManual<TerminalFileRequest?>(terminalDisplayFileProvider, (
+      _,
+      request,
+    ) {
+      final route = _displayRoute;
+      _displayRoute = null;
+      if (route?.isActive == true) route!.navigator?.removeRoute(route);
+      if (request == null) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(_displayFile(path));
+        if (mounted) unawaited(_displayFile(request));
       });
     }, fireImmediately: true);
   }
@@ -76,6 +82,12 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
 
     if (widget.isActive) {
       _coordinator.activate();
+      final request = ref.read(terminalDisplayFileProvider);
+      if (request != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) unawaited(_displayFile(request));
+        });
+      }
       return;
     }
 
@@ -104,6 +116,12 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   void _handleControllerChanged() {
     if (mounted) {
       setState(() {});
+      final request = ref.read(terminalDisplayFileProvider);
+      if (request != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) unawaited(_displayFile(request));
+        });
+      }
     }
   }
 
@@ -165,9 +183,30 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
         ?.showSnackBar(SnackBar(content: Text(sanitizeUtf16(message))));
   }
 
-  Future<void> _displayFile(String requestedPath) async {
-    ref.read(terminalDisplayFileProvider.notifier).clear();
-    final path = normalizeTerminalPath(requestedPath);
+  TerminalFileRequest? _displayingRequest;
+  ModalRoute<dynamic>? _displayRoute;
+
+  Future<void> _displayFile(TerminalFileRequest request) async {
+    // Discovery and fallback selection can still be loading when the event
+    // first mounts this tab. Controller updates retry the pending request.
+    if (!widget.isActive ||
+        _coordinator.loadingFiles ||
+        _coordinator.loadingPorts ||
+        _coordinator.captureOperationContext() == null ||
+        _displayingRequest == request ||
+        ref.read(terminalDisplayFileProvider) != request) {
+      return;
+    }
+    _displayingRequest = request;
+    try {
+      await _showRequestedFile(request);
+    } finally {
+      if (_displayingRequest == request) _displayingRequest = null;
+    }
+  }
+
+  Future<void> _showRequestedFile(TerminalFileRequest request) async {
+    final path = normalizeTerminalPath(request.path);
     await _coordinator.navigateTo(parentTerminalPath(path));
     if (!mounted) return;
 
@@ -185,7 +224,21 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
       path: path,
       isDirectory: false,
     );
-    await showTerminalFilePreview(context, _coordinator, entry);
+    if (ref.read(terminalDisplayFileProvider) != request) return;
+    await showTerminalFilePreview(
+      context,
+      _coordinator,
+      entry,
+      page: request.page,
+      onShown: (route) => _displayRoute = route,
+      isCurrent: () =>
+          mounted && ref.read(terminalDisplayFileProvider) == request,
+    );
+    // Read failures are handled by the coordinator. Consume the attempt so a
+    // later tab activation cannot unexpectedly reopen an old failed request.
+    if (mounted && ref.read(terminalDisplayFileProvider) == request) {
+      ref.read(terminalDisplayFileProvider.notifier).clear();
+    }
   }
 
   @override

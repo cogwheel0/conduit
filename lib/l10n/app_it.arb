@@ -3307,5 +3307,21 @@
   "sharedBadge": "Condivisa",
   "sharedFolderOwner": "Condiviso da {name}",
   "@sharedFolderOwner": {"description": "Owner label on a folder another user shared with this account.", "placeholders": {"name": {"type": "String", "example": "Alex"}}},
-  "transcribingAudio": "Trascrizione in corso..."
+  "transcribingAudio": "Trascrizione in corso...",
+  "chatTaskProgress": "Attività: {completed} di {total} completate",
+  "@chatTaskProgress": {
+    "description": "Summary of the Open WebUI task checklist above the chat composer.",
+    "placeholders": {
+      "completed": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatTaskPending": "In attesa",
+  "chatTaskInProgress": "In corso",
+  "chatTaskCompleted": "Completata",
+  "chatTaskCancelled": "Annullata"
 }

@@ -3307,5 +3307,21 @@
   "sharedBadge": "已分享",
   "sharedFolderOwner": "由 {name} 分享",
   "@sharedFolderOwner": {"description": "Owner label on a folder another user shared with this account.", "placeholders": {"name": {"type": "String", "example": "Alex"}}},
-  "transcribingAudio": "正在转录..."
+  "transcribingAudio": "正在转录...",
+  "chatTaskProgress": "任务：已完成 {completed}/{total}",
+  "@chatTaskProgress": {
+    "description": "Summary of the Open WebUI task checklist above the chat composer.",
+    "placeholders": {
+      "completed": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatTaskPending": "待处理",
+  "chatTaskInProgress": "进行中",
+  "chatTaskCompleted": "已完成",
+  "chatTaskCancelled": "已取消"
 }

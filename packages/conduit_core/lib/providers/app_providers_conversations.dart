@@ -544,6 +544,48 @@ class Conversations extends _$Conversations {
     updateConversation(id, transform);
   }
 
+  /// Task events have their own persistence signal: the server does not bump
+  /// the chat body timestamp when changing its checklist.
+  void applyServerTasks(String serverId, List<Map<String, dynamic>> tasks) {
+    final identity = ChatStorageIdentity.parse(serverId);
+    if (identity.rawId.isEmpty ||
+        identity.storage == ChatStorageKind.directLocal) {
+      return;
+    }
+    final scopedId = ChatStorageIdentity(
+      rawId: identity.rawId,
+      storage: ChatStorageKind.openWebUi,
+    ).scopedId;
+    final active = ref.read(activeConversationProvider);
+    if (active != null && conversationMatchesScopedId(active, scopedId)) {
+      ref
+          .read(activeConversationProvider.notifier)
+          .set(
+            active.copyWith(
+              metadata: {...active.metadata, 'openwebui_tasks': tasks},
+            ),
+          );
+    }
+    final db = ref.read(appDatabaseProvider);
+    if (db == null || isTemporaryChat(identity.rawId)) return;
+    final locks = ref.read(chatLocksProvider);
+    unawaited(
+      locks
+          .runExclusive(
+            identity.rawId,
+            () => db.chatsDao.updateServerTasks(identity.rawId, tasks),
+          )
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'task-checklist-write-failed',
+              scope: 'conversations',
+              error: error,
+              stackTrace: stackTrace,
+            );
+          }),
+    );
+  }
+
   /// Applies Open WebUI's `chat:title` event without changing `updatedAt`.
   ///
   /// Title generation updates the server row and blob but does not advance the

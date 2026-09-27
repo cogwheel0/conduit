@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
@@ -31,6 +33,23 @@ Map<String, dynamic> blobFor(String id, {int messageCount = 2}) {
     'models': ['llama3'],
     'history': {'messages': messages, 'currentId': '$id-m$messageCount'},
   };
+}
+
+class _ChecklistClient extends FakeSyncApiClient {
+  _ChecklistClient(super.server);
+
+  Map<String, dynamic> fields = {};
+  Future<void> Function()? afterSnapshot;
+
+  @override
+  Future<Map<String, dynamic>?> getChatRaw(String id) async {
+    final raw = await super.getChatRaw(id);
+    if (raw == null) return null;
+    final snapshot = {...raw, ...fields};
+    if (!fields.containsKey('meta')) snapshot.remove('meta');
+    await afterSnapshot?.call();
+    return snapshot;
+  }
 }
 
 class _MalformedFullMainListClient extends FakeSyncApiClient {
@@ -553,6 +572,92 @@ void main() {
     });
   });
 
+  group('checklist persistence', () {
+    const pending = [
+      {'id': '1', 'content': 'Read references', 'status': 'pending'},
+    ];
+    const completed = [
+      {'id': '1', 'content': 'Read references', 'status': 'completed'},
+    ];
+
+    Future<_ChecklistClient> setupChecklist({bool existing = true}) async {
+      server.seedChat(
+        id: 'chat-1',
+        blob: blobFor('chat-1'),
+        createdAt: 100,
+        updatedAt: 150,
+      );
+      final checklistClient = _ChecklistClient(server)
+        ..fields = {
+          'meta': {
+            'tags': ['old'],
+          },
+          'tasks': pending,
+        };
+      pull = PullSync(client: checklistClient, db: db, locks: locks);
+      if (existing) await pull.pullChat('chat-1');
+      return checklistClient;
+    }
+
+    test('explicit empty metadata removes tags while omitted metadata preserves them', () async {
+      final checklistClient = await setupChecklist();
+      checklistClient.fields = {'tasks': completed};
+      await pull.pullChat('chat-1');
+      expect(jsonDecode((await db.chatsDao.getChat('chat-1'))!.meta)['tags'], [
+        'old',
+      ]);
+      checklistClient.fields = {
+        'meta': <String, dynamic>{},
+        'tasks': completed,
+      };
+      final reloaded = (await pull.pullChat('chat-1'))!;
+      expect(reloaded.tags, isEmpty);
+      expect(reloaded.metadata['openwebui_tasks'], completed);
+      checklistClient.fields = {'meta': <String, dynamic>{}, 'updated_at': 151};
+      final withoutTasks = (await pull.pullChat('chat-1'))!;
+      expect(withoutTasks.tags, isEmpty);
+      expect(withoutTasks.metadata['openwebui_tasks'], completed);
+    });
+
+    for (final existing in [true, false]) {
+      for (final mode in ['single', 'cycle', 'adapter']) {
+        test(
+          '$mode pull with existing=$existing cannot overwrite task events received during its fetch',
+          () async {
+            final checklistClient = await setupChecklist(existing: existing);
+            checklistClient.afterSnapshot = () => locks.runExclusive(
+              'chat-1',
+              () => db.chatsDao.updateServerTasks('chat-1', completed),
+            );
+            for (var attempt = 0; attempt < 2; attempt++) {
+              if (mode == 'single') {
+                await pull.pullChat('chat-1');
+              } else if (mode == 'cycle') {
+                await pull.run();
+              } else {
+                final snapshot = (await pull.fetchChatRaw('chat-1'))!;
+                await pull.mergeChatResponseForAdapter(snapshot);
+              }
+              expect(
+                jsonDecode(
+                  (await db.chatsDao.getChat('chat-1'))!.meta,
+                )['_conduit_tasks'],
+                completed,
+              );
+            }
+            // With no intervening event, an authoritative reset must still apply.
+            checklistClient.afterSnapshot = null;
+            checklistClient.fields = {'tasks': <Map<String, dynamic>>[]};
+            expect(
+              (await pull.pullChat('chat-1'))!.metadata['openwebui_tasks'],
+              isEmpty,
+            );
+          },
+        );
+      }
+    }
+  });
+
   group('PullSync.pullChat', () {
     test('404 returns null and leaves local state untouched', () async {
       check(await pull.pullChat('missing')).isNull();
@@ -905,8 +1010,17 @@ void main() {
         'duplicating, and drops the op', () async {
       final remapper = IdRemapper(db);
       addTearDown(remapper.dispose);
+      final checklistClient = _ChecklistClient(server)
+        ..fields = {
+          'meta': {
+            'tags': ['recovered'],
+          },
+          'tasks': [
+            {'id': '1', 'content': 'Check result', 'status': 'pending'},
+          ],
+        };
       final healingPull = PullSync(
-        client: client,
+        client: checklistClient,
         db: db,
         locks: locks,
         remapper: remapper,
@@ -938,6 +1052,13 @@ void main() {
       final serverId = serverResp['id'] as String;
       check(serverId.startsWith('local:')).isFalse();
 
+      checklistClient.afterSnapshot = () => locks.runExclusive(
+        serverId,
+        () => db.chatsDao.updateServerTasks(serverId, [
+          {'id': '1', 'content': 'Check result', 'status': 'completed'},
+        ]),
+      );
+
       // 3. A pull sees the new server chat. The heal must remap, not duplicate.
       final result = await healingPull.run();
       check(result.success).isTrue();
@@ -952,6 +1073,13 @@ void main() {
       check(await db.outboxDao.pendingForChat(serverId)).isEmpty();
       // And only ONE chat exists server-side (no duplicate was minted).
       check(server.getChatById(serverId)).isNotNull();
+      final persistedMeta = jsonDecode(
+        (await db.chatsDao.getChat(serverId))!.meta,
+      );
+      expect(persistedMeta['tags'], ['recovered']);
+      expect(persistedMeta['_conduit_tasks'], [
+        {'id': '1', 'content': 'Check result', 'status': 'completed'},
+      ]);
     });
 
     test('a non-matching content hash does NOT heal (normal merge)', () async {
