@@ -204,7 +204,7 @@ void main() {
             },
           ],
         },
-      });
+      }, responseStart: 3);
 
       check(output).length.equals(4);
       check((output.first['content'] as List).single['text'])
@@ -281,7 +281,7 @@ void main() {
             },
           ],
         },
-      });
+      }, responseStart: 1);
 
       check(
         output.map((item) => (item['content'] as List).single['text']).toList(),
@@ -306,6 +306,76 @@ void main() {
 
       check(output.map((item) => item['id']).toList())
           .deepEquals(['a', 'x', 'b']);
+    });
+
+    test('an id-less streamed item pairs whatever its status', () {
+      // output_item.done can mark the streamed item completed before the
+      // terminal event arrives; it still belongs to this response.
+      final streamed = <Map<String, dynamic>>[
+        {'type': 'function_call', 'id': 'fc_1', 'call_id': 'call_1'},
+        {'type': 'function_call_output', 'id': 'fco_1', 'call_id': 'call_1'},
+        {'type': 'message', 'status': 'completed', 'content': <Object?>[]},
+      ];
+      final output = applyOpenWebUIResponseStreamEvent(streamed, {
+        'type': 'response.completed',
+        'response': {
+          'output': [
+            {
+              'type': 'message',
+              'status': 'completed',
+              'content': [
+                {'type': 'output_text', 'text': 'Answer.'},
+              ],
+            },
+          ],
+        },
+      }, responseStart: 2);
+
+      check(output).length.equals(3);
+      check((output.last['content'] as List).single['text']).equals('Answer.');
+    });
+
+    test('an id-less answer from an earlier response is never paired', () {
+      // The earlier response's terminal list was empty, so its message is
+      // still in progress; this response's own message streamed at 3.
+      final streamed = <Map<String, dynamic>>[
+        {
+          'type': 'message',
+          'status': 'in_progress',
+          'content': [
+            {'type': 'output_text', 'text': 'Round one.'},
+          ],
+        },
+        {'type': 'function_call', 'id': 'fc_1', 'call_id': 'call_1'},
+        {'type': 'function_call_output', 'id': 'fco_1', 'call_id': 'call_1'},
+        {
+          'type': 'message',
+          'status': 'in_progress',
+          'content': [
+            {'type': 'output_text', 'text': 'Round tw'},
+          ],
+        },
+      ];
+      final output = applyOpenWebUIResponseStreamEvent(streamed, {
+        'type': 'response.completed',
+        'response': {
+          'output': [
+            {
+              'type': 'message',
+              'status': 'completed',
+              'content': [
+                {'type': 'output_text', 'text': 'Round two.'},
+              ],
+            },
+          ],
+        },
+      }, responseStart: 3);
+
+      check(
+        output
+            .map((item) => (item['content'] as List?)?.firstOrNull?['text'])
+            .toList(),
+      ).deepEquals(['Round one.', null, null, 'Round two.']);
     });
 
     test('a terminal reasoning item gets its duration from the stream', () {
@@ -346,7 +416,7 @@ void main() {
             },
           ],
         },
-      });
+      }, responseStart: 0);
       check((completed.single['content'] as List).single['text'])
           .equals('final');
     });

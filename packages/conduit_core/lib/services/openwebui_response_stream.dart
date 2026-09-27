@@ -7,10 +7,15 @@
 /// of cumulative `chat:completion` snapshots. This mirrors the web client's
 /// `applyResponseStreamEvent` so the same `output` list the server persists
 /// can be rebuilt locally while the response is still streaming.
+///
+/// [responseStart] is where the current provider response's items begin in
+/// [output] (its length when `response.created` arrived), or null when that
+/// is unknown. A terminal event's positions count within that response.
 List<Map<String, dynamic>> applyOpenWebUIResponseStreamEvent(
   List<Map<String, dynamic>> output,
-  Map<dynamic, dynamic> event,
-) {
+  Map<dynamic, dynamic> event, {
+  int? responseStart,
+}) {
   final eventType = event['type']?.toString() ?? '';
   if (!eventType.startsWith('response.')) return output;
 
@@ -25,7 +30,11 @@ List<Map<String, dynamic>> applyOpenWebUIResponseStreamEvent(
     // report no output even though items already streamed, and dropping
     // them would blank a partial answer the user has already seen.
     if (completed is! List || completed.isEmpty) return output;
-    return _mergeTerminalOutput(_cloneItems(output), _cloneItems(completed));
+    return _mergeTerminalOutput(
+      _cloneItems(output),
+      _cloneItems(completed),
+      responseStart: responseStart,
+    );
   }
 
   final next = _cloneItems(output);
@@ -204,16 +213,18 @@ int _intOr(Object? value, int fallback) => value is int ? value : fallback;
 /// Items pair up by identity (the same id, or the same call id on an item of
 /// the same type), using the latest occurrence: a repeated identity belongs to
 /// this response, which streamed in last. An item without either (older
-/// servers) pairs, in order, with a local item that has no identity either and
-/// is still streaming, never with an earlier round's finished one. Nothing
-/// paired means nothing of this response streamed, so its items go last, as
-/// the web client appends them. Otherwise everything before the first paired
-/// item stays as it was, this response follows in its terminal order, and any
-/// unpaired local item after that point is kept behind it.
+/// servers) can only pair by its position within this response, so only when
+/// [responseStart] is known, and only with a local item there that has no
+/// identity either; an earlier round is never touched. Nothing paired means
+/// nothing of this response streamed, so its items go last, as the web client
+/// appends them. Otherwise everything before the first paired item stays as
+/// it was, this response follows in its terminal order, and any unpaired
+/// local item after that point is kept behind it.
 List<Map<String, dynamic>> _mergeTerminalOutput(
   List<Map<String, dynamic>> output,
-  List<Map<String, dynamic>> items,
-) {
+  List<Map<String, dynamic>> items, {
+  required int? responseStart,
+}) {
   final byId = <String, int>{};
   final byCall = <String, int>{};
   for (var index = 0; index < output.length; index++) {
@@ -228,7 +239,6 @@ List<Map<String, dynamic>> _mergeTerminalOutput(
 
   final matches = List<int>.filled(items.length, -1);
   final claimed = <int>{};
-  var lastAnonymous = -1;
   for (var position = 0; position < items.length; position++) {
     final item = items[position];
     final id = item['id']?.toString();
@@ -238,18 +248,14 @@ List<Map<String, dynamic>> _mergeTerminalOutput(
         (callId != null && callId.isNotEmpty
             ? byCall['${item['type']}\u0000$callId']
             : null);
-    if (index == null && !_hasOutputItemIdentity(item)) {
-      for (var local = lastAnonymous + 1; local < output.length; local++) {
-        final candidate = output[local];
-        if (candidate['type'] == item['type'] &&
-            candidate['status'] == 'in_progress' &&
-            !_hasOutputItemIdentity(candidate) &&
-            !claimed.contains(local)) {
-          index = local;
-          lastAnonymous = local;
-          break;
-        }
-      }
+    final local = responseStart == null ? -1 : responseStart + position;
+    if (index == null &&
+        !_hasOutputItemIdentity(item) &&
+        local >= 0 &&
+        local < output.length &&
+        output[local]['type'] == item['type'] &&
+        !_hasOutputItemIdentity(output[local])) {
+      index = local;
     }
     if (index != null && claimed.add(index)) matches[position] = index;
   }

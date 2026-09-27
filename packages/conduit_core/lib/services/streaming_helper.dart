@@ -982,6 +982,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   // Accumulated Open WebUI `output` items rebuilt from `response:completion`
   // events; a `chat:completion` snapshot always supersedes it.
   var latestResponseOutputItems = <Map<String, dynamic>>[];
+  // Where the current provider response's items begin in
+  // latestResponseOutputItems, or null when a snapshot left it unknown.
+  int? responseOutputStart;
   var structuredProjectionIsVisible = false;
   var structuredOutputIsLatest = false;
   var hasInjectedSemanticDetails = false;
@@ -1715,6 +1718,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     required String targetId,
   }) {
     final eventType = event['type']?.toString() ?? '';
+    if (eventType == 'response.created') {
+      responseOutputStart = latestResponseOutputItems.length;
+    }
     if (!openWebUIResponseStreamEventTouchesOutput(eventType)) return;
     if (eventType == 'response.failed') {
       // Terminal failure: keep whatever output landed, then surface the state
@@ -1746,6 +1752,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     latestResponseOutputItems = applyOpenWebUIResponseStreamEvent(
       latestResponseOutputItems,
       event,
+      responseStart: responseOutputStart,
     );
     final responseBlocks = parseOpenWebUIStructuredOutput(
       latestResponseOutputItems,
@@ -3583,6 +3590,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               normalizedOutputItems,
             );
             latestResponseOutputItems = normalizedOutputItems;
+            responseOutputStart = null;
           }
           final outputBlocks = normalizedOutputItems.isEmpty
               ? const <StructuredOutputBlock>[]
