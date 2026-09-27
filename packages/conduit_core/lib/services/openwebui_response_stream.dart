@@ -32,6 +32,8 @@ List<Map<String, dynamic>> applyOpenWebUIResponseStreamEvent(
     // only with a local item that has no identity either; a repeated identity
     // resolves to its latest occurrence, this response's.
     final tailStart = next.length - items.length;
+    final matches = <int>[];
+    final claimed = <int>{};
     for (var position = 0; position < items.length; position++) {
       final item = items[position];
       var index = _findOutputItemIndex(next, item, latest: true);
@@ -43,15 +45,51 @@ List<Map<String, dynamic>> applyOpenWebUIResponseStreamEvent(
           !_hasOutputItemIdentity(next[aligned])) {
         index = aligned;
       }
-      if (index >= 0) {
-        next[index] = _withDerivedDuration(
-          _withPreservedTiming(next[index], item),
-        );
-      } else {
-        next.add(item);
+      matches.add(index >= 0 && claimed.add(index) ? index : -1);
+    }
+
+    // Merge in response order. An item that never streamed goes just before
+    // the next one that did, so the provider's order holds (reasoning ahead
+    // of an answer that alone streamed); with none after it, it goes last.
+    final merged = <Map<String, dynamic>>[];
+    final mergedIndexOf = <int, int>{};
+    var cursor = 0;
+    void copyUpTo(int end) {
+      for (; cursor < end; cursor++) {
+        mergedIndexOf[cursor] = merged.length;
+        merged.add(next[cursor]);
       }
     }
-    return next;
+
+    for (var position = 0; position < items.length; position++) {
+      final item = items[position];
+      final match = matches[position];
+      if (match < 0) {
+        copyUpTo(
+          matches
+              .skip(position + 1)
+              .firstWhere(
+                (index) => index >= cursor,
+                orElse: () => next.length,
+              ),
+        );
+        merged.add(item);
+        continue;
+      }
+      final updated = _withDerivedDuration(
+        _withPreservedTiming(next[match], item),
+      );
+      if (match >= cursor) {
+        copyUpTo(match);
+        mergedIndexOf[match] = merged.length;
+        merged.add(updated);
+        cursor = match + 1;
+      } else {
+        merged[mergedIndexOf[match]!] = updated;
+      }
+    }
+    copyUpTo(next.length);
+    return merged;
   }
 
   final next = _cloneItems(output);

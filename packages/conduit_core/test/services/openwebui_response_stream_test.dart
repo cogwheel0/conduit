@@ -232,6 +232,30 @@ void main() {
           .deepEquals(['round one', null, 'round two']);
     });
 
+    test('a terminal item that never streamed keeps its place', () {
+      // Only the answer streamed; the terminal list puts reasoning first.
+      // Appending the unmatched reasoning reversed the provider's order.
+      final streamed = <Map<String, dynamic>>[
+        {'type': 'function_call', 'id': 'fc_1', 'call_id': 'call_1'},
+        {'type': 'function_call_output', 'id': 'fco_1', 'call_id': 'call_1'},
+        {'type': 'message', 'id': 'msg_1', 'status': 'in_progress'},
+      ];
+      final output = applyOpenWebUIResponseStreamEvent(streamed, {
+        'type': 'response.completed',
+        'response': {
+          'output': [
+            {'type': 'reasoning', 'id': 'rs_1'},
+            {'type': 'message', 'id': 'msg_1', 'status': 'completed'},
+            {'type': 'message', 'id': 'msg_2', 'status': 'completed'},
+          ],
+        },
+      });
+
+      check(output.map((item) => item['id']).toList())
+          .deepEquals(['fc_1', 'fco_1', 'rs_1', 'msg_1', 'msg_2']);
+      check(output[3]['status']).equals('completed');
+    });
+
     test('a terminal reasoning item gets its duration from the stream', () {
       final streamed = <Map<String, dynamic>>[
         {'type': 'reasoning', 'id': 'rs_1', 'started_at': 100.0},
