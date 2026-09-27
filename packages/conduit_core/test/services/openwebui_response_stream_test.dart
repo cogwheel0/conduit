@@ -170,6 +170,85 @@ void main() {
       check(output.last['status']).equals('completed');
     });
 
+    test('a terminal event lines id-less items up with its own round', () {
+      // Terminal positions count within one provider response. Matching them
+      // against the whole list overwrote an earlier round's answer or
+      // appended a second copy of the one that had just streamed.
+      final earlier = <Map<String, dynamic>>[
+        {
+          'type': 'message',
+          'content': [
+            {'type': 'output_text', 'text': 'Let me check.'},
+          ],
+        },
+        {'type': 'function_call', 'id': 'fc_1', 'call_id': 'call_1'},
+        {'type': 'function_call_output', 'id': 'fco_1', 'call_id': 'call_1'},
+        {
+          'type': 'message',
+          'status': 'in_progress',
+          'content': [
+            {'type': 'output_text', 'text': 'It is'},
+          ],
+        },
+      ];
+      final output = applyOpenWebUIResponseStreamEvent(earlier, {
+        'type': 'response.completed',
+        'response': {
+          'output': [
+            {
+              'type': 'message',
+              'status': 'completed',
+              'content': [
+                {'type': 'output_text', 'text': 'It is open.'},
+              ],
+            },
+          ],
+        },
+      });
+
+      check(output).length.equals(4);
+      check((output.first['content'] as List).single['text'])
+          .equals('Let me check.');
+      check((output.last['content'] as List).single['text'])
+          .equals('It is open.');
+    });
+
+    test('a terminal event updates the latest item with a repeated id', () {
+      final earlier = <Map<String, dynamic>>[
+        {'type': 'function_call', 'id': 'fc_1', 'arguments': 'round one'},
+        {'type': 'function_call_output', 'id': 'fco_1'},
+        {'type': 'function_call', 'id': 'fc_1', 'arguments': 'round tw'},
+      ];
+      final output = applyOpenWebUIResponseStreamEvent(earlier, {
+        'type': 'response.completed',
+        'response': {
+          'output': [
+            {'type': 'function_call', 'id': 'fc_1', 'arguments': 'round two'},
+          ],
+        },
+      });
+
+      check(output.map((item) => item['arguments']).toList())
+          .deepEquals(['round one', null, 'round two']);
+    });
+
+    test('a terminal reasoning item gets its duration from the stream', () {
+      final streamed = <Map<String, dynamic>>[
+        {'type': 'reasoning', 'id': 'rs_1', 'started_at': 100.0},
+      ];
+      final output = applyOpenWebUIResponseStreamEvent(streamed, {
+        'type': 'response.incomplete',
+        'response': {
+          'output': [
+            {'type': 'reasoning', 'id': 'rs_1', 'ended_at': 105.6},
+          ],
+        },
+      });
+
+      check(output.single['started_at']).equals(100.0);
+      check(output.single['duration']).equals(5);
+    });
+
     test('response.completed updates streamed items and ignores markers', () {
       final seeded = applyOpenWebUIResponseStreamEvent(const [], {
         'type': 'response.output_text.delta',

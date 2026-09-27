@@ -27,20 +27,26 @@ List<Map<String, dynamic>> applyOpenWebUIResponseStreamEvent(
     if (completed is! List || completed.isEmpty) return output;
     final next = _cloneItems(output);
     final items = _cloneItems(completed);
+    // This response's items streamed in last, so they sit at the tail. Items
+    // without an id or call id (older servers) line up there by position, and
+    // only with a local item that has no identity either; a repeated identity
+    // resolves to its latest occurrence, this response's.
+    final tailStart = next.length - items.length;
     for (var position = 0; position < items.length; position++) {
       final item = items[position];
-      var index = _findOutputItemIndex(next, item);
-      // Items without an id or call id (older servers) only line up by
-      // position, and only with a local item that has no identity either.
+      var index = _findOutputItemIndex(next, item, latest: true);
+      final aligned = tailStart + position;
       if (index < 0 &&
           !_hasOutputItemIdentity(item) &&
-          position < next.length &&
-          next[position]['type'] == item['type'] &&
-          !_hasOutputItemIdentity(next[position])) {
-        index = position;
+          aligned >= 0 &&
+          next[aligned]['type'] == item['type'] &&
+          !_hasOutputItemIdentity(next[aligned])) {
+        index = aligned;
       }
       if (index >= 0) {
-        next[index] = _withPreservedTiming(next[index], item);
+        next[index] = _withDerivedDuration(
+          _withPreservedTiming(next[index], item),
+        );
       } else {
         next.add(item);
       }
@@ -224,18 +230,18 @@ int _intOr(Object? value, int fallback) => value is int ? value : fallback;
 /// vanished mid-stream (issue #751); the web client checks the type too.
 int _findOutputItemIndex(
   List<Map<String, dynamic>> output,
-  Map<String, dynamic> item,
-) {
+  Map<String, dynamic> item, {
+  bool latest = false,
+}) {
   final id = item['id']?.toString();
   final callId = item['call_id']?.toString();
-  return output.indexWhere(
-    (existing) =>
-        (id != null && id.isNotEmpty && existing['id']?.toString() == id) ||
-        (callId != null &&
-            callId.isNotEmpty &&
-            existing['type'] == item['type'] &&
-            existing['call_id']?.toString() == callId),
-  );
+  bool matches(Map<String, dynamic> existing) =>
+      (id != null && id.isNotEmpty && existing['id']?.toString() == id) ||
+      (callId != null &&
+          callId.isNotEmpty &&
+          existing['type'] == item['type'] &&
+          existing['call_id']?.toString() == callId);
+  return latest ? output.lastIndexWhere(matches) : output.indexWhere(matches);
 }
 
 bool _hasOutputItemIdentity(Map<String, dynamic> item) =>
@@ -390,6 +396,18 @@ List<Map<String, dynamic>> mergeOpenWebUIReasoningTiming(
 
 /// The server's copy of an item (from `output_item.done` or a snapshot)
 /// never carries the client's timing, so keep whatever was measured locally.
+/// A finished reasoning item that knows when it started and ended but not
+/// how long it took, as a terminal item carrying only `ended_at` leaves it.
+Map<String, dynamic> _withDerivedDuration(Map<String, dynamic> item) {
+  if (item['type'] != 'reasoning' || item['duration'] != null) return item;
+  final start = item['started_at'];
+  final end = item['ended_at'];
+  if (start is! num || end is! num) return item;
+  final elapsed = (end - start).floor();
+  item['duration'] = elapsed < 0 ? 0 : elapsed;
+  return item;
+}
+
 Map<String, dynamic> _withPreservedTiming(
   Map<String, dynamic> previous,
   Map<String, dynamic> replacement,
