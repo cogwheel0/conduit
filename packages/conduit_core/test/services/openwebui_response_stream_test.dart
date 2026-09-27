@@ -335,6 +335,45 @@ void main() {
       check((output.last['content'] as List).single['text']).equals('Answer.');
     });
 
+    test('an unstreamed terminal item does not shift id-less pairing', () {
+      // The terminal list adds reasoning that never streamed ahead of the
+      // answer; the answer still pairs with the one that streamed.
+      final streamed = <Map<String, dynamic>>[
+        {'type': 'function_call', 'id': 'fc_1', 'call_id': 'call_1'},
+        {'type': 'function_call_output', 'id': 'fco_1', 'call_id': 'call_1'},
+        {
+          'type': 'message',
+          'status': 'in_progress',
+          'content': [
+            {'type': 'output_text', 'text': 'Answ'},
+          ],
+        },
+      ];
+      final output = applyOpenWebUIResponseStreamEvent(streamed, {
+        'type': 'response.completed',
+        'response': {
+          'output': [
+            {'type': 'reasoning', 'summary': <Object?>[]},
+            {
+              'type': 'message',
+              'status': 'completed',
+              'content': [
+                {'type': 'output_text', 'text': 'Answer.'},
+              ],
+            },
+          ],
+        },
+      }, responseStart: 2);
+
+      check(output.map((item) => item['type']).toList()).deepEquals([
+        'function_call',
+        'function_call_output',
+        'reasoning',
+        'message',
+      ]);
+      check((output.last['content'] as List).single['text']).equals('Answer.');
+    });
+
     test('an id-less answer from an earlier response is never paired', () {
       // The earlier response's terminal list was empty, so its message is
       // still in progress; this response's own message streamed at 3.
