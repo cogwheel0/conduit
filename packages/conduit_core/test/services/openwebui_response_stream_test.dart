@@ -256,6 +256,58 @@ void main() {
       check(output[3]['status']).equals('completed');
     });
 
+    test('an id-less terminal item leaves an earlier finished one alone', () {
+      // Nothing of this response streamed, so there is no evidence the
+      // earlier round's finished answer is this one.
+      final earlier = <Map<String, dynamic>>[
+        {
+          'type': 'message',
+          'status': 'completed',
+          'content': [
+            {'type': 'output_text', 'text': 'Round one.'},
+          ],
+        },
+      ];
+      final output = applyOpenWebUIResponseStreamEvent(earlier, {
+        'type': 'response.completed',
+        'response': {
+          'output': [
+            {
+              'type': 'message',
+              'status': 'completed',
+              'content': [
+                {'type': 'output_text', 'text': 'Round two.'},
+              ],
+            },
+          ],
+        },
+      });
+
+      check(
+        output.map((item) => (item['content'] as List).single['text']).toList(),
+      ).deepEquals(['Round one.', 'Round two.']);
+    });
+
+    test('a terminal response keeps its own order over the streamed one', () {
+      final streamed = <Map<String, dynamic>>[
+        {'type': 'message', 'id': 'b'},
+        {'type': 'message', 'id': 'a'},
+      ];
+      final output = applyOpenWebUIResponseStreamEvent(streamed, {
+        'type': 'response.completed',
+        'response': {
+          'output': [
+            {'type': 'message', 'id': 'a'},
+            {'type': 'reasoning', 'id': 'x'},
+            {'type': 'message', 'id': 'b'},
+          ],
+        },
+      });
+
+      check(output.map((item) => item['id']).toList())
+          .deepEquals(['a', 'x', 'b']);
+    });
+
     test('a terminal reasoning item gets its duration from the stream', () {
       final streamed = <Map<String, dynamic>>[
         {'type': 'reasoning', 'id': 'rs_1', 'started_at': 100.0},

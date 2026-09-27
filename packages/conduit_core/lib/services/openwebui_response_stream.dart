@@ -25,71 +25,7 @@ List<Map<String, dynamic>> applyOpenWebUIResponseStreamEvent(
     // report no output even though items already streamed, and dropping
     // them would blank a partial answer the user has already seen.
     if (completed is! List || completed.isEmpty) return output;
-    final next = _cloneItems(output);
-    final items = _cloneItems(completed);
-    // This response's items streamed in last, so they sit at the tail. Items
-    // without an id or call id (older servers) line up there by position, and
-    // only with a local item that has no identity either; a repeated identity
-    // resolves to its latest occurrence, this response's.
-    final tailStart = next.length - items.length;
-    final matches = <int>[];
-    final claimed = <int>{};
-    for (var position = 0; position < items.length; position++) {
-      final item = items[position];
-      var index = _findOutputItemIndex(next, item, latest: true);
-      final aligned = tailStart + position;
-      if (index < 0 &&
-          !_hasOutputItemIdentity(item) &&
-          aligned >= 0 &&
-          next[aligned]['type'] == item['type'] &&
-          !_hasOutputItemIdentity(next[aligned])) {
-        index = aligned;
-      }
-      matches.add(index >= 0 && claimed.add(index) ? index : -1);
-    }
-
-    // Merge in response order. An item that never streamed goes just before
-    // the next one that did, so the provider's order holds (reasoning ahead
-    // of an answer that alone streamed); with none after it, it goes last.
-    final merged = <Map<String, dynamic>>[];
-    final mergedIndexOf = <int, int>{};
-    var cursor = 0;
-    void copyUpTo(int end) {
-      for (; cursor < end; cursor++) {
-        mergedIndexOf[cursor] = merged.length;
-        merged.add(next[cursor]);
-      }
-    }
-
-    for (var position = 0; position < items.length; position++) {
-      final item = items[position];
-      final match = matches[position];
-      if (match < 0) {
-        copyUpTo(
-          matches
-              .skip(position + 1)
-              .firstWhere(
-                (index) => index >= cursor,
-                orElse: () => next.length,
-              ),
-        );
-        merged.add(item);
-        continue;
-      }
-      final updated = _withDerivedDuration(
-        _withPreservedTiming(next[match], item),
-      );
-      if (match >= cursor) {
-        copyUpTo(match);
-        mergedIndexOf[match] = merged.length;
-        merged.add(updated);
-        cursor = match + 1;
-      } else {
-        merged[mergedIndexOf[match]!] = updated;
-      }
-    }
-    copyUpTo(next.length);
-    return merged;
+    return _mergeTerminalOutput(_cloneItems(output), _cloneItems(completed));
   }
 
   final next = _cloneItems(output);
@@ -262,24 +198,95 @@ Map<String, dynamic> _cloneMap(Map<dynamic, dynamic> map) => {
 
 int _intOr(Object? value, int fallback) => value is int ? value : fallback;
 
+/// Merges one provider response's terminal [items] into the accumulated
+/// [output], keeping earlier rounds and the response's own order.
+///
+/// Items pair up by identity (the same id, or the same call id on an item of
+/// the same type), using the latest occurrence: a repeated identity belongs to
+/// this response, which streamed in last. An item without either (older
+/// servers) pairs, in order, with a local item that has no identity either and
+/// is still streaming, never with an earlier round's finished one. Nothing
+/// paired means nothing of this response streamed, so its items go last, as
+/// the web client appends them. Otherwise everything before the first paired
+/// item stays as it was, this response follows in its terminal order, and any
+/// unpaired local item after that point is kept behind it.
+List<Map<String, dynamic>> _mergeTerminalOutput(
+  List<Map<String, dynamic>> output,
+  List<Map<String, dynamic>> items,
+) {
+  final byId = <String, int>{};
+  final byCall = <String, int>{};
+  for (var index = 0; index < output.length; index++) {
+    final item = output[index];
+    final id = item['id']?.toString();
+    if (id != null && id.isNotEmpty) byId[id] = index;
+    final callId = item['call_id']?.toString();
+    if (callId != null && callId.isNotEmpty) {
+      byCall['${item['type']}\u0000$callId'] = index;
+    }
+  }
+
+  final matches = List<int>.filled(items.length, -1);
+  final claimed = <int>{};
+  var lastAnonymous = -1;
+  for (var position = 0; position < items.length; position++) {
+    final item = items[position];
+    final id = item['id']?.toString();
+    final callId = item['call_id']?.toString();
+    int? index =
+        (id != null && id.isNotEmpty ? byId[id] : null) ??
+        (callId != null && callId.isNotEmpty
+            ? byCall['${item['type']}\u0000$callId']
+            : null);
+    if (index == null && !_hasOutputItemIdentity(item)) {
+      for (var local = lastAnonymous + 1; local < output.length; local++) {
+        final candidate = output[local];
+        if (candidate['type'] == item['type'] &&
+            candidate['status'] == 'in_progress' &&
+            !_hasOutputItemIdentity(candidate) &&
+            !claimed.contains(local)) {
+          index = local;
+          lastAnonymous = local;
+          break;
+        }
+      }
+    }
+    if (index != null && claimed.add(index)) matches[position] = index;
+  }
+
+  if (claimed.isEmpty) return [...output, ...items];
+  final firstMatch = claimed.reduce((a, b) => a < b ? a : b);
+  return [
+    ...output.take(firstMatch),
+    for (var position = 0; position < items.length; position++)
+      matches[position] < 0
+          ? items[position]
+          : _withDerivedDuration(
+              _withPreservedTiming(output[matches[position]], items[position]),
+            ),
+    for (var index = firstMatch; index < output.length; index++)
+      if (!claimed.contains(index)) output[index],
+  ];
+}
+
 /// The existing item [item] updates: the same id, or the same call id on an
 /// item of the same type. A function call and its output share a call id, so
 /// without the type check the tool result replaced the call and its tile
 /// vanished mid-stream (issue #751); the web client checks the type too.
 int _findOutputItemIndex(
   List<Map<String, dynamic>> output,
-  Map<String, dynamic> item, {
-  bool latest = false,
-}) {
+  Map<String, dynamic> item,
+) {
   final id = item['id']?.toString();
   final callId = item['call_id']?.toString();
-  bool matches(Map<String, dynamic> existing) =>
-      (id != null && id.isNotEmpty && existing['id']?.toString() == id) ||
-      (callId != null &&
-          callId.isNotEmpty &&
-          existing['type'] == item['type'] &&
-          existing['call_id']?.toString() == callId);
-  return latest ? output.lastIndexWhere(matches) : output.indexWhere(matches);
+  return output.indexWhere(
+    (existing) =>
+        (id != null && id.isNotEmpty && existing['id']?.toString() == id) ||
+        (callId != null &&
+            callId.isNotEmpty &&
+            existing['type'] == item['type'] &&
+            existing['call_id']?.toString() == callId),
+  );
 }
 
 bool _hasOutputItemIdentity(Map<String, dynamic> item) =>
