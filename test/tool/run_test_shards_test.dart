@@ -46,7 +46,9 @@ void main() {
         r"^import '([^']+)' as (\w+);$",
         multiLine: true,
       ).allMatches(source))
-        match.group(2)!: p.normalize(p.join(shardDirectory, match.group(1)!)),
+        match.group(2)!: p.posix.normalize(
+          p.posix.join(shardDirectory, match.group(1)!),
+        ),
     };
     final groups = {
       for (final match in RegExp(
@@ -57,7 +59,7 @@ void main() {
     };
     check(groups.length).equals(paths.length);
     for (final path in paths) {
-      final prefix = groups[p.relative(path, from: 'test')];
+      final prefix = groups[p.posix.relative(path, from: 'test')];
       check(because: path, prefix).isNotNull();
       check(because: path, imports[prefix]).equals(path);
     }
