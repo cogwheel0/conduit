@@ -3527,7 +3527,6 @@ class AuthStateManager extends _$AuthStateManager {
   Map<String, dynamic> getPerformanceStats() {
     return {
       'authCache': _cacheManager.getCacheStats(),
-      'tokenValidationCache': 'Managed by TokenValidationCache',
       'storageCache': 'Managed by OptimizedStorageService',
     };
   }

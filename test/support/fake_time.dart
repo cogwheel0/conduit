@@ -4,10 +4,11 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meta/meta.dart';
 
-/// Callbacks a fake-time test body may schedule. Real tests schedule a few
-/// hundred; code that keeps rescheduling itself with no delay reaches this in
-/// well under a second instead of spinning the fake clock forever (which the
-/// test timeout, a real timer, could never interrupt).
+/// Callbacks (microtasks, timers, and periodic ticks) a fake-time test body
+/// may run. Real tests use a few hundred; code that keeps rescheduling itself
+/// with no delay reaches this in well under a second instead of spinning the
+/// fake clock forever (which the test timeout, a real timer, could never
+/// interrupt).
 const int _callbackBudget = 100000;
 
 /// Declares a test whose body runs on fake time: its timers, timeouts, and
@@ -39,6 +40,16 @@ void fakeTimeTest(String description, Future<void> Function() body) {
           },
           createTimer: (self, parent, zone, duration, callback) =>
               parent.createTimer(zone, duration, admit() ? callback : () {}),
+          // Counted per tick: one zero-period timer would otherwise keep
+          // firing inside a single elapse.
+          createPeriodicTimer: (self, parent, zone, period, callback) =>
+              parent.createPeriodicTimer(zone, period, (timer) {
+                if (admit()) {
+                  callback(timer);
+                } else {
+                  timer.cancel();
+                }
+              }),
         ),
       );
       const limit = Duration(minutes: 1);
