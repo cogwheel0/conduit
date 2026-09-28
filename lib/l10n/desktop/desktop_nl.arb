@@ -1,0 +1,445 @@
+{
+  "@@locale": "nl",
+  "desktopCoreConnecting": "De core wordt gestart…",
+  "desktopCoreConnected": "Verbonden met de core",
+  "desktopCoreReconnecting": "Opnieuw verbinden met de core (poging {attempt})",
+  "@desktopCoreReconnecting": {
+    "placeholders": {
+      "attempt": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "desktopCoreUnavailable": "De core is niet beschikbaar",
+  "desktopCoreVersionMismatch": "Deze app en de core hebben verschillende versies. Installeer Conduit opnieuw om verder te gaan.",
+  "desktopKeyringUnavailable": "Geen systeemsleutelhanger gevonden, dus opgeslagen inloggegevens zijn minder goed beschermd. Installeer gnome-keyring of kwallet.",
+  "desktopQuickAskPlaceholder": "Vraag het Conduit…",
+  "desktopQuickAskContinue": "Verder in hoofdvenster",
+  "desktopSettingsKeyboardTab": "Toetsenbord",
+  "desktopShortcutConflict": "{shortcut} wordt al gebruikt door {command}.",
+  "@desktopShortcutConflict": {
+    "placeholders": {
+      "shortcut": {
+        "type": "String",
+        "example": "Cmd+K"
+      },
+      "command": {
+        "type": "String",
+        "example": "Search"
+      }
+    }
+  },
+  "desktopSettingsTitle": "Instellingen",
+  "desktopSettingsNoServers": "Nog geen servers ingesteld.",
+  "desktopSettingsAddServer": "Server toevoegen",
+  "desktopSettingsSignedIn": "Ingelogd",
+  "desktopSettingsSwitchServer": "Wisselen",
+  "desktopSettingsRemoveServer": "Verwijderen",
+  "desktopSigningOut": "Uitloggen…",
+  "desktopSignedOut": "Uitgelogd.",
+  "desktopSignOutSuperseded": "Een nieuwere inlog heeft deze vervangen, dus er is niets verwijderd.",
+  "desktopSignOutIncomplete": "Hier uitgelogd, maar dit apparaat is nog niet klaar met vergeten. Conduit probeert het opnieuw bij de volgende start.",
+  "desktopChooseFile": "Bestand kiezen…",
+  "desktopReplaceFile": "Vervangen…",
+  "desktopChatsLabel": "Gesprekken",
+  "desktopNoChatsYet": "Nog geen gesprekken. Stuur een bericht om er een te beginnen.",
+  "desktopSending": "Verzenden…",
+  "desktopSignInMethod": "Inlogmethode",
+  "desktopChatActions": "Acties voor {title}",
+  "@desktopChatActions": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopRenameChat": "Hernoemen",
+  "desktopPinChat": "Vastpinnen",
+  "desktopUnpinChat": "Losmaken",
+  "desktopArchiveChat": "Archiveren",
+  "desktopDeleteChat": "Verwijderen",
+  "desktopConfirmDelete": "Dit gesprek verwijderen? Dit kan niet ongedaan worden gemaakt.",
+  "desktopRenamePrompt": "Nieuwe titel",
+  "desktopSearchChats": "Gesprekken zoeken",
+  "desktopSearchNoResults": "Niets gevonden.",
+  "desktopSearchClear": "Zoekopdracht wissen",
+  "desktopPickAConversation": "Kies een gesprek",
+  "desktopPickAConversationHint": "Kies er een in de zijbalk, of typ hieronder om een nieuw gesprek te beginnen.",
+  "desktopNewConversation": "Nieuw gesprek",
+  "desktopShortcutsTitle": "Sneltoetsen",
+  "desktopShortcutFocusComposer": "Naar het berichtvak",
+  "desktopShortcutOpenPalette": "Gesprekken en opdrachten zoeken",
+  "desktopShortcutFocusModelPicker": "Een model kiezen",
+  "desktopShortcutShowShortcuts": "Deze lijst tonen",
+  "desktopShortcutCopyLastResponse": "Laatste antwoord kopiëren",
+  "desktopShortcutCopyLastCodeBlock": "Laatste codeblok kopiëren",
+  "desktopComposerHint": "Enter om te verzenden, Shift+Enter voor een nieuwe regel",
+  "desktopCopied": "Gekopieerd",
+  "desktopNothingToCopy": "Nog niets om te kopiëren",
+  "desktopPreview": "Voorbeeld",
+  "desktopHidePreview": "Voorbeeld verbergen",
+  "desktopAttachFiles": "Bestanden bijvoegen",
+  "desktopRemoveAttachment": "{name} verwijderen",
+  "@desktopRemoveAttachment": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAttachmentFailed": "{name} kon niet worden bijgevoegd",
+  "@desktopAttachmentFailed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAttachmentsUploading": "Wachten tot de bijlagen klaar zijn",
+  "desktopAlreadyGenerating": "Wacht tot het huidige antwoord klaar is, of stop het.",
+  "desktopPreviousAnswer": "Vorig antwoord",
+  "desktopNextAnswer": "Volgend antwoord",
+  "desktopAnswerPosition": "Antwoord {index} van {count}",
+  "@desktopAnswerPosition": {
+    "placeholders": {
+      "index": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSearchIncomplete": "Nog bezig met synchroniseren, dus sommige gesprekken worden mogelijk nog niet getoond.",
+  "desktopSyncing": "Synchroniseren…",
+  "desktopSyncingPercent": "Synchroniseren… {percent}%",
+  "@desktopSyncingPercent": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSyncFailed": "Synchronisatie mislukt",
+  "desktopTemporaryHint": "Niet opgeslagen. Verdwijnt wanneer je de app sluit.",
+  "desktopAllow": "Toestaan",
+  "desktopDeny": "Weigeren",
+  "desktopServerAsks": "De server vraagt",
+  "desktopShortcutAllowRequest": "Verzoek van de server toestaan",
+  "desktopShortcutDenyRequest": "Verzoek van de server weigeren",
+  "desktopToolRunning": "{name} wordt uitgevoerd…",
+  "@desktopToolRunning": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "web_search"
+      }
+    }
+  },
+  "desktopToolUsed": "{name} gebruikt",
+  "@desktopToolUsed": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "web_search"
+      }
+    }
+  },
+  "desktopToolInput": "Invoer",
+  "desktopDetails": "Details",
+  "desktopDropToAttach": "Zet bestanden neer om ze bij te voegen",
+  "desktopPaletteLabel": "Opdrachtpalet",
+  "desktopPalettePlaceholder": "Gesprekken en opdrachten zoeken",
+  "desktopPaletteCommands": "Opdrachten",
+  "desktopPaletteRecent": "Recente gesprekken",
+  "desktopPaletteConversations": "Gesprekken",
+  "desktopNewTemporaryChat": "Nieuwe tijdelijke chat",
+  "desktopPromptMenu": "Prompts",
+  "desktopPromptInsert": "Invoegen",
+  "desktopPromptFill": "{title} invullen",
+  "@desktopPromptFill": {
+    "placeholders": {
+      "title": {
+        "type": "String",
+        "example": "Stand-up notes"
+      }
+    }
+  },
+  "desktopSourcesCount": "Bronnen ({count})",
+  "@desktopSourcesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopGoodResponse": "Goed antwoord",
+  "desktopBadResponse": "Slecht antwoord",
+  "desktopAddTag": "Tag toevoegen",
+  "desktopTagName": "Tagnaam",
+  "desktopRemoveTag": "Tag {name} verwijderen",
+  "@desktopRemoveTag": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "work"
+      }
+    }
+  },
+  "desktopShowTagged": "Gesprekken met tag {name} tonen",
+  "@desktopShowTagged": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "work"
+      }
+    }
+  },
+  "desktopMoveTo": "Verplaatsen naar {folder}",
+  "@desktopMoveTo": {
+    "placeholders": {
+      "folder": {
+        "type": "String",
+        "example": "Work"
+      }
+    }
+  },
+  "desktopRemoveFromFolder": "Uit map verwijderen",
+  "desktopSelect": "Selecteren",
+  "desktopSelectedCount": "{count} geselecteerd",
+  "@desktopSelectedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopDone": "Klaar",
+  "desktopMoveSelected": "Verplaatsen naar…",
+  "desktopNoFolder": "Geen map",
+  "desktopBulkDeleteConfirm": "{count} gesprekken verwijderen? Dit kan niet ongedaan worden gemaakt.",
+  "@desktopBulkDeleteConfirm": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopBulkFailed": "{count} konden niet worden gewijzigd.",
+  "@desktopBulkFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "1"
+      }
+    }
+  },
+  "desktopOffline": "Je bent offline. Je gesprekken zijn er nog; verzenden wacht tot je weer verbonden bent.",
+  "desktopControls": "Bediening",
+  "desktopSystemPromptHint": "Alleen voor dit gesprek. Laat leeg om je standaard uit de instellingen van Open WebUI te gebruiken.",
+  "desktopSaved": "Opgeslagen",
+  "desktopOpenImage": "Afbeelding {name} openen",
+  "@desktopOpenImage": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "diagram.png"
+      }
+    }
+  },
+  "desktopModelMenu": "Modellen",
+  "desktopAnswerWith": "Volgend antwoord van {model}",
+  "@desktopAnswerWith": {
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "gpt-4o"
+      }
+    }
+  },
+  "desktopClearMention": "In plaats daarvan het geselecteerde model gebruiken",
+  "desktopSortBy": "Sorteren op",
+  "desktopSortUpdated": "Laatst bijgewerkt",
+  "desktopSortTitle": "Titel",
+  "desktopFolderEmpty": "Nog niets in deze map.",
+  "desktopToggleFolder": "Inhoud van {name} tonen of verbergen",
+  "@desktopToggleFolder": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Work"
+      }
+    }
+  },
+  "desktopOverview": "Overzicht",
+  "desktopOverviewHint": "Alle vertakkingen van dit gesprek. Kies een bericht om de vertakking te tonen.",
+  "desktopKnowledgeMenu": "Kennis",
+  "desktopOpenAiCompatible": "OpenAI-compatibel",
+  "desktopDirectHistoryLocal": "Directe chats alleen op deze computer bewaren",
+  "desktopDirectEnable": "{name} gebruiken",
+  "@desktopDirectEnable": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "OpenRouter"
+      }
+    }
+  },
+  "desktopMcpReachabilityHelp": "Voeg een Streamable HTTP-endpoint toe dat deze computer kan bereiken. De hulpmiddelen ervan kunnen dan worden aangeboden aan modellen uit je directe verbindingen.",
+  "desktopMcpSignedIn": "Ingelogd",
+  "desktopMcpNotSignedIn": "Niet ingelogd",
+  "desktopMcpHeadersConfigured": "Ingesteld: {names}. Typ nieuwe headers om ze te vervangen.",
+  "@desktopMcpHeadersConfigured": {
+    "placeholders": {
+      "names": {
+        "type": "String",
+        "example": "X-Team, X-Region"
+      }
+    }
+  },
+  "desktopMcpSaveFirst": "Sla de server op voordat je inlogt.",
+  "desktopNoteSaveFailed": "Nog niet opgeslagen; wordt opnieuw geprobeerd bij de volgende wijziging",
+  "desktopLoadOlderMessages": "Oudere berichten laden",
+  "desktopMessageEdited": "bewerkt",
+  "desktopWorkspaceImport": "Importeren",
+  "desktopWorkspaceExportAll": "Alles exporteren",
+  "desktopWorkspaceExport": "Exporteren",
+  "desktopWorkspaceUpdated": "Bijgewerkt {date}",
+  "@desktopWorkspaceUpdated": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceImportFailed": "Niet geïmporteerd: {items}",
+  "@desktopWorkspaceImportFailed": {
+    "placeholders": {
+      "items": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceOnePerLine": "Eén per regel",
+  "desktopWorkspaceCommaSeparated": "Scheiden met komma's",
+  "desktopWorkspaceActive": "Actief",
+  "desktopWorkspaceNoSections": "Er is niets in de workspace dat je op deze server kunt beheren.",
+  "desktopWorkspaceNotFound": "Dit item bestaat niet meer.",
+  "desktopWorkspaceCleanupFailed": "Mislukte bestanden verwijderen",
+  "desktopWorkspaceAccessSaved": "Toegang opgeslagen.",
+  "desktopWorkspaceAccessAdd": "Toevoegen",
+  "desktopWorkspaceValvesUserHint": "Je eigen instellingen voor dit hulpmiddel; de valves van de server gelden voor iedereen.",
+  "desktopWorkspaceDefaultFeaturesHint": "Functies die aan staan in een nieuwe chat met dit model, bijv. web_search, code_interpreter.",
+  "desktopHermesTestOk": "Verbonden met Hermes.",
+  "desktopHermesTestUnauthorized": "Hermes heeft de sleutel geweigerd.",
+  "desktopHermesTestUnreachable": "Hermes is niet bereikbaar op dat adres.",
+  "desktopHermesOpenSession": "Openen",
+  "desktopHermesMode": "Verbindingstype",
+  "desktopHermesSignInToFinish": "Opgeslagen. Log in bij Hermes om af te ronden.",
+  "desktopHermesSignInRequired": "Log in bij Hermes in Instellingen om met de agent te praten.",
+  "desktopStopDictation": "Dicteren stoppen",
+  "desktopMicrophoneUnavailable": "Conduit kan geen microfoon gebruiken. Controleer of er een is aangesloten en of Conduit toestemming heeft om hem te gebruiken.",
+  "desktopNothingHeard": "Er werd niets gehoord.",
+  "desktopTranscriptionFailed": "Dit kon niet worden getranscribeerd. Probeer het opnieuw.",
+  "desktopShortcutDictate": "Dicteren starten of stoppen",
+  "desktopMilliseconds": "{ms} ms",
+  "@desktopMilliseconds": {
+    "placeholders": {
+      "ms": {}
+    }
+  },
+  "desktopReadAloud": "Voorlezen",
+  "desktopStopReading": "Voorlezen stoppen",
+  "desktopVoiceCallHeard": "Je zei: {text}",
+  "@desktopVoiceCallHeard": {
+    "placeholders": {
+      "text": {}
+    }
+  },
+  "desktopSettingsDesktopTab": "Bureaublad",
+  "desktopCloseToTray": "Actief blijven wanneer het venster wordt gesloten",
+  "desktopCloseToTrayDescription": "Conduit blijft in het systeemvak, zodat meldingen en snelle vraag blijven werken.",
+  "desktopLaunchAtLogin": "Openen bij inloggen",
+  "desktopLaunchAtLoginDescription": "Start in het systeemvak wanneer je inlogt. Alleen bij geïnstalleerde versies.",
+  "desktopQuickAskTitle": "Snelle vraag",
+  "desktopQuickAskEnabled": "Snelle vraag overal openen met een sneltoets",
+  "desktopQuickAskShortcut": "Sneltoets",
+  "desktopQuickAskShortcutInvalid": "Gebruik een of meer modificatietoetsen en een toets, zoals CommandOrControl+Shift+Space.",
+  "desktopQuickAskShortcutTaken": "Een andere app gebruikt deze sneltoets. Kies een andere.",
+  "desktopQuickAskNeedsSetup": "Open eerst Conduit om het instellen af te ronden.",
+  "desktopNotificationsSection": "Meldingen",
+  "desktopShortcutPressKeys": "Druk op de nieuwe toetsen, of Esc om te annuleren",
+  "desktopShortcutChange": "Wijzigen",
+  "desktopShortcutReset": "Herstellen",
+  "desktopShortcutResetAll": "Alle sneltoetsen herstellen",
+  "desktopShortcutChangeLabel": "Sneltoets voor {command} wijzigen",
+  "@desktopShortcutChangeLabel": {
+    "placeholders": {
+      "command": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopReleaseSeeChanges": "Bekijk wat er is veranderd",
+  "desktopReleaseDismiss": "Sluiten",
+  "desktopAboutDaemon": "Core",
+  "desktopAboutProtocol": "Protocol",
+  "desktopAboutPlatform": "Platform",
+  "desktopAboutUserData": "Gebruikersgegevens",
+  "desktopAboutLogs": "Logboeken",
+  "desktopSttEngineLocal": "Op deze computer",
+  "desktopSttEngineLocalDescription": "Getranscribeerd door Whisper op deze computer. Je stem verlaat hem nooit.",
+  "desktopSttModelsTitle": "Spraakmodellen",
+  "desktopSttModelsDescription": "Eenmalig gedownload van Hugging Face en bewaard op deze computer. Grotere modellen verstaan beter en doen er langer over.",
+  "desktopSttModelDownload": "Downloaden ({size})",
+  "@desktopSttModelDownload": {
+    "placeholders": { "size": { "type": "String" } }
+  },
+  "desktopSttModelDownloading": "Downloaden… {percent}%",
+  "@desktopSttModelDownloading": {
+    "placeholders": { "percent": { "type": "String" } }
+  },
+  "desktopSttModelDelete": "Verwijderen",
+  "desktopSttModelUse": "Gebruiken",
+  "desktopSttModelInUse": "In gebruik",
+  "desktopSttModelEnglishOnly": "Alleen Engels",
+  "desktopSttModelFailedChecksum": "De download was niet het verwachte bestand en is daarom weggegooid.",
+  "desktopSttModelFailedNetwork": "Het downloaden is mislukt. Controleer de verbinding en probeer het opnieuw.",
+  "desktopSttLocalNeedsModel": "Download een model om op deze computer te transcriberen; tot die tijd doet de server dat.",
+  "themePaletteZaiLabel": "Zai",
+  "themePaletteZaiDescription": "Monochroom, rustig en compact",
+  "desktopUiFontSize": "Tekstgrootte",
+  "desktopUiFontSizeValue": "{size} px",
+  "desktopUiFontSizeHint": "Code, diffs en de terminal behouden hun eigen grootte.",
+  "desktopSidebar": "Zijbalk",
+  "desktopSidePane": "Zijpaneel",
+  "desktopShortcutToggleSidebar": "Zijbalk tonen of verbergen",
+  "desktopShortcutToggleSidePane": "Zijpaneel tonen of verbergen",
+  "desktopSearch": "Zoeken",
+  "desktopMinimizeWindow": "Minimaliseren",
+  "desktopMaximizeWindow": "Maximaliseren",
+  "desktopRestoreWindow": "Vorige grootte",
+  "desktopCloseWindow": "Sluiten",
+  "desktopResizeSidebar": "Formaat van zijbalk wijzigen",
+  "desktopResizeSidePane": "Formaat van zijpaneel wijzigen",
+  "desktopEarlier": "Eerder",
+  "desktopChatRunning": "Bezig met antwoorden",
+  "desktopChatUnread": "Nieuw antwoord",
+  "desktopChatFailed": "Antwoord mislukt",
+  "desktopShell": "Shell",
+  "desktopSources": "Bronnen",
+  "desktopNoSources": "Nog geen bronnen geciteerd in dit gesprek.",
+  "desktopClosePane": "Zijpaneel sluiten",
+  "desktopNoPreview": "Nog niets om te bekijken. Als een antwoord een webpagina schrijft, verschijnt die hier.",
+  "desktopPreviewPosition": "{index} van {count}",
+  "desktopPreviousPreview": "Vorige pagina",
+  "desktopNextPreview": "Volgende pagina",
+  "desktopOpenShell": "Shell openen",
+  "desktopCloseShell": "Shell sluiten",
+  "desktopResizeShell": "Formaat van shell wijzigen",
+  "desktopAllNotes": "Alle notities"
+}

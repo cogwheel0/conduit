@@ -1,0 +1,21 @@
+targets:
+  $default:
+    builders:
+      json_serializable:
+        options:
+          # Field names cross a JSON boundary that both sides generate from
+          # this same package, so camelCase is consistent and needs no
+          # rename map. Explicit here so a later `build.yaml` merge cannot
+          # silently switch it and break every stored fixture.
+          field_rename: none
+          # `RpcException.serialize` appends a `request` key to error payloads,
+          # so decoders must tolerate keys they did not write.
+          disallow_unrecognized_keys: false
+          include_if_null: false
+          # Without this, json_serializable emits `'paths': instance.paths` and
+          # leans on `jsonEncode` to call `toJson` later. The string comes out
+          # right, but `toJson()` returns a map with live DTOs inside it, which
+          # breaks deep equality, log formatting, and anything that inspects a
+          # payload before encoding it. A protocol package must hand back plain
+          # JSON.
+          explicit_to_json: true

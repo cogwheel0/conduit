@@ -1,0 +1,7 @@
+include: package:lints/recommended.yaml
+
+analyzer:
+  errors:
+    # Generated sources are git-ignored; never let a missing part block analysis
+    # of hand-written code during a fresh clone before `build_runner` runs.
+    uri_has_not_been_generated: ignore

@@ -44,9 +44,24 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
-# Workspace package build output (the root `/build/` rule is root-anchored
-# and does not cover the packages).
+# Desktop workspace build output (the root `/build/` rule is root-anchored and
+# does not cover the new packages).
 packages/*/build/
+apps/*/build/
+apps/desktop_ui/web/main.dart.js*
+apps/desktop_ui/web/theme.css
+apps/desktop_ui/web/app.css
+# Copied out of desktop/electron by build-ui.mjs: the render sandbox and the
+# vendored libraries it runs. Sources are sandbox/ and node_modules.
+apps/desktop_ui/web/sandbox.html
+apps/desktop_ui/web/vendor/
+desktop/electron/dist/
+desktop/electron/build/
+desktop/electron/node_modules/
+desktop/electron/out/
+desktop/electron/out-test/
+desktop/electron/test-results/
+desktop/electron/playwright-report/
 
 # Android Studio will place build artifacts here
 /android/app/debug
@@ -160,3 +175,4 @@ GoogleService-Info.plist
 !**/ios/**/default.pbxuser
 !**/ios/**/default.perspectivev3
 !/packages/flutter_tools/test/data/dart_dependencies_test/**/.packages
+desktop/electron/screenshots/

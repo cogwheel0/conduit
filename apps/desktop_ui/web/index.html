@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en" data-palette="zai" data-mode="system">
+  <head>
+    <meta charset="utf-8" />
+    <title>Conduit</title>
+    <!--
+      Content Security Policy. `connect-src` is widened at
+      runtime by Electron to the daemon's loopback port, which is only known
+      after conduitd reports it; everything else is locked down here.
+
+      Model-generated HTML and Chart.js never run in this origin — they go
+      into `<iframe sandbox srcdoc>` with their own policy.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="
+        default-src 'self' app:;
+        script-src 'self' app:;
+        style-src 'self' app: 'unsafe-inline';
+        img-src 'self' app: data: blob: http://127.0.0.1:*;
+        media-src 'self' app: data: blob: http://127.0.0.1:*;
+        font-src 'self' app: data:;
+        connect-src 'self' app: ws://127.0.0.1:* http://127.0.0.1:*;
+        frame-src 'self' blob:;
+        object-src 'none';
+        base-uri 'none';
+        form-action 'none';
+      "
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Absolute paths: the window may load on any route (a reload on
+         /settings/audio), and the CSP forbids a <base>. -->
+    <!-- Built by desktop/electron/scripts/build-ui.mjs. Bundles Tailwind and
+         the generated palette variables into one stylesheet. -->
+    <!-- Quill 2, the notes editor, vendored by build-ui.mjs. Before app.css
+         so the theme's overrides of its colours win. -->
+    <link rel="stylesheet" href="/vendor/quill/quill.snow.css" />
+    <!-- xterm.js, the terminal, vendored the same way. -->
+    <link rel="stylesheet" href="/vendor/xterm/xterm.css" />
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body class="bg-background text-foreground antialiased">
+    <script defer src="/vendor/quill/quill.js"></script>
+    <script defer src="/vendor/xterm/xterm.js"></script>
+    <script defer src="/vendor/xterm/addon-fit.js"></script>
+    <script defer src="/main.dart.js"></script>
+  </body>
+</html>

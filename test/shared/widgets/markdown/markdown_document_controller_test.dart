@@ -68,6 +68,17 @@ void main() {
     expect(split['canIncrementallyCompile'], isTrue);
   });
 
+  test('splitter keeps a list open while its next marker is still bare', () {
+    // `2.` with no text yet is already the list's second item to the parser;
+    // freezing the first item alone would draw two lists for a frame.
+    final split = debugSplitStreamingPreparedContentForTesting(
+      '1. first\n\n2.',
+    );
+
+    expect(split['frozenPrefix'], isEmpty);
+    expect(split['mutableTail'], '1. first\n\n2.');
+  });
+
   test('splitter freezes fenced blocks once the closing fence arrives', () {
     const content = '```dart\nprint("done");\n```';
 
