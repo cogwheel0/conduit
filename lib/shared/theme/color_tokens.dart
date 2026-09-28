@@ -1,6 +1,78 @@
+import 'dart:math' as math;
+
 import 'package:material_ui/material_ui.dart';
 
 import 'tweakcn_themes.dart';
+
+/// WCAG contrast ratio between two opaque colors.
+double contrastRatio(Color a, Color b) {
+  final la = a.computeLuminance();
+  final lb = b.computeLuminance();
+  return (math.max(la, lb) + 0.05) / (math.min(la, lb) + 0.05);
+}
+
+/// [color] with its HSL lightness moved away from [surface] until it reaches
+/// [minContrast], keeping hue and saturation so status colors stay
+/// recognizable. Returns [color] unchanged when it already passes.
+Color withMinContrast(Color color, Color surface, double minContrast) {
+  if (contrastRatio(color, surface) >= minContrast) return color;
+  final hsl = HSLColor.fromColor(color);
+  final darken =
+      contrastRatio(Colors.black, surface) >=
+      contrastRatio(Colors.white, surface);
+  for (var step = 1; step <= 20; step++) {
+    final lightness = darken
+        ? hsl.lightness * (1 - step / 20)
+        : hsl.lightness + (1 - hsl.lightness) * step / 20;
+    final candidate = hsl.withLightness(lightness).toColor();
+    if (contrastRatio(candidate, surface) >= minContrast) return candidate;
+  }
+  return darken ? Colors.black : Colors.white;
+}
+
+/// Text color for content drawn on [surface]: [preferred] when legible,
+/// otherwise whichever of the palette's text or page colors reads better,
+/// falling back to black or white.
+Color readableOn(
+  Color surface, {
+  required Color preferred,
+  required Color foreground,
+  required Color background,
+  double minContrast = 4.5,
+}) {
+  if (contrastRatio(preferred, surface) >= minContrast) return preferred;
+  final palette =
+      contrastRatio(foreground, surface) >= contrastRatio(background, surface)
+      ? foreground
+      : background;
+  if (contrastRatio(palette, surface) >= minContrast) return palette;
+  return contrastRatio(Colors.black, surface) >=
+          contrastRatio(Colors.white, surface)
+      ? Colors.black
+      : Colors.white;
+}
+
+/// The app's error color for a palette.
+///
+/// Palettes keep tweakcn's `destructive` verbatim, and shadcn uses it as a
+/// button fill under white text. Conduit also draws the error color directly
+/// on the page as text and icons, which needs 4.5:1. A red that falls short
+/// (T3 Chat dark: #301015 on #221D27) keeps its hue with adjusted lightness;
+/// a non-red preset (Claude light: near-black #141413) falls back to a red.
+Color legibleDestructive({
+  required Color destructive,
+  required Color background,
+  required Brightness brightness,
+}) {
+  final readsAsRed =
+      destructive.r > destructive.g && destructive.r > destructive.b;
+  final base = readsAsRed
+      ? destructive
+      : brightness == Brightness.dark
+      ? const Color(0xFFE5677D)
+      : const Color(0xFFB53333);
+  return withMinContrast(base, background, 4.5);
+}
 
 /// Immutable set of semantic color tokens exposed through [ThemeExtension].
 ///
@@ -169,25 +241,37 @@ class AppColorTokens extends ThemeExtension<AppColorTokens> {
       isLight ? 0.18 : 0.24,
     );
 
-    final Color statusError60 = variant.destructive;
-    final Color statusOnError60 = _ensureContrast(
-      surface: statusError60,
-      foreground: variant.destructiveForeground,
+    final Color statusError60 = legibleDestructive(
+      destructive: variant.destructive,
+      background: variant.background,
+      brightness: brightness,
+    );
+    final Color statusOnError60 = readableOn(
+      statusError60,
+      preferred: variant.destructiveForeground,
+      foreground: variant.foreground,
+      background: variant.background,
     );
     final Color statusSuccess60 = variant.success;
-    final Color statusOnSuccess60 = _ensureContrast(
-      surface: statusSuccess60,
-      foreground: variant.successForeground,
+    final Color statusOnSuccess60 = readableOn(
+      statusSuccess60,
+      preferred: variant.successForeground,
+      foreground: variant.foreground,
+      background: variant.background,
     );
     final Color statusWarning60 = variant.warning;
-    final Color statusOnWarning60 = _ensureContrast(
-      surface: statusWarning60,
-      foreground: variant.warningForeground,
+    final Color statusOnWarning60 = readableOn(
+      statusWarning60,
+      preferred: variant.warningForeground,
+      foreground: variant.foreground,
+      background: variant.background,
     );
     final Color statusInfo60 = variant.info;
-    final Color statusOnInfo60 = _ensureContrast(
-      surface: statusInfo60,
-      foreground: variant.infoForeground,
+    final Color statusOnInfo60 = readableOn(
+      statusInfo60,
+      preferred: variant.infoForeground,
+      foreground: variant.foreground,
+      background: variant.background,
     );
 
     final Color overlayWeak = neutralOnSurface.withValues(

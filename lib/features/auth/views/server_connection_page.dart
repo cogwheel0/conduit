@@ -22,6 +22,7 @@ import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/network/conduit_user_agent.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 
 import 'package:conduit_core/services/worker_manager.dart';
@@ -1111,7 +1112,14 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       backNavigation: UtilityBackNavigation(
         label: l10n.back,
         buttonKey: const ValueKey<String>('server-connection-back-button'),
-        onPressed: () => context.go(Routes.backendChooser),
+        // Users adding Open WebUI next to a working Apple, Direct, or Hermes
+        // backend came from chat; only first-time setup returns to the
+        // backend chooser.
+        onPressed: () => context.go(
+          ref.read(accountlessPrimaryBackendUsableProvider)
+              ? Routes.chat
+              : Routes.backendChooser,
+        ),
       ),
       bottomAction: _buildConnectButton(),
       body: Form(

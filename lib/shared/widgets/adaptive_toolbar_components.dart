@@ -705,6 +705,16 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
     );
   }
 
+  /// Colors the symbol itself so trailing actions render the exact theme
+  /// color, like the leading button and the sidebar's glass group. A bare
+  /// control tint lets Liquid Glass lift the foreground to a brighter shade.
+  /// Pre-colored symbols skip UIKit's disabled dimming, so apply it here.
+  static Color? _symbolColor(ConduitNativeToolbarAction action) {
+    final color = action.tintColor;
+    if (color == null || action.enabled) return color;
+    return color.withValues(alpha: color.a * 0.35);
+  }
+
   Widget _buildAction(ConduitNativeToolbarAction action, double extent) {
     if (action.menuItems.isEmpty) {
       return Semantics(
@@ -716,6 +726,7 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
           icon: CNSymbol(
             action.iosSymbol,
             size: kConduitNativeSingleActionSymbolExtent,
+            color: _symbolColor(action),
           ),
           onPressed: action.onPressed,
           enabled: action.enabled,
@@ -738,6 +749,7 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
       child: AdaptivePopupMenuButton.icon<int>(
         icon: action.iosSymbol,
         iconSize: kConduitNativeSingleActionSymbolExtent,
+        iconColor: _symbolColor(action),
         tint: action.tintColor,
         size: extent,
         enabled: action.enabled,
@@ -1265,6 +1277,7 @@ class ConduitAdaptiveToolbarOverflowButton<T> extends StatelessWidget {
       size: Size.square(controlExtent),
       child: AdaptivePopupMenuButton.icon<T>(
         icon: Platform.isIOS ? iosIcon : materialIcon,
+        iconColor: tintColor,
         tint: tintColor,
         size: controlExtent,
         buttonStyle: PopupButtonStyle.glass,

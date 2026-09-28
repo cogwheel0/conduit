@@ -120,6 +120,7 @@ class TerminalFilesSection extends StatelessWidget {
 
     return InsetGroupedSection(
       padding: const EdgeInsets.all(Spacing.md),
+      color: theme.groupedSurfaceOnPage,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [

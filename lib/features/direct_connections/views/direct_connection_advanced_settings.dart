@@ -26,9 +26,6 @@ final class DirectConnectionAdvancedSettingsPage extends StatelessWidget {
       animation: form,
       builder: (context, _) => UtilityPageScaffold.settings(
         title: l10n.advancedSettings,
-        backgroundColor: CupertinoColors.systemGroupedBackground.resolveFrom(
-          context,
-        ),
         contentPadding: const EdgeInsets.fromLTRB(
           Spacing.screenPadding,
           Spacing.sm,
@@ -201,7 +198,7 @@ final class _NativeAdvancedSettingsContent extends StatelessWidget {
                 color: context.conduitTheme.textPrimary,
               ),
               placeholderStyle: AppTypography.bodyMediumStyle.copyWith(
-                color: CupertinoColors.placeholderText.resolveFrom(context),
+                color: context.conduitTheme.inputPlaceholder,
               ),
               decoration: const BoxDecoration(color: Colors.transparent),
             ),
@@ -294,7 +291,7 @@ final class _NativeCustomHeadersGroup extends StatelessWidget {
           key: const ValueKey<String>('add-direct-custom-header-button'),
           title: l10n.addHeader,
           titleFontWeight: FontWeight.w400,
-          foregroundColor: CupertinoColors.activeBlue.resolveFrom(context),
+          foregroundColor: context.conduitTheme.buttonPrimary,
           enabled: form.canAddCustomHeader,
           onTap: form.canAddCustomHeader ? form.addCustomHeader : null,
         ),
@@ -309,7 +306,7 @@ final class _NativeCustomHeadersGroup extends StatelessWidget {
               tooltip: l10n.removeHeader,
               onPressed: () => form.removeCustomHeader(entry.key),
               backgroundColor: Colors.transparent,
-              iconColor: CupertinoColors.systemRed.resolveFrom(context),
+              iconColor: context.conduitTheme.error,
               isCompact: true,
             ),
           ),

@@ -51,7 +51,7 @@ class SidebarIos26Scaffold extends StatelessWidget {
       _ => null,
     };
     final hasBottomNavigation = renderedBottomNavigation != null;
-    final textColor = CupertinoColors.label.resolveFrom(context);
+    final textColor = context.conduitTheme.textPrimary;
     final hasNavigationBar = leading != null || actions?.isNotEmpty == true;
     final toolbarActions = actions ?? const <AdaptiveAppBarAction>[];
     final toolbarActionsWidth = toolbarActions.isEmpty
@@ -112,7 +112,14 @@ class _NativeToolbarActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The native group reads brightness only when it is created, so rebuild
+    // it when the appearance or action tints change; otherwise a light/dark
+    // switch leaves a light glass pill behind dark-mode icons.
     return CNGlassButtonGroup.fromWidgets(
+      key: ValueKey<Object>((
+        CupertinoTheme.brightnessOf(context),
+        Object.hashAll(actions.map((action) => action.tintColor)),
+      )),
       spacing: 8,
       spacingForGlass: 36,
       buttonWidgets: [
@@ -136,7 +143,7 @@ class _NativeToolbarActions extends StatelessWidget {
                   ? null
                   : CNSymbol(
                       action.iosSymbol!,
-                      size: kCupertinoNativeControlSymbolExtent,
+                      size: kConduitNativeSingleActionSymbolExtent,
                     ),
               customIcon: action.iosSymbol == null ? action.icon : null,
               onPressed: action.onPressed,

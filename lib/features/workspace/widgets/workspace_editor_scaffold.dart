@@ -102,9 +102,7 @@ class WorkspaceEditorScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    final pageBackground = context.usesCupertinoChrome
-        ? CupertinoColors.systemGroupedBackground.resolveFrom(context)
-        : theme.surfaceBackground;
+    final pageBackground = theme.groupedBackground;
     final compact = MediaQuery.sizeOf(context).width < 840;
     // The route title already identifies compact editors. Repeating the same
     // icon and title at the top of the form made these screens read like web

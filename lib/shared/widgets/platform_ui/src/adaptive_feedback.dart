@@ -4,6 +4,8 @@ import 'package:cupertino_native_better/cupertino_native_better.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../../theme/color_tokens.dart';
+import '../../../theme/theme_extensions.dart';
 import 'platform_ui_capabilities.dart';
 
 enum AdaptiveSnackBarType { info, success, warning, error }
@@ -42,22 +44,29 @@ class AdaptiveSnackBar {
     }
 
     if (!PlatformUiCapabilities.isIOS) {
+      final status = _statusColors(context, type);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(message),
+          content: Text(
+            message,
+            style: status == null ? null : TextStyle(color: status.onBase),
+          ),
           duration: duration,
-          backgroundColor: switch (type) {
-            AdaptiveSnackBarType.info => Theme.of(
-              context,
-            ).snackBarTheme.backgroundColor,
-            AdaptiveSnackBarType.success => Colors.green.shade700,
-            AdaptiveSnackBarType.warning => Colors.orange.shade700,
-            AdaptiveSnackBarType.error => Colors.red.shade700,
-          },
+          backgroundColor:
+              status?.base ??
+              switch (type) {
+                AdaptiveSnackBarType.info => Theme.of(
+                  context,
+                ).snackBarTheme.backgroundColor,
+                AdaptiveSnackBarType.success => Colors.green.shade700,
+                AdaptiveSnackBarType.warning => Colors.orange.shade700,
+                AdaptiveSnackBarType.error => Colors.red.shade700,
+              },
           action: action == null
               ? null
               : SnackBarAction(
                   label: action,
+                  textColor: status?.onBase,
                   onPressed: onActionPressed ?? () {},
                 ),
         ),
@@ -85,6 +94,23 @@ class AdaptiveSnackBar {
     );
     _activeIOSEntry = entry;
     overlay.insert(entry);
+  }
+
+  /// Palette-driven status colors, or null outside a Conduit theme.
+  static StatusColors? _statusColors(
+    BuildContext context,
+    AdaptiveSnackBarType type,
+  ) {
+    final palette = Theme.of(context)
+        .extension<ConduitThemeExtension>()
+        ?.statusPalette;
+    if (palette == null) return null;
+    return switch (type) {
+      AdaptiveSnackBarType.info => palette.info,
+      AdaptiveSnackBarType.success => palette.success,
+      AdaptiveSnackBarType.warning => palette.warning,
+      AdaptiveSnackBarType.error => palette.destructive,
+    };
   }
 
   static CNToastDuration? _nativeDuration(Duration value) {
@@ -135,12 +161,24 @@ class _IOSBannerState extends State<_IOSBanner> {
 
   @override
   Widget build(BuildContext context) {
-    final tint = switch (widget.type) {
-      AdaptiveSnackBarType.info => CupertinoColors.systemBlue,
-      AdaptiveSnackBarType.success => CupertinoColors.systemGreen,
-      AdaptiveSnackBarType.warning => CupertinoColors.systemOrange,
-      AdaptiveSnackBarType.error => CupertinoColors.systemRed,
-    };
+    final conduitTheme = Theme.of(context).extension<ConduitThemeExtension>();
+    final bannerColor =
+        conduitTheme?.surfaceContainerHighest ??
+        CupertinoColors.secondarySystemBackground.resolveFrom(context);
+    final statusColor = AdaptiveSnackBar._statusColors(
+      context,
+      widget.type,
+    )?.base;
+    // Palette status colors are tuned as fills; the icon sits on the banner,
+    // so keep its hue but reach the 3:1 non-text contrast minimum.
+    final tint = statusColor != null
+        ? withMinContrast(statusColor, bannerColor, 3)
+        : switch (widget.type) {
+            AdaptiveSnackBarType.info => CupertinoColors.systemBlue,
+            AdaptiveSnackBarType.success => CupertinoColors.systemGreen,
+            AdaptiveSnackBarType.warning => CupertinoColors.systemOrange,
+            AdaptiveSnackBarType.error => CupertinoColors.systemRed,
+          };
     final icon = switch (widget.type) {
       AdaptiveSnackBarType.info => CupertinoIcons.info_circle_fill,
       AdaptiveSnackBarType.success => CupertinoIcons.check_mark_circled_solid,
@@ -158,9 +196,7 @@ class _IOSBannerState extends State<_IOSBanner> {
           liveRegion: true,
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: CupertinoColors.secondarySystemBackground.resolveFrom(
-                context,
-              ),
+              color: bannerColor,
               borderRadius: BorderRadius.circular(14),
               boxShadow: const [
                 BoxShadow(
@@ -180,7 +216,9 @@ class _IOSBannerState extends State<_IOSBanner> {
                     child: Text(
                       widget.message,
                       style: TextStyle(
-                        color: CupertinoColors.label.resolveFrom(context),
+                        color:
+                            conduitTheme?.textPrimary ??
+                            CupertinoColors.label.resolveFrom(context),
                       ),
                     ),
                   ),

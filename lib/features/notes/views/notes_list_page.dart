@@ -439,7 +439,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
 
     // Compute opaque background for proper context menu snapshot rendering
     final cardBackground = Color.alphaBlend(
-      sidebarTheme.accent.withValues(alpha: 0.5),
+      sidebarTheme.tint.withValues(alpha: 0.5),
       sidebarTheme.background,
     );
 
@@ -488,7 +488,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
                     width: 40,
                     height: 40,
                     decoration: BoxDecoration(
-                      color: sidebarTheme.accent,
+                      color: sidebarTheme.tint,
                       borderRadius: BorderRadius.circular(AppBorderRadius.sm),
                       border: Border.all(
                         color: sidebarTheme.border.withValues(alpha: 0.2),
@@ -660,7 +660,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
               width: 72,
               height: 72,
               decoration: BoxDecoration(
-                color: sidebarTheme.accent.withValues(alpha: 0.6),
+                color: sidebarTheme.tint.withValues(alpha: 0.6),
                 borderRadius: BorderRadius.circular(AppBorderRadius.lg),
               ),
               child: Icon(
@@ -755,7 +755,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
               width: 64,
               height: 64,
               decoration: BoxDecoration(
-                color: sidebarTheme.accent.withValues(alpha: 0.6),
+                color: sidebarTheme.tint.withValues(alpha: 0.6),
                 borderRadius: BorderRadius.circular(AppBorderRadius.lg),
               ),
               child: Icon(

@@ -525,16 +525,11 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   ) async {
     final value = event.value;
     try {
-      // Hermes-only: "Connect to Open WebUI" row. Dismiss the native
-      // sheet and route into the OWUI connect flow (the router allows the
-      // serverConnection route for Hermes-only users).
+      // Accountless (Hermes, Direct, Apple) "Connect to Open WebUI" row.
+      // Dismiss the native sheet and route into the OWUI connect flow (the
+      // router allows the serverConnection route for accountless users).
       if (event.id == 'add-owui-server') {
-        unawaited(
-          NavigationService.router.pushNamed<void>(
-            RouteNames.serverConnection,
-            extra: const NativeSheetNavigationOrigin(),
-          ),
-        );
+        NavigationService.openOpenWebUIConnectFromNativeSheet();
         return;
       }
 
@@ -1090,17 +1085,11 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             : lightTheme;
         final nativeTheme = materialTheme.extension<ConduitThemeExtension>();
         if (nativeTheme != null) {
-          // Light sheets use the grouped iOS settings look: white cards on
-          // a tinted page. Palettes differ on which token is the tinted one
-          // (Conduit tints its card, Catppuccin its page), so pick by
-          // luminance rather than swapping. Dark keeps cards lifted off black.
+          // Sheets share the grouped settings colors with the Flutter
+          // settings screens so both read as one surface system.
           final isDarkSheet = brightness == Brightness.dark;
-          final (sheetBackground, sheetSurface) = isDarkSheet
-              ? (nativeTheme.surfaceBackground, nativeTheme.cardBackground)
-              : resolveGroupedSheetColors(
-                  page: nativeTheme.surfaceBackground,
-                  card: nativeTheme.cardBackground,
-                );
+          final sheetBackground = nativeTheme.groupedBackground;
+          final sheetSurface = nativeTheme.groupedSurface;
           unawaited(
             NativeSheetBridge.instance.syncTheme(
               NativeSheetThemeConfig(

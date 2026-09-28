@@ -372,9 +372,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
                   UtilityRow(
                     title: l10n.testDirectConnection,
                     titleFontWeight: FontWeight.w400,
-                    foregroundColor: CupertinoColors.activeBlue.resolveFrom(
-                      context,
-                    ),
+                    foregroundColor: context.conduitTheme.buttonPrimary,
                     enabled:
                         _connectionController.draftIsUsable(config) &&
                         !_connectionController.operation.isBusy,
@@ -510,8 +508,8 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
                         color:
                             _connectionController.draftIsUsable(config) &&
                                 !_connectionController.operation.isBusy
-                            ? CupertinoColors.activeBlue.resolveFrom(context)
-                            : CupertinoColors.inactiveGray.resolveFrom(context),
+                            ? context.conduitTheme.buttonPrimary
+                            : context.conduitTheme.textDisabled,
                       ),
                     ),
             )

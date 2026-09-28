@@ -54,9 +54,6 @@ Widget _buildDirectConnectionsScaffold(
   if (isOnboarding) {
     return UtilityPageScaffold.auth(
       title: l10n.backendChooserDirectTitle,
-      backgroundColor: PlatformInfo.isIOS
-          ? CupertinoColors.systemGroupedBackground.resolveFrom(context)
-          : null,
       backNavigation: UtilityBackNavigation(
         label: l10n.back,
         buttonKey: const ValueKey<String>('direct-onboarding-back-button'),
@@ -71,9 +68,6 @@ Widget _buildDirectConnectionsScaffold(
   }
   return UtilityPageScaffold.settings(
     title: l10n.directConnectionsTitle,
-    backgroundColor: PlatformInfo.isIOS
-        ? CupertinoColors.systemGroupedBackground.resolveFrom(context)
-        : null,
     children: children,
   );
 }

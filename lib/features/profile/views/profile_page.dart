@@ -11,6 +11,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
+import '../../../shared/widgets/adaptive_toolbar_components.dart';
 
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/utils/external_link_launcher.dart';
@@ -73,9 +74,35 @@ class ProfilePage extends ConsumerWidget {
   Widget _buildScaffold(BuildContext context, {required Widget body}) {
     final l10n = AppLocalizations.of(context)!;
 
+    // Use the same floating back control as the settings subpages so the
+    // hub and its destinations share one toolbar style.
+    final backLabel = MaterialLocalizations.of(context).backButtonTooltip;
+    final backButton = Navigator.of(context).canPop()
+        ? AdaptiveTooltip(
+            message: backLabel,
+            child: ConduitAdaptiveAppBarIconButton(
+              icon: context.usesCupertinoChrome
+                  ? CupertinoIcons.chevron_back
+                  : Icons.arrow_back,
+              semanticLabel: backLabel,
+              onPressed: () => Navigator.of(context).maybePop(),
+            ),
+          )
+        : null;
+
     return AdaptiveRouteShell(
-      backgroundColor: context.conduitTheme.surfaceBackground,
-      appBar: AdaptiveAppBar(title: l10n.you),
+      backgroundColor: context.conduitTheme.groupedBackground,
+      appBar: AdaptiveAppBar(
+        title: l10n.you,
+        leading: backButton == null || context.usesCupertinoChrome
+            ? backButton
+            : Center(
+                child: SizedBox.square(
+                  dimension: TouchTarget.minimum,
+                  child: backButton,
+                ),
+              ),
+      ),
       body: body,
     );
   }

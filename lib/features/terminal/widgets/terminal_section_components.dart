@@ -69,6 +69,7 @@ class TerminalInfoCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return InsetGroupedSection(
       padding: const EdgeInsets.all(Spacing.md),
+      color: context.conduitTheme.groupedSurfaceOnPage,
       child: Text(
         sanitizeUtf16(message),
         style: AppTypography.bodyMediumStyle.copyWith(

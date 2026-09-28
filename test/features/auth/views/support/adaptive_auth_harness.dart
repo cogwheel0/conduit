@@ -3,6 +3,7 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit/features/auth/views/authentication_page.dart';
@@ -37,6 +38,7 @@ class AdaptiveAuthHarness {
     this.textScaler,
     this.appleOnDeviceStatus,
     this.applePccStatus,
+    this.accountlessBackendUsable = false,
   }) {
     when(() => _storage.getSavedCredentials()).thenAnswer((_) async => null);
     when(() => _storage.getAuthTokenStrict()).thenAnswer((_) async => '');
@@ -54,6 +56,10 @@ class AdaptiveAuthHarness {
   final TextScaler? textScaler;
   final PlatformPccStatus? appleOnDeviceStatus;
   final PlatformPccStatus? applePccStatus;
+
+  /// Whether an Apple, Direct, or Hermes backend already works, as when Open
+  /// WebUI is added from settings rather than during first-time setup.
+  final bool accountlessBackendUsable;
   final _MockOptimizedStorageService _storage = _MockOptimizedStorageService();
   final ErrorWidgetBuilder _previousErrorWidgetBuilder = ErrorWidget.builder;
   final void Function(FlutterErrorDetails)? _previousFlutterOnError =
@@ -85,10 +91,18 @@ class AdaptiveAuthHarness {
           name: RouteNames.backendChooser,
           builder: (_, _) => const BackendChooserPage(),
         ),
+        GoRoute(
+          path: Routes.chat,
+          name: RouteNames.chat,
+          builder: (_, _) => const SizedBox(key: ValueKey<String>('chat')),
+        ),
       ],
     );
     return ProviderScope(
       overrides: [
+        accountlessPrimaryBackendUsableProvider.overrideWithValue(
+          accountlessBackendUsable,
+        ),
         optimizedStorageServiceProvider.overrideWithValue(_storage),
         activeServerProvider.overrideWith((_) async => server),
         appleOnDeviceStatusProvider.overrideWith(

@@ -59,6 +59,34 @@ void main() {
     },
   );
 
+  testWidgets(
+    'server setup returns to chat when a local backend already works',
+    (tester) async {
+      // Adding Open WebUI from settings next to a working Apple, Direct, or
+      // Hermes backend must not strand the user in first-time onboarding.
+      final harness = AdaptiveAuthHarness(
+        server: _server,
+        accountlessBackendUsable: true,
+      );
+      addTearDown(harness.dispose);
+
+      await tester.pumpWidget(
+        harness.build(initialLocation: Routes.serverConnection),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('server-connection-back-button')),
+      );
+      await tester.pumpAndSettle();
+
+      check(harness.router.routeInformationProvider.value.uri.path)
+          .equals(Routes.chat);
+      expect(find.byKey(const ValueKey<String>('chat')), findsOneWidget);
+      await harness.unmount(tester);
+    },
+  );
+
   testWidgets('Android auth back surface stays at toolbar action size', (
     tester,
   ) async {

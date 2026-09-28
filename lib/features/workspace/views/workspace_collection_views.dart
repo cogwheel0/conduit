@@ -323,9 +323,7 @@ class _WorkspaceIosCollectionShellState
     _CollectionBinding<T> binding, {
     required bool canCreate,
   }) {
-    final pageBackground = CupertinoColors.systemGroupedBackground.resolveFrom(
-      context,
-    );
+    final pageBackground = context.conduitTheme.groupedBackground;
     final section = widget.section;
 
     // Keep the pagination snapshot current for the scroll listener.

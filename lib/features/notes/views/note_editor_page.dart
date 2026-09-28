@@ -2911,7 +2911,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
               width: 80,
               height: 80,
               decoration: BoxDecoration(
-                color: sidebarTheme.accent.withValues(alpha: 0.5),
+                color: sidebarTheme.tint.withValues(alpha: 0.5),
                 borderRadius: BorderRadius.circular(AppBorderRadius.xl),
               ),
               child: Icon(

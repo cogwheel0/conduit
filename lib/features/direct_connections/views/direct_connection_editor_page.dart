@@ -297,9 +297,6 @@ class _DirectConnectionEditorPageState
       final l10n = AppLocalizations.of(context)!;
       return UtilityPageScaffold.auth(
         title: title,
-        backgroundColor: PlatformInfo.isIOS
-            ? CupertinoColors.systemGroupedBackground.resolveFrom(context)
-            : null,
         backNavigation: UtilityBackNavigation(
           label: l10n.back,
           buttonKey: const ValueKey<String>('direct-editor-back-button'),
@@ -322,9 +319,6 @@ class _DirectConnectionEditorPageState
 
     return UtilityPageScaffold.settings(
       title: title,
-      backgroundColor: PlatformInfo.isIOS
-          ? CupertinoColors.systemGroupedBackground.resolveFrom(context)
-          : null,
       trailing: trailing,
       contentPadding: PlatformInfo.isIOS
           ? const EdgeInsets.fromLTRB(
@@ -430,9 +424,7 @@ class _DirectConnectionEditorPageState
                 ),
                 title: l10n.testDirectConnection,
                 titleFontWeight: FontWeight.w400,
-                foregroundColor: CupertinoColors.activeBlue.resolveFrom(
-                  context,
-                ),
+                foregroundColor: context.conduitTheme.buttonPrimary,
                 enabled:
                     !_saving &&
                     !_deleting &&

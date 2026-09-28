@@ -1,4 +1,3 @@
-import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../theme/theme_extensions.dart';
@@ -14,6 +13,7 @@ class InsetGroupedSection extends StatelessWidget {
     this.padding = const EdgeInsets.all(Spacing.md),
     this.flat = false,
     this.useNativeSurface = false,
+    this.color,
   });
 
   final String? title;
@@ -23,6 +23,11 @@ class InsetGroupedSection extends StatelessWidget {
   final EdgeInsetsGeometry padding;
   final bool flat;
   final bool useNativeSurface;
+
+  /// Card fill. Defaults to [ConduitThemeExtension.groupedSurface], which
+  /// assumes the grouped page behind it; sections on the plain page pass
+  /// [ConduitThemeExtension.groupedSurfaceOnPage].
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
@@ -75,19 +80,13 @@ class InsetGroupedSection extends StatelessWidget {
             clipBehavior: Clip.antiAlias,
             padding: padding,
             decoration: BoxDecoration(
-              color: nativeSurface
-                  ? CupertinoColors.secondarySystemGroupedBackground
-                        .resolveFrom(context)
-                  : theme.surfaceContainer.withValues(alpha: 0.68),
+              // Palette-derived grouped card on both platforms: the lighter
+              // palette surface on the darker grouped page, so sections lift
+              // without borders (iOS inset-grouped, Material 3 filled cards).
+              color: color ?? theme.groupedSurface,
               borderRadius: BorderRadius.circular(
                 nativeSurface ? AppBorderRadius.md : AppBorderRadius.card,
               ),
-              border: nativeSurface
-                  ? null
-                  : Border.all(
-                      color: theme.cardBorder,
-                      width: BorderWidth.thin,
-                    ),
             ),
             child: Material(type: MaterialType.transparency, child: child),
           ),

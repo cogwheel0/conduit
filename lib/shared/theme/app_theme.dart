@@ -77,6 +77,32 @@ class AppTheme {
       tertiary: variant.accent,
       onTertiary: _pickOnColor(variant.accent, tokens),
       surfaceTint: variant.primary,
+      // Roles left to `ColorScheme.fromSeed` come out hue-shifted from the
+      // seed (pink/teal containers on the monochrome Conduit palette), and
+      // Material components such as segmented buttons, chips, menus, and
+      // switches read them directly. Derive every one from the palette.
+      // shadcn draws selected tabs/toggles with `secondary`; `accent` is a
+      // hover color (Catppuccin's is saturated sky blue).
+      secondaryContainer: variant.secondary,
+      onSecondaryContainer: variant.secondaryForeground,
+      tertiaryContainer: variant.muted,
+      onTertiaryContainer: variant.foreground,
+      errorContainer: Color.alphaBlend(
+        tokens.statusError60.withValues(alpha: isDark ? 0.24 : 0.12),
+        surfaces.background,
+      ),
+      // Error details render as body text inside the container.
+      onErrorContainer: tokens.neutralOnSurface,
+      surfaceContainerLowest: isDark ? surfaces.background : surfaces.popover,
+      surfaceContainer: surfaces.container,
+      surfaceContainerHigh: Color.lerp(surfaces.container, surfaces.card, 0.5),
+      surfaceDim: isDark ? surfaces.background : surfaces.card,
+      surfaceBright: isDark ? surfaces.card : surfaces.background,
+      inverseSurface: variant.foreground,
+      onInverseSurface: variant.background,
+      // Accent text on the inverse surface: the palette primary, with its
+      // lightness adjusted where it would blend into that surface.
+      inversePrimary: withMinContrast(variant.primary, variant.foreground, 4.5),
     );
 
     final OutlineInputBorder baseInputBorder = OutlineInputBorder(

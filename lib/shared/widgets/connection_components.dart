@@ -99,6 +99,7 @@ class ConnectionWebAuthScaffold extends StatelessWidget {
       appBar: AdaptiveAppBar(
         title: title,
         leading: backButton,
+        tintColor: context.conduitTheme.textPrimary,
         actions: [
           if (onRefresh != null)
             AdaptiveAppBarAction(

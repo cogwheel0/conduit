@@ -2782,7 +2782,13 @@ class _MermaidCanvasControlButton extends StatelessWidget {
               clipBehavior: Clip.antiAlias,
               child: InkWell(
                 onTap: onPressed,
-                child: Icon(icon, size: 18, color: colorScheme.onSurface),
+                child: Icon(
+                  icon,
+                  size: 18,
+                  color: active
+                      ? colorScheme.onSecondaryContainer
+                      : colorScheme.onSurface,
+                ),
               ),
             ),
           ),

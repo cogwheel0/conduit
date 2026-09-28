@@ -6,6 +6,11 @@
 // Edit a palette here and both front-ends move together.
 //
 // Values are ARGB, matching Flutter's `Color(0x...)` layout.
+//
+// Presets other than Conduit mirror tweakcn's (utils/theme-presets.ts)
+// verbatim; success/warning/info are Conduit additions. Adapt colors for app
+// use in the Flutter token layer (e.g. `legibleDestructive`), not here, so the
+// palettes stay comparable with tweakcn.
 
 import 'palette.dart';
 
@@ -255,8 +260,8 @@ const ThemeVariant _catppuccinLight = ThemeVariant(
   sidebarForeground: 0xFF4C4F69,
   sidebarPrimary: 0xFF8839EF,
   sidebarPrimaryForeground: 0xFFFFFFFF,
-  sidebarAccent: 0xFFDCE0E8,
-  sidebarAccentForeground: 0xFF4C4F69,
+  sidebarAccent: 0xFF04A5E5,
+  sidebarAccentForeground: 0xFFFFFFFF,
   sidebarBorder: 0xFFBCC0CC,
   sidebarRing: 0xFF8839EF,
   success: 0xFF40A02B,
@@ -265,7 +270,7 @@ const ThemeVariant _catppuccinLight = ThemeVariant(
   warningForeground: 0xFF4C4F69,
   info: 0xFF04A5E5,
   infoForeground: 0xFFFFFFFF,
-  radius: 6.0,
+  radius: 5.6,
 );
 
 const ThemeVariant _catppuccinDark = ThemeVariant(
@@ -292,8 +297,8 @@ const ThemeVariant _catppuccinDark = ThemeVariant(
   sidebarForeground: 0xFFCDD6F4,
   sidebarPrimary: 0xFFCBA6F7,
   sidebarPrimaryForeground: 0xFF1E1E2E,
-  sidebarAccent: 0xFF292C3C,
-  sidebarAccentForeground: 0xFFCDD6F4,
+  sidebarAccent: 0xFF89DCEB,
+  sidebarAccentForeground: 0xFF1E1E2E,
   sidebarBorder: 0xFF45475A,
   sidebarRing: 0xFFCBA6F7,
   success: 0xFFA6E3A1,
@@ -302,7 +307,7 @@ const ThemeVariant _catppuccinDark = ThemeVariant(
   warningForeground: 0xFF181825,
   info: 0xFF89DCEB,
   infoForeground: 0xFF181825,
-  radius: 6.0,
+  radius: 5.6,
 );
 
 const ThemeVariant _tangerineLight = ThemeVariant(

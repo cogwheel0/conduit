@@ -201,7 +201,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       ConduitNativeToolbarAction(
         iosSymbol: isTemporary ? 'eye.slash' : 'eye',
         accessibilityLabel: l10n.temporaryChat,
-        tintColor: isTemporary ? Colors.blue : tintColor,
+        tintColor: isTemporary ? context.conduitTheme.info : tintColor,
         onPressed: _toggleTemporaryChat,
       ),
       // A read-grant shared folder cannot receive new chats.
@@ -268,7 +268,9 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         icon: isTemporary
             ? (Platform.isIOS ? CupertinoIcons.eye_slash : Icons.visibility_off)
             : (Platform.isIOS ? CupertinoIcons.eye : Icons.visibility_outlined),
-        iconColor: isTemporary ? Colors.blue : context.conduitTheme.textPrimary,
+        iconColor: isTemporary
+            ? context.conduitTheme.info
+            : context.conduitTheme.textPrimary,
         onPressed: _toggleTemporaryChat,
       ),
       // A read-grant shared folder cannot receive new chats.
@@ -2229,7 +2231,9 @@ class _SectionHeader extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
             decoration: BoxDecoration(
-              color: context.sidebarTheme.accent.withValues(alpha: 0.7),
+              color: context.sidebarTheme.tint.withValues(
+                alpha: SidebarThemeExtension.tintMaxOpacity,
+              ),
               borderRadius: BorderRadius.circular(AppBorderRadius.xs),
               border: Border.all(
                 color: context.sidebarTheme.border.withValues(alpha: 0.35),
@@ -2239,7 +2243,7 @@ class _SectionHeader extends StatelessWidget {
             child: Text(
               '$count',
               style: AppTypography.sidebarBadgeStyle.copyWith(
-                color: context.sidebarTheme.foreground.withValues(alpha: 0.8),
+                color: context.sidebarTheme.foreground,
                 decoration: TextDecoration.none,
               ),
             ),
