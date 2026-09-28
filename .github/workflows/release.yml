@@ -113,10 +113,10 @@ jobs:
         working-directory: android
       
       - name: Build APK
-        run: flutter build apk --split-per-abi --release
+        run: flutter build apk --split-per-abi --target-platform android-arm,android-arm64 --release
 
       - name: Build appBundle
-        run: flutter build appbundle --release
+        run: flutter build appbundle --target-platform android-arm,android-arm64 --release
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -125,13 +125,12 @@ jobs:
           path: |
             build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
             build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
-            build/app/outputs/flutter-apk/app-x86_64-release.apk
             build/app/outputs/bundle/release/app-release.aab
 
       - name: Update Release with Artifacts
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "build/app/outputs/flutter-apk/app-arm64-v8a-release.apk,build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk,build/app/outputs/flutter-apk/app-x86_64-release.apk,build/app/outputs/bundle/release/app-release.aab"
+          artifacts: "build/app/outputs/flutter-apk/app-arm64-v8a-release.apk,build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk,build/app/outputs/bundle/release/app-release.aab"
           tag: ${{ github.ref_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
           allowUpdates: true
@@ -204,6 +203,8 @@ jobs:
             ${{ runner.os }}-xcode-
 
       - name: Build iOS App
+        env:
+          XCODE_XCCONFIG_FILE: ${{ github.workspace }}/ios/Flutter/ArmOnly.xcconfig
         run: |
           flutter build ios --release --no-codesign
 
