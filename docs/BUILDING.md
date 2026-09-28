@@ -57,7 +57,7 @@ git submodule update --init --recursive
 ```bash
 flutter pub get
 dart run build_runner build
-flutter run -d ios
+XCODE_XCCONFIG_FILE="$PWD/ios/Flutter/ArmOnly.xcconfig" flutter run -d ios
 # or
 flutter run -d android
 ```
@@ -68,6 +68,10 @@ models, JSON serialization, Drift tables, and Pigeon bindings all generate into
 new worktree has none of them, so the analyzer will report hundreds of errors
 until codegen runs. If you see missing-symbol errors that look impossible, run
 codegen before you start debugging.
+
+The iOS simulator build targets Apple Silicon only. The `XCODE_XCCONFIG_FILE`
+setting excludes x86_64 from Swift packages as well as the app and extensions.
+Use an ARM emulator or device for Android development.
 
 Pigeon remains pinned separately because its analyzer constraint does not
 overlap the Dart 3.13-compatible Riverpod and Freezed generators. Install its
@@ -107,11 +111,11 @@ mocks. Lints come from `flutter_lints` plus `riverpod_lint`.
 
 ```bash
 # Android
-flutter build apk --release
-flutter build appbundle --release
+flutter build apk --target-platform android-arm,android-arm64 --release
+flutter build appbundle --target-platform android-arm,android-arm64 --release
 
 # iOS
-flutter build ios --release
+XCODE_XCCONFIG_FILE="$PWD/ios/Flutter/ArmOnly.xcconfig" flutter build ios --release
 ```
 
 `scripts/release.sh` drives the tagged release flow used by the maintainer.

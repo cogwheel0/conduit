@@ -19,11 +19,19 @@ android {
     ndkVersion = "29.0.14206865"
 
     defaultConfig {
-    applicationId = "app.cogwheel.conduit"
-    minSdk = flutter.minSdkVersion
-    targetSdk = flutter.targetSdkVersion
-    versionCode = flutter.versionCode
-    versionName = flutter.versionName
+        applicationId = "app.cogwheel.conduit"
+        minSdk = flutter.minSdkVersion
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+        // Flutter adds x86_64 by default for non-split builds. Ship only ARM ABIs.
+        // Split builds set their ABIs through --target-platform instead.
+        if (providers.gradleProperty("split-per-abi").orNull != "true") {
+            ndk {
+                abiFilters.clear()
+                abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a"))
+            }
+        }
     }
 
     compileOptions {

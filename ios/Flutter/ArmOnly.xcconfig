@@ -1,0 +1,2 @@
+// Apply to every Xcode target, including Swift Package Manager dependencies.
+EXCLUDED_ARCHS[sdk=iphonesimulator*] = x86_64
