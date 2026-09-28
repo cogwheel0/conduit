@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/color_tokens.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
@@ -25,6 +27,71 @@ void main() {
         .equals(expectedAccent.withValues(alpha: 0.2));
     check(iosSelection.selectionHandleColor).equals(expectedAccent);
     check(iosSelection).equals(androidSelection);
+  });
+
+  test('Material container roles come from the palette, not the seed', () {
+    // fromSeed hue-shifts these roles (pink containers on the monochrome
+    // Conduit palette), and Material controls read them directly.
+    for (final definition in TweakcnThemes.all) {
+      for (final brightness in Brightness.values) {
+        final variant = definition.variantFor(brightness);
+        final theme = brightness == Brightness.dark
+            ? AppTheme.dark(definition)
+            : AppTheme.light(definition);
+        final scheme = theme.colorScheme;
+        final surfaces = theme.extension<SurfaceThemeExtension>()!;
+        final label = '${definition.id} $brightness';
+        check(
+          because: label,
+          scheme.secondaryContainer,
+        ).equals(variant.secondary);
+        check(
+          because: label,
+          scheme.onSecondaryContainer,
+        ).equals(variant.secondaryForeground);
+        check(because: label, scheme.tertiaryContainer).equals(variant.muted);
+        check(
+          because: label,
+          scheme.surfaceContainer,
+        ).equals(surfaces.container);
+        check(
+          because: label,
+          scheme.inverseSurface,
+        ).equals(variant.foreground);
+      }
+    }
+  });
+
+  test('error color stays a legible red on every palette', () {
+    // Palettes keep tweakcn's destructive verbatim (a button fill), but the
+    // app also draws the error color as text and icons on the page.
+    for (final definition in TweakcnThemes.all) {
+      for (final brightness in Brightness.values) {
+        final variant = definition.variantFor(brightness);
+        final error = brightness == Brightness.dark
+            ? AppColorTokens.dark(theme: definition).statusError60
+            : AppColorTokens.light(theme: definition).statusError60;
+        final label = '${definition.id} $brightness';
+        final lighter = math.max(
+          error.computeLuminance(),
+          variant.background.computeLuminance(),
+        );
+        final darker = math.min(
+          error.computeLuminance(),
+          variant.background.computeLuminance(),
+        );
+        check(
+          because: label,
+          (lighter + 0.05) / (darker + 0.05),
+        ).isGreaterOrEqual(3);
+        check(because: label, error.r > error.g && error.r > error.b).isTrue();
+      }
+    }
+    // Legible presets pass through untouched.
+    final catppuccin = TweakcnThemes.catppuccin.variantFor(Brightness.light);
+    check(
+      AppColorTokens.light(theme: TweakcnThemes.catppuccin).statusError60,
+    ).equals(catppuccin.destructive);
   });
 
   test('product typography uses one ramp on Android and iOS', () {

@@ -130,10 +130,11 @@ class AccessibleFormField extends StatelessWidget {
               hintStyle: AppTypography.inputHintStyle.copyWith(
                 color: context.conduitTheme.inputPlaceholder,
               ),
-              // Outlined field: page-colored fill, a hairline
-              // outline, and a firmer ink outline while focused.
+              // Outlined field: grouped-card fill that lifts off the
+              // grouped settings page, a hairline outline, and a firmer ink
+              // outline while focused.
               filled: true,
-              fillColor: context.conduitTheme.surfaceBackground,
+              fillColor: context.conduitTheme.groupedSurface,
               border: _outline(context.conduitTheme.inputBorder),
               enabledBorder: _outline(context.conduitTheme.inputBorder),
               focusedBorder: _outline(
@@ -158,12 +159,12 @@ class AccessibleFormField extends StatelessWidget {
             ),
             cupertinoBoxDecoration: BoxDecoration(
               color: enabled
-                  ? CupertinoColors.systemBackground.resolveFrom(context)
-                  : CupertinoColors.quaternarySystemFill.resolveFrom(context),
+                  ? context.conduitTheme.groupedSurface
+                  : context.conduitTheme.buttonDisabled,
               border: Border.all(
                 color: hasExternalError
-                    ? CupertinoColors.systemRed.resolveFrom(context)
-                    : CupertinoColors.separator.resolveFrom(context),
+                    ? context.conduitTheme.error
+                    : context.conduitTheme.inputBorder,
                 width: BorderWidth.regular,
               ),
               borderRadius: BorderRadius.circular(_fieldRadius),

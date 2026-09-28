@@ -188,9 +188,10 @@ class _JobCardState extends ConsumerState<_JobCard> {
     return Container(
       padding: const EdgeInsets.all(Spacing.md),
       decoration: BoxDecoration(
-        color: theme.surfaceBackground,
-        borderRadius: BorderRadius.circular(AppBorderRadius.card),
-        border: Border.all(color: theme.cardBorder),
+        color: theme.groupedSurface,
+        borderRadius: BorderRadius.circular(
+          context.usesCupertinoChrome ? AppBorderRadius.md : AppBorderRadius.card,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

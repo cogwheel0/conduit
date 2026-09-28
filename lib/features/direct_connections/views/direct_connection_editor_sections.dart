@@ -595,7 +595,7 @@ final class DirectConnectionAdvancedSettingsSection extends StatelessWidget {
             titleFontWeight: FontWeight.w400,
             foregroundColor: headerError == null
                 ? null
-                : CupertinoColors.systemRed.resolveFrom(context),
+                : context.conduitTheme.error,
             showChevron: true,
             onTap: () => showDirectConnectionAdvancedSettings(context, form),
           ),

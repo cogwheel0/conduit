@@ -1,6 +1,37 @@
+import 'dart:math' as math;
+
 import 'package:material_ui/material_ui.dart';
 
 import 'tweakcn_themes.dart';
+
+/// The app's error color for a palette.
+///
+/// Palettes keep tweakcn's `destructive` verbatim, and shadcn uses it as a
+/// button fill under white text. Conduit also draws the error color directly
+/// on the page as text and icons, where some presets vanish (T3 Chat dark:
+/// #301015 on #221D27) or stop reading as an error (Claude light: near-black
+/// #141413). Those fall back to a legible red for the brightness.
+Color legibleDestructive({
+  required Color destructive,
+  required Color background,
+  required Brightness brightness,
+}) {
+  final readsAsRed =
+      destructive.r > destructive.g && destructive.r > destructive.b;
+  final lighter = math.max(
+    destructive.computeLuminance(),
+    background.computeLuminance(),
+  );
+  final darker = math.min(
+    destructive.computeLuminance(),
+    background.computeLuminance(),
+  );
+  final contrast = (lighter + 0.05) / (darker + 0.05);
+  if (readsAsRed && contrast >= 3) return destructive;
+  return brightness == Brightness.dark
+      ? const Color(0xFFD9476B)
+      : const Color(0xFFB53333);
+}
 
 /// Immutable set of semantic color tokens exposed through [ThemeExtension].
 ///
@@ -169,7 +200,11 @@ class AppColorTokens extends ThemeExtension<AppColorTokens> {
       isLight ? 0.18 : 0.24,
     );
 
-    final Color statusError60 = variant.destructive;
+    final Color statusError60 = legibleDestructive(
+      destructive: variant.destructive,
+      background: variant.background,
+      brightness: brightness,
+    );
     final Color statusOnError60 = _ensureContrast(
       surface: statusError60,
       foreground: variant.destructiveForeground,

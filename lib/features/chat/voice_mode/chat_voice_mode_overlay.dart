@@ -295,9 +295,10 @@ class _StatusDot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = switch (snapshot.phase) {
-      ChatVoiceModePhase.listening => Colors.green,
+      ChatVoiceModePhase.listening => context.conduitTheme.success,
       ChatVoiceModePhase.speaking => context.conduitTheme.buttonPrimary,
-      ChatVoiceModePhase.paused || ChatVoiceModePhase.muted => Colors.orange,
+      ChatVoiceModePhase.paused || ChatVoiceModePhase.muted =>
+        context.conduitTheme.warning,
       ChatVoiceModePhase.error => Theme.of(context).colorScheme.error,
       _ => context.conduitTheme.textSecondary,
     };

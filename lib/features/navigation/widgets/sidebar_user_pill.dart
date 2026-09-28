@@ -283,6 +283,7 @@ Widget buildSidebarProfileButton({
   required VoidCallback onPressed,
   required AdaptiveButtonStyle fallbackStyle,
   Color? fallbackColor,
+  Color? nativeSymbolColor,
   Uint8List? nativeAvatarBytes,
   required Widget child,
 }) {
@@ -298,7 +299,7 @@ Widget buildSidebarProfileButton({
           ? CNSymbol(
               'person.crop.circle.fill',
               size: IconSize.large,
-              color: fallbackColor,
+              color: nativeSymbolColor ?? fallbackColor,
             )
           : null,
       imageAsset: avatarBytes == null
@@ -460,6 +461,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         onPressed: openProfile,
         fallbackStyle: style,
         fallbackColor: useOpaqueFallback ? iconColor : null,
+        nativeSymbolColor: iconColor,
         nativeAvatarBytes: nativeAvatarBytes,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(AppBorderRadius.avatar),

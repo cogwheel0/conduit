@@ -246,10 +246,7 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
 
     return AdaptiveRouteShell(
       backgroundColor:
-          widget.backgroundColor ??
-          (context.usesCupertinoChrome
-              ? CupertinoColors.systemGroupedBackground.resolveFrom(context)
-              : context.conduitTheme.surfaceBackground),
+          widget.backgroundColor ?? context.conduitTheme.groupedBackground,
       appBar: appBar,
       body: Stack(
         children: [

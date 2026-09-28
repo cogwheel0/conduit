@@ -494,6 +494,7 @@ class AdaptivePopupMenuButton<T> {
     required void Function(int index, AdaptivePopupMenuItem<T> entry)
     onSelected,
     Color? tint,
+    Color? iconColor,
     double size = 44,
     double? iconSize,
     bool enabled = true,
@@ -505,8 +506,8 @@ class AdaptivePopupMenuButton<T> {
         key: key,
         buttonIcon: icon is String
             ? iconSize == null
-                  ? CNSymbol(icon)
-                  : CNSymbol(icon, size: iconSize)
+                  ? CNSymbol(icon, color: iconColor)
+                  : CNSymbol(icon, size: iconSize, color: iconColor)
             : null,
         buttonCustomIcon: icon is IconData ? icon : null,
         items: _nativeItems<T>(items),

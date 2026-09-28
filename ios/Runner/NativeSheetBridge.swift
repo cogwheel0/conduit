@@ -3391,7 +3391,12 @@ private final class NativeSheetSegmentTableViewCell: UITableViewCell {
     }
 
     func configure(item: NativeSheetItem, onValueChanged: @escaping (String) -> Void) {
+        // Re-read the theme on every bind: reused cells otherwise keep the
+        // palette that was active when they were first created.
+        NativeSheetSettingsStyle.applyCellStyle(self)
         applyNativeSheetSegmentedControlTheme(segmentedControl)
+        titleLabel.textColor = NativeSheetTheme.shared.foreground
+        subtitleLabel.textColor = NativeSheetTheme.shared.secondaryForeground
         titleLabel.text = item.title
         if let subtitle = item.subtitle, !subtitle.isEmpty {
             subtitleLabel.text = subtitle

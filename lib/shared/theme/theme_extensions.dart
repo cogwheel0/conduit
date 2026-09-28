@@ -6,6 +6,28 @@ import 'package:material_ui/material_ui.dart';
 import 'tweakcn_themes.dart';
 import 'color_tokens.dart';
 
+/// Orders a palette's page and card colors for grouped settings surfaces: the darker
+/// (tinted) color becomes the page and the lighter one the cards.
+///
+/// Palettes disagree on which token is tinted, so an unconditional swap
+/// would invert palettes that already put white cards on a tinted page.
+/// Some palettes (T3 Chat light, Claude) give the page and card the same
+/// color; the popover color then supplies the cards so grouped sections stay
+/// visible.
+(Color, Color) resolveGroupedSheetColors({
+  required Color page,
+  required Color card,
+  Color? popover,
+}) {
+  final (darker, lighter) = page.computeLuminance() <= card.computeLuminance()
+      ? (page, card)
+      : (card, page);
+  if (darker.toARGB32() != lighter.toARGB32() || popover == null) {
+    return (darker, lighter);
+  }
+  return resolveGroupedSheetColors(page: darker, card: popover);
+}
+
 /// Extended theme data for consistent styling across the app
 @immutable
 class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
@@ -62,6 +84,17 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
   Color get inputText => tokens.neutralOnSurface;
   Color get inputPlaceholder => textSecondary.withValues(alpha: 0.5);
   Color get inputError => tokens.statusError60;
+
+  /// Page and card colors for grouped settings screens (inset-grouped lists
+  /// on iOS, grouped cards on Android, and the native UIKit sheets). The
+  /// darker palette color becomes the page so cards always read as lifted.
+  (Color, Color) get _groupedColors => resolveGroupedSheetColors(
+    page: surfaces.background,
+    card: surfaces.card,
+    popover: surfaces.popover,
+  );
+  Color get groupedBackground => _groupedColors.$1;
+  Color get groupedSurface => _groupedColors.$2;
 
   Color get cardBackground => surfaces.card;
   Color get cardBorder => surfaces.border;
@@ -670,6 +703,25 @@ class SidebarThemeExtension extends ThemeExtension<SidebarThemeExtension> {
   final Color accent;
   final Color accentForeground;
   final Color border;
+
+  /// Fill for decorative tiles under sidebar text (note cards, badges,
+  /// empty-state tiles). shadcn's `sidebar-accent` is a hover fill meant for
+  /// `sidebar-accent-foreground`; where it would sink regular sidebar text
+  /// (Catppuccin's saturated sky blue) the tile uses a neutral lift of the
+  /// sidebar instead, matching how those presets render at rest.
+  Color get tint {
+    final underText = Color.alphaBlend(
+      accent.withValues(alpha: 0.5),
+      background,
+    );
+    final a = foreground.computeLuminance();
+    final b = underText.computeLuminance();
+    final contrast = (math.max(a, b) + 0.05) / (math.min(a, b) + 0.05);
+    return contrast >= 4.5
+        ? accent
+        : Color.lerp(background, foreground, 0.12)!;
+  }
+
   final Color ring;
 
   @override

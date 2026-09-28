@@ -59,16 +59,58 @@ final class NativeSheetTheme {
         if controller is UIAlertController { return }
 
         controller.view.tintColor = accent
+        applyBarButtonTheme(controller.navigationItem)
         apply(to: controller.view)
 
         if let navigationController = controller as? UINavigationController {
-            navigationController.navigationBar.tintColor = accent
+            applyNavigationBarTheme(navigationController.navigationBar)
             navigationController.toolbar.tintColor = accent
         }
 
         controller.children.forEach(apply(to:))
         if let presented = controller.presentedViewController {
             apply(to: presented)
+        }
+    }
+
+    /// Title and back chevron follow the palette foreground, matching the
+    /// Flutter toolbar icons. iOS 26 draws the back button as a glass control
+    /// that ignores the bar's tint, so the chevron is supplied pre-colored.
+    private func applyNavigationBarTheme(_ bar: UINavigationBar) {
+        bar.tintColor = accent
+        let titleAttributes: [NSAttributedString.Key: Any] = [
+            .foregroundColor: foreground,
+        ]
+        bar.titleTextAttributes = titleAttributes
+        bar.largeTitleTextAttributes = titleAttributes
+
+        let chevron = UIImage(systemName: "chevron.backward")?
+            .withTintColor(foreground, renderingMode: .alwaysOriginal)
+        func themed(_ appearance: UINavigationBarAppearance) -> UINavigationBarAppearance {
+            let copy = appearance.copy()
+            copy.titleTextAttributes = titleAttributes
+            copy.largeTitleTextAttributes = titleAttributes
+            copy.setBackIndicatorImage(chevron, transitionMaskImage: chevron)
+            return copy
+        }
+        bar.standardAppearance = themed(bar.standardAppearance)
+        if let scrollEdge = bar.scrollEdgeAppearance {
+            bar.scrollEdgeAppearance = themed(scrollEdge)
+        }
+        if let compact = bar.compactAppearance {
+            bar.compactAppearance = themed(compact)
+        }
+    }
+
+    /// Icon-only bar buttons (close, ellipsis, add) match the title and back
+    /// chevron; titled actions such as Save keep the accent. iOS 26 renders
+    /// glass bar buttons with the label color unless the item sets a tint.
+    func applyBarButtonTheme(_ item: UINavigationItem) {
+        let items = (item.leftBarButtonItems ?? []) + (item.rightBarButtonItems ?? [])
+        for button in items
+        where button.title == nil && button.customView == nil && button.style != .done {
+            // `.done` confirm buttons render as accent-filled glass; keep them.
+            button.tintColor = foreground
         }
     }
 
@@ -119,6 +161,15 @@ final class NativeSheetNavigationController: UINavigationController {
         modalPresentationStyle = .pageSheet
         navigationBar.prefersLargeTitles = false
         NativeSheetTheme.shared.apply(to: self)
+    }
+
+    override func viewWillLayoutSubviews() {
+        super.viewWillLayoutSubviews()
+        // Pushed controllers install their bar buttons in viewDidLoad, after
+        // the sheet was themed, so theme the visible items on each layout.
+        if let item = topViewController?.navigationItem {
+            NativeSheetTheme.shared.applyBarButtonTheme(item)
+        }
     }
 }
 
