@@ -91,7 +91,8 @@ class AppTheme {
         tokens.statusError60.withValues(alpha: isDark ? 0.24 : 0.12),
         surfaces.background,
       ),
-      onErrorContainer: tokens.statusError60,
+      // Error details render as body text inside the container.
+      onErrorContainer: tokens.neutralOnSurface,
       surfaceContainerLowest: isDark ? surfaces.background : surfaces.popover,
       surfaceContainer: surfaces.container,
       surfaceContainerHigh: Color.lerp(surfaces.container, surfaces.card, 0.5),

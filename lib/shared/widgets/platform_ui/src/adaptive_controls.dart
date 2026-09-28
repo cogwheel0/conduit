@@ -510,6 +510,7 @@ class AdaptivePopupMenuButton<T> {
                   : CNSymbol(icon, size: iconSize, color: iconColor)
             : null,
         buttonCustomIcon: icon is IconData ? icon : null,
+        buttonCustomIconColor: icon is IconData ? iconColor : null,
         items: _nativeItems<T>(items),
         onSelected: (index) {
           if (enabled) {
@@ -528,7 +529,7 @@ class AdaptivePopupMenuButton<T> {
         onSelected: (index, entry) {
           if (enabled) onSelected(index, entry);
         },
-        tint: tint,
+        tint: iconColor ?? tint,
         height: size,
       );
     }

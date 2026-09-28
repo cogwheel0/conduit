@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/color_tokens.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
@@ -54,44 +52,85 @@ void main() {
           because: label,
           scheme.surfaceContainer,
         ).equals(surfaces.container);
-        check(
-          because: label,
-          scheme.inverseSurface,
-        ).equals(variant.foreground);
+        check(because: label, scheme.inverseSurface).equals(variant.foreground);
       }
     }
   });
 
   test('error color stays a legible red on every palette', () {
     // Palettes keep tweakcn's destructive verbatim (a button fill), but the
-    // app also draws the error color as text and icons on the page.
+    // app also draws the error color as body-size text and icons on the page.
     for (final definition in TweakcnThemes.all) {
       for (final brightness in Brightness.values) {
         final variant = definition.variantFor(brightness);
-        final error = brightness == Brightness.dark
-            ? AppColorTokens.dark(theme: definition).statusError60
-            : AppColorTokens.light(theme: definition).statusError60;
+        final error = _tokens(definition, brightness).statusError60;
         final label = '${definition.id} $brightness';
-        final lighter = math.max(
-          error.computeLuminance(),
-          variant.background.computeLuminance(),
-        );
-        final darker = math.min(
-          error.computeLuminance(),
-          variant.background.computeLuminance(),
-        );
         check(
           because: label,
-          (lighter + 0.05) / (darker + 0.05),
-        ).isGreaterOrEqual(3);
+          contrastRatio(error, variant.background),
+        ).isGreaterOrEqual(4.5);
         check(because: label, error.r > error.g && error.r > error.b).isTrue();
       }
     }
     // Legible presets pass through untouched.
     final catppuccin = TweakcnThemes.catppuccin.variantFor(Brightness.light);
-    check(
-      AppColorTokens.light(theme: TweakcnThemes.catppuccin).statusError60,
-    ).equals(catppuccin.destructive);
+    check(AppColorTokens.light(theme: TweakcnThemes.catppuccin).statusError60)
+        .equals(catppuccin.destructive);
+  });
+
+  test('a failing red keeps its hue when lightened for contrast', () {
+    // T3 Chat dark's destructive (#301015) nearly matches its page.
+    final t3Dark = TweakcnThemes.t3Chat.variantFor(Brightness.dark);
+    final error = _tokens(TweakcnThemes.t3Chat, Brightness.dark).statusError60;
+    final sourceHue = HSLColor.fromColor(t3Dark.destructive).hue;
+    check(HSLColor.fromColor(error).hue).isCloseTo(sourceHue, 1);
+  });
+
+  test('status text stays readable on every status fill', () {
+    // Snackbars and badges draw on* text over the status fills.
+    for (final definition in TweakcnThemes.all) {
+      for (final brightness in Brightness.values) {
+        final tokens = _tokens(definition, brightness);
+        final label = '${definition.id} $brightness';
+        for (final (name, fill, text) in [
+          ('success', tokens.statusSuccess60, tokens.statusOnSuccess60),
+          ('warning', tokens.statusWarning60, tokens.statusOnWarning60),
+          ('info', tokens.statusInfo60, tokens.statusOnInfo60),
+          ('error', tokens.statusError60, tokens.statusOnError60),
+        ]) {
+          check(
+            because: '$label $name',
+            contrastRatio(text, fill),
+          ).isGreaterOrEqual(4.5);
+        }
+      }
+    }
+  });
+
+  test('error container text uses the page text color', () {
+    for (final definition in TweakcnThemes.all) {
+      for (final brightness in Brightness.values) {
+        final theme = brightness == Brightness.dark
+            ? AppTheme.dark(definition)
+            : AppTheme.light(definition);
+        final scheme = theme.colorScheme;
+        check(
+          because: '${definition.id} $brightness',
+          contrastRatio(scheme.onErrorContainer, scheme.errorContainer),
+        ).isGreaterOrEqual(4.5);
+      }
+    }
+  });
+
+  test('withMinContrast only moves colors that fall short', () {
+    const surface = Color(0xFFFFFFFF);
+    const passing = Color(0xFF1D4ED8);
+    check(withMinContrast(passing, surface, 3)).equals(passing);
+    const failing = Color(0xFFE8C468);
+    final adjusted = withMinContrast(failing, surface, 3);
+    check(contrastRatio(adjusted, surface)).isGreaterOrEqual(3);
+    check(HSLColor.fromColor(adjusted).hue)
+        .isCloseTo(HSLColor.fromColor(failing).hue, 1);
   });
 
   test('product typography uses one ramp on Android and iOS', () {
@@ -195,3 +234,10 @@ void main() {
     check(iosBadgeSize).equals(22);
   });
 }
+
+AppColorTokens _tokens(
+  TweakcnThemeDefinition definition,
+  Brightness brightness,
+) => brightness == Brightness.dark
+    ? AppColorTokens.dark(theme: definition)
+    : AppColorTokens.light(theme: definition);

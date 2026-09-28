@@ -96,6 +96,14 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
   Color get groupedBackground => _groupedColors.$1;
   Color get groupedSurface => _groupedColors.$2;
 
+  /// Grouped card fill for sections on the plain page (the sidebar, not a
+  /// grouped settings page). Where the grouped card matches the page
+  /// (Conduit light: both white), the grouped page tone keeps its edges.
+  Color get groupedSurfaceOnPage =>
+      groupedSurface.toARGB32() == surfaces.background.toARGB32()
+      ? groupedBackground
+      : groupedSurface;
+
   Color get cardBackground => surfaces.card;
   Color get cardBorder => surfaces.border;
   Color get cardShadow => shadows.shadowSm.first.color;
@@ -709,18 +717,26 @@ class SidebarThemeExtension extends ThemeExtension<SidebarThemeExtension> {
   /// `sidebar-accent-foreground`; where it would sink regular sidebar text
   /// (Catppuccin's saturated sky blue) the tile uses a neutral lift of the
   /// sidebar instead, matching how those presets render at rest.
+  ///
+  /// Legibility is checked at [tintMaxOpacity], the densest fill a caller
+  /// draws (the folder count badge), under full-opacity sidebar text.
   Color get tint {
-    final underText = Color.alphaBlend(
-      accent.withValues(alpha: 0.5),
-      background,
-    );
-    final a = foreground.computeLuminance();
-    final b = underText.computeLuminance();
-    final contrast = (math.max(a, b) + 0.05) / (math.min(a, b) + 0.05);
-    return contrast >= 4.5
-        ? accent
-        : Color.lerp(background, foreground, 0.12)!;
+    bool legible(Color fill) =>
+        contrastRatio(
+          foreground,
+          Color.alphaBlend(fill.withValues(alpha: tintMaxOpacity), background),
+        ) >=
+        4.5;
+    if (legible(accent)) return accent;
+    for (final amount in const [0.12, 0.08, 0.04]) {
+      final lift = Color.lerp(background, foreground, amount)!;
+      if (legible(lift)) return lift;
+    }
+    return background;
   }
+
+  /// Highest opacity at which callers may draw [tint] under sidebar text.
+  static const double tintMaxOpacity = 0.7;
 
   final Color ring;
 

@@ -2231,7 +2231,9 @@ class _SectionHeader extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
             decoration: BoxDecoration(
-              color: context.sidebarTheme.tint.withValues(alpha: 0.7),
+              color: context.sidebarTheme.tint.withValues(
+                alpha: SidebarThemeExtension.tintMaxOpacity,
+              ),
               borderRadius: BorderRadius.circular(AppBorderRadius.xs),
               border: Border.all(
                 color: context.sidebarTheme.border.withValues(alpha: 0.35),
@@ -2241,7 +2243,7 @@ class _SectionHeader extends StatelessWidget {
             child: Text(
               '$count',
               style: AppTypography.sidebarBadgeStyle.copyWith(
-                color: context.sidebarTheme.foreground.withValues(alpha: 0.8),
+                color: context.sidebarTheme.foreground,
                 decoration: TextDecoration.none,
               ),
             ),

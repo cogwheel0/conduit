@@ -1,3 +1,5 @@
+import 'package:conduit/shared/theme/app_theme.dart';
+import 'package:conduit/shared/theme/color_tokens.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:checks/checks.dart';
@@ -11,16 +13,15 @@ void main() {
         final sidebar = SidebarThemeExtension.fromVariant(
           definition.variantFor(brightness),
         );
-        final label = '${definition.id} $brightness';
-        final underText = Color.alphaBlend(
-          sidebar.tint.withValues(alpha: 0.5),
+        // The folder count badge draws the densest fill under full text.
+        final badge = Color.alphaBlend(
+          sidebar.tint.withValues(alpha: SidebarThemeExtension.tintMaxOpacity),
           sidebar.background,
         );
-        final a = sidebar.foreground.computeLuminance();
-        final b = underText.computeLuminance();
-        final contrast =
-            (a > b ? a + 0.05 : b + 0.05) / (a > b ? b + 0.05 : a + 0.05);
-        check(because: label, contrast).isGreaterOrEqual(4.5);
+        check(
+          because: '${definition.id} $brightness',
+          contrastRatio(sidebar.foreground, badge),
+        ).isGreaterOrEqual(4.5);
       }
     }
     // Tweakcn's Catppuccin sidebar accent is saturated sky blue.
@@ -32,6 +33,21 @@ void main() {
       TweakcnThemes.t3Chat.variantFor(Brightness.light),
     );
     check(t3.tint).equals(t3.accent);
+  });
+
+  test('grouped cards on the plain page never match the page', () {
+    for (final definition in TweakcnThemes.all) {
+      for (final brightness in Brightness.values) {
+        final theme = brightness == Brightness.dark
+            ? AppTheme.dark(definition)
+            : AppTheme.light(definition);
+        final conduit = theme.extension<ConduitThemeExtension>()!;
+        check(
+          because: '${definition.id} $brightness',
+          conduit.groupedSurfaceOnPage,
+        ).not((it) => it.equals(conduit.surfaceBackground));
+      }
+    }
   });
 
   for (final platform in TargetPlatform.values) {
