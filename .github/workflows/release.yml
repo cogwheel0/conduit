@@ -97,8 +97,16 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
-      - name: Generate code (build_runner)
-        run: dart run build_runner build --delete-conflicting-outputs
+      - name: Generate code in workspace
+        shell: bash
+        run: |
+          for dir in . packages/* apps/*; do
+            if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+              echo "::group::build_runner in $dir"
+              (cd "$dir" && dart run build_runner build)
+              echo "::endgroup::"
+            fi
+          done
 
       
 
@@ -166,8 +174,16 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
-      - name: Generate code (build_runner)
-        run: dart run build_runner build --delete-conflicting-outputs
+      - name: Generate code in workspace
+        shell: bash
+        run: |
+          for dir in . packages/* apps/*; do
+            if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+              echo "::group::build_runner in $dir"
+              (cd "$dir" && dart run build_runner build)
+              echo "::endgroup::"
+            fi
+          done
 
       
 
