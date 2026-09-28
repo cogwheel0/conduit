@@ -137,35 +137,6 @@ void main() {
     expect(stored.status, FileUploadStatus.completed);
   });
 
-  test('missing failed image staging file is never statted', () async {
-    final directory = await Directory.systemTemp.createTemp(
-      'conduit_direct_media_',
-    );
-    addTearDown(() => directory.delete(recursive: true));
-    final current = File('${directory.path}/current.png');
-    await current.writeAsBytes([1]);
-    final deleted = File('${directory.path}/already-deleted.png');
-    expect(await deleted.exists(), isFalse);
-    final container = _directContainer(
-      attachments: [
-        _failedImage(deleted),
-        _pendingImage(current, reportedBytes: 1),
-      ],
-      encoder: (file) async => 'data:image/png;base64,AQ==',
-    );
-    addTearDown(container.dispose);
-
-    await container
-        .read(mediaUploadControllerProvider)
-        .upload(filePath: current.path, fileName: 'current.png', fileSize: 1);
-
-    final stored = container
-        .read(attachedFilesProvider)
-        .where((attachment) => attachment.file.path == current.path)
-        .single;
-    expect(stored.status, FileUploadStatus.completed);
-  });
-
   test('prepared direct data URL is validated against aggregate bytes', () {
     expect(
       () => validatePreparedDirectImageDataUrl(

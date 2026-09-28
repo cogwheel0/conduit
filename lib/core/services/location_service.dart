@@ -36,24 +36,6 @@ class UserLocationResult {
   bool get hasLocation => location != null && location!.trim().isNotEmpty;
 }
 
-@visibleForTesting
-String formatUserLocationCoordinatesForTest({
-  required double latitude,
-  required double longitude,
-}) {
-  return formatUserLocationCoordinates(
-    latitude: latitude,
-    longitude: longitude,
-  );
-}
-
-@visibleForTesting
-UserLocationSetting extractUserLocationSettingForTest(
-  Map<String, dynamic>? userSettings,
-) {
-  return extractUserLocationSetting(userSettings);
-}
-
 const Duration _defaultLocationLookupTimeout = Duration(seconds: 8);
 
 class LocationService {

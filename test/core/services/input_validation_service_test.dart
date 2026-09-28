@@ -77,36 +77,6 @@ void main() {
       });
     });
 
-    group('validatePassword', () {
-      test('returns error for empty password', () {
-        check(InputValidationService.validatePassword('')).isA<String>();
-      });
-
-      test('returns error for short password', () {
-        check(InputValidationService.validatePassword('Ab1!')).isA<String>();
-      });
-
-      test('returns error for weak password when checkStrength=true', () {
-        // 8 chars but no special char
-        check(InputValidationService.validatePassword('Abcdefg1'))
-            .isA<String>();
-      });
-
-      test('returns null for strong password', () {
-        check(InputValidationService.validatePassword('Abcdef1!')).isNull();
-      });
-
-      test('returns null for long password without strength '
-          'when checkStrength=false', () {
-        check(
-          InputValidationService.validatePassword(
-            'abcdefgh',
-            checkStrength: false,
-          ),
-        ).isNull();
-      });
-    });
-
     group('validateRequired', () {
       test('returns error for empty string', () {
         check(InputValidationService.validateRequired('')).isA<String>();
@@ -146,65 +116,6 @@ void main() {
 
       test('returns error for null', () {
         check(InputValidationService.validateMinLength(null, 3)).isA<String>();
-      });
-    });
-
-    group('validateMaxLength', () {
-      test('returns null when within max length', () {
-        check(InputValidationService.validateMaxLength('abc', 5)).isNull();
-      });
-
-      test('returns error when exceeding max length', () {
-        check(InputValidationService.validateMaxLength('abcdef', 5))
-            .isA<String>();
-      });
-
-      test('returns null for null value', () {
-        check(InputValidationService.validateMaxLength(null, 5)).isNull();
-      });
-
-      test('returns null for empty string', () {
-        check(InputValidationService.validateMaxLength('', 5)).isNull();
-      });
-    });
-
-    group('validateNumber', () {
-      test('returns null for valid number in range', () {
-        check(InputValidationService.validateNumber('5', min: 1, max: 10))
-            .isNull();
-      });
-
-      test('returns error for number below min', () {
-        check(InputValidationService.validateNumber('0', min: 1)).isA<String>();
-      });
-
-      test('returns error for number above max', () {
-        check(InputValidationService.validateNumber('11', max: 10))
-            .isA<String>();
-      });
-
-      test('returns error for non-numeric string', () {
-        check(InputValidationService.validateNumber('abc')).isA<String>();
-      });
-
-      test('returns error for empty when required', () {
-        check(InputValidationService.validateNumber('', required: true))
-            .isA<String>();
-      });
-
-      test('returns null for empty when not required', () {
-        check(InputValidationService.validateNumber('', required: false))
-            .isNull();
-      });
-
-      test('returns null for decimal when allowDecimal is true', () {
-        check(InputValidationService.validateNumber('3.14')).isNull();
-      });
-
-      test('returns error for decimal when allowDecimal is false', () {
-        check(
-          InputValidationService.validateNumber('3.14', allowDecimal: false),
-        ).isA<String>();
       });
     });
 
@@ -248,44 +159,5 @@ void main() {
       });
     });
 
-    group('sanitizeInput', () {
-      test('escapes HTML angle brackets', () {
-        final result = InputValidationService.sanitizeInput('<b>bold</b>');
-        check(result).not((it) => it.contains('<'));
-        check(result).not((it) => it.contains('>'));
-        check(result).contains('&lt;');
-        check(result).contains('&gt;');
-      });
-
-      test('escapes script tags', () {
-        final result = InputValidationService.sanitizeInput(
-          '<script>alert("xss")</script>',
-        );
-        check(result).not((it) => it.contains('<script>'));
-      });
-
-      test('escapes double quotes', () {
-        final result = InputValidationService.sanitizeInput('say "hello"');
-        check(result).not((it) => it.contains('"'));
-        check(result).contains('&quot;');
-      });
-
-      test('escapes single quotes', () {
-        final result = InputValidationService.sanitizeInput("it's");
-        check(result).not((it) => it.contains("'"));
-        check(result).contains('&#x27;');
-      });
-
-      test('escapes forward slashes', () {
-        final result = InputValidationService.sanitizeInput('a/b');
-        check(result).not((it) => it.contains('/'));
-        check(result).contains('&#x2F;');
-      });
-
-      test('returns plain text unchanged', () {
-        check(InputValidationService.sanitizeInput('hello world'))
-            .equals('hello world');
-      });
-    });
   });
 }

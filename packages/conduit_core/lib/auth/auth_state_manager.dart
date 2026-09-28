@@ -3507,7 +3507,6 @@ class AuthStateManager extends _$AuthStateManager {
     }
     // Clear cache before refresh to ensure fresh data
     _cacheManager.clearAuthCache();
-    TokenValidationCache.clearCache();
 
     await _initialize(
       attemptRevision: attemptRevision,

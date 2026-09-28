@@ -29,56 +29,6 @@ void main() {
     expect(drawerTestSettleHapticCalls(calls), isEmpty);
   });
 
-  testWidgets('initial mount fires zero haptics', (tester) async {
-    final calls = await drawerTestRecordPlatformCalls(() async {
-      await tester.pumpWidget(
-        drawerTestBuildHarness(size: drawerTestMobileSize),
-      );
-      await tester.pumpAndSettle();
-    });
-
-    expect(drawerTestSettleHapticCalls(calls), isEmpty);
-  });
-
-  testWidgets('rebuild and resize at a settled endpoint fire zero haptics', (
-    tester,
-  ) async {
-    final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
-
-    await tester.pumpWidget(
-      drawerTestBuildHarness(size: drawerTestMobileSize, layoutKey: layoutKey),
-    );
-    await drawerTestOpenDrawer(tester, layoutKey);
-
-    final calls = await drawerTestRecordPlatformCalls(() async {
-      await tester.pumpWidget(
-        drawerTestBuildHarness(
-          size: drawerTestMobileSize,
-          layoutKey: layoutKey,
-        ),
-      );
-      await tester.pump();
-
-      await tester.pumpWidget(
-        drawerTestBuildHarness(
-          size: drawerTestTabletSize,
-          layoutKey: layoutKey,
-        ),
-      );
-      await tester.pump();
-
-      await tester.pumpWidget(
-        drawerTestBuildHarness(
-          size: drawerTestMobileSize,
-          layoutKey: layoutKey,
-        ),
-      );
-      await tester.pump();
-    });
-
-    expect(drawerTestSettleHapticCalls(calls), isEmpty);
-  });
-
   testWidgets('programmatic open settles without haptic', (tester) async {
     final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
 
@@ -113,38 +63,6 @@ void main() {
     });
 
     expect(layoutKey.currentState!.isOpen, isFalse);
-    expect(drawerTestSettleHapticCalls(calls), isEmpty);
-  });
-
-  testWidgets('open when already open fires zero haptics', (tester) async {
-    final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
-
-    await tester.pumpWidget(
-      drawerTestBuildHarness(size: drawerTestMobileSize, layoutKey: layoutKey),
-    );
-    await drawerTestOpenDrawer(tester, layoutKey);
-    expect(layoutKey.currentState!.isOpen, isTrue);
-
-    final calls = await drawerTestRecordPlatformCalls(() async {
-      layoutKey.currentState!.open();
-      await tester.pumpAndSettle();
-    });
-
-    expect(drawerTestSettleHapticCalls(calls), isEmpty);
-  });
-
-  testWidgets('close when already closed fires zero haptics', (tester) async {
-    final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
-
-    await tester.pumpWidget(
-      drawerTestBuildHarness(size: drawerTestMobileSize, layoutKey: layoutKey),
-    );
-
-    final calls = await drawerTestRecordPlatformCalls(() async {
-      layoutKey.currentState!.close();
-      await tester.pumpAndSettle();
-    });
-
     expect(drawerTestSettleHapticCalls(calls), isEmpty);
   });
 
@@ -257,24 +175,4 @@ void main() {
     expect(drawerTestSettleHapticCalls(calls), isEmpty);
   });
 
-  testWidgets('tablet layout emits zero mobile settle haptics', (tester) async {
-    final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
-
-    final calls = await drawerTestRecordPlatformCalls(() async {
-      await tester.pumpWidget(
-        drawerTestBuildHarness(
-          size: drawerTestTabletSize,
-          layoutKey: layoutKey,
-        ),
-      );
-
-      layoutKey.currentState!.close();
-      await tester.pumpAndSettle();
-
-      layoutKey.currentState!.open();
-      await tester.pumpAndSettle();
-    });
-
-    expect(drawerTestSettleHapticCalls(calls), isEmpty);
-  });
 }

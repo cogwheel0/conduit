@@ -150,7 +150,7 @@ void main() {
   test('a deleted session rejects delayed provenance writes', () async {
     const envelope = '<<<BEGIN_HERMES_UNTRUSTED_REFERENCE_HDOC_DELAYED>>>';
     const prompt = 'Question\n\n$envelope';
-    HermesLocalDocumentTrustStore.beginSessionDeletion(
+    await HermesLocalDocumentTrustStore.forgetSession(
       connectionIdentity: 'connection-one',
       sessionId: 'deleted',
     );
@@ -161,6 +161,9 @@ void main() {
       promptText: prompt,
       documentEnvelopes: const <String>[envelope],
     );
+    // The in-memory block hides the scope until restart; check what was
+    // actually persisted.
+    HermesLocalDocumentTrustStore.debugResetRuntimeState();
     check(
       HermesLocalDocumentTrustStore.trustedDocumentKeys(
         connectionIdentity: 'connection-one',

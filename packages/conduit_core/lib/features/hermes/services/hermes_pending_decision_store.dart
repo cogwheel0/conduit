@@ -148,7 +148,9 @@ final class HermesPendingDecisionStore {
 
   static const int maxRecords = 64;
   static const Duration ttl = Duration(hours: 24);
-  static Future<void> _writes = Future<void>.value();
+  // Released once drained so a completed chain does not keep its creating
+  // zone alive (see SecureCredentialStorage).
+  static Future<void>? _writes;
 
   static Future<void> upsert({
     required String origin,
@@ -330,8 +332,12 @@ final class HermesPendingDecisionStore {
   }
 
   static Future<void> _serialize(Future<void> Function() operation) {
-    final result = _writes.then((_) => operation());
-    _writes = result.catchError((_) {});
+    final result = (_writes ?? Future<void>.value()).then((_) => operation());
+    late final Future<void> tail;
+    tail = result.catchError((_) {}).whenComplete(() {
+      if (identical(_writes, tail)) _writes = null;
+    });
+    _writes = tail;
     return result;
   }
 }

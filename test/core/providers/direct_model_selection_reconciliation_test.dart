@@ -20,6 +20,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/fake_time.dart';
+
 final class _PendingDiscovery extends DirectModelDiscoveryController {
   _PendingDiscovery(this.completer);
 
@@ -366,7 +368,7 @@ void main() {
     await first;
   });
 
-  test(
+  fakeTimeTest(
     'equivalent direct discovery does not loop cached model refreshes',
     () async {
       final profile = DirectConnectionProfile(

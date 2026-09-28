@@ -46,6 +46,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 
+import '../../../support/fake_time.dart';
+
 class _TestActiveConversationNotifier extends ActiveConversationNotifier {
   @override
   Conversation? build() => null;
@@ -5337,7 +5339,7 @@ void main() {
       },
     );
 
-    test(
+    fakeTimeTest(
       'periodic cleanup progress cannot extend the absolute deadline',
       () async {
         final service = _PreflightHermesApi(trickleDelete: true);

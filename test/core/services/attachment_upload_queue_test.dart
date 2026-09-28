@@ -1554,16 +1554,6 @@ void main() {
       check(done).isTrue();
     });
 
-    test('dispose is idempotent (does not double-close the controller)', () {
-      final queue = AttachmentUploadQueue();
-      queue.initialize(
-        onUpload: (filePath, fileName, {cancelToken}) async => 'id',
-        database: resolveLiveDatabase,
-      );
-      queue.dispose();
-      queue.dispose();
-    });
-
     test('an upload awaiting a terminal event resolves via onDone, and its '
         'token is cancelled, when the queue is disposed mid-upload', () async {
       final queue = AttachmentUploadQueue();

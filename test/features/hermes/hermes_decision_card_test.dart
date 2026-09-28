@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -134,22 +135,35 @@ void main() {
           metadata: {'transport': kHermesTransport, ...metadata},
         );
 
+    ChatMessage approval(String state) => message('approval', {
+      kHermesApprovalMeta: {
+        'state': state,
+        'runId': 'run',
+        'approvalId': 'approval',
+      },
+    });
+    ChatMessage decision(Duration expiresIn) => message('decision', {
+      kHermesDecisionMeta: {
+        'state': 'pending',
+        'requestId': 'request',
+        'runtimeId': 'runtime',
+        'storedSessionId': 'session',
+        'expiresAt': clock.now().add(expiresIn).toUtc().toIso8601String(),
+      },
+    });
+
     expect(
       findPendingHermesComposerPrompt([
-        message('approval', const {
-          kHermesApprovalMeta: {'state': 'approved'},
-        }),
-        message('decision', {
-          kHermesDecisionMeta: {
-            'state': 'pending',
-            'expiresAt': DateTime.now()
-                .subtract(const Duration(minutes: 1))
-                .toUtc()
-                .toIso8601String(),
-          },
-        }),
+        approval('approved'),
+        decision(const Duration(minutes: -1)),
       ]),
       isNull,
+    );
+    // Otherwise complete, so only the state and the expiry reject them.
+    expect(findPendingHermesComposerPrompt([approval('pending')]), isNotNull);
+    expect(
+      findPendingHermesComposerPrompt([decision(const Duration(minutes: 1))]),
+      isNotNull,
     );
   });
 
@@ -286,8 +300,9 @@ void main() {
           'requestId': 'request',
           'runtimeId': 'runtime',
           'storedSessionId': 'session',
-          'expiresAt': DateTime.now()
-              .add(const Duration(milliseconds: 50))
+          'expiresAt': clock
+              .now()
+              .add(const Duration(minutes: 1))
               .toUtc()
               .toIso8601String(),
         },
@@ -298,6 +313,7 @@ void main() {
       ProviderScope(
         overrides: [
           activeConversationProvider.overrideWith(_DecisionConversation.new),
+          chatMessagesProvider.overrideWith(() => _DecisionMessages(const [])),
         ],
         child: CupertinoApp(
           localizationsDelegates: conduitLocalizationsDelegates,
@@ -311,11 +327,10 @@ void main() {
     );
     expect(find.text('Short-lived prompt'), findsOneWidget);
 
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 75)),
-    );
-    await tester.pump(const Duration(milliseconds: 75));
+    await tester.pump(const Duration(seconds: 59));
+    expect(find.text('Short-lived prompt'), findsOneWidget);
 
+    await tester.pump(const Duration(seconds: 1));
     expect(find.text('Short-lived prompt'), findsNothing);
   });
 

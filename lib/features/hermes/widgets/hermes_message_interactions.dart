@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:clock/clock.dart';
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
@@ -67,7 +68,7 @@ ChatMessage? findPendingHermesComposerPrompt(List<ChatMessage> messages) {
         _nonEmptyString(decision['runtimeId']) != null &&
         storedSessionId != null &&
         expiresAt != null &&
-        expiresAt.isAfter(DateTime.now().toUtc())) {
+        expiresAt.isAfter(clock.now().toUtc())) {
       return message;
     }
   }
@@ -241,7 +242,7 @@ class _HermesComposerPromptOverlayState
     final expiresAt = DateTime.tryParse(
       decision['expiresAt']?.toString() ?? '',
     );
-    if (expiresAt == null || !expiresAt.isAfter(DateTime.now().toUtc())) {
+    if (expiresAt == null || !expiresAt.isAfter(clock.now().toUtc())) {
       return null;
     }
     final requestId = _nonEmptyString(decision['requestId']);
@@ -261,7 +262,7 @@ class _HermesComposerPromptOverlayState
     if (ownerConversationId == null || storedSessionId == null) {
       return null;
     }
-    _expiryTimer = Timer(expiresAt.difference(DateTime.now().toUtc()), () {
+    _expiryTimer = Timer(expiresAt.difference(clock.now().toUtc()), () {
       if (mounted) setState(() {});
     });
     return HermesDecisionCard(
@@ -276,7 +277,7 @@ class _HermesComposerPromptOverlayState
       },
       multiSelect: decision['multiSelect'] == true,
       onSubmit: (value) async {
-        if (!expiresAt.isAfter(DateTime.now().toUtc())) return false;
+        if (!expiresAt.isAfter(clock.now().toUtc())) return false;
         final service = ref.read(hermesApiServiceProvider);
         if (service is! HermesDesktopApiService) return false;
         final configController = ref.read(hermesConfigProvider.notifier);

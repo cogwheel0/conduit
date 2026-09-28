@@ -150,18 +150,6 @@ void main() {
     });
   });
 
-  group('Citation', () {
-    test('zeroBasedIndices converts 1-based to 0-based', () {
-      const citation = Citation(sourceIds: [1, 2, 3], raw: '[1,2,3]');
-      check(citation.zeroBasedIndices).deepEquals([0, 1, 2]);
-    });
-
-    test('zeroBasedIndices with single ID', () {
-      const citation = Citation(sourceIds: [5], raw: '[5]');
-      check(citation.zeroBasedIndices).deepEquals([4]);
-    });
-  });
-
   group('CitationSegment', () {
     test('text segment has correct properties', () {
       final segment = CitationSegment.text('hello');

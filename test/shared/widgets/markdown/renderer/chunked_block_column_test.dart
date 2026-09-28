@@ -12,6 +12,12 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// Past the block threshold and, with ChunkedBlockColumn's default chunk
+/// sizes (48 first, then 96 per frame), still two reveal frames; larger
+/// documents only add layout time.
+const int _largeParagraphCount = markdownChunkedPartInflationThreshold + 32;
+const String _lastParagraph = 'Paragraph ${_largeParagraphCount - 1}';
+
 String _manyParagraphs(int paragraphCount) {
   final buffer = StringBuffer();
   for (var index = 0; index < paragraphCount; index += 1) {
@@ -41,7 +47,7 @@ void main() {
     tester,
   ) async {
     final prepared = prepareMarkdownContent(
-      _manyParagraphs(600),
+      _manyParagraphs(_largeParagraphCount),
       streaming: false,
     );
     final document = compilePreparedMarkdownSync(prepared);
@@ -63,13 +69,13 @@ void main() {
     );
     check(tester.any(initiallyVisible)).isTrue();
     check(
-      tester.any(find.textContaining('Paragraph 599', findRichText: true)),
+      tester.any(find.textContaining(_lastParagraph, findRichText: true)),
     ).isFalse();
 
     // Subsequent frames stream in the rest; settle bounds the reveal loop.
     await tester.pumpAndSettle();
     check(
-      tester.any(find.textContaining('Paragraph 599', findRichText: true)),
+      tester.any(find.textContaining(_lastParagraph, findRichText: true)),
     ).isTrue();
   });
 
@@ -99,7 +105,7 @@ void main() {
       await tester.pumpWidget(
         _harness(
           StreamingMarkdownWidget(
-            content: _manyParagraphs(600),
+            content: _manyParagraphs(_largeParagraphCount),
             isStreaming: false,
           ),
         ),
@@ -110,12 +116,12 @@ void main() {
         tester.any(find.textContaining('Paragraph 0 ', findRichText: true)),
       ).isTrue();
       check(
-        tester.any(find.textContaining('Paragraph 599', findRichText: true)),
+        tester.any(find.textContaining(_lastParagraph, findRichText: true)),
       ).isFalse();
 
       await tester.pumpAndSettle();
       check(
-        tester.any(find.textContaining('Paragraph 599', findRichText: true)),
+        tester.any(find.textContaining(_lastParagraph, findRichText: true)),
       ).isTrue();
     },
   );

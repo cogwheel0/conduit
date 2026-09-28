@@ -937,12 +937,17 @@ void main() {
       storage.failNextWriteFor = 'hermes_api_key_v1';
       final controller = container.read(hermesConfigProvider.notifier);
 
+      Future<void> replaceApiKey(String value) => controller.saveConnection(
+        baseUrl: container.read(hermesConfigProvider).baseUrl,
+        apiKeyChanged: true,
+        apiKey: value,
+      );
+
       await expectLater(
-        controller.setApiKey('first-replacement'),
+        replaceApiKey('first-replacement'),
         throwsA(isA<StateError>()),
       );
-      await controller
-          .setApiKey('second-replacement')
+      await replaceApiKey('second-replacement')
           .timeout(const Duration(seconds: 1));
 
       check(container.read(hermesConfigProvider).apiKey)

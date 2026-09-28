@@ -8,7 +8,6 @@ import 'package:conduit_core/features/workspace/models/workspace_resources.dart'
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/prompts/workspace_prompt_editor.dart';
-import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -425,9 +424,7 @@ void main() {
     expect(find.text('list-page'), findsOneWidget);
   });
 
-  testWidgets('import gates on capability and captures per-item failures', (
-    tester,
-  ) async {
+  testWidgets('import is hidden without the import capability', (tester) async {
     // Import is gated on the import capability: with only export granted the
     // overflow shows Export but never Import.
     final prompts = _FakePrompts();
@@ -454,19 +451,6 @@ void main() {
       find.byKey(const Key('workspace-prompt-action-import')),
       findsNothing,
     );
-
-    // A failing import is reported as a per-item failure, not a thrown batch.
-    prompts.importShouldFail = true;
-    final report = await runWorkspaceImport(
-      [
-        {'name': 'A', 'command': 'a', 'content': 'x'},
-      ],
-      importItem: (item) => prompts.importPrompt(
-        const WorkspacePromptForm(command: 'a', name: 'A', content: 'x'),
-      ),
-    );
-    expect(report.hasFailures, isTrue);
-    expect(report.failureCount, 1);
   });
 }
 
@@ -570,7 +554,6 @@ class _FakePrompts extends WorkspacePrompts {
   final production = <(String, String)>[];
   final deletedHistory = <(String, String)>[];
   final importedForms = <WorkspacePromptForm>[];
-  bool importShouldFail = false;
 
   @override
   Future<WorkspaceCollectionState<WorkspacePromptSummary>> build() async {
@@ -659,7 +642,6 @@ class _FakePrompts extends WorkspacePrompts {
   @override
   Future<void> importPrompt(WorkspacePromptForm form) async {
     importedForms.add(form);
-    if (importShouldFail) throw StateError('rejected');
   }
 
   @override

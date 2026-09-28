@@ -70,19 +70,27 @@ bool get isWebViewSupported =>
 /// This is isolated in its own file to prevent platform coupling issues
 /// when the WebView package isn't available.
 class WebViewCookieHelper {
-  static Future<void> _dataOperationTail = Future<void>.value();
+  // Released once drained so a completed chain does not keep its creating
+  // zone alive; later callers would be stranded if that zone stopped running,
+  // as a finished fake-async widget test does.
+  static Future<void>? _dataOperationTail;
   static bool _fullClearRequired = false;
   static int _fullClearGeneration = 0;
 
   static Future<T> _serializeDataOperation<T>(Future<T> Function() operation) {
-    final result = _dataOperationTail.then<T>((_) => operation());
+    final result = (_dataOperationTail ?? Future<void>.value()).then<T>(
+      (_) => operation(),
+    );
     // A failed platform operation must not strand later auth flows. Individual
     // callers still receive the original result/error while the shared barrier
     // advances after either outcome.
-    _dataOperationTail = result.then<void>(
-      (_) {},
-      onError: (Object _, StackTrace _) {},
-    );
+    late final Future<void> tail;
+    tail = result
+        .then<void>((_) {}, onError: (Object _, StackTrace _) {})
+        .whenComplete(() {
+          if (identical(_dataOperationTail, tail)) _dataOperationTail = null;
+        });
+    _dataOperationTail = tail;
     return result;
   }
 
@@ -93,7 +101,8 @@ class WebViewCookieHelper {
   /// Waits until every cookie/storage mutation requested before this call has
   /// completed. Proxy auth uses this before constructing its WebView so a late
   /// logout purge cannot erase the new flow's cookies or local storage.
-  static Future<void> waitForPendingDataOperations() => _dataOperationTail;
+  static Future<void> waitForPendingDataOperations() =>
+      _dataOperationTail ?? Future<void>.value();
 
   /// True when a logout full-data purge failed in this process, or its durable
   /// incomplete-logout marker still requires recovery after a restart.
@@ -430,7 +439,7 @@ bool get webViewFullClearRequiredForTesting =>
 @visibleForTesting
 Future<void> resetWebViewCookieHelperForTesting() async {
   await WebViewCookieHelper._dataOperationTail;
-  WebViewCookieHelper._dataOperationTail = Future<void>.value();
+  WebViewCookieHelper._dataOperationTail = null;
   WebViewCookieHelper._fullClearRequired = false;
   WebViewCookieHelper._fullClearGeneration = 0;
 }

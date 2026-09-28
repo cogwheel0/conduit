@@ -15,10 +15,6 @@ class Citation {
   final String raw;
 
   const Citation({required this.sourceIds, required this.raw});
-
-  /// Converts to 0-based indices for array access.
-  List<int> get zeroBasedIndices =>
-      sourceIds.map((id) => id - 1).toList(growable: false);
 }
 
 /// A segment of content that is either plain text or a citation.

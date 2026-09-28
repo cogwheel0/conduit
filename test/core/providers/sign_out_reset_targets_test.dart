@@ -40,23 +40,4 @@ void main() {
     ]);
   });
 
-  test('a registered target is invalidated through the seam', () {
-    var builds = 0;
-    final counted = Provider<int>((ref) => ++builds);
-    final container = ProviderContainer(
-      overrides: [
-        signOutResetTargetsProvider.overrideWithValue([counted]),
-      ],
-    );
-    addTearDown(container.dispose);
-
-    check(container.read(counted)).equals(1);
-    for (final target in container.read(signOutResetTargetsProvider)) {
-      container.invalidate(target);
-    }
-
-    // Proves the registered provider really is reachable as something
-    // `invalidate` accepts, which is the only thing the seam promises.
-    check(container.read(counted)).equals(2);
-  });
 }

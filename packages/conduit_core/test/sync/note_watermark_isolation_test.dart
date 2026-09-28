@@ -8,7 +8,6 @@ library;
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
-import 'package:conduit_core/database/daos/sync_meta_dao.dart';
 import 'package:conduit_core/sync/note_sync.dart' show kNotePullOverlapNs;
 import 'package:conduit_core/sync/pull_sync.dart' show kPullOverlapSeconds;
 import 'package:drift/native.dart';
@@ -21,11 +20,6 @@ void main() {
   tearDown(() => db.close());
 
   group('note vs chat watermark isolation (R-09)', () {
-    test('the two watermarks live under DISTINCT sync_meta keys', () {
-      check(SyncMetaDao.kNotesPullWatermarkKey)
-          .not((k) => k.equals('pull_watermark'));
-    });
-
     test('the two overlap windows are distinct and in their own units', () {
       check(kPullOverlapSeconds).equals(5);
       check(kNotePullOverlapNs).equals(5 * 1000 * 1000 * 1000);

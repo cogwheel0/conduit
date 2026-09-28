@@ -193,66 +193,6 @@ void main() {
     },
   );
 
-  test('native toolbar action groups preserve action and menu order', () {
-    final actions = [
-      ConduitNativeToolbarAction(
-        iosSymbol: 'square.and.pencil',
-        accessibilityLabel: 'New Chat',
-        onPressed: () {},
-      ),
-      ConduitNativeToolbarAction(
-        iosSymbol: 'ellipsis',
-        accessibilityLabel: 'More',
-        menuItems: [
-          ConduitNativeToolbarMenuItem(
-            label: 'Rename',
-            iosSymbol: 'pencil',
-            onSelected: () {},
-          ),
-          ConduitNativeToolbarMenuItem(
-            label: 'Delete',
-            iosSymbol: 'trash',
-            isDestructive: true,
-            onSelected: () {},
-          ),
-        ],
-      ),
-    ];
-    final creationParams = encodeConduitNativeToolbarActionGroupParams(actions);
-    final params = creationParams['actions']! as List<Map<String, Object?>>;
-
-    check(creationParams.containsKey('symbolSize')).isFalse();
-    check(params.length).equals(2);
-    check(params[0]['iosSymbol']).equals('square.and.pencil');
-    check(params[0].containsKey('symbolSize')).isFalse();
-    check(params[1]['iosSymbol']).equals('ellipsis');
-    final menuItems = params[1]['menuItems']! as List<Map<String, Object?>>;
-    check(menuItems.map((item) => item['label']))
-        .deepEquals(['Rename', 'Delete']);
-    check(menuItems[1]['isDestructive']).equals(true);
-  });
-
-  test('native toolbar action groups leave glyph sizing to the package', () {
-    final params = encodeConduitNativeToolbarActionGroupParams([
-      ConduitNativeToolbarAction(
-        iosSymbol: 'ellipsis',
-        accessibilityLabel: 'More',
-        menuItems: [
-          ConduitNativeToolbarMenuItem(
-            label: 'Delete',
-            isDestructive: true,
-            onSelected: () {},
-          ),
-        ],
-      ),
-    ]);
-    final actions = params['actions']! as List<Map<String, Object?>>;
-
-    check(actions).length.equals(1);
-    check(actions.single['iosSymbol']).equals('ellipsis');
-    check(actions.single.containsKey('symbolSize')).isFalse();
-  });
-
   test('native toolbar menu adapters preserve values, order, and state', () {
     String? selected;
     final action = buildConduitNativeToolbarMenuAction<String>(

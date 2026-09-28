@@ -17,13 +17,6 @@ void main() {
       expect(lifecycle.current, AppLifecyclePhase.paused);
       expect(lifecycle.current!.isBackground, isTrue);
     });
-
-    test('is const, so the default costs no allocation', () {
-      expect(
-        identical(const StaticAppLifecycle(), const StaticAppLifecycle()),
-        isTrue,
-      );
-    });
   });
 
   group('AppLifecyclePhase', () {

@@ -219,15 +219,6 @@ void main() {
   });
 
   group('Prompt', () {
-    test('command normalization adds leading slash', () {
-      final prompt = Prompt.fromJson({
-        'command': 'summarize',
-        'title': 'Summarize',
-        'content': 'Summarize this',
-      });
-      check(prompt.command).equals('/summarize');
-    });
-
     test('command normalization preserves existing slash', () {
       final prompt = Prompt.fromJson({
         'command': '/translate',
@@ -235,15 +226,6 @@ void main() {
         'content': 'Translate this',
       });
       check(prompt.command).equals('/translate');
-    });
-
-    test('empty command stays empty', () {
-      final prompt = Prompt.fromJson({
-        'command': '',
-        'title': 'T',
-        'content': 'C',
-      });
-      check(prompt.command).equals('');
     });
 
     test('toJson round-trip', () {

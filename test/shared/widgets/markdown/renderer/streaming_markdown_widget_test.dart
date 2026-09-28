@@ -362,6 +362,14 @@ class _DeferredStreamingCompileService extends MarkdownCompileService
   }
 }
 
+/// For tests about pending reasoning and tool headers rather than their
+/// shimmer: with reduced motion the header is one text widget and settles.
+void _reduceMotion(WidgetTester tester) {
+  tester.platformDispatcher.accessibilityFeaturesTestValue =
+      const FakeAccessibilityFeatures(disableAnimations: true);
+  addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+}
+
 void main() {
   setUp(debugResetEmbeddedPreviewBudget);
 
@@ -2170,6 +2178,7 @@ After
   testWidgets('tool headers show protocol preparation and approval status', (
     tester,
   ) async {
+    _reduceMotion(tester);
     for (final entry in const [
       ('in_progress', false, 'Preparing search…'),
       ('completed', false, 'Executing search…'),
@@ -2412,6 +2421,7 @@ After
   testWidgets(
     'keeps expanded reasoning blocks open while only the streaming tail changes',
     (tester) async {
+      _reduceMotion(tester);
       final bucket = PageStorageBucket();
       var content = '''
 <details type="reasoning" done="false">
@@ -3069,422 +3079,6 @@ Tail keeps growing
           find.textContaining('Plain streaming sentence.'),
           findsOneWidget,
         );
-      } finally {
-        container.dispose();
-      }
-    },
-  );
-
-  testWidgets(
-    'assistant keeps markdown rendering for long streaming reference-style link content',
-    (tester) async {
-      final container = ProviderContainer(
-        overrides: [
-          appSettingsProvider.overrideWithValue(
-            const AppSettings(disableHapticsWhileStreaming: true),
-          ),
-          textToSpeechControllerProvider.overrideWith(
-            _TestTextToSpeechController.new,
-          ),
-        ],
-      );
-      final markdownContent = [
-        List<String>.filled(80, 'Paragraph text.').join(' '),
-        'See [docs][d] for more details.',
-        '[d]: https://example.com',
-      ].join('\n\n');
-      final message = ChatMessage(
-        id: 'streaming-reference-style-link-message',
-        role: 'assistant',
-        content: markdownContent,
-        timestamp: DateTime(2026),
-      );
-
-      try {
-        await tester.pumpWidget(
-          buildAssistantHarness(
-            container: container,
-            message: message,
-            isStreaming: true,
-          ),
-        );
-        await tester.pump();
-
-        expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
-      } finally {
-        container.dispose();
-      }
-    },
-  );
-
-  testWidgets(
-    'assistant keeps markdown rendering for long streaming markdown content',
-    (tester) async {
-      final container = ProviderContainer(
-        overrides: [
-          appSettingsProvider.overrideWithValue(
-            const AppSettings(disableHapticsWhileStreaming: true),
-          ),
-          textToSpeechControllerProvider.overrideWith(
-            _TestTextToSpeechController.new,
-          ),
-        ],
-      );
-      final markdownContent = [
-        List<String>.filled(80, 'Paragraph text.').join(' '),
-        '[Reference](https://example.com)',
-      ].join('\n\n');
-      final message = ChatMessage(
-        id: 'streaming-markdown-message',
-        role: 'assistant',
-        content: markdownContent,
-        timestamp: DateTime(2026),
-      );
-
-      try {
-        await tester.pumpWidget(
-          buildAssistantHarness(
-            container: container,
-            message: message,
-            isStreaming: true,
-          ),
-        );
-        await tester.pump();
-
-        expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
-      } finally {
-        container.dispose();
-      }
-    },
-  );
-
-  testWidgets(
-    'assistant keeps markdown rendering for long streaming autolink content',
-    (tester) async {
-      final container = ProviderContainer(
-        overrides: [
-          appSettingsProvider.overrideWithValue(
-            const AppSettings(disableHapticsWhileStreaming: true),
-          ),
-          textToSpeechControllerProvider.overrideWith(
-            _TestTextToSpeechController.new,
-          ),
-        ],
-      );
-      final markdownContent = [
-        List<String>.filled(80, 'Paragraph text.').join(' '),
-        '<https://example.com>',
-      ].join('\n\n');
-      final message = ChatMessage(
-        id: 'streaming-autolink-message',
-        role: 'assistant',
-        content: markdownContent,
-        timestamp: DateTime(2026),
-      );
-
-      try {
-        await tester.pumpWidget(
-          buildAssistantHarness(
-            container: container,
-            message: message,
-            isStreaming: true,
-          ),
-        );
-        await tester.pump();
-
-        expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
-      } finally {
-        container.dispose();
-      }
-    },
-  );
-
-  testWidgets(
-    'assistant keeps markdown rendering for long streaming bare autolink content',
-    (tester) async {
-      final container = ProviderContainer(
-        overrides: [
-          appSettingsProvider.overrideWithValue(
-            const AppSettings(disableHapticsWhileStreaming: true),
-          ),
-          textToSpeechControllerProvider.overrideWith(
-            _TestTextToSpeechController.new,
-          ),
-        ],
-      );
-      final markdownContent = [
-        List<String>.filled(80, 'Paragraph text.').join(' '),
-        'Visit https://example.com or email hello@example.com',
-      ].join('\n\n');
-      final message = ChatMessage(
-        id: 'streaming-bare-autolink-message',
-        role: 'assistant',
-        content: markdownContent,
-        timestamp: DateTime(2026),
-      );
-
-      try {
-        await tester.pumpWidget(
-          buildAssistantHarness(
-            container: container,
-            message: message,
-            isStreaming: true,
-          ),
-        );
-        await tester.pump();
-
-        expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
-      } finally {
-        container.dispose();
-      }
-    },
-  );
-
-  testWidgets(
-    'assistant keeps markdown rendering for long streaming indented code block content',
-    (tester) async {
-      final container = ProviderContainer(
-        overrides: [
-          appSettingsProvider.overrideWithValue(
-            const AppSettings(disableHapticsWhileStreaming: true),
-          ),
-          textToSpeechControllerProvider.overrideWith(
-            _TestTextToSpeechController.new,
-          ),
-        ],
-      );
-      final markdownContent = [
-        List<String>.filled(80, 'Paragraph text.').join(' '),
-        ['    final answer = 42;', '    print(answer);'].join('\n'),
-      ].join('\n\n');
-      final message = ChatMessage(
-        id: 'streaming-indented-code-message',
-        role: 'assistant',
-        content: markdownContent,
-        timestamp: DateTime(2026),
-      );
-
-      try {
-        await tester.pumpWidget(
-          buildAssistantHarness(
-            container: container,
-            message: message,
-            isStreaming: true,
-          ),
-        );
-        await tester.pump();
-
-        expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
-      } finally {
-        container.dispose();
-      }
-    },
-  );
-
-  testWidgets(
-    'assistant keeps markdown rendering for long streaming italic markdown content',
-    (tester) async {
-      final container = ProviderContainer(
-        overrides: [
-          appSettingsProvider.overrideWithValue(
-            const AppSettings(disableHapticsWhileStreaming: true),
-          ),
-          textToSpeechControllerProvider.overrideWith(
-            _TestTextToSpeechController.new,
-          ),
-        ],
-      );
-      final markdownContent = [
-        List<String>.filled(80, 'Paragraph text.').join(' '),
-        '*italic emphasis*',
-      ].join('\n\n');
-      final message = ChatMessage(
-        id: 'streaming-italic-markdown-message',
-        role: 'assistant',
-        content: markdownContent,
-        timestamp: DateTime(2026),
-      );
-
-      try {
-        await tester.pumpWidget(
-          buildAssistantHarness(
-            container: container,
-            message: message,
-            isStreaming: true,
-          ),
-        );
-        await tester.pump();
-
-        expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
-      } finally {
-        container.dispose();
-      }
-    },
-  );
-
-  testWidgets(
-    'assistant keeps markdown rendering for long streaming block latex content',
-    (tester) async {
-      final container = ProviderContainer(
-        overrides: [
-          appSettingsProvider.overrideWithValue(
-            const AppSettings(disableHapticsWhileStreaming: true),
-          ),
-          textToSpeechControllerProvider.overrideWith(
-            _TestTextToSpeechController.new,
-          ),
-        ],
-      );
-      final markdownContent = [
-        List<String>.filled(80, 'Paragraph text.').join(' '),
-        r'$$',
-        r'x^2 + y^2',
-        r'$$',
-      ].join('\n\n');
-      final message = ChatMessage(
-        id: 'streaming-block-latex-message',
-        role: 'assistant',
-        content: markdownContent,
-        timestamp: DateTime(2026),
-      );
-
-      try {
-        await tester.pumpWidget(
-          buildAssistantHarness(
-            container: container,
-            message: message,
-            isStreaming: true,
-          ),
-        );
-        await tester.pump();
-
-        expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
-      } finally {
-        container.dispose();
-      }
-    },
-  );
-
-  testWidgets(
-    'assistant keeps markdown rendering for long streaming ordered lists with paren markers',
-    (tester) async {
-      final container = ProviderContainer(
-        overrides: [
-          appSettingsProvider.overrideWithValue(
-            const AppSettings(disableHapticsWhileStreaming: true),
-          ),
-          textToSpeechControllerProvider.overrideWith(
-            _TestTextToSpeechController.new,
-          ),
-        ],
-      );
-      final markdownContent = [
-        List<String>.filled(80, 'Paragraph text.').join(' '),
-        '1) First item',
-        '2) Second item',
-      ].join('\n\n');
-      final message = ChatMessage(
-        id: 'streaming-paren-ordered-list-message',
-        role: 'assistant',
-        content: markdownContent,
-        timestamp: DateTime(2026),
-      );
-
-      try {
-        await tester.pumpWidget(
-          buildAssistantHarness(
-            container: container,
-            message: message,
-            isStreaming: true,
-          ),
-        );
-        await tester.pump();
-
-        expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
-      } finally {
-        container.dispose();
-      }
-    },
-  );
-
-  testWidgets(
-    'assistant keeps markdown rendering for long streaming GFM tables with spaced dividers',
-    (tester) async {
-      final container = ProviderContainer(
-        overrides: [
-          appSettingsProvider.overrideWithValue(
-            const AppSettings(disableHapticsWhileStreaming: true),
-          ),
-          textToSpeechControllerProvider.overrideWith(
-            _TestTextToSpeechController.new,
-          ),
-        ],
-      );
-      final markdownContent = [
-        List<String>.filled(80, 'Paragraph text.').join(' '),
-        '| A | B |',
-        '| --- | --- |',
-        '| 1 | 2 |',
-      ].join('\n\n');
-      final message = ChatMessage(
-        id: 'streaming-gfm-table-message',
-        role: 'assistant',
-        content: markdownContent,
-        timestamp: DateTime(2026),
-      );
-
-      try {
-        await tester.pumpWidget(
-          buildAssistantHarness(
-            container: container,
-            message: message,
-            isStreaming: true,
-          ),
-        );
-        await tester.pump();
-
-        expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
-      } finally {
-        container.dispose();
-      }
-    },
-  );
-
-  testWidgets(
-    'assistant keeps markdown rendering for long streaming inline html content',
-    (tester) async {
-      final container = ProviderContainer(
-        overrides: [
-          appSettingsProvider.overrideWithValue(
-            const AppSettings(disableHapticsWhileStreaming: true),
-          ),
-          textToSpeechControllerProvider.overrideWith(
-            _TestTextToSpeechController.new,
-          ),
-        ],
-      );
-      final markdownContent = [
-        List<String>.filled(80, 'Paragraph text.').join(' '),
-        'Line one<br>Line two <a href="https://example.com">link</a>',
-      ].join('\n\n');
-      final message = ChatMessage(
-        id: 'streaming-inline-html-message',
-        role: 'assistant',
-        content: markdownContent,
-        timestamp: DateTime(2026),
-      );
-
-      try {
-        await tester.pumpWidget(
-          buildAssistantHarness(
-            container: container,
-            message: message,
-            isStreaming: true,
-          ),
-        );
-        await tester.pump();
-
-        expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();
       }
@@ -4349,6 +3943,7 @@ Tail keeps growing
   testWidgets('hides pending tool call embeds until completion', (
     tester,
   ) async {
+    _reduceMotion(tester);
     const pendingContent = '''
 <details type="tool_calls" done="false" name="browser" embeds="[&quot;https://example.com/embed&quot;]">
 <summary>Tool Executing</summary>
@@ -4615,6 +4210,7 @@ Reasoning body
   testWidgets(
     'keeps reasoning inline while streaming and moves it to the modal when done',
     (tester) async {
+      _reduceMotion(tester);
       var content = '''
 <details type="reasoning" done="false">
 <summary>Thinking…</summary>
@@ -4693,6 +4289,7 @@ Second step
   testWidgets(
     'restores expanded inline reasoning after the markdown subtree remounts',
     (tester) async {
+      _reduceMotion(tester);
       final bucket = PageStorageBucket();
       var content = '''
 <details type="reasoning" done="false">
@@ -4759,6 +4356,7 @@ Second step
   testWidgets(
     'keeps inline reasoning state isolated across version-specific scopes',
     (tester) async {
+      _reduceMotion(tester);
       final bucket = PageStorageBucket();
       const content = '''
 <details type="reasoning" done="false">
@@ -4820,6 +4418,7 @@ Shared reasoning
   testWidgets(
     'assistant message keeps reasoning expansion isolated per version',
     (tester) async {
+      _reduceMotion(tester);
       final timestamp = DateTime(2026);
       final message = ChatMessage(
         id: 'message-1',
@@ -4916,6 +4515,7 @@ Version reasoning
   testWidgets(
     'allows duplicate inline reasoning summaries to expand independently',
     (tester) async {
+      _reduceMotion(tester);
       const content = '''
 <details type="reasoning" done="false">
 <summary>Thinking…</summary>

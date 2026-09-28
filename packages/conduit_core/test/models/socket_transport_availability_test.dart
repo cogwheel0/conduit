@@ -8,7 +8,9 @@ void main() {
       allowPolling: true,
       allowWebsocketOnly: false,
     );
-    const b = SocketTransportAvailability(
+    // Not const: two const instances are one object, which `==` accepts
+    // before comparing any field.
+    final b = SocketTransportAvailability(
       allowPolling: true,
       allowWebsocketOnly: false,
     );

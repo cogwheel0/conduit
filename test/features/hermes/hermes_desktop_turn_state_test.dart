@@ -589,10 +589,10 @@ void main() {
       await service.steer('stored-bot', 'hello');
       await service.queue('stored-bot', 'later');
       await service.renameSession('stored-bot', 'Renamed');
-      await service.resolveApprovalForSession(
+      await service.resolveApprovalChoiceForSession(
         'stored-bot',
         approvalId: 'req-1',
-        approved: true,
+        choice: 'once',
       );
       await service.respondToDecision(
         storedSessionId: 'stored-bot',

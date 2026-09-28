@@ -25,7 +25,6 @@ final class HermesLocalDocumentTrustStore {
   static const int maxRecordsPerSession = 64;
   static Future<void>? _mutationQueue;
   static final Map<String, int> _blockedSessionScopes = <String, int>{};
-  static final Map<String, int> _deletionBlockEpochs = <String, int>{};
   static int _nextBlockEpoch = 0;
 
   /// Returns a non-secret identity for one configured Hermes principal.
@@ -220,34 +219,10 @@ final class HermesLocalDocumentTrustStore {
     final prefix = _scopePrefix(connectionIdentity, sessionId);
     if (prefix == null) return;
     _blockScope(prefix);
-    _deletionBlockEpochs.remove(prefix);
     await _serializeMutation(() async {
       _requirePreferencesReady();
       await _purgeScope(prefix);
     });
-  }
-
-  static void beginSessionDeletion({
-    required String connectionIdentity,
-    required String sessionId,
-  }) {
-    final prefix = _scopePrefix(connectionIdentity, sessionId);
-    if (prefix != null) {
-      _deletionBlockEpochs[prefix] = _blockScope(prefix);
-    }
-  }
-
-  static void cancelSessionDeletion({
-    required String connectionIdentity,
-    required String sessionId,
-  }) {
-    final prefix = _scopePrefix(connectionIdentity, sessionId);
-    if (prefix == null) return;
-    final deletionEpoch = _deletionBlockEpochs.remove(prefix);
-    if (deletionEpoch != null &&
-        _blockedSessionScopes[prefix] == deletionEpoch) {
-      _blockedSessionScopes.remove(prefix);
-    }
   }
 
   /// Durably clears stale provenance before allowing a newly created session
@@ -268,7 +243,6 @@ final class HermesLocalDocumentTrustStore {
 
   static void debugResetRuntimeState() {
     _blockedSessionScopes.clear();
-    _deletionBlockEpochs.clear();
     _nextBlockEpoch = 0;
     // Do not retain a queue tail captured by a previous widget test's
     // fake-async zone. Production also benefits from releasing completed
@@ -298,10 +272,6 @@ final class HermesLocalDocumentTrustStore {
   static void _completeScopeRevocation(String prefix, int blockEpoch) {
     if (_blockedSessionScopes[prefix] != blockEpoch) return;
     _blockedSessionScopes.remove(prefix);
-    final deletionEpoch = _deletionBlockEpochs[prefix];
-    if (deletionEpoch != null && deletionEpoch <= blockEpoch) {
-      _deletionBlockEpochs.remove(prefix);
-    }
   }
 
   static void _requirePreferencesReady() {

@@ -391,6 +391,23 @@ void main() {
     }
   });
 
+  test('provider errors redact labelled credentials they were not given', () {
+    const reflected = <String>[
+      'api_key=sk-unconfigured',
+      'Access-Token: tok-unconfigured',
+      'password=pw-unconfigured',
+      'secret: sec-unconfigured',
+      'session key = ses-unconfigured',
+    ];
+
+    for (final value in reflected) {
+      final message = sanitizeDirectProviderErrorMessage('$value failed');
+      expect(message, contains('[REDACTED]'));
+      expect(message, endsWith('failed'));
+      expect(message, isNot(contains('unconfigured')));
+    }
+  });
+
   test('profile-sensitive values include every mTLS credential variant', () {
     const privateKey =
         '-----BEGIN PRIVATE KEY-----\r\nKEY_SECRET\r\n-----END PRIVATE KEY-----';

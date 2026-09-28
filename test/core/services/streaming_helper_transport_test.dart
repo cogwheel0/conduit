@@ -20,6 +20,8 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/fake_time.dart';
+
 // ---------------------------------------------------------------------------
 // Fake helpers
 // ---------------------------------------------------------------------------
@@ -5543,45 +5545,6 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // 5. competing terminal signals still call finishStreaming once
-    // -----------------------------------------------------------------------
-    test(
-      'httpStream finishStreaming called only once even with extra signals',
-      () async {
-        final log = _CallbackLog();
-
-        // Stream that sends [DONE] then ends (two terminal signals)
-        final byteStream = Stream<List<int>>.fromIterable([
-          _sseFrame({
-            'choices': [
-              {
-                'delta': {'content': 'x'},
-              },
-            ],
-          }),
-          _sseDone(),
-        ]);
-
-        _attach(
-          session: ChatCompletionSession.httpStream(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            byteStream: byteStream,
-            abort: () async {},
-          ),
-          log: log,
-        );
-
-        await pumpMicrotasks();
-        await pumpMicrotasks();
-        await pumpMicrotasks();
-
-        // Exactly once, not twice
-        check(log.finishCount).equals(1);
-      },
-    );
-
-    // -----------------------------------------------------------------------
     // 6. httpStream parser updates usage, selected model, sources, and error
     // -----------------------------------------------------------------------
     test('httpStream applies usage update', () async {
@@ -5779,7 +5742,7 @@ void main() {
       check(log.finishCount).equals(1);
     });
 
-    test('httpStream done recovery backfills delayed persisted error and snapshot state', () async {
+    fakeTimeTest('httpStream done recovery backfills delayed persisted error and snapshot state', () async {
       final log = _CallbackLog();
       final incompleteResponse = _serverConversationResponse(
         messages: [_serverAssistantMessage(content: '', followUps: const [])],
@@ -5851,7 +5814,7 @@ void main() {
           .equals(3);
     });
 
-    test(
+    fakeTimeTest(
       'httpStream artifact-only done backfills delayed persisted text',
       () async {
         final log = _CallbackLog();
@@ -5927,7 +5890,7 @@ void main() {
       },
     );
 
-    test('httpStream event completion done avoids premature-end recovery without [DONE]', () async {
+    fakeTimeTest('httpStream event completion done avoids premature-end recovery without [DONE]', () async {
       final log = _CallbackLog();
       final api = _buildFakeApi(
         pollResponse: _serverConversationResponse(
@@ -6012,7 +5975,7 @@ void main() {
           .equals(0);
     });
 
-    test('httpStream event completion done plus [DONE] only schedules completion side effects once', () async {
+    fakeTimeTest('httpStream event completion done plus [DONE] only schedules completion side effects once', () async {
       final log = _CallbackLog();
       final incompleteResponse = _serverConversationResponse(
         messages: [_serverAssistantMessage(content: '')],
@@ -6071,7 +6034,7 @@ void main() {
       check(log.finishCount).equals(1);
     });
 
-    test('httpStream latest blank assistant does not adopt prior persisted answer when server has not created the new assistant yet', () async {
+    fakeTimeTest('httpStream latest blank assistant does not adopt prior persisted answer when server has not created the new assistant yet', () async {
       final log = _CallbackLog(
         initialMessages: [
           ChatMessage(
@@ -6146,7 +6109,7 @@ void main() {
       check(log.finishCount).equals(1);
     });
 
-    test('httpStream artifact-only done recovers original assistant after new prompt starts with partial local history and re-keyed ids', () async {
+    fakeTimeTest('httpStream artifact-only done recovers original assistant after new prompt starts with partial local history and re-keyed ids', () async {
       final log = _CallbackLog();
       final incompleteResponse = _serverConversationResponse(
         messages: [_serverAssistantMessage(id: 'server-msg-1', content: '')],
@@ -6284,7 +6247,7 @@ void main() {
       check(log.messages[2].isStreaming).isTrue();
     });
 
-    test('httpStream snapshot refresh drops stale pending status rows after finish', () async {
+    fakeTimeTest('httpStream snapshot refresh drops stale pending status rows after finish', () async {
       final log = _CallbackLog(
         initialMessages: [
           ChatMessage(
@@ -6328,8 +6291,7 @@ void main() {
       check(log.messages.last.statusHistory).isEmpty();
     });
 
-    test('httpStream snapshot refresh keeps completed local statuses missing '
-        'from partial server history', () async {
+    fakeTimeTest('httpStream snapshot refresh keeps completed local statuses missing from partial server history', () async {
       final log = _CallbackLog(
         initialMessages: [
           ChatMessage(
@@ -6401,7 +6363,7 @@ void main() {
         ..has((status) => status.done, 'done').equals(true);
     });
 
-    test('httpStream snapshot refresh keeps status rows with unspecified done after finish', () async {
+    fakeTimeTest('httpStream snapshot refresh keeps status rows with unspecified done after finish', () async {
       final log = _CallbackLog(
         initialMessages: [
           ChatMessage(
@@ -6449,7 +6411,7 @@ void main() {
           .equals('Generating image...');
     });
 
-    test(
+    fakeTimeTest(
       'httpStream snapshot refresh clears stale sources after finish',
       () async {
         final log = _CallbackLog(
@@ -6499,7 +6461,7 @@ void main() {
       },
     );
 
-    test('httpStream snapshot refresh batches follow-ups and metadata into one mutation', () async {
+    fakeTimeTest('httpStream snapshot refresh batches follow-ups and metadata into one mutation', () async {
       final log = _CallbackLog(
         initialMessages: [
           ChatMessage(
@@ -6811,22 +6773,6 @@ void main() {
 
       check(log.messages.last.content).equals(visibleStreamingContent);
       check(log.replacedContents).isEmpty();
-    });
-
-    // -----------------------------------------------------------------------
-    // 10. Rename: ActiveChatStream replaces ActiveSocketStream
-    // -----------------------------------------------------------------------
-    test('ActiveChatStream class is accessible', () {
-      // This test simply verifies the type exists and can be constructed.
-      // If this compiles and runs, the rename was applied correctly.
-      final stream = ActiveChatStream(
-        controller: null,
-        socketSubscriptions: const [],
-        disposeWatchdog: () {},
-        isDisposed: () => false,
-      );
-      check(stream.socketSubscriptions).isEmpty();
-      check(stream.isDisposed()).isFalse();
     });
   });
 

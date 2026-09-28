@@ -34,13 +34,6 @@ class BackgroundStreamLease {
   final bool requiresMicrophone;
   final DateTime startedAt;
 
-  Map<String, dynamic> toPlatformMap() => {
-    'id': id,
-    'kind': kind.platformValue,
-    'requiresMicrophone': requiresMicrophone,
-    'startedAt': startedAt.millisecondsSinceEpoch,
-  };
-
   PlatformBackgroundStreamLease toPlatform() {
     return PlatformBackgroundStreamLease(
       id: id,

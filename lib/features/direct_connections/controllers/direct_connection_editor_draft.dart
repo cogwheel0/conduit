@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:meta/meta.dart';
 import 'package:uuid/uuid.dart';
 
@@ -158,21 +156,6 @@ enum DirectDraftValidationIssue {
 }
 
 const String kOpenRouterProviderPreset = 'openrouter';
-
-Map<String, String> parseDirectCustomHeaders(String source) {
-  final trimmed = source.trim();
-  if (trimmed.isEmpty) return const {};
-  final decoded = jsonDecode(trimmed);
-  if (decoded is! Map) throw const FormatException('Enter a JSON object.');
-  final result = <String, String>{};
-  for (final entry in decoded.entries) {
-    if (entry.key is! String || entry.value is! String) {
-      throw const FormatException('Header names and values must be text.');
-    }
-    result[(entry.key as String).trim()] = entry.value as String;
-  }
-  return result;
-}
 
 List<String> parseDirectManualModelIds(String source) {
   final seen = <String>{};

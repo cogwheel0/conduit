@@ -10,6 +10,7 @@ void main() {
 
     test('older versions are supported', () {
       for (final v in [
+        '0.11.3',
         '0.10.2',
         '0.10.1',
         '0.10.0',
@@ -45,10 +46,6 @@ void main() {
       check(ServerVersionCompat.isSupported('0.11')).isTrue();
       check(ServerVersionCompat.isSupported('0')).isTrue();
       check(ServerVersionCompat.isSupported('1')).isFalse();
-    });
-
-    test('the previous max (0.11.3) remains supported after the bump', () {
-      check(ServerVersionCompat.isSupported('0.11.3')).isTrue();
     });
 
     test('fails open on null / empty / unparseable versions', () {
