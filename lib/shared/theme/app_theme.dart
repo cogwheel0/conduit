@@ -100,7 +100,9 @@ class AppTheme {
       surfaceBright: isDark ? surfaces.card : surfaces.background,
       inverseSurface: variant.foreground,
       onInverseSurface: variant.background,
-      inversePrimary: variant.primaryForeground,
+      // Accent text on the inverse surface: the palette primary, with its
+      // lightness adjusted where it would blend into that surface.
+      inversePrimary: withMinContrast(variant.primary, variant.foreground, 4.5),
     );
 
     final OutlineInputBorder baseInputBorder = OutlineInputBorder(

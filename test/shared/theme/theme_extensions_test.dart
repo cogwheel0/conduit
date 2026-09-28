@@ -22,6 +22,22 @@ void main() {
           because: '${definition.id} $brightness',
           contrastRatio(sidebar.foreground, badge),
         ).isGreaterOrEqual(4.5);
+
+        // The folder page draws the same badge on the plain page surface.
+        final page =
+            (brightness == Brightness.dark
+                    ? AppTheme.dark(definition)
+                    : AppTheme.light(definition))
+                .extension<ConduitThemeExtension>()!
+                .surfaceBackground;
+        final pageBadge = Color.alphaBlend(
+          sidebar.tint.withValues(alpha: SidebarThemeExtension.tintMaxOpacity),
+          page,
+        );
+        check(
+          because: '${definition.id} $brightness folder page',
+          contrastRatio(sidebar.foreground, pageBadge),
+        ).isGreaterOrEqual(4.5);
       }
     }
     // Tweakcn's Catppuccin sidebar accent is saturated sky blue.

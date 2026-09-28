@@ -122,6 +122,40 @@ void main() {
     }
   });
 
+  test('inverse primary stays legible on the inverse surface', () {
+    for (final definition in TweakcnThemes.all) {
+      for (final brightness in Brightness.values) {
+        final scheme =
+            (brightness == Brightness.dark
+                    ? AppTheme.dark(definition)
+                    : AppTheme.light(definition))
+                .colorScheme;
+        check(
+          because: '${definition.id} $brightness',
+          contrastRatio(scheme.inversePrimary, scheme.inverseSurface),
+        ).isGreaterOrEqual(4.5);
+      }
+    }
+  });
+
+  test('selected secondary containers keep their paired text legible', () {
+    // Selected segments and active Mermaid controls draw
+    // onSecondaryContainer on secondaryContainer.
+    for (final definition in TweakcnThemes.all) {
+      for (final brightness in Brightness.values) {
+        final scheme =
+            (brightness == Brightness.dark
+                    ? AppTheme.dark(definition)
+                    : AppTheme.light(definition))
+                .colorScheme;
+        check(
+          because: '${definition.id} $brightness',
+          contrastRatio(scheme.onSecondaryContainer, scheme.secondaryContainer),
+        ).isGreaterOrEqual(3);
+      }
+    }
+  });
+
   test('withMinContrast only moves colors that fall short', () {
     const surface = Color(0xFFFFFFFF);
     const passing = Color(0xFF1D4ED8);
