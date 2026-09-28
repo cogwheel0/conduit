@@ -93,6 +93,20 @@ class NavigationService {
     router.go(routeName);
   }
 
+  /// Opens the Open WebUI connect flow after a native sheet dismisses.
+  ///
+  /// The router moves a newly authenticated session out of the auth flow only
+  /// when an auth route is the current location. Pushing the flow over
+  /// `/chat` keeps `/chat` as that location, so sign-in succeeds while the
+  /// Sign in page stays on screen. Go to the flow instead, as the chooser and
+  /// the Flutter profile page do.
+  static void openOpenWebUIConnectFromNativeSheet() {
+    router.goNamed(
+      RouteNames.serverConnection,
+      extra: const NativeSheetNavigationOrigin(),
+    );
+  }
+
   /// Push a route while preserving the current page as the back destination.
   static Future<T?> pushTo<T extends Object?>(String routeName) async {
     final router = _router;

@@ -525,16 +525,11 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   ) async {
     final value = event.value;
     try {
-      // Hermes-only: "Connect to Open WebUI" row. Dismiss the native
-      // sheet and route into the OWUI connect flow (the router allows the
-      // serverConnection route for Hermes-only users).
+      // Accountless (Hermes, Direct, Apple) "Connect to Open WebUI" row.
+      // Dismiss the native sheet and route into the OWUI connect flow (the
+      // router allows the serverConnection route for accountless users).
       if (event.id == 'add-owui-server') {
-        unawaited(
-          NavigationService.router.pushNamed<void>(
-            RouteNames.serverConnection,
-            extra: const NativeSheetNavigationOrigin(),
-          ),
-        );
+        NavigationService.openOpenWebUIConnectFromNativeSheet();
         return;
       }
 
