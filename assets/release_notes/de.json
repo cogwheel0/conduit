@@ -128,6 +128,29 @@
           "icon": "direct"
         }
       ]
+    },
+    {
+      "version": "4.1.8",
+      "title": "Neuigkeiten",
+      "intro": "Hallo! Antworten von Open WebUI streamen flüssiger, Werkzeugaufrufe sind lesbar und Aufgabenlisten behalten ihren Fortschritt. Sprachanrufe bleiben auf dem gewählten Lautsprecher. Teilen und Kurzbefehle öffnen Chats wieder ohne Open-WebUI-Konto. Auch Chat und Einstellungen habe ich überarbeitet.",
+      "bullets": [
+        {
+          "text": "Open WebUI: Antworten laufen nach Code oder Überlegungen weiter. Werkzeugaufrufe erscheinen als Blöcke statt als Rohtext, und Aufgabenlisten behalten ihren Fortschritt, wenn du einen Chat erneut öffnest.",
+          "icon": "direct"
+        },
+        {
+          "text": "Sprache: Anrufe bleiben auf dem gewählten Lautsprecher. Danach läuft anderer Ton wieder über den normalen Ausgang. Die Lautsprechertaste zeigt den Ausgang an, den du tatsächlich hörst.",
+          "icon": "polish"
+        },
+        {
+          "text": "Teilen und Kurzbefehle: Widgets, App-Kurzbefehle, Siri und der Android Assistant öffnen Direct- oder Hermes-Chats ohne Open-WebUI-Konto. Geteilte Dateien behalten ihre Namen; Spracherkennung und Tastaturlayout unter Android erholen sich zuverlässiger.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chat und Einstellungen: übersichtlichere Eingabe, Seitenleiste und Nachrichtenaktionen. Symbole in der Werkzeugleiste und Einstellungen folgen deinen Designfarben, mit besserem Kontrast und Beschriftungen für Screenreader.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

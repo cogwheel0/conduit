@@ -128,6 +128,29 @@
           "icon": "direct"
         }
       ]
+    },
+    {
+      "version": "4.1.8",
+      "title": "What's new",
+      "intro": "Hi! Open WebUI replies stream more smoothly, with readable tool calls and task checklists that keep their progress. Voice calls keep the speaker route you chose. Shares and shortcuts open chats again without an Open WebUI account. I also refreshed chat and settings.",
+      "bullets": [
+        {
+          "text": "Open WebUI: answers keep updating after code or reasoning. Tool calls appear as blocks instead of raw markup, and task checklists keep their progress when you reopen a chat.",
+          "icon": "direct"
+        },
+        {
+          "text": "Voice: calls stay on the chosen speaker, and other audio returns to normal afterward. The speaker button reflects the route you actually hear.",
+          "icon": "polish"
+        },
+        {
+          "text": "Sharing and shortcuts: widgets, app shortcuts, Siri, and Android Assistant can open Direct or Hermes chats without an Open WebUI account. Shared files keep their names; Android speech recognition and keyboard layout recover more reliably.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chat and settings: cleaner composer, sidebar, and message actions. Toolbar icons and settings follow your theme colors, with clearer contrast and screen reader labels.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

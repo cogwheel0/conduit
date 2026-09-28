@@ -128,6 +128,29 @@
           "icon": "direct"
         }
       ]
+    },
+    {
+      "version": "4.1.8",
+      "title": "Novinky",
+      "intro": "Ahoj! Odpovědi z Open WebUI se zobrazují plynuleji, volání nástrojů jsou čitelná a seznamy úkolů si pamatují postup. Hlasové hovory drží zvolený výstup zvuku. Sdílení a zkratky znovu otevírají chaty i bez účtu Open WebUI. Vylepšil jsem také chat a nastavení.",
+      "bullets": [
+        {
+          "text": "Open WebUI: odpovědi se dál aktualizují i po kódu nebo uvažování. Volání nástrojů se zobrazují v blocích místo surových značek a seznamy úkolů si po opětovném otevření chatu pamatují postup.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hlasové hovory: zvuk zůstává ve zvoleném reproduktoru a po hovoru se ostatní zvuk vrátí do běžného výstupu. Tlačítko reproduktoru ukazuje výstup, který skutečně slyšíš.",
+          "icon": "polish"
+        },
+        {
+          "text": "Sdílení a zkratky: widgety, zkratky aplikace, Siri a Asistent Androidu otevřou chat Direct nebo Hermes i bez účtu Open WebUI. Sdíleným souborům zůstanou názvy; rozpoznávání řeči a rozložení klávesnice v Androidu se spolehlivěji obnovují.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chat a nastavení: přehlednější pole pro psaní, boční panel a akce u zpráv. Ikony na liště a nastavení používají barvy zvoleného motivu, s lepším kontrastem a popisky pro čtečky obrazovky.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

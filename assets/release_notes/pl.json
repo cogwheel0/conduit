@@ -128,6 +128,29 @@
           "icon": "direct"
         }
       ]
+    },
+    {
+      "version": "4.1.8",
+      "title": "Co nowego",
+      "intro": "Cześć! Odpowiedzi z Open WebUI wyświetlają się płynniej, wywołania narzędzi są czytelne, a listy zadań zachowują postęp. Rozmowy głosowe pozostają na wybranym głośniku. Udostępnianie i skróty znów otwierają czaty bez konta Open WebUI. Odświeżyłem też czat i ustawienia.",
+      "bullets": [
+        {
+          "text": "Open WebUI: odpowiedzi aktualizują się dalej po kodzie lub rozumowaniu. Wywołania narzędzi pojawiają się w blokach zamiast jako surowy kod, a listy zadań zachowują postęp po ponownym otwarciu czatu.",
+          "icon": "direct"
+        },
+        {
+          "text": "Głos: rozmowy korzystają z wybranego głośnika, a po zakończeniu pozostałe dźwięki wracają do zwykłego wyjścia. Przycisk głośnika pokazuje wyjście, które rzeczywiście słyszysz.",
+          "icon": "polish"
+        },
+        {
+          "text": "Udostępnianie i skróty: widżety, skróty aplikacji, Siri i Asystent Androida otwierają czaty Direct lub Hermes bez konta Open WebUI. Udostępnione pliki zachowują nazwy; rozpoznawanie mowy i układ klawiatury na Androidzie przywracają się pewniej.",
+          "icon": "direct"
+        },
+        {
+          "text": "Czat i ustawienia: czytelniejsze pole wpisywania, pasek boczny i działania na wiadomościach. Ikony paska narzędzi i ustawienia używają kolorów wybranego motywu, z lepszym kontrastem i etykietami dla czytników ekranu.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

@@ -128,6 +128,29 @@
           "icon": "direct"
         }
       ]
+    },
+    {
+      "version": "4.1.8",
+      "title": "Nouveautés",
+      "intro": "Bonjour ! Les réponses d’Open WebUI s’affichent plus fluidement, les appels d’outils sont lisibles et les listes de tâches gardent leur progression. Les appels vocaux restent sur le haut-parleur choisi. Le partage et les raccourcis rouvrent les discussions sans compte Open WebUI. J’ai aussi rafraîchi le chat et les réglages.",
+      "bullets": [
+        {
+          "text": "Open WebUI : les réponses continuent de s’actualiser après du code ou du raisonnement. Les appels d’outils s’affichent en blocs plutôt qu’en balisage brut, et les listes de tâches gardent leur progression quand tu rouvres une discussion.",
+          "icon": "direct"
+        },
+        {
+          "text": "Voix : les appels restent sur le haut-parleur choisi. Ensuite, les autres sons retrouvent leur sortie normale. Le bouton du haut-parleur indique la sortie que tu entends réellement.",
+          "icon": "polish"
+        },
+        {
+          "text": "Partage et raccourcis : les widgets, raccourcis de l’app, Siri et l’Assistant Android ouvrent des discussions Direct ou Hermes sans compte Open WebUI. Les fichiers partagés gardent leur nom ; la reconnaissance vocale et le clavier Android se rétablissent plus sûrement.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chat et réglages : zone de saisie, barre latérale et actions des messages plus claires. Les icônes de la barre d’outils et les réglages suivent les couleurs du thème choisi, avec un meilleur contraste et des libellés pour les lecteurs d’écran.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

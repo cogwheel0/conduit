@@ -128,6 +128,29 @@
           "icon": "direct"
         }
       ]
+    },
+    {
+      "version": "4.1.8",
+      "title": "Novità",
+      "intro": "Ciao! Le risposte di Open WebUI scorrono più fluidamente, le chiamate agli strumenti sono leggibili e gli elenchi delle attività conservano i progressi. Le chiamate vocali mantengono l'altoparlante scelto. Condivisione e scorciatoie aprono di nuovo le chat senza un account Open WebUI. Ho rinnovato anche chat e impostazioni.",
+      "bullets": [
+        {
+          "text": "Open WebUI: le risposte continuano ad aggiornarsi dopo codice o ragionamento. Le chiamate agli strumenti compaiono in blocchi invece che come testo grezzo e gli elenchi delle attività conservano i progressi quando riapri una chat.",
+          "icon": "direct"
+        },
+        {
+          "text": "Voce: le chiamate restano sull'altoparlante scelto e, dopo la chiamata, gli altri suoni tornano all'uscita normale. Il pulsante dell'altoparlante mostra l'uscita che senti davvero.",
+          "icon": "polish"
+        },
+        {
+          "text": "Condivisione e scorciatoie: widget, scorciatoie dell'app, Siri e Assistente Android aprono chat Direct o Hermes senza un account Open WebUI. I file condivisi mantengono il nome; riconoscimento vocale e tastiera Android si ripristinano in modo più affidabile.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chat e impostazioni: campo di scrittura, barra laterale e azioni dei messaggi più ordinati. Le icone della barra e le impostazioni seguono i colori del tema scelto, con contrasto migliore ed etichette per gli screen reader.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

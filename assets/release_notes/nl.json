@@ -128,6 +128,29 @@
           "icon": "direct"
         }
       ]
+    },
+    {
+      "version": "4.1.8",
+      "title": "Nieuw",
+      "intro": "Hoi! Antwoorden van Open WebUI verschijnen vloeiender, toolaanroepen zijn leesbaar en takenlijsten onthouden hun voortgang. Spraakoproepen blijven op de gekozen luidspreker. Delen en snelkoppelingen openen weer chats zonder Open WebUI-account. Ik heb ook de chat en instellingen opgefrist.",
+      "bullets": [
+        {
+          "text": "Open WebUI: antwoorden blijven na code of redenering bijgewerkt worden. Toolaanroepen verschijnen als blokken in plaats van ruwe opmaak, en takenlijsten onthouden hun voortgang als je een chat opnieuw opent.",
+          "icon": "direct"
+        },
+        {
+          "text": "Spraak: oproepen blijven op de gekozen luidspreker. Daarna gebruikt ander geluid weer de normale uitvoer. De luidsprekerknop laat zien waar je het geluid echt hoort.",
+          "icon": "polish"
+        },
+        {
+          "text": "Delen en snelkoppelingen: widgets, app-snelkoppelingen, Siri en de Android Assistent openen Direct- of Hermes-chats zonder Open WebUI-account. Gedeelde bestanden behouden hun naam; spraakherkenning en toetsenbordindeling op Android herstellen betrouwbaarder.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chat en instellingen: overzichtelijker invoerveld, zijbalk en berichtacties. Werkbalkpictogrammen en instellingen volgen de kleuren van je thema, met beter contrast en labels voor schermlezers.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }
