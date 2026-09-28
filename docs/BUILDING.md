@@ -96,13 +96,14 @@ iOS audio sessions.
 flutter pub get
 dart run build_runner build
 flutter analyze
-flutter test
+dart run tool/run_test_shards.dart
 ```
 
-`flutter analyze` and `flutter test` are the local gates before handing work
-off. GitHub Actions only runs localization validation (`.github/workflows/l10n.yml`)
-and releases (`.github/workflows/release.yml`). Nothing checks analyzer or test
-health on every push, so run them yourself.
+`flutter analyze` and the test suite are the local gates before handing work
+off. `tool/run_test_shards.dart` runs every test file through a few combined
+entrypoints, which is much faster than plain `flutter test`; use
+`flutter test <file>` for a single file. CI (`.github/workflows/ci.yml`) runs
+the analyzer and this test runner on pushes to `main` and on pull requests.
 
 Tests use `flutter_test` with `package:checks` for assertions and `mocktail` for
 mocks. Lints come from `flutter_lints` plus `riverpod_lint`.

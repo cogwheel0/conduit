@@ -12,11 +12,8 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  # Pinned so a Flutter release cannot change what CI means overnight. Keep in
-  # step with the `environment` block in pubspec.yaml.
-  FLUTTER_VERSION: '3.47.1'
-
+# Flutter is the latest stable release (no version pin), so CI keeps up with
+# what developers install. pubspec.yaml's `environment` sets the floor.
 jobs:
   # The gate that matters most during the extraction: the mobile app must stay
   # exactly as it was while code moves out from under it.
@@ -30,7 +27,6 @@ jobs:
           submodules: recursive
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
           cache: true
       # One `pub get` at the workspace root resolves every member.
@@ -52,7 +48,10 @@ jobs:
       # the same ones), which want their own clean-up. The packages below are
       # clean and stay held to --fatal-infos.
       - run: flutter analyze --no-fatal-warnings --no-fatal-infos
-      - run: flutter test
+      # Compiling and loading each test file separately was most of this
+      # step; the runner groups the files into a few entrypoints.
+      - run: dart run tool/run_test_shards.dart
+        timeout-minutes: 30
 
   # Each workspace member analyzes and tests on its own, which is what proves
   # the pub workspace actually works per package.
@@ -73,7 +72,6 @@ jobs:
           submodules: recursive
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
           cache: true
       - run: flutter pub get
@@ -109,7 +107,6 @@ jobs:
           submodules: recursive
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
           cache: true
       - run: flutter pub get
@@ -134,7 +131,6 @@ jobs:
           submodules: recursive
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
           cache: true
       - run: flutter pub get
