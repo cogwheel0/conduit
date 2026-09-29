@@ -185,6 +185,7 @@ flutter:
   assets:
     - THIRD_PARTY_NOTICES.md
     - assets/icons/
+    - assets/model_logos/
     - assets/release_notes/
     - assets/chartjs.min.js
     - assets/flutter_tex.js

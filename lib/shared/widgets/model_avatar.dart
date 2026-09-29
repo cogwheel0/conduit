@@ -1,8 +1,10 @@
 import 'dart:typed_data';
 
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/services/native_symbol_image_service.dart';
+import '../../core/utils/model_logos.dart';
 import '../theme/theme_extensions.dart';
 import 'user_avatar.dart';
 
@@ -41,6 +43,10 @@ class ModelAvatar extends StatelessWidget {
     final symbolName = nativeSymbolNameFromUrl(imageUrl);
     if (symbolName != null) {
       return _SymbolAvatar(size: size, symbolName: symbolName);
+    }
+    final logoId = modelLogoIdFromUrl(imageUrl);
+    if (logoId != null) {
+      return _LogoAvatar(size: size, logoId: logoId, label: label);
     }
 
     return AvatarImage(
@@ -160,6 +166,40 @@ class _SymbolAvatarState extends State<_SymbolAvatar> {
                 size: _pointSize,
               ),
             ),
+    );
+  }
+}
+
+/// A bundled models.dev logo on the shared plate. Monochrome logos draw in
+/// the plate's accent; multicolor ones keep their own colors.
+class _LogoAvatar extends StatelessWidget {
+  const _LogoAvatar({
+    required this.size,
+    required this.logoId,
+    required this.label,
+  });
+
+  static const double _logoFraction = 0.8;
+
+  final double size;
+  final String logoId;
+  final String? label;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = context.conduitTheme.buttonPrimary;
+    final logoSize = size * _logoFraction;
+    return _ModelAvatarPlaceholder(
+      size: size,
+      label: label,
+      child: SvgPicture.asset(
+        modelLogoAssetPath(logoId),
+        width: logoSize,
+        height: logoSize,
+        theme: SvgTheme(currentColor: color),
+        errorBuilder: (context, error, stackTrace) =>
+            _ModelAvatarPlaceholder(size: size, label: label),
+      ),
     );
   }
 }
