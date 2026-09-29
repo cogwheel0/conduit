@@ -820,7 +820,7 @@ final class OllamaAdapter
                     ]);
                     if (executed == null) break rounds;
                     result = executed;
-                    eventResult = result.text;
+                    eventResult = result.value ?? result.text;
                   } catch (_) {
                     if (cancelToken.isCancelled ||
                         transportCancelToken.isCancelled) {

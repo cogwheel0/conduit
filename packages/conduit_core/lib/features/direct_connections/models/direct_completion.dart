@@ -139,10 +139,21 @@ final class DirectToolDefinition {
 }
 
 final class DirectToolResult {
-  const DirectToolResult({required this.text, this.isError = false});
+  const DirectToolResult({
+    required this.text,
+    this.isError = false,
+    this.value,
+  });
 
+  /// What the model receives.
   final String text;
   final bool isError;
+
+  /// Structured form of [text] for the chat UI, e.g. `{'results': [...]}`
+  /// for `web_search`, which the chat bridge turns into source chips.
+  /// Adapters report it on [DirectToolCallCompleted.result] in place of
+  /// [text]; it is never sent to the model.
+  final Object? value;
 }
 
 enum DirectToolApprovalDecision { allowOnce, allowSession, allowAlways, deny }

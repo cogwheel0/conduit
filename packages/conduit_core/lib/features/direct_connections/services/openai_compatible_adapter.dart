@@ -2878,7 +2878,7 @@ final class _DirectEmitter {
         id: id,
         name: name,
         arguments: arguments,
-        result: result.text,
+        result: result.value ?? result.text,
         isError: result.isError,
       ),
     );

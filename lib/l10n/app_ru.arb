@@ -3361,5 +3361,20 @@
   "chatTaskPending": "Ожидает",
   "chatTaskInProgress": "Выполняется",
   "chatTaskCompleted": "Выполнено",
-  "chatTaskCancelled": "Отменено"
+  "chatTaskCancelled": "Отменено",
+  "webSearchSettingsFooterAuto": "Используется моделями Direct без собственного веб-поиска. Поиск выполняется с этого устройства: запросы отправляются в DuckDuckGo, а если он не отвечает — в Brave, Bing, Mojeek или Википедию. Страницы, которые читает модель, тоже загружаются с этого устройства.",
+  "webSearchSettingsFooterEngine": "Используется моделями Direct без собственного веб-поиска. Поиск выполняется с этого устройства, а запросы отправляются только в {engine}. Страницы, которые читает модель, тоже загружаются с этого устройства.",
+  "@webSearchSettingsFooterEngine": {"placeholders": {"engine": {"type": "String", "example": "DuckDuckGo"}}},
+  "webSearchEngineLabel": "Поисковая система",
+  "webSearchEngineAuto": "Автоматически",
+  "webSearchSafeSearchLabel": "Безопасный поиск",
+  "webSearchSafeSearchStrict": "Строгий",
+  "webSearchSafeSearchModerate": "Умеренный",
+  "webSearchSafeSearchOff": "Выключен",
+  "webSearchRegionLabel": "Регион",
+  "webSearchRegionAuto": "Как на устройстве",
+  "webSearchRegionWorldwide": "Весь мир",
+  "directModelToolsUnsupported": "Эта модель не умеет использовать инструменты, поэтому не может искать в интернете. Отключите веб-поиск и все инструменты, затем повторите попытку.",
+  "directContextCompactionModelCount": "{count, plural, one{{count} модель} few{{count} модели} many{{count} моделей} other{{count} модели}}",
+  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}}
 }

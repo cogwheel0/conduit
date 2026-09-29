@@ -3323,5 +3323,20 @@
   "chatTaskPending": "In attesa",
   "chatTaskInProgress": "In corso",
   "chatTaskCompleted": "Completata",
-  "chatTaskCancelled": "Annullata"
+  "chatTaskCancelled": "Annullata",
+  "webSearchSettingsFooterAuto": "Usato dai modelli Direct senza una ricerca web propria. Le ricerche partono da questo dispositivo: le query vanno a DuckDuckGo e, se non risponde, a Brave, Bing, Mojeek o Wikipedia. Anche le pagine lette dal modello vengono scaricate da questo dispositivo.",
+  "webSearchSettingsFooterEngine": "Usato dai modelli Direct senza una ricerca web propria. Le ricerche partono da questo dispositivo e le query vanno solo a {engine}. Anche le pagine lette dal modello vengono scaricate da questo dispositivo.",
+  "@webSearchSettingsFooterEngine": {"placeholders": {"engine": {"type": "String", "example": "DuckDuckGo"}}},
+  "webSearchEngineLabel": "Motore di ricerca",
+  "webSearchEngineAuto": "Automatico",
+  "webSearchSafeSearchLabel": "Ricerca sicura",
+  "webSearchSafeSearchStrict": "Rigorosa",
+  "webSearchSafeSearchModerate": "Moderata",
+  "webSearchSafeSearchOff": "Disattivata",
+  "webSearchRegionLabel": "Regione",
+  "webSearchRegionAuto": "Come il dispositivo",
+  "webSearchRegionWorldwide": "Tutto il mondo",
+  "directModelToolsUnsupported": "Questo modello non può usare strumenti, quindi non può cercare sul web. Disattiva la ricerca web e gli strumenti, poi riprova.",
+  "directContextCompactionModelCount": "{count, plural, =1{1 modello} other{{count} modelli}}",
+  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}}
 }

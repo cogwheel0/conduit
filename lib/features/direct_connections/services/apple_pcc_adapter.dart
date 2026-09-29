@@ -355,7 +355,7 @@ final class ApplePccAdapter implements DirectProviderAdapter, PccFlutterApi {
           id: call.callId,
           name: call.name,
           arguments: decoded,
-          result: result.text,
+          result: result.value ?? result.text,
           isError: result.isError,
         ),
       );

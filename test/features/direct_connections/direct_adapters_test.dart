@@ -4822,7 +4822,10 @@ void main() {
                     requiresUserDecision: false,
                     execute: (arguments) async {
                       executedArguments = arguments;
-                      return const DirectToolResult(text: 'sunny');
+                      return const DirectToolResult(
+                        text: 'sunny',
+                        value: {'forecast': 'sunny'},
+                      );
                     },
                   ),
                 ),
@@ -4831,6 +4834,11 @@ void main() {
               .toList();
 
       expect(executedArguments, {'city': 'Paris'});
+      // The UI gets the structured value (web_search results become source
+      // chips); the model still gets the text, asserted on the replay below.
+      expect(events.whereType<DirectToolCallCompleted>().single.result, {
+        'forecast': 'sunny',
+      });
       expect(
         events.whereType<DirectContentDelta>().map((event) => event.content),
         ['Checking.', 'It is sunny.'],

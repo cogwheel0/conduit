@@ -16,6 +16,7 @@ environment:
 # pub fails loudly if only one side is updated.
 workspace:
   - packages/conduit_core
+  - packages/conduit_ddgs
   - packages/conduit_markdown
   - packages/conduit_theme
 

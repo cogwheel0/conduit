@@ -4978,5 +4978,20 @@
   "chatTaskPending": "Čaká",
   "chatTaskInProgress": "Prebieha",
   "chatTaskCompleted": "Dokončené",
-  "chatTaskCancelled": "Zrušené"
+  "chatTaskCancelled": "Zrušené",
+  "webSearchSettingsFooterAuto": "Používajú modely Direct bez vlastného vyhľadávania na webe. Vyhľadávanie prebieha z tohto zariadenia: dopyty idú do DuckDuckGo, a ak neodpovie, do Brave, Bing, Mojeek alebo Wikipédie. Stránky, ktoré model číta, sa tiež načítavajú z tohto zariadenia.",
+  "webSearchSettingsFooterEngine": "Používajú modely Direct bez vlastného vyhľadávania na webe. Vyhľadávanie prebieha z tohto zariadenia a dopyty idú iba do {engine}. Stránky, ktoré model číta, sa tiež načítavajú z tohto zariadenia.",
+  "@webSearchSettingsFooterEngine": {"placeholders": {"engine": {"type": "String", "example": "DuckDuckGo"}}},
+  "webSearchEngineLabel": "Vyhľadávač",
+  "webSearchEngineAuto": "Automaticky",
+  "webSearchSafeSearchLabel": "Bezpečné vyhľadávanie",
+  "webSearchSafeSearchStrict": "Prísne",
+  "webSearchSafeSearchModerate": "Stredné",
+  "webSearchSafeSearchOff": "Vypnuté",
+  "webSearchRegionLabel": "Oblasť",
+  "webSearchRegionAuto": "Podľa zariadenia",
+  "webSearchRegionWorldwide": "Celosvetovo",
+  "directModelToolsUnsupported": "Tento model nevie používať nástroje, a preto nemôže vyhľadávať na webe. Vypnite vyhľadávanie na webe a všetky nástroje a skúste to znova.",
+  "directContextCompactionModelCount": "{count, plural, one{{count} model} few{{count} modely} many{{count} modelu} other{{count} modelov}}",
+  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}}
 }

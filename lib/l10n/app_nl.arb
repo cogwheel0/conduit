@@ -3323,5 +3323,20 @@
   "chatTaskPending": "In afwachting",
   "chatTaskInProgress": "Bezig",
   "chatTaskCompleted": "Voltooid",
-  "chatTaskCancelled": "Geannuleerd"
+  "chatTaskCancelled": "Geannuleerd",
+  "webSearchSettingsFooterAuto": "Gebruikt door Direct-modellen zonder eigen webzoekfunctie. Zoekopdrachten lopen via dit apparaat: ze gaan naar DuckDuckGo en, als die niet antwoordt, naar Brave, Bing, Mojeek of Wikipedia. Pagina's die het model leest, worden ook via dit apparaat opgehaald.",
+  "webSearchSettingsFooterEngine": "Gebruikt door Direct-modellen zonder eigen webzoekfunctie. Zoekopdrachten lopen via dit apparaat en gaan alleen naar {engine}. Pagina's die het model leest, worden ook via dit apparaat opgehaald.",
+  "@webSearchSettingsFooterEngine": {"placeholders": {"engine": {"type": "String", "example": "DuckDuckGo"}}},
+  "webSearchEngineLabel": "Zoekmachine",
+  "webSearchEngineAuto": "Automatisch",
+  "webSearchSafeSearchLabel": "Veilig zoeken",
+  "webSearchSafeSearchStrict": "Streng",
+  "webSearchSafeSearchModerate": "Gemiddeld",
+  "webSearchSafeSearchOff": "Uit",
+  "webSearchRegionLabel": "Regio",
+  "webSearchRegionAuto": "Zoals apparaat",
+  "webSearchRegionWorldwide": "Wereldwijd",
+  "directModelToolsUnsupported": "Dit model kan geen hulpmiddelen gebruiken en kan dus niet op het web zoeken. Zet webzoeken en alle hulpmiddelen uit en probeer het opnieuw.",
+  "directContextCompactionModelCount": "{count, plural, =1{1 model} other{{count} modellen}}",
+  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}}
 }

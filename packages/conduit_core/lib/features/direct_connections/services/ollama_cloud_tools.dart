@@ -1,11 +1,11 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:dio/dio.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
+import 'package:conduit_core/features/web_search/services/public_web_address.dart';
 
 const int kOllamaCloudMaxSearchResults = 10;
 const int kOllamaCloudMaxQueryCharacters = 2048;
@@ -220,80 +220,9 @@ Future<Map<String, dynamic>> _webFetch(
   return {'title': title, 'content': content, 'links': links};
 }
 
-String normalizeOllamaCloudPublicWebUrl(String value) {
-  final uri = Uri.tryParse(value);
-  if (uri == null) {
-    throw const FormatException('Web fetch URL is invalid.');
-  }
-  if (!uri.hasScheme) {
-    throw const FormatException('Web fetch URL must be absolute.');
-  }
-  if (uri.scheme != 'http' && uri.scheme != 'https') {
-    throw const FormatException('Web fetch URL must use HTTP or HTTPS.');
-  }
-  if (uri.host.isEmpty) {
-    throw const FormatException('Web fetch URL must include a host.');
-  }
-  if (uri.userInfo.isNotEmpty) {
-    throw const FormatException(
-      'Web fetch URL must not include user information.',
-    );
-  }
-  // DNS treats a terminal dot as the same absolute hostname. Canonicalize it
-  // before applying the public-host boundary so `localhost.` and IP literals
-  // with a terminal dot cannot bypass the checks below.
-  final host = uri.host.toLowerCase().replaceFirst(RegExp(r'\.+$'), '');
-  if (host == 'localhost' ||
-      host.isEmpty ||
-      host.endsWith('.localhost') ||
-      host.endsWith('.local') ||
-      host.endsWith('.internal') ||
-      _isPrivateOrSpecialIpLiteral(host)) {
-    throw const FormatException('Web fetch requires a public URL.');
-  }
-  return uri.removeFragment().toString();
-}
-
-bool _isPrivateOrSpecialIpLiteral(String host) {
-  final address = InternetAddress.tryParse(host);
-  if (address == null) return false;
-  final bytes = address.rawAddress;
-  if (address.type == InternetAddressType.IPv4) {
-    return _isPrivateOrSpecialIpv4(bytes);
-  }
-  final isUnspecified = bytes.every((byte) => byte == 0);
-  final isLoopback =
-      bytes.take(15).every((byte) => byte == 0) && bytes.last == 1;
-  final isUniqueLocal = (bytes[0] & 0xfe) == 0xfc;
-  final isLinkLocal = bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80;
-  final isMulticast = bytes[0] == 0xff;
-  final isIpv4Mapped =
-      bytes.take(10).every((byte) => byte == 0) &&
-      bytes[10] == 0xff &&
-      bytes[11] == 0xff;
-  final isIpv4Compatible = bytes.take(12).every((byte) => byte == 0);
-  return isUnspecified ||
-      isLoopback ||
-      isUniqueLocal ||
-      isLinkLocal ||
-      isMulticast ||
-      ((isIpv4Mapped || isIpv4Compatible) &&
-          _isPrivateOrSpecialIpv4(bytes.sublist(12)));
-}
-
-bool _isPrivateOrSpecialIpv4(List<int> bytes) {
-  final first = bytes[0];
-  final second = bytes[1];
-  return first == 0 ||
-      first == 10 ||
-      first == 127 ||
-      (first == 100 && second >= 64 && second <= 127) ||
-      (first == 169 && second == 254) ||
-      (first == 172 && second >= 16 && second <= 31) ||
-      (first == 192 && second == 168) ||
-      (first == 198 && (second == 18 || second == 19)) ||
-      first >= 224;
-}
+/// Canonicalizes a model-supplied URL for Ollama Cloud's web tools.
+String normalizeOllamaCloudPublicWebUrl(String value) =>
+    normalizePublicWebUrl(value);
 
 Future<Map<String, dynamic>> _responseJson(
   Response<ResponseBody> response,

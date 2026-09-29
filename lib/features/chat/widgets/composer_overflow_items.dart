@@ -7,6 +7,8 @@ import 'package:conduit_core/models/toggle_filter.dart';
 import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/features/web_search/services/direct_web_search_mode.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 
 import '../providers/chat_providers.dart';
 
@@ -313,7 +315,9 @@ void setComposerOverflowSelection(
   switch (actionId) {
     case ComposerOverflowActionIds.webSearch:
       ref.read(webSearchEnabledProvider.notifier).set(selected);
-      if (selected) _clearLocalMcpTools(ref);
+      if (selected && !_webSearchCoexistsWithLocalTools(ref)) {
+        _clearLocalMcpTools(ref);
+      }
       return;
     case ComposerOverflowActionIds.imageGeneration:
       ref.read(imageGenerationEnabledProvider.notifier).set(selected);
@@ -352,7 +356,9 @@ void setComposerOverflowSelection(
     }
     if (toolId.startsWith(kDirectMcpToolIdPrefix)) {
       ref.read(imageGenerationEnabledProvider.notifier).set(false);
-      ref.read(webSearchEnabledProvider.notifier).set(false);
+      if (!_webSearchCoexistsWithLocalTools(ref)) {
+        ref.read(webSearchEnabledProvider.notifier).set(false);
+      }
     }
   } else if (alreadySelected) {
     current.remove(toolId);
@@ -360,6 +366,12 @@ void setComposerOverflowSelection(
 
   ref.read(selectedToolIdsProvider.notifier).set(current);
 }
+
+/// On-device web search is just another local tool, so it can run beside
+/// MCP tools; a provider-hosted search tool can't share their request.
+bool _webSearchCoexistsWithLocalTools(WidgetRef ref) =>
+    ref.read(selectedDirectWebSearchModeProvider) ==
+    DirectWebSearchMode.onDevice;
 
 void _clearLocalMcpTools(WidgetRef ref) {
   final tools = ref.read(selectedToolIdsProvider);

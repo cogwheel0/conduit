@@ -3323,5 +3323,20 @@
   "chatTaskPending": "待处理",
   "chatTaskInProgress": "进行中",
   "chatTaskCompleted": "已完成",
-  "chatTaskCancelled": "已取消"
+  "chatTaskCancelled": "已取消",
+  "webSearchSettingsFooterAuto": "供没有自带网页搜索的 Direct 模型使用。搜索从此设备发起：查询会发送到 DuckDuckGo，若无响应则发送到 Brave、Bing、Mojeek 或维基百科。模型读取的网页也从此设备获取。",
+  "webSearchSettingsFooterEngine": "供没有自带网页搜索的 Direct 模型使用。搜索从此设备发起，查询只会发送到 {engine}。模型读取的网页也从此设备获取。",
+  "@webSearchSettingsFooterEngine": {"placeholders": {"engine": {"type": "String", "example": "DuckDuckGo"}}},
+  "webSearchEngineLabel": "搜索引擎",
+  "webSearchEngineAuto": "自动",
+  "webSearchSafeSearchLabel": "安全搜索",
+  "webSearchSafeSearchStrict": "严格",
+  "webSearchSafeSearchModerate": "适中",
+  "webSearchSafeSearchOff": "关闭",
+  "webSearchRegionLabel": "地区",
+  "webSearchRegionAuto": "与设备一致",
+  "webSearchRegionWorldwide": "全球",
+  "directModelToolsUnsupported": "此模型无法使用工具，因此无法搜索网页。请关闭网页搜索和所有工具后重试。",
+  "directContextCompactionModelCount": "{count, plural, other{{count} 个模型}}",
+  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}}
 }

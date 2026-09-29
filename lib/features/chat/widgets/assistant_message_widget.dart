@@ -11,6 +11,7 @@ import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
 import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
 
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/features/web_search/services/direct_web_search_mode.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 
 import '../providers/text_to_speech_provider.dart';
@@ -1428,9 +1429,13 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final errorColor = theme.colorScheme.error;
     final errorContent = error.content;
 
-    // If no content, show a generic error message
-    final displayText = (errorContent != null && errorContent.isNotEmpty)
+    // A model that can't call tools rejects web search's tool definitions;
+    // say what to do instead of echoing the provider's wording.
+    final displayText = isDirectToolsUnsupportedError(errorContent)
+        ? AppLocalizations.of(context)!.directModelToolsUnsupported
+        : (errorContent != null && errorContent.isNotEmpty)
         ? errorContent
+        // If no content, show a generic error message
         : 'An error occurred while generating this response.';
 
     return Container(

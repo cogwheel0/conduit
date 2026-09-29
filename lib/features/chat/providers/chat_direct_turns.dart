@@ -640,15 +640,84 @@ Future<bool> _refreshDirectConversationOwner(
 ({bool enableWebSearch, List<String> localMcpToolIds})
 normalizeDirectToolSelectionForBinding({
   required DirectModelBinding binding,
+  required DirectWebSearchMode webSearchMode,
   required bool enableWebSearch,
   required List<String> localMcpToolIds,
 }) {
   final effectiveToolIds = directBindingSupportsLocalMcp(binding)
       ? localMcpToolIds
       : const <String>[];
+  final searchAllowed = switch (webSearchMode) {
+    DirectWebSearchMode.unavailable => false,
+    // A provider-hosted search tool can't share a request with local tools.
+    DirectWebSearchMode.providerHosted => effectiveToolIds.isEmpty,
+    // On-device search is just another local tool.
+    DirectWebSearchMode.onDevice => true,
+  };
   return (
-    enableWebSearch: enableWebSearch && effectiveToolIds.isEmpty,
+    enableWebSearch: enableWebSearch && searchAllowed,
     localMcpToolIds: effectiveToolIds,
+  );
+}
+
+/// Links in the turn's user message, which `web_fetch` may read without a
+/// search first ("summarize https://...").
+List<String> _latestUserMessageUrls(List<ChatMessage> messages) {
+  for (final message in messages.reversed) {
+    if (message.role == 'user') return extractWebUrls(message.content);
+  }
+  return const [];
+}
+
+DirectToolApprovalHandle _autoApprovedWebTool(
+  String callId,
+  DirectToolDefinition definition,
+  Map<String, dynamic> arguments,
+) {
+  // Turning web search on is the consent; asking again per query would make
+  // the tool unusable, and a fetch is limited to URLs already in the turn.
+  return DirectToolApprovalHandle(
+    request: DirectToolApprovalRequest(
+      id: '$kOnDeviceWebToolServerId/$callId',
+      serverName: definition.serverName,
+      toolName: definition.displayName,
+      callId: callId,
+      argumentsJson: jsonEncode(arguments),
+    ),
+    decision: Future.value(DirectToolApprovalDecision.allowOnce),
+    requiresUserDecision: false,
+  );
+}
+
+/// Adds on-device web tools to [mcpRuntime], or stands them up alone.
+DirectToolRuntime _withOnDeviceWebTools(
+  DirectToolRuntime? mcpRuntime,
+  OnDeviceWebToolSession webTools,
+) {
+  bool isWebTool(DirectToolDefinition definition) =>
+      definition.serverId == kOnDeviceWebToolServerId &&
+      OnDeviceWebToolSession.handles(definition.name);
+  return DirectToolRuntime(
+    definitions: [...?mcpRuntime?.definitions, ...webTools.definitions],
+    requestApproval: (callId, definition, arguments) {
+      if (isWebTool(definition)) {
+        return _autoApprovedWebTool(callId, definition, arguments);
+      }
+      return mcpRuntime!.requestApproval(callId, definition, arguments);
+    },
+    execute: (name, arguments) {
+      // MCP tools are namespaced `mcp_<id>_<tool>`, so the bare web tool
+      // names can't collide with them.
+      if (OnDeviceWebToolSession.handles(name)) {
+        return webTools.execute(name, arguments);
+      }
+      if (mcpRuntime == null) {
+        throw const DirectProviderException(
+          'The model requested an unavailable local tool.',
+        );
+      }
+      return mcpRuntime.execute(name, arguments);
+    },
   );
 }
 
@@ -670,8 +739,13 @@ Future<void> _dispatchDirectRunFromChat(
 }) async {
   final releaseGeneration = holdLocalChatGeneration(ref);
   try {
+    final webSearchMode = directWebSearchModeFor(
+      binding: route.binding,
+      model: route.model,
+    );
     final toolSelection = normalizeDirectToolSelectionForBinding(
       binding: route.binding,
+      webSearchMode: webSearchMode,
       enableWebSearch: enableWebSearch,
       localMcpToolIds: localMcpToolIds,
     );
@@ -735,6 +809,7 @@ Future<void> _dispatchDirectRunFromChat(
         reservation: reservation,
         preflightCancelToken: preflightCancelToken,
         enableWebSearch: toolSelection.enableWebSearch,
+        webSearchMode: webSearchMode,
         enableImageGeneration: enableImageGeneration,
         reasoningEffort: reasoningEffort,
         localMcpToolIds: toolSelection.localMcpToolIds,
@@ -775,6 +850,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
   required DirectRunReservation reservation,
   required CancelToken preflightCancelToken,
   required bool enableWebSearch,
+  required DirectWebSearchMode webSearchMode,
   required bool enableImageGeneration,
   required String? reasoningEffort,
   required List<String> localMcpToolIds,
@@ -1123,6 +1199,26 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
       },
     );
   }
+  final useOnDeviceWebSearch =
+      enableWebSearch && webSearchMode == DirectWebSearchMode.onDevice;
+  if (useOnDeviceWebSearch) {
+    final OnDeviceWebToolSessionFactory createWebTools = ref.read(
+      onDeviceWebToolSessionFactoryProvider,
+    );
+    toolRuntime = _withOnDeviceWebTools(
+      toolRuntime,
+      createWebTools(
+        budget: webToolBudgetFor(
+          adapterKey: route.binding.adapterKey,
+          knownContextLength:
+              directModelAdvertisedContextLength(route.model) ??
+              ref.read(directContextLengthOverridesProvider)[route.model.id],
+        ),
+        userProvidedUrls: _latestUserMessageUrls(requestMessages),
+        cancel: registry.cancellationSignal(reservation),
+      ),
+    );
+  }
   final normalizedBudget = DirectStreamBudget(
     maxCharacters: streamLimits.maxCharacters,
     maxEvents: streamLimits.maxEvents,
@@ -1145,7 +1241,9 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
       DirectCompletionRequest(
         remoteModelId: route.binding.remoteModelId,
         messages: directMessages,
-        enableWebSearch: enableWebSearch,
+        // On-device search travels as local tools; the adapter's flag asks
+        // for the provider's own search tool.
+        enableWebSearch: enableWebSearch && !useOnDeviceWebSearch,
         enableImageGeneration: enableImageGeneration,
         imageGenerationModel:
             route.profile.isOpenRouter && enableImageGeneration

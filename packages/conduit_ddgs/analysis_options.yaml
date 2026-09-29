@@ -1,0 +1,10 @@
+include: package:lints/recommended.yaml
+
+linter:
+  rules:
+    # Off because it is unsatisfiable here rather than merely unwanted. It
+    # fires on `_field = param` where the field is private and the parameter
+    # is a public named one, and suggests `this._field` -- which Dart rejects,
+    # since a named parameter may not begin with an underscore. Following it
+    # would mean renaming public API to suit a linter.
+    prefer_initializing_formals: false

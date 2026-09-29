@@ -112,34 +112,50 @@ final imageGenerationAvailableProvider = Provider<bool>((ref) {
   );
 });
 
+/// How the selected Direct model would search the web, or `null` when the
+/// selected model is not a Direct model.
+final selectedDirectWebSearchModeProvider = Provider<DirectWebSearchMode?>((
+  ref,
+) {
+  final selectedModel = ref.watch(selectedModelProvider);
+  if (selectedModel == null || !hasReservedDirectIdentity(selectedModel)) {
+    return null;
+  }
+  final binding = ref.watch(directModelRegistryProvider).resolve(selectedModel);
+  if (binding == null) return DirectWebSearchMode.unavailable;
+  return directWebSearchModeFor(binding: binding, model: selectedModel);
+});
+
 final webSearchAvailableProvider = Provider<bool>((ref) {
   final selectedModel = ref.watch(selectedModelProvider);
-  final directBinding = selectedModel == null
-      ? null
-      : ref.watch(directModelRegistryProvider).resolve(selectedModel);
-  if (selectedModel != null && hasReservedDirectIdentity(selectedModel)) {
-    // Device-owned direct models must never fall through to OpenWebUI
-    // permissions. Only locally minted provider capabilities can enable a
-    // Conduit-managed search path.
-    final isTrustedOllamaCloud =
-        directBinding?.adapterKey == kOllamaAdapterKey &&
-        selectedModel.capabilities?['ollama_cloud'] == true;
-    final isTrustedOpenRouter =
-        directBinding?.adapterKey == kOpenAiCompatibleAdapterKey &&
-        selectedModel.capabilities?['openrouter'] == true;
-    return directBinding?.source == DirectModelSource.device &&
-        (isTrustedOllamaCloud || isTrustedOpenRouter) &&
-        selectedModel.capabilities?['web_search'] == true;
+  final directMode = ref.watch(selectedDirectWebSearchModeProvider);
+  if (selectedModel != null && directMode != null) {
+    // Direct models never fall through to the Open WebUI model checks below:
+    // search runs at the provider or on this device, not on the server.
+    return switch (directMode) {
+      DirectWebSearchMode.unavailable => false,
+      DirectWebSearchMode.providerHosted => true,
+      // A server-configured connection still answers to that server's web
+      // search policy, even though the search itself runs on the device.
+      DirectWebSearchMode.onDevice =>
+        ref.watch(directModelRegistryProvider).resolve(selectedModel)?.source ==
+                DirectModelSource.device ||
+            _openWebUiAllowsWebSearch(ref),
+    };
   }
 
+  if (!_modelSupportsFeature(selectedModel, 'web_search')) {
+    return false;
+  }
+  return _openWebUiAllowsWebSearch(ref);
+});
+
+/// The Open WebUI server's web search switch and the user's permission.
+bool _openWebUiAllowsWebSearch(Ref ref) {
   final backendConfig = ref
       .watch(backendConfigProvider)
       .maybeWhen(data: (config) => config, orElse: () => null);
   if (backendConfig?.enableWebSearch == false) {
-    return false;
-  }
-
-  if (!_modelSupportsFeature(selectedModel, 'web_search')) {
     return false;
   }
 
@@ -156,7 +172,7 @@ final webSearchAvailableProvider = Provider<bool>((ref) {
     // Permissions unavailable (loading, error, older server) — assume available.
     orElse: () => true,
   );
-});
+}
 
 /// Tracks whether the folders feature is enabled on the server.
 /// When the server returns 403 for folders endpoint, this becomes false.
