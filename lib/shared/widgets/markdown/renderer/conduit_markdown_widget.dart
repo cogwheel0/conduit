@@ -22,15 +22,6 @@ const int debugMaxLatexStartupRetryCount = 5;
 
 const int _maxLatexStartupRetryCount = debugMaxLatexStartupRetryCount;
 
-@visibleForTesting
-void debugResetParsedMarkdownCache() => debugResetCompiledMarkdownCache();
-
-@visibleForTesting
-int debugParsedMarkdownCacheSize() => debugCompiledMarkdownCacheSize();
-
-@visibleForTesting
-List<String> debugParsedMarkdownCacheKeys() => debugCompiledMarkdownCacheKeys();
-
 /// A widget that renders markdown content using the
 /// Conduit custom rendering pipeline.
 ///

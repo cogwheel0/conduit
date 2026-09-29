@@ -1293,33 +1293,11 @@ void main() {
     },
   );
 
-  test('message content growth preserves bottom anchor when already pinned', () {
-    final shouldKeepBottomAnchored =
-        debugShouldKeepConversationBottomAnchoredOnContentSizeChangeForTesting(
-          isAnchoredToBottom: true,
-          isUserInteractingWithScroll: false,
-          wantsPinToTop: false,
-        );
-
-    expect(shouldKeepBottomAnchored, isTrue);
-  });
-
   test('keyboard inset growth does not jump when user left the bottom', () {
     final shouldKeepBottomAnchored =
         debugShouldKeepConversationBottomAnchoredOnInsetChangeForTesting(
           previousBottomInset: 0,
           nextBottomInset: 320,
-          isAnchoredToBottom: false,
-          isUserInteractingWithScroll: false,
-          wantsPinToTop: false,
-        );
-
-    expect(shouldKeepBottomAnchored, isFalse);
-  });
-
-  test('message content growth does not jump when user left the bottom', () {
-    final shouldKeepBottomAnchored =
-        debugShouldKeepConversationBottomAnchoredOnContentSizeChangeForTesting(
           isAnchoredToBottom: false,
           isUserInteractingWithScroll: false,
           wantsPinToTop: false,
@@ -1640,23 +1618,26 @@ void main() {
     },
   );
 
-  test('message content growth ignores pin-to-top mode and manual scrolling', () {
-    final whilePinnedToTop =
-        debugShouldKeepConversationBottomAnchoredOnContentSizeChangeForTesting(
-          isAnchoredToBottom: true,
-          isUserInteractingWithScroll: false,
-          wantsPinToTop: true,
-        );
-    final whileUserScrolling =
-        debugShouldKeepConversationBottomAnchoredOnContentSizeChangeForTesting(
-          isAnchoredToBottom: true,
-          isUserInteractingWithScroll: true,
-          wantsPinToTop: false,
-        );
+  test(
+    'message content growth ignores pin-to-top mode and manual scrolling',
+    () {
+      final whilePinnedToTop =
+          shouldKeepConversationBottomAnchoredOnContentSizeChange(
+            isAnchoredToBottom: true,
+            isUserInteractingWithScroll: false,
+            wantsPinToTop: true,
+          );
+      final whileUserScrolling =
+          shouldKeepConversationBottomAnchoredOnContentSizeChange(
+            isAnchoredToBottom: true,
+            isUserInteractingWithScroll: true,
+            wantsPinToTop: false,
+          );
 
-    expect(whilePinnedToTop, isFalse);
-    expect(whileUserScrolling, isFalse);
-  });
+      expect(whilePinnedToTop, isFalse);
+      expect(whileUserScrolling, isFalse);
+    },
+  );
 
   test(
     'refresh ignores native Hermes and direct-local id collisions',

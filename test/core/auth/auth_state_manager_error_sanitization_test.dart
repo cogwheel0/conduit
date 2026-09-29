@@ -9,6 +9,7 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:dio/dio.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -139,9 +140,8 @@ void main() {
     },
   );
 
-  test(
-    'background stored-token validation never logs reflected secrets',
-    () async {
+  test('background stored-token validation never logs reflected secrets', () {
+    fakeAsync((async) {
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict())
           .thenAnswer((_) async => _tokenSecret);
@@ -165,18 +165,10 @@ void main() {
       };
 
       try {
-        await container.read(authStateManagerProvider.future);
-        // The background validation retry ladder sleeps roughly 6.7s in total
-        // (0/200ms/500ms/1s/2s/3s) before resolving a transient failure, so
-        // the deadline here must comfortably exceed it.
-        for (var attempt = 0; attempt < 2000; attempt++) {
-          if (captured.toString().contains(
-            'background-auth-validation-deferred',
-          )) {
-            break;
-          }
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        }
+        container.read(authStateManagerProvider.future);
+        // The background validation retry ladder sleeps 6.7s in total
+        // (0/200ms/500ms/1s/2s/3s) before resolving a transient failure.
+        async.elapse(const Duration(seconds: 7));
       } finally {
         debugPrint = previousDebugPrint;
       }
@@ -195,8 +187,8 @@ void main() {
       ]) {
         check(visible).not((value) => value.contains(secret));
       }
-    },
-  );
+    });
+  });
 
   test(
     'LDAP-disabled 400 publishes only the recognized safe message',

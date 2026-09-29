@@ -18,12 +18,11 @@ void main() {
     );
 
     expect(leases, hasLength(1));
-    expect(leases.single.toPlatformMap(), {
-      'id': 'voice-call',
-      'kind': 'voice',
-      'requiresMicrophone': true,
-      'startedAt': 123456,
-    });
+    final lease = leases.single.toPlatform();
+    expect(lease.id, 'voice-call');
+    expect(lease.kind, PlatformBackgroundStreamKind.voice);
+    expect(lease.requiresMicrophone, isTrue);
+    expect(lease.startedAtMillis, 123456);
   });
 
   test('filters socket keepalive before native lease creation', () {

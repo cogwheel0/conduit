@@ -632,35 +632,6 @@ class ConduitNativeToolbarAction {
   final bool enabled;
 }
 
-/// Serializes native toolbar actions without leaking their Dart callbacks.
-List<Map<String, Object?>> encodeConduitNativeToolbarActions(
-  List<ConduitNativeToolbarAction> actions,
-) => [
-  for (final action in actions)
-    <String, Object?>{
-      'iosSymbol': action.iosSymbol,
-      'accessibilityLabel': action.accessibilityLabel,
-      'enabled': action.enabled,
-      if (action.tintColor != null) 'tintColor': action.tintColor!.toARGB32(),
-      if (action.menuItems.isNotEmpty)
-        'menuItems': <Map<String, Object?>>[
-          for (final item in action.menuItems)
-            <String, Object?>{
-              'label': item.label,
-              if (item.iosSymbol != null) 'iosSymbol': item.iosSymbol,
-              'isDestructive': item.isDestructive,
-              'isChecked': item.isChecked,
-              'enabled': item.enabled,
-            },
-        ],
-    },
-];
-
-/// Builds the native creation payload with navigation-bar optical sizing.
-Map<String, Object?> encodeConduitNativeToolbarActionGroupParams(
-  List<ConduitNativeToolbarAction> actions,
-) => <String, Object?>{'actions': encodeConduitNativeToolbarActions(actions)};
-
 /// A cupertino_native_better toolbar surface for adjacent shared actions.
 class ConduitNativeToolbarActionGroup extends StatelessWidget {
   const ConduitNativeToolbarActionGroup({super.key, required this.actions})
@@ -963,23 +934,6 @@ ValueKey<Object> conduitNativeModelSelectorViewKey(
   Color foregroundColor, {
   double titleFontSize = 17,
 }) => ValueKey<Object>((foregroundColor.toARGB32(), titleFontSize));
-
-/// Builds the native model-selector payload without truncating accessibility
-/// content that does not participate in UIKit layout measurement.
-Map<String, Object?> encodeConduitNativeModelSelectorParams({
-  required String label,
-  required String? symbolName,
-  required Color foregroundColor,
-  required double titleFontSize,
-  required bool enabled,
-}) => <String, Object?>{
-  'label': label,
-  'symbolName': symbolName,
-  'symbolPadding': _kConduitNativeModelChevronPadding,
-  'foregroundColor': foregroundColor.toARGB32(),
-  'titleFontSize': titleFontSize,
-  'enabled': enabled,
-};
 
 class _ConduitNativeModelSelectorButton extends StatelessWidget {
   const _ConduitNativeModelSelectorButton({

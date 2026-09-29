@@ -162,6 +162,10 @@ void main() {
       final service = container.read(serviceProvider);
       addTearDown(service.dispose);
       await _waitForRequestCount(adapter, 1);
+      // Checks started while the startup probe is in flight join it instead
+      // of probing again, so join it here first.
+      await service.debugCheckServerHealth();
+      final probesBefore = adapter.requestCount;
 
       ConnectivityService.noteSuccessfulTraffic(
         Uri.parse('https://server.example/api/v1/chats'),
@@ -173,7 +177,7 @@ void main() {
 
       // The non-forced overlap skips due to recent traffic; checkNow must still
       // perform exactly one subsequent network probe.
-      check(adapter.requestCount).equals(2);
+      check(adapter.requestCount).equals(probesBefore + 1);
     },
   );
 
@@ -385,6 +389,10 @@ void main() {
       final service = container.read(serviceProvider);
       addTearDown(service.dispose);
       await _waitForRequestCount(adapter, 1);
+      // A startup probe still in flight would reschedule polling when it
+      // finishes and replace the timer under test, so join it first.
+      await service.debugCheckServerHealth();
+      final probesBefore = adapter.requestCount;
 
       // Recent successful traffic makes an ordinary health timer skip its HTTP
       // probe. Resume installs that ordinary timer first; the subsequent
@@ -398,7 +406,7 @@ void main() {
         Uri.parse('https://server.example'),
       );
 
-      await _waitForRequestCount(adapter, 2);
+      await _waitForRequestCount(adapter, probesBefore + 1);
       service.dispose();
     },
   );

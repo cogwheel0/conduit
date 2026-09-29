@@ -23,7 +23,9 @@ void main() {
       expect(container.constraints?.maxHeight, 20);
     });
 
-    testWidgets('animation is running after pump', (tester) async {
+    testWidgets('animated placeholder pumps frames without errors', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         const MaterialApp(
           home: Scaffold(body: SkeletonLoader(width: 100, height: 16)),
@@ -69,28 +71,6 @@ void main() {
       expect(decoration.gradient, isNull);
 
       await tester.pump(const Duration(seconds: 1));
-      expect(tester.takeException(), isNull);
-    });
-  });
-
-  group('SkeletonChatMessage', () {
-    testWidgets('renders without errors', (tester) async {
-      await tester.pumpWidget(
-        const MaterialApp(home: Scaffold(body: SkeletonChatMessage())),
-      );
-
-      expect(find.byType(SkeletonChatMessage), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    });
-  });
-
-  group('SkeletonListItem', () {
-    testWidgets('renders without errors', (tester) async {
-      await tester.pumpWidget(
-        const MaterialApp(home: Scaffold(body: SkeletonListItem())),
-      );
-
-      expect(find.byType(SkeletonListItem), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });

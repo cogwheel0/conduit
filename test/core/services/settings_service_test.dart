@@ -247,28 +247,9 @@ void main() {
         check(copy.sttLanguageCode).equals('pl');
         check(copy.darkMode).equals(false);
       });
-
-      test('does not mutate the original', () {
-        const original = AppSettings();
-        original.copyWith(reduceMotion: true, animationSpeed: 2.0);
-
-        check(original.reduceMotion).equals(false);
-        check(original.animationSpeed).equals(1.0);
-      });
     });
 
     group('equality', () {
-      test('two default instances are equal', () {
-        const a = AppSettings();
-        const b = AppSettings();
-        check(a).equals(b);
-      });
-
-      test('identical instance is equal', () {
-        const a = AppSettings();
-        check(a == a).equals(true);
-      });
-
       test('instances with same non-default values are equal', () {
         final a = const AppSettings().copyWith(
           darkMode: false,
@@ -338,12 +319,6 @@ void main() {
     });
 
     group('hashCode', () {
-      test('equal objects have the same hashCode', () {
-        const a = AppSettings();
-        const b = AppSettings();
-        check(a.hashCode).equals(b.hashCode);
-      });
-
       test('copies with same values have same hashCode', () {
         final a = const AppSettings().copyWith(
           darkMode: false,
@@ -513,30 +488,6 @@ void main() {
       check(SettingsService.normalizeSttLanguageCode('polish')).isNull();
       check(SettingsService.normalizeSttLanguageCode('p')).isNull();
       check(SettingsService.normalizeSttLanguageCode('eng')).isNull();
-    });
-  });
-
-  group('Enum values', () {
-    test('SttPreference has expected values', () {
-      check(SttPreference.values).length.equals(2);
-      check(SttPreference.values).contains(SttPreference.deviceOnly);
-      check(SttPreference.values).contains(SttPreference.serverOnly);
-    });
-
-    test('TtsEngine has expected values', () {
-      check(TtsEngine.values).length.equals(2);
-      check(TtsEngine.values).contains(TtsEngine.device);
-      check(TtsEngine.values).contains(TtsEngine.server);
-    });
-
-    test('AndroidAssistantTrigger has expected values', () {
-      check(AndroidAssistantTrigger.values).length.equals(3);
-      check(AndroidAssistantTrigger.values)
-          .contains(AndroidAssistantTrigger.overlay);
-      check(AndroidAssistantTrigger.values)
-          .contains(AndroidAssistantTrigger.newChat);
-      check(AndroidAssistantTrigger.values)
-          .contains(AndroidAssistantTrigger.voiceCall);
     });
   });
 

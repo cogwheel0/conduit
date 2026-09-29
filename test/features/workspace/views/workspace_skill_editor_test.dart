@@ -8,7 +8,6 @@ import 'package:conduit_core/features/workspace/models/workspace_resources.dart'
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/skills/workspace_skill_editor.dart';
-import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -259,14 +258,13 @@ void main() {
     expect(id.controller!.text, 'my_skill');
   });
 
-  testWidgets('json import records per-item failures without aborting', (
+  testWidgets('create overflow offers JSON and Markdown import', (
     tester,
   ) async {
     final skills = _FakeSkills();
     await tester.pumpWidget(_harness(skills, mode: WorkspaceRouteMode.create));
     await tester.pumpAndSettle();
 
-    // The create-mode overflow exposes both import affordances.
     await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
     await tester.pumpAndSettle();
     expect(
@@ -277,26 +275,6 @@ void main() {
       find.byKey(const Key('workspace-skill-action-import-markdown')),
       findsOneWidget,
     );
-    await tester.tapAt(const Offset(10, 10)); // dismiss the menu
-    await tester.pumpAndSettle();
-
-    skills.importShouldFail = true;
-    final report = await runWorkspaceImport(
-      [
-        {'id': 'a', 'name': 'A', 'content': 'x'},
-        {'id': 'b', 'name': 'B', 'content': 'y'},
-      ],
-      importItem: (item) => skills.importSkill(
-        WorkspaceSkillForm(
-          id: item['id'] as String,
-          name: item['name'] as String,
-          content: item['content'] as String,
-        ),
-      ),
-    );
-    expect(report.total, 2);
-    expect(report.hasFailures, isTrue);
-    expect(report.failureCount, 2);
   });
 
   testWidgets('read-only skill hides save and mutation actions', (
@@ -468,7 +446,6 @@ class _FakeSkills extends WorkspaceSkills {
   final toggled = <String>[];
   final deleted = <String>[];
   final importedForms = <WorkspaceSkillForm>[];
-  bool importShouldFail = false;
 
   @override
   Future<WorkspaceCollectionState<WorkspaceSkillSummary>> build() async {
@@ -512,7 +489,6 @@ class _FakeSkills extends WorkspaceSkills {
   @override
   Future<void> importSkill(WorkspaceSkillForm form) async {
     importedForms.add(form);
-    if (importShouldFail) throw StateError('rejected');
   }
 
   @override

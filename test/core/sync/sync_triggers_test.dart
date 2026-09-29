@@ -188,22 +188,6 @@ void main() {
       check(countOf('auth')).equals(2);
     });
 
-    test(
-      'start fires immediately when everything is ready at install',
-      () async {
-        final container = makeContainer();
-        container.read(_authProvider.notifier).set(true);
-        container.read(_dbProvider.notifier).set(db);
-        container.read(_clientProvider.notifier).set(client);
-
-        container.read(syncTriggersProvider);
-        check(countOf('start')).equals(1);
-        await flushMicrotasks();
-
-        check(countOf('start')).equals(1);
-      },
-    );
-
     test('start pull is submitted before immediate disposal can skip it', () {
       final container = makeContainer(autoDispose: false);
       container.read(_authProvider.notifier).set(true);

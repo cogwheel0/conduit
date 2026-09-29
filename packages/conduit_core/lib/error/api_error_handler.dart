@@ -335,27 +335,7 @@ class ApiErrorHandler {
   }
 
   /// Check if error is retryable
-  bool isRetryable(ApiError error) {
-    switch (error.type) {
-      case ApiErrorType.timeout:
-      case ApiErrorType.network:
-      case ApiErrorType.server:
-        return true;
-      case ApiErrorType.rateLimit:
-        return true; // Can retry after waiting
-      case ApiErrorType.authentication:
-        return false; // Need new token
-      case ApiErrorType.authorization:
-      case ApiErrorType.notFound:
-      case ApiErrorType.validation:
-      case ApiErrorType.badRequest:
-        return false; // Client errors aren't retryable
-      case ApiErrorType.cancelled:
-      case ApiErrorType.security:
-      case ApiErrorType.unknown:
-        return false;
-    }
-  }
+  bool isRetryable(ApiError error) => error.isRetryable;
 
   /// Get suggested retry delay for retryable errors
   Duration? getRetryDelay(ApiError error) {

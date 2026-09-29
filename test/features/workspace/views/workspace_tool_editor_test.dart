@@ -11,7 +11,6 @@ import 'package:conduit_core/features/workspace/models/workspace_resources.dart'
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/tools/workspace_tool_editor.dart';
-import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -267,29 +266,6 @@ void main() {
     );
   });
 
-  testWidgets('json import records per-item failures without aborting', (
-    tester,
-  ) async {
-    final tools = _FakeTools();
-    tools.importShouldFail = true;
-    final report = await runWorkspaceImport(
-      [
-        {'id': 'a', 'name': 'A', 'content': 'x'},
-        {'id': 'b', 'name': 'B', 'content': 'y'},
-      ],
-      importItem: (item) => tools.importTool(
-        WorkspaceToolForm(
-          id: item['id'] as String,
-          name: item['name'] as String,
-          content: item['content'] as String,
-        ),
-      ),
-    );
-    expect(report.total, 2);
-    expect(report.hasFailures, isTrue);
-    expect(report.failureCount, 2);
-  });
-
   testWidgets('read-only tool hides save and mutation actions', (tester) async {
     final tools = _FakeTools();
     await tester.pumpWidget(
@@ -396,7 +372,6 @@ class _FakeTools extends WorkspaceTools {
   final created = <WorkspaceToolForm>[];
   final updated = <(String, WorkspaceToolForm)>[];
   final deleted = <String>[];
-  bool importShouldFail = false;
 
   @override
   Future<WorkspaceCollectionState<WorkspaceToolSummary>> build() async {
@@ -432,9 +407,7 @@ class _FakeTools extends WorkspaceTools {
   }
 
   @override
-  Future<void> importTool(WorkspaceToolForm form) async {
-    if (importShouldFail) throw StateError('rejected');
-  }
+  Future<void> importTool(WorkspaceToolForm form) async {}
 
   @override
   Future<void> refresh() async {}

@@ -1,13 +1,9 @@
 import 'dart:convert';
 
-import 'package:crypto/crypto.dart';
-
 import 'package:conduit_core/utils/debug_logger.dart';
 
 /// JWT token validation utilities
 class TokenValidator {
-  static const Duration _validationTimeout = Duration(seconds: 5);
-
   /// Check if token is an API key format (sk-, api-, key-)
   /// API keys are not supported for streaming.
   static bool isApiKey(String token) {
@@ -81,45 +77,6 @@ class TokenValidator {
     }
   }
 
-  /// Validate token with server (async with timeout)
-  static Future<TokenValidationResult> validateTokenWithServer(
-    String token,
-    Future<dynamic> Function() serverValidationCall,
-  ) async {
-    try {
-      // First check format
-      final formatResult = validateTokenFormat(token);
-      if (!formatResult.isValid) {
-        return formatResult;
-      }
-
-      // If format is good, try server validation with timeout
-      final validationFuture = serverValidationCall();
-
-      final result = await validationFuture.timeout(
-        _validationTimeout,
-        onTimeout: () => throw Exception('Token validation timeout'),
-      );
-
-      return TokenValidationResult.valid(
-        'Server validation successful',
-        serverData: result,
-      );
-    } catch (e) {
-      if (e.toString().contains('timeout')) {
-        return TokenValidationResult.networkError(
-          'Validation timeout - using cached result',
-        );
-      } else if (e.toString().contains('401') || e.toString().contains('403')) {
-        return TokenValidationResult.invalid('Server rejected token');
-      } else {
-        return TokenValidationResult.networkError(
-          'Network error during validation',
-        );
-      }
-    }
-  }
-
   /// Decode JWT payload (without signature verification)
   static Map<String, dynamic> _decodeJWTPayload(String base64Payload) {
     // Add padding if needed
@@ -134,46 +91,6 @@ class TokenValidator {
 
     return jsonDecode(jsonString) as Map<String, dynamic>;
   }
-
-  /// Extract user information from JWT token (if available)
-  static Map<String, dynamic>? extractUserInfo(String token) {
-    try {
-      final parts = token.split('.');
-      if (parts.length < 3) return null;
-
-      final payload = _decodeJWTPayload(parts[1]);
-
-      // Extract common user fields
-      return {
-        'sub': payload['sub'], // Subject (user ID)
-        'username':
-            payload['username'] ??
-            payload['name'] ??
-            payload['preferred_username'],
-        'email': payload['email'],
-        'roles': payload['roles'] ?? payload['groups'],
-        'exp': payload['exp'],
-        'iat': payload['iat'], // Issued at
-      };
-    } catch (e) {
-      DebugLogger.warning(
-        'token-user-info-failed',
-        scope: 'auth/token-validator',
-        data: {'errorType': e.runtimeType.toString()},
-      );
-      return null;
-    }
-  }
-
-  /// Generate a cache key for token validation results
-  static String generateCacheKey(String token) {
-    final bytes = utf8.encode(token);
-    final digest = sha256.convert(bytes);
-    return digest.toString().substring(
-      0,
-      16,
-    ); // Use first 16 chars as cache key
-  }
 }
 
 /// Result of token validation
@@ -183,20 +100,15 @@ class TokenValidationResult {
     this.status,
     this.message, {
     this.expiryData,
-    this.serverData,
   });
 
-  const TokenValidationResult.valid(
-    String message, {
-    DateTime? expiryData,
-    dynamic serverData,
-  }) : this._(
-         true,
-         TokenValidationStatus.valid,
-         message,
-         expiryData: expiryData,
-         serverData: serverData,
-       );
+  const TokenValidationResult.valid(String message, {DateTime? expiryData})
+    : this._(
+        true,
+        TokenValidationStatus.valid,
+        message,
+        expiryData: expiryData,
+      );
 
   const TokenValidationResult.invalid(String message)
     : this._(false, TokenValidationStatus.invalid, message);
@@ -212,9 +124,6 @@ class TokenValidationResult {
         expiryData: expiryTime,
       );
 
-  const TokenValidationResult.networkError(String message)
-    : this._(false, TokenValidationStatus.networkError, message);
-
   const TokenValidationResult.apiKeyNotSupported(String message)
     : this._(false, TokenValidationStatus.apiKeyNotSupported, message);
 
@@ -222,11 +131,9 @@ class TokenValidationResult {
   final TokenValidationStatus status;
   final String message;
   final DateTime? expiryData;
-  final dynamic serverData;
 
   bool get isExpired => status == TokenValidationStatus.expired;
   bool get isExpiringSoon => status == TokenValidationStatus.expiringSoon;
-  bool get hasNetworkError => status == TokenValidationStatus.networkError;
   bool get isApiKeyNotSupported =>
       status == TokenValidationStatus.apiKeyNotSupported;
 
@@ -240,50 +147,5 @@ enum TokenValidationStatus {
   invalid,
   expired,
   expiringSoon,
-  networkError,
   apiKeyNotSupported,
-}
-
-/// Cache for token validation results
-class TokenValidationCache {
-  static final Map<String, _CacheEntry> _cache = {};
-  static const Duration _cacheTimeout = Duration(minutes: 5);
-
-  static void cacheResult(String token, TokenValidationResult result) {
-    final key = TokenValidator.generateCacheKey(token);
-    _cache[key] = _CacheEntry(result, DateTime.now());
-
-    // Clean old entries
-    _cleanCache();
-  }
-
-  static TokenValidationResult? getCachedResult(String token) {
-    final key = TokenValidator.generateCacheKey(token);
-    final entry = _cache[key];
-
-    if (entry != null &&
-        DateTime.now().difference(entry.timestamp) < _cacheTimeout) {
-      return entry.result;
-    }
-
-    return null;
-  }
-
-  static void clearCache() {
-    _cache.clear();
-  }
-
-  static void _cleanCache() {
-    final now = DateTime.now();
-    _cache.removeWhere(
-      (key, entry) => now.difference(entry.timestamp) > _cacheTimeout,
-    );
-  }
-}
-
-class _CacheEntry {
-  const _CacheEntry(this.result, this.timestamp);
-
-  final TokenValidationResult result;
-  final DateTime timestamp;
 }

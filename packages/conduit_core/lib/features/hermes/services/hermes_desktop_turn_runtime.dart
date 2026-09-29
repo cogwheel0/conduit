@@ -946,19 +946,6 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     );
   }
 
-  Future<void> _runtimeResolveApprovalForSession(
-    String storedSessionId, {
-    required String approvalId,
-    required bool approved,
-  }) async {
-    final binding = await _resume(storedSessionId);
-    await resolveApproval(
-      binding.runtimeId,
-      approvalId: approvalId,
-      approved: approved,
-    );
-  }
-
   Future<void> _runtimeResolveApprovalChoiceForSession(
     String storedSessionId, {
     required String approvalId,

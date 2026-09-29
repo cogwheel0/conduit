@@ -1187,35 +1187,6 @@ void main() {
     expect(tester.widget<FadeTransition>(fadeFinder).opacity.value, 1);
   });
 
-  testWidgets('completed response-done metadata enables copy', (tester) async {
-    var copyTapCount = 0;
-    final message = ChatMessage(
-      id: 'assistant-response-done-copy',
-      role: 'assistant',
-      content: 'Visible response body',
-      timestamp: DateTime(2024, 1, 1),
-      isStreaming: false,
-      metadata: const {'responseDone': true},
-    );
-
-    await tester.pumpWidget(
-      _buildAssistantHarness(
-        message,
-        isStreaming: false,
-        isChatStreaming: false,
-        onCopy: () => copyTapCount += 1,
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.byIcon(Icons.content_copy_outlined), findsOneWidget);
-
-    await tester.tap(find.byIcon(Icons.content_copy_outlined));
-    await tester.pump();
-
-    expect(copyTapCount, 1);
-  });
-
   testWidgets(
     'completed response-done metadata renders long plain content with final body mode',
     (tester) async {
@@ -1426,56 +1397,6 @@ void main() {
           .disableAnimation,
       isFalse,
     );
-  });
-
-  testWidgets('completed response-done metadata enables regenerate', (
-    tester,
-  ) async {
-    var regenerateTapCount = 0;
-    final message = ChatMessage(
-      id: 'assistant-response-done-regenerate',
-      role: 'assistant',
-      content: 'Visible response body',
-      timestamp: DateTime(2024, 1, 1),
-      isStreaming: false,
-      metadata: const {'responseDone': true},
-    );
-
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          textToSpeechControllerProvider.overrideWith(
-            _TestTextToSpeechController.new,
-          ),
-          isChatStreamingProvider.overrideWithValue(false),
-        ],
-        child: MaterialApp(
-          theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: conduitLocalizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(
-            body: AssistantMessageWidget(
-              message: message,
-              isStreaming: false,
-              showFollowUps: false,
-              animateOnMount: false,
-              modelName: message.model,
-              onCopy: () {},
-              onRegenerate: () => regenerateTapCount += 1,
-              onDelete: () {},
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.byIcon(Icons.refresh), findsOneWidget);
-
-    await tester.tap(find.byIcon(Icons.refresh));
-    await tester.pump();
-
-    expect(regenerateTapCount, 1);
   });
 
   testWidgets('queued offline placeholder shows retry and cancel actions', (

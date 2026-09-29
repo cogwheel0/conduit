@@ -32,7 +32,10 @@ class SecureCredentialStorage {
   static const String _directMcpServersKey = 'direct_mcp_servers_v1';
   static const String _openWebUiDirectIdentityKey =
       'openwebui_direct_identity_key_v1';
-  static Future<void> _openWebUiDirectIdentityKeyQueue = Future<void>.value();
+  // Released once drained: a retained completed tail would keep its creating
+  // zone alive, and strands later callers if that zone stops running (as a
+  // finished fake-async widget test does).
+  static Future<void>? _openWebUiDirectIdentityKeyQueue;
   static bool _openWebUiDirectIdentityWritesBlocked = false;
 
   /// Save user credentials securely.
@@ -549,15 +552,21 @@ class SecureCredentialStorage {
         ),
       );
     }
-    final result = _openWebUiDirectIdentityKeyQueue.then<List<int>>(
+    final previous = _openWebUiDirectIdentityKeyQueue ?? Future<void>.value();
+    final result = previous.then<List<int>>(
       (_) => _loadOrCreateOpenWebUiDirectIdentityKeyIfAllowed(),
       onError: (Object _, StackTrace _) =>
           _loadOrCreateOpenWebUiDirectIdentityKeyIfAllowed(),
     );
-    _openWebUiDirectIdentityKeyQueue = result.then<void>(
-      (_) {},
-      onError: (Object _, StackTrace _) {},
-    );
+    late final Future<void> tail;
+    tail = result
+        .then<void>((_) {}, onError: (Object _, StackTrace _) {})
+        .whenComplete(() {
+          if (identical(_openWebUiDirectIdentityKeyQueue, tail)) {
+            _openWebUiDirectIdentityKeyQueue = null;
+          }
+        });
+    _openWebUiDirectIdentityKeyQueue = tail;
     return result;
   }
 

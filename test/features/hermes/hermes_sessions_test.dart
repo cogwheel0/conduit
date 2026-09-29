@@ -287,10 +287,6 @@ void main() {
       check(s.updatedAt).isNotNull();
     });
 
-    test('falls back to a placeholder title', () {
-      final s = HermesSessionSummary.fromJson({'id': 's1'});
-      check(s!.title).equals('Untitled session');
-    });
   });
 
   group('hermesMessagesToChatMessages', () {

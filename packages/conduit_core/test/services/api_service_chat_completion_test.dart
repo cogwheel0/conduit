@@ -444,39 +444,7 @@ void main() {
     );
 
     // 7. taskSocket session retains abort handle for mixed-initiation stop
-    test('taskSocket session retains abort handle', () async {
-      final adapter = _FakeAdapter.json({'task_id': 'task-abort'});
-      final api = _buildApiServiceForTest(adapter);
-
-      final session = await api.sendMessageSession(
-        messages: _minimalMessages,
-        model: _model,
-      );
-
-      check(session.transport).equals(ChatCompletionTransport.taskSocket);
-      check(session.abort).isNotNull();
-    });
-
     // 8. httpStream session preserves abort handle
-    test('httpStream session preserves abort handle', () async {
-      final sseBody = 'data: {"choices":[{"delta":{"content":"x"}}]}\n\n';
-      final adapter = _FakeAdapter.raw(
-        bytes: utf8.encode(sseBody),
-        headers: {
-          'content-type': ['text/event-stream'],
-        },
-      );
-      final api = _buildApiServiceForTest(adapter);
-
-      final session = await api.sendMessageSession(
-        messages: _minimalMessages,
-        model: _model,
-      );
-
-      check(session.transport).equals(ChatCompletionTransport.httpStream);
-      check(session.abort).isNotNull();
-    });
-
     // 9. Structured non-2xx JSON error surfaced before transport binding
     test('non-2xx JSON error surfaced before transport binding', () async {
       final adapter = _FakeAdapter.json({

@@ -57,6 +57,12 @@ void main() {
       check(error.isRetryable).isTrue();
     });
 
+    test('authorization is not retryable', () {
+      const error = ApiError.authorization(message: 'Forbidden');
+      check(error.type).equals(ApiErrorType.authorization);
+      check(error.isRetryable).isFalse();
+    });
+
     test('notFound has statusCode 404 and is not retryable', () {
       const error = ApiError.notFound(message: 'Not found');
       check(error.type).equals(ApiErrorType.notFound);
@@ -118,7 +124,8 @@ void main() {
   group('Equality', () {
     test('same fields are equal', () {
       const a = ApiError.network(message: 'fail', endpoint: '/api');
-      const b = ApiError.network(message: 'fail', endpoint: '/api');
+      // Not const, or it would be the same object as `a`.
+      final b = ApiError.network(message: 'fail', endpoint: '/api');
       check(a).equals(b);
       check(a.hashCode).equals(b.hashCode);
     });

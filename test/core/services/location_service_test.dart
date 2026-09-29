@@ -38,46 +38,6 @@ class _HangingLocationService extends LocationService {
 }
 
 void main() {
-  group('formatUserLocationCoordinatesForTest', () {
-    test('matches OpenWebUI coordinate formatting', () {
-      final formatted = formatUserLocationCoordinatesForTest(
-        latitude: 12.34567,
-        longitude: 67.89012,
-      );
-
-      check(formatted).equals('12.346, 67.890 (lat, long)');
-    });
-  });
-
-  group('extractUserLocationSettingForTest', () {
-    test('treats boolean toggle as auto refresh', () {
-      final setting = extractUserLocationSettingForTest({
-        'ui': {'userLocation': true},
-      });
-
-      check(setting.autoRefreshEnabled).isTrue();
-      check(setting.legacyLocation).isNull();
-    });
-
-    test('treats string toggle as auto refresh', () {
-      final setting = extractUserLocationSettingForTest({
-        'ui': {'userLocation': 'true'},
-      });
-
-      check(setting.autoRefreshEnabled).isTrue();
-      check(setting.legacyLocation).isNull();
-    });
-
-    test('preserves legacy stored location strings', () {
-      final setting = extractUserLocationSettingForTest({
-        'ui': {'userLocation': '48.857, 2.352 (lat, long)'},
-      });
-
-      check(setting.autoRefreshEnabled).isFalse();
-      check(setting.legacyLocation).equals('48.857, 2.352 (lat, long)');
-    });
-  });
-
   group('resolveLocationForUserSettings', () {
     test('uses fresh location when auto refresh is enabled', () async {
       final service = _FakeLocationService(

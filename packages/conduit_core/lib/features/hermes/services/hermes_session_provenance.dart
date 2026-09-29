@@ -56,7 +56,9 @@ final class HermesMixedSessionBindingTrustStore {
   static const int maxRecordsPerConversation = 32;
   static final Set<String> _runtimeRecords = <String>{};
   static final Set<String> _blockedScopes = <String>{};
-  static Future<void> _durableMutationQueue = Future<void>.value();
+  // Released once drained so a completed chain does not keep its creating
+  // zone alive (see SecureCredentialStorage).
+  static Future<void>? _durableMutationQueue;
   static final Expando<int> _runtimeObjectIds = Expando<int>(
     'hermes-mixed-session-owner',
   );
@@ -300,11 +302,18 @@ final class HermesMixedSessionBindingTrustStore {
   static Future<void> _serializeDurableMutation(
     Future<void> Function() mutation,
   ) {
-    final operation = _durableMutationQueue.then((_) => mutation());
-    _durableMutationQueue = operation.then<void>(
-      (_) {},
-      onError: (Object _, StackTrace _) {},
+    final operation = (_durableMutationQueue ?? Future<void>.value()).then(
+      (_) => mutation(),
     );
+    late final Future<void> tail;
+    tail = operation
+        .then<void>((_) {}, onError: (Object _, StackTrace _) {})
+        .whenComplete(() {
+          if (identical(_durableMutationQueue, tail)) {
+            _durableMutationQueue = null;
+          }
+        });
+    _durableMutationQueue = tail;
     return operation;
   }
 

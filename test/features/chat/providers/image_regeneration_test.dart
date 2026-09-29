@@ -103,10 +103,11 @@ ProviderContainer _regenContainer({
     container.read(chatMessagesProvider.notifier).setMessages(initialMessages);
   }
 
-  // Set initial image gen toggle state
-  if (initialImageGenEnabled) {
-    container.read(imageGenerationEnabledProvider.notifier).set(true);
-  }
+  // Set initial image gen toggle state; the preference is app-wide, so an
+  // earlier test's value must not become this one's default.
+  container
+      .read(imageGenerationEnabledProvider.notifier)
+      .set(initialImageGenEnabled);
 
   return container;
 }

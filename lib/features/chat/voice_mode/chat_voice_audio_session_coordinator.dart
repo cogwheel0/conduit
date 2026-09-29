@@ -49,7 +49,9 @@ class ChatVoiceAudioSessionCoordinator {
   // audio_session's Darwin setCategory uses a concurrent native queue. Share
   // this queue across coordinators so an old idle restore cannot finish after
   // the replacement call's configuration, even when teardown already began.
-  static Future<void> _sessionConfigurationSerial = Future<void>.value();
+  // Released once drained so a completed chain does not keep its creating zone
+  // alive (see WebViewCookieHelper).
+  static Future<void>? _sessionConfigurationSerial;
 
   /// The coordinator whose call the Android route belongs to. A replacement
   /// call can configure while the previous one is still putting the route
@@ -1404,7 +1406,8 @@ class ChatVoiceAudioSessionCoordinator {
     AudioSessionConfiguration configuration,
     String phase,
   ) async {
-    final operation = _sessionConfigurationSerial.then((_) async {
+    final previous = _sessionConfigurationSerial ?? Future<void>.value();
+    final operation = previous.then((_) async {
       try {
         await session.configure(configuration);
       } catch (error, stackTrace) {
@@ -1422,10 +1425,15 @@ class ChatVoiceAudioSessionCoordinator {
       }
     });
     // Report failure to this caller without poisoning the next call's setup.
-    _sessionConfigurationSerial = operation.then<void>(
-      (_) {},
-      onError: (Object _, StackTrace _) {},
-    );
+    late final Future<void> tail;
+    tail = operation
+        .then<void>((_) {}, onError: (Object _, StackTrace _) {})
+        .whenComplete(() {
+          if (identical(_sessionConfigurationSerial, tail)) {
+            _sessionConfigurationSerial = null;
+          }
+        });
+    _sessionConfigurationSerial = tail;
     await operation;
   }
 

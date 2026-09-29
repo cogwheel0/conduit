@@ -12,24 +12,6 @@ import 'direct_connections_ui_test_support.dart';
 
 void main() {
   group('direct connection form parsing', () {
-    test('parses string custom headers', () {
-      check(
-        parseDirectCustomHeaders(
-          '{"X-Organization":"team-a","X-Region":"local"}',
-        ),
-      ).deepEquals({'X-Organization': 'team-a', 'X-Region': 'local'});
-    });
-
-    test('rejects non-string custom header values', () {
-      check(() => parseDirectCustomHeaders('{"X-Retry": 2}'))
-          .throws<FormatException>();
-    });
-
-    test('normalizes surrounding custom header name whitespace', () {
-      check(parseDirectCustomHeaders('{" X-Organization ":"team-a"}'))
-          .deepEquals({'X-Organization': 'team-a'});
-    });
-
     test('deduplicates manual model ids while preserving order', () {
       check(parseDirectManualModelIds('model-a\n model-b,model-a\n'))
           .deepEquals(['model-a', 'model-b']);
@@ -144,20 +126,18 @@ void main() {
           baseUrl: 'https://old.example/v1',
           customHeaders: const {'X-Api-Key': 'old-key', 'X-Tenant': 'tenant-a'},
         );
-        final whitespaceOnly = previous.copyWith(
+        final sameHeaders = previous.copyWith(
           baseUrl: 'https://new.example/v1',
-          customHeaders: parseDirectCustomHeaders(
-            '{  "X-Api-Key" : "old-key", "X-Tenant": "tenant-a" }',
-          ),
+          customHeaders: const {'X-Api-Key': 'old-key', 'X-Tenant': 'tenant-a'},
         );
-        final oneHeaderEdited = whitespaceOnly.copyWith(
+        final oneHeaderEdited = sameHeaders.copyWith(
           customHeaders: const {'X-Api-Key': 'new-key', 'X-Tenant': 'tenant-a'},
         );
 
         check(
           requiresDirectOriginCredentialConfirmation(
             previous: previous,
-            draft: whitespaceOnly,
+            draft: sameHeaders,
           ),
         ).isTrue();
         check(

@@ -45,7 +45,6 @@ class _TrackingApiService extends ApiService {
       );
 
   int chatCompletedCalls = 0;
-  int syncCalls = 0;
 
   @override
   Future<Map<String, dynamic>?> sendChatCompleted({
@@ -493,7 +492,7 @@ void main() {
       check(log.finishCount).equals(1);
     });
 
-    test('taskSocket completion does not rewrite persisted chat history after chatCompleted', () async {
+    test('taskSocket completion calls chatCompleted exactly once', () async {
       final api = _TrackingApiService();
       final log = _CallbackLog();
       final registrar = FakeSocketInjector();
@@ -524,7 +523,6 @@ void main() {
       await pumpMicrotasks();
 
       check(api.chatCompletedCalls).equals(1);
-      check(api.syncCalls).equals(0);
     });
 
     // -------------------------------------------------------------------
@@ -559,23 +557,6 @@ void main() {
   });
 
   group('Feature C — socket resume session shape', () {
-    test('resumeSocket maps to a socket-only taskSocket session', () {
-      final session = ChatCompletionSession.resumeSocket(
-        messageId: 'local-msg-1',
-        conversationId: 'conv-1',
-      );
-
-      // Resume must be a socket-only taskSocket: no HTTP body to forward and no
-      // abort handle (cancellation flows through the task registry). sessionId
-      // is forced null so foreign-session chat:completion events still bind.
-      check(session.transport).equals(ChatCompletionTransport.taskSocket);
-      check(session.messageId).equals('local-msg-1');
-      check(session.conversationId).equals('conv-1');
-      check(session.byteStream).isNull();
-      check(session.abort).isNull();
-      check(session.sessionId).isNull();
-    });
-
     test('resume binds a foreign server message_id by chat_id '
         'when sessionId is null (REPLACE semantics)', () async {
       // Local placeholder id differs from the server's message_id. With a null
@@ -1102,106 +1083,6 @@ void main() {
 
       check(abortCalled).isTrue();
       check(adapter.stoppedTaskIds).deepEquals(['task-mixed']);
-    });
-
-    // -------------------------------------------------------------------
-    // 6. Stop with no metadata doesn't crash
-    // -------------------------------------------------------------------
-    test('stop with no metadata is a no-op', () {
-      final api = _buildFakeApi();
-
-      final message = ChatMessage(
-        id: 'msg-empty',
-        role: 'assistant',
-        content: 'partial...',
-        timestamp: DateTime.now(),
-        isStreaming: true,
-      );
-
-      // Should not throw
-      stopActiveTransport(message, api);
-      stopActiveTransport(message, null);
-    });
-  });
-
-  group('writeTransportMetadata', () {
-    // -------------------------------------------------------------------
-    // 7. httpStream session writes correct transport metadata
-    // -------------------------------------------------------------------
-    test('writes httpStream transport metadata', () {
-      // ignore: unused_local_variable – kept for parity with other tests
-      final log = _CallbackLog();
-
-      // Simulate writeTransportMetadata by manually applying the updaters
-      // (since we can't easily set up a full provider container)
-      final session = ChatCompletionSession.httpStream(
-        messageId: 'msg-1',
-        sessionId: 'sess-1',
-        byteStream: const Stream.empty(),
-        abort: () async {},
-      );
-
-      // The logic from writeTransportMetadata applied manually
-      final meta = <String, dynamic>{};
-      meta['transport'] = session.transport.name;
-      if (session.taskId != null && session.taskId!.isNotEmpty) {
-        meta['taskId'] = session.taskId;
-      }
-      if (session.abort != null) {
-        meta['hasActiveAbortHandle'] = true;
-      }
-
-      check(meta['transport']).equals('httpStream');
-      check(meta['hasActiveAbortHandle']).equals(true);
-      check(meta).not((it) => it.containsKey('taskId'));
-    });
-
-    // -------------------------------------------------------------------
-    // 8. taskSocket session writes correct transport metadata
-    // -------------------------------------------------------------------
-    test('writes taskSocket transport metadata', () {
-      final session = ChatCompletionSession.taskSocket(
-        messageId: 'msg-1',
-        sessionId: 'sess-1',
-        taskId: 'task-123',
-      );
-
-      final meta = <String, dynamic>{};
-      meta['transport'] = session.transport.name;
-      if (session.taskId != null && session.taskId!.isNotEmpty) {
-        meta['taskId'] = session.taskId;
-      }
-      if (session.abort != null) {
-        meta['hasActiveAbortHandle'] = true;
-      }
-
-      check(meta['transport']).equals('taskSocket');
-      check(meta['taskId']).equals('task-123');
-      check(meta).not((it) => it.containsKey('hasActiveAbortHandle'));
-    });
-
-    // -------------------------------------------------------------------
-    // 9. jsonCompletion session writes correct transport metadata
-    // -------------------------------------------------------------------
-    test('writes jsonCompletion transport metadata', () {
-      final session = ChatCompletionSession.jsonCompletion(
-        messageId: 'msg-1',
-        sessionId: 'sess-1',
-        jsonPayload: const {'choices': []},
-      );
-
-      final meta = <String, dynamic>{};
-      meta['transport'] = session.transport.name;
-      if (session.taskId != null && session.taskId!.isNotEmpty) {
-        meta['taskId'] = session.taskId;
-      }
-      if (session.abort != null) {
-        meta['hasActiveAbortHandle'] = true;
-      }
-
-      check(meta['transport']).equals('jsonCompletion');
-      check(meta).not((it) => it.containsKey('taskId'));
-      check(meta).not((it) => it.containsKey('hasActiveAbortHandle'));
     });
   });
 

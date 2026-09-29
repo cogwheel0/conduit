@@ -587,12 +587,6 @@ void main() {
     expect(find.text('Workspace could not be loaded.'), findsOneWidget);
   });
 
-  testWidgets('import failure is surfaced per item', (tester) async {
-    final fake = _FakeWorkspaceModels(importSucceeds: false);
-    final report = await fake.runImport();
-    expect(report, isFalse);
-  });
-
   testWidgets('clone aborts when the advanced params JSON is invalid', (
     tester,
   ) async {
@@ -814,9 +808,6 @@ WorkspaceModelSummary _readOnlyModel() => const WorkspaceModelSummary(
 );
 
 class _FakeWorkspaceModels extends WorkspaceModels {
-  _FakeWorkspaceModels({this.importSucceeds = true});
-
-  final bool importSucceeds;
   final createdForms = <WorkspaceModelForm>[];
   final updatedForms = <WorkspaceModelForm>[];
   final deletedIds = <String>[];
@@ -852,22 +843,6 @@ class _FakeWorkspaceModels extends WorkspaceModels {
 
   @override
   Future<void> refresh() async {}
-
-  Future<bool> runImport() async {
-    try {
-      return await importItems([
-        {'id': 'x', 'name': 'x'},
-      ]);
-    } catch (_) {
-      return false;
-    }
-  }
-
-  @override
-  Future<bool> importItems(List<Map<String, dynamic>> items) async {
-    if (!importSucceeds) throw StateError('import rejected');
-    return true;
-  }
 }
 
 class _InvalidatingFakeWorkspaceModels extends _FakeWorkspaceModels {

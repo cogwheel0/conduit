@@ -547,15 +547,6 @@ final class HermesDesktopApiService
     approvalId: approvalId,
     approved: approved,
   );
-  Future<void> resolveApprovalForSession(
-    String storedSessionId, {
-    required String approvalId,
-    required bool approved,
-  }) => _runtimeResolveApprovalForSession(
-    storedSessionId,
-    approvalId: approvalId,
-    approved: approved,
-  );
   Future<void> resolveApprovalChoice(
     String runtimeId, {
     required String approvalId,

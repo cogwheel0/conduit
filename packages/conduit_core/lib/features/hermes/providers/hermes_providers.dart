@@ -270,26 +270,6 @@ class HermesConfigController extends Notifier<HermesConfig> {
     });
   }
 
-  Future<void> setBaseUrl(String value) async {
-    await saveConnection(baseUrl: value);
-  }
-
-  Future<void> setApiKey(String value) async {
-    await saveConnection(
-      baseUrl: state.baseUrl,
-      apiKeyChanged: true,
-      apiKey: value,
-    );
-  }
-
-  Future<void> setSessionKey(String value) async {
-    await saveConnection(
-      baseUrl: state.baseUrl,
-      sessionKeyChanged: true,
-      sessionKey: value,
-    );
-  }
-
   /// Rotates the short-lived native token pair without changing connection
   /// identity or cancelling the turn that triggered the refresh.
   Future<void> setDesktopNativeTokens(HermesDesktopTokenSet? tokens) {

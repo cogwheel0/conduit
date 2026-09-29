@@ -9,6 +9,7 @@ import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/services/secure_credential_storage.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
@@ -152,6 +153,31 @@ void main() {
 
     check(PreferencesStore.getBool(PreferenceKeys.incompleteAppDataClear))
         .isNull();
+  });
+
+  test('a completed clear resets host-registered providers', () async {
+    var builds = 0;
+    final registered = Provider<int>((ref) => ++builds);
+    final container = ProviderContainer(
+      overrides: [
+        authStateManagerProvider.overrideWith(_ClearedAuthStateManager.new),
+        directConnectionProfilesProvider.overrideWith(_EmptyDirectProfiles.new),
+        hermesConfigProvider.overrideWith(_EmptyHermesConfig.new),
+        directLocalDatabasePurgeProvider.overrideWithValue(() async {}),
+        signOutResetTargetsProvider.overrideWithValue([registered]),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(authStateManagerProvider.future);
+    await container.read(directConnectionProfilesProvider.future);
+    container.read(hermesConfigProvider);
+    check(container.read(registered)).equals(1);
+
+    await container
+        .read(signOutCoordinatorProvider)
+        .signOut(keepServerDetails: true);
+
+    check(container.read(registered)).equals(2);
   });
 
   test('an incomplete clear leaves the restart marker armed', () async {

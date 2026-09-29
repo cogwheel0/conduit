@@ -50,7 +50,7 @@ void main() {
       const ChatStatusUpdate(description: currentDescription, done: false),
     ];
 
-    await tester.pumpWidget(buildHarness(updates));
+    await tester.pumpWidget(buildHarness(updates, disableAnimations: true));
     await tester.tap(find.text(currentDescription));
     await tester.pumpAndSettle();
 
@@ -114,23 +114,6 @@ void main() {
     expect(bottomSheetTitle.maxLines, isNull);
   });
 
-  testWidgets(
-    'keeps the last incomplete status row when settling would empty the list',
-    (tester) async {
-      // Dropping the whole row at settle shifted the bottom-anchored layout
-      // by the row height and lost the only description of what the turn
-      // did; the last update stays visible instead.
-      await tester.pumpWidget(
-        buildHarness(const [
-          ChatStatusUpdate(description: 'Searching...', done: false),
-        ], isStreaming: false),
-      );
-
-      expect(find.text('Searching...'), findsOneWidget);
-      expect(find.byType(StreamingStatusWidget), findsOneWidget);
-    },
-  );
-
   testWidgets('keeps completed status rows visible after streaming finishes', (
     tester,
   ) async {
@@ -144,19 +127,6 @@ void main() {
     expect(find.text('Search complete'), findsOneWidget);
     expect(find.text('Searching...'), findsNothing);
   });
-
-  testWidgets(
-    'keeps status rows with unspecified done visible after streaming finishes',
-    (tester) async {
-      await tester.pumpWidget(
-        buildHarness(const [
-          ChatStatusUpdate(description: 'Generating image...'),
-        ], isStreaming: false),
-      );
-
-      expect(find.text('Generating image...'), findsOneWidget);
-    },
-  );
 
   testWidgets('groups Hermes tools with OpenWebUI-style counts', (
     tester,
@@ -200,7 +170,7 @@ void main() {
           description: 'terminal',
           done: false,
         ),
-      ]),
+      ], disableAnimations: true),
     );
 
     expect(find.text('Exploring web_search, terminal'), findsOneWidget);

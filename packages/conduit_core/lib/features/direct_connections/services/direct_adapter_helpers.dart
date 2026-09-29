@@ -5,7 +5,6 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 
 import 'package:conduit_core/utils/sensitive_value_utils.dart';
-import 'package:conduit_core/utils/unicode_prefix.dart';
 
 import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
@@ -749,12 +748,8 @@ String appendDirectAuthModeHint(
 }
 
 const int kMaxDirectProviderErrorCharacters = 512;
-const String _redactedProviderValue = '[REDACTED]';
-const int _maxProviderErrorSecretPatterns = 128;
-const int _maxProviderErrorSecretPatternCharacters = 8 * 1024;
-const int _maxProviderErrorSecretPatternTotalCharacters = 64 * 1024;
 final String _invalidProviderSensitiveValuesSentinel = List<String>.filled(
-  _maxProviderErrorSecretPatternCharacters + 1,
+  kMaxProviderErrorSecretCharacters + 1,
   'x',
 ).join();
 
@@ -767,10 +762,10 @@ List<String> directProfileSensitiveValues(DirectConnectionProfile profile) {
 
   void addCandidate(String candidate) {
     if (invalid || candidate.isEmpty || values.contains(candidate)) return;
-    if (candidate.length > _maxProviderErrorSecretPatternCharacters ||
-        values.length >= _maxProviderErrorSecretPatterns ||
+    if (candidate.length > kMaxProviderErrorSecretCharacters ||
+        values.length >= kMaxProviderErrorSecrets ||
         totalCharacters + candidate.length >
-            _maxProviderErrorSecretPatternTotalCharacters) {
+            kMaxProviderErrorSecretTotalCharacters) {
       invalid = true;
       values.clear();
       return;
@@ -783,7 +778,7 @@ List<String> directProfileSensitiveValues(DirectConnectionProfile profile) {
     if (invalid || raw == null || raw.isEmpty) return;
     // Check before trim/line-ending normalization so an imported oversized
     // profile cannot force multiple unbounded copies merely by failing closed.
-    if (raw.length > _maxProviderErrorSecretPatternCharacters) {
+    if (raw.length > kMaxProviderErrorSecretCharacters) {
       invalid = true;
       values.clear();
       return;
@@ -811,8 +806,8 @@ List<String> directProfileSensitiveValues(DirectConnectionProfile profile) {
   for (final value in profile.customHeaders.values) {
     final variants = boundedSensitiveValueVariants(
       value,
-      maxCharacters: _maxProviderErrorSecretPatternCharacters,
-      maxVariants: _maxProviderErrorSecretPatterns,
+      maxCharacters: kMaxProviderErrorSecretCharacters,
+      maxVariants: kMaxProviderErrorSecrets,
     );
     if (variants == null) {
       invalid = true;
@@ -865,78 +860,9 @@ String sanitizeDirectProviderErrorMessage(
   String raw, {
   Iterable<String> sensitiveValues = const <String>[],
   int maxCharacters = kMaxDirectProviderErrorCharacters,
-}) {
-  if (maxCharacters <= 0) {
-    throw RangeError.value(maxCharacters, 'maxCharacters');
-  }
-
-  final secrets = <String>{};
-  var secretCharacters = 0;
-  for (final value in sensitiveValues) {
-    if (value.isEmpty) continue;
-    // A provider may reflect any substring of a configured credential. There
-    // is no bounded pattern that can safely redact every substring of an
-    // oversized value, so fail closed instead of exposing an unmatched tail.
-    if (value.length > _maxProviderErrorSecretPatternCharacters) {
-      return 'The provider reported an error.';
-    }
-    if (!secrets.add(value)) continue;
-    secretCharacters += value.length;
-    if (secrets.length > _maxProviderErrorSecretPatterns ||
-        secretCharacters > _maxProviderErrorSecretPatternTotalCharacters) {
-      // A pathological imported profile must not turn an untrusted provider
-      // error into either an amplification attack or a partially redacted log.
-      return 'The provider reported an error.';
-    }
-  }
-  final orderedSecrets = secrets.toList(growable: false)
-    ..sort((a, b) => b.length.compareTo(a.length));
-  // Bound by Unicode scalar rather than UTF-16 code unit. Otherwise preceding
-  // supplementary characters can make this prefix end inside a configured
-  // secret, leaving a fragment that the exact-secret pass cannot recognize.
-  var safe = redactSensitiveValuesInUnicodePrefix(
-    raw,
-    sensitiveValues: orderedSecrets,
-    maxVisibleScalars: maxCharacters,
-  );
-
-  // Authorization values can contain a scheme followed by whitespace-rich
-  // credentials (for example Digest parameters). Redact the complete header
-  // value before applying the narrower single-token rules below.
-  safe = safe.replaceAllMapped(
-    RegExp(
-      r'\b(authorization|proxy-authorization)\b\s*[:=]\s*[^\r\n]*',
-      caseSensitive: false,
-    ),
-    (match) => '${match.group(1)}: $_redactedProviderValue',
-  );
-
-  // Redact common credential labels even when a compatible provider reflects
-  // a value that was not part of the configured profile.
-  safe = safe.replaceAllMapped(
-    RegExp(
-      r'\b(api[-_ ]?key|access[-_ ]?token|password|secret)\b\s*[:=]\s*(?:bearer\s+)?[^\s,;]+',
-      caseSensitive: false,
-    ),
-    (match) => '${match.group(1)}: $_redactedProviderValue',
-  );
-  safe = safe.replaceAllMapped(
-    RegExp(r'\bbearer\s+[A-Za-z0-9._~+/=-]+', caseSensitive: false),
-    (_) => 'Bearer $_redactedProviderValue',
-  );
-
-  safe = safe
-      .replaceAll(RegExp(r'[\u0000-\u001F\u007F-\u009F]'), ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
-  if (safe.isEmpty) return 'The provider reported an error.';
-
-  final iterator = safe.runes.iterator;
-  final prefix = <int>[];
-  while (prefix.length < maxCharacters && iterator.moveNext()) {
-    prefix.add(iterator.current);
-  }
-  if (!iterator.moveNext()) return String.fromCharCodes(prefix);
-  if (maxCharacters == 1) return '…';
-  return '${String.fromCharCodes(prefix.take(maxCharacters - 1))}…';
-}
+}) => sanitizeProviderErrorMessage(
+  raw,
+  fallback: 'The provider reported an error.',
+  sensitiveValues: sensitiveValues,
+  maxCharacters: maxCharacters,
+);

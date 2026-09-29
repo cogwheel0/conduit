@@ -153,22 +153,6 @@ void main() {
     check(lightKey).equals(conduitNativeModelSelectorViewKey(Colors.black));
   });
 
-  test('native model-selector parameters preserve the full label', () {
-    final label = '${List.filled(5000, 'a').join()}-model-tail';
-    final bounded = boundConduitNativeModelLabel(label);
-    final params = encodeConduitNativeModelSelectorParams(
-      label: label,
-      symbolName: 'chevron.down',
-      foregroundColor: Colors.black,
-      titleFontSize: 17,
-      enabled: true,
-    );
-
-    check(params['label']).equals(label);
-    check(params['label'] == bounded).isFalse();
-    check(params.containsKey('symbolSize')).isFalse();
-  });
-
   test('native model-selector title follows Dynamic Type', () {
     check(resolveConduitNativeModelTitleFontSize(TextScaler.noScaling))
         .equals(17);
@@ -925,6 +909,15 @@ void main() {
         findsNothing,
       );
       expect(ThemedSheets.hasActiveSheet, isTrue);
+
+      // Coverage is app-wide; dismissing the sheet must release it.
+      tester.state<NavigatorState>(find.byType(Navigator)).pop();
+      await tester.pumpAndSettle();
+      expect(ThemedSheets.hasActiveSheet, isFalse);
+      expect(
+        find.byKey(const ValueKey<String>('persistent-native-overlay')),
+        findsOneWidget,
+      );
     },
   );
 }

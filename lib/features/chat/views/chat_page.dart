@@ -5786,19 +5786,6 @@ bool debugShouldKeepConversationBottomAnchoredOnInsetChangeForTesting({
 }
 
 @visibleForTesting
-bool debugShouldKeepConversationBottomAnchoredOnContentSizeChangeForTesting({
-  required bool isAnchoredToBottom,
-  required bool isUserInteractingWithScroll,
-  required bool wantsPinToTop,
-}) {
-  return shouldKeepConversationBottomAnchoredOnContentSizeChange(
-    isAnchoredToBottom: isAnchoredToBottom,
-    isUserInteractingWithScroll: isUserInteractingWithScroll,
-    wantsPinToTop: wantsPinToTop,
-  );
-}
-
-@visibleForTesting
 bool debugVisibleMessageIdsGainedForTesting({
   required Iterable<String> previous,
   required Iterable<String> current,

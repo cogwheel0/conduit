@@ -79,26 +79,22 @@ void main() {
       addTearDown(() async {
         if (await file.exists()) await file.delete();
       });
-      final replacementWritten = Completer<void>();
-      var pathWasAbsentBeforeReplacement = false;
+      final nextTurn = Completer<bool>();
 
       final result = await deleteShareStagingFileWithResult(
         file.path,
         canDelete: (_) {
-          scheduleMicrotask(() {
-            pathWasAbsentBeforeReplacement = !file.existsSync();
-            file.writeAsBytesSync([2]);
-            replacementWritten.complete();
-          });
+          // Stands in for a newer generation re-staging this path. It only
+          // looks: writing here would race the delete's own recheck.
+          scheduleMicrotask(() => nextTurn.complete(!file.existsSync()));
           return true;
         },
       );
-      await replacementWritten.future;
 
-      // The queued replacement must run after the admitted unlink. An await
-      // between admission and unlink reverses the order and deletes byte 2.
-      expect(pathWasAbsentBeforeReplacement, isTrue);
-      expect(await file.readAsBytes(), [2]);
+      // The admitted unlink must land before anything queued after the
+      // admission runs. An await between the two would let a re-staged file
+      // be deleted.
+      expect(await nextTurn.future, isTrue);
       expect(result, ShareStagingFileCleanupResult.removed);
     });
 

@@ -237,8 +237,8 @@ Widget _buildStreamingHarness({
 }
 
 void main() {
-  setUp(debugResetParsedMarkdownCache);
-  tearDown(debugResetParsedMarkdownCache);
+  setUp(debugResetCompiledMarkdownCache);
+  tearDown(debugResetCompiledMarkdownCache);
 
   test(
     'streaming diagnostics are sampled instead of running every revision',
@@ -297,22 +297,24 @@ void main() {
   testWidgets('parsed markdown cache keeps recently reused entries', (
     tester,
   ) async {
+    // Filling the cache needs no widget; the widget only has to read and
+    // write through the same cache.
     final capacity = debugCompiledMarkdownCacheCapacity();
     for (var index = 0; index < capacity; index += 1) {
-      await tester.pumpWidget(_buildMarkdownHarness('Message $index'));
+      compilePreparedMarkdownSync('Message $index');
     }
 
-    expect(debugParsedMarkdownCacheSize(), capacity);
+    expect(debugCompiledMarkdownCacheSize(), capacity);
 
     await tester.pumpWidget(_buildMarkdownHarness('Message 0'));
-    expect(debugParsedMarkdownCacheKeys().last, 'Message 0');
+    expect(debugCompiledMarkdownCacheKeys().last, 'Message 0');
 
     await tester.pumpWidget(_buildMarkdownHarness('Message $capacity'));
 
-    expect(debugParsedMarkdownCacheSize(), capacity);
-    expect(debugParsedMarkdownCacheKeys(), isNot(contains('Message 1')));
+    expect(debugCompiledMarkdownCacheSize(), capacity);
+    expect(debugCompiledMarkdownCacheKeys(), isNot(contains('Message 1')));
     expect(
-      debugParsedMarkdownCacheKeys(),
+      debugCompiledMarkdownCacheKeys(),
       containsAll(<String>['Message 0', 'Message $capacity']),
     );
   });

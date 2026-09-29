@@ -194,63 +194,6 @@ void main() {
     });
   });
 
-  group('isRetryable', () {
-    test('network error is retryable', () {
-      const error = ApiError.network(message: 'no connection');
-      check(handler.isRetryable(error)).isTrue();
-    });
-
-    test('timeout error is retryable', () {
-      const error = ApiError.timeout(message: 'timed out');
-      check(handler.isRetryable(error)).isTrue();
-    });
-
-    test('server error is retryable', () {
-      const error = ApiError.server(message: 'internal error', statusCode: 500);
-      check(handler.isRetryable(error)).isTrue();
-    });
-
-    test('rateLimit error is retryable', () {
-      const error = ApiError.rateLimit(message: 'too many');
-      check(handler.isRetryable(error)).isTrue();
-    });
-
-    test('authentication error is not retryable', () {
-      const error = ApiError.authentication(message: 'bad creds');
-      check(handler.isRetryable(error)).isFalse();
-    });
-
-    test('authorization error is not retryable', () {
-      const error = ApiError.authorization(message: 'forbidden');
-      check(handler.isRetryable(error)).isFalse();
-    });
-
-    test('validation error is not retryable', () {
-      const error = ApiError.validation(message: 'invalid');
-      check(handler.isRetryable(error)).isFalse();
-    });
-
-    test('notFound error is not retryable', () {
-      const error = ApiError.notFound(message: 'missing');
-      check(handler.isRetryable(error)).isFalse();
-    });
-
-    test('cancelled error is not retryable', () {
-      const error = ApiError.cancelled(message: 'cancelled');
-      check(handler.isRetryable(error)).isFalse();
-    });
-
-    test('security error is not retryable', () {
-      const error = ApiError.security(message: 'bad cert');
-      check(handler.isRetryable(error)).isFalse();
-    });
-
-    test('unknown error is not retryable', () {
-      const error = ApiError.unknown(message: 'unknown');
-      check(handler.isRetryable(error)).isFalse();
-    });
-  });
-
   group('getRetryDelay', () {
     test('returns Duration for timeout errors', () {
       const error = ApiError.timeout(message: 'timed out');

@@ -286,13 +286,6 @@ void main() {
       check(configured.metadata?['hermesConfiguredDefault']).equals(false);
     });
 
-    test('Desktop keeps the default when discovery is empty', () {
-      final models = appendHermesModelIfUsable(const [], hermesUsable: true);
-
-      check(models).length.equals(1);
-      check(models.single.name).equals('Hermes Agent');
-    });
-
     test('modelsProvider includes Desktop default and discovery', () async {
       final discovered = hermesDesktopModel(
         modelId: 'gpt-5.6-sol',

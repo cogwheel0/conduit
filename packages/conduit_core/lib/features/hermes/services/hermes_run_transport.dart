@@ -10,7 +10,7 @@ import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/services/openai_responses_codec.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
-import 'package:conduit_core/utils/unicode_prefix.dart';
+import 'package:conduit_core/utils/sensitive_value_utils.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -35,7 +35,6 @@ const String kHermesTransport = 'hermesRun';
 /// detachable `/v1/runs` while retaining [kHermesTransport] for stop routing.
 const String kHermesResponsesMode = 'responses';
 const int kMaxHermesProviderErrorCharacters = 512;
-const int _maxHermesProviderSecretCharacters = 8 * 1024;
 const int kMaxHermesToolNameCharacters = 80;
 const int kMaxHermesStatusDetailCharacters = 120;
 const int kMaxHermesApprovalSummaryCharacters = 512;
@@ -1478,7 +1477,7 @@ List<String> _boundedHermesSensitiveValues(Iterable<String> source) {
     if (raw.isEmpty) continue;
     // Return the original reference without trimming when it is oversized.
     // The sanitizer sees the length and fails closed before hashing/copying it.
-    if (raw.length > _maxHermesProviderSecretCharacters) return [raw];
+    if (raw.length > kMaxProviderErrorSecretCharacters) return [raw];
     values.add(raw);
     final trimmed = raw.trim();
     if (trimmed.isNotEmpty && trimmed != raw) values.add(trimmed);
@@ -1574,64 +1573,12 @@ String sanitizeHermesProviderErrorMessage(
   String raw, {
   Iterable<String> sensitiveValues = const <String>[],
   int maxCharacters = kMaxHermesProviderErrorCharacters,
-}) {
-  if (maxCharacters <= 0) {
-    throw RangeError.value(maxCharacters, 'maxCharacters');
-  }
-
-  const fallback = 'Hermes run failed.';
-  const redacted = '[REDACTED]';
-  final secrets = <String>{};
-  for (final value in sensitiveValues) {
-    if (value.isEmpty) continue;
-    if (value.length > _maxHermesProviderSecretCharacters) return fallback;
-    secrets.add(value);
-  }
-  final orderedSecrets = secrets.toList(growable: false)
-    ..sort((a, b) => b.length.compareTo(a.length));
-  // Keep enough Unicode scalars to include any configured secret that starts
-  // inside the eventual visible prefix. A UTF-16 substring can cut inside a
-  // secret after supplementary characters, preventing exact redaction and
-  // exposing the surviving fragment.
-  var safe = redactSensitiveValuesInUnicodePrefix(
-    raw,
-    sensitiveValues: orderedSecrets,
-    maxVisibleScalars: maxCharacters,
-  );
-
-  safe = safe.replaceAllMapped(
-    RegExp(
-      r'\b(authorization|proxy-authorization)\b\s*[:=]\s*[^\r\n]*',
-      caseSensitive: false,
-    ),
-    (match) => '${match.group(1)}: $redacted',
-  );
-  safe = safe.replaceAllMapped(
-    RegExp(
-      r'\b(api[-_ ]?key|access[-_ ]?token|password|secret|session[-_ ]?key)\b\s*[:=]\s*(?:bearer\s+)?[^\s,;]+',
-      caseSensitive: false,
-    ),
-    (match) => '${match.group(1)}: $redacted',
-  );
-  safe = safe.replaceAllMapped(
-    RegExp(r'\bbearer\s+[A-Za-z0-9._~+/=-]+', caseSensitive: false),
-    (_) => 'Bearer $redacted',
-  );
-  safe = safe
-      .replaceAll(RegExp(r'[\u0000-\u001F\u007F-\u009F]'), ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
-  if (safe.isEmpty) return fallback;
-
-  final iterator = safe.runes.iterator;
-  final prefix = <int>[];
-  while (prefix.length < maxCharacters && iterator.moveNext()) {
-    prefix.add(iterator.current);
-  }
-  if (!iterator.moveNext()) return String.fromCharCodes(prefix);
-  if (maxCharacters == 1) return '…';
-  return '${String.fromCharCodes(prefix.take(maxCharacters - 1))}…';
-}
+}) => sanitizeProviderErrorMessage(
+  raw,
+  fallback: 'Hermes run failed.',
+  sensitiveValues: sensitiveValues,
+  maxCharacters: maxCharacters,
+);
 
 String _friendlyError(Object e) {
   if (e is HermesStreamGuardException) return e.message;

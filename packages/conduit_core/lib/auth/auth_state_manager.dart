@@ -3507,7 +3507,6 @@ class AuthStateManager extends _$AuthStateManager {
     }
     // Clear cache before refresh to ensure fresh data
     _cacheManager.clearAuthCache();
-    TokenValidationCache.clearCache();
 
     await _initialize(
       attemptRevision: attemptRevision,
@@ -3528,7 +3527,6 @@ class AuthStateManager extends _$AuthStateManager {
   Map<String, dynamic> getPerformanceStats() {
     return {
       'authCache': _cacheManager.getCacheStats(),
-      'tokenValidationCache': 'Managed by TokenValidationCache',
       'storageCache': 'Managed by OptimizedStorageService',
     };
   }
