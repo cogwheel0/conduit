@@ -291,15 +291,11 @@ class SettingsService {
       _notificationSystemKey: settings.notificationSystem,
       _notificationChatEnabledKey: settings.notificationChatEnabled,
       _notificationChannelEnabledKey: settings.notificationChannelEnabled,
-      PreferenceKeys.webSearchEngine: settings.webSearchEngine.name,
-      PreferenceKeys.webSearchSafeSearch: settings.webSearchSafeSearch.name,
     };
 
+    // Web search preferences are written only by their own setters, so a
+    // bulk save of a stale snapshot can't undo a concurrent change.
     await PreferencesStore.putAll(updates);
-    await _putOrRemove(
-      PreferenceKeys.webSearchRegion,
-      settings.webSearchRegion,
-    );
 
     await _putOrRemove(_chatWebSearchEnabledKey, settings.chatWebSearchEnabled);
     await _putOrRemove(

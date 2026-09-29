@@ -270,16 +270,44 @@ final class OnDeviceWebToolSession {
 }
 
 /// `http(s)` links in [text], e.g. the user's message, for the fetch
-/// allow-list.
+/// allow-list. Trailing punctuation is dropped, except a closing bracket
+/// that the URL itself opened (`…/wiki/Dart_(programming_language)`).
 List<String> extractWebUrls(String text) {
   return [
     for (final match in _urlPattern.allMatches(text))
-      match.group(0)!.replaceFirst(_trailingPunctuation, ''),
+      _trimTrailingPunctuation(match.group(0)!),
   ];
 }
 
-final RegExp _urlPattern = RegExp(r'''https?://[^\s<>"'`]+''');
-final RegExp _trailingPunctuation = RegExp(r'[.,;:!?)\]}>]+$');
+final RegExp _urlPattern = RegExp(
+  r'''https?://[^\s<>"'`]+''',
+  caseSensitive: false,
+);
+
+String _trimTrailingPunctuation(String url) {
+  var end = url.length;
+  while (end > 0) {
+    final char = url[end - 1];
+    if ('.,;:!?\'"'.contains(char)) {
+      end--;
+      continue;
+    }
+    final open = switch (char) {
+      ')' => '(',
+      ']' => '[',
+      '}' => '{',
+      '>' => '<',
+      _ => null,
+    };
+    if (open == null) break;
+    final candidate = url.substring(0, end);
+    final opens = open.allMatches(candidate).length;
+    final closes = char.allMatches(candidate).length;
+    if (closes <= opens) break;
+    end--;
+  }
+  return url.substring(0, end);
+}
 
 void _rejectUnexpectedArguments(
   Map<String, dynamic> arguments,

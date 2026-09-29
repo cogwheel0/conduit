@@ -120,6 +120,8 @@ final class Ddgs {
     }
     var cancelled = false;
     unawaited(cancel?.then((_) => cancelled = true));
+    // Let an already-completed cancel land before the first request goes out.
+    await Future<void>.value();
 
     final failures = <SearchEngineException>[];
     var anyAnswered = false;
@@ -270,7 +272,9 @@ final class Ddgs {
       final path = url.path.endsWith('/')
           ? url.path.substring(0, url.path.length - 1)
           : url.path;
-      final key = '${url.host.toLowerCase()}$path?${url.query}';
+      // http and https copies of a page are the same result; a different
+      // port is a different site.
+      final key = '${url.host.toLowerCase()}:${url.port}$path?${url.query}';
       final index = indexByKey[key];
       if (index == null) {
         indexByKey[key] = unique.length;

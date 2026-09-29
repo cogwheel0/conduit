@@ -149,6 +149,21 @@ void main() {
     expect(fetcher.fetched, [Uri.parse('https://docs.example.com/guide')]);
   });
 
+  test('links the user wrote are read as written', () {
+    expect(
+      extractWebUrls(
+        'See HTTPS://Example.com/Doc, '
+        'https://en.wikipedia.org/wiki/Dart_(programming_language). '
+        '(also https://dart.dev/docs)',
+      ),
+      [
+        'HTTPS://Example.com/Doc',
+        'https://en.wikipedia.org/wiki/Dart_(programming_language)',
+        'https://dart.dev/docs',
+      ],
+    );
+  });
+
   test('a blocked engine becomes an error the model can read', () async {
     final session = _session(
       search: _ddgs(const [], status: 429),

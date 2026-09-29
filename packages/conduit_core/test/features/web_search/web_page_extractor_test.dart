@@ -67,6 +67,32 @@ void main() {
     expect(page.text, isNot(contains('Popular posts')));
   });
 
+  test('an article keeps its own header and code keeps its fence', () {
+    final page = _extract('''
+<html><body>
+  <header>Site navigation</header>
+  <article>
+    <header><h1>Release notes</h1><p>By the Dart team</p></header>
+    <p>$_paragraph</p>
+    <pre>echo "```"
+done</pre>
+  </article>
+</body></html>''');
+
+    expect(page.text, contains('By the Dart team'));
+    expect(page.text, isNot(contains('Site navigation')));
+    // A fence longer than the backticks inside keeps the block intact.
+    expect(page.text, contains('````\necho "```"\ndone\n````'));
+  });
+
+  test('plain text keeps its indentation', () {
+    final page = _extract(
+      '- item\n    - nested\n\n    code()',
+      contentType: 'text/markdown',
+    );
+    expect(page.text, '- item\n    - nested\n\n    code()');
+  });
+
   test('plain text is returned without HTML parsing', () {
     final page = _extract(
       '# Notes\n\n\n\n<b>not a tag</b>\n',

@@ -118,6 +118,16 @@ void main() {
     expect(fake.hosts, [_ddg]);
   });
 
+  test('an already-cancelled search sends nothing', () async {
+    final client = _SendRecorder();
+
+    await expectLater(
+      Ddgs(client: client).search(query, cancel: Future.value()),
+      throwsA(isA<WebSearchCancelledException>()),
+    );
+    expect(client.sent, isEmpty);
+  });
+
   test('a timed-out engine is skipped and not cooled down', () async {
     final fake = FakeEngines({
       _ddg: (_) => Completer<http.Response>().future,
@@ -149,4 +159,15 @@ void main() {
     expect(response.results, isEmpty);
     expect(response.engine, isNull);
   });
+}
+
+/// Records requests the moment they are handed to the client.
+final class _SendRecorder extends http.BaseClient {
+  final List<Uri> sent = [];
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    sent.add(request.url);
+    return Completer<http.StreamedResponse>().future;
+  }
 }

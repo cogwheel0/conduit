@@ -91,15 +91,41 @@ class WebPageFetcher {
       ..autoUncompress = true
       ..userAgent = userAgent;
     var stopped = false;
+    final stopSignal = Completer<FetchedWebPage>();
     void stop() {
       if (stopped) return;
       stopped = true;
       client.close(force: true);
+      // Closing the client can't interrupt a DNS lookup or a connect still
+      // inside the connection factory, so the fetch races this signal too.
+      stopSignal.completeError(
+        const WebFetchException('The page took too long to load.'),
+      );
     }
 
     final timer = Timer(timeout, stop);
     unawaited(cancel?.then((_) => stop()));
+    final work = _fetchWith(client, url, acceptLanguage, () => stopped);
+    work.ignore();
+    stopSignal.future.ignore();
 
+    try {
+      return await Future.any([work, stopSignal.future]);
+    } finally {
+      timer.cancel();
+      if (!stopped) {
+        stopped = true;
+        client.close(force: true);
+      }
+    }
+  }
+
+  Future<FetchedWebPage> _fetchWith(
+    HttpClient client,
+    Uri url,
+    String? acceptLanguage,
+    bool Function() stopped,
+  ) async {
     try {
       var current = url;
       for (var hop = 0; ; hop++) {
@@ -153,13 +179,10 @@ class WebPageFetcher {
     } on FormatException catch (error) {
       throw WebFetchException(error.message);
     } on Exception {
-      if (stopped) {
+      if (stopped()) {
         throw const WebFetchException('The page took too long to load.');
       }
       throw const WebFetchException('The page could not be reached.');
-    } finally {
-      timer.cancel();
-      stop();
     }
   }
 
@@ -220,10 +243,24 @@ class WebPageFetcher {
 
   static String _decode(List<int> bytes, String? charset) {
     switch (charset?.toLowerCase()) {
-      case 'iso-8859-1' || 'latin1' || 'latin-1' || 'windows-1252' || 'cp1252':
+      case 'iso-8859-1' || 'latin1' || 'latin-1':
         return latin1.decode(bytes);
+      case 'windows-1252' || 'cp1252':
+        return String.fromCharCodes([
+          for (final byte in bytes)
+            byte >= 0x80 && byte < 0xa0 ? _cp1252High[byte - 0x80] : byte,
+        ]);
       default:
         return utf8.decode(bytes, allowMalformed: true);
     }
   }
+
+  /// Windows-1252's 0x80–0x9F, where it differs from Latin-1 (smart quotes,
+  /// dashes, €). Unassigned bytes map to U+FFFD.
+  static const List<int> _cp1252High = [
+    0x20AC, 0xFFFD, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, //
+    0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0xFFFD, 0x017D, 0xFFFD, //
+    0xFFFD, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, //
+    0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0xFFFD, 0x017E, 0x0178, //
+  ];
 }

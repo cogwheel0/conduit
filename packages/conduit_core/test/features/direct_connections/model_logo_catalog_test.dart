@@ -21,6 +21,8 @@ void main() {
       // Bare ids use the models.dev index, then family prefixes.
       ('gpt-5.4', 'api.openai.com', null, 'openai'),
       ('claude-sonnet-4-5', null, null, 'anthropic'),
+      // Hosted by NVIDIA too, but made by Google.
+      ('gemma-2-2b-it', 'integrate.api.nvidia.com', null, 'google'),
       ('llama3.2:3b', 'localhost', 'ollama', 'meta'),
       ('qwen2.5-coder:7b', 'localhost', 'ollama', 'alibaba'),
       // An unknown maker falls back to the provider serving it.

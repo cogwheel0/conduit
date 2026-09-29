@@ -18,7 +18,11 @@ final class ExtractedWebPage {
 ExtractedWebPage extractReadableText(FetchedWebPage page) {
   if (page.contentType != 'text/html' &&
       page.contentType != 'application/xhtml+xml') {
-    return ExtractedWebPage(title: '', text: _tidy(page.body));
+    // Plain text and Markdown keep their indentation (code, nested lists).
+    return ExtractedWebPage(
+      title: '',
+      text: _tidy(page.body, keepIndent: true),
+    );
   }
   final document = html_parser.parse(page.body);
   final title = _title(document);
@@ -82,8 +86,12 @@ void _removeChrome(Document document) {
   for (final selector in _chromeSelectors) {
     for (final element in document.querySelectorAll(selector)) {
       // Some sites wrap everything in a <header> or <form>; never throw away
-      // the element that holds the article itself.
+      // the element that holds the article itself. An article's own header
+      // carries its title, byline and date.
       if (_holdsMainContent(element)) continue;
+      if (element.localName == 'header' && _insideMainContent(element)) {
+        continue;
+      }
       element.remove();
     }
   }
@@ -101,6 +109,18 @@ void _removeChrome(Document document) {
     if (element.text.length * 2 > pageTextLength) continue;
     element.remove();
   }
+}
+
+bool _insideMainContent(Element element) {
+  for (var node = element.parent; node != null; node = node.parent) {
+    final tag = node.localName;
+    if (tag == 'article' ||
+        tag == 'main' ||
+        node.attributes['role'] == 'main') {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool _holdsMainContent(Element element) {
@@ -167,8 +187,14 @@ void _render(Node node, _TextBuffer out) {
     case 'img':
       return;
     case 'pre':
+      final code = node.text.trimRight();
+      // A fence longer than any backtick run inside keeps the block closed.
+      var fence = '```';
+      while (code.contains(fence)) {
+        fence += '`';
+      }
       out.block();
-      out.raw('```\n${node.text.trimRight()}\n```');
+      out.raw('$fence\n$code\n$fence');
       out.block();
       return;
     case 'code':
@@ -247,7 +273,7 @@ final _whitespace = RegExp(r'\s+');
 String _collapse(String text) => text.replaceAll(_whitespace, ' ').trim();
 
 /// Trims each line and limits blank runs to one empty line.
-String _tidy(String text) {
+String _tidy(String text, {bool keepIndent = false}) {
   final lines = text
       .replaceAll('\r\n', '\n')
       .split('\n')
@@ -258,7 +284,7 @@ String _tidy(String text) {
   var inFence = false;
   for (final line in lines) {
     if (line.trimLeft().startsWith('```')) inFence = !inFence;
-    final trimmed = inFence ? line : line.trim();
+    final trimmed = inFence || keepIndent ? line : line.trim();
     if (trimmed.isEmpty) {
       blankRun++;
       if (blankRun > 1) continue;

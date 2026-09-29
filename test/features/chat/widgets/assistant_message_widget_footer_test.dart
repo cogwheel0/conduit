@@ -459,9 +459,22 @@ void main() {
     expect(find.text('2/2'), findsOneWidget);
     expect(find.byIcon(Icons.content_copy_outlined), findsOneWidget);
     expect(find.byIcon(Icons.refresh), findsOneWidget);
-    // The version pager is inline, not in the overflow.
-    expect(find.byIcon(Icons.chevron_left), findsOneWidget);
-    expect(find.byIcon(Icons.chevron_right), findsOneWidget);
+    // The version pager is inline, not in the overflow. On the latest
+    // version only "back" is available.
+    expect(
+      tester.getSemantics(find.bySemanticsLabel('Prev')),
+      matchesSemantics(
+        label: 'Prev',
+        isButton: true,
+        hasEnabledState: true,
+        isEnabled: true,
+        hasTapAction: true,
+      ),
+    );
+    expect(
+      tester.getSemantics(find.bySemanticsLabel('Next')),
+      matchesSemantics(label: 'Next', isButton: true, hasEnabledState: true),
+    );
     expect(find.byIcon(Icons.more_horiz_rounded), findsOneWidget);
 
     final refreshPosition = tester.getTopLeft(find.byIcon(Icons.refresh));

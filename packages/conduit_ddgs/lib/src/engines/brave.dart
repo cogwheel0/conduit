@@ -46,7 +46,11 @@ final class BraveEngine extends SearchEngine {
           item.querySelector('.result-content > a[href]') ??
           item.querySelector('a[href]');
       final url = parseResultUrl(link?.attributes['href']);
-      if (url == null || url.host.endsWith('brave.com')) continue;
+      if (url == null ||
+          url.host == 'brave.com' ||
+          url.host.endsWith('.brave.com')) {
+        continue;
+      }
       final titleElement = item.querySelector('.search-snippet-title');
       final title = cleanText(
         titleElement?.attributes['title'] ?? titleElement?.text,

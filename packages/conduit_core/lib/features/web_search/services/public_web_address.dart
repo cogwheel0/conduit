@@ -44,45 +44,69 @@ String normalizePublicWebUrl(String value) {
   return uri.removeFragment().toString();
 }
 
-/// Whether [address] is routable on the public internet: not loopback,
-/// private, link-local, carrier-grade NAT, benchmarking, multicast or
-/// reserved, including IPv4 addresses embedded in IPv6.
+/// Whether [address] is routable on the public internet.
+///
+/// IPv4 rejects every IANA special-purpose block (private, loopback,
+/// link-local, CGNAT, documentation, benchmarking, protocol assignments,
+/// multicast, reserved). IPv6 accepts only global unicast (`2000::/3`), so
+/// unique-local, site-local, link-local and multicast fall out, then rejects
+/// documentation and Teredo space and checks the IPv4 address inside
+/// IPv4-mapped/compatible, NAT64 (`64:ff9b::/96`) and 6to4 (`2002::/16`)
+/// addresses, which a network may route to an internal host.
 bool isPublicInternetAddress(InternetAddress address) {
   if (address.type == InternetAddressType.unix) return false;
   final bytes = address.rawAddress;
   if (address.type == InternetAddressType.IPv4) {
     return !_isPrivateOrSpecialIpv4(bytes);
   }
-  final isUnspecified = bytes.every((byte) => byte == 0);
-  final isLoopback =
-      bytes.take(15).every((byte) => byte == 0) && bytes.last == 1;
-  final isUniqueLocal = (bytes[0] & 0xfe) == 0xfc;
-  final isLinkLocal = bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80;
-  final isMulticast = bytes[0] == 0xff;
-  final isIpv4Mapped =
-      bytes.take(10).every((byte) => byte == 0) &&
-      bytes[10] == 0xff &&
-      bytes[11] == 0xff;
-  final isIpv4Compatible = bytes.take(12).every((byte) => byte == 0);
-  return !(isUnspecified ||
-      isLoopback ||
-      isUniqueLocal ||
-      isLinkLocal ||
-      isMulticast ||
-      ((isIpv4Mapped || isIpv4Compatible) &&
-          _isPrivateOrSpecialIpv4(bytes.sublist(12))));
+
+  bool zeros(int from, int to) =>
+      bytes.sublist(from, to).every((byte) => byte == 0);
+  // Addresses that carry an IPv4 destination are only as public as it is.
+  final isIpv4Mapped = zeros(0, 10) && bytes[10] == 0xff && bytes[11] == 0xff;
+  final isIpv4Compatible = zeros(0, 12);
+  final isNat64 =
+      bytes[0] == 0x00 &&
+      bytes[1] == 0x64 &&
+      bytes[2] == 0xff &&
+      bytes[3] == 0x9b &&
+      zeros(4, 12);
+  if (isIpv4Mapped || isIpv4Compatible || isNat64) {
+    return !_isPrivateOrSpecialIpv4(bytes.sublist(12));
+  }
+  if (bytes[0] == 0x20 && bytes[1] == 0x02) {
+    return !_isPrivateOrSpecialIpv4(bytes.sublist(2, 6));
+  }
+
+  final isGlobalUnicast = (bytes[0] & 0xe0) == 0x20;
+  final isDocumentation =
+      bytes[0] == 0x20 &&
+      bytes[1] == 0x01 &&
+      bytes[2] == 0x0d &&
+      bytes[3] == 0xb8;
+  final isTeredo =
+      bytes[0] == 0x20 &&
+      bytes[1] == 0x01 &&
+      bytes[2] == 0x00 &&
+      bytes[3] == 0x00;
+  return isGlobalUnicast && !isDocumentation && !isTeredo;
 }
 
 bool _isPrivateOrSpecialIpv4(List<int> bytes) {
   final first = bytes[0];
   final second = bytes[1];
+  final third = bytes[2];
   return first == 0 ||
       first == 10 ||
       first == 127 ||
       (first == 100 && second >= 64 && second <= 127) ||
       (first == 169 && second == 254) ||
       (first == 172 && second >= 16 && second <= 31) ||
+      (first == 192 && second == 0 && (third == 0 || third == 2)) ||
+      (first == 192 && second == 88 && third == 99) ||
       (first == 192 && second == 168) ||
       (first == 198 && (second == 18 || second == 19)) ||
+      (first == 198 && second == 51 && third == 100) ||
+      (first == 203 && second == 0 && third == 113) ||
       first >= 224;
 }

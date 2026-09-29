@@ -75,12 +75,27 @@ String modelLogoAssetPath(String id) => '$_kModelLogoDirectory/$id.svg';
 /// Renders a logo as a square PNG for surfaces that can't draw SVG (the
 /// native iOS model picker). Monochrome logos take [color]; the logo fills
 /// [logoFraction] of the square so it sits inset on the avatar plate.
+///
+/// Results are cached per logo, color and size, so reopening the picker
+/// doesn't re-render them.
 Future<Uint8List?> rasterizeModelLogo(
   String id, {
   required Color color,
   int pixelSize = 96,
   double logoFraction = 0.8,
-}) async {
+}) => _rasterCache.putIfAbsent(
+  '$id|${color.toARGB32()}|$pixelSize|$logoFraction',
+  () => _rasterizeModelLogo(id, color, pixelSize, logoFraction),
+);
+
+final Map<String, Future<Uint8List?>> _rasterCache = {};
+
+Future<Uint8List?> _rasterizeModelLogo(
+  String id,
+  Color color,
+  int pixelSize,
+  double logoFraction,
+) async {
   try {
     final info = await vg.loadPicture(
       SvgAssetLoader(

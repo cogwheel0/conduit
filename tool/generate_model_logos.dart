@@ -148,11 +148,31 @@ Future<void> main() async {
         index(canonical.split('/').last, lab);
       }
     }
-    // First-party listings cover models without a canonical id.
+    // First-party listings cover models without a canonical id, but labs
+    // also host each other's models (NVIDIA serves Gemma), so skip any model
+    // whose canonical id or family names another maker.
+    String? familyLab(String name) {
+      for (final entry in _families.entries) {
+        if (name.startsWith(entry.key)) return entry.value;
+      }
+      return null;
+    }
+
     for (final entry in catalog.entries) {
       if (!labs.contains(entry.key)) continue;
-      for (final id in ((entry.value as Map)['models'] as Map).keys) {
-        index((id as String).split('/').last, entry.key);
+      final listed = (entry.value as Map)['models'] as Map;
+      for (final MapEntry(key: id, value: model) in listed.entries) {
+        final canonical = (model as Map)['canonical_model_id'] as String?;
+        final maker = canonical != null && canonical.contains('/')
+            ? logoFor(canonical.split('/').first)
+            : null;
+        final name = (id as String).split('/').last.toLowerCase();
+        final family = familyLab(name);
+        if ((maker != null && maker != entry.key) ||
+            (family != null && family != entry.key)) {
+          continue;
+        }
+        index(name, entry.key);
       }
     }
 
