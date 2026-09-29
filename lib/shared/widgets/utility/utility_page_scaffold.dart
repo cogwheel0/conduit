@@ -289,6 +289,8 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
                 contentHeight:
                     mediaQuery.viewPadding.top +
                     conduitAdaptiveToolbarHeightOf(context),
+                // Settings titles sit over scrolling rows; keep them legible.
+                solidBehindChrome: true,
               ),
             ),
         ],
