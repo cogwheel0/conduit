@@ -26,6 +26,7 @@ import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:conduit/shared/widgets/web_content_embed.dart';
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1414,6 +1415,57 @@ graph TD
       expect(find.text('Open preview'), findsNothing);
     },
   );
+
+  testWidgets('list markers sit on the first line\'s baseline', (tester) async {
+    // Marker and item share one text style, so their first glyphs' line
+    // boxes line up exactly when their baselines do.
+    double glyphBottomOf(Finder finder) {
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find
+            .descendant(
+              of: finder,
+              matching: find.byType(RichText),
+              matchRoot: true,
+            )
+            .first,
+      );
+      final box = paragraph
+          .getBoxesForSelection(
+            const TextSelection(baseOffset: 0, extentOffset: 1),
+          )
+          .first;
+      return paragraph.localToGlobal(Offset(0, box.bottom)).dy;
+    }
+
+    for (final (content, marker) in [
+      ('- Bullet item', '•'),
+      ('1. Numbered item', '1.'),
+    ]) {
+      await tester.pumpWidget(buildHarness(content));
+      await tester.pumpAndSettle();
+
+      final itemText = content.substring(content.indexOf(' ') + 1);
+      expect(
+        glyphBottomOf(find.text(marker)),
+        closeTo(glyphBottomOf(find.text(itemText, findRichText: true)), 0.01),
+        reason: content,
+      );
+    }
+  });
+
+  testWidgets('task list items show their checkbox instead of a bullet', (
+    tester,
+  ) async {
+    await tester.pumpWidget(buildHarness('- [x] Done task\n- [ ] Open task'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('•'), findsNothing);
+    expect(find.byIcon(Icons.check_box), findsOneWidget);
+    expect(find.byIcon(Icons.check_box_outline_blank), findsOneWidget);
+    // The space after `[x]` belongs to the box, not the item text.
+    expect(find.text('Done task', findRichText: true), findsOneWidget);
+    expect(find.text('Open task', findRichText: true), findsOneWidget);
+  });
 
   testWidgets(
     'renders loose list item paragraphs inline like the web renderer',
