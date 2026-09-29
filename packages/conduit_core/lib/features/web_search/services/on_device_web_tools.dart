@@ -284,8 +284,12 @@ final class OnDeviceWebToolSession {
 
 /// Whether a redirect from [origin] stays on its site: the same host, its
 /// `www` twin, or one of its subdomains (`http→https` and path changes are
-/// fine). Never a parent domain: `victim.github.io` must not reach
-/// `github.io`, whose other subdomains belong to other people.
+/// fine).
+///
+/// A parent domain is off limits (`victim.github.io` must not reach
+/// `github.io`, whose other subdomains belong to other people), except the
+/// canonical redirect from a mobile or AMP alias (`m.example.com` to
+/// `example.com`), and then only to that exact parent.
 bool isSameSiteRedirect(Uri origin, Uri to) {
   String bare(Uri uri) {
     final host = uri.host.toLowerCase();
@@ -294,8 +298,14 @@ bool isSameSiteRedirect(Uri origin, Uri to) {
 
   final site = bare(origin);
   final target = bare(to);
-  return target == site || target.endsWith('.$site');
+  if (target == site || target.endsWith('.$site')) return true;
+  final dot = site.indexOf('.');
+  return dot > 0 &&
+      _canonicalAliasLabels.contains(site.substring(0, dot)) &&
+      target == site.substring(dot + 1);
 }
+
+const Set<String> _canonicalAliasLabels = {'m', 'mobile', 'amp'};
 
 /// `http(s)` links in [text], e.g. the user's message, for the fetch
 /// allow-list. Trailing punctuation is dropped, except a closing bracket

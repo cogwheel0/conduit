@@ -199,6 +199,23 @@ void main() {
     );
   });
 
+  test('a mobile alias may redirect to its canonical parent only', () {
+    final mobile = Uri.parse('https://m.example.com/article');
+    expect(
+      isSameSiteRedirect(mobile, Uri.parse('https://example.com/article')),
+      isTrue,
+    );
+    expect(
+      isSameSiteRedirect(mobile, Uri.parse('https://www.example.com/a')),
+      isTrue,
+    );
+    // Only the exact parent, never its other subdomains.
+    expect(
+      isSameSiteRedirect(mobile, Uri.parse('https://other.example.com/')),
+      isFalse,
+    );
+  });
+
   test('links the user wrote are read as written', () {
     expect(
       extractWebUrls(
