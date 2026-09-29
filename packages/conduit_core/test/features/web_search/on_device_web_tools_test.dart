@@ -181,6 +181,24 @@ void main() {
     }
   });
 
+  test('a redirect never climbs to a shared parent domain', () {
+    // Hops are judged against the original result, so victim.github.io
+    // can't reach attacker.github.io by way of github.io.
+    final origin = Uri.parse('https://victim.github.io/page');
+    expect(
+      isSameSiteRedirect(origin, Uri.parse('https://github.io/')),
+      isFalse,
+    );
+    expect(
+      isSameSiteRedirect(origin, Uri.parse('https://attacker.github.io/')),
+      isFalse,
+    );
+    expect(
+      isSameSiteRedirect(origin, Uri.parse('https://docs.victim.github.io/')),
+      isTrue,
+    );
+  });
+
   test('links the user wrote are read as written', () {
     expect(
       extractWebUrls(

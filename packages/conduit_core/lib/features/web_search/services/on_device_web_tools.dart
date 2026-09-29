@@ -238,8 +238,12 @@ final class OnDeviceWebToolSession {
       acceptLanguage: region.acceptLanguage,
       cancel: _cancel,
       // A search result may only redirect within its own site, so a result
-      // can't hand the fetch to an unrelated host.
-      allowRedirect: _userUrls.contains(url) ? null : isSameSiteRedirect,
+      // can't hand the fetch to an unrelated host. Every hop is judged
+      // against the result itself, so hops can't chain across a shared
+      // parent domain.
+      allowRedirect: _userUrls.contains(url)
+          ? null
+          : (_, to) => isSameSiteRedirect(Uri.parse(url), to),
     );
     final extracted = extractReadableText(page);
     final truncated =
@@ -278,18 +282,19 @@ final class OnDeviceWebToolSession {
   }
 }
 
-/// Whether a redirect stays on the same site: the same host, its `www`
-/// twin, or a subdomain in either direction (`http→https` and path changes
-/// are fine).
-bool isSameSiteRedirect(Uri from, Uri to) {
+/// Whether a redirect from [origin] stays on its site: the same host, its
+/// `www` twin, or one of its subdomains (`http→https` and path changes are
+/// fine). Never a parent domain: `victim.github.io` must not reach
+/// `github.io`, whose other subdomains belong to other people.
+bool isSameSiteRedirect(Uri origin, Uri to) {
   String bare(Uri uri) {
     final host = uri.host.toLowerCase();
     return host.startsWith('www.') ? host.substring(4) : host;
   }
 
-  final a = bare(from);
-  final b = bare(to);
-  return a == b || a.endsWith('.$b') || b.endsWith('.$a');
+  final site = bare(origin);
+  final target = bare(to);
+  return target == site || target.endsWith('.$site');
 }
 
 /// `http(s)` links in [text], e.g. the user's message, for the fetch
