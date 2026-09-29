@@ -7,6 +7,7 @@ import 'package:conduit_core/features/direct_connections/models/direct_connectio
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/web_search/services/direct_web_search_mode.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -246,61 +247,61 @@ void main() {
       },
     );
 
-    test('direct web search requires every trusted Cloud capability', () async {
-      Future<bool> availability({
-        required String adapterKey,
-        required Map<String, dynamic> capabilities,
-      }) async {
-        final registry = DirectModelRegistry();
-        final model = registry.replaceProfileModels(
-          DirectConnectionProfile(
-            id: 'direct-provider',
-            name: 'Direct provider',
-            adapterKey: adapterKey,
-            baseUrl: 'https://ollama.com',
+    test(
+      'an untrusted capability claim never selects provider-hosted search',
+      () async {
+        // Models that claim Ollama Cloud's hosted tool without the trusted
+        // profile fall back to Conduit's own on-device search instead.
+        Future<DirectWebSearchMode?> mode({
+          required String adapterKey,
+          required Map<String, dynamic> capabilities,
+        }) async {
+          final registry = DirectModelRegistry();
+          final model = registry.replaceProfileModels(
+            DirectConnectionProfile(
+              id: 'direct-provider',
+              name: 'Direct provider',
+              adapterKey: adapterKey,
+              baseUrl: 'https://ollama.com',
+            ),
+            [DirectRemoteModel(id: 'model', capabilities: capabilities)],
+          ).single;
+          final container = _container(
+            const AsyncData<Map<String, dynamic>>({
+              'features': {'web_search': false},
+            }),
+            backendConfig: const BackendConfig(enableWebSearch: false),
+            selectedModel: model,
+            directModelRegistry: registry,
+          );
+          addTearDown(container.dispose);
+          await container.read(backendConfigProvider.future);
+          return container.read(selectedDirectWebSearchModeProvider);
+        }
+
+        for (final (adapterKey, capabilities) in [
+          (kOllamaAdapterKey, const {'web_search': true}),
+          (
+            kOllamaAdapterKey,
+            const {'ollama_cloud': false, 'web_search': true},
           ),
-          [DirectRemoteModel(id: 'model', capabilities: capabilities)],
-        ).single;
-        final container = _container(
-          const AsyncData<Map<String, dynamic>>({
-            'features': {'web_search': false},
-          }),
-          backendConfig: const BackendConfig(enableWebSearch: false),
-          selectedModel: model,
-          directModelRegistry: registry,
-        );
-        addTearDown(container.dispose);
-        await container.read(backendConfigProvider.future);
-        return container.read(webSearchAvailableProvider);
-      }
+          (
+            kOllamaAdapterKey,
+            const {'ollama_cloud': true, 'web_search': false},
+          ),
+          (
+            kOpenAiCompatibleAdapterKey,
+            const {'ollama_cloud': true, 'web_search': true},
+          ),
+        ]) {
+          check(await mode(adapterKey: adapterKey, capabilities: capabilities))
+              .equals(DirectWebSearchMode.onDevice);
+        }
+      },
+    );
 
-      check(
-        await availability(
-          adapterKey: kOllamaAdapterKey,
-          capabilities: const {'web_search': true},
-        ),
-      ).isFalse();
-      check(
-        await availability(
-          adapterKey: kOllamaAdapterKey,
-          capabilities: const {'ollama_cloud': false, 'web_search': true},
-        ),
-      ).isFalse();
-      check(
-        await availability(
-          adapterKey: kOllamaAdapterKey,
-          capabilities: const {'ollama_cloud': true, 'web_search': false},
-        ),
-      ).isFalse();
-      check(
-        await availability(
-          adapterKey: kOpenAiCompatibleAdapterKey,
-          capabilities: const {'ollama_cloud': true, 'web_search': true},
-        ),
-      ).isFalse();
-    });
-
-    test('local direct models never inherit Open WebUI web search', () async {
+    test('device-owned direct models search on the device, whatever the '
+        'Open WebUI server allows', () async {
       final registry = DirectModelRegistry();
       final model = registry.replaceProfileModels(
         DirectConnectionProfile(
@@ -313,9 +314,9 @@ void main() {
       ).single;
       final container = _container(
         const AsyncData<Map<String, dynamic>>({
-          'features': {'web_search': true},
+          'features': {'web_search': false},
         }),
-        backendConfig: const BackendConfig(enableWebSearch: true),
+        backendConfig: const BackendConfig(enableWebSearch: false),
         selectedModel: model,
         directModelRegistry: registry,
       );
@@ -323,8 +324,110 @@ void main() {
 
       await container.read(backendConfigProvider.future);
 
-      check(container.read(webSearchAvailableProvider)).isFalse();
+      check(container.read(selectedDirectWebSearchModeProvider))
+          .equals(DirectWebSearchMode.onDevice);
+      check(container.read(webSearchAvailableProvider)).isTrue();
     });
+
+    test('Apple models offer on-device search despite their parameter list', () {
+      // Apple advertises sampling parameters only, but its adapter runs tools.
+      final registry = DirectModelRegistry();
+      final model = registry.replaceProfileModels(
+        DirectConnectionProfile.applePrivateCloudCompute(),
+        [
+          DirectRemoteModel(
+            id: kApplePccRemoteModelId,
+            name: 'Apple Private Cloud Compute',
+            capabilities: const {
+              'supported_parameters': ['temperature', 'max_tokens'],
+            },
+          ),
+        ],
+      ).single;
+      final container = _container(
+        const AsyncData<Map<String, dynamic>>({}),
+        selectedModel: model,
+        directModelRegistry: registry,
+      );
+      addTearDown(container.dispose);
+
+      check(container.read(selectedDirectWebSearchModeProvider))
+          .equals(DirectWebSearchMode.onDevice);
+    });
+
+    test(
+      'a direct model that reports no tool support hides web search',
+      () async {
+        final registry = DirectModelRegistry();
+        final model = registry.replaceProfileModels(
+          DirectConnectionProfile(
+            id: 'local-ollama',
+            name: 'Local Ollama',
+            adapterKey: kOllamaAdapterKey,
+            baseUrl: 'http://localhost:11434',
+          ),
+          [
+            DirectRemoteModel(
+              id: 'gemma:2b',
+              capabilities: const {
+                'capabilities': ['completion'],
+              },
+            ),
+          ],
+        ).single;
+        final container = _container(
+          const AsyncData<Map<String, dynamic>>({}),
+          selectedModel: model,
+          directModelRegistry: registry,
+        );
+        addTearDown(container.dispose);
+
+        check(container.read(webSearchAvailableProvider)).isFalse();
+      },
+    );
+
+    test(
+      'server-configured direct models follow the server web search policy',
+      () async {
+        Future<bool> availability({
+          required bool serverEnabled,
+          required bool permitted,
+        }) async {
+          final registry = DirectModelRegistry();
+          final model = registry
+              .replaceProfileModels(
+                DirectConnectionProfile(
+                  id: 'owui-connection',
+                  name: 'Server connection',
+                  adapterKey: kOpenAiCompatibleAdapterKey,
+                  baseUrl: 'https://llm.example.com/v1',
+                ),
+                [DirectRemoteModel(id: 'model')],
+                source: DirectModelSource.openWebUi,
+                openWebUiUrlIndex: 0,
+              )
+              .single;
+          final container = _container(
+            AsyncData<Map<String, dynamic>>({
+              'features': {'web_search': permitted},
+            }),
+            backendConfig: BackendConfig(enableWebSearch: serverEnabled),
+            selectedModel: model,
+            directModelRegistry: registry,
+          );
+          addTearDown(container.dispose);
+          await container.read(backendConfigProvider.future);
+          return container.read(webSearchAvailableProvider);
+        }
+
+        check(await availability(serverEnabled: true, permitted: true))
+            .isTrue();
+        check(await availability(serverEnabled: false, permitted: true))
+            .isFalse();
+        check(await availability(serverEnabled: true, permitted: false))
+            .isFalse();
+      },
+    );
 
     test(
       'first-party OpenRouter models expose trusted model actions',

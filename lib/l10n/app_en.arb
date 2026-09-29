@@ -6108,5 +6108,31 @@
   "chatTaskCancelled": "Cancelled",
   "@chatTaskCancelled": {
     "description": "Task checklist status for a cancelled task."
-  }
+  },
+  "webSearchSettingsFooterAuto": "Used by Direct models that don't have their own web search. Searches run from this device: queries go to DuckDuckGo, then to Brave, Bing, Mojeek or Wikipedia if it doesn't answer. Pages the model reads are also fetched from this device.",
+  "@webSearchSettingsFooterAuto": {"description": "Footer under the on-device web search settings when the engine is Auto; explains where queries and page fetches go."},
+  "webSearchSettingsFooterEngine": "Used by Direct models that don't have their own web search. Searches run from this device, and queries go only to {engine}. Pages the model reads are also fetched from this device.",
+  "@webSearchSettingsFooterEngine": {"description": "Footer under the on-device web search settings when one engine is chosen; {engine} is a brand name such as DuckDuckGo.", "placeholders": {"engine": {"type": "String", "example": "DuckDuckGo"}}},
+  "webSearchEngineLabel": "Search engine",
+  "@webSearchEngineLabel": {"description": "Row label for choosing the on-device web search engine."},
+  "webSearchEngineAuto": "Auto",
+  "@webSearchEngineAuto": {"description": "Engine option that tries several search engines in order."},
+  "webSearchSafeSearchLabel": "Safe search",
+  "@webSearchSafeSearchLabel": {"description": "Row label for the adult-content filter used by on-device web search."},
+  "webSearchSafeSearchStrict": "Strict",
+  "@webSearchSafeSearchStrict": {"description": "Safe search level: filter all adult content."},
+  "webSearchSafeSearchModerate": "Moderate",
+  "@webSearchSafeSearchModerate": {"description": "Safe search level: filter explicit images and video."},
+  "webSearchSafeSearchOff": "Off",
+  "@webSearchSafeSearchOff": {"description": "Safe search level: no filtering."},
+  "webSearchRegionLabel": "Region",
+  "@webSearchRegionLabel": {"description": "Row label for the region on-device web search results are biased toward."},
+  "webSearchRegionAuto": "Match device",
+  "@webSearchRegionAuto": {"description": "Region option that follows the device language and country."},
+  "webSearchRegionWorldwide": "Worldwide",
+  "@webSearchRegionWorldwide": {"description": "Region option with no regional bias."},
+  "directModelToolsUnsupported": "This model can't use tools, so it can't search the web. Turn off web search and any tools, then try again.",
+  "@directModelToolsUnsupported": {"description": "Error shown when a Direct model rejects tool definitions, which web search needs."},
+  "directContextCompactionModelCount": "{count, plural, =1{1 model} other{{count} models}}",
+  "@directContextCompactionModelCount": {"description": "Row value on Direct Connections that opens the list of models needing a context limit.", "placeholders": {"count": {"type": "int", "example": "42"}}}
 }

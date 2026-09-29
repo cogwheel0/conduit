@@ -63,6 +63,7 @@ jobs:
       matrix:
         package:
           - packages/conduit_core
+          - packages/conduit_ddgs
           - packages/conduit_markdown
           - packages/conduit_theme
     steps:

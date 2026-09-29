@@ -329,6 +329,10 @@ final class DirectModelRegistry {
           'adapterKey': profile.adapterKey,
           'remoteModelId': remote.id,
           'remoteModelDisplayId': displayModelId,
+          // Host only, never the full URL, for picking a provider logo.
+          if (Uri.tryParse(profile.baseUrl)?.host case final host?
+              when host.isNotEmpty)
+            'directBaseHost': host,
           if (source == DirectModelSource.openWebUi)
             'openWebUiDirectConnection': true,
           'urlIdx': ?openWebUiUrlIndex,

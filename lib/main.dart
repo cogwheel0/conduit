@@ -44,6 +44,7 @@ import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/network/conduit_user_agent.dart';
 
 import 'core/persistence/hive_bootstrap.dart';
+import 'core/utils/model_logos.dart';
 
 import 'package:conduit_core/persistence/hive_prefs_migrator.dart';
 
@@ -159,7 +160,11 @@ Future<void> _configureUserAgent() async {
 void _registerBundledLicenses() {
   LicenseRegistry.addLicense(() async* {
     final notice = await rootBundle.loadString('THIRD_PARTY_NOTICES.md');
-    yield LicenseEntryWithLineBreaks(const ['Open WebUI icon'], notice);
+    yield LicenseEntryWithLineBreaks(const [
+      'Open WebUI icon',
+      'ddgs',
+      'models.dev',
+    ], notice);
   });
 }
 
@@ -197,6 +202,8 @@ void main() {
       unawaited(_configureUserAgent());
 
       _registerBundledLicenses();
+      // Read by the synchronous avatar resolver; awaited before runApp.
+      final modelLogosLoaded = ModelLogos.load();
       FrameProfiler.instance.attachFrameTimings();
       AndroidImeInsetResync.instance.install();
 
@@ -355,6 +362,7 @@ void main() {
 
       installConduitErrorWidgetBuilder();
 
+      await modelLogosLoaded;
       runApp(
         UncontrolledProviderScope(
           container: providerContainer,

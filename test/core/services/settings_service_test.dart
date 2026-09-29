@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:conduit_core/features/web_search/web_search.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/services/settings_service.dart';
@@ -459,6 +460,35 @@ void main() {
           PreferenceKeys.openRouterImageGenerationModel,
         ),
       ).equals('openai/gpt-5-image-mini');
+    });
+  });
+
+  group('AppSettingsNotifier web search preferences', () {
+    setUp(() {
+      PreferencesStore.debugReset();
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+    });
+
+    tearDown(PreferencesStore.debugReset);
+
+    test('persist across reloads, and Auto region clears the code', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(appSettingsProvider.notifier);
+
+      await notifier.setWebSearchEngine(WebSearchEngineChoice.brave);
+      await notifier.setWebSearchSafeSearch(SafeSearch.strict);
+      await notifier.setWebSearchRegion('de-de');
+
+      final reloaded = await SettingsService.loadSettings();
+      check(reloaded.webSearchEngine).equals(WebSearchEngineChoice.brave);
+      check(reloaded.webSearchSafeSearch).equals(SafeSearch.strict);
+      check(reloaded.webSearchRegion).equals('de-de');
+
+      await notifier.setWebSearchRegion(kWebSearchRegionAuto);
+      check(PreferencesStore.containsKey(PreferenceKeys.webSearchRegion))
+          .isFalse();
+      check((await SettingsService.loadSettings()).webSearchRegion).isNull();
     });
   });
 

@@ -3101,5 +3101,20 @@
   "chatTaskPending": "대기 중",
   "chatTaskInProgress": "진행 중",
   "chatTaskCompleted": "완료",
-  "chatTaskCancelled": "취소됨"
+  "chatTaskCancelled": "취소됨",
+  "webSearchSettingsFooterAuto": "자체 웹 검색이 없는 Direct 모델에서 사용됩니다. 검색은 이 기기에서 실행되며, 검색어는 DuckDuckGo로 전송되고 응답이 없으면 Brave, Bing, Mojeek 또는 Wikipedia로 전송됩니다. 모델이 읽는 페이지도 이 기기에서 가져옵니다.",
+  "webSearchSettingsFooterEngine": "자체 웹 검색이 없는 Direct 모델에서 사용됩니다. 검색은 이 기기에서 실행되며, 검색어는 {engine}(으)로만 전송됩니다. 모델이 읽는 페이지도 이 기기에서 가져옵니다.",
+  "@webSearchSettingsFooterEngine": {"placeholders": {"engine": {"type": "String", "example": "DuckDuckGo"}}},
+  "webSearchEngineLabel": "검색 엔진",
+  "webSearchEngineAuto": "자동",
+  "webSearchSafeSearchLabel": "세이프서치",
+  "webSearchSafeSearchStrict": "엄격",
+  "webSearchSafeSearchModerate": "보통",
+  "webSearchSafeSearchOff": "끄기",
+  "webSearchRegionLabel": "지역",
+  "webSearchRegionAuto": "기기와 동일",
+  "webSearchRegionWorldwide": "전 세계",
+  "directModelToolsUnsupported": "이 모델은 도구를 사용할 수 없어 웹을 검색할 수 없습니다. 웹 검색과 모든 도구를 끈 후 다시 시도하세요.",
+  "directContextCompactionModelCount": "{count, plural, other{모델 {count}개}}",
+  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}}
 }

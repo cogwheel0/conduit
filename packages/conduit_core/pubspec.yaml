@@ -30,6 +30,11 @@ dependencies:
   web_socket: ^1.0.1
   conduit_markdown:
     path: ../conduit_markdown
+  # On-device web search for Direct models (vendored `ddgs`, see its
+  # VENDORED.md) and the HTML parser its page reader shares.
+  conduit_ddgs:
+    path: ../conduit_ddgs
+  html: ^0.15.6
   crypto: ^3.0.3
   # The core raises and classifies API errors, and `ApiError` is built from a
   # `DioException`. dio is pure Dart, so this costs the package nothing in

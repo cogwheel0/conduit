@@ -6,7 +6,9 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../persistence/persistence_keys.dart';
 import '../persistence/preferences_store.dart';
 
+import 'package:conduit_core/features/web_search/models/web_search_preferences.dart';
 import 'package:conduit_core/models/animation_settings.dart';
+import 'package:conduit_ddgs/conduit_ddgs.dart' show SafeSearch;
 
 part 'settings_service.g.dart';
 
@@ -291,6 +293,8 @@ class SettingsService {
       _notificationChannelEnabledKey: settings.notificationChannelEnabled,
     };
 
+    // Web search preferences are written only by their own setters, so a
+    // bulk save of a stale snapshot can't undo a concurrent change.
     await PreferencesStore.putAll(updates);
 
     await _putOrRemove(_chatWebSearchEnabledKey, settings.chatWebSearchEnabled);
@@ -705,6 +709,15 @@ class SettingsService {
           PreferencesStore.get<bool>(_notificationChatEnabledKey) ?? true,
       notificationChannelEnabled:
           PreferencesStore.get<bool>(_notificationChannelEnabledKey) ?? true,
+      webSearchEngine: WebSearchEngineChoice.parse(
+        PreferencesStore.get<String>(PreferenceKeys.webSearchEngine),
+      ),
+      webSearchSafeSearch: parseSafeSearch(
+        PreferencesStore.get<String>(PreferenceKeys.webSearchSafeSearch),
+      ),
+      webSearchRegion: PreferencesStore.get<String>(
+        PreferenceKeys.webSearchRegion,
+      ),
     );
   }
 }
@@ -755,6 +768,12 @@ class AppSettings {
   final bool notificationSystem;
   final bool notificationChatEnabled;
   final bool notificationChannelEnabled;
+  // On-device web search (Direct models without provider-hosted search).
+  final WebSearchEngineChoice webSearchEngine;
+  final SafeSearch webSearchSafeSearch;
+
+  /// `null` follows the device locale; see [resolveWebSearchRegion].
+  final String? webSearchRegion;
   const AppSettings({
     this.reduceMotion = false,
     this.animationSpeed = 1.0,
@@ -794,6 +813,9 @@ class AppSettings {
     this.notificationSystem = true,
     this.notificationChatEnabled = true,
     this.notificationChannelEnabled = true,
+    this.webSearchEngine = WebSearchEngineChoice.auto,
+    this.webSearchSafeSearch = SafeSearch.moderate,
+    this.webSearchRegion,
   });
 
   AppSettings copyWith({
@@ -835,6 +857,9 @@ class AppSettings {
     bool? notificationSystem,
     bool? notificationChatEnabled,
     bool? notificationChannelEnabled,
+    WebSearchEngineChoice? webSearchEngine,
+    SafeSearch? webSearchSafeSearch,
+    Object? webSearchRegion = const _DefaultValue(),
   }) {
     return AppSettings(
       reduceMotion: reduceMotion ?? this.reduceMotion,
@@ -898,6 +923,11 @@ class AppSettings {
           notificationChatEnabled ?? this.notificationChatEnabled,
       notificationChannelEnabled:
           notificationChannelEnabled ?? this.notificationChannelEnabled,
+      webSearchEngine: webSearchEngine ?? this.webSearchEngine,
+      webSearchSafeSearch: webSearchSafeSearch ?? this.webSearchSafeSearch,
+      webSearchRegion: webSearchRegion is _DefaultValue
+          ? this.webSearchRegion
+          : webSearchRegion as String?,
     );
   }
 
@@ -941,6 +971,9 @@ class AppSettings {
         other.notificationSystem == notificationSystem &&
         other.notificationChatEnabled == notificationChatEnabled &&
         other.notificationChannelEnabled == notificationChannelEnabled &&
+        other.webSearchEngine == webSearchEngine &&
+        other.webSearchSafeSearch == webSearchSafeSearch &&
+        other.webSearchRegion == webSearchRegion &&
         _listEquals(other.pinnedModels, pinnedModels) &&
         _listEquals(other.quickPills, quickPills);
     // socketTransportMode intentionally not included in == to avoid frequent rebuilds
@@ -984,6 +1017,9 @@ class AppSettings {
       notificationSystem,
       notificationChatEnabled,
       notificationChannelEnabled,
+      webSearchEngine,
+      webSearchSafeSearch,
+      webSearchRegion,
       Object.hashAllUnordered(quickPills),
       Object.hashAll(pinnedModels),
     ]);
@@ -1185,6 +1221,42 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> setChatImageGenerationEnabled(bool value) async {
     state = state.copyWith(chatImageGenerationEnabled: value);
     await SettingsService.setChatImageGenerationEnabled(value);
+  }
+
+  /// Waits for startup hydration so a write can't be overwritten by the
+  /// stored value it replaces. Returns false if the notifier was disposed.
+  Future<bool> _awaitHydration() async {
+    final pendingLoad = _pendingLoad;
+    if (pendingLoad == null) return true;
+    await pendingLoad;
+    return ref.mounted;
+  }
+
+  Future<void> setWebSearchEngine(WebSearchEngineChoice value) async {
+    if (!await _awaitHydration()) return;
+    state = state.copyWith(webSearchEngine: value);
+    await SettingsService._putPreference(
+      PreferenceKeys.webSearchEngine,
+      value.name,
+    );
+  }
+
+  Future<void> setWebSearchSafeSearch(SafeSearch value) async {
+    if (!await _awaitHydration()) return;
+    state = state.copyWith(webSearchSafeSearch: value);
+    await SettingsService._putPreference(
+      PreferenceKeys.webSearchSafeSearch,
+      value.name,
+    );
+  }
+
+  /// [code] is a [kWebSearchRegions] code, `wt-wt`, or `null` for the
+  /// device locale.
+  Future<void> setWebSearchRegion(String? code) async {
+    if (!await _awaitHydration()) return;
+    final value = code == kWebSearchRegionAuto ? null : code;
+    state = state.copyWith(webSearchRegion: value);
+    await SettingsService._putOrRemove(PreferenceKeys.webSearchRegion, value);
   }
 
   Future<void> setSendOnEnter(bool value) async {

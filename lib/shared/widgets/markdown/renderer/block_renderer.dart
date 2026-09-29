@@ -1,4 +1,5 @@
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../conduit_loading.dart';
@@ -903,7 +904,8 @@ class BlockRenderer {
     String marker, {
     required String nodePath,
   }) {
-    final children = element.children;
+    final task = _splitTaskCheckbox(element.children);
+    final children = task.children;
     final inlineNodes = <CompiledMarkdownNode>[];
     final blockNodes = <CompiledMarkdownNode>[];
 
@@ -950,19 +952,120 @@ class BlockRenderer {
 
     return Padding(
       padding: EdgeInsets.only(bottom: style.listItemSpacing),
+      // Baseline alignment puts the marker on the first line's baseline
+      // whatever the content's strut or line height, instead of a fixed
+      // nudge that left bullets and numbers sitting low.
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
         children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 1.0),
-            child: SizedBox(
-              width: 24,
-              child: Text(marker, style: style.body, textAlign: TextAlign.center),
-            ),
+          SizedBox(
+            width: 24,
+            child: switch (task.checked) {
+              final checked? => _taskCheckbox(checked),
+              null => Text(
+                marker,
+                style: style.body,
+                textAlign: TextAlign.center,
+              ),
+            },
           ),
           Expanded(child: content),
         ],
       ),
+    );
+  }
+
+  /// A GitHub task-list item leads with `<input type="checkbox">`, directly
+  /// or inside its first paragraph. Returns the item's children without it,
+  /// and its state, so the box can replace the bullet.
+  ({bool? checked, List<CompiledMarkdownNode> children}) _splitTaskCheckbox(
+    List<CompiledMarkdownNode> children,
+  ) {
+    bool? checkboxState(CompiledMarkdownNode node) =>
+        node is CompiledMarkdownElement &&
+            node.tag == 'input' &&
+            node.attributes['type'] == 'checkbox'
+        ? node.attributes['checked'] == 'true'
+        : null;
+
+    // The source's `[ ] text` leaves a space after the box.
+    List<CompiledMarkdownNode> withoutLeadingSpace(
+      Iterable<CompiledMarkdownNode> nodes,
+    ) {
+      final list = nodes.toList();
+      final first = list.isEmpty ? null : list.first;
+      if (first is CompiledMarkdownText &&
+          !first.hasInlineSegments &&
+          !first.containsLatexPlaceholders &&
+          !first.containsCitations) {
+        list[0] = CompiledMarkdownText(
+          first.text.trimLeft(),
+          nodeId: first.nodeId,
+        );
+      }
+      return list;
+    }
+
+    if (children.isEmpty) return (checked: null, children: children);
+    final first = children.first;
+    final direct = checkboxState(first);
+    if (direct != null) {
+      return (checked: direct, children: withoutLeadingSpace(children.skip(1)));
+    }
+    if (first is CompiledMarkdownElement &&
+        first.tag == 'p' &&
+        first.children.isNotEmpty) {
+      final nested = checkboxState(first.children.first);
+      if (nested != null) {
+        return (
+          checked: nested,
+          children: [
+            CompiledMarkdownElement(
+              nodeId: first.nodeId,
+              tag: first.tag,
+              blockKind: first.blockKind,
+              attributes: first.attributes,
+              children: withoutLeadingSpace(first.children.skip(1)),
+            ),
+            ...children.skip(1),
+          ],
+        );
+      }
+    }
+    return (checked: null, children: children);
+  }
+
+  /// A task-list box, set in a text span so it sits on the item's baseline
+  /// like a bullet does.
+  Widget _taskCheckbox(bool checked) {
+    final cupertino = context.usesCupertinoChrome;
+    final color = style.body.color;
+    final l10n = AppLocalizations.of(context);
+    return Text.rich(
+      TextSpan(
+        style: style.body,
+        children: [
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Icon(
+              checked
+                  ? (cupertino
+                        ? CupertinoIcons.checkmark_square_fill
+                        : Icons.check_box)
+                  : (cupertino
+                        ? CupertinoIcons.square
+                        : Icons.check_box_outline_blank),
+              size: (style.body.fontSize ?? 16) * 1.1,
+              color: checked ? color : color?.withValues(alpha: 0.55),
+              semanticLabel: checked
+                  ? l10n?.chatTaskCompleted
+                  : l10n?.chatTaskPending,
+            ),
+          ),
+        ],
+      ),
+      textAlign: TextAlign.center,
     );
   }
 

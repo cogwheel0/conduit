@@ -4,6 +4,7 @@ import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/services/api_service.dart';
 
 import '../services/native_symbol_image_service.dart';
+import 'model_logos.dart';
 
 /// Extracts the profile image URL from a model's metadata.
 ///
@@ -155,6 +156,11 @@ String? resolveModelIconUrlForModel(ApiService? api, Model? model) {
   // local binding, never from a server-supplied id or metadata field.
   if (isAppleFoundationModel(model)) {
     return '$kNativeSymbolUrlScheme$kAppleIntelligenceSymbol';
+  }
+  // Direct models get their maker's bundled models.dev logo. They have no
+  // Open WebUI avatar, so never ask the server for one.
+  if (hasReservedDirectIdentity(model)) {
+    return ModelLogos.avatarUrlForDirectModel(model);
   }
 
   // Check for legacy profile_image_url in metadata

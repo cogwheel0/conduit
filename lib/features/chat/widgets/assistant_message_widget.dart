@@ -11,6 +11,7 @@ import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
 import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
 
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/features/web_search/services/direct_web_search_mode.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 
 import '../providers/text_to_speech_provider.dart';
@@ -1428,9 +1429,13 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final errorColor = theme.colorScheme.error;
     final errorContent = error.content;
 
-    // If no content, show a generic error message
-    final displayText = (errorContent != null && errorContent.isNotEmpty)
+    // A model that can't call tools rejects web search's tool definitions;
+    // say what to do instead of echoing the provider's wording.
+    final displayText = isDirectToolsUnsupportedError(errorContent)
+        ? AppLocalizations.of(context)!.directModelToolsUnsupported
+        : (errorContent != null && errorContent.isNotEmpty)
         ? errorContent
+        // If no content, show a generic error message
         : 'An error occurred while generating this response.';
 
     return Container(
@@ -1856,10 +1861,13 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           sources: activeSources,
           messageId: widget.message.id,
         ),
-      if (widget.message.versions.isNotEmpty) _buildVersionChip(),
     ];
+    final versionPager = widget.message.versions.isNotEmpty
+        ? _buildVersionPager()
+        : null;
 
-    if (infoWidgets.isEmpty &&
+    if (versionPager == null &&
+        infoWidgets.isEmpty &&
         visibleActions.isEmpty &&
         overflowActions.isEmpty) {
       return null;
@@ -1868,9 +1876,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final overflowButton = overflowActions.isNotEmpty
         ? _buildOverflowActionButton(overflowActions)
         : null;
-    // The icon buttons sit edge to edge with the overflow
-    // trailing them inline, and informational chips follow the buttons.
+    // Like Open WebUI, the version pager leads the row; the icon buttons sit
+    // edge to edge with the overflow trailing them inline, and informational
+    // chips follow the buttons.
     final actionButtons = <Widget>[
+      ?versionPager,
       for (final action in visibleActions)
         _buildActionButton(
           icon: action.icon,
@@ -1961,10 +1971,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final bool canRegenerate =
         widget.onRegenerate != null &&
         (!isChatStreaming || currentStreamingMessageCompleted);
-    final bool hasVersions = widget.message.versions.isNotEmpty;
-    final bool canGoToPreviousVersion =
-        hasVersions && (_activeVersionIndex < 0 || _activeVersionIndex > 0);
-    final bool canGoToNextVersion = hasVersions && _activeVersionIndex >= 0;
 
     VoidCallback? ttsOnTap;
     if (showStopState || canStartTts) {
@@ -2023,41 +2029,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           onTap: () => UsageStatsModal.show(context, activeUsage),
           sfSymbol: 'info.circle',
         ),
-      if (hasVersions)
-        _AssistantFooterAction(
-          id: 'previous_version',
-          icon: Platform.isIOS
-              ? CupertinoIcons.chevron_left
-              : Icons.chevron_left,
-          label: l10n.previousLabel,
-          onTap: canGoToPreviousVersion
-              ? () {
-                  final nextIndex = _activeVersionIndex < 0
-                      ? widget.message.versions.length - 1
-                      : _activeVersionIndex - 1;
-                  _setActiveVersionIndex(nextIndex);
-                }
-              : null,
-          sfSymbol: 'chevron.left',
-        ),
-      if (hasVersions)
-        _AssistantFooterAction(
-          id: 'next_version',
-          icon: Platform.isIOS
-              ? CupertinoIcons.chevron_right
-              : Icons.chevron_right,
-          label: l10n.nextLabel,
-          onTap: canGoToNextVersion
-              ? () {
-                  final nextIndex =
-                      _activeVersionIndex < widget.message.versions.length - 1
-                      ? _activeVersionIndex + 1
-                      : -1;
-                  _setActiveVersionIndex(nextIndex);
-                }
-              : null,
-          sfSymbol: 'chevron.right',
-        ),
       if (!widget.readOnly)
         _AssistantFooterAction(
           id: 'delete',
@@ -2079,16 +2050,57 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return ChatActionButton(icon: icon, label: label, onTap: onTap);
   }
 
-  Widget _buildVersionChip() {
-    final totalVersions = widget.message.versions.length + 1;
+  /// `‹ 2/3 ›`: steps through this response's regenerations in place.
+  /// The live response is the last version.
+  Widget _buildVersionPager() {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    final archived = widget.message.versions.length;
+    final totalVersions = archived + 1;
     final currentVersion = _activeVersionIndex < 0
         ? totalVersions
         : _activeVersionIndex + 1;
+    final canGoBack = _activeVersionIndex != 0;
+    final canGoForward = _activeVersionIndex >= 0;
 
-    return ConduitChip(
-      label: '$currentVersion/$totalVersions',
-      isCompact: true,
-      isSelected: _activeVersionIndex >= 0,
+    return Row(
+      key: const ValueKey<String>('assistant-version-pager'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildActionButton(
+          icon: Platform.isIOS
+              ? CupertinoIcons.chevron_left
+              : Icons.chevron_left,
+          label: l10n.previousLabel,
+          onTap: canGoBack
+              ? () => _setActiveVersionIndex(
+                  _activeVersionIndex < 0
+                      ? archived - 1
+                      : _activeVersionIndex - 1,
+                )
+              : null,
+        ),
+        Text(
+          '$currentVersion/$totalVersions',
+          style: AppTypography.small.copyWith(
+            color: theme.textPrimary.withValues(alpha: 0.8),
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+        _buildActionButton(
+          icon: Platform.isIOS
+              ? CupertinoIcons.chevron_right
+              : Icons.chevron_right,
+          label: l10n.nextLabel,
+          onTap: canGoForward
+              ? () => _setActiveVersionIndex(
+                  _activeVersionIndex < archived - 1
+                      ? _activeVersionIndex + 1
+                      : -1,
+                )
+              : null,
+        ),
+      ],
     );
   }
 

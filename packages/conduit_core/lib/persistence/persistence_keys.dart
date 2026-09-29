@@ -22,6 +22,10 @@ final class PreferenceKeys {
   static const String chatWebSearchEnabled = 'chat_web_search_enabled';
   static const String chatImageGenerationEnabled =
       'chat_image_generation_enabled';
+  // On-device web search for Direct models.
+  static const String webSearchEngine = 'web_search_engine_v1';
+  static const String webSearchSafeSearch = 'web_search_safe_search_v1';
+  static const String webSearchRegion = 'web_search_region_v1';
   static const String sendOnEnterKey = 'send_on_enter';
   static const String activeServerId = 'active_server_id';
 

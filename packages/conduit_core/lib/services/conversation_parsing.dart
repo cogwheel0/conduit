@@ -252,7 +252,10 @@ void _addVersionsFromSiblings(
   }
 
   if (versions.isNotEmpty) {
-    parsed['versions'] = versions;
+    parsed['versions'] = <Map<String, dynamic>>[
+      ...?(parsed['versions'] as List<Map<String, dynamic>>?),
+      ...versions,
+    ];
   }
 }
 
@@ -746,10 +749,33 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
     'codeExecutions': _parseCodeExecutionsField(codeExecRaw),
     'sources': _parseSourcesField(sourcesRaw),
     'usage': usage,
-    'versions': const <Map<String, dynamic>>[],
+    // Open WebUI keeps regenerations as sibling rows, added afterwards by
+    // _addVersionsFromSiblings. Conduit's own local chats (Direct) regenerate
+    // in place and store the earlier responses on the message itself.
+    'versions': <Map<String, dynamic>>[
+      if (msgData['versions'] case final List<dynamic> stored)
+        for (final version in stored)
+          if (version is Map) _storedVersion(version),
+    ],
     if (outputItems.isNotEmpty) 'output': outputItems,
     'error': ?errorData,
   };
+}
+
+/// A version stored on the message itself. Its files go through the same
+/// sanitizer as every other message, so a stored attachment can't carry
+/// remote-supplied request headers to its image fetch.
+Map<String, dynamic> _storedVersion(Map<dynamic, dynamic> raw) {
+  final version = _coerceJsonMap(raw);
+  if (version.containsKey('files')) {
+    final files = _parseOpenWebUiFiles(version['files']).files;
+    if (files == null) {
+      version.remove('files');
+    } else {
+      version['files'] = files;
+    }
+  }
+  return version;
 }
 
 /// Resolves the live-stream flag against the completion marker.

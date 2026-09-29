@@ -11,6 +11,7 @@ import '../../features/chat/providers/text_to_speech_provider.dart';
 import '../../features/chat/models/model_selector_layout.dart';
 import '../../features/chat/providers/reasoning_effort_provider.dart';
 import '../../l10n/app_localizations.dart';
+import '../../shared/theme/theme_extensions.dart';
 import '../../shared/theme/tweakcn_themes.dart';
 
 import 'package:conduit_core/models/model.dart';
@@ -25,6 +26,7 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../utils/model_icon_utils.dart';
+import '../utils/model_logos.dart';
 
 import 'package:conduit_core/utils/model_sort_utils.dart';
 
@@ -208,6 +210,21 @@ class NativeSheetHydrationService {
         if (!context.mounted) return null;
       }
 
+      // The native sheet can't draw SVG, so bundled model logos go over as
+      // PNG bytes, rendered once per logo in the current theme's ink.
+      // Rendered in parallel and cached across openings, so only the first
+      // opening with a new logo waits for it.
+      final logoInk = context.conduitTheme.textPrimary;
+      final logoIds = {
+        for (final model in orderedModels)
+          ?modelLogoIdFromUrl(resolveModelIconUrlForModel(api, model)),
+      };
+      final rendered = await Future.wait(
+        logoIds.map((id) => rasterizeModelLogo(id, color: logoInk)),
+      );
+      final logoBytes = Map.fromIterables(logoIds, rendered);
+      if (!context.mounted) return null;
+
       final modelOptions = [
         ...leadingOptions,
         ...orderedModels.map((model) {
@@ -230,6 +247,16 @@ class NativeSheetHydrationService {
               name: model.name,
               subtitle: model.description,
               sfSymbol: symbolName,
+              tags: model.modelTags,
+            );
+          }
+          final logoId = modelLogoIdFromUrl(avatarUrl);
+          if (logoId != null) {
+            return NativeSheetModelOption(
+              id: model.id,
+              name: model.name,
+              subtitle: model.description,
+              avatarBytes: logoBytes[logoId],
               tags: model.modelTags,
             );
           }

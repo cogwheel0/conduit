@@ -10,6 +10,7 @@ export 'package:conduit_core/features/direct_connections/services/direct_http_cl
 export 'package:conduit_core/features/direct_connections/services/direct_local_document_service.dart';
 export 'package:conduit_core/features/direct_connections/services/direct_model_cache_store.dart';
 export 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+export 'package:conduit_core/features/direct_connections/services/model_logo_catalog.dart';
 export 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
 export 'package:conduit_core/features/direct_connections/services/direct_run_registry.dart';
 export 'package:conduit_core/features/direct_connections/services/ollama_adapter.dart';

@@ -29,6 +29,7 @@ import 'package:conduit_core/features/direct_connections/services/direct_chat_br
 
 import '../providers/apple_pcc_providers.dart';
 import '../services/apple_pcc_adapter.dart';
+import 'on_device_web_search_section.dart';
 
 const List<int> _directContextLengthOptions = <int>[
   4096,
@@ -43,6 +44,10 @@ const List<int> _directContextLengthOptions = <int>[
 ];
 
 const String openWebUiDirectConnectionSourceQueryValue = 'openwebui';
+
+/// Above this many models, context limits move to their own page so a large
+/// gateway catalog doesn't bury the rest of Direct Connections.
+const int kDirectContextCompactionInlineLimit = 5;
 
 Widget _buildDirectConnectionsScaffold(
   BuildContext context, {
@@ -203,6 +208,7 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
             UiUtils.showMessage(context, l10n.applePccUnavailable);
           }
         },
+        webSearchSettings: const OnDeviceWebSearchSettingsSection(),
         modelsWithoutContextLimit: modelsWithoutContextLimit,
         contextLengthOverrides: contextLengthOverrides,
         onContextLengthChanged: (modelId, contextLength) => unawaited(
@@ -304,6 +310,7 @@ class DirectConnectionsContent extends StatelessWidget {
     this.modelsWithoutContextLimit = const <Model>[],
     this.contextLengthOverrides = const <String, int>{},
     this.onContextLengthChanged,
+    this.webSearchSettings,
   });
 
   final List<DirectConnectionProfile> profiles;
@@ -336,6 +343,9 @@ class DirectConnectionsContent extends StatelessWidget {
   final void Function(String modelId, int contextLength)?
   onContextLengthChanged;
 
+  /// On-device web search settings; hidden during onboarding.
+  final Widget? webSearchSettings;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -366,11 +376,17 @@ class DirectConnectionsContent extends StatelessWidget {
       ],
       if (modelsWithoutContextLimit.isNotEmpty &&
           onContextLengthChanged != null) ...[
-        _DirectContextCompactionSection(
-          models: modelsWithoutContextLimit,
-          contextLengthOverrides: contextLengthOverrides,
-          onChanged: onContextLengthChanged!,
-        ),
+        if (modelsWithoutContextLimit.length >
+            kDirectContextCompactionInlineLimit)
+          _DirectContextCompactionSummary(
+            modelCount: modelsWithoutContextLimit.length,
+          )
+        else
+          _DirectContextCompactionSection(
+            models: modelsWithoutContextLimit,
+            contextLengthOverrides: contextLengthOverrides,
+            onChanged: onContextLengthChanged!,
+          ),
         const SizedBox(height: Spacing.xl),
       ],
       if (showHistorySync) ...[
@@ -433,6 +449,10 @@ class DirectConnectionsContent extends StatelessWidget {
         onRetry: onRetryMcp,
         flat: isOnboarding,
       ),
+      if (webSearchSettings != null && !isOnboarding) ...[
+        const SizedBox(height: Spacing.xl),
+        webSearchSettings!,
+      ],
     ];
 
     return _buildDirectConnectionsScaffold(
@@ -658,22 +678,88 @@ class _AppleModelSection extends StatelessWidget {
   }
 }
 
-class _DirectContextCompactionSection extends StatelessWidget {
-  const _DirectContextCompactionSection({
-    required this.models,
-    required this.contextLengthOverrides,
-    required this.onChanged,
-  });
+/// One row standing in for a long context-limit list.
+class _DirectContextCompactionSummary extends StatelessWidget {
+  const _DirectContextCompactionSummary({required this.modelCount});
 
-  final List<Model> models;
-  final Map<String, int> contextLengthOverrides;
-  final void Function(String modelId, int contextLength) onChanged;
+  final int modelCount;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return InsetGroupedList(
       title: l10n.directContextCompactionTitle,
+      footer: l10n.directContextCompactionDescription,
+      useNativeSurface: PlatformInfo.isIOS,
+      children: [
+        UtilityRow(
+          key: const ValueKey<String>('direct-context-compaction-models'),
+          title: l10n.directContextCompactionModelCount(modelCount),
+          titleFontWeight: PlatformInfo.isIOS ? FontWeight.w400 : null,
+          showChevron: true,
+          onTap: () => Navigator.of(context).push(
+            CupertinoPageRoute<void>(
+              builder: (_) => const DirectContextCompactionPage(),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Context limits for every Direct model that doesn't report one.
+class DirectContextCompactionPage extends ConsumerWidget {
+  const DirectContextCompactionPage({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final models =
+        (ref.watch(directModelDiscoveryProvider).value?.models ??
+                const <Model>[])
+            .where((model) => directModelAdvertisedContextLength(model) == null)
+            .toList(growable: false);
+    return UtilityPageScaffold.settings(
+      title: l10n.directContextCompactionTitle,
+      children: [
+        _DirectContextCompactionSection(
+          models: models,
+          contextLengthOverrides: ref.watch(
+            directContextLengthOverridesProvider,
+          ),
+          onChanged: (modelId, contextLength) => unawaited(
+            ref
+                .read(directContextLengthOverridesProvider.notifier)
+                .set(modelId, contextLength),
+          ),
+          showTitle: false,
+        ),
+      ],
+    );
+  }
+}
+
+class _DirectContextCompactionSection extends StatelessWidget {
+  const _DirectContextCompactionSection({
+    required this.models,
+    required this.contextLengthOverrides,
+    required this.onChanged,
+    this.showTitle = true,
+  });
+
+  final List<Model> models;
+  final Map<String, int> contextLengthOverrides;
+  final void Function(String modelId, int contextLength) onChanged;
+
+  /// Off on the dedicated page, whose title already says it.
+  final bool showTitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return InsetGroupedList(
+      title: showTitle ? l10n.directContextCompactionTitle : null,
       footer: l10n.directContextCompactionDescription,
       useNativeSurface: PlatformInfo.isIOS,
       children: [

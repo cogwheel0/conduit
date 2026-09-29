@@ -14,6 +14,7 @@ import 'package:conduit/features/chat/widgets/composer_overflow_items.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/features/web_search/services/direct_web_search_mode.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -114,30 +115,46 @@ void main() {
     );
   });
 
-  test('direct send policy filters unsupported tools and search conflicts', () {
+  test('direct send policy keeps on-device search beside MCP tools', () {
+    // On-device search is another local tool, so it coexists with MCP.
     final apple = normalizeDirectToolSelectionForBinding(
       binding: const DirectModelBinding(
         profileId: kApplePccProfileId,
         adapterKey: kApplePccAdapterKey,
         remoteModelId: kApplePccRemoteModelId,
       ),
+      webSearchMode: DirectWebSearchMode.onDevice,
       enableWebSearch: true,
       localMcpToolIds: const ['local_mcp:home'],
     );
     expect(apple.localMcpToolIds, ['local_mcp:home']);
-    expect(apple.enableWebSearch, isFalse);
+    expect(apple.enableWebSearch, isTrue);
 
+    // A provider-hosted search tool can't share a request with local tools.
     final openRouter = normalizeDirectToolSelectionForBinding(
       binding: const DirectModelBinding(
         profileId: 'openrouter',
         adapterKey: kOpenAiCompatibleAdapterKey,
         remoteModelId: 'model',
       ),
+      webSearchMode: DirectWebSearchMode.providerHosted,
       enableWebSearch: true,
       localMcpToolIds: const ['local_mcp:home'],
     );
     expect(openRouter.localMcpToolIds, ['local_mcp:home']);
     expect(openRouter.enableWebSearch, isFalse);
+
+    final noTools = normalizeDirectToolSelectionForBinding(
+      binding: const DirectModelBinding(
+        profileId: 'ollama',
+        adapterKey: kOllamaAdapterKey,
+        remoteModelId: 'gemma',
+      ),
+      webSearchMode: DirectWebSearchMode.unavailable,
+      enableWebSearch: true,
+      localMcpToolIds: const [],
+    );
+    expect(noTools.enableWebSearch, isFalse);
   });
 
   test('native composer glass uses non-animated cursor opacity', () {

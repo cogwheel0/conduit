@@ -4978,5 +4978,20 @@
   "chatTaskPending": "Čeká",
   "chatTaskInProgress": "Probíhá",
   "chatTaskCompleted": "Dokončeno",
-  "chatTaskCancelled": "Zrušeno"
+  "chatTaskCancelled": "Zrušeno",
+  "webSearchSettingsFooterAuto": "Používají modely Direct bez vlastního vyhledávání na webu. Vyhledávání probíhá z tohoto zařízení: dotazy jdou na DuckDuckGo, a pokud neodpoví, na Brave, Bing, Mojeek nebo Wikipedii. Stránky, které model čte, se také načítají z tohoto zařízení.",
+  "webSearchSettingsFooterEngine": "Používají modely Direct bez vlastního vyhledávání na webu. Vyhledávání probíhá z tohoto zařízení a dotazy jdou pouze na {engine}. Stránky, které model čte, se také načítají z tohoto zařízení.",
+  "@webSearchSettingsFooterEngine": {"placeholders": {"engine": {"type": "String", "example": "DuckDuckGo"}}},
+  "webSearchEngineLabel": "Vyhledávač",
+  "webSearchEngineAuto": "Automaticky",
+  "webSearchSafeSearchLabel": "Bezpečné vyhledávání",
+  "webSearchSafeSearchStrict": "Přísné",
+  "webSearchSafeSearchModerate": "Střední",
+  "webSearchSafeSearchOff": "Vypnuto",
+  "webSearchRegionLabel": "Oblast",
+  "webSearchRegionAuto": "Podle zařízení",
+  "webSearchRegionWorldwide": "Celosvětově",
+  "directModelToolsUnsupported": "Tento model neumí používat nástroje, a proto nemůže vyhledávat na webu. Vypněte vyhledávání na webu a všechny nástroje a zkuste to znovu.",
+  "directContextCompactionModelCount": "{count, plural, one{{count} model} few{{count} modely} many{{count} modelu} other{{count} modelů}}",
+  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}}
 }

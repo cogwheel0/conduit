@@ -6488,5 +6488,20 @@
   "chatTaskPending": "Oczekujące",
   "chatTaskInProgress": "W toku",
   "chatTaskCompleted": "Ukończone",
-  "chatTaskCancelled": "Anulowane"
+  "chatTaskCancelled": "Anulowane",
+  "webSearchSettingsFooterAuto": "Używane przez modele Direct bez własnego wyszukiwania w sieci. Wyszukiwanie odbywa się z tego urządzenia: zapytania trafiają do DuckDuckGo, a jeśli nie odpowie — do Brave, Bing, Mojeek lub Wikipedii. Strony czytane przez model również są pobierane z tego urządzenia.",
+  "webSearchSettingsFooterEngine": "Używane przez modele Direct bez własnego wyszukiwania w sieci. Wyszukiwanie odbywa się z tego urządzenia, a zapytania trafiają tylko do {engine}. Strony czytane przez model również są pobierane z tego urządzenia.",
+  "@webSearchSettingsFooterEngine": {"description": "Footer under the on-device web search settings when one engine is chosen; {engine} is a brand name such as DuckDuckGo.", "placeholders": {"engine": {"type": "String", "example": "DuckDuckGo"}}},
+  "webSearchEngineLabel": "Wyszukiwarka",
+  "webSearchEngineAuto": "Automatycznie",
+  "webSearchSafeSearchLabel": "Bezpieczne wyszukiwanie",
+  "webSearchSafeSearchStrict": "Ścisłe",
+  "webSearchSafeSearchModerate": "Umiarkowane",
+  "webSearchSafeSearchOff": "Wyłączone",
+  "webSearchRegionLabel": "Region",
+  "webSearchRegionAuto": "Jak urządzenie",
+  "webSearchRegionWorldwide": "Cały świat",
+  "directModelToolsUnsupported": "Ten model nie może używać narzędzi, więc nie może przeszukiwać sieci. Wyłącz wyszukiwanie w sieci i wszystkie narzędzia, a następnie spróbuj ponownie.",
+  "directContextCompactionModelCount": "{count, plural, one{{count} model} few{{count} modele} many{{count} modeli} other{{count} modelu}}",
+  "@directContextCompactionModelCount": {"description": "Row value on Direct Connections that opens the list of models needing a context limit.", "placeholders": {"count": {"type": "int", "example": "42"}}}
 }

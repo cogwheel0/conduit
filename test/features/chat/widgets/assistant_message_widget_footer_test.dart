@@ -459,8 +459,22 @@ void main() {
     expect(find.text('2/2'), findsOneWidget);
     expect(find.byIcon(Icons.content_copy_outlined), findsOneWidget);
     expect(find.byIcon(Icons.refresh), findsOneWidget);
-    expect(find.byIcon(Icons.chevron_left), findsNothing);
-    expect(find.byIcon(Icons.chevron_right), findsNothing);
+    // The version pager is inline, not in the overflow. On the latest
+    // version only "back" is available.
+    expect(
+      tester.getSemantics(find.bySemanticsLabel('Prev')),
+      matchesSemantics(
+        label: 'Prev',
+        isButton: true,
+        hasEnabledState: true,
+        isEnabled: true,
+        hasTapAction: true,
+      ),
+    );
+    expect(
+      tester.getSemantics(find.bySemanticsLabel('Next')),
+      matchesSemantics(label: 'Next', isButton: true, hasEnabledState: true),
+    );
     expect(find.byIcon(Icons.more_horiz_rounded), findsOneWidget);
 
     final refreshPosition = tester.getTopLeft(find.byIcon(Icons.refresh));
@@ -470,16 +484,16 @@ void main() {
       find.byIcon(Icons.more_horiz_rounded),
     );
 
-    // Order: icon buttons, the inline overflow, then info chips.
+    // Order: version pager, icon buttons, the inline overflow, info chips.
+    expect(refreshPosition.dx, greaterThan(versionPosition.dx));
     expect(overflowPosition.dx, greaterThan(refreshPosition.dx));
     expect(sourcePosition.dx, greaterThan(overflowPosition.dx));
-    expect(versionPosition.dx, greaterThan(sourcePosition.dx));
 
     await tester.tap(find.byIcon(Icons.more_horiz_rounded));
     await tester.pumpAndSettle();
 
-    expect(find.text('Prev'), findsOneWidget);
-    expect(find.text('Next'), findsOneWidget);
+    expect(find.text('Prev'), findsNothing);
+    expect(find.text('Next'), findsNothing);
     expect(find.text('Info'), findsOneWidget);
   });
 

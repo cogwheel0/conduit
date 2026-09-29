@@ -3323,5 +3323,20 @@
   "chatTaskPending": "Ausstehend",
   "chatTaskInProgress": "In Bearbeitung",
   "chatTaskCompleted": "Abgeschlossen",
-  "chatTaskCancelled": "Abgebrochen"
+  "chatTaskCancelled": "Abgebrochen",
+  "webSearchSettingsFooterAuto": "Wird von Direct-Modellen ohne eigene Websuche verwendet. Die Suche läuft von diesem Gerät aus: Anfragen gehen an DuckDuckGo und, wenn keine Antwort kommt, an Brave, Bing, Mojeek oder Wikipedia. Seiten, die das Modell liest, werden ebenfalls von diesem Gerät abgerufen.",
+  "webSearchSettingsFooterEngine": "Wird von Direct-Modellen ohne eigene Websuche verwendet. Die Suche läuft von diesem Gerät aus, und Anfragen gehen nur an {engine}. Seiten, die das Modell liest, werden ebenfalls von diesem Gerät abgerufen.",
+  "@webSearchSettingsFooterEngine": {"placeholders": {"engine": {"type": "String", "example": "DuckDuckGo"}}},
+  "webSearchEngineLabel": "Suchmaschine",
+  "webSearchEngineAuto": "Automatisch",
+  "webSearchSafeSearchLabel": "Sichere Suche",
+  "webSearchSafeSearchStrict": "Streng",
+  "webSearchSafeSearchModerate": "Moderat",
+  "webSearchSafeSearchOff": "Aus",
+  "webSearchRegionLabel": "Region",
+  "webSearchRegionAuto": "Wie Gerät",
+  "webSearchRegionWorldwide": "Weltweit",
+  "directModelToolsUnsupported": "Dieses Modell kann keine Werkzeuge verwenden und deshalb nicht im Web suchen. Schalte die Websuche und alle Werkzeuge aus und versuche es erneut.",
+  "directContextCompactionModelCount": "{count, plural, =1{1 Modell} other{{count} Modelle}}",
+  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}}
 }
