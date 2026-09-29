@@ -329,6 +329,32 @@ void main() {
       check(container.read(webSearchAvailableProvider)).isTrue();
     });
 
+    test('Apple models offer on-device search despite their parameter list', () {
+      // Apple advertises sampling parameters only, but its adapter runs tools.
+      final registry = DirectModelRegistry();
+      final model = registry.replaceProfileModels(
+        DirectConnectionProfile.applePrivateCloudCompute(),
+        [
+          DirectRemoteModel(
+            id: kApplePccRemoteModelId,
+            name: 'Apple Private Cloud Compute',
+            capabilities: const {
+              'supported_parameters': ['temperature', 'max_tokens'],
+            },
+          ),
+        ],
+      ).single;
+      final container = _container(
+        const AsyncData<Map<String, dynamic>>({}),
+        selectedModel: model,
+        directModelRegistry: registry,
+      );
+      addTearDown(container.dispose);
+
+      check(container.read(selectedDirectWebSearchModeProvider))
+          .equals(DirectWebSearchMode.onDevice);
+    });
+
     test(
       'a direct model that reports no tool support hides web search',
       () async {

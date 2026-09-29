@@ -212,15 +212,17 @@ class NativeSheetHydrationService {
 
       // The native sheet can't draw SVG, so bundled model logos go over as
       // PNG bytes, rendered once per logo in the current theme's ink.
+      // Rendered in parallel and cached across openings, so only the first
+      // opening with a new logo waits for it.
       final logoInk = context.conduitTheme.textPrimary;
-      final logoBytes = <String, Uint8List?>{};
-      for (final model in orderedModels) {
-        final logoId = modelLogoIdFromUrl(
-          resolveModelIconUrlForModel(api, model),
-        );
-        if (logoId == null || logoBytes.containsKey(logoId)) continue;
-        logoBytes[logoId] = await rasterizeModelLogo(logoId, color: logoInk);
-      }
+      final logoIds = {
+        for (final model in orderedModels)
+          ?modelLogoIdFromUrl(resolveModelIconUrlForModel(api, model)),
+      };
+      final rendered = await Future.wait(
+        logoIds.map((id) => rasterizeModelLogo(id, color: logoInk)),
+      );
+      final logoBytes = Map.fromIterables(logoIds, rendered);
       if (!context.mounted) return null;
 
       final modelOptions = [

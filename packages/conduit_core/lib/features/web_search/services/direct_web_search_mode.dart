@@ -39,6 +39,11 @@ DirectWebSearchMode directWebSearchModeFor({
       capabilities?['web_search'] == true) {
     return DirectWebSearchMode.providerHosted;
   }
+  // Apple's Foundation Models always take tools; their advertised parameter
+  // list covers sampling controls only.
+  if (binding.adapterKey == kApplePccAdapterKey) {
+    return DirectWebSearchMode.onDevice;
+  }
   return directModelMaySupportTools(model)
       ? DirectWebSearchMode.onDevice
       : DirectWebSearchMode.unavailable;

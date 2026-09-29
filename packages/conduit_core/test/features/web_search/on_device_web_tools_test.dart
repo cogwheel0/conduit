@@ -36,14 +36,17 @@ final class _StubEngine extends SearchEngine {
 
 final class _RecordingFetcher extends WebPageFetcher {
   final List<Uri> fetched = [];
+  final List<RedirectPolicy?> redirectPolicies = [];
 
   @override
   Future<FetchedWebPage> fetch(
     Uri url, {
     String? acceptLanguage,
     Future<void>? cancel,
+    RedirectPolicy? allowRedirect,
   }) async {
     fetched.add(url);
+    redirectPolicies.add(allowRedirect);
     return FetchedWebPage(
       url: url,
       contentType: 'text/html',
@@ -147,6 +150,35 @@ void main() {
     });
     expect(userLink.isError, isFalse);
     expect(fetcher.fetched, [Uri.parse('https://docs.example.com/guide')]);
+    // The user chose this link, so it may redirect anywhere public.
+    expect(fetcher.redirectPolicies.single, isNull);
+  });
+
+  test('a search result may only redirect within its own site', () async {
+    final fetcher = _RecordingFetcher();
+    final session = _session(
+      search: _ddgs([('Dart', 'https://dart.dev/')]),
+      fetcher: fetcher,
+    );
+    await session.execute(kWebSearchToolName, {'query': 'dart'});
+    await session.execute(kWebFetchToolName, {'url': 'https://dart.dev/'});
+
+    final allowRedirect = fetcher.redirectPolicies.single!;
+    final from = Uri.parse('https://dart.dev/');
+    for (final to in [
+      'http://dart.dev/docs',
+      'https://www.dart.dev/',
+      'https://api.dart.dev/stable',
+    ]) {
+      expect(allowRedirect(from, Uri.parse(to)), isTrue, reason: to);
+    }
+    for (final to in [
+      'https://attacker.example/?q=1',
+      'https://notdart.dev/',
+      'https://dart.dev.attacker.example/',
+    ]) {
+      expect(allowRedirect(from, Uri.parse(to)), isFalse, reason: to);
+    }
   });
 
   test('links the user wrote are read as written', () {

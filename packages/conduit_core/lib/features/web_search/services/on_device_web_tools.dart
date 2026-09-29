@@ -72,7 +72,9 @@ final class OnDeviceWebToolSession {
        _clock = clock ?? DateTime.now {
     for (final url in userProvidedUrls) {
       try {
-        _fetchableUrls.add(normalizePublicWebUrl(url));
+        final normalized = normalizePublicWebUrl(url);
+        _fetchableUrls.add(normalized);
+        _userUrls.add(normalized);
       } on FormatException {
         // Local or malformed links in the user's message stay unfetchable.
       }
@@ -84,6 +86,10 @@ final class OnDeviceWebToolSession {
   final Future<void>? _cancel;
   final DateTime Function() _clock;
   final Set<String> _fetchableUrls = {};
+
+  /// Links the user wrote. Unlike search results, these may redirect to
+  /// another site: the user chose them.
+  final Set<String> _userUrls = {};
 
   final WebSearchEngineChoice engine;
   final SearchRegion region;
@@ -231,6 +237,9 @@ final class OnDeviceWebToolSession {
       Uri.parse(url),
       acceptLanguage: region.acceptLanguage,
       cancel: _cancel,
+      // A search result may only redirect within its own site, so a result
+      // can't hand the fetch to an unrelated host.
+      allowRedirect: _userUrls.contains(url) ? null : isSameSiteRedirect,
     );
     final extracted = extractReadableText(page);
     final truncated =
@@ -267,6 +276,20 @@ final class OnDeviceWebToolSession {
       isError: true,
     );
   }
+}
+
+/// Whether a redirect stays on the same site: the same host, its `www`
+/// twin, or a subdomain in either direction (`http→https` and path changes
+/// are fine).
+bool isSameSiteRedirect(Uri from, Uri to) {
+  String bare(Uri uri) {
+    final host = uri.host.toLowerCase();
+    return host.startsWith('www.') ? host.substring(4) : host;
+  }
+
+  final a = bare(from);
+  final b = bare(to);
+  return a == b || a.endsWith('.$b') || b.endsWith('.$a');
 }
 
 /// `http(s)` links in [text], e.g. the user's message, for the fetch

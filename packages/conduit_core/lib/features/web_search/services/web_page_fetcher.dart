@@ -40,6 +40,9 @@ final class FetchedWebPage {
 
 typedef HostLookup = Future<List<InternetAddress>> Function(String host);
 
+/// Decides whether a fetch may follow a redirect from [from] to [to].
+typedef RedirectPolicy = bool Function(Uri from, Uri to);
+
 /// Fetches public web pages from the device for the `web_fetch` tool.
 ///
 /// The device can usually reach the user's LAN, so every connection is
@@ -79,18 +82,22 @@ class WebPageFetcher {
   ///
   /// Throws [WebFetchException] for any failure, and completes with a
   /// [WebFetchException] when [cancel] fires first.
+  ///
+  /// Every redirect hop must pass [allowRedirect] (default: any public URL).
   Future<FetchedWebPage> fetch(
     Uri url, {
     String? acceptLanguage,
     Future<void>? cancel,
+    RedirectPolicy? allowRedirect,
   }) async {
+    var stopped = false;
     final client = HttpClient()
       ..findProxy = ((_) => 'DIRECT')
-      ..connectionFactory = _connect
+      ..connectionFactory = ((uri, proxyHost, proxyPort) =>
+          _connect(uri, () => stopped))
       ..connectionTimeout = connectTimeout
       ..autoUncompress = true
       ..userAgent = userAgent;
-    var stopped = false;
     final stopSignal = Completer<FetchedWebPage>();
     void stop() {
       if (stopped) return;
@@ -105,7 +112,13 @@ class WebPageFetcher {
 
     final timer = Timer(timeout, stop);
     unawaited(cancel?.then((_) => stop()));
-    final work = _fetchWith(client, url, acceptLanguage, () => stopped);
+    final work = _fetchWith(
+      client,
+      url,
+      acceptLanguage,
+      allowRedirect,
+      () => stopped,
+    );
     work.ignore();
     stopSignal.future.ignore();
 
@@ -124,6 +137,7 @@ class WebPageFetcher {
     HttpClient client,
     Uri url,
     String? acceptLanguage,
+    RedirectPolicy? allowRedirect,
     bool Function() stopped,
   ) async {
     try {
@@ -145,9 +159,16 @@ class WebPageFetcher {
           if (location == null || hop >= maxRedirects) {
             throw const WebFetchException('The page redirected too often.');
           }
-          current = Uri.parse(
+          final next = Uri.parse(
             normalizePublicWebUrl(current.resolve(location).toString()),
           );
+          if (allowRedirect != null && !allowRedirect(current, next)) {
+            throw WebFetchException(
+              'The page redirects to ${next.host}, another site, which '
+              'web_fetch does not follow.',
+            );
+          }
+          current = next;
           continue;
         }
         if (response.statusCode != HttpStatus.ok) {
@@ -188,13 +209,13 @@ class WebPageFetcher {
 
   Future<ConnectionTask<Socket>> _connect(
     Uri url,
-    String? proxyHost,
-    int? proxyPort,
+    bool Function() stopped,
   ) async {
     final host = url.host;
     final port = url.hasPort ? url.port : (url.scheme == 'https' ? 443 : 80);
     final addresses = await _vettedAddresses(host);
-    final socket = _connectAny(addresses, port).then<Socket>(
+    if (stopped()) throw const SocketException('Fetch stopped');
+    final socket = _connectAny(addresses, port, stopped).then<Socket>(
       (socket) => url.scheme == 'https'
           ? SecureSocket.secure(socket, host: host)
           : socket,
@@ -216,12 +237,28 @@ class WebPageFetcher {
     return addresses;
   }
 
-  Future<Socket> _connectAny(List<InternetAddress> addresses, int port) async {
+  Future<Socket> _connectAny(
+    List<InternetAddress> addresses,
+    int port,
+    bool Function() stopped,
+  ) async {
     Object? lastError;
     for (final address in addresses.take(4)) {
+      if (stopped()) throw const SocketException('Fetch stopped');
       try {
-        return await Socket.connect(address, port, timeout: connectTimeout);
+        final socket = await Socket.connect(
+          address,
+          port,
+          timeout: connectTimeout,
+        );
+        // A socket that lands after the fetch stopped is nobody's.
+        if (stopped()) {
+          socket.destroy();
+          throw const SocketException('Fetch stopped');
+        }
+        return socket;
       } on SocketException catch (error) {
+        if (stopped()) rethrow;
         lastError = error;
       }
     }

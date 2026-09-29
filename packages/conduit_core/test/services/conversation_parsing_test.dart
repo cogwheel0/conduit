@@ -534,7 +534,18 @@ void main() {
                   'content': 'Latest answer',
                   'parentId': 'user-1',
                   'timestamp': 1700000001,
-                  'versions': [earlier.toJson()],
+                  'versions': [
+                    {
+                      ...earlier.toJson(),
+                      'files': [
+                        {
+                          'type': 'image',
+                          'url': 'https://images.example.com/a.png',
+                          'headers': {'Authorization': 'Bearer remote'},
+                        },
+                      ],
+                    },
+                  ],
                 },
               },
             },
@@ -544,6 +555,10 @@ void main() {
         final versions = conversation.messages.last.versions;
         check(versions).length.equals(1);
         check(versions.single.content).equals('Earlier answer');
+        // Stored files are sanitized like every other message's.
+        final file = versions.single.files!.single;
+        check(file['url']).equals('https://images.example.com/a.png');
+        check(file.containsKey('headers')).isFalse();
       });
 
       test('follows parent chain from currentId', () {
