@@ -1,4 +1,5 @@
 import 'package:checks/checks.dart';
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/services/conversation_parsing.dart';
 import 'package:conduit_core/services/direct_replay_output.dart';
 import 'package:conduit_core/services/structured_output.dart';
@@ -508,6 +509,43 @@ void main() {
     });
 
     group('extracts messages from history', () {
+      test('keeps versions stored on the message itself', () {
+        // Direct chats regenerate in place and persist earlier responses on
+        // the message, not as Open WebUI sibling rows.
+        final earlier = ChatMessageVersion(
+          id: 'assistant-1-v1',
+          content: 'Earlier answer',
+          timestamp: DateTime.utc(2026, 9, 29),
+        );
+        final conversation = parseFullConversationModel({
+          'id': 'conv-1',
+          'chat': {
+            'history': {
+              'currentId': 'assistant-1',
+              'messages': {
+                'user-1': {
+                  'role': 'user',
+                  'content': 'Question',
+                  'childrenIds': ['assistant-1'],
+                  'timestamp': 1700000000,
+                },
+                'assistant-1': {
+                  'role': 'assistant',
+                  'content': 'Latest answer',
+                  'parentId': 'user-1',
+                  'timestamp': 1700000001,
+                  'versions': [earlier.toJson()],
+                },
+              },
+            },
+          },
+        });
+
+        final versions = conversation.messages.last.versions;
+        check(versions).length.equals(1);
+        check(versions.single.content).equals('Earlier answer');
+      });
+
       test('follows parent chain from currentId', () {
         final result = parseFullConversation({
           'id': 'conv-1',
