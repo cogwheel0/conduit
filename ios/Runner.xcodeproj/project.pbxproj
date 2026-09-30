@@ -38,6 +38,14 @@
 		F1DBCF1D2E601A39004C2540 /* ShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F1DBCF132E601A39004C2540 /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F1L10N012EE5500000000001 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = F1L10N002EE5500000000001 /* InfoPlist.strings */; };
 		F1L10N022EE5500000000001 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = F1L10N003EE5500000000001 /* Localizable.strings */; };
+		C07E03850D838F4CC4E73700 /* ShareImportBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C076D53F677D9AB9577FCB47 /* ShareImportBridge.swift */; };
+		C0778A160B9E0F6B3D0E5C00 /* BackgroundStreamingHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C07B0ACB6D900F7182D98598 /* BackgroundStreamingHandler.swift */; };
+		C079094EC8D3F2DCA002F300 /* VoiceAudioRouteBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0748D3BCA6CB2E7D24C8438 /* VoiceAudioRouteBridge.swift */; };
+		C073CCD19D2508BCAD536200 /* NativeIosTtsBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C07E41E507BC83CDF6A2F806 /* NativeIosTtsBridge.swift */; };
+		C07A1ABDC1D26441C3348E00 /* AppIntentInvocationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0700E3C1D3E25D23C2D9095 /* AppIntentInvocationStore.swift */; };
+		C073D293D6D3C0AE42208200 /* AppIntentBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0733DBE0EC21B8BA584F742 /* AppIntentBridge.swift */; };
+		C0799EE7361E2F33F8F82200 /* ConduitAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = C073CB9E0C18631B25DCC01B /* ConduitAppIntents.swift */; };
+		C0784AC8CDA88C741E323C00 /* CookieBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C073FA4B620A52333B648A35 /* CookieBridge.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -164,6 +172,14 @@
 		F1L10N202EE550000000000A /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		F1L10N202EE550000000000B /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/Localizable.strings; sourceTree = "<group>"; };
 		F1L10N202EE550000000000C /* pl */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = pl; path = pl.lproj/Localizable.strings; sourceTree = "<group>"; };
+		C076D53F677D9AB9577FCB47 /* ShareImportBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareImportBridge.swift; sourceTree = "<group>"; };
+		C07B0ACB6D900F7182D98598 /* BackgroundStreamingHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundStreamingHandler.swift; sourceTree = "<group>"; };
+		C0748D3BCA6CB2E7D24C8438 /* VoiceAudioRouteBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceAudioRouteBridge.swift; sourceTree = "<group>"; };
+		C07E41E507BC83CDF6A2F806 /* NativeIosTtsBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeIosTtsBridge.swift; sourceTree = "<group>"; };
+		C0700E3C1D3E25D23C2D9095 /* AppIntentInvocationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIntentInvocationStore.swift; sourceTree = "<group>"; };
+		C0733DBE0EC21B8BA584F742 /* AppIntentBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIntentBridge.swift; sourceTree = "<group>"; };
+		C073CB9E0C18631B25DCC01B /* ConduitAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitAppIntents.swift; sourceTree = "<group>"; };
+		C073FA4B620A52333B648A35 /* CookieBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CookieBridge.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -340,6 +356,14 @@
 				1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */,
 				1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */,
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
+				C073FA4B620A52333B648A35 /* CookieBridge.swift */,
+				C073CB9E0C18631B25DCC01B /* ConduitAppIntents.swift */,
+				C0733DBE0EC21B8BA584F742 /* AppIntentBridge.swift */,
+				C0700E3C1D3E25D23C2D9095 /* AppIntentInvocationStore.swift */,
+				C07E41E507BC83CDF6A2F806 /* NativeIosTtsBridge.swift */,
+				C0748D3BCA6CB2E7D24C8438 /* VoiceAudioRouteBridge.swift */,
+				C07B0ACB6D900F7182D98598 /* BackgroundStreamingHandler.swift */,
+				C076D53F677D9AB9577FCB47 /* ShareImportBridge.swift */,
 				D2A0B2132F5E4D6C7B8A9012 /* ConduitPlatformApis.g.swift */,
 				D2A0B1C32F5E4D6C7B8A9012 /* NativePasteBridge.swift */,
 				D2A0B1D32F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift */,
@@ -654,6 +678,14 @@
 				D2A0B1C42F5E4D6C7B8A9012 /* NativePasteBridge.swift in Sources */,
 				D2A0B2312F5E4D6C7B8A9012 /* NativeShareEnvelopeStore.swift in Sources */,
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
+				C0784AC8CDA88C741E323C00 /* CookieBridge.swift in Sources */,
+				C0799EE7361E2F33F8F82200 /* ConduitAppIntents.swift in Sources */,
+				C073D293D6D3C0AE42208200 /* AppIntentBridge.swift in Sources */,
+				C07A1ABDC1D26441C3348E00 /* AppIntentInvocationStore.swift in Sources */,
+				C073CCD19D2508BCAD536200 /* NativeIosTtsBridge.swift in Sources */,
+				C079094EC8D3F2DCA002F300 /* VoiceAudioRouteBridge.swift in Sources */,
+				C0778A160B9E0F6B3D0E5C00 /* BackgroundStreamingHandler.swift in Sources */,
+				C07E03850D838F4CC4E73700 /* ShareImportBridge.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
