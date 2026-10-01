@@ -189,6 +189,8 @@ final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
         return true
     }
 
+    /// Replaces the Flutter responder's keyboard, using its app window to
+    /// bound the panel's height independently of the keyboard hosting window.
     private func activateAttachmentInputView(
         for responder: UIResponder,
         reloadInputViews: Bool
@@ -196,7 +198,8 @@ final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
         shouldPresentOnNextFocus = false
         attachmentInputView.update(actions: actions)
         attachmentInputView.updatePreferredHeight(
-            measuredKeyboardHeight(for: responder)
+            measuredKeyboardHeight(for: responder),
+            in: (responder as? UIView)?.window ?? keyWindow
         )
 
         objc_setAssociatedObject(
@@ -308,12 +311,14 @@ final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
         return cachedKeyboardHeight
     }
 
+    /// Caches system keyboard heights without feeding the attachment panel's
+    /// own frame notifications back into its self-sizing height constraint.
     @objc
     private func handleKeyboardFrameChange(_ notification: Notification) {
-        // While presented, these frames describe the attachment input view.
-        // Feeding them back into its height constraint can make the self-sizing
-        // panel grow with each frame change instead of matching the keyboard.
-        guard !isPresented else { return }
+        guard !isPresented else {
+            attachmentInputView.setNeedsLayout()
+            return
+        }
 
         guard let frameValue = notification.userInfo?[
             UIResponder.keyboardFrameEndUserInfoKey
@@ -334,7 +339,7 @@ final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
         }
 
         cachedKeyboardHeight = visibleHeight
-        attachmentInputView.updatePreferredHeight(visibleHeight)
+        attachmentInputView.updatePreferredHeight(visibleHeight, in: window)
     }
 
     /// Tap-outside (or other system) dismissal can hide the keyboard without
@@ -403,6 +408,8 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
     private let onSelect: (NativeKeyboardAttachmentAction) -> Void
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
+    private var preferredHeight = defaultHeight
+    private weak var sizingWindow: UIWindow?
     private lazy var heightConstraint = heightAnchor.constraint(
         equalToConstant: Self.defaultHeight
     )
@@ -490,6 +497,19 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         nil
     }
 
+    /// Keeps space for the composer when rotation or window resizing reduces
+    /// the available height, then restores the preferred height as space grows.
+    override func layoutSubviews() {
+        if let window = sizingWindow ?? self.window, window.bounds.height > 0 {
+            let height = min(preferredHeight, window.bounds.height / 2)
+            if heightConstraint.constant != height {
+                heightConstraint.constant = height
+                invalidateIntrinsicContentSize()
+            }
+        }
+        super.layoutSubviews()
+    }
+
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
         guard
@@ -535,9 +555,14 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         }
     }
 
-    func updatePreferredHeight(_ height: CGFloat) {
+    /// Preserves the measured keyboard height independently of the panel's
+    /// current bounds so repeated frame changes cannot compound its size.
+    func updatePreferredHeight(_ height: CGFloat, in window: UIWindow?) {
         guard height > Self.minimumHeight else { return }
+        preferredHeight = height
+        sizingWindow = window
         heightConstraint.constant = height
+        setNeedsLayout()
     }
 
     private func addSectionTitle(_ title: String) {
