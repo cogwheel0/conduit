@@ -6,7 +6,7 @@ import UIKit
 /// UIKit draws the glyph, so Conduit never bundles Apple's artwork and the
 /// symbol always matches the running system. Flutter-drawn avatars cache the
 /// result, which keeps this off the scrolling path.
-final class NativeSymbolImageBridge {
+final class NativeSymbolImageBridge: ConduitBridge {
     static let shared = NativeSymbolImageBridge()
 
     /// Guards against a malformed or hostile request asking for a canvas that
@@ -18,7 +18,8 @@ final class NativeSymbolImageBridge {
 
     private init() {}
 
-    func configure(messenger: FlutterBinaryMessenger) {
+    func attach(to host: ConduitBridgeHost) {
+        let messenger = host.messenger
         let channel = FlutterMethodChannel(
             name: "conduit/native_symbol_image",
             binaryMessenger: messenger

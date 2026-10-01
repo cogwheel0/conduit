@@ -156,12 +156,13 @@ private final class BGProcessingCompletionState {
 
 // Background streaming handler class
 @MainActor
-class BackgroundStreamingHandler: NSObject, BackgroundStreamingHostApi {
+class BackgroundStreamingHandler: NSObject, ConduitBridge, BackgroundStreamingHostApi {
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var bgProcessingTask: BGTask?
     private var activeLeases: [String: BackgroundStreamingLease] = [:]
     private var flutterApi: BackgroundStreamingFlutterApi?
 
+    static let shared = BackgroundStreamingHandler()
     static let processingTaskIdentifier = "app.cogwheel.conduit.refresh"
 
     override init() {
@@ -169,7 +170,8 @@ class BackgroundStreamingHandler: NSObject, BackgroundStreamingHostApi {
         setupNotifications()
     }
     
-    func setup(messenger: FlutterBinaryMessenger) {
+    func attach(to host: ConduitBridgeHost) {
+        let messenger = host.messenger
         flutterApi = BackgroundStreamingFlutterApi(binaryMessenger: messenger)
         BackgroundStreamingHostApiSetup.setUp(
             binaryMessenger: messenger,

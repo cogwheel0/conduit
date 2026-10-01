@@ -139,13 +139,16 @@ private struct NativeDropdownConfiguration {
 }
 
 /// Presents simple option lists with native UIKit menus/action sheets.
-final class NativeDropdownBridge: NativeDropdownHostApi {
+final class NativeDropdownBridge: ConduitBridge, NativeDropdownHostApi {
     static let shared = NativeDropdownBridge()
+
+    private var host: ConduitBridgeHost?
 
     private init() {}
 
-    func configure(messenger: FlutterBinaryMessenger) {
-        NativeDropdownHostApiSetup.setUp(binaryMessenger: messenger, api: self)
+    func attach(to host: ConduitBridgeHost) {
+        self.host = host
+        NativeDropdownHostApiSetup.setUp(binaryMessenger: host.messenger, api: self)
     }
 
     func show(
@@ -247,13 +250,7 @@ final class NativeDropdownBridge: NativeDropdownHostApi {
     }
 
     private func topViewController() -> UIViewController? {
-        let root = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows)
-            .first { $0.isKeyWindow }?
-            .rootViewController
-
-        return topViewController(from: root)
+        topViewController(from: host?.presentingViewController)
     }
 
     private func topViewController(from root: UIViewController?) -> UIViewController? {

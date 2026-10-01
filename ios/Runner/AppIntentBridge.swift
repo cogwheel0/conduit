@@ -128,6 +128,11 @@ final class AppIntentBridge: AppIntentHostApi, @unchecked Sendable {
         AppIntentHostApiSetup.setUp(binaryMessenger: messenger, api: self)
     }
 
+    /// Replaces the shared bridge with one bound to `host`'s messenger.
+    static func attach(to host: ConduitBridgeHost) {
+        shared = AppIntentBridge(messenger: host.messenger)
+    }
+
     func setReady(ready: Bool) throws {
         // Pigeon acknowledges this synchronous host call as soon as the
         // method returns. Apply readiness before returning so Dart never sees

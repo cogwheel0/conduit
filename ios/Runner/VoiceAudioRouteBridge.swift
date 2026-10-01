@@ -3,7 +3,7 @@ import Flutter
 
 private let conduitVoiceAudioRouteChannelName = "app.cogwheel.conduit/voice_audio_route"
 
-final class VoiceAudioRouteBridge {
+final class VoiceAudioRouteBridge: ConduitBridge {
     static let shared = VoiceAudioRouteBridge()
 
     private var methodChannel: FlutterMethodChannel?
@@ -12,7 +12,8 @@ final class VoiceAudioRouteBridge {
 
     deinit {}
 
-    func configure(messenger: FlutterBinaryMessenger) {
+    func attach(to host: ConduitBridgeHost) {
+        let messenger = host.messenger
         let channel = FlutterMethodChannel(
             name: conduitVoiceAudioRouteChannelName,
             binaryMessenger: messenger

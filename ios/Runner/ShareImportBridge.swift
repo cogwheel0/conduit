@@ -3,7 +3,6 @@ import Flutter
 import Foundation
 
 private let conduitShareChannelName = "conduit/share_receiver_text"
-private let conduitShareAppGroupIdKey = "AppGroupId"
 
 func nativeSharedPayloadTypeIsText(_ type: Any?) -> Bool {
   if let type = type as? String {
@@ -119,4 +118,124 @@ func nativeValidatedShareImportPayload(
     payload["text"] = textParts.joined(separator: "\n")
   }
   return payload
+}
+
+/// Hands payloads staged by the share extension in the app group to Dart.
+final class ShareImportBridge: ConduitBridge {
+  static let shared = ShareImportBridge()
+
+  private var host: ConduitBridgeHost?
+  private var shareImportChannel: FlutterMethodChannel?
+
+  private init() {}
+
+  private lazy var shareEnvelopeStore: NativeShareEnvelopeStore? = {
+    guard let container = host?.appGroupContainerURL else { return nil }
+    return NativeShareEnvelopeStore(
+      containerURL: container,
+      legacyDefaults: host?.appGroupUserDefaults
+    )
+  }()
+
+  func attach(to host: ConduitBridgeHost) {
+    self.host = host
+    let shareImportChannel = FlutterMethodChannel(
+      name: conduitShareChannelName,
+      binaryMessenger: host.messenger
+    )
+    self.shareImportChannel = shareImportChannel
+    shareImportChannel.setMethodCallHandler { [weak self] call, result in
+      guard let self = self else {
+        result(nil)
+        return
+      }
+
+      switch call.method {
+      case "pendingShareImportStatus":
+        result(self.pendingShareImportStatus())
+      case "takePendingShareImportPayload":
+        result(self.takePendingShareImportPayload())
+      case "ackPendingShareImportPayload":
+        let arguments = call.arguments as? [String: Any]
+        result(self.acknowledgePendingShareImportPayload(
+          id: arguments?["id"] as? String
+        ))
+      case "shareStagingDirectoryPath":
+        result(self.shareStagingDirectoryPath())
+      case "clearShareImportStatus":
+        let arguments = call.arguments as? [String: Any]
+        self.clearShareImportStatus(id: arguments?["id"] as? String)
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  /// Tells Dart that the share extension staged a new payload.
+  func notifyPayloadReady() {
+    shareImportChannel?.invokeMethod("stagedSharePayloadReady", arguments: nil)
+  }
+
+  private func shareStagingDirectoryPath() -> String? {
+    guard let container = host?.appGroupContainerURL else { return nil }
+    let directory = container.appendingPathComponent(
+      nativeShareStagingDirectoryName,
+      isDirectory: true
+    )
+    do {
+      try FileManager.default.createDirectory(
+        at: directory,
+        withIntermediateDirectories: true
+      )
+      let values = try directory.resourceValues(
+        forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+      )
+      guard values.isDirectory == true, values.isSymbolicLink != true else {
+        return nil
+      }
+      return directory.resolvingSymlinksInPath().standardizedFileURL.path
+    } catch {
+      return nil
+    }
+  }
+
+  private func pendingShareImportStatus() -> [String: Any]? {
+    guard let store = shareEnvelopeStore,
+          let data = try? store.currentStatusJSON() else {
+      return nil
+    }
+    return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+  }
+
+  private func clearShareImportStatus(id: String?) {
+    guard let store = shareEnvelopeStore else { return }
+    _ = try? store.clearStatus(id: id)
+  }
+
+  private func takePendingShareImportPayload() -> [String: Any]? {
+    guard let store = shareEnvelopeStore,
+          let snapshot = try? store.takeCurrent(),
+          let rawItems = (try? JSONSerialization.jsonObject(
+            with: snapshot.envelope.itemsJSON
+          ))
+      as? [[String: Any]],
+      let status = (try? JSONSerialization.jsonObject(
+        with: snapshot.statusJSON
+      )) as? [String: Any],
+      let payload = nativeValidatedShareImportPayload(
+        rawItems: rawItems,
+        message: snapshot.envelope.message,
+        status: status,
+        shareStagingDirectoryPath: shareStagingDirectoryPath()
+      ) else {
+      return nil
+    }
+    return payload
+  }
+
+  private func acknowledgePendingShareImportPayload(id: String?) -> Bool {
+    guard let id, let store = shareEnvelopeStore else { return false }
+    return (try? store.acknowledge(id: id)) == true
+  }
 }

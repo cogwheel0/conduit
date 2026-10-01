@@ -1,4 +1,6 @@
+import Flutter
 import Foundation
+import WebKit
 
 /// Matches an HTTP cookie using its host-only/domain scope, Secure attribute,
 /// and RFC 6265 path boundary rules.
@@ -98,4 +100,39 @@ private func cookieIsPreferred(
         return candidateDomain < currentDomain
     }
     return candidate.value < current.value
+}
+
+/// Reads the WebView cookie store for Dart, which cannot see it directly.
+final class CookieBridge: ConduitBridge {
+  static let shared = CookieBridge()
+
+  private var cookieChannel: FlutterMethodChannel?
+
+  private init() {}
+
+  func attach(to host: ConduitBridgeHost) {
+    let cookieChannel = FlutterMethodChannel(
+      name: "com.conduit.app/cookies",
+      binaryMessenger: host.messenger
+    )
+    self.cookieChannel = cookieChannel
+
+    cookieChannel.setMethodCallHandler { (call, result) in
+      if call.method == "getCookies" {
+        guard let args = call.arguments as? [String: Any],
+              let urlString = args["url"] as? String,
+              let url = URL(string: urlString) else {
+          result(FlutterError(code: "INVALID_ARGS", message: "Invalid URL", details: nil))
+          return
+        }
+
+        // Get cookies from WKWebView's cookie store
+        WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
+          result(cookieValuesForUrl(cookies: cookies, url: url))
+        }
+      } else {
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
 }

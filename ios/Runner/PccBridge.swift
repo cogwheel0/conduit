@@ -302,7 +302,7 @@ private final class PccResponseState {
     var emittedContent = false
 }
 
-final class PccBridge: PccHostApi {
+final class PccBridge: ConduitBridge, PccHostApi {
     static let shared = PccBridge()
 
     private static let logger = Logger(
@@ -316,7 +316,8 @@ final class PccBridge: PccHostApi {
 
     private init() {}
 
-    func configure(messenger: FlutterBinaryMessenger) {
+    func attach(to host: ConduitBridgeHost) {
+        let messenger = host.messenger
         flutterApi = PccFlutterApi(binaryMessenger: messenger)
         PccHostApiSetup.setUp(binaryMessenger: messenger, api: self)
     }

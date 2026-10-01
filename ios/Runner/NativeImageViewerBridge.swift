@@ -70,15 +70,17 @@ private final class NativeImageViewerSession {
 /// Dart downloads and writes the files before presenting, so server
 /// credentials never reach this layer. Dart also deletes the files once
 /// `present` completes, which happens after dismissal.
-final class NativeImageViewerBridge: NSObject, NativeImageViewerHostApi {
+final class NativeImageViewerBridge: NSObject, ConduitBridge, NativeImageViewerHostApi {
     static let shared = NativeImageViewerBridge()
 
     private var session: NativeImageViewerSession?
+    private var host: ConduitBridgeHost?
 
     private override init() {}
 
-    func configure(messenger: FlutterBinaryMessenger) {
-        NativeImageViewerHostApiSetup.setUp(binaryMessenger: messenger, api: self)
+    func attach(to host: ConduitBridgeHost) {
+        self.host = host
+        NativeImageViewerHostApiSetup.setUp(binaryMessenger: host.messenger, api: self)
     }
 
     func present(
@@ -193,13 +195,7 @@ final class NativeImageViewerBridge: NSObject, NativeImageViewerHostApi {
     }
 
     private func topViewController() -> UIViewController? {
-        let root = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows)
-            .first { $0.isKeyWindow }?
-            .rootViewController
-
-        return topViewController(from: root)
+        topViewController(from: host?.presentingViewController)
     }
 
     private func topViewController(from root: UIViewController?) -> UIViewController? {

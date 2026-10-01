@@ -1,118 +1,25 @@
 import Flutter
 import UIKit
 import UserNotifications
-import WebKit
 
-private let platformEnvironmentChannelName = "app.cogwheel.conduit/platform_environment"
+// FLUTTER HOST ONLY. The Flutter app's composition root: it owns the Flutter
+// engines and attaches the native feature bridges to them through
+// `FlutterConduitBridgeHost`. The bridges themselves live in their own files
+// and depend only on `ConduitBridgeHost`.
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
-  private var backgroundStreamingHandler: BackgroundStreamingHandler?
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate,
+  ConduitBridgeHostProvider {
   private var sharedFlutterEngine: FlutterEngine?
   private weak var sharedFlutterWindowScene: UIWindowScene?
   private var didConfigureSharedFlutterEngine = false
-  private var cookieChannel: FlutterMethodChannel?
-  private var shareImportChannel: FlutterMethodChannel?
-
-  private func shareAppGroupId() -> String? {
-    let appGroupId = Bundle.main.object(
-      forInfoDictionaryKey: conduitShareAppGroupIdKey
-    ) as? String
-    let defaultGroupId = Bundle.main.bundleIdentifier.map { "group.\($0)" }
-    return appGroupId ?? defaultGroupId
-  }
-
-  private func shareUserDefaults() -> UserDefaults? {
-    guard let groupId = shareAppGroupId() else { return nil }
-    return UserDefaults(suiteName: groupId)
-  }
-
-  private lazy var shareEnvelopeStore: NativeShareEnvelopeStore? = {
-    guard let groupId = shareAppGroupId(),
-          let container = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: groupId
-          ) else { return nil }
-    return NativeShareEnvelopeStore(
-      containerURL: container,
-      legacyDefaults: shareUserDefaults()
-    )
-  }()
-
-  private func shareStagingDirectoryPath() -> String? {
-    guard let groupId = shareAppGroupId(),
-          let container = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: groupId
-          ) else { return nil }
-    let directory = container.appendingPathComponent(
-      nativeShareStagingDirectoryName,
-      isDirectory: true
-    )
-    do {
-      try FileManager.default.createDirectory(
-        at: directory,
-        withIntermediateDirectories: true
-      )
-      let values = try directory.resourceValues(
-        forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
-      )
-      guard values.isDirectory == true, values.isSymbolicLink != true else {
-        return nil
-      }
-      return directory.resolvingSymlinksInPath().standardizedFileURL.path
-    } catch {
-      return nil
-    }
-  }
-
-  private func pendingShareImportStatus() -> [String: Any]? {
-    guard let store = shareEnvelopeStore,
-          let data = try? store.currentStatusJSON() else {
-      return nil
-    }
-    return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-  }
-
-  private func clearShareImportStatus(id: String?) {
-    guard let store = shareEnvelopeStore else { return }
-    _ = try? store.clearStatus(id: id)
-  }
-
-  private func takePendingShareImportPayload() -> [String: Any]? {
-    guard let store = shareEnvelopeStore,
-          let snapshot = try? store.takeCurrent(),
-          let rawItems = (try? JSONSerialization.jsonObject(
-            with: snapshot.envelope.itemsJSON
-          ))
-      as? [[String: Any]],
-      let status = (try? JSONSerialization.jsonObject(
-        with: snapshot.statusJSON
-      )) as? [String: Any],
-      let payload = nativeValidatedShareImportPayload(
-        rawItems: rawItems,
-        message: snapshot.envelope.message,
-        status: status,
-        shareStagingDirectoryPath: shareStagingDirectoryPath()
-      ) else {
-      return nil
-    }
-    return payload
-  }
-
-  private func acknowledgePendingShareImportPayload(id: String?) -> Bool {
-    guard let id, let store = shareEnvelopeStore else { return false }
-    return (try? store.acknowledge(id: id)) == true
-  }
-
-  func notifyShareImportEvent() {
-    shareImportChannel?.invokeMethod("stagedSharePayloadReady", arguments: nil)
-  }
+  private var bridgeHost: FlutterConduitBridgeHost?
 
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    backgroundStreamingHandler = BackgroundStreamingHandler()
-    backgroundStreamingHandler?.registerBackgroundTasks()
+    ConduitBridgeRegistry.applicationDidFinishLaunching()
     // FlutterAppDelegate forwards notification callbacks to plugins only while
     // it is the notification center's delegate. Without this, a tap on a
     // Conduit notification never reached flutter_local_notifications. Set it
@@ -127,14 +34,12 @@ private let platformEnvironmentChannelName = "app.cogwheel.conduit/platform_envi
     guard sharedFlutterEngine == nil else { return }
 
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    configureApplicationFlutterChannels(
-      messenger: engineBridge.applicationRegistrar.messenger()
-    )
+    attachBridges(messenger: engineBridge.applicationRegistrar.messenger())
   }
 
-  @discardableResult
-  func ensureCarPlayFlutterEngine() -> Bool {
-    return ensureSharedFlutterEngine() != nil
+  func ensureBridgeHost() -> ConduitBridgeHost? {
+    guard ensureSharedFlutterEngine() != nil else { return nil }
+    return bridgeHost
   }
 
   @discardableResult
@@ -178,94 +83,22 @@ private let platformEnvironmentChannelName = "app.cogwheel.conduit/platform_envi
     guard !didConfigureSharedFlutterEngine else { return }
 
     GeneratedPluginRegistrant.register(with: engine)
-    configureApplicationFlutterChannels(messenger: engine.binaryMessenger)
+    attachBridges(messenger: engine.binaryMessenger)
     didConfigureSharedFlutterEngine = true
   }
 
-  private func configureApplicationFlutterChannels(
-    messenger: FlutterBinaryMessenger
-  ) {
-    let platformEnvironmentChannel = FlutterMethodChannel(
-      name: platformEnvironmentChannelName,
-      binaryMessenger: messenger
-    )
-    platformEnvironmentChannel.setMethodCallHandler { call, result in
-      guard call.method == "isIOSAppOnMac" else {
-        result(FlutterMethodNotImplemented)
-        return
-      }
-      result(ProcessInfo.processInfo.isiOSAppOnMac)
-    }
+  private func attachBridges(messenger: FlutterBinaryMessenger) {
+    let host = FlutterConduitBridgeHost(messenger: messenger)
+    bridgeHost = host
+    ConduitBridgeRegistry.attachAll(to: host)
 
-    AppIntentBridge.shared = AppIntentBridge(messenger: messenger)
-    ConduitCarPlayBridge.shared.configure(messenger: messenger)
+    // Flutter-only bridges: two swizzle Flutter's text input view and one
+    // compensates for the Flutter engine's frame pacing, so none of them is
+    // part of the host-agnostic registry.
     NativePasteBridge.shared.configure(messenger: messenger)
     NativeKeyboardAttachmentBridge.shared.configure(messenger: messenger)
-    NativeSheetBridge.shared.configure(messenger: messenger)
-    NativeDropdownBridge.shared.configure(messenger: messenger)
-    NativeImageViewerBridge.shared.configure(messenger: messenger)
-    NativeSymbolImageBridge.shared.configure(messenger: messenger)
-    NativeSttBridge.shared.configure(messenger: messenger)
     DisplayBoostBridge.shared.configure(messenger: messenger)
-    PccBridge.shared.configure(messenger: messenger)
-    VoiceAudioRouteBridge.shared.configure(messenger: messenger)
-    NativeIosTtsBridge.shared.configure(messenger: messenger)
-    backgroundStreamingHandler?.setup(messenger: messenger)
-
-    let shareImportChannel = FlutterMethodChannel(
-      name: conduitShareChannelName,
-      binaryMessenger: messenger
-    )
-    self.shareImportChannel = shareImportChannel
-    shareImportChannel.setMethodCallHandler { [weak self] call, result in
-      guard let self = self else {
-        result(nil)
-        return
-      }
-
-      switch call.method {
-      case "pendingShareImportStatus":
-        result(self.pendingShareImportStatus())
-      case "takePendingShareImportPayload":
-        result(self.takePendingShareImportPayload())
-      case "ackPendingShareImportPayload":
-        let arguments = call.arguments as? [String: Any]
-        result(self.acknowledgePendingShareImportPayload(
-          id: arguments?["id"] as? String
-        ))
-      case "shareStagingDirectoryPath":
-        result(self.shareStagingDirectoryPath())
-      case "clearShareImportStatus":
-        let arguments = call.arguments as? [String: Any]
-        self.clearShareImportStatus(id: arguments?["id"] as? String)
-        result(nil)
-      default:
-        result(FlutterMethodNotImplemented)
-      }
-    }
-
-    let cookieChannel = FlutterMethodChannel(
-      name: "com.conduit.app/cookies",
-      binaryMessenger: messenger
-    )
-    self.cookieChannel = cookieChannel
-
-    cookieChannel.setMethodCallHandler { (call, result) in
-      if call.method == "getCookies" {
-        guard let args = call.arguments as? [String: Any],
-              let urlString = args["url"] as? String,
-              let url = URL(string: urlString) else {
-          result(FlutterError(code: "INVALID_ARGS", message: "Invalid URL", details: nil))
-          return
-        }
-
-        // Get cookies from WKWebView's cookie store
-        WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
-          result(cookieValuesForUrl(cookies: cookies, url: url))
-        }
-      } else {
-        result(FlutterMethodNotImplemented)
-      }
-    }
   }
 }
+
+extension AppDelegate: NativeSttCallKitAppDelegate {}

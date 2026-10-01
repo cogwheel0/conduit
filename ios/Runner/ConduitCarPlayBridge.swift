@@ -78,7 +78,7 @@ struct ConduitCarPlayActionResult {
   )
 }
 
-final class ConduitCarPlayBridge {
+final class ConduitCarPlayBridge: ConduitBridge {
   static let shared = ConduitCarPlayBridge()
 
   private let channelName = "conduit/carplay"
@@ -94,7 +94,8 @@ final class ConduitCarPlayBridge {
 
   private init() {}
 
-  func configure(messenger: FlutterBinaryMessenger) {
+  func attach(to host: ConduitBridgeHost) {
+    let messenger = host.messenger
     channel?.setMethodCallHandler(nil)
     let methodChannel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
     methodChannel.setMethodCallHandler { [weak self] call, result in

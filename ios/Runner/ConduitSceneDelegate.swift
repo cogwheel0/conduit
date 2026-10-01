@@ -1,6 +1,10 @@
 import Flutter
 import UIKit
 
+// FLUTTER HOST ONLY. Hosts the shared Flutter engine in the app's window
+// scene. Other hosts have their own scene delegate and do not copy
+// this file.
+
 @objc class ConduitSceneDelegate: FlutterSceneDelegate {
   private weak var registeredFlutterEngine: FlutterEngine?
 
@@ -87,7 +91,7 @@ import UIKit
     guard let bundleIdentifier = Bundle.main.bundleIdentifier,
           url.absoluteString.hasPrefix("SharingMedia-\(bundleIdentifier)")
     else { return false }
-    (UIApplication.shared.delegate as? AppDelegate)?.notifyShareImportEvent()
+    ShareImportBridge.shared.notifyPayloadReady()
     return true
   }
 }

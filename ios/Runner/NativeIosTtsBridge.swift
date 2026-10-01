@@ -76,7 +76,7 @@ final class NativeIosTtsPendingStarts {
     }
 }
 
-final class NativeIosTtsBridge: NSObject, FlutterStreamHandler, AVSpeechSynthesizerDelegate {
+final class NativeIosTtsBridge: NSObject, ConduitBridge, FlutterStreamHandler, AVSpeechSynthesizerDelegate {
     static let shared = NativeIosTtsBridge()
     private static let startAcknowledgementTimeout: TimeInterval = 2
 
@@ -93,7 +93,8 @@ final class NativeIosTtsBridge: NSObject, FlutterStreamHandler, AVSpeechSynthesi
 
     deinit {}
 
-    func configure(messenger: FlutterBinaryMessenger) {
+    func attach(to host: ConduitBridgeHost) {
+        let messenger = host.messenger
         let methodChannel = FlutterMethodChannel(
             name: nativeIosTtsMethodChannelName,
             binaryMessenger: messenger
