@@ -189,6 +189,8 @@ final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
         return true
     }
 
+    /// Replaces the Flutter responder's keyboard, using its app window to
+    /// bound the panel's height independently of the keyboard hosting window.
     private func activateAttachmentInputView(
         for responder: UIResponder,
         reloadInputViews: Bool
@@ -196,7 +198,8 @@ final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
         shouldPresentOnNextFocus = false
         attachmentInputView.update(actions: actions)
         attachmentInputView.updatePreferredHeight(
-            measuredKeyboardHeight(for: responder)
+            measuredKeyboardHeight(for: responder),
+            in: (responder as? UIView)?.window ?? keyWindow
         )
 
         objc_setAssociatedObject(
@@ -287,6 +290,8 @@ final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
         return capturedFirstResponder
     }
 
+    /// Measures the keyboard in the responder's window, retaining the last
+    /// usable height when focus arrives before a keyboard frame is available.
     private func measuredKeyboardHeight(for responder: UIResponder) -> CGFloat {
         guard #available(iOS 15.0, *) else {
             return cachedKeyboardHeight
@@ -308,8 +313,15 @@ final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
         return cachedKeyboardHeight
     }
 
+    /// Caches system keyboard heights without feeding the attachment panel's
+    /// own frame notifications back into its self-sizing height constraint.
     @objc
     private func handleKeyboardFrameChange(_ notification: Notification) {
+        guard !isPresented else {
+            attachmentInputView.setNeedsLayout()
+            return
+        }
+
         guard let frameValue = notification.userInfo?[
             UIResponder.keyboardFrameEndUserInfoKey
         ] as? NSValue else {
@@ -329,7 +341,7 @@ final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
         }
 
         cachedKeyboardHeight = visibleHeight
-        attachmentInputView.updatePreferredHeight(visibleHeight)
+        attachmentInputView.updatePreferredHeight(visibleHeight, in: window)
     }
 
     /// Tap-outside (or other system) dismissal can hide the keyboard without
@@ -398,6 +410,8 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
     private let onSelect: (NativeKeyboardAttachmentAction) -> Void
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
+    private var preferredHeight = defaultHeight
+    private weak var sizingWindow: UIWindow?
     private lazy var heightConstraint = heightAnchor.constraint(
         equalToConstant: Self.defaultHeight
     )
@@ -420,6 +434,8 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         return 16
     }
 
+    /// Builds the scrollable attachment surface and routes tile selections to
+    /// the supplied handler.
     init(onSelect: @escaping (NativeKeyboardAttachmentAction) -> Void) {
         self.onSelect = onSelect
         super.init(frame: .zero, inputViewStyle: .keyboard)
@@ -481,10 +497,25 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         ])
     }
 
+    /// Requires a selection handler, so storyboard decoding is unsupported.
     required init?(coder: NSCoder) {
         nil
     }
 
+    /// Keeps space for the composer when rotation or window resizing reduces
+    /// the available height, then restores the preferred height as space grows.
+    override func layoutSubviews() {
+        if let window = sizingWindow ?? self.window, window.bounds.height > 0 {
+            let height = min(preferredHeight, window.bounds.height / 2)
+            if heightConstraint.constant != height {
+                heightConstraint.constant = height
+                invalidateIntrinsicContentSize()
+            }
+        }
+        super.layoutSubviews()
+    }
+
+    /// Adjusts content padding when the vertical layout becomes compact or regular.
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
         guard
@@ -495,6 +526,8 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         stackTopConstraint.constant = topContentInset
     }
 
+    /// Rebuilds the ordered attachment, feature, and tool sections from the
+    /// latest Flutter configuration.
     func update(actions: [NativeKeyboardAttachmentAction]) {
         stackView.arrangedSubviews.forEach { view in
             stackView.removeArrangedSubview(view)
@@ -530,11 +563,17 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         }
     }
 
-    func updatePreferredHeight(_ height: CGFloat) {
+    /// Preserves the measured keyboard height independently of the panel's
+    /// current bounds so repeated frame changes cannot compound its size.
+    func updatePreferredHeight(_ height: CGFloat, in window: UIWindow?) {
         guard height > Self.minimumHeight else { return }
+        preferredHeight = height
+        sizingWindow = window
         heightConstraint.constant = height
+        setNeedsLayout()
     }
 
+    /// Adds a caption heading before a tool section.
     private func addSectionTitle(_ title: String) {
         let label = UILabel()
         label.text = title
@@ -554,6 +593,7 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         traitCollection.verticalSizeClass == .compact ? 52 : 58
     }
 
+    /// Adds the horizontally scrolling strip of attachment tiles.
     @discardableResult
     private func addAttachmentRow(_ actions: [NativeKeyboardAttachmentAction]) -> UIScrollView {
         let scroll = UIScrollView()
@@ -606,6 +646,7 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         return scroll
     }
 
+    /// Adds the feature and tool rows with their current selection state.
     private func addListSection(_ actions: [NativeKeyboardAttachmentAction]) {
         let sectionStack = UIStackView()
         sectionStack.axis = .vertical
@@ -622,6 +663,7 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         stackView.addArrangedSubview(sectionStack)
     }
 
+    /// Maps section identifiers to their native headings.
     private func title(for section: String) -> String {
         switch section {
         case "attachments":
