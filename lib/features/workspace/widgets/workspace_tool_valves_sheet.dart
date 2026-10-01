@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
+import 'package:conduit_core/features/workspace/models/workspace_valve_values.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
@@ -66,8 +67,8 @@ class _WorkspaceToolValvesSheetState
       setState(() {
         _serverSpec = serverSpec;
         _userSpec = userSpec;
-        _serverValues = _hydrate(serverSpec, serverValues);
-        _userValues = _hydrate(userSpec, userValues);
+        _serverValues = WorkspaceValveValues.hydrate(serverSpec, serverValues);
+        _userValues = WorkspaceValveValues.hydrate(userSpec, userValues);
         _loading = false;
       });
     } catch (error, stackTrace) {
@@ -85,48 +86,6 @@ class _WorkspaceToolValvesSheetState
     }
   }
 
-  /// Joins `array`-typed values into comma strings for editing, matching the
-  /// upstream load path.
-  Map<String, dynamic> _hydrate(
-    WorkspaceValveSpec? spec,
-    Map<String, dynamic> values,
-  ) {
-    final result = Map<String, dynamic>.from(values);
-    if (spec == null) return result;
-    spec.properties.forEach((property, raw) {
-      final propSpec = raw is Map ? raw : const {};
-      if (propSpec['type'] == 'array') {
-        final current = result[property];
-        result[property] = current is List ? current.join(', ') : current;
-      }
-    });
-    return result;
-  }
-
-  /// Splits comma strings back into lists for `array`-typed values before
-  /// submit, matching the upstream save path.
-  Map<String, dynamic> _serialize(
-    WorkspaceValveSpec? spec,
-    Map<String, dynamic> values,
-  ) {
-    final result = Map<String, dynamic>.from(values);
-    if (spec == null) return result;
-    spec.properties.forEach((property, raw) {
-      final propSpec = raw is Map ? raw : const {};
-      if (propSpec['type'] == 'array') {
-        final current = result[property];
-        if (current is String) {
-          result[property] = current
-              .split(',')
-              .map((v) => v.trim())
-              .where((v) => v.isNotEmpty)
-              .toList(growable: false);
-        }
-      }
-    });
-    return result;
-  }
-
   Future<void> _save() async {
     final l10n = AppLocalizations.of(context)!;
     final notifier = ref.read(workspaceToolsProvider.notifier);
@@ -135,12 +94,12 @@ class _WorkspaceToolValvesSheetState
       if (_userScope) {
         await notifier.updateUserToolValves(
           widget.toolId,
-          _serialize(_userSpec, _userValues),
+          WorkspaceValveValues.serialize(_userSpec, _userValues),
         );
       } else {
         await notifier.updateToolValves(
           widget.toolId,
-          _serialize(_serverSpec, _serverValues),
+          WorkspaceValveValues.serialize(_serverSpec, _serverValues),
         );
       }
       if (!mounted) return;

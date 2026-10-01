@@ -5,7 +5,7 @@ import 'package:conduit/platform/webview_cookie_helper.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit/features/hermes/services/hermes_dashboard_cookie_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_cookie_registry.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';

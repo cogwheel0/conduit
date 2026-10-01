@@ -1,39 +1,15 @@
-import 'dart:convert';
-
 import '../../../platform/webview_cookie_helper.dart';
 
-import 'package:conduit_core/persistence/persistence_keys.dart';
-import 'package:conduit_core/persistence/preferences_store.dart';
-import 'package:meta/meta.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_cookie_registry.dart';
 
-@visibleForTesting
-Set<String> hermesDashboardCookieIdentityDelta({
-  required Set<String> current,
-  required Set<String> baseline,
-  Set<String> retainedNames = const {},
-}) => {
-  for (final identity in current)
-    if (!baseline.contains(identity) ||
-        retainedNames.contains(
-          identity
-              .split('\u0000')
-              .first
-              .replaceFirst(RegExp(r'^__(?:Host|Secure)-'), ''),
-        ))
-      identity,
-};
-
+/// The WebView side of [HermesDashboardCookieRegistry]: reads the cookies a
+/// dashboard sign-in left in the WebView store, and deletes them again, inside
+/// [WebViewCookieHelper]'s serialized data queue.
 final class HermesDashboardCookieStore {
   const HermesDashboardCookieStore._();
 
-  static final Map<String, int> _generations = {};
-
-  static int begin(String origin) {
-    final uri = Uri.tryParse(origin);
-    if (uri == null || uri.host.isEmpty) return 0;
-    final key = _originKey(uri);
-    return _generations[key] = (_generations[key] ?? 0) + 1;
-  }
+  static int begin(String origin) =>
+      HermesDashboardCookieRegistry.begin(origin);
 
   static Future<Set<String>> snapshot(String origin) =>
       WebViewCookieHelper.cookieIdentitiesForOrigin(origin);
@@ -44,77 +20,29 @@ final class HermesDashboardCookieStore {
     Set<String> baseline = const {},
     Set<String> retainedNames = const {},
   }) => WebViewCookieHelper.runSerializedDataOperation(() async {
-    final uri = Uri.tryParse(origin);
-    if (uri == null || uri.host.isEmpty) return;
-    final key = _originKey(uri);
-    if (_generations[key] != generation) return;
+    if (!HermesDashboardCookieRegistry.isCurrent(origin, generation)) return;
     final identities = hermesDashboardCookieIdentityDelta(
       current: await snapshot(origin),
       baseline: baseline,
       retainedNames: retainedNames,
     );
-    final registry = _registry();
-    final retained = identities
-        .where((identity) => retainedNames.any(identity.startsWith))
-        .toSet();
-    // The cap keeps the suffix, so put persisted identities first and the
-    // current dashboard identities last.
-    final merged = {
-      ...?registry[key],
-      ...identities.where((identity) => !retained.contains(identity)),
-      ...retained,
-    }.toList();
-    registry[key] = merged.length <= 64
-        ? merged
-        : merged.sublist(merged.length - 64);
-    await _write(registry);
+    await HermesDashboardCookieRegistry.record(
+      origin,
+      identities: identities,
+      retainedNames: retainedNames,
+    );
   });
 
   static Future<bool> clear(String origin) async {
-    final uri = Uri.tryParse(origin);
-    if (uri == null || uri.host.isEmpty) return true;
-    final key = _originKey(uri);
-    _generations[key] = (_generations[key] ?? 0) + 1;
+    if (!HermesDashboardCookieRegistry.invalidate(origin)) return true;
     return WebViewCookieHelper.runSerializedDataOperation(() async {
-      final registry = _registry();
       final success =
           await WebViewCookieHelper.deleteCookieIdentitiesForOriginUnlocked(
             origin,
-            registry[key]?.toSet() ?? const {},
+            HermesDashboardCookieRegistry.identitiesFor(origin),
           );
-      if (success && registry.remove(key) != null) await _write(registry);
+      if (success) await HermesDashboardCookieRegistry.forget(origin);
       return success;
     });
   }
-
-  static String _originKey(Uri uri) {
-    final port = uri.hasPort ? uri.port : (uri.scheme == 'https' ? 443 : 80);
-    return '${uri.scheme.toLowerCase()}://${uri.host.toLowerCase()}:$port';
-  }
-
-  static Map<String, List<String>> _registry() {
-    try {
-      final source = PreferencesStore.getString(
-        PreferenceKeys.hermesDashboardCookieIdentities,
-      );
-      final decoded = source == null ? null : jsonDecode(source);
-      if (decoded is! Map) return {};
-      return {
-        for (final entry in decoded.entries)
-          if (entry.key is String && entry.value is List)
-            entry.key as String: (entry.value as List)
-                .whereType<String>()
-                .take(64)
-                .toList(growable: false),
-      };
-    } catch (_) {
-      return {};
-    }
-  }
-
-  static Future<void> _write(Map<String, List<String>> registry) =>
-      PreferencesStore.putChecked(
-        PreferenceKeys.hermesDashboardCookieIdentities,
-        registry.isEmpty ? null : jsonEncode(registry),
-      );
 }

@@ -28,8 +28,10 @@ dependencies:
   socket_io_client: ^3.1.2
   synchronized: ^3.4.1
   web_socket: ^1.0.1
-  # Pure-Dart PNG encoding for profile avatars (utils/profile_avatar.dart),
-  # so the core needs no widget raster path.
+  # Pure-Dart PNG encoding for profile avatars (utils/profile_avatar.dart)
+  # and the workspace model avatar bounding
+  # (features/workspace/services/workspace_model_avatar_bounds.dart), so the
+  # core needs no widget raster path.
   image: ^4.9.0
   conduit_markdown:
     path: ../conduit_markdown

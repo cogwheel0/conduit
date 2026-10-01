@@ -1,146 +1,25 @@
-import 'dart:async';
-
+import 'package:conduit_core/features/workspace/editor/workspace_editor_operations.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:go_router/go_router.dart';
 
-import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../workspace_navigation.dart';
 import 'workspace_editor_session.dart';
 
-typedef WorkspaceEditorMutation<T> = Future<T> Function(bool isCreate);
-typedef WorkspaceEditorResourceId<T> = String Function(T result);
-typedef WorkspaceEditorErrorMessage = String Function(Object error);
-
-enum _WorkspaceEditorSuccessDisposition { stay, exit, capturedRoute }
-
-/// Runs the common admission, diagnostics, mounted-state, and lock lifecycle
-/// for every workspace editor mutation.
-final class WorkspaceEditorOperationRunner {
-  const WorkspaceEditorOperationRunner._();
-
-  static Future<bool> stay<T>({
-    required WorkspaceEditorSession session,
-    required String scope,
-    required String operationLabel,
-    required bool Function() editorMounted,
-    required Future<T> Function() operation,
-    FutureOr<void> Function(T result)? onSuccess,
-    FutureOr<void> Function(Object error)? onFailure,
-    WorkspaceEditorErrorMessage? errorMessage,
-    bool clearError = false,
-  }) => _run<T>(
-    session: session,
-    scope: scope,
-    operationLabel: operationLabel,
-    editorMounted: editorMounted,
-    operation: operation,
-    onSuccess: onSuccess,
-    onFailure: onFailure,
-    errorMessage: errorMessage,
-    clearError: clearError,
-    successDisposition: _WorkspaceEditorSuccessDisposition.stay,
-  );
-
-  static Future<bool> capturedRoute<T>({
-    required WorkspaceEditorSession session,
-    required String scope,
-    required String operationLabel,
-    required bool Function() editorMounted,
-    required Future<T> Function() operation,
-    required FutureOr<void> Function(T result) onSuccess,
-    FutureOr<void> Function(Object error)? onFailure,
-    WorkspaceEditorErrorMessage? errorMessage,
-    bool clearError = false,
-  }) => _run<T>(
-    session: session,
-    scope: scope,
-    operationLabel: operationLabel,
-    editorMounted: editorMounted,
-    operation: operation,
-    onSuccess: onSuccess,
-    onFailure: onFailure,
-    errorMessage: errorMessage,
-    clearError: clearError,
-    successDisposition: _WorkspaceEditorSuccessDisposition.capturedRoute,
-  );
-
-  static Future<bool> exit<T>({
-    required WorkspaceEditorSession session,
-    required String scope,
-    required String operationLabel,
-    required bool Function() editorMounted,
-    required Future<T> Function() operation,
-    required FutureOr<void> Function(T result) onSuccess,
-    FutureOr<void> Function(Object error)? onFailure,
-    WorkspaceEditorErrorMessage? errorMessage,
-    bool clearError = false,
-  }) => _run<T>(
-    session: session,
-    scope: scope,
-    operationLabel: operationLabel,
-    editorMounted: editorMounted,
-    operation: operation,
-    onSuccess: onSuccess,
-    onFailure: onFailure,
-    errorMessage: errorMessage,
-    clearError: clearError,
-    successDisposition: _WorkspaceEditorSuccessDisposition.exit,
-  );
-
-  static Future<bool> _run<T>({
-    required WorkspaceEditorSession session,
-    required String scope,
-    required String operationLabel,
-    required bool Function() editorMounted,
-    required Future<T> Function() operation,
-    required _WorkspaceEditorSuccessDisposition successDisposition,
-    FutureOr<void> Function(T result)? onSuccess,
-    FutureOr<void> Function(Object error)? onFailure,
-    WorkspaceEditorErrorMessage? errorMessage,
-    bool clearError = false,
-  }) async {
-    if (!session.beginOperation(clearError: clearError)) return false;
-    try {
-      final result = await operation();
-      if (!editorMounted() &&
-          successDisposition !=
-              _WorkspaceEditorSuccessDisposition.capturedRoute) {
-        return true;
-      }
-      await onSuccess?.call(result);
-      if (successDisposition == _WorkspaceEditorSuccessDisposition.stay &&
-          editorMounted()) {
-        session.endOperation();
-      }
-      return true;
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        '$operationLabel failed',
-        scope: scope,
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (!editorMounted()) return false;
-      await onFailure?.call(error);
-      if (!editorMounted()) return false;
-      final message = errorMessage?.call(error);
-      if (message == null) {
-        session.endOperation();
-      } else {
-        session.finishOperation(errorMessage: message);
-      }
-      return false;
-    }
-  }
-}
+export 'package:conduit_core/features/workspace/editor/workspace_editor_operations.dart'
+    show
+        WorkspaceEditorErrorMessage,
+        WorkspaceEditorMutation,
+        WorkspaceEditorOperationRunner,
+        WorkspaceEditorResourceId;
 
 /// Runs the shared mutation lifecycle for every workspace resource editor.
 ///
-/// Validation and request construction stay resource-specific. This object
-/// owns admission, route capture, diagnostics, lock release, feedback, and
-/// success navigation so those async invariants cannot drift between editors.
+/// The lifecycle (admission, lock release, diagnostics, feedback and success
+/// navigation) is conduit_core's [WorkspaceEditorMutationFlow]; this adapter
+/// captures the editor's go_router, route and overlay before the mutation can
+/// dispose the editor.
 final class WorkspaceEditorMutationCoordinator {
   const WorkspaceEditorMutationCoordinator._();
 
@@ -156,35 +35,19 @@ final class WorkspaceEditorMutationCoordinator {
     required WorkspaceEditorMutation<T> mutate,
     required WorkspaceEditorResourceId<T> resourceId,
     WorkspaceEditorErrorMessage? errorMessage,
-  }) async {
-    final completion = _WorkspaceEditorMutationCompletion.capture(
-      context,
-      session: session,
-      section: section,
-    );
-    return WorkspaceEditorOperationRunner.capturedRoute<T>(
-      session: session,
-      scope: scope,
-      operationLabel: '$resourceLabel save',
-      editorMounted: editorMounted,
-      clearError: true,
-      operation: () => mutate(completion.isCreate),
-      onSuccess: (result) {
-        final id = resourceId(result);
-        DebugLogger.log(
-          '$resourceLabel saved',
-          scope: scope,
-          data: {'id': id, 'create': completion.isCreate},
-        );
-        completion.succeed(
-          resourceId: id,
-          message: successMessage,
-          editorMounted: editorMounted(),
-        );
-      },
-      errorMessage: (error) => errorMessage?.call(error) ?? failureMessage,
-    );
-  }
+  }) => WorkspaceEditorMutationFlow.run<T>(
+    navigator: _GoRouterWorkspaceEditorNavigator.capture(context),
+    session: session,
+    section: section,
+    scope: scope,
+    resourceLabel: resourceLabel,
+    successMessage: successMessage,
+    failureMessage: failureMessage,
+    editorMounted: editorMounted,
+    mutate: mutate,
+    resourceId: resourceId,
+    errorMessage: errorMessage,
+  );
 
   static Future<bool> replaceWithClone<T>({
     required BuildContext context,
@@ -197,29 +60,18 @@ final class WorkspaceEditorMutationCoordinator {
     required bool Function() editorMounted,
     required Future<T> Function() clone,
     required WorkspaceEditorResourceId<T> resourceId,
-  }) {
-    final completion = _WorkspaceEditorMutationCompletion.capture(
-      context,
-      session: session,
-      section: section,
-    );
-    return WorkspaceEditorOperationRunner.exit<T>(
-      session: session,
-      scope: scope,
-      operationLabel: '$resourceLabel clone',
-      editorMounted: editorMounted,
-      operation: clone,
-      onSuccess: (created) => completion.replaceWithEditor(
-        resourceId: resourceId(created),
-        message: successMessage,
-        editorMounted: editorMounted(),
-      ),
-      onFailure: (_) => completion.showMessage(
-        failureMessage,
-        type: AdaptiveSnackBarType.error,
-      ),
-    );
-  }
+  }) => WorkspaceEditorMutationFlow.replaceWithClone<T>(
+    navigator: _GoRouterWorkspaceEditorNavigator.capture(context),
+    session: session,
+    section: section,
+    scope: scope,
+    resourceLabel: resourceLabel,
+    successMessage: successMessage,
+    failureMessage: failureMessage,
+    editorMounted: editorMounted,
+    clone: clone,
+    resourceId: resourceId,
+  );
 
   static Future<bool> exitAfterDelete({
     required BuildContext context,
@@ -231,104 +83,56 @@ final class WorkspaceEditorMutationCoordinator {
     required String failureMessage,
     required bool Function() editorMounted,
     required Future<void> Function() delete,
-  }) {
-    final completion = _WorkspaceEditorMutationCompletion.capture(
-      context,
-      session: session,
-      section: section,
-    );
-    return WorkspaceEditorOperationRunner.exit<void>(
-      session: session,
-      scope: scope,
-      operationLabel: '$resourceLabel delete',
-      editorMounted: editorMounted,
-      operation: delete,
-      onSuccess: (_) => completion.exitToCollection(
-        message: successMessage,
-        editorMounted: editorMounted(),
-      ),
-      onFailure: (_) => completion.showMessage(
-        failureMessage,
-        type: AdaptiveSnackBarType.error,
-      ),
-    );
-  }
+  }) => WorkspaceEditorMutationFlow.exitAfterDelete(
+    navigator: _GoRouterWorkspaceEditorNavigator.capture(context),
+    session: session,
+    section: section,
+    scope: scope,
+    resourceLabel: resourceLabel,
+    successMessage: successMessage,
+    failureMessage: failureMessage,
+    editorMounted: editorMounted,
+    delete: delete,
+  );
 }
 
 /// Captures navigation ownership before a mutation can dispose its editor.
-final class _WorkspaceEditorMutationCompletion {
-  _WorkspaceEditorMutationCompletion.capture(
-    BuildContext context, {
-    required WorkspaceEditorSession session,
-    required WorkspaceSection section,
-  }) : _router = GoRouter.of(context),
-       _overlayContext = Navigator.of(context, rootNavigator: true).context,
-       _route = ModalRoute.of(context),
-       _session = session,
-       _section = section,
-       isCreate = session.isCreate;
+final class _GoRouterWorkspaceEditorNavigator
+    implements WorkspaceEditorNavigator {
+  _GoRouterWorkspaceEditorNavigator.capture(BuildContext context)
+    : _router = GoRouter.of(context),
+      _overlayContext = Navigator.of(context, rootNavigator: true).context,
+      _route = ModalRoute.of(context);
 
   final GoRouter _router;
   final BuildContext _overlayContext;
   final ModalRoute<dynamic>? _route;
-  final WorkspaceEditorSession _session;
-  final WorkspaceSection _section;
 
-  final bool isCreate;
+  @override
+  bool get isRouteCurrent => _route?.isCurrent == true;
 
-  void succeed({
-    required String resourceId,
-    required String message,
-    required bool editorMounted,
-  }) {
-    if (editorMounted) _session.markClean();
-    if (_route?.isCurrent != true) {
-      if (editorMounted) _session.endOperation();
-      return;
-    }
-    showMessage(message, type: AdaptiveSnackBarType.success);
+  @override
+  bool canPop() => _router.canPop();
 
-    if (isCreate) {
-      _router.pushReplacement(_section.routes.detailLocation(resourceId));
-    } else if (_router.canPop()) {
-      _router.pop();
-    } else if (editorMounted) {
-      _session.endOperation();
-    }
-  }
+  @override
+  void pop() => _router.pop();
 
-  void replaceWithEditor({
-    required String resourceId,
-    required String message,
-    required bool editorMounted,
-  }) {
-    if (_route?.isCurrent != true) {
-      if (editorMounted) _session.endOperation();
-      return;
-    }
-    showMessage(message, type: AdaptiveSnackBarType.success);
-    _router.pushReplacement(_section.routes.editLocation(resourceId));
-  }
+  @override
+  void pushReplacement(String location) => _router.pushReplacement(location);
 
-  void exitToCollection({
-    required String message,
-    required bool editorMounted,
-  }) {
-    if (editorMounted) _session.markClean();
-    if (_route?.isCurrent != true) {
-      if (editorMounted) _session.endOperation();
-      return;
-    }
-    showMessage(message, type: AdaptiveSnackBarType.success);
-    if (_router.canPop()) {
-      _router.pop();
-    } else {
-      _router.go(_section.routes.collectionPath);
-    }
-  }
+  @override
+  void go(String location) => _router.go(location);
 
-  void showMessage(String message, {required AdaptiveSnackBarType type}) {
+  @override
+  void showMessage(String message, {required WorkspaceEditorMessageType type}) {
     if (!_overlayContext.mounted) return;
-    AdaptiveSnackBar.show(_overlayContext, message: message, type: type);
+    AdaptiveSnackBar.show(
+      _overlayContext,
+      message: message,
+      type: switch (type) {
+        WorkspaceEditorMessageType.success => AdaptiveSnackBarType.success,
+        WorkspaceEditorMessageType.error => AdaptiveSnackBarType.error,
+      },
+    );
   }
 }

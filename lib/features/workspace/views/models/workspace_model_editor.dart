@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:material_ui/material_ui.dart';
@@ -651,20 +649,11 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       // Cap the avatar's dimensions before base64-embedding it so a large source
       // image does not bloat the draft JSON / spike memory. A downscaled image
       // is always re-encoded as PNG; an unchanged image keeps its source mime.
-      final bounded = await WorkspaceModelAvatarCodec.bound(bytes);
-      final String mime;
-      if (identical(bounded, bytes)) {
-        final ext = (file.extension ?? 'png').toLowerCase();
-        mime = switch (ext) {
-          'jpg' || 'jpeg' => 'image/jpeg',
-          'gif' => 'image/gif',
-          'webp' => 'image/webp',
-          _ => 'image/png',
-        };
-      } else {
-        mime = 'image/png';
-      }
-      final dataUrl = 'data:$mime;base64,${base64Encode(bounded)}';
+      final avatar = await WorkspaceModelAvatarCodec.prepare(
+        bytes,
+        extension: file.extension,
+      );
+      final dataUrl = avatar.toDataUrl();
       _controller.setAvatar(dataUrl);
     } catch (error, stackTrace) {
       DebugLogger.error(

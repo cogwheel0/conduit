@@ -8,6 +8,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import '../../../shared/widgets/connection_components.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_webview_rules.dart';
 
 import '../services/hermes_dashboard_cookie_store.dart';
 import '../services/hermes_dashboard_webview_policy.dart';
@@ -36,13 +37,9 @@ final class _HermesDashboardAuthPageState
   late final int _cookieGeneration;
   late final HermesDashboardWebViewPolicy _policy;
 
-  Uri get _root => Uri.parse(widget.config.baseUrl.trim()).replace(
-    path: Uri.parse(widget.config.baseUrl.trim()).path
-        .replaceFirst(RegExp(r'/v1/?$'), ''),
-  );
+  Uri get _root => hermesDashboardRoot(widget.config.baseUrl);
 
-  Uri get _login =>
-      _root.replace(path: '${_root.path == '/' ? '' : _root.path}/login');
+  Uri get _login => hermesDashboardLoginUrl(_root);
 
   @override
   void initState() {
@@ -70,18 +67,9 @@ final class _HermesDashboardAuthPageState
 
   Future<bool> _isAuthenticated(InAppWebViewController controller) async {
     final result = await controller.callAsyncJavaScript(
-      functionBody: '''
-        const response = await fetch(url, {
-          headers,
-          credentials: 'include',
-          redirect: 'error'
-        });
-        return response.ok;
-      ''',
+      functionBody: kHermesDashboardSignInCheckScript,
       arguments: {
-        'url': _root
-            .replace(path: '${_root.path == '/' ? '' : _root.path}/api/auth/me')
-            .toString(),
+        'url': hermesDashboardAuthCheckUrl(_root).toString(),
         'headers': _policy.accessHeaders,
       },
     );
@@ -180,11 +168,13 @@ final class _HermesDashboardAuthPageState
                 onLoadStop: (controller, url) async {
                   if (!mounted) return;
                   setState(() => _loading = false);
-                  final text = url?.toString() ?? '';
-                  if (!_policy.isExact(Uri.parse(text))) {
+                  if (!hermesDashboardShouldCheckSignIn(
+                    loaded: Uri.tryParse(url?.toString() ?? ''),
+                    root: _root,
+                    checking: _checking,
+                  )) {
                     return;
                   }
-                  if (url?.path.endsWith('/login') == true || _checking) return;
                   _checking = true;
                   try {
                     final authenticated = await _isAuthenticated(controller);
@@ -193,12 +183,7 @@ final class _HermesDashboardAuthPageState
                         _root.toString(),
                         generation: _cookieGeneration,
                         baseline: _cookieBaseline!,
-                        retainedNames: const {
-                          'hermes_session_at',
-                          'hermes_session_pkce',
-                          'hermes_session_rt',
-                          'hermes_session_provider',
-                        },
+                        retainedNames: kHermesDashboardRetainedCookieNames,
                       );
                       if (!mounted) return;
                       Navigator.of(this.context).pop(true);
