@@ -310,6 +310,11 @@ final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
 
     @objc
     private func handleKeyboardFrameChange(_ notification: Notification) {
+        // While presented, these frames describe the attachment input view.
+        // Feeding them back into its height constraint can make the self-sizing
+        // panel grow with each frame change instead of matching the keyboard.
+        guard !isPresented else { return }
+
         guard let frameValue = notification.userInfo?[
             UIResponder.keyboardFrameEndUserInfoKey
         ] as? NSValue else {
