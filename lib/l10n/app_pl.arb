@@ -6520,5 +6520,9 @@
   "voiceCallExpand": "Rozwiń",
   "@voiceCallExpand": {
     "description": "Accessibility label for the button that opens the minimized voice call pill back into the full panel."
+  },
+  "askConduitAction": "Zapytaj Conduit",
+  "@askConduitAction": {
+    "description": "Long-press menu action that puts the selected answer text into the chat composer to ask about it."
   }
 }

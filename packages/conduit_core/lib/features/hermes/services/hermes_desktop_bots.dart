@@ -8,8 +8,9 @@ const int _kMaxHermesBotAvatarCharacters = 3 * 1024 * 1024;
 const String kHermesBotChatTitle = 'Bot Chat';
 
 extension _HermesDesktopBots on HermesDesktopApiService {
-  /// The Bot Mode roster. Empty when the gateway predates Bot Mode (no
-  /// `bot_mode_protocol` flag), which is how the sidebar section stays hidden.
+  /// The Bot Mode roster: only profiles carrying `ui_meta['hermes-bots']`.
+  /// Empty when the gateway predates Bot Mode (no `bot_mode_protocol` flag),
+  /// which is how the sidebar section stays hidden.
   Future<List<HermesBot>> _listBots() async {
     await _ensureConnected();
     final result = _object(
@@ -18,13 +19,7 @@ extension _HermesDesktopBots on HermesDesktopApiService {
         params: const {'include_sessions': true},
       ),
     );
-    if (result['bot_mode_protocol'] != true) return const [];
-    final bots = <HermesBot>[];
-    for (final row in _objects(result['profiles']).take(256)) {
-      final bot = HermesBot.fromJson(row);
-      if (bot != null) bots.add(bot);
-    }
-    return bots;
+    return HermesBot.rosterFromProfilesList(result);
   }
 
   /// A bot's avatar as a `data:image/...` URL, or null when it has none.

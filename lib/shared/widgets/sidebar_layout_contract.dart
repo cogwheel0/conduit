@@ -35,8 +35,11 @@ class SidebarDrawerControllerScope extends InheritedWidget {
 }
 
 /// Shared breakpoint for the persistent tablet sidebar presentation.
-bool usesPersistentTabletSidebar(BuildContext context) =>
-    (MediaQuery.maybeSizeOf(context)?.shortestSide ?? 0) >= 600;
+bool usesPersistentTabletSidebar(BuildContext context) {
+  final size = MediaQuery.maybeSizeOf(context);
+  return size != null &&
+      usesPersistentTabletSidebarFor(width: size.width, height: size.height);
+}
 
 /// Closes the sidebar only when it is presented as a mobile overlay.
 void closeSidebarDrawerIfOverlay(BuildContext context) {

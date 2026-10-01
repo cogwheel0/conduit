@@ -3,9 +3,6 @@ part of 'workspace_page.dart';
 class _CollectionBinding<T> {
   const _CollectionBinding({
     required this.value,
-    required this.idOf,
-    required this.titleOf,
-    required this.subtitleOf,
     required this.onRefresh,
     required this.onLoadMore,
     required this.onSearch,
@@ -15,9 +12,6 @@ class _CollectionBinding<T> {
   });
 
   final AsyncValue<WorkspaceCollectionState<T>> value;
-  final String Function(T) idOf;
-  final String Function(T) titleOf;
-  final String? Function(T) subtitleOf;
   final Future<void> Function() onRefresh;
   final Future<void> Function() onLoadMore;
   final Future<void> Function(String) onSearch;
@@ -39,9 +33,6 @@ R _withCollectionBinding<R>(
       return build<WorkspaceModelSummary>(
         _CollectionBinding(
           value: ref.watch(workspaceModelsProvider),
-          idOf: (item) => item.id,
-          titleOf: (item) => item.name,
-          subtitleOf: (item) => item.baseModelId,
           onRefresh: ref.read(workspaceModelsProvider.notifier).refresh,
           onLoadMore: ref.read(workspaceModelsProvider.notifier).loadMore,
           onSearch: ref.read(workspaceModelsProvider.notifier).setQuery,
@@ -52,9 +43,6 @@ R _withCollectionBinding<R>(
       return build<WorkspaceKnowledgeSummary>(
         _CollectionBinding(
           value: ref.watch(workspaceKnowledgeProvider),
-          idOf: (item) => item.id,
-          titleOf: (item) => item.name,
-          subtitleOf: (item) => item.description,
           onRefresh: ref.read(workspaceKnowledgeProvider.notifier).refresh,
           onLoadMore: ref.read(workspaceKnowledgeProvider.notifier).loadMore,
           onSearch: ref.read(workspaceKnowledgeProvider.notifier).setQuery,
@@ -66,11 +54,6 @@ R _withCollectionBinding<R>(
       return build<WorkspacePromptSummary>(
         _CollectionBinding(
           value: ref.watch(workspacePromptsProvider),
-          idOf: (item) => item.id,
-          titleOf: (item) => item.name,
-          subtitleOf: (item) => item.command.isEmpty
-              ? null
-              : WorkspacePromptCommand.display(item.command),
           onRefresh: ref.read(workspacePromptsProvider.notifier).refresh,
           onLoadMore: ref.read(workspacePromptsProvider.notifier).loadMore,
           onSearch: ref.read(workspacePromptsProvider.notifier).setQuery,
@@ -81,9 +64,6 @@ R _withCollectionBinding<R>(
       return build<WorkspaceToolSummary>(
         _CollectionBinding(
           value: ref.watch(workspaceToolsProvider),
-          idOf: (item) => item.id,
-          titleOf: (item) => item.name,
-          subtitleOf: (item) => item.meta['description']?.toString(),
           onRefresh: ref.read(workspaceToolsProvider.notifier).refresh,
           onLoadMore: ref.read(workspaceToolsProvider.notifier).loadMore,
           onSearch: ref.read(workspaceToolsProvider.notifier).setQuery,
@@ -94,9 +74,6 @@ R _withCollectionBinding<R>(
       return build<WorkspaceSkillSummary>(
         _CollectionBinding(
           value: ref.watch(workspaceSkillsProvider),
-          idOf: (item) => item.id,
-          titleOf: (item) => item.name,
-          subtitleOf: (item) => item.description,
           onRefresh: ref.read(workspaceSkillsProvider.notifier).refresh,
           onLoadMore: ref.read(workspaceSkillsProvider.notifier).loadMore,
           onSearch: ref.read(workspaceSkillsProvider.notifier).setQuery,
@@ -130,12 +107,10 @@ void _fireCollectionMutation(Future<void> Function() action) {
 /// Whether the current user can create resources in [section]; drives the
 /// permission-gated create (+) affordance.
 bool _canCreateSection(WidgetRef ref, WorkspaceSection section) {
-  return ref
-      .watch(workspaceCapabilitiesProvider)
-      .maybeWhen(
-        data: (value) => section.capabilities(value).manage,
-        orElse: () => false,
-      );
+  return canCreateInWorkspaceSection(
+    ref.watch(workspaceCapabilitiesProvider),
+    section,
+  );
 }
 
 /// Box (Material) collection layout used on Android compact and both tablet
@@ -303,11 +278,16 @@ class _WorkspaceIosCollectionShellState
   }
 
   void _handleScroll() {
-    if (!_hasMore || _isLoadingMore || _onLoadMore == null) return;
-    if (!_scrollController.hasClients) return;
+    final onLoadMore = _onLoadMore;
+    if (onLoadMore == null || !_scrollController.hasClients) return;
     final position = _scrollController.position;
-    if (position.pixels >= position.maxScrollExtent - 320) {
-      _fireCollectionMutation(_onLoadMore!);
+    if (workspaceCollectionShouldLoadMore(
+      offset: position.pixels,
+      maxExtent: position.maxScrollExtent,
+      hasMore: _hasMore,
+      isLoadingMore: _isLoadingMore,
+    )) {
+      _fireCollectionMutation(onLoadMore);
     }
   }
 
@@ -337,11 +317,7 @@ class _WorkspaceIosCollectionShellState
       data: (collection) => collection.query,
       orElse: () => '',
     );
-    final showSearch = binding.value.maybeWhen(
-      data: (collection) =>
-          collection.items.isNotEmpty || collection.query.isNotEmpty,
-      orElse: () => true,
-    );
+    final showSearch = workspaceCollectionShowsSearch(binding.value);
     // The iOS 26 navigation bar is a native overlay rather than part of the
     // Flutter scaffold layout. Reserve exactly its safe-area and toolbar
     // extent so the search field begins below the chrome instead of behind
@@ -522,13 +498,14 @@ Widget _resourceTile<T>(
   int? groupedIndex,
   bool groupedLast = false,
 }) {
-  final id = binding.idOf(item);
+  final row = workspaceCollectionRowText(item as Object);
+  final id = row.id;
   return WorkspaceCollectionResourceTile(
     section: section,
     resourceId: id,
     icon: _sectionIcon(section),
-    title: binding.titleOf(item),
-    subtitle: binding.subtitleOf(item),
+    title: row.title,
+    subtitle: row.subtitle,
     trailing: binding.trailingOf?.call(item),
     presentation: binding.presentationOf(AppLocalizations.of(context)!, item),
     selected: selectedId == id,

@@ -29,13 +29,19 @@ abstract interface class HermesDashboardPage {
   /// Evaluates [source] and answers its value.
   Future<Object?> evaluateJavaScript(String source);
 
+  /// The main frame's current URL, or null before the first load.
+  Future<Uri?> currentUrl();
+
   /// Starts reloading the page.
   Future<void> reload();
 
   Future<void> dispose();
 }
 
-/// Opens a hidden page on [root], loaded with [headers].
+/// Opens a hidden page on [root], loaded with [headers]. The page must add
+/// [headers] to its own dashboard requests natively or through
+/// [hermesDashboardRequestHeaderScript]; requests never pass them as script
+/// arguments.
 typedef HermesDashboardPageFactory = HermesDashboardPage Function(
   Uri root,
   Map<String, String> headers,
@@ -90,14 +96,21 @@ final class HermesDashboardRestSession implements HermesDashboardBridge {
     _tail = _tail.then((_) async {
       try {
         final page = await _ensureReady();
+        // The page refuses main-frame navigations off the dashboard; this
+        // also catches one that got through, before a request runs there.
+        final current = await page.currentUrl();
+        if (current == null || !hermesDashboardIsExactOrigin(current, _root)) {
+          await _discard(page);
+          throw StateError('Hermes dashboard page left the dashboard.');
+        }
         final value = await page
             .callAsyncJavaScript(kHermesDashboardFetchScript, {
               'url': uri.toString(),
               'method': method,
-              'headers': {
-                ..._accessHeaders,
-                if (body != null) 'Content-Type': 'application/json',
-              },
+              // Never the access headers: arguments reach the page's own
+              // JavaScript. The page's header script (non-GET) or the
+              // host's native GET rule adds them.
+              'headers': {if (body != null) 'Content-Type': 'application/json'},
               'bodyValue': body,
             })
             .timeout(requestTimeout);
@@ -124,13 +137,17 @@ final class HermesDashboardRestSession implements HermesDashboardBridge {
     } catch (_) {
       // A page that never loaded is closed, and the next request opens a
       // fresh one.
-      if (identical(_page, page)) {
-        _page = null;
-        _ready = null;
-      }
-      await page.dispose();
+      await _discard(page);
       rethrow;
     }
+  }
+
+  Future<void> _discard(HermesDashboardPage page) async {
+    if (identical(_page, page)) {
+      _page = null;
+      _ready = null;
+    }
+    await page.dispose();
   }
 
   @override

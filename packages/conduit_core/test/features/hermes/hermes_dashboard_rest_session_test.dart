@@ -16,6 +16,10 @@ final class _FakePage implements HermesDashboardPage {
   Object? Function(Map<String, Object?> arguments)? answer;
   List<String> readyStates = ['complete'];
   bool disposed = false;
+  Uri? current;
+
+  @override
+  Future<Uri?> currentUrl() async => current ?? root;
 
   @override
   Future<void> get loaded => load.future;
@@ -101,18 +105,42 @@ void main() {
     check(first.body).equals('https://hermes.example/api/profiles');
     check(second.body).equals('https://hermes.example/api/x');
     check(events).deepEquals(['baseline', 'open', 'record', 'record']);
+    // The access headers load the page natively and are never script
+    // arguments, which the page's own JavaScript could read.
     check(pages.single.calls.first).deepEquals({
       'url': 'https://hermes.example/api/profiles',
       'method': 'GET',
-      'headers': access,
+      'headers': <String, String>{},
       'bodyValue': null,
     });
     check(pages.single.calls.last).deepEquals({
       'url': 'https://hermes.example/api/x',
       'method': 'POST',
-      'headers': {...access, 'Content-Type': 'application/json'},
+      'headers': {'Content-Type': 'application/json'},
       'bodyValue': '{"a":1}',
     });
+  });
+
+  test('refuses to run a request once the page left the dashboard', () async {
+    final bridge = session();
+    await bridge.request('GET', Uri.parse('https://hermes.example/api/a'));
+    final first = pages.single;
+    first.current = Uri.parse('https://identity.example/login');
+
+    await check(
+      bridge.request('GET', Uri.parse('https://hermes.example/api/b')),
+    ).throws<StateError>();
+    // Nothing ran on the other origin; the page is closed and the next
+    // request opens a fresh one on the dashboard.
+    check(first.calls).length.equals(1);
+    check(first.disposed).isTrue();
+
+    final next = await bridge.request(
+      'GET',
+      Uri.parse('https://hermes.example/api/c'),
+    );
+    check(next.body).equals('https://hermes.example/api/c');
+    check(pages).length.equals(2);
   });
 
   test('runs requests one at a time, in order', () async {

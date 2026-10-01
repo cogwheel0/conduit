@@ -269,11 +269,13 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
   String _serverSubtitle(HermesMcpServer server) {
     final result = _testResults[server.name];
     final tools = result?.toolNames ?? server.tools;
+    final filter = server.toolFilter?.summary;
     return [
       server.enabled ? 'Enabled' : 'Disabled',
       if (server.auth?.isNotEmpty == true) server.auth!,
       if (server.description.isNotEmpty) server.description,
       if (tools.isNotEmpty) 'Tools: ${tools.join(', ')}',
+      if (filter != null) 'Tool filter: $filter',
       if (result != null)
         '${result.resources} resources · ${result.prompts} prompts',
     ].join('\n');

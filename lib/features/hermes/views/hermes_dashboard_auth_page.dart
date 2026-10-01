@@ -66,12 +66,11 @@ final class _HermesDashboardAuthPageState
   }
 
   Future<bool> _isAuthenticated(InAppWebViewController controller) async {
+    // No access headers in the arguments: they would be readable by the
+    // page. The check is a GET, which interceptSubresource sends with them.
     final result = await controller.callAsyncJavaScript(
       functionBody: kHermesDashboardSignInCheckScript,
-      arguments: {
-        'url': hermesDashboardAuthCheckUrl(_root).toString(),
-        'headers': _policy.accessHeaders,
-      },
+      arguments: {'url': hermesDashboardAuthCheckUrl(_root).toString()},
     );
     return result?.error == null && result?.value == true;
   }
@@ -112,50 +111,11 @@ final class _HermesDashboardAuthPageState
                 initialSettings: InAppWebViewSettings(
                   javaScriptEnabled: true,
                   useShouldOverrideUrlLoading: true,
-                  useShouldInterceptAjaxRequest: true,
-                  useShouldInterceptFetchRequest: true,
                   useShouldInterceptRequest: true,
                 ),
-                initialUserScripts: UnmodifiableListView([
-                  UserScript(
-                    source: _policy.bootstrapScript,
-                    injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
-                  ),
-                ]),
+                initialUserScripts: UnmodifiableListView(_policy.userScripts),
                 shouldInterceptRequest: (_, request) =>
                     _policy.interceptSubresource(request),
-                shouldInterceptAjaxRequest: (_, request) async {
-                  final target = request.url?.uriValue;
-                  if (target != null && _policy.isExact(target)) {
-                    request.headers ??= AjaxRequestHeaders({});
-                    for (final entry in _policy.accessHeaders.entries) {
-                      request.headers!.setRequestHeader(entry.key, entry.value);
-                    }
-                  } else {
-                    final current = request.headers?.getHeaders().map(
-                      (key, value) => MapEntry(key, value.toString()),
-                    );
-                    request.headers = AjaxRequestHeaders(
-                      _policy.crossOriginHeaders(current),
-                    );
-                  }
-                  return request;
-                },
-                shouldInterceptFetchRequest: (_, request) async {
-                  final target = request.url?.uriValue;
-                  if (target != null && _policy.isExact(target)) {
-                    request.headers = _policy.sameOriginHeaders(
-                      request.headers,
-                    );
-                  } else {
-                    request.headers = _policy.crossOriginHeaders(
-                      request.headers?.map(
-                        (key, value) => MapEntry(key, value.toString()),
-                      ),
-                    );
-                  }
-                  return request;
-                },
                 onWebViewCreated: (controller) => _controller = controller,
                 onLoadStart: (_, _) {
                   if (mounted) {

@@ -9,9 +9,11 @@ import 'package:conduit_core/models/note.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:conduit/features/notes/providers/notes_providers.dart';
 import 'package:conduit/features/notes/views/note_editor_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -24,6 +26,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' as flutter;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -82,6 +85,39 @@ class _DeletingOnReconcileSyncEngine extends _NoDrainSyncEngine {
   }
 }
 
+/// Stands in for the app-wide [voiceInputServiceProvider] instance and records
+/// which speech-to-text preference was active when dictation began.
+class _RecordingVoiceInputService extends VoiceInputService {
+  final List<SttPreference> beginListeningPreferences = <SttPreference>[];
+  final List<bool> beginListeningUsesServer = <bool>[];
+  int disposeCalls = 0;
+
+  @override
+  bool get isSupportedPlatform => true;
+
+  @override
+  Future<bool> initialize({bool forceLocalStt = false}) async => true;
+
+  @override
+  Future<Stream<String>> beginListening({
+    bool iosAudioSessionManagedExternally = false,
+    bool nativeAccumulateResults = true,
+    bool holdServerRecorderForResponseWait = false,
+  }) async {
+    beginListeningPreferences.add(preference);
+    beginListeningUsesServer.add(prefersServerOnly);
+    return const Stream<String>.empty();
+  }
+
+  @override
+  Future<void> stopListening() async {}
+
+  @override
+  Future<void> dispose() async {
+    disposeCalls++;
+  }
+}
+
 class _EnabledNotesFeature extends NotesFeatureEnabledNotifier {
   @override
   bool build() => true;
@@ -112,6 +148,7 @@ Widget _noteEditorHarness({
   bool withBackRoute = false,
   TargetPlatform platform = TargetPlatform.android,
   Map<String, dynamic>? noteJson,
+  List<Override> extraOverrides = const <Override>[],
   GoRouter? router,
 }) {
   final initialNote = noteJson ?? _deletedNoteJson();
@@ -127,6 +164,7 @@ Widget _noteEditorHarness({
       notesFeatureEnabledProvider.overrideWith(_EnabledNotesFeature.new),
       noteByIdProvider('deleted-note')
           .overrideWith((ref) async => Note.fromJson(initialNote)),
+      ...extraOverrides,
     ],
     child: router != null
         ? MaterialApp.router(
@@ -241,6 +279,56 @@ void main() {
         TargetPlatform.android,
         TargetPlatform.iOS,
       }),
+    );
+
+    testWidgets(
+      'note dictation uses the shared voice service and its server-only '
+      'speech-to-text preference',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 900));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        // The options sheet paints its list tiles over a decorated surface,
+        // which trips a debug-only ListTile ink assertion unrelated to this
+        // test; let every other framework error through.
+        final originalOnError = FlutterError.onError;
+        addTearDown(() => FlutterError.onError = originalOnError);
+        FlutterError.onError = (details) {
+          if (details.exceptionAsString().contains(
+            'ListTile background color or ink splashes may be invisible',
+          )) {
+            return;
+          }
+          originalOnError?.call(details);
+        };
+        final voice = _RecordingVoiceInputService()
+          ..updatePreference(SttPreference.serverOnly);
+        await tester.pumpWidget(
+          _noteEditorHarness(
+            db: db,
+            syncEngine: _NoDrainSyncEngine(),
+            // A non-null note wraps the app in a Material so the options
+            // sheet's list tiles have an ink ancestor.
+            noteJson: _deletedNoteJson(),
+            extraOverrides: [
+              voiceInputServiceProvider.overrideWithValue(voice),
+            ],
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byIcon(Icons.mic_rounded));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Dictation'));
+        await tester.pumpAndSettle();
+
+        check(voice.beginListeningPreferences)
+            .deepEquals([SttPreference.serverOnly]);
+        check(voice.beginListeningUsesServer).deepEquals([true]);
+
+        // Leaving the editor must not dispose the shared service.
+        await tester.pumpWidget(const SizedBox.shrink());
+        check(voice.disposeCalls).equals(0);
+      },
     );
 
     testWidgets('checkbox toggles autosave canonical markdown', (tester) async {
