@@ -290,6 +290,8 @@ final class NativeKeyboardAttachmentBridge: NativeKeyboardAttachmentHostApi {
         return capturedFirstResponder
     }
 
+    /// Measures the keyboard in the responder's window, retaining the last
+    /// usable height when focus arrives before a keyboard frame is available.
     private func measuredKeyboardHeight(for responder: UIResponder) -> CGFloat {
         guard #available(iOS 15.0, *) else {
             return cachedKeyboardHeight
@@ -432,6 +434,8 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         return 16
     }
 
+    /// Builds the scrollable attachment surface and routes tile selections to
+    /// the supplied handler.
     init(onSelect: @escaping (NativeKeyboardAttachmentAction) -> Void) {
         self.onSelect = onSelect
         super.init(frame: .zero, inputViewStyle: .keyboard)
@@ -493,6 +497,7 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         ])
     }
 
+    /// Requires a selection handler, so storyboard decoding is unsupported.
     required init?(coder: NSCoder) {
         nil
     }
@@ -510,6 +515,7 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         super.layoutSubviews()
     }
 
+    /// Adjusts content padding when the vertical layout becomes compact or regular.
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
         guard
@@ -520,6 +526,8 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         stackTopConstraint.constant = topContentInset
     }
 
+    /// Rebuilds the ordered attachment, feature, and tool sections from the
+    /// latest Flutter configuration.
     func update(actions: [NativeKeyboardAttachmentAction]) {
         stackView.arrangedSubviews.forEach { view in
             stackView.removeArrangedSubview(view)
@@ -565,6 +573,7 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         setNeedsLayout()
     }
 
+    /// Adds a caption heading before a tool section.
     private func addSectionTitle(_ title: String) {
         let label = UILabel()
         label.text = title
@@ -584,6 +593,7 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         traitCollection.verticalSizeClass == .compact ? 52 : 58
     }
 
+    /// Adds the horizontally scrolling strip of attachment tiles.
     @discardableResult
     private func addAttachmentRow(_ actions: [NativeKeyboardAttachmentAction]) -> UIScrollView {
         let scroll = UIScrollView()
@@ -636,6 +646,7 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         return scroll
     }
 
+    /// Adds the feature and tool rows with their current selection state.
     private func addListSection(_ actions: [NativeKeyboardAttachmentAction]) {
         let sectionStack = UIStackView()
         sectionStack.axis = .vertical
@@ -652,6 +663,7 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         stackView.addArrangedSubview(sectionStack)
     }
 
+    /// Maps section identifiers to their native headings.
     private func title(for section: String) -> String {
         switch section {
         case "attachments":
