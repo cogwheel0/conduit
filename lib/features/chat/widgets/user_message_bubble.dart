@@ -1031,6 +1031,12 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       return;
     }
 
+    // Resending drops this message from the transcript, which disposes this
+    // bubble while the send is still running. A WidgetRef read after that
+    // fails; the ownership helpers turn the failure into "no database", so the
+    // send skipped its outbox drain and the reply waited for the next
+    // five-minute sync. The scope's container outlives the bubble.
+    final container = ProviderScope.containerOf(context, listen: false);
     try {
       final messageId = widget.message.id?.toString();
       if (messageId == null || messageId.isEmpty) {
@@ -1039,7 +1045,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       // Core re-sends the edit: Hermes replays it, anything else truncates
       // after the message and sends the new text as a new turn.
       await resendEditedUserMessage(
-        ref,
+        container,
         messageId: messageId,
         newText: newText,
       );

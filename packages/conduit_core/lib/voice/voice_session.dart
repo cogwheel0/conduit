@@ -27,6 +27,30 @@ enum ChatVoiceModePhase {
   error,
 }
 
+/// Why a call shows an error, so a host can say it in the user's language
+/// instead of printing an exception.
+enum ChatVoiceModeError {
+  /// The microphone permission is denied.
+  microphoneDenied,
+
+  /// The voice input could not be set up.
+  inputUnavailable,
+
+  /// Starting the voice services took too long.
+  timeout,
+
+  /// The recognizer heard nothing for several tries.
+  noSpeech,
+
+  /// `errorMessage` is text meant for the user (the server's reply error, or
+  /// why a call cannot start): show it as it is.
+  message,
+
+  /// Anything else; `errorMessage` is an exception's text and is only for
+  /// logs.
+  other,
+}
+
 enum ChatVoiceModeStartResult { started, alreadyActive, cancelled, failed }
 
 @immutable
@@ -43,6 +67,7 @@ class ChatVoiceModeSnapshot {
     this.startedAt,
     this.activeCallId,
     this.errorMessage,
+    this.errorKind,
     this.isCollapsed = false,
     this.isMuted = false,
     this.isSpeakerphoneEnabled = false,
@@ -59,6 +84,9 @@ class ChatVoiceModeSnapshot {
   final DateTime? startedAt;
   final String? activeCallId;
   final String? errorMessage;
+
+  /// Why [errorMessage] is set; null when there is none.
+  final ChatVoiceModeError? errorKind;
   final bool isCollapsed;
   final bool isMuted;
   final bool isSpeakerphoneEnabled;
@@ -99,6 +127,7 @@ class ChatVoiceModeSnapshot {
     String? activeCallId,
     bool clearActiveCallId = false,
     String? errorMessage,
+    ChatVoiceModeError? errorKind,
     bool clearErrorMessage = false,
     bool? isCollapsed,
     bool? isMuted,
@@ -126,6 +155,7 @@ class ChatVoiceModeSnapshot {
       errorMessage: clearErrorMessage
           ? null
           : errorMessage ?? this.errorMessage,
+      errorKind: clearErrorMessage ? null : errorKind ?? this.errorKind,
       isCollapsed: isCollapsed ?? this.isCollapsed,
       isMuted: isMuted ?? this.isMuted,
       isSpeakerphoneEnabled:

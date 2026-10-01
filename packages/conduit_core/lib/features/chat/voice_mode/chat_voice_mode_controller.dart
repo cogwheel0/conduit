@@ -39,6 +39,21 @@ final class _ChatVoiceModeStartCancelled implements Exception {
   const _ChatVoiceModeStartCancelled();
 }
 
+/// A start failure with a known [kind], so the panel can say why in the
+/// user's language. [toString] stays the log text.
+final class _ChatVoiceModeFailure implements Exception {
+  const _ChatVoiceModeFailure(this.kind, this.message);
+
+  final ChatVoiceModeError kind;
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+ChatVoiceModeError _errorKindOf(Object error) =>
+    error is _ChatVoiceModeFailure ? error.kind : ChatVoiceModeError.other;
+
 final chatVoiceModeControllerProvider =
     NotifierProvider<ChatVoiceModeController, ChatVoiceModeSnapshot>(
       ChatVoiceModeController.new,
@@ -318,7 +333,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
             return;
           }
           if (!eligibility.canStart) {
-            _setError(eligibility.errorMessage!);
+            _setError(eligibility.errorMessage!, ChatVoiceModeError.message);
             return;
           }
           if (shouldStart != null && !shouldStart()) {
@@ -382,10 +397,16 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           if (lostOwnership()) return;
           cancelIfRequested();
           if (!inputReady) {
-            throw StateError('Voice input initialization failed.');
+            throw const _ChatVoiceModeFailure(
+              ChatVoiceModeError.inputUnavailable,
+              'Voice input initialization failed.',
+            );
           }
           if (!await input.checkPermissions()) {
-            throw StateError('Microphone permission denied.');
+            throw const _ChatVoiceModeFailure(
+              ChatVoiceModeError.microphoneDenied,
+              'Microphone permission denied.',
+            );
           }
           if (lostOwnership()) return;
           cancelIfRequested();
@@ -454,14 +475,17 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
               _disposeResources(endCallKit: true, ownershipToken: cleanupToken),
             );
           }
-          _setError('Voice services timed out. Try again.');
+          _setError(
+            'Voice services timed out. Try again.',
+            ChatVoiceModeError.timeout,
+          );
           return;
         }
         if (startToken == null) {
-          _setError(error.toString());
+          _setError(error.toString(), _errorKindOf(error));
           return;
         }
-        await _fail(error.toString(), startToken);
+        await _fail(error.toString(), startToken, _errorKindOf(error));
       } finally {
         if (identical(
           _pendingStartReadinessCancellation,
@@ -619,7 +643,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
             error: error,
             stackTrace: stackTrace,
           );
-          await _fail(error.toString(), token);
+          await _fail(error.toString(), token, _errorKindOf(error));
         }
         return;
       }
@@ -799,7 +823,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         case TtsCancelled():
           break;
         case TtsError(:final message):
-          state = state.copyWith(errorMessage: message);
+          state = state.copyWith(
+            errorMessage: message,
+            errorKind: ChatVoiceModeError.other,
+          );
           // Failed speech still ends the assistant turn. Without this the
           // recognizer stopped for playback is never restarted, leaving voice
           // mode active with no way to accept the next utterance.
@@ -833,7 +860,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         scope: 'chat/voice_mode',
         error: error,
       );
-      unawaited(_fail(error.toString(), token));
+      unawaited(_fail(error.toString(), token, _errorKindOf(error)));
     }
 
     _responseCaptureFailureSub = input.responseCaptureFailures.listen(
@@ -988,7 +1015,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         error: error,
         stackTrace: stackTrace,
       );
-      unawaited(_fail(error.toString(), token));
+      unawaited(_fail(error.toString(), token, _errorKindOf(error)));
     }
 
     void onTranscriptDone() {
@@ -1214,6 +1241,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       state = state.copyWith(
         phase: ChatVoiceModePhase.paused,
         errorMessage: 'No speech detected.',
+        errorKind: ChatVoiceModeError.noSpeech,
       );
       return;
     }
@@ -1308,7 +1336,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         error: error,
         stackTrace: stackTrace,
       );
-      await _fail(error.toString(), token);
+      await _fail(error.toString(), token, _errorKindOf(error));
     }
   }
 
@@ -1387,7 +1415,13 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     if (error != null) {
       _assistantFinalized = true;
       unawaited(
-        _fail(error.content ?? 'The assistant response failed.', _token),
+        _fail(
+          error.content ?? 'The assistant response failed.',
+          _token,
+          error.content == null
+              ? ChatVoiceModeError.other
+              : ChatVoiceModeError.message,
+        ),
       );
       return;
     }
@@ -1445,7 +1479,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         error: error,
         stackTrace: stackTrace,
       );
-      await _fail(error.toString(), token);
+      await _fail(error.toString(), token, _errorKindOf(error));
       return;
     }
     if (!_isCurrent(token)) return;
@@ -1600,7 +1634,11 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     _intensitySub = null;
   }
 
-  Future<void> _fail(String message, int token) async {
+  Future<void> _fail(
+    String message,
+    int token, [
+    ChatVoiceModeError kind = ChatVoiceModeError.other,
+  ]) async {
     if (!_isCurrent(token)) return;
     // Invalidate transcript/TTS callbacks before resources are detached. The
     // lifecycle gate may delay subscription cancellation, and a recognizer is
@@ -1611,16 +1649,21 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     state = state.copyWith(
       phase: ChatVoiceModePhase.error,
       errorMessage: message,
+      errorKind: kind,
       clearActiveCallId: true,
       clearSpokenResponse: true,
       intensity: 0,
     );
   }
 
-  void _setError(String message) {
+  void _setError(
+    String message, [
+    ChatVoiceModeError kind = ChatVoiceModeError.other,
+  ]) {
     state = state.copyWith(
       phase: ChatVoiceModePhase.error,
       errorMessage: message,
+      errorKind: kind,
       clearActiveCallId: true,
       clearSpokenResponse: true,
       intensity: 0,
