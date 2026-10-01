@@ -3,8 +3,8 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
-import '../../../shared/services/raster_media_policy.dart';
 import '../../../l10n/app_localizations.dart';
+import '../../../shared/widgets/image_viewer/image_viewer.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/utils/locale_display_formatters.dart';
@@ -401,6 +401,23 @@ Future<void> showTerminalFilePreview(
   if (preview == null || !context.mounted || isCurrent?.call() == false) {
     return;
   }
+  if (preview.isImage && preview.bytes != null) {
+    final route = buildImageViewerRoute(
+      context,
+      items: [
+        ImageViewerItem(
+          label: sanitizeUtf16(entry.displayName),
+          load: () async => ImageViewerMedia.bytes(
+            preview.bytes!,
+            isSvg: preview.contentType.split(';').first == 'image/svg+xml',
+          ),
+        ),
+      ],
+    );
+    onShown?.call(route);
+    await Navigator.of(context, rootNavigator: true).push(route);
+    return;
+  }
   final l10n = AppLocalizations.of(context)!;
 
   final navigator = Navigator.of(context, rootNavigator: true);
@@ -478,28 +495,6 @@ Widget _terminalPreviewContent(
             sanitizeUtf16(preview.text ?? ''),
             style: AppTypography.codeStyle.copyWith(color: theme.codeText),
           ),
-        ),
-      ),
-    );
-  }
-
-  if (preview.isImage && preview.bytes != null) {
-    final decodeTarget = RasterMediaPolicy.forBox(
-      context,
-      profile: RasterDecodeProfile.inline,
-      logicalWidth: 520,
-      logicalHeight: 360,
-    );
-    return SizedBox(
-      width: 520,
-      height: 360,
-      child: InteractiveViewer(
-        child: Image(
-          image: RasterMediaPolicy.resizeProvider(
-            MemoryImage(preview.bytes!),
-            decodeTarget,
-          ),
-          fit: BoxFit.contain,
         ),
       ),
     );

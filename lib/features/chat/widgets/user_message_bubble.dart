@@ -227,6 +227,20 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
   }
 
   Widget _buildFileImageLayout(List<dynamic> imageFiles, int imageCount) {
+    return ImageAttachmentGallery(
+      images: () => [
+        for (final file in imageFiles)
+          if (getFileUrl(file) case final String url)
+            ImageAttachmentReference(url, headers: _headersForFile(file)),
+      ],
+      child: _buildFileImageLayoutContent(imageFiles, imageCount),
+    );
+  }
+
+  Widget _buildFileImageLayoutContent(
+    List<dynamic> imageFiles,
+    int imageCount,
+  ) {
     if (imageCount == 1) {
       final file = imageFiles[0];
       final imageUrl = getFileUrl(file);
@@ -361,6 +375,18 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
   }
 
   Widget _buildImageLayout(int imageCount) {
+    return ImageAttachmentGallery(
+      images: () => [
+        for (final id in List<String>.from(
+          widget.message.attachmentIds as Iterable,
+        ))
+          ImageAttachmentReference(id, isKnownImage: false),
+      ],
+      child: _buildImageLayoutContent(imageCount),
+    );
+  }
+
+  Widget _buildImageLayoutContent(int imageCount) {
     // [message] is dynamic for legacy hydration compatibility. Normalize the
     // ids before iterating so collection transforms produce List<Widget>
     // instead of a runtime List<dynamic>.

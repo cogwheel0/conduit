@@ -6503,5 +6503,45 @@
   "webSearchRegionWorldwide": "Cały świat",
   "directModelToolsUnsupported": "Ten model nie może używać narzędzi, więc nie może przeszukiwać sieci. Wyłącz wyszukiwanie w sieci i wszystkie narzędzia, a następnie spróbuj ponownie.",
   "directContextCompactionModelCount": "{count, plural, one{{count} model} few{{count} modele} many{{count} modeli} other{{count} modelu}}",
-  "@directContextCompactionModelCount": {"description": "Row value on Direct Connections that opens the list of models needing a context limit.", "placeholders": {"count": {"type": "int", "example": "42"}}}
+  "@directContextCompactionModelCount": {"description": "Row value on Direct Connections that opens the list of models needing a context limit.", "placeholders": {"count": {"type": "int", "example": "42"}}},
+  "imageViewerZoom": "Powiększ",
+  "@imageViewerZoom": {
+    "description": "Accessibility action to magnify the image."
+  },
+  "imageViewerResetZoom": "Resetuj powiększenie",
+  "@imageViewerResetZoom": {
+    "description": "Accessibility action to fit the whole image on screen."
+  },
+  "imageViewerPrevious": "Poprzedni obraz",
+  "@imageViewerPrevious": {
+    "description": "Button to show the previous image in this message."
+  },
+  "imageViewerNext": "Następny obraz",
+  "@imageViewerNext": {
+    "description": "Button to show the next image in this message."
+  },
+  "imageViewerQuickLook": "Szybki podgląd",
+  "@imageViewerQuickLook": {
+    "description": "Button to open the image in the iOS system preview."
+  },
+  "imageViewerOpenIn": "Otwórz w…",
+  "@imageViewerOpenIn": {
+    "description": "Button to open the image in another Android app."
+  },
+  "imageViewerExportFailed": "Nie udało się otworzyć ani udostępnić tego obrazu. Spróbuj ponownie.",
+  "@imageViewerExportFailed": {
+    "description": "Shown when image staging, system preview, or sharing fails."
+  },
+  "imageViewerPosition": "{current} z {total}",
+  "@imageViewerPosition": {
+    "description": "Current image position in a message gallery.",
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  }
 }

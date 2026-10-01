@@ -3338,5 +3338,45 @@
   "webSearchRegionWorldwide": "Weltweit",
   "directModelToolsUnsupported": "Dieses Modell kann keine Werkzeuge verwenden und deshalb nicht im Web suchen. Schalte die Websuche und alle Werkzeuge aus und versuche es erneut.",
   "directContextCompactionModelCount": "{count, plural, =1{1 Modell} other{{count} Modelle}}",
-  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}}
+  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
+  "imageViewerZoom": "Vergrößern",
+  "@imageViewerZoom": {
+    "description": "Accessibility action to magnify the image."
+  },
+  "imageViewerResetZoom": "Zoom zurücksetzen",
+  "@imageViewerResetZoom": {
+    "description": "Accessibility action to fit the whole image on screen."
+  },
+  "imageViewerPrevious": "Vorheriges Bild",
+  "@imageViewerPrevious": {
+    "description": "Button to show the previous image in this message."
+  },
+  "imageViewerNext": "Nächstes Bild",
+  "@imageViewerNext": {
+    "description": "Button to show the next image in this message."
+  },
+  "imageViewerQuickLook": "Quick Look",
+  "@imageViewerQuickLook": {
+    "description": "Button to open the image in the iOS system preview."
+  },
+  "imageViewerOpenIn": "Öffnen mit…",
+  "@imageViewerOpenIn": {
+    "description": "Button to open the image in another Android app."
+  },
+  "imageViewerExportFailed": "Dieses Bild konnte nicht geöffnet oder geteilt werden. Bitte versuche es erneut.",
+  "@imageViewerExportFailed": {
+    "description": "Shown when image staging, system preview, or sharing fails."
+  },
+  "imageViewerPosition": "{current} von {total}",
+  "@imageViewerPosition": {
+    "description": "Current image position in a message gallery.",
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  }
 }

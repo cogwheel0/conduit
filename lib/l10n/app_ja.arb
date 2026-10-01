@@ -4678,5 +4678,45 @@
   "webSearchRegionWorldwide": "全世界",
   "directModelToolsUnsupported": "このモデルはツールを使用できないため、Web 検索を実行できません。Web 検索とツールをすべてオフにしてから、もう一度お試しください。",
   "directContextCompactionModelCount": "{count, plural, other{{count} 個のモデル}}",
-  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}}
+  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
+  "imageViewerZoom": "拡大",
+  "@imageViewerZoom": {
+    "description": "Accessibility action to magnify the image."
+  },
+  "imageViewerResetZoom": "ズームをリセット",
+  "@imageViewerResetZoom": {
+    "description": "Accessibility action to fit the whole image on screen."
+  },
+  "imageViewerPrevious": "前の画像",
+  "@imageViewerPrevious": {
+    "description": "Button to show the previous image in this message."
+  },
+  "imageViewerNext": "次の画像",
+  "@imageViewerNext": {
+    "description": "Button to show the next image in this message."
+  },
+  "imageViewerQuickLook": "クイックルック",
+  "@imageViewerQuickLook": {
+    "description": "Button to open the image in the iOS system preview."
+  },
+  "imageViewerOpenIn": "別のアプリで開く…",
+  "@imageViewerOpenIn": {
+    "description": "Button to open the image in another Android app."
+  },
+  "imageViewerExportFailed": "この画像を開くか共有できませんでした。もう一度お試しください。",
+  "@imageViewerExportFailed": {
+    "description": "Shown when image staging, system preview, or sharing fails."
+  },
+  "imageViewerPosition": "{total} 枚中 {current} 枚目",
+  "@imageViewerPosition": {
+    "description": "Current image position in a message gallery.",
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  }
 }

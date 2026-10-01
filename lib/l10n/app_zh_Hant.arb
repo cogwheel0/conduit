@@ -3338,5 +3338,45 @@
   "webSearchRegionWorldwide": "全球",
   "directModelToolsUnsupported": "此模型無法使用工具，因此無法搜索網頁。請關閉網頁搜索和所有工具後重試。",
   "directContextCompactionModelCount": "{count, plural, other{{count} 個模型}}",
-  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}}
+  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
+  "imageViewerZoom": "放大",
+  "@imageViewerZoom": {
+    "description": "Accessibility action to magnify the image."
+  },
+  "imageViewerResetZoom": "重設縮放",
+  "@imageViewerResetZoom": {
+    "description": "Accessibility action to fit the whole image on screen."
+  },
+  "imageViewerPrevious": "上一張圖片",
+  "@imageViewerPrevious": {
+    "description": "Button to show the previous image in this message."
+  },
+  "imageViewerNext": "下一張圖片",
+  "@imageViewerNext": {
+    "description": "Button to show the next image in this message."
+  },
+  "imageViewerQuickLook": "快速查看",
+  "@imageViewerQuickLook": {
+    "description": "Button to open the image in the iOS system preview."
+  },
+  "imageViewerOpenIn": "打開方式…",
+  "@imageViewerOpenIn": {
+    "description": "Button to open the image in another Android app."
+  },
+  "imageViewerExportFailed": "無法打開或分享此圖片。請重試。",
+  "@imageViewerExportFailed": {
+    "description": "Shown when image staging, system preview, or sharing fails."
+  },
+  "imageViewerPosition": "第 {current} 張，共 {total} 張",
+  "@imageViewerPosition": {
+    "description": "Current image position in a message gallery.",
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  }
 }

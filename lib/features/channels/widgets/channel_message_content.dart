@@ -37,13 +37,21 @@ class ChannelMessageContent extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    return ConduitMarkdownWidget(
-      data: normalized,
-      dataIsPrepared: true,
-      stateScopeId: stateScopeId,
-      onLinkTap:
-          onTapLink ??
-          (url, _) => launchExternalLink(url, scope: 'channels/markdown'),
+    return ImageAttachmentGallery(
+      images: () => ImageAttachmentGallery.markdownImages(normalized),
+      child: ConduitMarkdownWidget(
+        imageBuilder: (src, alt, title) => EnhancedImageAttachment(
+          attachmentId: src,
+          isMarkdownFormat: true,
+          constraints: const BoxConstraints(maxWidth: 500, maxHeight: 400),
+        ),
+        data: normalized,
+        dataIsPrepared: true,
+        stateScopeId: stateScopeId,
+        onLinkTap:
+            onTapLink ??
+            (url, _) => launchExternalLink(url, scope: 'channels/markdown'),
+      ),
     );
   }
 }
@@ -68,12 +76,19 @@ class ChannelMessageAttachments extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    return Padding(
-      padding: const EdgeInsets.only(top: Spacing.xs),
-      child: Wrap(
-        spacing: Spacing.sm,
-        runSpacing: Spacing.sm,
-        children: attachmentFiles.map(_buildAttachment).toList(),
+    return ImageAttachmentGallery(
+      images: () => [
+        for (final file in attachmentFiles)
+          if (isImageFile(file) && getFileUrl(file) != null)
+            ImageAttachmentReference(getFileUrl(file)!),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.only(top: Spacing.xs),
+        child: Wrap(
+          spacing: Spacing.sm,
+          runSpacing: Spacing.sm,
+          children: attachmentFiles.map(_buildAttachment).toList(),
+        ),
       ),
     );
   }

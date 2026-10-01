@@ -6134,5 +6134,45 @@
   "directModelToolsUnsupported": "This model can't use tools, so it can't search the web. Turn off web search and any tools, then try again.",
   "@directModelToolsUnsupported": {"description": "Error shown when a Direct model rejects tool definitions, which web search needs."},
   "directContextCompactionModelCount": "{count, plural, =1{1 model} other{{count} models}}",
-  "@directContextCompactionModelCount": {"description": "Row value on Direct Connections that opens the list of models needing a context limit.", "placeholders": {"count": {"type": "int", "example": "42"}}}
+  "@directContextCompactionModelCount": {"description": "Row value on Direct Connections that opens the list of models needing a context limit.", "placeholders": {"count": {"type": "int", "example": "42"}}},
+  "imageViewerZoom": "Zoom in",
+  "@imageViewerZoom": {
+    "description": "Accessibility action to magnify the image."
+  },
+  "imageViewerResetZoom": "Reset zoom",
+  "@imageViewerResetZoom": {
+    "description": "Accessibility action to fit the whole image on screen."
+  },
+  "imageViewerPrevious": "Previous image",
+  "@imageViewerPrevious": {
+    "description": "Button to show the previous image in this message."
+  },
+  "imageViewerNext": "Next image",
+  "@imageViewerNext": {
+    "description": "Button to show the next image in this message."
+  },
+  "imageViewerQuickLook": "Quick Look",
+  "@imageViewerQuickLook": {
+    "description": "Button to open the image in the iOS system preview."
+  },
+  "imageViewerOpenIn": "Open in…",
+  "@imageViewerOpenIn": {
+    "description": "Button to open the image in another Android app."
+  },
+  "imageViewerExportFailed": "Could not open or share this image. Please try again.",
+  "@imageViewerExportFailed": {
+    "description": "Shown when image staging, system preview, or sharing fails."
+  },
+  "imageViewerPosition": "{current} of {total}",
+  "@imageViewerPosition": {
+    "description": "Current image position in a message gallery.",
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  }
 }

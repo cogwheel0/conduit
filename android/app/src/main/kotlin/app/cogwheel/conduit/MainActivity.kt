@@ -615,6 +615,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        ImagePreviewBridge(this, flutterEngine.dartExecutor.binaryMessenger)
 
         // Initialize background streaming handler
         backgroundStreamingHandler = BackgroundStreamingHandler(this)

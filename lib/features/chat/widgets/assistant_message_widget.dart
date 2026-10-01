@@ -1066,7 +1066,27 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   @override
   Widget build(BuildContext context) {
-    return _buildDocumentationMessage();
+    return ImageAttachmentGallery(
+      images: () {
+        final files = _activeVersionIndex >= 0
+            ? widget.message.versions[_activeVersionIndex].files
+            : widget.message.files;
+        return [
+          ...ImageAttachmentGallery.markdownImages(
+            _processContentForImages(_resolvedMessageContent()),
+          ),
+          for (final file in files ?? const [])
+            if (isImageFile(file) && getFileUrl(file) != null)
+              ImageAttachmentReference(
+                getFileUrl(file)!,
+                headers: _headersForFile(file),
+              ),
+          for (final id in widget.message.attachmentIds ?? const <String>[])
+            ImageAttachmentReference(id, isKnownImage: false),
+        ];
+      },
+      child: _buildDocumentationMessage(),
+    );
   }
 
   Widget _buildDocumentationMessage() {

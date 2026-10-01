@@ -45,6 +45,10 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="http" />
         </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="image/*" />
+        </intent>
     </queries>
 
     <!-- Custom Application class creates notification channels at startup to prevent
@@ -167,5 +171,13 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <provider
+            android:name=".ImagePreviewFileProvider"
+            android:authorities="${applicationId}.image_previews"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/image_preview_paths" />
+        </provider>
     </application>
 </manifest>
