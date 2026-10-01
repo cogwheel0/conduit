@@ -3393,5 +3393,6 @@
   "voiceCallExpand": "Развернуть",
   "@voiceCallExpand": {
     "description": "Accessibility label for the button that opens the minimized voice call pill back into the full panel."
-  }
+  },
+  "askConduitAction": "Спросите Conduit"
 }

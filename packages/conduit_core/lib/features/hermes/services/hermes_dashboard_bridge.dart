@@ -24,7 +24,12 @@ abstract interface class HermesDashboardBridge {
   Future<void> close();
 }
 
-/// Builds a [HermesDashboardBridge] for one Hermes deployment.
+/// Builds a [HermesDashboardBridge] for one Hermes deployment: its dashboard
+/// [root] and the gateway [accessHeaders] of the same configuration. Both
+/// come from the service that asks, never from whatever configuration the
+/// host holds at that moment, so one server's headers never reach another's
+/// dashboard.
 typedef HermesDashboardBridgeFactory = HermesDashboardBridge Function({
   required Uri root,
+  required Map<String, String> accessHeaders,
 });

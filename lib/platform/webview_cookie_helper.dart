@@ -236,12 +236,14 @@ class WebViewCookieHelper {
       for (final cookie in cookies.where(
         (cookie) => identities.contains(cookieIdentity(cookie)),
       )) {
-        final deleted = await manager.deleteCookie(
-          url: url,
-          name: cookie.name,
-          path: cookie.path ?? '/',
-          domain: cookie.domain,
-        );
+        final deleted = Platform.isAndroid
+            ? await _expireAndroidCookie(manager, url, cookie)
+            : await manager.deleteCookie(
+                url: url,
+                name: cookie.name,
+                path: cookie.path ?? '/',
+                domain: cookie.domain,
+              );
         success = success && deleted;
       }
       final remaining = await manager.getCookies(url: url);
@@ -257,6 +259,37 @@ class WebViewCookieHelper {
       );
       return false;
     }
+  }
+
+  /// inappwebview's Android `deleteCookie` writes `Domain=` whenever the
+  /// cookie reports one and never `Secure`, so Chromium refuses to expire a
+  /// `__Host-`/`__Secure-` cookie (the Hermes dashboard session) and a
+  /// host-only one stays. Expire it under every identity core's rule lists;
+  /// the caller re-reads the store to confirm.
+  static Future<bool> _expireAndroidCookie(
+    CookieManager manager,
+    WebUri url,
+    Cookie cookie,
+  ) async {
+    var any = false;
+    for (final expiry in androidWebViewCookieExpiries(
+      url: url.uriValue,
+      name: cookie.name,
+      path: cookie.path,
+      domain: cookie.domain,
+    )) {
+      final written = await manager.setCookie(
+        url: url,
+        name: cookie.name,
+        value: '',
+        path: expiry.path,
+        domain: expiry.domain,
+        maxAge: 0,
+        isSecure: expiry.secure,
+      );
+      any = any || written;
+    }
+    return any;
   }
 
   static Future<Set<String>> cookieIdentitiesForOrigin(String origin) async {

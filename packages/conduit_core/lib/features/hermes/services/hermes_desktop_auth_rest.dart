@@ -327,7 +327,10 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
         'This host has no WebView, so the Hermes dashboard cannot be reached.',
       );
     }
-    final bridge = _dashboardBridge ??= bridgeFactory(root: _root);
+    final bridge = _dashboardBridge ??= bridgeFactory(
+      root: _root,
+      accessHeaders: config.accessHeaders,
+    );
     final response = await bridge.request(
       method,
       _uri(path, query),

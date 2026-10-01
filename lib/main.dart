@@ -371,10 +371,11 @@ void main() {
             ),
           hostHermesDashboardBridgeFactoryProvider.overrideWith(
             (ref) =>
-                ({required root}) => HermesDashboardRestBridge(
-                  config: ref.read(hermesConfigProvider),
-                  root: root,
-                ),
+                ({required root, required accessHeaders}) =>
+                    HermesDashboardRestBridge(
+                      root: root,
+                      accessHeaders: accessHeaders,
+                    ),
           ),
           clipboardPortProvider.overrideWithValue(const FlutterClipboardPort()),
           uiRequestPortProvider.overrideWithValue(const FlutterUiRequests()),

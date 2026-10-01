@@ -5,10 +5,11 @@ import 'dart:io';
 import 'package:checks/checks.dart';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:conduit_core/ports/paths_port.dart';
+import 'package:test/test.dart';
 import 'package:path/path.dart' as path;
 
-import 'package:conduit/features/notes/services/note_audio_upload_service.dart';
+import 'package:conduit_core/features/notes/services/note_audio_upload_service.dart';
 
 void main() {
   group('NoteAudioUploadCoordinator', () {
@@ -23,6 +24,7 @@ void main() {
         final source = await _recordingFile(root, 'source.m4a');
         final store = NoteAudioUploadStore(
           applicationSupportDirectory: () async => root,
+          temporaryDirectory: () async => root,
           idGenerator: () => 'upload-1',
         );
         final staged = await store.stage(
@@ -87,6 +89,7 @@ void main() {
         final source = await _recordingFile(root, 'source.m4a');
         final store = NoteAudioUploadStore(
           applicationSupportDirectory: () async => root,
+          temporaryDirectory: () async => root,
           idGenerator: () => 'upload-2',
         );
         final staged = await store.stage(
@@ -106,6 +109,7 @@ void main() {
         final durablePath = failed!.localPath;
         final reconstructedStore = NoteAudioUploadStore(
           applicationSupportDirectory: () async => root,
+          temporaryDirectory: () async => root,
         );
         final reloaded = await reconstructedStore.loadForNote(
           serverId: 'server-1',
@@ -149,6 +153,7 @@ void main() {
         final source = await _recordingFile(root, 'source.m4a');
         final store = NoteAudioUploadStore(
           applicationSupportDirectory: () async => root,
+          temporaryDirectory: () async => root,
           idGenerator: () => 'upload-3',
         );
         final staged = await store.stage(
@@ -181,6 +186,7 @@ void main() {
 
         final reconstructedStore = NoteAudioUploadStore(
           applicationSupportDirectory: () async => root,
+          temporaryDirectory: () async => root,
         );
         final reloaded = await reconstructedStore.loadForNote(
           serverId: 'server-1',
@@ -216,6 +222,7 @@ void main() {
 
         final store = NoteAudioUploadStore(
           applicationSupportDirectory: () async => root,
+          temporaryDirectory: () async => root,
           idGenerator: () => 'upload-4',
         );
         final staged = await store.stage(
@@ -231,6 +238,7 @@ void main() {
 
         final recovered = await NoteAudioUploadStore(
           applicationSupportDirectory: () async => root,
+          temporaryDirectory: () async => root,
         ).loadForAccount(serverId: 'server-1', accountId: 'user-1');
 
         check(recovered).length.equals(1);
@@ -294,6 +302,7 @@ void main() {
 
         final store = NoteAudioUploadStore(
           applicationSupportDirectory: () async => root,
+          temporaryDirectory: () async => root,
           idGenerator: () => 'upload-5',
         );
         final staged = await store.stage(
@@ -356,6 +365,7 @@ void main() {
 
         final store = NoteAudioUploadStore(
           applicationSupportDirectory: () async => root,
+          temporaryDirectory: () async => root,
           idGenerator: () => 'upload-6',
         );
         final staged = await store.stage(
@@ -415,6 +425,7 @@ void main() {
 
       final store = NoteAudioUploadStore(
         applicationSupportDirectory: () async => root,
+        temporaryDirectory: () async => root,
         idGenerator: () => 'upload-rebound',
       );
       final staged = await store.stage(
@@ -478,6 +489,7 @@ void main() {
 
         final store = NoteAudioUploadStore(
           applicationSupportDirectory: () async => root,
+          temporaryDirectory: () async => root,
           idGenerator: () => 'upload-rebind-race',
         );
         final staged = await store.stage(
@@ -532,6 +544,7 @@ void main() {
 
       final store = NoteAudioUploadStore(
         applicationSupportDirectory: () async => root,
+        temporaryDirectory: () async => root,
         idGenerator: () => 'upload-rebind-owner',
       );
       final staged = await store.stage(
@@ -570,6 +583,7 @@ void main() {
 
       final store = NoteAudioUploadStore(
         applicationSupportDirectory: () async => root,
+        temporaryDirectory: () async => root,
         idGenerator: () => 'upload-exclusive-reservations',
       );
       final staged = await store.stage(
@@ -614,6 +628,7 @@ void main() {
 
       final store = NoteAudioUploadStore(
         applicationSupportDirectory: () async => root,
+        temporaryDirectory: () async => root,
         idGenerator: () => 'upload-rebind-cleanup',
       );
       final staged = await store.stage(
@@ -649,6 +664,7 @@ void main() {
 
         final store = NoteAudioUploadStore(
           applicationSupportDirectory: () async => root,
+          temporaryDirectory: () async => root,
           idGenerator: () => 'upload-rebind-follower',
         );
         final staged = await store.stage(
@@ -690,6 +706,7 @@ void main() {
 
       final store = NoteAudioUploadStore(
         applicationSupportDirectory: () async => root,
+        temporaryDirectory: () async => root,
         idGenerator: () => 'upload-rebind-journal',
       );
       final staged = await store.stage(
@@ -737,6 +754,7 @@ void main() {
 
       final recovered = await NoteAudioUploadStore(
         applicationSupportDirectory: () async => root,
+        temporaryDirectory: () async => root,
       ).loadForAccount(serverId: 'server-1', accountId: 'user-1');
 
       check(recovered).length.equals(1);
@@ -756,6 +774,7 @@ void main() {
 
       final store = NoteAudioUploadStore(
         applicationSupportDirectory: () async => root,
+        temporaryDirectory: () async => root,
         idGenerator: () => 'upload-rebind-rollback',
       );
       final staged = await store.stage(
@@ -793,6 +812,7 @@ void main() {
 
       final recovered = await NoteAudioUploadStore(
         applicationSupportDirectory: () async => root,
+        temporaryDirectory: () async => root,
       ).loadForAccount(serverId: 'server-1', accountId: 'user-1');
 
       check(recovered).length.equals(1);
@@ -812,6 +832,7 @@ void main() {
 
       final store = NoteAudioUploadStore(
         applicationSupportDirectory: () async => root,
+        temporaryDirectory: () async => root,
         idGenerator: () => 'upload-7',
       );
       final staged = await store.stage(
@@ -849,6 +870,7 @@ void main() {
 
         final stagingStore = NoteAudioUploadStore(
           applicationSupportDirectory: () async => root,
+          temporaryDirectory: () async => root,
           idGenerator: () => 'upload-9',
         );
         final staged = await stagingStore.stage(
@@ -903,6 +925,81 @@ void main() {
       },
     );
   });
+
+  group('note recording formats', () {
+    test('the upload content type follows the file extension', () {
+      check(noteAudioContentType('recording_1.m4a')).equals('audio/mp4');
+      check(noteAudioContentType('recording_1.WAV')).equals('audio/wav');
+      check(noteAudioContentType('a.mp3')).equals('audio/mpeg');
+      check(noteAudioContentType('no-extension')).equals('audio/mp4');
+    });
+
+    test(
+      'a WAV recording is staged, and recovered under its own name',
+      () async {
+        final root = await Directory.systemTemp.createTemp(
+          'conduit_note_audio_upload_test_',
+        );
+        addTearDown(() => _deleteDirectory(root));
+
+        final store = NoteAudioUploadStore(
+          applicationSupportDirectory: () async => root,
+          temporaryDirectory: () async => root,
+          idGenerator: () => 'upload-wav',
+        );
+        final staged = await store.stage(
+          source: await _recordingFile(root, 'source.wav'),
+          serverId: 'server-1',
+          accountId: 'user-1',
+          noteId: 'note-1',
+          fileName: 'recording_9.wav',
+        );
+        check(staged.localPath).endsWith('recording.wav');
+        check(await File(staged.localPath).exists()).isTrue();
+
+        // Without its manifest the recovered item is named after the file.
+        await File('${File(staged.localPath).parent.path}/manifest.json')
+            .delete();
+        final recovered =
+            await NoteAudioUploadStore(
+              applicationSupportDirectory: () async => root,
+              temporaryDirectory: () async => root,
+            ).loadForNote(
+              serverId: 'server-1',
+              accountId: 'user-1',
+              noteId: 'note-1',
+            );
+        check(recovered).length.equals(1);
+        check(recovered.single.fileName).equals('recording.wav');
+      },
+    );
+
+    test(
+      'a store over a PathsPort keeps copies in application support',
+      () async {
+        final root = await Directory.systemTemp.createTemp(
+          'conduit_note_audio_upload_test_',
+        );
+        addTearDown(() => _deleteDirectory(root));
+        final cache = await Directory('${root.path}/cache').create();
+        final support = await Directory('${root.path}/support').create();
+
+        final store = NoteAudioUploadStore.withPaths(
+          _FixedPaths(support: support, cache: cache),
+          idGenerator: () => 'upload-paths',
+        );
+        final staged = await store.stage(
+          source: await _recordingFile(cache, 'source.m4a'),
+          serverId: 'server-1',
+          accountId: 'user-1',
+          noteId: 'note-1',
+          fileName: 'recording.m4a',
+        );
+        check(staged.localPath).startsWith(support.path);
+        check(await File('${cache.path}/source.m4a').exists()).isFalse();
+      },
+    );
+  });
 }
 
 Future<File> _recordingFile(Directory root, String name) async {
@@ -915,4 +1012,24 @@ Future<void> _deleteDirectory(Directory directory) async {
   if (await directory.exists()) {
     await directory.delete(recursive: true);
   }
+}
+
+class _FixedPaths implements PathsPort {
+  _FixedPaths({required this.support, required Directory cache})
+    : _cache = cache;
+
+  final Directory support;
+  final Directory _cache;
+
+  @override
+  Future<Directory> applicationSupport() async => support;
+
+  @override
+  Future<Directory> cache() async => _cache;
+
+  @override
+  Future<Directory> logs() async => support;
+
+  @override
+  Future<Directory> staging() async => _cache;
 }

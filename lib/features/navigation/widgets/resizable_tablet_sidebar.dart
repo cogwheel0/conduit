@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
@@ -60,42 +59,37 @@ enum _WidthTransition { idle, direct, reset }
 class _ResizableTabletSidebarState extends State<ResizableTabletSidebar> {
   static const Duration _layoutDuration = Duration(milliseconds: 250);
   static const Duration _resetDuration = Duration(milliseconds: 200);
-  static const double _resizeStep = 20;
+  static const double _resizeStep = sidebarTabletResizeStep;
   static const double _resizeHandleHitWidth = 44;
 
-  late double _preferredWidth = _clampConfigured(widget.configuredWidth);
-  double? _resizeStartPreferredWidth;
-  double? _resizeAnchorWidth;
-  double _resizeCumulativeDelta = 0;
+  late double _preferredWidth = _range.clampPreferred(widget.configuredWidth);
+  SidebarTabletResizeDrag? _drag;
   bool _resizing = false;
   Timer? _keyboardCommitTimer;
   _WidthTransition _transition = _WidthTransition.idle;
+
+  // The clamping is conduit_core's (sidebar_layout.dart).
+  SidebarTabletWidthRange get _range => SidebarTabletWidthRange(
+    minimum: widget.minimumWidth,
+    maximum: widget.maximumWidth,
+    minimumContentWidth: widget.minimumContentWidth,
+  );
 
   @override
   void didUpdateWidget(covariant ResizableTabletSidebar oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!_resizing && widget.configuredWidth != oldWidget.configuredWidth) {
-      _preferredWidth = _clampConfigured(widget.configuredWidth);
+      _preferredWidth = _range.clampPreferred(widget.configuredWidth);
     }
   }
 
-  double _clampConfigured(double width) =>
-      width.clamp(widget.minimumWidth, widget.maximumWidth).toDouble();
+  double _effectiveMaximum(double viewportWidth) =>
+      _range.maximumFor(viewportWidth);
 
-  double _effectiveMaximum(double viewportWidth) {
-    final protectedContentMaximum = math.max(
-      defaultSidebarTabletWidth,
-      viewportWidth - widget.minimumContentWidth,
-    );
-    return math
-        .min(widget.maximumWidth, protectedContentMaximum)
-        .clamp(widget.minimumWidth, widget.maximumWidth)
-        .toDouble();
-  }
-
-  double _effectiveWidth(double viewportWidth) => _preferredWidth
-      .clamp(widget.minimumWidth, _effectiveMaximum(viewportWidth))
-      .toDouble();
+  double _effectiveWidth(double viewportWidth) => _range.effectiveWidth(
+    preferredWidth: _preferredWidth,
+    viewportWidth: viewportWidth,
+  );
 
   void _handleAnimationEnd() {
     widget.onDrawerAnimationEnd();
@@ -117,28 +111,23 @@ class _ResizableTabletSidebarState extends State<ResizableTabletSidebar> {
     if (!widget.resizable || !widget.docked) return;
     _keyboardCommitTimer?.cancel();
     _keyboardCommitTimer = null;
-    final effectiveWidth = _effectiveWidth(viewportWidth);
+    final drag = SidebarTabletResizeDrag(
+      startPreferredWidth: _preferredWidth,
+      viewportWidth: viewportWidth,
+      range: _range,
+    );
     setState(() {
-      _resizeStartPreferredWidth = _preferredWidth;
-      _resizeAnchorWidth = effectiveWidth;
-      _resizeCumulativeDelta = 0;
-      _preferredWidth = effectiveWidth;
+      _drag = drag;
+      _preferredWidth = drag.anchorWidth;
       _resizing = true;
       _transition = _WidthTransition.direct;
     });
   }
 
   void _updateResize(double delta, double viewportWidth) {
-    if (!_resizing) return;
-    final anchorWidth = _resizeAnchorWidth ?? _preferredWidth;
-    final effectiveMaximum = _effectiveMaximum(viewportWidth);
-    _resizeCumulativeDelta = (_resizeCumulativeDelta + delta)
-        .clamp(
-          widget.minimumWidth - anchorWidth,
-          effectiveMaximum - anchorWidth,
-        )
-        .toDouble();
-    final nextWidth = anchorWidth + _resizeCumulativeDelta;
+    final drag = _drag;
+    if (!_resizing || drag == null) return;
+    final nextWidth = drag.update(delta, viewportWidth: viewportWidth);
     if (nextWidth == _preferredWidth) return;
     setState(() => _preferredWidth = nextWidth);
   }
@@ -148,9 +137,7 @@ class _ResizableTabletSidebarState extends State<ResizableTabletSidebar> {
     final committedWidth = _preferredWidth;
     setState(() {
       _resizing = false;
-      _resizeStartPreferredWidth = null;
-      _resizeAnchorWidth = null;
-      _resizeCumulativeDelta = 0;
+      _drag = null;
       _transition = _WidthTransition.direct;
     });
     widget.onWidthChanged?.call(committedWidth);
@@ -159,13 +146,11 @@ class _ResizableTabletSidebarState extends State<ResizableTabletSidebar> {
 
   void _cancelResize() {
     if (!_resizing) return;
-    final restoredWidth = _resizeStartPreferredWidth;
+    final restoredWidth = _drag?.startPreferredWidth;
     setState(() {
       if (restoredWidth != null) _preferredWidth = restoredWidth;
       _resizing = false;
-      _resizeStartPreferredWidth = null;
-      _resizeAnchorWidth = null;
-      _resizeCumulativeDelta = 0;
+      _drag = null;
       _transition = _WidthTransition.direct;
     });
     _scheduleTransitionIdle();
@@ -174,9 +159,11 @@ class _ResizableTabletSidebarState extends State<ResizableTabletSidebar> {
   void _adjustWidth(double delta, double viewportWidth) {
     if (!widget.resizable || !widget.docked) return;
     final currentWidth = _effectiveWidth(viewportWidth);
-    final nextWidth = (currentWidth + delta)
-        .clamp(widget.minimumWidth, _effectiveMaximum(viewportWidth))
-        .toDouble();
+    final nextWidth = _range.stepped(
+      currentWidth: currentWidth,
+      delta: delta,
+      viewportWidth: viewportWidth,
+    );
     if (nextWidth == currentWidth) return;
     setState(() {
       _preferredWidth = nextWidth;
@@ -192,7 +179,7 @@ class _ResizableTabletSidebarState extends State<ResizableTabletSidebar> {
 
   void _resetWidth(double viewportWidth) {
     if (!widget.resizable || !widget.docked) return;
-    final resetWidth = _clampConfigured(defaultSidebarTabletWidth);
+    final resetWidth = _range.clampPreferred(defaultSidebarTabletWidth);
     if (resetWidth == _preferredWidth) return;
     final previousEffectiveWidth = _effectiveWidth(viewportWidth);
     setState(() {
