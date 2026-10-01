@@ -74,6 +74,7 @@ class RouteNames {
   static const String noteEditor = 'note-editor';
   static const String channel = 'channel';
   static const String workspace = 'workspace';
+  static const String terminal = 'terminal';
 }
 
 enum WorkspaceSection { models, knowledge, prompts, tools, skills }

@@ -193,7 +193,12 @@ class SyncEngine extends _$SyncEngine {
       noteLocks: ref.watch(noteLocksProvider),
       clock: ref.watch(syncClockProvider),
       backoff: ref.watch(backoffProvider),
-      completionRunner: ref.watch(requestCompletionRunnerProvider),
+      // Read, not watched: the chat runner reads this engine mid-run (to
+      // pull a snapshot after a stream), and a subscription here would make
+      // that a dependency cycle, which Riverpod rejects. Every drain entry
+      // refreshes the binding, and a draining drainer checks the live
+      // runner (see _ensureDrainer), so a runner change still takes effect.
+      completionRunner: ref.read(requestCompletionRunnerProvider),
     );
     return const SyncStatus();
   }
@@ -749,7 +754,13 @@ class SyncEngine extends _$SyncEngine {
           identical(_boundNoteLocks, drainerNoteLocks) &&
           identical(_boundClock, drainerClock) &&
           identical(_boundBackoff, drainerBackoff) &&
-          identical(_boundCompletionRunner, drainerCompletion) &&
+          // The live provider, not the binding: nothing rebinds the engine
+          // mid-drain when only the runner changes (it is not watched), and
+          // a drain must not hand work to a runner from another session.
+          identical(
+            ref.read(requestCompletionRunnerProvider),
+            drainerCompletion,
+          ) &&
           identical(_remapper, drainerRemapper) &&
           _boundAuthenticated == true &&
           _authEpoch == drainerAuthEpoch &&

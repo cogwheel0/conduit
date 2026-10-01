@@ -1,5 +1,6 @@
 import 'dart:io' show Platform;
 
+import 'package:conduit_core/auth/webview_cookie_identity.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
@@ -7,6 +8,9 @@ import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
+
+export 'package:conduit_core/auth/webview_cookie_identity.dart'
+    show webViewCookieBelongsToExactHost;
 
 final Set<WebsiteDataType> _appleWebsiteDataTypes = <WebsiteDataType>{
   WebsiteDataType.WKWebsiteDataTypeLocalStorage,
@@ -17,13 +21,6 @@ final Set<WebsiteDataType> _appleWebsiteDataTypes = <WebsiteDataType>{
   WebsiteDataType.WKWebsiteDataTypeFetchCache,
   WebsiteDataType.WKWebsiteDataTypeServiceWorkerRegistrations,
 };
-
-@visibleForTesting
-bool webViewCookieBelongsToExactHost(String? domain, String host) {
-  final raw = domain?.trim().toLowerCase();
-  final normalized = raw?.startsWith('.') == true ? raw!.substring(1) : raw;
-  return normalized == null || normalized.isEmpty || normalized == host;
-}
 
 /// Deletes cookies and verifies the empty-store postcondition when the
 /// platform reports `false`. Android uses `false` both for "nothing removed"
@@ -298,7 +295,7 @@ class WebViewCookieHelper {
     required String name,
     String? path,
     String? domain,
-  }) => '$name\u0000${path ?? '/'}\u0000${domain ?? ''}';
+  }) => webViewCookieIdentity(name: name, path: path, domain: domain);
 
   /// Clears all WebView data including cookies, localStorage, and cache.
   ///

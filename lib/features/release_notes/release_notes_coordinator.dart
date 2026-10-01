@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 
 import 'package:conduit_core/providers/backend_mode_providers.dart';
@@ -14,9 +13,8 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 
 import '../../l10n/app_localizations.dart';
 import 'data/release_notes_repository.dart';
-import 'models/release_note.dart';
 
-import 'package:conduit_core/features/release_notes/release_notes_bootstrap.dart';
+import 'package:conduit_core/features/release_notes/release_notes_coordination.dart';
 
 import 'release_notes_banner_controller.dart';
 import 'services/release_notes_service.dart';
@@ -59,7 +57,7 @@ class _ReleaseNotesCoordinatorState
   Widget build(BuildContext context) {
     final authState = ref.watch(authNavigationStateProvider);
     final preferredBackend = ref.watch(preferredBackendProvider);
-    if (_canPresentReleaseNotes(authState, preferredBackend)) {
+    if (canPresentReleaseNotes(authState, preferredBackend)) {
       _scheduleAttempt();
     }
     return widget.child;
@@ -83,7 +81,7 @@ class _ReleaseNotesCoordinatorState
       if (!mounted || !PreferencesStore.isReady) {
         return;
       }
-      if (!_canPresentReleaseNotes(
+      if (!canPresentReleaseNotes(
         ref.read(authNavigationStateProvider),
         ref.read(preferredBackendProvider),
       )) {
@@ -96,9 +94,7 @@ class _ReleaseNotesCoordinatorState
       }
 
       final currentVersion = packageInfo.version.trim();
-      final lastSeenVersion = releaseNotesPreviousVersionForEvaluation(
-        PreferencesStore.getString(PreferenceKeys.lastSeenReleaseVersion),
-      );
+      final lastSeenVersion = readReleaseNotesLastSeenVersion();
       if (AppLocalizations.of(context) == null) {
         return;
       }
@@ -112,28 +108,17 @@ class _ReleaseNotesCoordinatorState
         retryForLocaleChange = true;
         return;
       }
-      final decision = widget.service.evaluate(
+      final banner = ref.read(releaseNotesBannerProvider.notifier);
+      await applyReleaseNotesDecision(
+        service: widget.service,
         currentVersion: currentVersion,
         lastSeenVersion: lastSeenVersion,
         notes: notes,
+        isActive: () => mounted,
+        showBanner: banner.show,
+        clearBanner: banner.clear,
       );
-
-      switch (decision.type) {
-        case ReleaseNotesDecisionType.none:
-          _restoreBanner(currentVersion: currentVersion, notes: notes);
-          completed = true;
-          return;
-        case ReleaseNotesDecisionType.persistOnly:
-          await _clearBanner();
-          await _markVersionSeen(decision.currentVersion);
-          completed = true;
-          return;
-        case ReleaseNotesDecisionType.show:
-          await _prepareBanner(decision);
-          await _markVersionSeen(decision.currentVersion);
-          completed = true;
-          return;
-      }
+      completed = true;
     } catch (error, stackTrace) {
       DebugLogger.error(
         'release-notes-coordinator-failed',
@@ -152,81 +137,6 @@ class _ReleaseNotesCoordinatorState
           _scheduleAttempt();
         }
       }
-    }
-  }
-
-  bool _canPresentReleaseNotes(
-    AuthNavigationState authState,
-    PreferredBackend preferredBackend,
-  ) {
-    if (authState == AuthNavigationState.authenticated) {
-      return true;
-    }
-    return switch (preferredBackend) {
-      PreferredBackend.direct =>
-        PreferencesStore.getBool(PreferenceKeys.directConnectionsConfigured) ==
-            true,
-      PreferredBackend.hermes =>
-        PreferencesStore.getBool(PreferenceKeys.hermesEnabled) == true,
-      PreferredBackend.unset || PreferredBackend.owui => false,
-    };
-  }
-
-  Future<void> _markVersionSeen(String version) {
-    return PreferencesStore.put(PreferenceKeys.lastSeenReleaseVersion, version);
-  }
-
-  Future<void> _prepareBanner(ReleaseNotesDecision decision) async {
-    final previousVersion = decision.previousVersion;
-    if (previousVersion == null) return;
-    await PreferencesStore.put(
-      PreferenceKeys.releaseNotesBannerPreviousVersion,
-      previousVersion,
-    );
-    if (!mounted) return;
-    ref
-        .read(releaseNotesBannerProvider.notifier)
-        .show(
-          ReleaseNotesBannerData(
-            currentVersion: decision.currentVersion,
-            notes: decision.notes,
-          ),
-        );
-  }
-
-  void _restoreBanner({
-    required String currentVersion,
-    required List<ReleaseNote> notes,
-  }) {
-    final previousVersion = PreferencesStore.getString(
-      PreferenceKeys.releaseNotesBannerPreviousVersion,
-    );
-    final decision = widget.service.evaluate(
-      currentVersion: currentVersion,
-      lastSeenVersion: previousVersion,
-      notes: notes,
-    );
-    if (decision.type != ReleaseNotesDecisionType.show ||
-        decision.previousVersion == null) {
-      ref.read(releaseNotesBannerProvider.notifier).clear();
-      return;
-    }
-    ref
-        .read(releaseNotesBannerProvider.notifier)
-        .show(
-          ReleaseNotesBannerData(
-            currentVersion: decision.currentVersion,
-            notes: decision.notes,
-          ),
-        );
-  }
-
-  Future<void> _clearBanner() async {
-    await PreferencesStore.remove(
-      PreferenceKeys.releaseNotesBannerPreviousVersion,
-    );
-    if (mounted) {
-      ref.read(releaseNotesBannerProvider.notifier).clear();
     }
   }
 }

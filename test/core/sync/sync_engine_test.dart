@@ -311,6 +311,31 @@ void main() {
     return box;
   }
 
+  test(
+    'the completion runner can read the engine without a dependency cycle',
+    () async {
+      // The chat runner reads the engine mid-run (e.g. to pull a snapshot
+      // after a stream); the engine must not depend on the runner for that.
+      final container = ProviderContainer(
+        overrides: [
+          appDatabaseProvider.overrideWith((ref) => db),
+          syncApiClientProvider.overrideWith((ref) => client),
+          isAuthenticatedProvider2.overrideWith((ref) => true),
+          isOnlineProvider.overrideWith((ref) => true),
+          requestCompletionRunnerProvider.overrideWith(
+            (ref) => _EngineReadingRunner(ref),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      container.read(syncEngineProvider);
+      await container
+          .read(requestCompletionRunnerProvider)
+          .run(chatId: 'chat', payload: const {});
+    },
+  );
+
   group('SyncEngine.requestPull', () {
     test('debounce collapses a request storm into one cycle', () async {
       seedChat('chat-1', 100);
@@ -1396,4 +1421,18 @@ void main() {
       },
     );
   });
+}
+
+final class _EngineReadingRunner implements RequestCompletionRunner {
+  _EngineReadingRunner(this._ref);
+
+  final Ref _ref;
+
+  @override
+  Future<void> run({
+    required String chatId,
+    required Map<String, dynamic> payload,
+  }) async {
+    _ref.read(syncEngineProvider.notifier);
+  }
 }

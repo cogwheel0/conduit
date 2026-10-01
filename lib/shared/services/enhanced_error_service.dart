@@ -5,7 +5,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit_core/error/api_error.dart';
 import 'package:conduit_core/error/api_error_handler.dart';
-import 'package:conduit_core/error/api_error_interceptor.dart';
+import 'package:conduit_core/error/error_recovery_policy.dart';
 
 import '../../core/utils/current_localizations.dart';
 import '../utils/api_error_messages.dart';
@@ -24,7 +24,8 @@ class EnhancedErrorService {
   factory EnhancedErrorService() => _instance;
   EnhancedErrorService._internal();
 
-  final ApiErrorHandler _errorHandler = ApiErrorHandler();
+  final ErrorRecoveryPolicy _policy = ErrorRecoveryPolicy();
+  ApiErrorHandler get _errorHandler => _policy.handler;
 
   /// Transform any error into ApiError format
   ApiError transformError(
@@ -43,100 +44,26 @@ class EnhancedErrorService {
 
   /// Get user-friendly error message
   String getUserMessage(dynamic error) {
-    if (error is ApiError) {
-      return userFacingApiError(error, currentAppLocalizations());
-    } else if (error is DioException) {
-      return _dioExceptionMessage(error);
-    } else {
-      return _getGenericErrorMessage(error);
-    }
-  }
-
-  /// Turns a `DioException` into something a person can read.
-  ///
-  /// Lives here rather than on `ApiErrorInterceptor` because it is the
-  /// localisation step, and localisation belongs to the UI: the core
-  /// raises `{code, args}` and each front-end renders it. Leaving it in
-  /// the interceptor is what pulled the whole l10n tree into the core's
-  /// dependency closure.
-  String _dioExceptionMessage(DioException error) {
-    final apiError = ApiErrorInterceptor.extractApiError(error);
+    final apiError = _policy.apiErrorOf(error);
     if (apiError != null) {
+      // Localisation belongs to the UI: the core raises `{code, args}` and
+      // each front-end renders it.
       return userFacingApiError(apiError, currentAppLocalizations());
-    }
-
-    // Fallback to basic DioException handling
-    switch (error.type) {
-      case DioExceptionType.connectionTimeout:
-      case DioExceptionType.sendTimeout:
-      case DioExceptionType.receiveTimeout:
-      case DioExceptionType.transformTimeout:
-        return 'Connection timeout - please check your internet connection';
-      case DioExceptionType.connectionError:
-        return 'Network connection error - please check your internet connection';
-      case DioExceptionType.badResponse:
-        final statusCode = error.response?.statusCode;
-        if (statusCode == 401) {
-          return 'Authentication failed - please sign in again';
-        } else if (statusCode == 403) {
-          return 'Access denied - you don\'t have permission for this action';
-        } else if (statusCode == 404) {
-          return 'The requested resource was not found';
-        } else if (statusCode != null && statusCode >= 500) {
-          return 'Server error occurred - please try again later';
-        }
-        return 'An error occurred with your request';
-      case DioExceptionType.cancel:
-        return 'Request was cancelled';
-      case DioExceptionType.badCertificate:
-        return 'Security certificate error - unable to verify server identity';
-      case DioExceptionType.unknown:
-        return 'An unexpected error occurred - please try again';
+    } else if (error is DioException) {
+      return _policy.dioFallbackMessage(error);
+    } else {
+      return _policy.genericMessage(error);
     }
   }
 
   /// Get technical error details for debugging
-  String getTechnicalDetails(dynamic error) {
-    if (error is ApiError) {
-      return error.technical ?? error.toString();
-    } else if (error is DioException) {
-      final apiError = ApiErrorInterceptor.extractApiError(error);
-      if (apiError != null) {
-        return apiError.technical ?? apiError.toString();
-      }
-      return '${error.type}: ${error.message}';
-    } else {
-      return error.toString();
-    }
-  }
+  String getTechnicalDetails(dynamic error) => _policy.technicalDetails(error);
 
   /// Check if error is retryable
-  bool isRetryable(dynamic error) {
-    if (error is ApiError) {
-      return _errorHandler.isRetryable(error);
-    } else if (error is DioException) {
-      final apiError = ApiErrorInterceptor.extractApiError(error);
-      if (apiError != null) {
-        return _errorHandler.isRetryable(apiError);
-      }
-      return _isDioErrorRetryable(error);
-    }
-    return false;
-  }
+  bool isRetryable(dynamic error) => _policy.isRetryable(error);
 
   /// Get suggested retry delay
-  Duration? getRetryDelay(dynamic error) {
-    if (error is ApiError) {
-      return _errorHandler.getRetryDelay(error);
-    } else if (error is DioException) {
-      final apiError = ApiErrorInterceptor.extractApiError(error);
-      if (apiError != null) {
-        return _errorHandler.getRetryDelay(apiError);
-      }
-      return _getDioRetryDelay(error);
-    }
-    return null;
-  }
+  Duration? getRetryDelay(dynamic error) => _policy.retryDelay(error);
 
   /// Show error snackbar with appropriate styling and actions
   void showErrorSnackbar(
@@ -163,7 +90,7 @@ class EnhancedErrorService {
       context,
       message: message,
       type: AdaptiveSnackBarType.error,
-      duration: duration ?? _getSnackbarDuration(error),
+      duration: duration ?? _policy.snackbarDuration(error),
       action: actionLabel,
       onActionPressed: onRetry,
     );
@@ -192,7 +119,7 @@ class EnhancedErrorService {
             children: [
               Icon(_getErrorIcon(error), color: _getErrorColor(context, error)),
               const SizedBox(width: Spacing.sm),
-              Expanded(child: Text(title ?? _getErrorTitle(error))),
+              Expanded(child: Text(title ?? _policy.title(error))),
             ],
           ),
           content: Column(
@@ -281,7 +208,7 @@ class EnhancedErrorService {
           ),
           const SizedBox(height: Spacing.md),
           Text(
-            _getErrorTitle(error),
+            _policy.title(error),
             style: AppTypography.headlineSmallStyle.copyWith(
               fontWeight: FontWeight.bold,
             ),
@@ -376,48 +303,6 @@ class EnhancedErrorService {
 
   // Private helper methods
 
-  String _getGenericErrorMessage(dynamic error) {
-    if (error is Exception) {
-      return 'An error occurred: ${error.toString()}';
-    }
-    return 'An unexpected error occurred';
-  }
-
-  bool _isDioErrorRetryable(DioException error) {
-    switch (error.type) {
-      case DioExceptionType.connectionTimeout:
-      case DioExceptionType.sendTimeout:
-      case DioExceptionType.receiveTimeout:
-      case DioExceptionType.connectionError:
-        return true;
-      case DioExceptionType.badResponse:
-        final statusCode = error.response?.statusCode;
-        return statusCode != null && statusCode >= 500;
-      default:
-        return false;
-    }
-  }
-
-  Duration? _getDioRetryDelay(DioException error) {
-    switch (error.type) {
-      case DioExceptionType.connectionTimeout:
-      case DioExceptionType.sendTimeout:
-      case DioExceptionType.receiveTimeout:
-        return const Duration(seconds: 5);
-      case DioExceptionType.connectionError:
-        return const Duration(seconds: 3);
-      case DioExceptionType.badResponse:
-        final statusCode = error.response?.statusCode;
-        if (statusCode != null && statusCode >= 500) {
-          return const Duration(seconds: 10);
-        }
-        break;
-      default:
-        break;
-    }
-    return null;
-  }
-
   IconData _getErrorIcon(dynamic error) {
     if (error is ApiError) {
       switch (error.type) {
@@ -472,53 +357,6 @@ class EnhancedErrorService {
       }
     }
     return tokens.statusError60;
-  }
-
-  String _getErrorTitle(dynamic error) {
-    if (error is ApiError) {
-      switch (error.type) {
-        case ApiErrorType.network:
-          return 'Connection Problem';
-        case ApiErrorType.timeout:
-          return 'Request Timeout';
-        case ApiErrorType.authentication:
-          return 'Authentication Required';
-        case ApiErrorType.authorization:
-          return 'Access Denied';
-        case ApiErrorType.validation:
-          return 'Invalid Input';
-        case ApiErrorType.badRequest:
-          return 'Bad Request';
-        case ApiErrorType.notFound:
-          return 'Not Found';
-        case ApiErrorType.server:
-          return 'Server Error';
-        case ApiErrorType.rateLimit:
-          return 'Rate Limited';
-        case ApiErrorType.cancelled:
-          return 'Request Cancelled';
-        case ApiErrorType.security:
-          return 'Security Error';
-        case ApiErrorType.unknown:
-          return 'Unknown Error';
-      }
-    }
-    return 'Error';
-  }
-
-  Duration _getSnackbarDuration(dynamic error) {
-    if (error is ApiError) {
-      switch (error.type) {
-        case ApiErrorType.validation:
-        case ApiErrorType.badRequest:
-          return const Duration(seconds: 6); // Longer for validation errors
-        case ApiErrorType.rateLimit:
-          return const Duration(seconds: 8); // Longer for rate limits
-        default:
-          return const Duration(seconds: 4);
-      }
-    }
-    return const Duration(seconds: 4);
   }
 }
 

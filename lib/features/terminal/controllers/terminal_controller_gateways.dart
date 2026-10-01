@@ -1,147 +1,17 @@
 import 'dart:io';
 
+import 'package:conduit_core/features/terminal/controllers/terminal_controller_gateways.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
-
-import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 
 import '../models/terminal_models.dart';
-import '../providers/terminal_providers.dart';
-import '../services/terminal_service.dart';
 
-abstract interface class TerminalBrowserGateway {
-  TerminalService? get service;
-  TerminalServerInfo? get selectedServer;
-  String get sessionScopeId;
-  String get currentPath;
-
-  void setCurrentPath(String path);
-  void setEntries(List<TerminalFileEntry> entries);
-  void setListeningPorts(List<TerminalListeningPort> ports);
-  void requestRefresh();
-}
-
-abstract interface class TerminalSessionGateway {
-  TerminalConnectionState get connectionState;
-
-  WebSocketChannel openChannel(Uri uri, {required TerminalServerKind kind});
-  void setActiveSession(TerminalSessionInfo? session);
-  void setConnectionState(TerminalConnectionState state);
-}
-
-abstract interface class TerminalContextGateway {
-  bool get isActive;
-  TerminalService? get service;
-  List<TerminalServerInfo> get availableServers;
-  String? get selectedTerminalId;
-  TerminalServerInfo? get selectedServer;
-  String get sessionScopeId;
-  bool get autoConnect;
-
-  Future<void> selectServer(TerminalServerInfo server);
-  void setCurrentPath(String path);
-  void setConnectionState(TerminalConnectionState state);
-}
-
-/// The sole Riverpod adapter used by the terminal controllers.
-///
-/// Controllers depend on the typed gateway contracts above, keeping provider
-/// lookup and mutation out of their orchestration and platform logic.
-final class RiverpodTerminalControllerGateway
-    implements
-        TerminalBrowserGateway,
-        TerminalSessionGateway,
-        TerminalContextGateway {
-  RiverpodTerminalControllerGateway({
-    required WidgetRef ref,
-    required bool Function() isActive,
-  }) : _ref = ref,
-       _isActive = isActive;
-
-  final WidgetRef _ref;
-  final bool Function() _isActive;
-
-  @override
-  bool get isActive => _isActive();
-
-  @override
-  TerminalService? get service => _ref.read(terminalServiceProvider);
-
-  @override
-  List<TerminalServerInfo> get availableServers =>
-      _ref.read(terminalAvailableServersProvider).asData?.value ??
-      const <TerminalServerInfo>[];
-
-  @override
-  String? get selectedTerminalId => _ref.read(selectedTerminalIdProvider);
-
-  @override
-  TerminalServerInfo? get selectedServer =>
-      _ref.read(terminalSelectedServerProvider).asData?.value;
-
-  @override
-  String get sessionScopeId => _ref.read(terminalSessionScopeIdProvider);
-
-  @override
-  String get currentPath => _ref.read(terminalCurrentPathProvider);
-
-  @override
-  bool get autoConnect => _ref.read(terminalAutoConnectProvider);
-
-  @override
-  TerminalConnectionState get connectionState =>
-      _ref.read(terminalConnectionStateProvider);
-
-  @override
-  Future<void> selectServer(TerminalServerInfo server) =>
-      _ref.read(terminalSelectionControllerProvider).select(server);
-
-  @override
-  void setCurrentPath(String path) =>
-      _ref.read(terminalCurrentPathProvider.notifier).set(path);
-
-  @override
-  void setEntries(List<TerminalFileEntry> entries) =>
-      _ref.read(terminalEntriesProvider.notifier).set(entries);
-
-  @override
-  void setListeningPorts(List<TerminalListeningPort> ports) =>
-      _ref.read(terminalListeningPortsProvider.notifier).set(ports);
-
-  @override
-  void requestRefresh() =>
-      _ref.read(terminalSelectionControllerProvider).requestTerminalRefresh();
-
-  @override
-  WebSocketChannel openChannel(Uri uri, {required TerminalServerKind kind}) =>
-      _ref.read(terminalChannelConnectorProvider)(uri, kind: kind);
-
-  @override
-  void setActiveSession(TerminalSessionInfo? session) =>
-      _ref.read(terminalActiveSessionProvider.notifier).set(session);
-
-  @override
-  void setConnectionState(TerminalConnectionState state) =>
-      _ref.read(terminalConnectionStateProvider.notifier).set(state);
-}
-
-final class TerminalUploadFile {
-  const TerminalUploadFile({required this.name, required this.path});
-
-  final String name;
-  final String path;
-}
-
-abstract interface class TerminalBrowserPlatformGateway {
-  Future<TerminalUploadFile?> pickUploadFile();
-  Future<void> saveDownload(TerminalDownloadedFile downloaded);
-  Future<bool> openPort(Uri uri, {String? bearerToken});
-}
+// The gateway contracts and the Riverpod adapter moved to conduit_core; this
+// file keeps the Flutter plugin gateway.
+export 'package:conduit_core/features/terminal/controllers/terminal_controller_gateways.dart';
 
 /// Platform plugin adapter for file picking, saving, and URL launching.
 final class DefaultTerminalBrowserPlatformGateway
@@ -193,15 +63,8 @@ final class DefaultTerminalBrowserPlatformGateway
   @visibleForTesting
   static String safeFileName(String fileName) => _safeFileName(fileName);
 
-  static String _safeFileName(String fileName) {
-    final sanitized = fileName.replaceAll(RegExp(r'[^\w\.\-]'), '_');
-    // `.` and `..` survive character sanitization but name a directory rather
-    // than a file, so writing them throws instead of producing a download.
-    if (sanitized.isEmpty || sanitized == '.' || sanitized == '..') {
-      return 'terminal_file_${DateTime.now().millisecondsSinceEpoch}';
-    }
-    return sanitized;
-  }
+  static String _safeFileName(String fileName) =>
+      safeTerminalFileName(fileName);
 
   Future<File> _materializeTempFile(String fileName, List<int> bytes) async {
     final tempDir = await getTemporaryDirectory();
