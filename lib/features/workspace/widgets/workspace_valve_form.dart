@@ -2,6 +2,7 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
+import 'package:conduit_core/features/workspace/models/workspace_valve_values.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
@@ -62,10 +63,8 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
     );
   }
 
-  Map<String, dynamic> _propertySpec(String property) {
-    final value = widget.spec.properties[property];
-    return value is Map ? Map<String, dynamic>.from(value) : {};
-  }
+  Map<String, dynamic> _propertySpec(String property) =>
+      WorkspaceValveValues.propertySpec(widget.spec, property);
 
   void _emit() => widget.onChanged(Map<String, dynamic>.from(_values));
 
@@ -76,30 +75,10 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
 
   /// Toggles a property between its server default (null) and a custom value.
   void _toggleDefault(String property) {
-    final spec = _propertySpec(property);
-    final isDefault = (_values[property]) == null;
-    dynamic next;
-    if (isDefault) {
-      final enumValues = spec['enum'];
-      if (spec['type'] == 'array') {
-        final defaultArray = spec['default'];
-        next = defaultArray is List ? defaultArray.join(', ') : '';
-      } else if (enumValues is List && enumValues.isNotEmpty) {
-        // Enum valves must start on an allowed option of the correct runtime
-        // type. Prefer the declared default; otherwise seed the first option so
-        // an untouched custom control never submits a value outside the schema
-        // (and never the empty string for a numeric/boolean enum).
-        next = spec['default'] ?? enumValues.first;
-      } else {
-        // Fall back to a type-appropriate empty value when the schema omits a
-        // default, so a boolean valve becomes `false` (not `''`) and a numeric
-        // valve becomes `0` — otherwise a custom-but-untouched control would
-        // submit a string where the server expects a bool/number.
-        next = spec['default'] ?? _typedFallback(spec['type']?.toString());
-      }
-    } else {
-      next = null;
-    }
+    final next = WorkspaceValveValues.toggleDefault(
+      _propertySpec(property),
+      _values[property],
+    );
     // Reset any text controller so the control reseeds from [next] on rebuild
     // (or is torn down when returning to the server default).
     _controllers.remove(property)?.dispose();
@@ -227,7 +206,7 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
             onSelected: widget.enabled
                 ? (index, entry) => _setValue(
                     property,
-                    _enumValueFor(enumValues, entry.value),
+                    WorkspaceValveValues.enumValueFor(enumValues, entry.value),
                   )
                 : (_, _) {},
           ),
@@ -273,53 +252,10 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
       minLines: 1,
       maxLines: isPassword ? 1 : 3,
       hint: title,
-      onChanged: (value) =>
-          _setValue(property, _coerce(type, value, _values[property])),
+      onChanged: (value) => _setValue(
+        property,
+        WorkspaceValveValues.coerceText(type, value, _values[property]),
+      ),
     );
-  }
-
-  /// Maps a dropdown's stringified selection back to the original enum entry so
-  /// numeric/boolean enums keep their runtime type (e.g. `1`, not `"1"`). The
-  /// string form is only ever a display label.
-  static dynamic _enumValueFor(List<dynamic> enumValues, String? selection) {
-    if (selection == null) return null;
-    for (final option in enumValues) {
-      if (option.toString() == selection) return option;
-    }
-    return selection;
-  }
-
-  /// The type-appropriate empty value used when toggling a property to custom
-  /// and the schema declares no `default`. Keeps the working value's runtime
-  /// type aligned with the schema so an untouched control never submits `''`
-  /// where a bool/number is required.
-  static dynamic _typedFallback(String? type) {
-    switch (type) {
-      case 'boolean':
-        return false;
-      case 'integer':
-      case 'number':
-        return 0;
-      default:
-        return '';
-    }
-  }
-
-  /// Coerces raw text into the schema type where it is unambiguous. Numbers are
-  /// parsed when valid; `array` stays a string here (split on submit); anything
-  /// else is stored verbatim.
-  ///
-  /// For numeric schema types a cleared or malformed field ([value] that fails
-  /// to parse) must never be stored — that would submit a `String` where the
-  /// server expects a number. In that case the last valid value ([previous]) is
-  /// retained so the submit path only ever sends a number.
-  dynamic _coerce(String? type, String value, dynamic previous) {
-    if (type == 'integer') {
-      return int.tryParse(value.trim()) ?? previous;
-    }
-    if (type == 'number') {
-      return num.tryParse(value.trim()) ?? previous;
-    }
-    return value;
   }
 }

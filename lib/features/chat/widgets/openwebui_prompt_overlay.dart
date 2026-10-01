@@ -3,7 +3,9 @@ import 'dart:math' as math;
 
 import 'package:material_ui/material_ui.dart';
 
+import 'package:conduit_core/features/chat/composer/openwebui_prompt_answers.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
+
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/composer_prompt_surface.dart';
@@ -26,11 +28,10 @@ class OpenWebUiPromptOverlay extends StatefulWidget {
 }
 
 class _OpenWebUiPromptOverlayState extends State<OpenWebUiPromptOverlay> {
-  final Map<String, Map<String, dynamic>> _answers = {};
+  // The answers, the question on screen and the busy/failed state are
+  // conduit_core's (openwebui_prompt_answers.dart).
+  late OpenWebUiPromptAnswers _answers = OpenWebUiPromptAnswers(widget.prompt);
   final Map<String, TextEditingController> _otherControllers = {};
-  var _questionIndex = 0;
-  var _busy = false;
-  var _failed = false;
 
   @override
   void initState() {
@@ -46,10 +47,7 @@ class _OpenWebUiPromptOverlayState extends State<OpenWebUiPromptOverlay> {
       controller.dispose();
     }
     _otherControllers.clear();
-    _answers.clear();
-    _questionIndex = 0;
-    _busy = false;
-    _failed = false;
+    _answers = OpenWebUiPromptAnswers(widget.prompt);
     _syncOtherControllers();
   }
 
@@ -67,61 +65,36 @@ class _OpenWebUiPromptOverlayState extends State<OpenWebUiPromptOverlay> {
     }
   }
 
-  bool get _complete =>
-      widget.prompt.questions.isNotEmpty &&
-      widget.prompt.questions.every((question) {
-        final answer = _answers[question.id];
-        return answer?['type'] == 'option' ||
-            (answer?['type'] == 'other' &&
-                (answer?['text']?.toString().trim().isNotEmpty ?? false));
-      });
+  bool get _busy => _answers.busy;
+  bool get _failed => _answers.failed;
+  int get _questionIndex => _answers.questionIndex;
 
-  Future<void> _run(FutureOr<void> Function() action) async {
-    if (_busy) return;
-    setState(() {
-      _busy = true;
-      _failed = false;
-    });
-    try {
-      await action();
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _busy = false;
-          _failed = true;
-        });
-      }
-    }
-  }
+  Future<void> _run(FutureOr<void> Function() action) => _answers.run(
+    action,
+    onChanged: () {
+      if (mounted) setState(() {});
+    },
+  );
 
   void _selectOption(
     OpenWebUiPromptQuestion question,
     OpenWebUiPromptOption option,
     int index,
   ) {
-    setState(() {
-      _answers[question.id] = <String, dynamic>{
-        'type': 'option',
-        'option_index': index,
-        'label': option.label,
-        'description': option.description,
-      };
-    });
+    setState(() => _answers.selectOption(question, option, index));
   }
 
   void _selectOther(OpenWebUiPromptQuestion question) {
-    setState(() {
-      _answers[question.id] = <String, dynamic>{
-        'type': 'other',
-        'text': _otherControllers[question.id]?.text.trim() ?? '',
-      };
-    });
+    setState(
+      () => _answers.selectOther(
+        question,
+        _otherControllers[question.id]?.text ?? '',
+      ),
+    );
   }
 
   void _updateOther(OpenWebUiPromptQuestion question, String value) {
-    setState(() {
-      _answers[question.id] = <String, dynamic>{'type': 'other', 'text': value};
-    });
+    setState(() => _answers.updateOther(question, value));
   }
 
   @override
@@ -152,7 +125,6 @@ class _OpenWebUiPromptOverlayState extends State<OpenWebUiPromptOverlay> {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final question = widget.prompt.questions[_questionIndex];
-    final answer = _answers[question.id];
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -168,9 +140,9 @@ class _OpenWebUiPromptOverlayState extends State<OpenWebUiPromptOverlay> {
                 ),
               ),
             ),
-            if (widget.prompt.questions.length > 1)
+            if (_answers.progressLabel case final progress?)
               Text(
-                '${_questionIndex + 1}/${widget.prompt.questions.length}',
+                progress,
                 style: AppTypography.bodySmallStyle.copyWith(
                   color: theme.textSecondary,
                 ),
@@ -198,8 +170,7 @@ class _OpenWebUiPromptOverlayState extends State<OpenWebUiPromptOverlay> {
                     question,
                     question.options[index],
                     index,
-                    answer?['type'] == 'option' &&
-                        answer?['option_index'] == index,
+                    _answers.isOptionSelected(question.id, index),
                   ),
                 if (question.allowOther) ...[
                   const SizedBox(height: Spacing.xs),
@@ -247,46 +218,29 @@ class _OpenWebUiPromptOverlayState extends State<OpenWebUiPromptOverlay> {
                   ? null
                   : () => _run(() => widget.onDecision!(false)),
             ),
-            if (_questionIndex > 0)
+            if (_answers.canGoPrevious)
               ConduitButton(
                 text: l10n.previousLabel,
                 isCompact: true,
                 isSecondary: true,
-                onPressed: _busy
-                    ? null
-                    : () => setState(() => _questionIndex--),
+                onPressed: _busy ? null : () => setState(_answers.previous),
               ),
-            if (_questionIndex < widget.prompt.questions.length - 1)
+            if (_answers.hasNext)
               ConduitButton(
                 text: l10n.nextLabel,
                 isCompact: true,
                 isSecondary: true,
-                onPressed: _busy || answer == null
+                onPressed: _busy || !_answers.canGoNext
                     ? null
-                    : () => setState(() => _questionIndex++),
+                    : () => setState(_answers.next),
               ),
             ConduitButton(
               text: l10n.openWebUiPromptSubmit,
               isCompact: true,
               isLoading: _busy,
-              onPressed: _busy || !_complete || widget.onAnswer == null
+              onPressed: _busy || !_answers.complete || widget.onAnswer == null
                   ? null
-                  : () => _run(
-                      () => widget.onAnswer!(<String, dynamic>{
-                        for (final entry in _answers.entries)
-                          entry.key: Map<String, dynamic>.from(entry.value)
-                            ..update(
-                              'text',
-                              (value) => value.toString().trim(),
-                              ifAbsent: () => '',
-                            )
-                            ..removeWhere(
-                              (key, _) =>
-                                  key == 'text' &&
-                                  entry.value['type'] != 'other',
-                            ),
-                      }),
-                    ),
+                  : () => _run(() => widget.onAnswer!(_answers.submission())),
             ),
           ],
         ),

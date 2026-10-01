@@ -1,11 +1,9 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show Rect;
 
+import 'package:conduit_core/features/workspace/models/workspace_export_files.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-
-import 'package:conduit_core/utils/debug_logger.dart';
 
 typedef WorkspaceShareFn = Future<ShareResult> Function(ShareParams params);
 
@@ -13,6 +11,7 @@ typedef WorkspaceShareFn = Future<ShareResult> Function(ShareParams params);
 /// OS share sheet via `share_plus`. Deliberately offers no openwebui.com
 /// publishing path — exports stay local to the device's share targets.
 ///
+/// Naming and staging are conduit_core's [WorkspaceExportFiles].
 /// [share] and [tempDirectory] are injectable for testing.
 class WorkspaceExportController {
   WorkspaceExportController({
@@ -31,10 +30,9 @@ class WorkspaceExportController {
     String? subject,
     Rect? sharePositionOrigin,
   }) {
-    final encoded = const JsonEncoder.withIndent('  ').convert(data);
     return shareBytes(
-      filename: _ensureExtension(filename, 'json'),
-      bytes: utf8.encode(encoded),
+      filename: WorkspaceExportFiles.withExtension(filename, 'json'),
+      bytes: WorkspaceExportFiles.jsonBytes(data),
       mimeType: 'application/json',
       subject: subject,
       sharePositionOrigin: sharePositionOrigin,
@@ -49,35 +47,23 @@ class WorkspaceExportController {
     String? subject,
     Rect? sharePositionOrigin,
   }) async {
-    final dir = await _tempDirectory();
-    final safeName = _sanitizeFilename(filename);
-    final file = File('${dir.path}/$safeName');
-    await file.writeAsBytes(bytes, flush: true);
-    DebugLogger.log(
-      'workspace export prepared',
-      scope: 'workspace/export',
-      data: {'file': safeName, 'bytes': bytes.length},
+    final file = await WorkspaceExportFiles.stage(
+      directory: await _tempDirectory(),
+      filename: filename,
+      bytes: bytes,
     );
     return _share(
       ShareParams(
-        files: [XFile(file.path, name: safeName, mimeType: mimeType)],
+        files: [
+          XFile(
+            file.path,
+            name: WorkspaceExportFiles.sanitize(filename),
+            mimeType: mimeType,
+          ),
+        ],
         subject: subject,
         sharePositionOrigin: sharePositionOrigin,
       ),
     );
-  }
-
-  static String _ensureExtension(String filename, String extension) {
-    final trimmed = filename.trim();
-    final base = trimmed.isEmpty ? 'export' : trimmed;
-    return base.toLowerCase().endsWith('.$extension')
-        ? base
-        : '$base.$extension';
-  }
-
-  static String _sanitizeFilename(String filename) {
-    final trimmed = filename.trim();
-    final base = trimmed.isEmpty ? 'export' : trimmed;
-    return base.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
   }
 }

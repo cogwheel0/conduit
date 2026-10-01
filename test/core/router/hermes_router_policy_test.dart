@@ -163,6 +163,7 @@ void main() {
         Routes.directConnectionEditorPath('new'),
         Routes.hermesSettings,
         Routes.hermesJobs,
+        Routes.hermesMcp,
         Routes.about,
       ]) {
         check(isHermesOnlyAppLocation(location)).isTrue();

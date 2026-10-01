@@ -46,6 +46,7 @@ bool _isAccountlessBackendLocation(String location) {
       isDirectConnectionsLocation(location) ||
       location == Routes.hermesSettings ||
       location == Routes.hermesJobs ||
+      location == Routes.hermesMcp ||
       location == Routes.about;
 }
 
