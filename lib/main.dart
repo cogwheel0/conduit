@@ -5,7 +5,12 @@ import 'package:conduit_core/conduit_core.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart'
-    show LicenseEntryWithLineBreaks, LicenseRegistry;
+    show
+        LicenseEntryWithLineBreaks,
+        LicenseRegistry,
+        TargetPlatform,
+        defaultTargetPlatform,
+        kIsWeb;
 import 'package:flutter_driver/driver_extension.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
@@ -63,6 +68,7 @@ import 'shared/services/flutter_ui_requests.dart';
 import 'shared/services/navigation_service.dart';
 import 'shared/services/raster_media_policy.dart';
 import 'platform/carplay_service.dart';
+import 'core/services/native_symbol_image_service.dart';
 
 import 'package:conduit_core/services/readiness_gated_secure_storage.dart';
 import 'package:conduit_core/services/settings_service.dart';
@@ -111,6 +117,8 @@ import 'shared/theme/theme_extensions.dart';
 import 'shared/theme/theme_providers.dart';
 import 'platform/frame_profiler.dart';
 import 'features/direct_connections/providers/apple_pcc_providers.dart';
+import 'features/direct_connections/services/apple_pcc_adapter.dart'
+    show PigeonApplePccHost;
 
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 
@@ -187,6 +195,9 @@ void main() {
   AudioPlaybackPort.hostFactory = JustAudioPlayback.new;
   BackgroundExecutionPort.hostDefault = const MobileBackgroundExecution();
   DisplayBoostPort.hostDefault = const IosDisplayBoost();
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+    NativeSymbolImageService.hostRenderer = renderNativeSymbolThroughChannel;
+  }
   LocationPort.hostDefault = const GeolocatorLocationPort();
   WakelockPort.hostDefault = const WakelockPlusPort();
   ShareStagingPort.hostDefault = IosShareStaging(
@@ -346,9 +357,18 @@ void main() {
           appLanguageTagProvider.overrideWith(
             (ref) => ref.watch(appLocaleProvider)?.toLanguageTag(),
           ),
+          // Apple Foundation Models through the Pigeon bridge
+          // (ios/Runner/PccBridge.swift); the adapter lives in conduit_core.
+          applePccHostProvider.overrideWith((ref) => PigeonApplePccHost()),
           hostDirectProviderAdaptersProvider.overrideWith(
             (ref) => [ref.watch(applePccAdapterProvider)],
           ),
+          // The CarPlay scene's channel (ConduitCarPlayBridge.swift); the
+          // coordinator in conduit_core stays idle without it.
+          if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)
+            carPlayBridgeProvider.overrideWithValue(
+              const MethodChannelCarPlayBridge(),
+            ),
           hostHermesDashboardBridgeFactoryProvider.overrideWith(
             (ref) =>
                 ({required root}) => HermesDashboardRestBridge(

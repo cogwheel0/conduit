@@ -34,111 +34,8 @@ Future<void> _pumpAvatar(WidgetTester tester, {required String? imageUrl}) {
 }
 
 void main() {
-  group('nativeSymbolNameFromUrl', () {
-    test('reads the symbol name', () {
-      check(
-        nativeSymbolNameFromUrl('symbol:apple.intelligence'),
-      ).equals('apple.intelligence');
-    });
-
-    test('ignores other schemes and empty names', () {
-      check(nativeSymbolNameFromUrl('asset:assets/icons/icon.png')).isNull();
-      check(nativeSymbolNameFromUrl('https://example.invalid/a.png')).isNull();
-      check(nativeSymbolNameFromUrl('symbol:')).isNull();
-      check(nativeSymbolNameFromUrl(null)).isNull();
-    });
-  });
-
-  group('NativeSymbolImageService', () {
-    test('renders once per name, size, and scale', () async {
-      final requests = <List<Object>>[];
-      final service = NativeSymbolImageService(
-        renderer: (name, pointSize, scale) async {
-          requests.add([name, pointSize, scale]);
-          return _pngBytes;
-        },
-      );
-
-      final first = await service.load(
-        kAppleIntelligenceSymbol,
-        pointSize: 20,
-        scale: 3,
-      );
-      final second = await service.load(
-        kAppleIntelligenceSymbol,
-        pointSize: 20,
-        scale: 3,
-      );
-
-      check(first).isNotNull();
-      check(second).isNotNull();
-      check(requests).deepEquals([
-        [kAppleIntelligenceSymbol, 20.0, 3.0],
-      ]);
-      // A settled entry is readable without awaiting again, so a list of
-      // avatars never repaints through a pending future.
-      check(
-        service.cached(kAppleIntelligenceSymbol, pointSize: 20, scale: 3),
-      ).isNotNull();
-
-      await service.load(kAppleIntelligenceSymbol, pointSize: 40, scale: 3);
-      check(requests).length.equals(2);
-    });
-
-    test('concurrent loads share one render', () async {
-      var renders = 0;
-      final service = NativeSymbolImageService(
-        renderer: (name, pointSize, scale) async {
-          renders++;
-          await Future<void>.delayed(Duration.zero);
-          return _pngBytes;
-        },
-      );
-
-      await Future.wait([
-        service.load(kAppleIntelligenceSymbol, pointSize: 20, scale: 2),
-        service.load(kAppleIntelligenceSymbol, pointSize: 20, scale: 2),
-        service.load(kAppleIntelligenceSymbol, pointSize: 20, scale: 2),
-      ]);
-
-      check(renders).equals(1);
-    });
-
-    test('a missing symbol settles as resolved without bytes', () async {
-      var renders = 0;
-      final service = NativeSymbolImageService(
-        renderer: (name, pointSize, scale) async {
-          renders++;
-          return null;
-        },
-      );
-
-      check(
-        await service.load('not.a.symbol', pointSize: 20, scale: 2),
-      ).isNull();
-      check(
-        service.isResolved('not.a.symbol', pointSize: 20, scale: 2),
-      ).isTrue();
-
-      // A system without the symbol must not be asked again on every repaint.
-      await service.load('not.a.symbol', pointSize: 20, scale: 2);
-      check(renders).equals(1);
-    });
-
-    test('a platform without symbols never renders', () async {
-      // The default service targets Apple platforms only, and the test host is
-      // not one, so nothing should reach the platform channel.
-      final service = NativeSymbolImageService();
-
-      check(
-        await service.load(kAppleIntelligenceSymbol, pointSize: 20, scale: 2),
-      ).isNull();
-      check(
-        service.isResolved(kAppleIntelligenceSymbol, pointSize: 20, scale: 2),
-      ).isTrue();
-    });
-  });
-
+  // The symbol URL scheme and the glyph cache moved to conduit_core
+  // (utils/model_icon_utils_test.dart, services/native_symbol_image_service_test.dart).
   group('ModelAvatar', () {
     testWidgets("a symbol url keeps Conduit's mark until the glyph lands", (
       tester,
@@ -168,8 +65,9 @@ void main() {
       final pendingBytes = Uint8List.fromList(_pngBytes);
       final currentBytes = Uint8List.fromList(_pngBytes);
       NativeSymbolImageService.debugInstance = NativeSymbolImageService(
-        renderer: (name, pointSize, scale) =>
-            name == 'pending.symbol' ? slowGlyph.future : Future.value(currentBytes),
+        renderer: (name, pointSize, scale) => name == 'pending.symbol'
+            ? slowGlyph.future
+            : Future.value(currentBytes),
       );
       addTearDown(() => NativeSymbolImageService.debugInstance = null);
 

@@ -1,44 +1,42 @@
 import 'dart:async';
 
-import 'package:conduit_core/models/model.dart';
-import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit/platform/carplay_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
-import 'package:conduit/features/chat/voice_mode/chat_voice_mode_controller.dart';
+import 'package:conduit_core/features/chat/voice_mode/carplay_coordinator.dart';
+import 'package:conduit_core/features/chat/voice_mode/chat_voice_mode_controller.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:riverpod/riverpod.dart';
+import 'package:test/test.dart';
 
-const _channel = MethodChannel('conduit/carplay');
-const _codec = StandardMethodCodec();
 const _model = Model(id: 'test-model', name: 'Test Model');
 
-final _testCarPlayCoordinatorProvider = Provider<CarPlayCoordinator>((ref) {
-  final coordinator = CarPlayCoordinator(ref);
-  coordinator.initialize();
-  return coordinator;
-});
+/// The native scene, as the coordinator sees it: calls it sends are
+/// recorded, and [call] plays a call from the scene.
+final class _FakeBridge implements CarPlayBridgePort {
+  final calls = <({String method, Map<String, Object?>? arguments})>[];
+  CarPlayCallHandler? handler;
+  bool available = true;
+
+  @override
+  void setCallHandler(CarPlayCallHandler? handler) => this.handler = handler;
+
+  @override
+  Future<void> invoke(String method, [Map<String, Object?>? arguments]) async {
+    if (!available) throw const CarPlayBridgeUnavailable();
+    calls.add((method: method, arguments: arguments));
+  }
+
+  Future<Map<String, Object?>> call(String method) => handler!(method);
+}
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
-
-  late List<MethodCall> platformCalls;
+  late _FakeBridge bridge;
 
   setUp(() {
-    platformCalls = <MethodCall>[];
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(_channel, (call) async {
-          platformCalls.add(call);
-          return null;
-        });
-  });
-
-  tearDown(() {
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(_channel, null);
+    bridge = _FakeBridge();
   });
 
   group('CarPlayCoordinator', () {
@@ -47,12 +45,13 @@ void main() {
       () async {
         final voice = _FakeVoiceCallController();
         final container = _buildContainer(
+          bridge: bridge,
           voice: voice,
           authState: AuthNavigationState.needsLogin,
         );
         addTearDown(container.dispose);
 
-        final result = await _invokeNative('startVoiceConversation');
+        final result = await bridge.call('startVoiceConversation');
 
         expect(result['success'], isFalse);
         expect(result['error'], contains('Sign in'));
@@ -65,6 +64,7 @@ void main() {
       () async {
         final voice = _FakeVoiceCallController();
         final container = _buildContainer(
+          bridge: bridge,
           voice: voice,
           authState: AuthNavigationState.needsLogin,
           selectedModel: hermesSyntheticModel(),
@@ -72,7 +72,7 @@ void main() {
         );
         addTearDown(container.dispose);
 
-        final result = await _invokeNative('startVoiceConversation');
+        final result = await bridge.call('startVoiceConversation');
 
         expect(result['success'], isTrue);
         expect(voice.startCalls, 1);
@@ -85,10 +85,14 @@ void main() {
       'startVoiceConversation returns model failure before starting',
       () async {
         final voice = _FakeVoiceCallController();
-        final container = _buildContainer(voice: voice, selectedModel: null);
+        final container = _buildContainer(
+          bridge: bridge,
+          voice: voice,
+          selectedModel: null,
+        );
         addTearDown(container.dispose);
 
-        final result = await _invokeNative('startVoiceConversation');
+        final result = await bridge.call('startVoiceConversation');
 
         expect(result['success'], isFalse);
         expect(result['error'], contains('Choose a model'));
@@ -101,13 +105,13 @@ void main() {
       () async {
         final startCompleter = Completer<void>();
         final voice = _FakeVoiceCallController(startCompleter: startCompleter);
-        final container = _buildContainer(voice: voice);
+        final container = _buildContainer(bridge: bridge, voice: voice);
         addTearDown(container.dispose);
 
-        final startFuture = _invokeNative('startVoiceConversation');
+        final startFuture = bridge.call('startVoiceConversation');
         await _until(() => voice.startCalls == 1);
 
-        final disconnect = await _invokeNative('carPlaySceneDidDisconnect');
+        final disconnect = await bridge.call('carPlaySceneDidDisconnect');
         expect(disconnect['success'], isTrue);
 
         startCompleter.complete();
@@ -126,6 +130,7 @@ void main() {
         final authRead = Completer<void>();
         final voice = _FakeVoiceCallController();
         final container = _buildContainer(
+          bridge: bridge,
           voice: voice,
           authState: AuthNavigationState.loading,
           onAuthRead: () {
@@ -134,10 +139,10 @@ void main() {
         );
         addTearDown(container.dispose);
 
-        final startFuture = _invokeNative('startVoiceConversation');
+        final startFuture = bridge.call('startVoiceConversation');
         await authRead.future.timeout(const Duration(seconds: 1));
 
-        final disconnect = await _invokeNative('carPlaySceneDidDisconnect');
+        final disconnect = await bridge.call('carPlaySceneDidDisconnect');
         final result = await startFuture.timeout(const Duration(seconds: 1));
 
         expect(disconnect['success'], isTrue);
@@ -159,12 +164,12 @@ void main() {
             ChatVoiceModeStartResult.alreadyActive,
           ],
         );
-        final container = _buildContainer(voice: voice);
+        final container = _buildContainer(bridge: bridge, voice: voice);
         addTearDown(container.dispose);
 
-        final firstResult = _invokeNative('startVoiceConversation');
+        final firstResult = bridge.call('startVoiceConversation');
         await _until(() => voice.startCalls == 1);
-        final secondResult = _invokeNative('startVoiceConversation');
+        final secondResult = bridge.call('startVoiceConversation');
         await _until(() => voice.startCalls == 2);
 
         firstStart.complete();
@@ -172,7 +177,7 @@ void main() {
         secondStart.complete();
         expect((await secondResult)['success'], isTrue);
 
-        final disconnect = await _invokeNative('carPlaySceneDidDisconnect');
+        final disconnect = await bridge.call('carPlaySceneDidDisconnect');
 
         expect(disconnect['success'], isTrue);
         expect(voice.stopCalls, 1);
@@ -191,18 +196,18 @@ void main() {
             ChatVoiceModeStartResult.alreadyActive,
           ],
         );
-        final container = _buildContainer(voice: voice);
+        final container = _buildContainer(bridge: bridge, voice: voice);
         addTearDown(container.dispose);
 
-        final firstResult = _invokeNative('startVoiceConversation');
+        final firstResult = bridge.call('startVoiceConversation');
         await _until(() => voice.startCalls == 1);
-        final secondResult = _invokeNative('startVoiceConversation');
+        final secondResult = bridge.call('startVoiceConversation');
         await _until(() => voice.startCalls == 2);
 
         firstStart.complete();
         expect((await firstResult)['success'], isTrue);
 
-        final disconnect = await _invokeNative('carPlaySceneDidDisconnect');
+        final disconnect = await bridge.call('carPlaySceneDidDisconnect');
         expect(disconnect['success'], isTrue);
         expect(voice.stopCalls, 1);
 
@@ -218,11 +223,11 @@ void main() {
       final voice = _FakeVoiceCallController(
         startResult: ChatVoiceModeStartResult.alreadyActive,
       );
-      final container = _buildContainer(voice: voice);
+      final container = _buildContainer(bridge: bridge, voice: voice);
       addTearDown(container.dispose);
 
-      final start = await _invokeNative('startVoiceConversation');
-      final disconnect = await _invokeNative('carPlaySceneDidDisconnect');
+      final start = await bridge.call('startVoiceConversation');
+      final disconnect = await bridge.call('carPlaySceneDidDisconnect');
 
       expect(start['success'], isTrue);
       expect(disconnect['success'], isTrue);
@@ -233,11 +238,11 @@ void main() {
       'pause and resume fail when current snapshot disallows them',
       () async {
         final voice = _FakeVoiceCallController();
-        final container = _buildContainer(voice: voice);
+        final container = _buildContainer(bridge: bridge, voice: voice);
         addTearDown(container.dispose);
 
-        final pause = await _invokeNative('pauseVoiceConversation');
-        final resume = await _invokeNative('resumeVoiceConversation');
+        final pause = await bridge.call('pauseVoiceConversation');
+        final resume = await bridge.call('resumeVoiceConversation');
 
         expect(pause['success'], isFalse);
         expect(pause['error'], contains('not currently listening'));
@@ -248,12 +253,46 @@ void main() {
       },
     );
 
+    test('retries readiness until the native bridge attaches', () async {
+      bridge.available = false;
+      final voice = _FakeVoiceCallController();
+      final container = _buildContainer(bridge: bridge, voice: voice);
+      addTearDown(container.dispose);
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(bridge.calls, isEmpty);
+
+      bridge.available = true;
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+
+      expect(bridge.calls.first.method, 'carPlayDartReady');
+      expect(
+        bridge.calls.map((call) => call.method),
+        contains('voiceConversationStateChanged'),
+      );
+    });
+
+    test('stays idle without a native bridge', () async {
+      final container = ProviderContainer(
+        overrides: [
+          chatVoiceModeControllerProvider.overrideWith(
+            _FakeVoiceCallController.new,
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      container.read(carPlayCoordinatorProvider);
+      await _flushMicrotasks(3);
+
+      expect(bridge.handler, isNull);
+    });
+
     test('snapshot emission dedupes equivalent payloads', () async {
       final voice = _FakeVoiceCallController();
-      final container = _buildContainer(voice: voice);
+      final container = _buildContainer(bridge: bridge, voice: voice);
       addTearDown(container.dispose);
       await _flushMicrotasks(3);
-      platformCalls.clear();
+      bridge.calls.clear();
 
       voice.setSnapshot(
         const ChatVoiceModeSnapshot(phase: ChatVoiceModePhase.listening),
@@ -267,7 +306,7 @@ void main() {
       );
       await _flushMicrotasks(3);
 
-      final stateCalls = platformCalls
+      final stateCalls = bridge.calls
           .where((call) => call.method == 'voiceConversationStateChanged')
           .toList();
       expect(stateCalls, hasLength(1));
@@ -277,14 +316,16 @@ void main() {
 }
 
 ProviderContainer _buildContainer({
+  required _FakeBridge bridge,
   required _FakeVoiceCallController voice,
   AuthNavigationState authState = AuthNavigationState.authenticated,
   Model? selectedModel = _model,
   HermesConfig? hermesConfig,
-  VoidCallback? onAuthRead,
+  void Function()? onAuthRead,
 }) {
   final container = ProviderContainer(
     overrides: [
+      carPlayBridgeProvider.overrideWithValue(bridge),
       chatVoiceModeControllerProvider.overrideWith(() => voice),
       authNavigationStateProvider.overrideWith((ref) {
         onAuthRead?.call();
@@ -301,7 +342,7 @@ ProviderContainer _buildContainer({
         hermesSecretsLoadingProvider.overrideWith(_SettledHermesSecrets.new),
     ],
   );
-  container.read(_testCarPlayCoordinatorProvider);
+  container.read(carPlayCoordinatorProvider);
   return container;
 }
 
@@ -323,21 +364,6 @@ final class _FixedHermesConfig extends HermesConfigController {
 final class _SettledHermesSecrets extends HermesSecretsLoading {
   @override
   bool build() => false;
-}
-
-Future<Map<String, Object?>> _invokeNative(String method) async {
-  final messenger =
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-  final data = _codec.encodeMethodCall(MethodCall(method));
-  final completer = Completer<ByteData?>();
-  await messenger.handlePlatformMessage(
-    'conduit/carplay',
-    data,
-    completer.complete,
-  );
-  final response = await completer.future;
-  final decoded = _codec.decodeEnvelope(response!);
-  return Map<String, Object?>.from(decoded as Map);
 }
 
 Future<void> _flushMicrotasks(int count) async {

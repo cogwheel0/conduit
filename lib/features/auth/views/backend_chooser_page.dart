@@ -7,7 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 
-import '../../../platform/conduit_platform_apis.g.dart';
+import 'package:conduit_core/features/direct_connections/services/apple_pcc_host.dart';
 
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 
