@@ -10,7 +10,6 @@ import 'package:intl/intl.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 
-import '../../../platform/conduit_platform_apis.g.dart';
 import '../../../shared/services/navigation_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
