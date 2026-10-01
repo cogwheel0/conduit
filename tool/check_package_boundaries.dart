@@ -2,8 +2,8 @@
 //
 //   dart run tool/check_package_boundaries.dart
 //
-// Two rules, both of which exist to stop the mobile and desktop front-ends
-// from re-implementing the same logic:
+// The first two rules exist to stop the mobile and desktop front-ends from
+// re-implementing the same logic:
 //
 //   1. Packages shared with the renderer must stay web-safe, so they can
 //      cross `dart compile js`. CI also compiles them for real; this check
@@ -11,6 +11,14 @@
 //   2. apps/desktop_ui may depend only on the shared packages, Jaspr and
 //      package:web. If it can reach dio, drift or conduit_core, then "logic
 //      lives in the core" stops being enforceable by review alone.
+//
+// The third keeps the iOS feature bridges portable between hosts:
+//
+//   3. Swift in ios/Runner is either host-agnostic, and depends on the host
+//      only through `ConduitBridgeHost`, or marked as Flutter-host-only.
+//      Host-agnostic files are shared unchanged with other hosts, so
+//      they may not name the Flutter app delegate, engine, view controller,
+//      scene delegate or plugin registrar.
 import 'dart:convert';
 import 'dart:io';
 
@@ -93,6 +101,59 @@ const List<String> _desktopUiForbiddenDartLibraries = <String>[
   'dart:cli',
 ];
 
+/// Swift under ios/Runner that depends on its host only through
+/// `ConduitBridgeHost`, and is reusable unchanged by other hosts.
+const List<String> _iosHostAgnosticSwift = <String>[
+  'ios/Runner/AppIntentBridge.swift',
+  'ios/Runner/AppIntentInvocationStore.swift',
+  'ios/Runner/BackgroundStreamingHandler.swift',
+  'ios/Runner/ConduitAppIntents.swift',
+  'ios/Runner/ConduitBridgeHost.swift',
+  'ios/Runner/ConduitCarPlayBridge.swift',
+  'ios/Runner/ConduitCarPlaySceneDelegate.swift',
+  'ios/Runner/ConduitPlatformApis.g.swift',
+  'ios/Runner/CookieBridge.swift',
+  'ios/Runner/NativeDropdownBridge.swift',
+  'ios/Runner/NativeImageViewerBridge.swift',
+  'ios/Runner/NativeIosTtsBridge.swift',
+  'ios/Runner/NativeSheetBridge.swift',
+  'ios/Runner/NativeSheetUIFoundation.swift',
+  'ios/Runner/NativeSttBridge.swift',
+  'ios/Runner/NativeSymbolImageBridge.swift',
+  'ios/Runner/PccBridge.swift',
+  'ios/Runner/PlatformEnvironmentBridge.swift',
+  'ios/Runner/ShareImportBridge.swift',
+  'ios/Runner/VoiceAudioRouteBridge.swift',
+];
+
+/// Swift under ios/Runner that belongs to the Flutter host. Each file says so
+/// in its header, so nobody copies it into another host by mistake.
+const List<String> _iosFlutterHostSwift = <String>[
+  'ios/Runner/AppDelegate.swift',
+  'ios/Runner/ConduitSceneDelegate.swift',
+  'ios/Runner/DisplayBoostBridge.swift',
+  'ios/Runner/FlutterConduitBridgeHost.swift',
+  'ios/Runner/NativeKeyboardAttachmentBridge.swift',
+  'ios/Runner/NativePasteBridge.swift',
+];
+
+const String _iosFlutterHostMarker = '// FLUTTER HOST ONLY.';
+
+/// Host types a host-agnostic bridge must reach through `ConduitBridgeHost`
+/// instead of naming them.
+final List<RegExp> _iosHostTypes = <RegExp>[
+  RegExp(r'\bAppDelegate\b'),
+  RegExp(r'\bFlutterAppDelegate\b'),
+  RegExp(r'\bFlutterEngine'),
+  RegExp(r'\bFlutterImplicitEngine'),
+  RegExp(r'\bFlutterViewController\b'),
+  RegExp(r'\bFlutterSceneDelegate\b'),
+  RegExp(r'\bFlutterPluginRegist'),
+  RegExp(r'\bGeneratedPluginRegistrant\b'),
+  RegExp(r'UIApplication\.shared\.delegate\b'),
+  RegExp(r'\bconnectedScenes\b'),
+];
+
 final RegExp _importRegex = RegExp(
   '''^\\s*(?:import|export)\\s+['"]([^'"]+)['"]''',
   multiLine: true,
@@ -142,6 +203,7 @@ void main() {
   }
 
   violations.addAll(_scanDesktopUi());
+  violations.addAll(_scanIosBridges());
 
   if (violations.isEmpty) {
     stdout.writeln('Package boundaries OK.');
@@ -345,3 +407,59 @@ Set<String> _declaredDependencies(String pubspec) {
 }
 
 final RegExp _dependencyName = RegExp(r'^  ([a-z_0-9]+):');
+
+/// Holds every Swift file in ios/Runner to one side of the host seam.
+///
+/// A new file has to be listed before this passes, which makes "does another
+/// host reuse this?" a question somebody answers on purpose.
+List<String> _scanIosBridges() {
+  final runner = Directory('ios/Runner');
+  if (!runner.existsSync()) return const <String>[];
+  final violations = <String>[];
+  final listed = <String>{..._iosHostAgnosticSwift, ..._iosFlutterHostSwift};
+  for (final entity in runner.listSync(recursive: true)) {
+    if (entity is! File || !entity.path.endsWith('.swift')) continue;
+    if (!listed.contains(entity.path)) {
+      violations.add(
+        '${entity.path} is not classified - add it to _iosHostAgnosticSwift '
+        'or _iosFlutterHostSwift in tool/check_package_boundaries.dart',
+      );
+    }
+  }
+
+  for (final path in _iosHostAgnosticSwift) {
+    final file = File(path);
+    if (!file.existsSync()) {
+      violations.add('$path is listed as host-agnostic but does not exist');
+      continue;
+    }
+    final lines = file.readAsLinesSync();
+    for (var i = 0; i < lines.length; i++) {
+      final code = lines[i].split('//').first;
+      for (final hostType in _iosHostTypes) {
+        final match = hostType.firstMatch(code);
+        if (match == null) continue;
+        violations.add(
+          '$path:${i + 1} names "${match.group(0)}" - host-agnostic bridges '
+          'reach the host through ConduitBridgeHost so other hosts '
+          'can reuse them unchanged',
+        );
+      }
+    }
+  }
+
+  for (final path in _iosFlutterHostSwift) {
+    final file = File(path);
+    if (!file.existsSync()) {
+      violations.add('$path is listed as Flutter-host-only but does not exist');
+      continue;
+    }
+    if (!file.readAsStringSync().contains(_iosFlutterHostMarker)) {
+      violations.add(
+        '$path is Flutter-host-only but lacks the "$_iosFlutterHostMarker" '
+        'header',
+      );
+    }
+  }
+  return violations;
+}
