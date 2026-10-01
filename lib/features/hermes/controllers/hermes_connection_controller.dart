@@ -2,7 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
-import '../../../shared/models/connection_attempt.dart';
+import 'package:conduit_core/models/connection_attempt.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_connection_contract.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';

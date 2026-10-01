@@ -4,8 +4,9 @@ import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
-import 'package:conduit/features/chat/providers/chat_providers.dart' as chat;
-import 'package:conduit/features/chat/utils/chat_share_url.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    as chat;
+import 'package:conduit_core/features/chat/utils/chat_share_url.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';

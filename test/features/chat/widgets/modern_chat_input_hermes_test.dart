@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:ui' show SemanticsAction;
 
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';

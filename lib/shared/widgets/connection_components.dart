@@ -1,14 +1,15 @@
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
-import '../models/connection_attempt.dart';
+import 'package:conduit_core/models/connection_attempt.dart';
+
 import '../theme/theme_extensions.dart';
 import 'adaptive_route_shell.dart';
 import 'adaptive_toolbar_components.dart';
 import 'platform_ui/platform_ui.dart';
 import 'utility_components.dart';
 
-export '../models/connection_attempt.dart';
+export 'package:conduit_core/models/connection_attempt.dart';
 
 class ConnectionMark extends StatelessWidget {
   const ConnectionMark({

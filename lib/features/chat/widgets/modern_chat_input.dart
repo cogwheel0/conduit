@@ -21,19 +21,23 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
-import '../providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+
 import '../services/clipboard_attachment_service.dart';
 import '../services/file_attachment_service.dart';
 import '../services/ios_native_paste_service.dart';
 import '../services/ios_keyboard_attachment_bridge.dart';
-import '../providers/context_attachments_provider.dart';
-import '../providers/knowledge_cache_provider.dart';
+
+import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
+import 'package:conduit_core/features/chat/providers/knowledge_cache_provider.dart';
+
 import '../../notes/providers/notes_providers.dart';
 
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 
 import '../../prompts/providers/prompts_providers.dart';
-import '../../hermes/controllers/hermes_busy_turn_controller.dart';
+
+import 'package:conduit_core/features/hermes/controllers/hermes_busy_turn_controller.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
@@ -56,7 +60,8 @@ import 'package:conduit_core/providers/app_providers.dart';
 
 import '../../../shared/services/navigation_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
-import '../../../core/services/location_service.dart';
+
+import 'package:conduit_core/services/location_service.dart';
 
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';

@@ -7,7 +7,9 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_page_route.dart';
 import '../../../shared/utils/utf16_sanitizer.dart';
-import '../../navigation/models/sidebar_navigation_model.dart';
+
+import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
+
 import '../../navigation/providers/sidebar_search_providers.dart';
 import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
 import '../controllers/terminal_browser_controller.dart';

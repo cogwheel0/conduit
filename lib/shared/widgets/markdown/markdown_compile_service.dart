@@ -13,7 +13,9 @@ import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 
 import 'compiled_markdown_document.dart';
-import 'streaming_markdown_preparation.dart';
+
+import 'package:conduit_core/utils/streaming_markdown_preparation.dart';
+
 import 'renderer/latex_preprocessor.dart';
 
 const int markdownSynchronousCompileThreshold = 384;

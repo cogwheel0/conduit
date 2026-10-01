@@ -7,9 +7,10 @@ import '../../../core/services/haptic_service.dart';
 
 import 'package:conduit_core/services/settings_service.dart';
 
-import '../providers/streaming_haptic_memory.dart';
-import '../providers/queued_completion_provider.dart';
-import '../views/chat_turn_render_state.dart';
+import 'package:conduit_core/features/chat/providers/streaming_haptic_memory.dart';
+import 'package:conduit_core/features/chat/providers/queued_completion_provider.dart';
+import 'package:conduit_core/features/chat/views/chat_turn_render_state.dart';
+
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
 import 'conduit_streaming_orbit.dart';

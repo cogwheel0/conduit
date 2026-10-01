@@ -1,7 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit/core/services/native_sheet_hydration_service.dart';
-import 'package:conduit/features/chat/providers/reasoning_effort_provider.dart';
+import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

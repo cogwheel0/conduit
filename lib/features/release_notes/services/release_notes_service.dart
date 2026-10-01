@@ -1,5 +1,6 @@
 import '../models/release_note.dart';
-import '../models/release_version.dart';
+
+import 'package:conduit_core/features/release_notes/models/release_version.dart';
 
 enum ReleaseNotesDecisionType { none, persistOnly, show }
 

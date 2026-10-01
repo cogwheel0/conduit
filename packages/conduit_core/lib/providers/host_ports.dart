@@ -2,6 +2,9 @@ import 'package:conduit_core/conduit_core.dart';
 import 'package:riverpod/misc.dart' show ProviderOrFamily;
 import 'package:riverpod/riverpod.dart';
 
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+
 /// Where `lib/core` declares the seams its host must fill.
 ///
 /// A provider here is value-less whenever the core genuinely cannot guess —
@@ -120,3 +123,34 @@ final postFrameSchedulerProvider = Provider<PostFrameScheduler>(
 final signOutResetTargetsProvider = Provider<List<ProviderOrFamily>>(
   (ref) => const <ProviderOrFamily>[],
 );
+
+/// Answers server-initiated questions and notices raised mid-stream.
+///
+/// Defaults to declining everything, which is what a surface with nobody in
+/// front of it must do (see [NullUiRequestPort]). `main.dart` binds the
+/// Flutter dialogs.
+final uiRequestPortProvider = Provider<UiRequestPort>(
+  (ref) => const NullUiRequestPort(),
+);
+
+/// Reads and replaces the location the app is showing.
+///
+/// Defaults to "no router", which leaves remapped routes alone. `main.dart`
+/// binds the app's `GoRouter`.
+final routeNavigatorProvider = Provider<RouteNavigatorPort>(
+  (ref) => const NullRouteNavigator(),
+);
+
+/// The BCP-47 tag of the language the user picked in the app, or null when
+/// the app follows the system language.
+///
+/// The chat pipeline sends it to Open WebUI as `{{USER_LANGUAGE}}`. The app
+/// holds the selection as a Flutter `Locale`, which the core cannot name, so
+/// the default reads the stored preference once. A host that lets the user
+/// change language at runtime binds this to its own locale state, as
+/// `main.dart` does.
+final appLanguageTagProvider = Provider<String?>((ref) {
+  final code = PreferencesStore.getString(PreferenceKeys.localeCode);
+  if (code == null || code.isEmpty) return null;
+  return code.replaceAll('_', '-');
+});

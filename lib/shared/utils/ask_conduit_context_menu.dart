@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 
 const String _askConduitLabel = 'Ask Conduit';
 

@@ -54,6 +54,8 @@ dependencies:
   riverpod: ^3.4.3
   riverpod_annotation: ^4.0.7
   uuid: ^4.6.0
+  # Chat tool servers may publish their OpenAPI spec as YAML.
+  yaml: ^3.1.2
 
 dev_dependencies:
   build_runner: ^2.15.1

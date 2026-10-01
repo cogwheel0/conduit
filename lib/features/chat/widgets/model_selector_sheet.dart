@@ -33,8 +33,8 @@ import '../../direct_connections/views/ollama_model_actions.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
-import '../models/model_selector_layout.dart';
-import '../providers/reasoning_effort_provider.dart';
+import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
+import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart';
 
 class ModelSelectorSheet extends ConsumerStatefulWidget {
   const ModelSelectorSheet({super.key, required this.models});

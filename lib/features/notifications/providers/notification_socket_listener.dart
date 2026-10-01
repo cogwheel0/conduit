@@ -16,12 +16,15 @@ import '../../../core/utils/current_localizations.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
-import '../../channels/providers/channel_providers.dart';
-import '../../chat/providers/chat_providers.dart';
-import '../models/app_notification.dart';
-import '../services/active_view_tracker.dart';
+import 'package:conduit_core/features/channels/providers/channel_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/notifications/models/app_notification.dart';
+import 'package:conduit_core/features/notifications/services/active_view_tracker.dart';
+
 import '../services/local_notification_service.dart';
-import '../services/notification_event_classifier.dart';
+
+import 'package:conduit_core/features/notifications/services/notification_event_classifier.dart';
+
 import '../services/notification_router.dart';
 import '../services/notification_sound_service.dart';
 

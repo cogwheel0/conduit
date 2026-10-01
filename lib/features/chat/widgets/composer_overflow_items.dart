@@ -10,7 +10,7 @@ import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/features/web_search/services/direct_web_search_mode.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 
-import '../providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 
 class ComposerOverflowActionIds {
   const ComposerOverflowActionIds._();

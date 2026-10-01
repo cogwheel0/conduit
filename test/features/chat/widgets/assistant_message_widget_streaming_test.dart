@@ -8,7 +8,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/ports/flush_scheduler.dart';
 import 'package:conduit_core/services/settings_service.dart';
-import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
 import 'package:conduit/l10n/app_localizations.dart';

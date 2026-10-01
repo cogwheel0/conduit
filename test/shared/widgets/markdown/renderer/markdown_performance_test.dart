@@ -5,7 +5,7 @@ import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit/shared/widgets/markdown/compiled_markdown_document.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_loading_skeleton.dart';
-import 'package:conduit/shared/widgets/markdown/streaming_markdown_preparation.dart';
+import 'package:conduit_core/utils/streaming_markdown_preparation.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:flutter/foundation.dart';

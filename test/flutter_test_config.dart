@@ -8,6 +8,8 @@ import 'package:conduit/platform/just_audio_playback.dart';
 import 'package:conduit/platform/record_audio_capture.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 import 'package:conduit/platform/flutter_log_sink.dart';
+import 'package:conduit/platform/geolocator_location_port.dart';
+import 'package:conduit/platform/wakelock_plus_port.dart';
 import 'package:conduit_core/conduit_core.dart';
 
 /// Runs before every `flutter test` file.
@@ -41,5 +43,9 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   // at all, which would take every voice test down a 'cannot listen'
   // path it was never meant to exercise.
   AudioCapturePort.hostFactory = RecordAudioCapture.new;
+  // Location and wakelock reached their plugins directly before they became
+  // ports; installing the app's adapters keeps tests on those paths.
+  LocationPort.hostDefault = const GeolocatorLocationPort();
+  WakelockPort.hostDefault = const WakelockPlusPort();
   await testMain();
 }

@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit_core/models/chat_message.dart';
+
 import '../../utils/ask_conduit_context_menu.dart';
 import '../horizontal_gesture_ownership.dart';
 import 'compiled_markdown_document.dart';
@@ -14,7 +15,9 @@ import 'markdown_display_part.dart';
 import 'markdown_document_controller.dart';
 import 'markdown_render_gate.dart';
 import 'markdown_loading_skeleton.dart';
-import 'streaming_markdown_preparation.dart';
+
+import 'package:conduit_core/utils/streaming_markdown_preparation.dart';
+
 import 'renderer/block_renderer.dart';
 import 'renderer/chunked_block_column.dart';
 import 'renderer/conduit_markdown_widget.dart';
@@ -290,8 +293,7 @@ class _StreamingMarkdownWidgetState
     // fixtures render fully on the first pump regardless of size.
     if (_isWidgetTest || content.length <= _settledSynchronousMountCharCap) {
       final prepared =
-          memoizedPrepared ??
-          prepareMarkdownContent(content, streaming: false);
+          memoizedPrepared ?? prepareMarkdownContent(content, streaming: false);
       compiler.memoizeSettledPrepared(content, prepared);
       _snapshot = _MarkdownRenderSnapshot.full(prepared);
       final document =

@@ -19,6 +19,15 @@ const String kApplePccProfileId = 'apple-pcc';
 const String kApplePccBaseUrl = 'pcc://apple';
 const String kApplePccRemoteModelId = 'private-cloud-compute';
 
+/// Reasoning levels Apple's Private Cloud Compute model accepts, in the
+/// order the picker lists them.
+const List<String> kApplePccReasoningEfforts = <String>[
+  'automatic',
+  'light',
+  'moderate',
+  'deep',
+];
+
 /// Canonical first-party OpenRouter API root.
 const String kOpenRouterApiBaseUrl = 'https://openrouter.ai/api/v1';
 

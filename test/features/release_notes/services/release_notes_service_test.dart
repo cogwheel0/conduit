@@ -1,6 +1,6 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/features/release_notes/models/release_note.dart';
-import 'package:conduit/features/release_notes/models/release_version.dart';
+import 'package:conduit_core/features/release_notes/models/release_version.dart';
 import 'package:conduit/features/release_notes/release_notes_presenter.dart';
 import 'package:conduit/features/release_notes/services/release_notes_service.dart';
 import 'package:flutter_test/flutter_test.dart';

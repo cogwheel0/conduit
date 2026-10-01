@@ -3,7 +3,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
-import 'package:conduit/features/channels/providers/channel_providers.dart';
+import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 import 'package:conduit/features/channels/providers/channel_socket_handler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';

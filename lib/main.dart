@@ -36,6 +36,9 @@ import 'platform/flutter_key_value_store.dart';
 import 'platform/flutter_log_sink.dart';
 import 'platform/flutter_worker_port.dart';
 import 'platform/flutter_database_opener.dart';
+import 'platform/geolocator_location_port.dart';
+import 'platform/go_router_navigator.dart';
+import 'platform/wakelock_plus_port.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
 
@@ -48,7 +51,7 @@ import 'core/utils/model_logos.dart';
 
 import 'package:conduit_core/persistence/hive_prefs_migrator.dart';
 
-import 'core/persistence/persistence_migrator.dart';
+import 'package:conduit_core/persistence/persistence_migrator.dart';
 
 import 'package:conduit_core/persistence/persistence_providers.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -56,6 +59,7 @@ import 'package:conduit_core/persistence/preferences_store.dart';
 import 'core/router/app_router.dart';
 import 'core/services/native_sheet_bridge.dart';
 import 'core/services/native_sheet_hydration_service.dart';
+import 'shared/services/flutter_ui_requests.dart';
 import 'shared/services/navigation_service.dart';
 import 'shared/services/raster_media_policy.dart';
 import 'platform/carplay_service.dart';
@@ -67,11 +71,15 @@ import 'package:conduit_core/sync/request_completion_runner_provider.dart';
 
 import 'core/utils/tts_voice_utils.dart';
 import 'core/utils/current_localizations.dart';
-import 'features/chat/services/request_completion_runner.dart';
+
+import 'package:conduit_core/features/chat/services/request_completion_runner.dart';
+
 import 'features/chat/providers/text_to_speech_provider.dart';
-import 'features/chat/providers/chat_providers.dart'
+
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatWakelockCoordinatorProvider, restoreDefaultModel;
-import 'features/release_notes/release_notes_bootstrap.dart';
+import 'package:conduit_core/features/release_notes/release_notes_bootstrap.dart';
+
 import 'features/release_notes/release_notes_coordinator.dart';
 import 'features/release_notes/data/release_notes_repository.dart';
 import 'features/release_notes/release_notes_presenter.dart';
@@ -175,6 +183,8 @@ void main() {
   AudioPlaybackPort.hostFactory = JustAudioPlayback.new;
   BackgroundExecutionPort.hostDefault = const MobileBackgroundExecution();
   DisplayBoostPort.hostDefault = const IosDisplayBoost();
+  LocationPort.hostDefault = const GeolocatorLocationPort();
+  WakelockPort.hostDefault = const WakelockPlusPort();
   ShareStagingPort.hostDefault = IosShareStaging(
     stagingDirectoryName: shareStagingDirectoryName,
   );
@@ -327,6 +337,11 @@ void main() {
           signOutResetTargetsProvider.overrideWithValue(
             themePreferenceResetTargets,
           ),
+          // The in-memory selection, so a language change applies to the
+          // next request before the preference write lands.
+          appLanguageTagProvider.overrideWith(
+            (ref) => ref.watch(appLocaleProvider)?.toLanguageTag(),
+          ),
           hostDirectProviderAdaptersProvider.overrideWith(
             (ref) => [ref.watch(applePccAdapterProvider)],
           ),
@@ -338,6 +353,8 @@ void main() {
                 ),
           ),
           clipboardPortProvider.overrideWithValue(const FlutterClipboardPort()),
+          uiRequestPortProvider.overrideWithValue(const FlutterUiRequests()),
+          routeNavigatorProvider.overrideWithValue(const GoRouterNavigator()),
           openExternalUrlProvider.overrideWithValue(
             const UrlLauncherOpenExternalUrlPort(),
           ),

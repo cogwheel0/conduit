@@ -9,7 +9,7 @@ import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit_core/sync/outbox_drainer.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/push_sync.dart';
-import 'package:conduit/features/chat/services/request_completion_runner.dart';
+import 'package:conduit_core/features/chat/services/request_completion_runner.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 

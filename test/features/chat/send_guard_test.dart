@@ -5,7 +5,7 @@ import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
-import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';

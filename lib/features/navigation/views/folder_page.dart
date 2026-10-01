@@ -48,8 +48,11 @@ import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/sheet_handle.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/themed_sheets.dart';
-import '../../chat/providers/chat_providers.dart' as chat;
-import '../../chat/providers/context_attachments_provider.dart';
+
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    as chat;
+import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
+
 import '../../chat/services/clipboard_attachment_service.dart';
 import '../../chat/services/file_attachment_service.dart';
 import '../../chat/widgets/model_selector_sheet.dart';

@@ -7,7 +7,7 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
-import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
 import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';

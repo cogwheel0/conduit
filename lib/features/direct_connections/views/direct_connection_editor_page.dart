@@ -16,7 +16,9 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/connection_components.dart';
 import '../../../shared/widgets/utility_components.dart';
-import '../controllers/direct_connection_editor_draft.dart';
+
+import 'package:conduit_core/features/direct_connections/controllers/direct_connection_editor_draft.dart';
+
 import '../controllers/direct_connection_editor_form.dart';
 import '../controllers/direct_connection_editor_workflow.dart';
 import '../controllers/riverpod_direct_connection_editor_gateway.dart';

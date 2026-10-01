@@ -1,6 +1,6 @@
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/chat/widgets/openwebui_prompt_overlay.dart';
 import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';

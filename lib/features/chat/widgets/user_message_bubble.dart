@@ -23,9 +23,10 @@ import '../../../shared/utils/locale_display_formatters.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 
-import '../providers/chat_providers.dart';
-import '../utils/file_utils.dart';
-import '../utils/message_targeting.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/utils/file_utils.dart';
+import 'package:conduit_core/features/chat/utils/message_targeting.dart';
+
 import 'enhanced_attachment.dart';
 import 'enhanced_image_attachment.dart';
 import 'image_gallery_scope.dart';

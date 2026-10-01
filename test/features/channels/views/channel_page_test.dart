@@ -8,7 +8,7 @@ import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
-import 'package:conduit/features/channels/providers/channel_providers.dart';
+import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 import 'package:conduit/features/channels/views/channel_page.dart';
 import 'package:conduit/features/channels/widgets/thread_panel.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
