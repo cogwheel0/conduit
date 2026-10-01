@@ -317,10 +317,27 @@ class ChannelMessages extends _$ChannelMessages {
   }
 
   /// Updates a message in the list (edit, reaction change).
+  ///
+  /// The edit endpoint and the `message:update` event carry the bare
+  /// `MessageModel` (routers/channels.py): no `user`, reactions or reply
+  /// count. A payload without a user keeps those from the message it
+  /// replaces, so an edit does not turn the sender into "Unknown" and drop
+  /// the reaction chips.
   void updateMessage(ChannelMessage updated) {
     final current = state.value ?? [];
     final index = current.indexWhere((message) => message.id == updated.id);
-    if (index < 0 || current[index] == updated) return;
+    if (index < 0) return;
+    final previous = current[index];
+    if (updated.user == null && previous.user != null) {
+      updated = updated.copyWith(
+        user: previous.user,
+        reactions: previous.reactions,
+        replyCount: previous.replyCount,
+        latestReplyAt: previous.latestReplyAt,
+        replyToMessage: updated.replyToMessage ?? previous.replyToMessage,
+      );
+    }
+    if (previous == updated) return;
     _invalidatePendingFetchForMutation();
     final next = List<ChannelMessage>.of(current);
     next[index] = updated;

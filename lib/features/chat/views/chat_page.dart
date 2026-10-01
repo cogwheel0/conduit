@@ -67,8 +67,6 @@ import '../../hermes/widgets/hermes_message_interactions.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
-import 'package:conduit_core/utils/message_tree_utils.dart' as message_tree;
-
 import 'package:conduit_core/utils/user_display_name.dart';
 
 import '../../../core/utils/model_icon_utils.dart';
@@ -87,7 +85,7 @@ import '../widgets/server_file_picker_sheet.dart';
 import '../services/clipboard_attachment_service.dart';
 import '../services/file_attachment_service.dart';
 
-import 'package:conduit_core/features/chat/services/chat_transport_dispatch.dart';
+import 'package:conduit_core/features/chat/services/chat_message_actions.dart';
 import 'package:conduit_core/features/chat/services/historical_message_regeneration.dart';
 
 import '../voice_mode/chat_voice_mode_controller.dart';
@@ -3576,100 +3574,31 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Future<void> _deleteMessageGroup(List<String> messageIds) async {
     if (messageIds.isEmpty) return;
     final l10n = AppLocalizations.of(context)!;
-    final currentMessages = ref.read(chatMessagesProvider);
-    final initialRemovedIds = <String>{
-      for (final id in messageIds) ..._messageIdsToDelete(currentMessages, id),
-    };
-    if (initialRemovedIds.isEmpty) return;
+    final removedCount = chatMessageIdsRemovedByDelete(
+      ref.read(chatMessagesProvider),
+      messageIds,
+    ).length;
+    if (removedCount == 0) return;
     final confirmed = await ThemedDialogs.confirm(
       context,
       title: l10n.deleteMessagesTitle,
-      message: l10n.deleteMessagesMessage(initialRemovedIds.length),
+      message: l10n.deleteMessagesMessage(removedCount),
       confirmText: l10n.delete,
       cancelText: l10n.cancel,
       isDestructive: true,
     );
     if (!confirmed || !mounted) return;
 
-    final latestMessages = ref.read(chatMessagesProvider);
-    final orderedIds = messageIds.reversed.toList(growable: false);
-    final removedIds = <String>{};
-    var updatedMessages = latestMessages;
-    for (final id in orderedIds) {
-      removedIds.addAll(_messageIdsToDelete(updatedMessages, id));
-      updatedMessages = message_tree.deleteOpenWebUiMessageFromChatMessages(
-        updatedMessages,
-        id,
-      );
-    }
-
-    final removedStreamingMessage = latestMessages
-        .where((candidate) => removedIds.contains(candidate.id))
-        .where((candidate) => candidate.isStreaming)
-        .firstOrNull;
-    if (removedStreamingMessage != null) {
-      stopActiveTransport(
-        removedStreamingMessage,
-        ref.read(apiServiceProvider),
-      );
-      ref.read(chatMessagesProvider.notifier).cancelActiveMessageStream();
-    }
-    ref.read(chatMessagesProvider.notifier).setMessages(updatedMessages);
-
-    final activeConversation = ref.read(activeConversationProvider);
-    if (activeConversation != null) {
-      final updatedConversation = inheritNativeHermesConversationProvenance(
-        activeConversation,
-        activeConversation.copyWith(
-          messages: updatedMessages,
-          updatedAt: DateTime.now(),
-        ),
-      );
-      ref.read(activeConversationProvider.notifier).set(updatedConversation);
-      ref
-          .read(conversationsProvider.notifier)
-          .updateConversation(
-            updatedConversation.id,
-            (_) => updatedConversation,
-          );
-
-      final api = ref.read(apiServiceProvider);
-      if (api != null && !isTemporaryChat(updatedConversation.id)) {
-        try {
-          for (final id in orderedIds) {
-            await api.deleteConversationMessage(updatedConversation.id, id);
-          }
-          ref
-              .read(conversationsProvider.notifier)
-              .trustConversation(updatedConversation.id);
-        } catch (error, stackTrace) {
-          DebugLogger.error(
-            'delete-message-persist-failed',
-            scope: 'chat/page',
-            error: error,
-            stackTrace: stackTrace,
-          );
-          if (!mounted) return;
-          ref.read(chatMessagesProvider.notifier).setMessages(currentMessages);
-          ref.read(activeConversationProvider.notifier).set(activeConversation);
-          ref
-              .read(conversationsProvider.notifier)
-              .updateConversation(
-                activeConversation.id,
-                (_) => activeConversation,
-              );
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(AppLocalizations.of(context)!.errorMessage)),
-          );
-        }
-      }
-    }
+    final outcome = await deleteChatMessageGroup(
+      ref,
+      messageIds,
+      isStillCurrent: () => mounted,
+    );
+    if (outcome != ChatMessageDeleteOutcome.persistFailed || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(AppLocalizations.of(context)!.errorMessage)),
+    );
   }
-
-  Set<String> _messageIdsToDelete(
-    List<ChatMessage> messages,
-    String messageId,
-  ) => message_tree.openWebUiDeletedMessageIds(messages, messageId);
 
   void _regenerateMessage(String assistantMessageId) async {
     try {

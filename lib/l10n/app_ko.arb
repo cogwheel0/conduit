@@ -3125,5 +3125,7 @@
   "imageSaveFailed": "이미지를 저장할 수 없습니다.",
   "settingsTitle": "설정",
   "profileTitle": "프로필",
-  "aiAndMemoryTitle": "AI 및 메모리"
+  "aiAndMemoryTitle": "AI 및 메모리",
+  "voiceCallMinimize": "최소화",
+  "voiceCallExpand": "펼치기"
 }

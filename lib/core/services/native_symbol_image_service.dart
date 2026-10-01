@@ -4,29 +4,21 @@ import 'package:flutter/services.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
-/// Prefix marking an avatar URL that resolves to a system symbol rather than
-/// an image. Mirrors the `asset:` scheme handled alongside it.
-const String kNativeSymbolUrlScheme = 'symbol:';
-
-/// Apple's own mark for Apple Intelligence, used to attribute the Foundation
-/// Models running on device and on Private Cloud Compute. Available since
-/// iOS 18, well below the iOS 26 those models require.
-const String kAppleIntelligenceSymbol = 'apple.intelligence';
-
-/// Returns the symbol name in [url] when it uses [kNativeSymbolUrlScheme].
-String? nativeSymbolNameFromUrl(String? url) {
-  final trimmed = url?.trim();
-  if (trimmed == null || !trimmed.startsWith(kNativeSymbolUrlScheme)) {
-    return null;
-  }
-  final name = trimmed.substring(kNativeSymbolUrlScheme.length);
-  return name.isEmpty ? null : name;
-}
+// The symbol URL scheme is pure logic and lives in conduit_core;
+// re-exported for this file's importers.
+export 'package:conduit_core/utils/model_icon_utils.dart'
+    show
+        kAppleIntelligenceSymbol,
+        kNativeSymbolUrlScheme,
+        nativeSymbolNameFromUrl;
 
 /// Renders one symbol at a point size and pixel density, or null when the
 /// platform has no such symbol.
-typedef NativeSymbolRenderer =
-    Future<Uint8List?> Function(String name, double pointSize, double scale);
+typedef NativeSymbolRenderer = Future<Uint8List?> Function(
+  String name,
+  double pointSize,
+  double scale,
+);
 
 /// Rasterizes SF Symbols through UIKit so Flutter-drawn surfaces can paint
 /// Apple's glyphs without bundling copies of them.
@@ -57,7 +49,8 @@ class NativeSymbolImageService {
 
   final NativeSymbolRenderer? _renderer;
   final Map<String, Uint8List?> _resolved = <String, Uint8List?>{};
-  final Map<String, Future<Uint8List?>> _pending = <String, Future<Uint8List?>>{};
+  final Map<String, Future<Uint8List?>> _pending =
+      <String, Future<Uint8List?>>{};
 
   bool get _supported =>
       _renderer != null ||
@@ -68,13 +61,19 @@ class NativeSymbolImageService {
 
   /// The cached rasterization, or null when it has not resolved yet. Callers
   /// paint their own fallback until [load] completes.
-  Uint8List? cached(String name, {required double pointSize, required double scale}) =>
-      _resolved[_keyFor(name, pointSize, scale)];
+  Uint8List? cached(
+    String name, {
+    required double pointSize,
+    required double scale,
+  }) => _resolved[_keyFor(name, pointSize, scale)];
 
   /// Whether a previous [load] settled for these parameters, including the
   /// case where the platform had no such symbol.
-  bool isResolved(String name, {required double pointSize, required double scale}) =>
-      _resolved.containsKey(_keyFor(name, pointSize, scale));
+  bool isResolved(
+    String name, {
+    required double pointSize,
+    required double scale,
+  }) => _resolved.containsKey(_keyFor(name, pointSize, scale));
 
   Future<Uint8List?> load(
     String name, {

@@ -28,6 +28,9 @@ dependencies:
   socket_io_client: ^3.1.2
   synchronized: ^3.4.1
   web_socket: ^1.0.1
+  # Pure-Dart PNG encoding for profile avatars (utils/profile_avatar.dart),
+  # so the core needs no widget raster path.
+  image: ^4.9.0
   conduit_markdown:
     path: ../conduit_markdown
   # On-device web search for Direct models (vendored `ddgs`, see its

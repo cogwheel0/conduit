@@ -13,10 +13,10 @@ import 'package:conduit_core/features/support/support_links.dart';
 
 import 'data/release_links.dart';
 import 'models/release_note.dart';
-
-import 'package:conduit_core/features/release_notes/models/release_version.dart';
-
 import 'widgets/release_notes_sheet.dart';
+
+export 'package:conduit_core/features/release_notes/services/release_notes_service.dart'
+    show latestBundledReleaseNotesForVersion;
 
 typedef ReviewUrlLauncher = Future<bool> Function(String url);
 
@@ -83,27 +83,4 @@ Future<void> showReleaseNotesSheet({
       );
     },
   );
-}
-
-List<ReleaseNote> latestBundledReleaseNotesForVersion({
-  required String currentVersion,
-  required Iterable<ReleaseNote> notes,
-}) {
-  final allNotes = notes.toList(growable: false)
-    ..sort((a, b) => a.parsedVersion.compareTo(b.parsedVersion));
-  if (allNotes.isEmpty) {
-    return const <ReleaseNote>[];
-  }
-
-  final current = ReleaseVersion.tryParse(currentVersion);
-  if (current == null) {
-    return <ReleaseNote>[allNotes.last];
-  }
-
-  for (var i = allNotes.length - 1; i >= 0; i--) {
-    if (allNotes[i].parsedVersion.isBeforeOrSame(current)) {
-      return <ReleaseNote>[allNotes[i]];
-    }
-  }
-  return const <ReleaseNote>[];
 }

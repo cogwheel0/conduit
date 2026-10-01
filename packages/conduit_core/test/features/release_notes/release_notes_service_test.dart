@@ -1,9 +1,8 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/features/release_notes/models/release_note.dart';
+import 'package:conduit_core/features/release_notes/models/release_note.dart';
 import 'package:conduit_core/features/release_notes/models/release_version.dart';
-import 'package:conduit/features/release_notes/release_notes_presenter.dart';
-import 'package:conduit/features/release_notes/services/release_notes_service.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:conduit_core/features/release_notes/services/release_notes_service.dart';
+import 'package:test/test.dart';
 
 void main() {
   const service = ReleaseNotesService();
@@ -36,6 +35,17 @@ void main() {
 
     check(decision.type).equals(ReleaseNotesDecisionType.none);
     check(decision.shouldPersist).isFalse();
+  });
+
+  test('an unparseable installed version does nothing', () {
+    final decision = service.evaluate(
+      currentVersion: 'dev',
+      lastSeenVersion: '3.3.1',
+      notes: [note('3.3.2')],
+    );
+
+    check(decision.type).equals(ReleaseNotesDecisionType.none);
+    check(decision.currentVersion).equals('dev');
   });
 
   test('older version shows all baked notes since last seen version', () {
@@ -72,6 +82,18 @@ void main() {
     check(decision.type).equals(ReleaseNotesDecisionType.persistOnly);
   });
 
+  test('notes newer than the installed version are left out', () {
+    final decision = service.evaluate(
+      currentVersion: '3.3.2',
+      lastSeenVersion: '3.3.0',
+      notes: [note('3.3.1'), note('3.4.0')],
+    );
+
+    check(decision.type).equals(ReleaseNotesDecisionType.show);
+    check(decision.notes.map((release) => release.version))
+        .deepEquals(['3.3.1']);
+  });
+
   test('version comparison is semantic, not lexical', () {
     final version310 = ReleaseVersion.parse('3.10.0');
     final version39 = ReleaseVersion.parse('3.9.0');
@@ -85,24 +107,41 @@ void main() {
     check(ReleaseVersion.tryParse('4.0.01')).isNull();
   });
 
-  test(
-    'manual presenter picks the latest bundled note at or before current',
-    () {
+  group('latestBundledReleaseNotesForVersion', () {
+    test('picks the latest bundled note at or before current', () {
       final notes = latestBundledReleaseNotesForVersion(
         currentVersion: '3.3.3',
         notes: [note('3.3.1'), note('3.3.2'), note('3.4.0')],
       );
 
       check(notes.map((release) => release.version)).deepEquals(['3.3.2']);
-    },
-  );
+    });
 
-  test('manual presenter omits notes newer than the installed app version', () {
-    final notes = latestBundledReleaseNotesForVersion(
-      currentVersion: '3.3.1',
-      notes: [note('3.3.2')],
-    );
+    test('omits notes newer than the installed app version', () {
+      final notes = latestBundledReleaseNotesForVersion(
+        currentVersion: '3.3.1',
+        notes: [note('3.3.2')],
+      );
 
-    check(notes).isEmpty();
+      check(notes).isEmpty();
+    });
+
+    test('takes the newest note when the installed version is unparseable', () {
+      final notes = latestBundledReleaseNotesForVersion(
+        currentVersion: 'dev',
+        notes: [note('3.3.2'), note('3.4.0'), note('3.3.1')],
+      );
+
+      check(notes.map((release) => release.version)).deepEquals(['3.4.0']);
+    });
+
+    test('returns nothing for no notes', () {
+      check(
+        latestBundledReleaseNotesForVersion(
+          currentVersion: '3.3.2',
+          notes: const <ReleaseNote>[],
+        ),
+      ).isEmpty();
+    });
   });
 }

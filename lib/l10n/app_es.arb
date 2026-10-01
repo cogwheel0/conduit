@@ -3347,5 +3347,13 @@
   "imageSaveFailed": "No se pudo guardar la imagen.",
   "settingsTitle": "Ajustes",
   "profileTitle": "Perfil",
-  "aiAndMemoryTitle": "IA y memoria"
+  "aiAndMemoryTitle": "IA y memoria",
+  "voiceCallMinimize": "Minimizar",
+  "@voiceCallMinimize": {
+    "description": "Accessibility label for the button that shrinks the voice call panel to a small pill."
+  },
+  "voiceCallExpand": "Expandir",
+  "@voiceCallExpand": {
+    "description": "Accessibility label for the button that opens the minimized voice call pill back into the full panel."
+  }
 }

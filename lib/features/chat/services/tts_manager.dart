@@ -18,60 +18,26 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 import 'package:conduit_markdown/conduit_markdown.dart' as speech;
 
+import 'package:conduit_core/voice/voice_events.dart';
+
 import 'native_tts_service.dart';
 
+export 'package:conduit_core/voice/voice_events.dart'
+    show
+        TtsCancelled,
+        TtsChunkStarted,
+        TtsCompleted,
+        TtsError,
+        TtsEvent,
+        TtsPaused,
+        TtsResumed,
+        TtsStarted,
+        TtsWordProgress;
+
 // =============================================================================
-// TTS Events
+// TTS Events live in conduit_core (voice/voice_events.dart), so the core
+// voice-mode controller can read them; re-exported above.
 // =============================================================================
-
-/// Base class for all TTS events.
-sealed class TtsEvent {
-  const TtsEvent();
-}
-
-/// Emitted when TTS playback starts.
-class TtsStarted extends TtsEvent {
-  const TtsStarted();
-}
-
-/// Emitted when a new chunk starts playing.
-class TtsChunkStarted extends TtsEvent {
-  const TtsChunkStarted(this.chunkIndex);
-  final int chunkIndex;
-}
-
-/// Emitted for word-level progress (device TTS only).
-class TtsWordProgress extends TtsEvent {
-  const TtsWordProgress(this.start, this.end);
-  final int start;
-  final int end;
-}
-
-/// Emitted when all chunks have finished playing.
-class TtsCompleted extends TtsEvent {
-  const TtsCompleted();
-}
-
-/// Emitted when playback is cancelled.
-class TtsCancelled extends TtsEvent {
-  const TtsCancelled();
-}
-
-/// Emitted when playback is paused.
-class TtsPaused extends TtsEvent {
-  const TtsPaused();
-}
-
-/// Emitted when playback resumes from pause.
-class TtsResumed extends TtsEvent {
-  const TtsResumed();
-}
-
-/// Emitted when an error occurs.
-class TtsError extends TtsEvent {
-  const TtsError(this.message);
-  final String message;
-}
 
 // =============================================================================
 // Playback Session
