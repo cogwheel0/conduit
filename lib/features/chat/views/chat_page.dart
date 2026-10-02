@@ -4218,14 +4218,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   },
                 ),
               ),
+              // Solid, opaque top chrome. The previous translucent gradient
+              // scrim let chat content show through behind the app bar, which
+              // reads as a frosted/blurred bar. An opaque surface of the same
+              // color as the scaffold background gives a flat, solid bar with
+              // no visible seam.
               Positioned(
                 left: 0,
                 right: 0,
                 top: 0,
-                child: ConduitChromeGradientFade.top(
-                  contentHeight:
-                      MediaQuery.viewPaddingOf(context).top +
-                      conduitAdaptiveToolbarHeightOf(context),
+                child: IgnorePointer(
+                  child: SizedBox(
+                    height:
+                        MediaQuery.viewPaddingOf(context).top +
+                        conduitAdaptiveToolbarHeightOf(context),
+                    child: ColoredBox(
+                      color: context.conduitTheme.surfaceBackground,
+                    ),
+                  ),
                 ),
               ),
               Positioned(
