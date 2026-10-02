@@ -45,6 +45,7 @@ Future<void> showImageViewer(
   bool cancelled = false;
   int? request;
   ModalRoute<dynamic>? viewerRoute;
+  Future<ImageViewerMedia>? initialLoad;
   bool current() =>
       !cancelled &&
       context.mounted &&
@@ -96,8 +97,9 @@ Future<void> showImageViewer(
     // made outside GoRouter. The completion also covers those departures.
     final departure = origin?.popped.asStream().listen((_) => ownerChanged());
     try {
+      initialLoad = gallery[initialIndex].load().timeout(_imageLoadTimeout);
       final selected = await Future.any<ImageViewerMedia?>([
-        gallery[initialIndex].load().timeout(_imageLoadTimeout),
+        initialLoad,
         cancellation.future,
       ]);
       if (selected == null || !current()) return;
@@ -130,6 +132,7 @@ Future<void> showImageViewer(
     context,
     items: gallery,
     initialIndex: initialIndex,
+    initialLoad: initialLoad,
     active: active,
     isCurrent: current,
   );
@@ -142,12 +145,14 @@ PageRoute<void> _buildImageViewerRoute(
   BuildContext context, {
   required List<ImageViewerItem> items,
   int initialIndex = 0,
+  Future<ImageViewerMedia>? initialLoad,
   ValueListenable<bool>? active,
   bool Function()? isCurrent,
 }) {
   Widget builder(BuildContext context) => ImageViewer(
     items: items,
     initialIndex: initialIndex,
+    initialLoad: initialLoad,
     active: active,
     isCurrent: isCurrent,
   );
@@ -167,6 +172,7 @@ class ImageViewer extends StatefulWidget {
     super.key,
     required List<ImageViewerItem> items,
     this.initialIndex = 0,
+    this.initialLoad,
     this.active,
     this.isCurrent,
   }) : items = List.unmodifiable(items),
@@ -175,6 +181,9 @@ class ImageViewer extends StatefulWidget {
 
   final List<ImageViewerItem> items;
   final int initialIndex;
+
+  /// Reuses the selected load after native handoff fails. Retry loads afresh.
+  final Future<ImageViewerMedia>? initialLoad;
 
   /// The calling feature owns connection/session lifetime. A false value
   /// closes the preview and prevents pending loads or exports from completing.
@@ -214,7 +223,7 @@ class _ImageViewerState extends State<ImageViewer> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _ownerChanged();
     });
-    unawaited(_load());
+    unawaited(_load(initialLoad: widget.initialLoad));
   }
 
   void _ownerChanged() {
@@ -241,13 +250,18 @@ class _ImageViewerState extends State<ImageViewer> {
     }
   }
 
-  Future<void> _load({bool refresh = false}) async {
+  Future<void> _load({
+    bool refresh = false,
+    Future<ImageViewerMedia>? initialLoad,
+  }) async {
     final generation = ++_generation;
     final item = widget.items[_index];
     try {
       if (refresh) await item.invalidate?.call().timeout(_imageLoadTimeout);
       if (!_active || generation != _generation) return;
-      final media = await item.load().timeout(_imageLoadTimeout);
+      final media = await (initialLoad ?? item.load()).timeout(
+        _imageLoadTimeout,
+      );
       final svgBytes = media.isSvg ? await media.readBytes() : null;
       if (!_active || generation != _generation) return;
       setState(() {

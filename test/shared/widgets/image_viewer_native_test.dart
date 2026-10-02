@@ -263,7 +263,7 @@ void main() {
           await tester.tap(find.byTooltip('Next image'));
           await tester.pump();
           await tester.pump(const Duration(milliseconds: 400));
-          expect(loads, [0, 0, 1]);
+          expect(loads, [0, 1]);
           expect(find.text('2 of 2'), findsOneWidget);
         }
       },
@@ -285,7 +285,7 @@ void main() {
       await tester.tap(find.byTooltip('Previous image'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
-      expect(loads, [1, 1, 0]);
+      expect(loads, [1, 0]);
       expect(openCount, 1);
       expect(find.text('1 of 2'), findsOneWidget);
     },
@@ -403,17 +403,22 @@ void main() {
     gallery[0] = ImageViewerItem(
       load: () {
         attempts++;
-        if (attempts == 1) return pending.future;
-        return Future.error(StateError('Unavailable'));
+        return pending.future;
       },
     );
     await tester.pumpWidget(_host(gallery, initialIndex: 0));
     await tester.tap(find.text('Open'));
     await tester.pump();
     await tester.pump(const Duration(seconds: 15));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('Retry'), findsOneWidget);
+    expect(attempts, 1);
     expect(openCount, 0);
+    await tester.tap(find.text('Retry'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(attempts, 2);
     await tester.tap(find.byTooltip('Next image'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));

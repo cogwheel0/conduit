@@ -168,7 +168,9 @@ final class ImagePreviewBridge: NSObject, QLPreviewControllerDataSource,
             }
             return
         }
-        controller.dismiss(animated: false) {
+        // Dismiss the entire preview chain, including a native share sheet.
+        let presenter = controller.presentingViewController ?? controller
+        presenter.dismiss(animated: false) {
             if self.controller === controller { self.finish() }
         }
     }
