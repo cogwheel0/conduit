@@ -44,10 +44,12 @@ class ImagePreviewBridge(private val activity: Activity, messenger: BinaryMessen
                         clipData = ClipData.newRawUri("image", uri)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
-                    // Honor the user's default viewer. Android shows its app
-                    // picker when needed, and throws if no receiver exists.
-                    activity.startActivity(view)
-                    result.success(null)
+                    if (view.resolveActivity(activity.packageManager) == null) {
+                        result.error("unavailable", "No image viewer is installed", null)
+                    } else {
+                        activity.startActivity(Intent.createChooser(view, null))
+                        result.success(null)
+                    }
                 } catch (_: ActivityNotFoundException) {
                     result.error("unavailable", "No image viewer is installed", null)
                 } catch (_: Exception) {

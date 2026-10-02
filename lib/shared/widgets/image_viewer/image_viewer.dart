@@ -33,9 +33,7 @@ PageRoute<void> buildImageViewerRoute(
     active: active,
     isCurrent: isCurrent,
   );
-  if (defaultTargetPlatform == TargetPlatform.iOS ||
-      defaultTargetPlatform == TargetPlatform.android ||
-      context.reduceMotion) {
+  if (defaultTargetPlatform == TargetPlatform.iOS || context.reduceMotion) {
     return PageRouteBuilder<void>(
       fullscreenDialog: true,
       transitionDuration: Duration.zero,
@@ -81,9 +79,7 @@ class _ImageViewerState extends State<ImageViewer> {
   bool _busy = false;
   bool _closing = false;
   bool _nativePresented = false;
-  bool _defaultPreviewPending =
-      defaultTargetPlatform == TargetPlatform.iOS ||
-      defaultTargetPlatform == TargetPlatform.android;
+  bool _defaultPreviewPending = defaultTargetPlatform == TargetPlatform.iOS;
   bool _openingDefaultPreview = false;
   double _decodeScale = 1;
   ImageProvider<Object>? _provider;

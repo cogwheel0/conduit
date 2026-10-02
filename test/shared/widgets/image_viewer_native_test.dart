@@ -19,6 +19,7 @@ const _mobile = TargetPlatformVariant({
   TargetPlatform.iOS,
   TargetPlatform.android,
 });
+const _ios = TargetPlatformVariant({TargetPlatform.iOS});
 
 Widget _host(
   List<ImageViewerItem> items, {
@@ -46,10 +47,17 @@ Widget _host(
 
 Future<File> _open(WidgetTester tester, File? Function() staged) async {
   await tester.tap(find.text('Open'));
+  return _waitForPreview(tester, staged);
+}
+
+Future<File> _waitForPreview(
+  WidgetTester tester,
+  File? Function() staged,
+) async {
   final deadline = DateTime.now().add(const Duration(seconds: 30));
   while (staged() == null) {
     if (DateTime.now().isAfter(deadline)) {
-      fail('Native image viewer did not open automatically');
+      fail('Native image viewer did not open');
     }
     await tester.pump();
     await tester.runAsync(() async {
@@ -143,29 +151,22 @@ void main() {
     expect(loads, [1]);
     expect(openCount, 1);
     expect(await tester.runAsync(previewFile.readAsBytes), _pixel);
-    if (defaultTargetPlatform == TargetPlatform.iOS) {
-      expect(find.byType(ImageViewer), findsOneWidget);
-    }
+    expect(find.byType(ImageViewer), findsOneWidget);
 
     dismissed.complete();
-    final retained = defaultTargetPlatform == TargetPlatform.android;
-    await _finishExport(tester, previewFile, retained: retained);
-    expect(await tester.runAsync(previewFile.exists), retained);
+    await _finishExport(tester, previewFile);
+    expect(await tester.runAsync(previewFile.exists), false);
     expect(find.byType(ImageViewer), findsNothing);
     expect(find.text('Open'), findsOneWidget);
     expect(dismissCount, 0);
-  }, variant: _mobile);
+  }, variant: _ios);
 
   testWidgets('native preview leaves sibling images reachable', (tester) async {
     await tester.pumpWidget(_host(items()));
     final previewFile = await _open(tester, () => staged);
     expect(loads, [1]);
     dismissed.complete();
-    await _finishExport(
-      tester,
-      previewFile,
-      retained: defaultTargetPlatform == TargetPlatform.android,
-    );
+    await _finishExport(tester, previewFile);
     expect(find.byType(ImageViewer), findsOneWidget);
     await tester.tap(find.byTooltip('Previous image'));
     await tester.pump();
@@ -173,7 +174,7 @@ void main() {
     expect(loads, [1, 0]);
     expect(openCount, 1);
     expect(find.text('1 of 2'), findsOneWidget);
-  }, variant: _mobile);
+  }, variant: _ios);
 
   testWidgets(
     'failed native preview falls back to the usable Flutter gallery',
@@ -193,8 +194,36 @@ void main() {
       expect(openCount, 1);
       expect(find.text('1 of 2'), findsOneWidget);
     },
-    variant: _mobile,
+    variant: _ios,
   );
+
+  testWidgets('Android uses the Flutter gallery until Open in is selected', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_host(items()));
+    await tester.tap(find.text('Open'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(ImageViewer), findsOneWidget);
+    expect(find.byType(Image), findsOneWidget);
+    expect(openCount, 0);
+    expect(staged, isNull);
+
+    await tester.tap(find.byTooltip('Previous image'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(loads, [1, 0]);
+    expect(find.text('1 of 2'), findsOneWidget);
+    expect(openCount, 0);
+
+    await tester.tap(find.byTooltip('Open in…'));
+    final previewFile = await _waitForPreview(tester, () => staged);
+    await _finishExport(tester, previewFile, retained: true);
+    expect(openCount, 1);
+    expect(await tester.runAsync(previewFile.readAsBytes), _pixel);
+    expect(find.byType(ImageViewer), findsOneWidget);
+    expect(find.text('1 of 2'), findsOneWidget);
+  }, variant: const TargetPlatformVariant({TargetPlatform.android}));
 
   testWidgets('failed initial image leaves gallery paging available', (
     tester,
@@ -228,5 +257,5 @@ void main() {
     expect(dismissCount, 1);
     expect(find.byType(ImageViewer), findsNothing);
     expect(find.text('Open'), findsOneWidget);
-  }, variant: const TargetPlatformVariant({TargetPlatform.iOS}));
+  }, variant: _ios);
 }
