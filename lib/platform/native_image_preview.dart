@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 /// Native code accepts only files in Conduit's image preview staging folder.
@@ -14,6 +15,8 @@ abstract final class NativeImagePreview {
 
   /// Closes an iOS preview when its originating account or route is invalidated.
   static Future<void> dismiss() async {
-    if (Platform.isIOS) await _channel.invokeMethod<void>('dismiss');
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      await _channel.invokeMethod<void>('dismiss');
+    }
   }
 }
