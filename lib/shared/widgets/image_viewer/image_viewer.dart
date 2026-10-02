@@ -20,7 +20,89 @@ import 'image_viewer_media.dart';
 
 export 'image_viewer_media.dart';
 
-PageRoute<void> buildImageViewerRoute(
+({bool Function() current, Future<void> done})? _nativeImagePreview;
+
+/// Opens Quick Look directly on iOS, or a Flutter gallery on other platforms
+/// and when native loading or presentation fails.
+Future<void> showImageViewer(
+  BuildContext context, {
+  required List<ImageViewerItem> items,
+  int initialIndex = 0,
+  ValueListenable<bool>? active,
+  bool Function()? isCurrent,
+  void Function(ModalRoute<dynamic> route)? onShown,
+}) async {
+  final gallery = List<ImageViewerItem>.unmodifiable(items);
+  RangeError.checkValidIndex(initialIndex, gallery, 'initialIndex');
+  final navigator = Navigator.of(context, rootNavigator: true);
+  final origin = ModalRoute.of(context);
+  bool cancelled = false;
+  bool current() =>
+      !cancelled &&
+      navigator.mounted &&
+      origin?.isActive != false &&
+      active?.value != false &&
+      isCurrent?.call() != false;
+  if (!current()) return;
+  if (defaultTargetPlatform == TargetPlatform.iOS) {
+    // The native bridge owns one presentation. Ignore repeated taps while the
+    // original screen remains visible during loading.
+    while (_nativeImagePreview != null) {
+      final pending = _nativeImagePreview!;
+      if (pending.current()) return;
+      await pending.done;
+      if (!current()) return;
+    }
+    final completion = Completer<void>();
+    _nativeImagePreview = (current: current, done: completion.future);
+    File? staged;
+    bool presented = false;
+    void ownerChanged() {
+      if (current()) return;
+      cancelled = true;
+      if (presented) {
+        presented = false;
+        unawaited(NativeImagePreview.dismiss().catchError((Object _) {}));
+      }
+    }
+
+    active?.addListener(ownerChanged);
+    try {
+      final selected = await gallery[initialIndex].load();
+      if (!current()) return;
+      staged = await selected.stage();
+      if (!current()) return;
+      presented = true;
+      await NativeImagePreview.open(staged);
+      return;
+    } catch (_) {
+      DebugLogger.log('Native image preview failed', scope: 'images/preview');
+    } finally {
+      presented = false;
+      active?.removeListener(ownerChanged);
+      final file = staged;
+      if (file != null) {
+        await file.parent
+            .delete(recursive: true)
+            .catchError((_) => file.parent);
+      }
+      _nativeImagePreview = null;
+      completion.complete();
+    }
+  }
+  if (!current() || !context.mounted) return;
+  final route = _buildImageViewerRoute(
+    context,
+    items: gallery,
+    initialIndex: initialIndex,
+    active: active,
+    isCurrent: current,
+  );
+  onShown?.call(route);
+  await navigator.push(route);
+}
+
+PageRoute<void> _buildImageViewerRoute(
   BuildContext context, {
   required List<ImageViewerItem> items,
   int initialIndex = 0,
@@ -33,10 +115,9 @@ PageRoute<void> buildImageViewerRoute(
     active: active,
     isCurrent: isCurrent,
   );
-  if (defaultTargetPlatform == TargetPlatform.iOS || context.reduceMotion) {
+  if (context.reduceMotion) {
     return PageRouteBuilder<void>(
       fullscreenDialog: true,
-      opaque: defaultTargetPlatform != TargetPlatform.iOS,
       transitionDuration: Duration.zero,
       reverseTransitionDuration: Duration.zero,
       pageBuilder: (context, _, _) => builder(context),
@@ -80,8 +161,6 @@ class _ImageViewerState extends State<ImageViewer> {
   bool _busy = false;
   bool _closing = false;
   bool _nativePresented = false;
-  bool _defaultPreviewPending = defaultTargetPlatform == TargetPlatform.iOS;
-  bool _openingDefaultPreview = false;
   double _decodeScale = 1;
   ImageProvider<Object>? _provider;
   final _shareAnchor = GlobalKey();
@@ -145,24 +224,9 @@ class _ImageViewerState extends State<ImageViewer> {
               );
         _failed = false;
       });
-      if (_defaultPreviewPending) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!_active ||
-              !_defaultPreviewPending ||
-              generation != _generation) {
-            return;
-          }
-          _defaultPreviewPending = false;
-          _openingDefaultPreview = true;
-          unawaited(_export(native: true, automatic: true));
-        });
-      }
     } catch (_) {
       if (!_active || generation != _generation) return;
-      setState(() {
-        _failed = true;
-        _defaultPreviewPending = false;
-      });
+      setState(() => _failed = true);
     }
   }
 
@@ -174,10 +238,7 @@ class _ImageViewerState extends State<ImageViewer> {
 
   void _page(int delta) {
     final next = _index + delta;
-    if (_busy ||
-        _defaultPreviewPending ||
-        next < 0 ||
-        next >= widget.items.length) {
+    if (_busy || next < 0 || next >= widget.items.length) {
       return;
     }
     _releaseFrame();
@@ -261,9 +322,6 @@ class _ImageViewerState extends State<ImageViewer> {
 
   Widget _image(Size viewport) {
     if (_failed) return _error();
-    if (_defaultPreviewPending || _openingDefaultPreview) {
-      return const Center(child: CircularProgressIndicator());
-    }
     final media = _media;
     if (media == null) return const Center(child: CircularProgressIndicator());
     if (_svg != null) return _hero(_svg!);
@@ -318,7 +376,7 @@ class _ImageViewerState extends State<ImageViewer> {
         : Hero(tag: item.heroTag!, child: image);
   }
 
-  Future<void> _export({required bool native, bool automatic = false}) async {
+  Future<void> _export({required bool native}) async {
     final media = _media;
     if (media == null || _busy || !_active) return;
     final l10n = AppLocalizations.of(context)!;
@@ -329,30 +387,14 @@ class _ImageViewerState extends State<ImageViewer> {
         : box.localToGlobal(Offset.zero) & box.size;
     setState(() => _busy = true);
     final staged = <File>[];
-    final nativeGallery =
-        native && automatic && defaultTargetPlatform == TargetPlatform.iOS;
     bool handedOff = false;
     try {
-      if (nativeGallery) {
-        for (var index = 0; index < widget.items.length; index++) {
-          final page = index == _index
-              ? media
-              : await widget.items[index].load();
-          if (!_active || generation != _generation) return;
-          staged.add(await page.stage());
-          if (!_active || generation != _generation) return;
-        }
-      } else {
-        staged.add(await media.stage());
-      }
+      staged.add(await media.stage());
       if (!_active || generation != _generation) return;
       if (native) {
         _nativePresented = true;
         try {
-          await NativeImagePreview.open(
-            staged,
-            initialIndex: nativeGallery ? _index : 0,
-          );
+          await NativeImagePreview.open(staged.single);
         } finally {
           _nativePresented = false;
         }
@@ -365,12 +407,9 @@ class _ImageViewerState extends State<ImageViewer> {
         );
       }
       handedOff = true;
-      if (automatic && _active && generation == _generation) {
-        _close();
-      }
     } catch (_) {
       DebugLogger.log('Image export failed', scope: 'images/export');
-      if (!automatic && mounted && _active) {
+      if (mounted && _active) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(l10n.imageViewerExportFailed)));
@@ -387,22 +426,13 @@ class _ImageViewerState extends State<ImageViewer> {
         }
       }
       if (mounted) {
-        setState(() {
-          _busy = false;
-          _openingDefaultPreview = false;
-        });
+        setState(() => _busy = false);
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Quick Look animates directly over the originating screen. Reveal the
-    // Flutter gallery only if loading or native presentation fails.
-    if (defaultTargetPlatform == TargetPlatform.iOS &&
-        (_defaultPreviewPending || _openingDefaultPreview || _closing)) {
-      return const SizedBox.shrink();
-    }
     final l10n = AppLocalizations.of(context)!;
     final item = widget.items[_index];
     final showControls =
@@ -498,9 +528,7 @@ class _ImageViewerState extends State<ImageViewer> {
                                                 TargetPlatform.iOS
                                             ? l10n.imageViewerQuickLook
                                             : l10n.imageViewerOpenIn,
-                                        _media == null ||
-                                                _busy ||
-                                                _defaultPreviewPending
+                                        _media == null || _busy
                                             ? null
                                             : () => _export(native: true),
                                       ),
@@ -512,9 +540,7 @@ class _ImageViewerState extends State<ImageViewer> {
                                             ? Icons.ios_share
                                             : Icons.share_outlined,
                                         l10n.shareSystemSheet,
-                                        _media == null ||
-                                                _busy ||
-                                                _defaultPreviewPending
+                                        _media == null || _busy
                                             ? null
                                             : () => _export(native: false),
                                       ),
@@ -533,9 +559,7 @@ class _ImageViewerState extends State<ImageViewer> {
                                     _button(
                                       Icons.chevron_left,
                                       l10n.imageViewerPrevious,
-                                      _index > 0 &&
-                                              !_busy &&
-                                              !_defaultPreviewPending
+                                      _index > 0 && !_busy
                                           ? () => _page(-1)
                                           : null,
                                     ),
@@ -554,9 +578,7 @@ class _ImageViewerState extends State<ImageViewer> {
                                     _button(
                                       Icons.chevron_right,
                                       l10n.imageViewerNext,
-                                      _index + 1 < widget.items.length &&
-                                              !_busy &&
-                                              !_defaultPreviewPending
+                                      _index + 1 < widget.items.length && !_busy
                                           ? () => _page(1)
                                           : null,
                                     ),

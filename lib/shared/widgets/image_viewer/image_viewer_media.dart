@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:clock/clock.dart';
 import 'package:path_provider/path_provider.dart';
 
-/// A lazy item. Flutter loads the selected page; Quick Look stages the gallery.
+/// A lazy item. Opening a gallery only loads the selected image.
 @immutable
 class ImageViewerItem {
   const ImageViewerItem({

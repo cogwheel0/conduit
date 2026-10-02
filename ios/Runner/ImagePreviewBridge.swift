@@ -5,10 +5,10 @@ import UIKit
 /// Presents only Conduit's staged local images. Authentication stays in Dart.
 @MainActor
 final class ImagePreviewBridge: NSObject, QLPreviewControllerDataSource,
-    @preconcurrency QLPreviewControllerDelegate, UIAdaptivePresentationControllerDelegate {
+    @preconcurrency QLPreviewControllerDelegate {
     static let shared = ImagePreviewBridge()
     private var controller: QLPreviewController?
-    private var items: [NSURL] = []
+    private var item: NSURL?
     private var completion: FlutterResult?
 
     /// Registers preview and dismissal calls on the Flutter engine messenger.
@@ -32,24 +32,17 @@ final class ImagePreviewBridge: NSObject, QLPreviewControllerDataSource,
 
     /// Validates the staging boundary and holds the result until Quick Look closes.
     private func open(_ arguments: Any?, result: @escaping FlutterResult) {
-        guard controller == nil, let args = arguments as? [String: Any] else {
+        guard controller == nil,
+              let args = arguments as? [String: Any], let path = args["path"] as? String else {
             return result(FlutterError(code: "busy", message: "Preview unavailable", details: nil))
         }
-        guard args["paths"] == nil || args["paths"] is [String],
-              args["initialIndex"] == nil || args["initialIndex"] is Int else {
-            return result(FlutterError(code: "unsupported", message: "Invalid image gallery", details: nil))
-        }
-        let paths = args["paths"] as? [String] ?? (args["path"] as? String).map { [$0] } ?? []
-        let initialIndex = args["initialIndex"] as? Int ?? 0
-        let urls = paths.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().standardizedFileURL }
+        let url = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL
         // path_provider_foundation maps getTemporaryDirectory() to cachesDirectory on iOS.
         let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("image_previews")
             .resolvingSymlinksInPath().standardizedFileURL.path + "/"
-        guard urls.indices.contains(initialIndex), urls.allSatisfy({ url in
-            url.path.hasPrefix(root) && FileManager.default.fileExists(atPath: url.path)
-                && QLPreviewController.canPreview(url as NSURL)
-        }) else {
+        guard url.path.hasPrefix(root), FileManager.default.fileExists(atPath: url.path),
+              QLPreviewController.canPreview(url as NSURL) else {
             return result(FlutterError(code: "unsupported", message: "Cannot preview this image", details: nil))
         }
         guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
@@ -62,28 +55,23 @@ final class ImagePreviewBridge: NSObject, QLPreviewControllerDataSource,
             return result(FlutterError(code: "busy", message: "Window is closing", details: nil))
         }
         let preview = QLPreviewController()
-        items = urls.map { $0 as NSURL }
+        item = url as NSURL
         completion = result
         controller = preview
         preview.dataSource = self
         preview.delegate = self
-        preview.currentPreviewItemIndex = initialIndex
-        preview.modalPresentationStyle = .pageSheet
-        preview.isModalInPresentation = false
-        preview.sheetPresentationController?.detents = [.large()]
-        preview.sheetPresentationController?.prefersGrabberVisible = true
-        preview.presentationController?.delegate = self
+        preview.modalPresentationStyle = .fullScreen
         presenter.present(preview, animated: !UIAccessibility.isReduceMotionEnabled)
     }
 
-    /// Advertises the images retained for the current presentation.
-    func numberOfPreviewItems(in controller: QLPreviewController) -> Int { items.count }
+    /// Advertises the single image retained for the current presentation.
+    func numberOfPreviewItems(in controller: QLPreviewController) -> Int { item == nil ? 0 : 1 }
 
     /// Supplies the retained local file for the advertised preview index.
     func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem {
         // Quick Look calls only for indices advertised by numberOfPreviewItems.
-        precondition(items.indices.contains(index))
-        return items[index]
+        precondition(index == 0 && item != nil)
+        return item!
     }
 
     /// Completes only the presentation that is still owned by this bridge.
@@ -91,15 +79,10 @@ final class ImagePreviewBridge: NSObject, QLPreviewControllerDataSource,
         if self.controller === controller { finish() }
     }
 
-    /// Sheet swipes and Quick Look's Done button share the same completion.
-    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
-        if controller === presentationController.presentedViewController { finish() }
-    }
-
     /// Releases the image and completes the pending Flutter call exactly once.
     private func finish() {
         controller = nil
-        items = []
+        item = nil
         let result = completion
         completion = nil
         result?(nil)

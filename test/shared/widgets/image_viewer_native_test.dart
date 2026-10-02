@@ -31,13 +31,11 @@ Widget _host(
   home: Builder(
     builder: (context) => Scaffold(
       body: TextButton(
-        onPressed: () => Navigator.of(context).push(
-          buildImageViewerRoute(
-            context,
-            items: items,
-            initialIndex: initialIndex,
-            active: active,
-          ),
+        onPressed: () => showImageViewer(
+          context,
+          items: items,
+          initialIndex: initialIndex,
+          active: active,
         ),
         child: const Text('Open'),
       ),
@@ -102,8 +100,6 @@ void main() {
   late int openCount;
   late int dismissCount;
   late bool failPreview;
-  late List<File> previewFiles;
-  late int previewIndex;
 
   List<ImageViewerItem> items() => [
     for (var index = 0; index < 2; index++)
@@ -126,19 +122,11 @@ void main() {
     openCount = 0;
     dismissCount = 0;
     failPreview = false;
-    previewFiles = [];
-    previewIndex = 0;
     messenger.setMockMethodCallHandler(_paths, (_) async => temporary.path);
     messenger.setMockMethodCallHandler(_preview, (call) async {
       if (call.method == 'open') {
         openCount++;
-        final args = call.arguments as Map;
-        staged = File(args['path'] as String);
-        previewFiles = [
-          for (final path in (args['paths'] as List? ?? [args['path']]))
-            File(path as String),
-        ];
-        previewIndex = args['initialIndex'] as int? ?? 0;
+        staged = File((call.arguments as Map)['path'] as String);
         if (failPreview) throw PlatformException(code: 'unsupported');
         if (defaultTargetPlatform == TargetPlatform.iOS) {
           await dismissed.future;
@@ -165,10 +153,11 @@ void main() {
     expect(loads, [1]);
     expect(openCount, 1);
     expect(await tester.runAsync(previewFile.readAsBytes), _pixel);
-    expect(find.byType(ImageViewer), findsOneWidget);
+    expect(find.byType(ImageViewer), findsNothing);
     expect(find.byType(Scaffold), findsOneWidget);
     expect(find.byTooltip('Quick Look'), findsNothing);
     expect(find.text('Open'), findsOneWidget);
+    expect(Navigator.of(tester.element(find.text('Open'))).canPop(), false);
 
     dismissed.complete();
     await _finishExport(tester, previewFile);
@@ -178,48 +167,48 @@ void main() {
     expect(dismissCount, 0);
   }, variant: _ios);
 
-  testWidgets('Quick Look owns the gallery and dismisses to the origin', (
-    tester,
-  ) async {
-    await tester.pumpWidget(_host(items()));
-    await tester.tap(find.text('Open'));
-    await tester.pump();
-    expect(find.byType(Scaffold), findsOneWidget);
-    expect(find.byTooltip('Quick Look'), findsNothing);
-    expect(find.text('Open'), findsOneWidget);
-    final previewFile = await _waitForPreview(tester, () => staged);
-    expect(loads, [1, 0]);
-    expect(previewFiles, hasLength(2));
-    expect(previewIndex, 1);
-    expect(previewFiles[previewIndex].path, previewFile.path);
-    for (final file in previewFiles) {
-      expect(await tester.runAsync(file.readAsBytes), _pixel);
-    }
-    expect(find.byType(Scaffold), findsOneWidget);
-    expect(dismissCount, 0);
-    dismissed.complete();
-    await _finishExport(tester, previewFile);
-    for (final file in previewFiles) {
-      expect(await tester.runAsync(file.exists), false);
-    }
-    expect(find.byType(ImageViewer), findsNothing);
-    expect(find.text('Open'), findsOneWidget);
-    expect(openCount, 1);
-  }, variant: _ios);
+  testWidgets(
+    'Quick Look opens only the tapped image without a Flutter route',
+    (tester) async {
+      await tester.pumpWidget(_host(items()));
+      await tester.tap(find.text('Open'));
+      await tester.pump();
+      expect(find.byType(Scaffold), findsOneWidget);
+      expect(find.byTooltip('Quick Look'), findsNothing);
+      expect(find.text('Open'), findsOneWidget);
+      final previewFile = await _waitForPreview(tester, () => staged);
+      expect(loads, [1]);
+      expect(find.byType(ImageViewer), findsNothing);
+      expect(await tester.runAsync(previewFile.readAsBytes), _pixel);
+      expect(find.byType(Scaffold), findsOneWidget);
+      expect(dismissCount, 0);
+      await tester.tap(find.text('Open'));
+      await tester.pump();
+      expect(loads, [1]);
+      expect(openCount, 1);
+      dismissed.complete();
+      await _finishExport(tester, previewFile);
+      expect(await tester.runAsync(previewFile.exists), false);
+      expect(find.byType(ImageViewer), findsNothing);
+      expect(find.text('Open'), findsOneWidget);
+      expect(openCount, 1);
+    },
+    variant: _ios,
+  );
 
   for (final invalidateOwner in [false, true]) {
     testWidgets(
       invalidateOwner
-          ? 'owner change cancels a partially staged Quick Look gallery'
-          : 'sibling staging failure cleans files and reveals Flutter fallback',
+          ? 'owner change cancels a pending native image load'
+          : 'selected staging failure reveals the usable Flutter gallery',
       (tester) async {
         final active = ValueNotifier(true);
         addTearDown(active.dispose);
         final pending = Completer<ImageViewerMedia>();
         final gallery = items();
-        gallery[1] = ImageViewerItem(
+        gallery[0] = ImageViewerItem(
           load: () {
-            loads.add(1);
+            loads.add(0);
             return pending.future;
           },
         );
@@ -227,12 +216,7 @@ void main() {
           _host(gallery, initialIndex: 0, active: active),
         );
         await tester.tap(find.text('Open'));
-        await _waitUntil(tester, () => loads.contains(1));
-        final file = await tester.runAsync(
-          () async => (await temporary.list(recursive: true).toList())
-              .whereType<File>()
-              .single,
-        );
+        await _waitUntil(tester, () => loads.contains(0));
         expect(find.byTooltip('Quick Look'), findsNothing);
         if (invalidateOwner) active.value = false;
         pending.complete(
@@ -240,9 +224,19 @@ void main() {
             invalidateOwner ? _pixel : base64Decode('AA=='),
           ),
         );
-        await _finishExport(tester, file!);
+        await tester.pump();
+        if (!invalidateOwner) {
+          await _waitUntil(
+            tester,
+            () => find.byType(ImageViewer).evaluate().isNotEmpty,
+          );
+          await tester.pump(const Duration(milliseconds: 400));
+        }
         expect(openCount, 0);
-        expect(await tester.runAsync(file.exists), false);
+        expect(
+          await tester.runAsync(() => temporary.list(recursive: true).toList()),
+          isEmpty,
+        );
         if (invalidateOwner) {
           expect(find.byType(ImageViewer), findsNothing);
           expect(find.text('Open'), findsOneWidget);
@@ -250,7 +244,12 @@ void main() {
           expect(find.byType(ImageViewer), findsOneWidget);
           expect(find.byType(Image), findsOneWidget);
           expect(find.byTooltip('Quick Look'), findsOneWidget);
-          expect(find.text('1 of 2'), findsOneWidget);
+          expect(find.text('1 of 2'), findsWidgets);
+          await tester.tap(find.byTooltip('Next image'));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 400));
+          expect(loads, [0, 0, 1]);
+          expect(find.text('2 of 2'), findsOneWidget);
         }
       },
       variant: _ios,
@@ -271,7 +270,7 @@ void main() {
       await tester.tap(find.byTooltip('Previous image'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
-      expect(loads, [1, 0, 0]);
+      expect(loads, [1, 1, 0]);
       expect(openCount, 1);
       expect(find.text('1 of 2'), findsOneWidget);
     },

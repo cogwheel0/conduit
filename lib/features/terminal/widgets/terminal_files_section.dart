@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
@@ -392,6 +393,7 @@ Future<void> showTerminalFilePreview(
   TerminalCoordinator coordinator,
   TerminalFileEntry entry, {
   int? page,
+  ValueListenable<bool>? active,
   bool Function()? isCurrent,
   void Function(ModalRoute<dynamic> route)? onShown,
 }) async {
@@ -403,37 +405,39 @@ Future<void> showTerminalFilePreview(
   }
   if (preview.isImage && preview.bytes != null) {
     bool ownsPreview() =>
+        active?.value != false &&
         coordinator.isCurrentOperationContext(operationContext) &&
         isCurrent?.call() != false;
-    final active = ValueNotifier(ownsPreview());
+    final previewActive = ValueNotifier(ownsPreview());
     void updateOwner() {
       // Once invalidated, this captured preview can never become current again.
-      active.value = active.value && ownsPreview();
+      previewActive.value = previewActive.value && ownsPreview();
     }
 
     coordinator.addListener(updateOwner);
-    final route = buildImageViewerRoute(
-      context,
-      active: active,
-      isCurrent: ownsPreview,
-      items: [
-        ImageViewerItem(
-          label: sanitizeUtf16(entry.displayName),
-          load: () async => ImageViewerMedia.bytes(
-            preview.bytes!,
-            isSvg:
-                preview.contentType.split(';').first.trim().toLowerCase() ==
-                'image/svg+xml',
-          ),
-        ),
-      ],
-    );
-    onShown?.call(route);
+    active?.addListener(updateOwner);
     try {
-      await Navigator.of(context, rootNavigator: true).push(route);
+      await showImageViewer(
+        context,
+        active: previewActive,
+        isCurrent: ownsPreview,
+        onShown: onShown,
+        items: [
+          ImageViewerItem(
+            label: sanitizeUtf16(entry.displayName),
+            load: () async => ImageViewerMedia.bytes(
+              preview.bytes!,
+              isSvg:
+                  preview.contentType.split(';').first.trim().toLowerCase() ==
+                  'image/svg+xml',
+            ),
+          ),
+        ],
+      );
     } finally {
+      active?.removeListener(updateOwner);
       coordinator.removeListener(updateOwner);
-      active.dispose();
+      previewActive.dispose();
     }
     return;
   }

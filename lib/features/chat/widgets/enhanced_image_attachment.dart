@@ -1293,20 +1293,15 @@ class _EnhancedImageAttachmentState
         active.value = isCurrent();
       },
     );
-    // Keep fullscreen gestures outside the drawer shell's nested navigator.
-    Navigator.of(context, rootNavigator: true)
-        .push(
-          buildImageViewerRoute(
-            context,
-            items: items,
-            initialIndex: initialIndex,
-            active: active,
-          ),
-        )
-        .whenComplete(() {
-          apiSubscription.close();
-          epochSubscription.close();
-          active.dispose();
-        });
+    showImageViewer(
+      context,
+      items: items,
+      initialIndex: initialIndex,
+      active: active,
+    ).whenComplete(() {
+      apiSubscription.close();
+      epochSubscription.close();
+      active.dispose();
+    });
   }
 }

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
+import 'dart:io';
+
+import 'package:flutter/services.dart';
 
 import 'package:conduit/shared/widgets/image_viewer/image_viewer.dart';
 import 'package:conduit/shared/widgets/jovial_svg_image.dart';
@@ -24,6 +26,109 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 void main() {
   group('TerminalTab', () {
+    testWidgets(
+      'native image requests replace previews, clear, and close on deactivation',
+      (tester) async {
+        final temporary = await tester.runAsync(
+          () => Directory.systemTemp.createTemp('conduit_terminal_preview_'),
+        );
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        const preview = MethodChannel('app.cogwheel.conduit/image_preview');
+        const paths = MethodChannel('plugins.flutter.io/path_provider');
+        final files = <File>[];
+        final completions = <Completer<void>>[];
+        var dismisses = 0;
+        messenger.setMockMethodCallHandler(paths, (_) async => temporary!.path);
+        messenger.setMockMethodCallHandler(preview, (call) async {
+          if (call.method == 'open') {
+            files.add(File((call.arguments as Map)['path'] as String));
+            final completion = Completer<void>();
+            completions.add(completion);
+            await completion.future;
+          } else if (call.method == 'dismiss') {
+            dismisses++;
+            if (completions.isNotEmpty && !completions.last.isCompleted) {
+              completions.last.complete();
+            }
+          }
+          return null;
+        });
+        addTearDown(() async {
+          messenger.setMockMethodCallHandler(paths, null);
+          messenger.setMockMethodCallHandler(preview, null);
+          await temporary!.delete(recursive: true);
+        });
+        Future<void> waitFor(bool Function() ready) async {
+          final deadline = DateTime.now().add(const Duration(seconds: 30));
+          while (!ready()) {
+            if (DateTime.now().isAfter(deadline)) {
+              fail('Terminal native preview did not complete');
+            }
+            await tester.pump();
+            await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 10)),
+            );
+          }
+        }
+
+        final service = _FakeTerminalService(
+          servers: [
+            TerminalServerInfo(
+              kind: TerminalServerKind.direct,
+              selectionId: 'https://terminal.example',
+              baseUrl: Uri.parse('https://terminal.example'),
+              name: 'Workspace',
+            ),
+          ],
+          entries: const [],
+          ports: const [],
+        );
+        service.readResult = TerminalFileReadResult(
+          fileName: 'photo.png',
+          contentType: 'image/png',
+          bytes: base64Decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==',
+          ),
+        );
+        final container = ProviderContainer(
+          overrides: [
+            terminalServiceProvider.overrideWithValue(service),
+            terminalAutoConnectProvider.overrideWithValue(false),
+          ],
+        );
+        addTearDown(container.dispose);
+        await tester.pumpWidget(_buildHarnessWithContainer(container));
+        await tester.pumpAndSettle();
+        final events = container.read(terminalDisplayFileProvider.notifier);
+        events.handleEvent('terminal:display_file', {'path': '/first.png'});
+        await waitFor(() => files.length == 1);
+        expect(find.byType(ImageViewer), findsNothing);
+        expect(files.first.existsSync(), true);
+        events.handleEvent('terminal:display_file', {'path': '/second.png'});
+        await waitFor(() => files.length == 2);
+        expect(service.readPaths, ['/first.png', '/second.png']);
+        expect(dismisses, 1);
+        expect(files.first.existsSync(), false);
+        expect(files.last.existsSync(), true);
+        expect(find.byType(ImageViewer), findsNothing);
+        events.clear();
+        await waitFor(() => dismisses == 2 && !files.last.existsSync());
+        events.handleEvent('terminal:display_file', {'path': '/third.png'});
+        await waitFor(() => files.length == 3);
+        expect(service.readPaths, ['/first.png', '/second.png', '/third.png']);
+        await tester.pumpWidget(
+          _buildHarnessWithContainer(container, isActive: false),
+        );
+        await waitFor(() => dismisses == 3 && !files.last.existsSync());
+        await waitFor(
+          () => container.read(terminalDisplayFileProvider) == null,
+        );
+        expect(tester.takeException(), isNull);
+      },
+      variant: const TargetPlatformVariant({TargetPlatform.iOS}),
+    );
+
     for (final svg in [false, true]) {
       testWidgets(
         'file-list ${svg ? 'SVG' : 'PNG'} preview closes when its terminal is deactivated',

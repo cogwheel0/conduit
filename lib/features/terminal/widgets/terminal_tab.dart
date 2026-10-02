@@ -63,6 +63,8 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
       _,
       request,
     ) {
+      _displayActive?.value = false;
+      _displayActive = null;
       final route = _displayRoute;
       _displayRoute = null;
       if (route?.isActive == true) route!.navigator?.removeRoute(route);
@@ -96,6 +98,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
 
   @override
   void dispose() {
+    _displayActive?.value = false;
     _coordinator
       ..removeListener(_handleControllerChanged)
       ..dispose();
@@ -185,6 +188,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
 
   TerminalFileRequest? _displayingRequest;
   ModalRoute<dynamic>? _displayRoute;
+  ValueNotifier<bool>? _displayActive;
 
   Future<void> _displayFile(TerminalFileRequest request) async {
     // Discovery and fallback selection can still be loading when the event
@@ -225,15 +229,23 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
       isDirectory: false,
     );
     if (ref.read(terminalDisplayFileProvider) != request) return;
-    await showTerminalFilePreview(
-      context,
-      _coordinator,
-      entry,
-      page: request.page,
-      onShown: (route) => _displayRoute = route,
-      isCurrent: () =>
-          mounted && ref.read(terminalDisplayFileProvider) == request,
-    );
+    final active = ValueNotifier(true);
+    _displayActive = active;
+    try {
+      await showTerminalFilePreview(
+        context,
+        _coordinator,
+        entry,
+        page: request.page,
+        active: active,
+        onShown: (route) => _displayRoute = route,
+        isCurrent: () =>
+            mounted && ref.read(terminalDisplayFileProvider) == request,
+      );
+    } finally {
+      if (identical(_displayActive, active)) _displayActive = null;
+      active.dispose();
+    }
     // Read failures are handled by the coordinator. Consume the attempt so a
     // later tab activation cannot unexpectedly reopen an old failed request.
     if (mounted && ref.read(terminalDisplayFileProvider) == request) {
