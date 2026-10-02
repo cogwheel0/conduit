@@ -489,6 +489,7 @@ class ImageAttachmentGallery extends InheritedWidget {
   static List<ImageAttachmentReference> markdownImages(String content) {
     final document = md.Document(
       extensionSet: conduitGitHubWebExtensionSet,
+      blockSyntaxes: const [DetailsBlockSyntax()],
       inlineSyntaxes: [LongAlphanumericRunSyntax()],
     );
     final images = <ImageAttachmentReference>[];
@@ -500,6 +501,12 @@ class ImageAttachmentGallery extends InheritedWidget {
           images.add(
             ImageAttachmentReference(source, label: node.attributes['alt']),
           );
+        }
+      }
+      if (node.tag == 'details') {
+        final body = node.attributes['body_markdown'];
+        if (body != null && body.isNotEmpty) {
+          images.addAll(markdownImages(body));
         }
       }
       for (final child in node.children ?? const <md.Node>[]) {
@@ -1165,7 +1172,20 @@ class _EnhancedImageAttachmentState
         _cacheScope != scope) {
       return;
     }
-    final sourcesById = <String, ImageAttachmentReference>{};
+    final container = ProviderScope.containerOf(context, listen: false);
+    Map<String, String> effectiveHeaders(ImageAttachmentReference source) =>
+        _mergeHeaders(
+          buildImageHeadersForUrlFromContainer(container, source.id),
+          source.headers,
+        ) ??
+        const {};
+    bool sameReference(
+      ImageAttachmentReference left,
+      ImageAttachmentReference right,
+    ) =>
+        left.id == right.id &&
+        mapEquals(effectiveHeaders(left), effectiveHeaders(right));
+    final sources = <ImageAttachmentReference>[];
     for (final source in gallery?.images() ?? <ImageAttachmentReference>[]) {
       // Generic legacy attachment lists can contain documents. Include only
       // siblings that have already resolved as images, plus literal image data.
@@ -1176,41 +1196,37 @@ class _EnhancedImageAttachmentState
           (cached == null || cached.error != null)) {
         continue;
       }
-      final previous = sourcesById[source.id];
-      sourcesById[source.id] = ImageAttachmentReference(
-        source.id,
-        headers: _mergeHeaders(previous?.headers, source.headers),
-        label: previous?.label ?? source.label,
-        isKnownImage: previous?.isKnownImage == true || source.isKnownImage,
-      );
+      if (!sources.any((previous) => sameReference(previous, source))) {
+        sources.add(source);
+      }
     }
-    final tapped = sourcesById[widget.attachmentId];
-    sourcesById[widget.attachmentId] = ImageAttachmentReference(
+    final tapped = ImageAttachmentReference(
       widget.attachmentId,
-      headers: _mergeHeaders(tapped?.headers, widget.httpHeaders),
-      label: tapped?.label,
+      headers: widget.httpHeaders,
     );
-    final sources = sourcesById.values.toList(growable: false);
-    final initialIndex = sources.indexWhere(
-      (source) => source.id == widget.attachmentId,
+    var initialIndex = sources.indexWhere(
+      (source) => sameReference(source, tapped),
     );
+    if (initialIndex < 0) {
+      initialIndex = sources.length;
+      sources.add(tapped);
+    }
     final worker = ref.read(workerManagerProvider);
     final l10n = AppLocalizations.of(context)!;
     final cacheManager =
         ref.read(selfSignedImageCacheManagerProvider) ??
         CachedNetworkImageProvider.defaultCacheManager;
-    final container = ProviderScope.containerOf(context, listen: false);
     bool isCurrent() =>
         identical(container.read(apiServiceProvider), api) &&
         identical(container.read(openWebUiAuthSessionEpochProvider), epoch);
     final items = sources
         .map((source) {
+          final selected = identical(source, sources[initialIndex]);
           final scope = usesAccountScopedImageCache(source.id)
               ? ImageAttachmentCacheScope(api: api, authSessionEpoch: epoch)
               : null;
           String? downloadedKey;
-          var thumbnail =
-              source.id == widget.attachmentId && _cachedBytes != null
+          var thumbnail = selected && _cachedBytes != null
               ? ImageViewerMedia.bytes(_cachedBytes!, isSvg: _isSvg)
               : null;
           return ImageViewerItem(
@@ -1226,7 +1242,7 @@ class _EnhancedImageAttachmentState
                 await cacheManager.removeFile(downloadedKey!);
               }
             },
-            heroTag: source.id == widget.attachmentId ? _heroTag : null,
+            heroTag: selected ? _heroTag : null,
             load: () async {
               if (!isCurrent()) throw StateError('Image owner changed');
               if (thumbnail case final media?) return media;

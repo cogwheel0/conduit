@@ -56,67 +56,95 @@ Future<void> _render(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('tapped duplicate keeps its custom request headers', (
-    tester,
-  ) async {
-    const url = 'https://example.test/private.png';
-    const headers = {'X-Image-Key': 'fixture-key'};
-    final cache = _ImageCacheManager();
-    when(
-      () => cache.getImageFile(
-        any(),
-        key: any(named: 'key'),
-        headers: any(named: 'headers'),
-        maxWidth: any(named: 'maxWidth'),
-        maxHeight: any(named: 'maxHeight'),
-        withProgress: any(named: 'withProgress'),
-      ),
-    ).thenAnswer((_) => const Stream<FileResponse>.empty());
-    Map<String, String>? requestedHeaders;
-    when(
-      () => cache.getFileStream(
-        any(),
-        key: any(named: 'key'),
-        headers: any(named: 'headers'),
-      ),
-    ).thenAnswer((call) {
-      requestedHeaders = call.namedArguments[#headers] as Map<String, String>?;
-      return const Stream<FileResponse>.empty();
-    });
-    addTearDown(debugResetImageAttachmentCaches);
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          apiServiceProvider.overrideWithValue(null),
-          selfSignedImageCacheManagerProvider.overrideWithValue(cache),
-        ],
-        child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(
-            body: ImageAttachmentGallery(
-              images: () => const [
-                ImageAttachmentReference(url, label: 'Markdown'),
-                ImageAttachmentReference(url, headers: headers),
-              ],
-              child: const Center(
-                child: EnhancedImageAttachment(
-                  attachmentId: url,
-                  httpHeaders: headers,
-                  disableAnimation: true,
+  for (final protected in [true, false]) {
+    testWidgets(
+      'duplicate URL keeps the tapped headers: protected=$protected',
+      (tester) async {
+        const url = 'https://example.test/private.png';
+        const headers = {'X-Image-Key': 'fixture-key'};
+        final cache = _ImageCacheManager();
+        when(
+          () => cache.getImageFile(
+            any(),
+            key: any(named: 'key'),
+            headers: any(named: 'headers'),
+            maxWidth: any(named: 'maxWidth'),
+            maxHeight: any(named: 'maxHeight'),
+            withProgress: any(named: 'withProgress'),
+          ),
+        ).thenAnswer((_) => const Stream<FileResponse>.empty());
+        Map<String, String>? requestedHeaders;
+        when(
+          () => cache.getFileStream(
+            any(),
+            key: any(named: 'key'),
+            headers: any(named: 'headers'),
+          ),
+        ).thenAnswer((call) {
+          requestedHeaders =
+              call.namedArguments[#headers] as Map<String, String>?;
+          return const Stream<FileResponse>.empty();
+        });
+        addTearDown(debugResetImageAttachmentCaches);
+        final tappedHeaders = protected ? headers : null;
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              apiServiceProvider.overrideWithValue(null),
+              selfSignedImageCacheManagerProvider.overrideWithValue(cache),
+            ],
+            child: MaterialApp(
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: Scaffold(
+                body: ImageAttachmentGallery(
+                  images: () => const [
+                    ImageAttachmentReference(url, label: 'Markdown'),
+                    ImageAttachmentReference(
+                      url,
+                      headers: headers,
+                      label: 'Attachment',
+                    ),
+                  ],
+                  child: Center(
+                    child: EnhancedImageAttachment(
+                      attachmentId: url,
+                      httpHeaders: tappedHeaders,
+                      disableAnimation: true,
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+        await _render(tester);
+        await _render(tester);
+        await tester.tap(find.byType(EnhancedImageAttachment));
+        await _render(tester);
+        expect(find.byType(ImageViewer), findsOneWidget);
+        expect(
+          requestedHeaders?['X-Image-Key'],
+          protected ? 'fixture-key' : null,
+        );
+        expect(find.text(protected ? '2 of 2' : '1 of 2'), findsOneWidget);
+      },
     );
-    await _render(tester);
-    await _render(tester);
-    await tester.tap(find.byType(EnhancedImageAttachment));
-    await _render(tester);
-    expect(find.byType(ImageViewer), findsOneWidget);
-    expect(requestedHeaders?['X-Image-Key'], 'fixture-key');
+  }
+
+  test('gallery includes sibling and nested details images', () {
+    final images = ImageAttachmentGallery.markdownImages('''
+<details><summary>Images</summary>
+![first](https://example.test/one.png)
+<details><summary>Nested</summary>
+![second](https://example.test/two.png)
+</details>
+</details>
+''');
+    expect(images.map((image) => image.id), [
+      'https://example.test/one.png',
+      'https://example.test/two.png',
+    ]);
   });
 
   testWidgets('gallery swipes stay above the app drawer', (tester) async {

@@ -76,9 +76,18 @@ class ImageViewerMedia {
     }
     final directory = await root.createTemp('preview_');
     final path = '${directory.path}/image.$extension';
-    return sourceFile != null
-        ? sourceFile.copy(path)
-        : File(path).writeAsBytes(bytes!);
+    try {
+      return await (sourceFile != null
+          ? sourceFile.copy(path)
+          : File(path).writeAsBytes(bytes!));
+    } catch (_) {
+      try {
+        await directory.delete(recursive: true);
+      } on FileSystemException {
+        // Preserve the export failure if cleanup also fails.
+      }
+      rethrow;
+    }
   }
 
   /// Reads the leading ISO BMFF file-type box, bounding untrusted header sizes.
