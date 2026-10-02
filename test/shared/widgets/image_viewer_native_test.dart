@@ -54,17 +54,21 @@ Future<File> _waitForPreview(
   WidgetTester tester,
   File? Function() staged,
 ) async {
+  await _waitUntil(tester, () => staged() != null);
+  return staged()!;
+}
+
+Future<void> _waitUntil(WidgetTester tester, bool Function() ready) async {
   final deadline = DateTime.now().add(const Duration(seconds: 30));
-  while (staged() == null) {
+  while (!ready()) {
     if (DateTime.now().isAfter(deadline)) {
-      fail('Native image viewer did not open');
+      fail('Image preview operation did not complete');
     }
     await tester.pump();
     await tester.runAsync(() async {
       await Future<void>.delayed(const Duration(milliseconds: 10));
     });
   }
-  return staged()!;
 }
 
 Future<void> _finishExport(
@@ -98,6 +102,8 @@ void main() {
   late int openCount;
   late int dismissCount;
   late bool failPreview;
+  late List<File> previewFiles;
+  late int previewIndex;
 
   List<ImageViewerItem> items() => [
     for (var index = 0; index < 2; index++)
@@ -120,11 +126,19 @@ void main() {
     openCount = 0;
     dismissCount = 0;
     failPreview = false;
+    previewFiles = [];
+    previewIndex = 0;
     messenger.setMockMethodCallHandler(_paths, (_) async => temporary.path);
     messenger.setMockMethodCallHandler(_preview, (call) async {
       if (call.method == 'open') {
         openCount++;
-        staged = File((call.arguments as Map)['path'] as String);
+        final args = call.arguments as Map;
+        staged = File(args['path'] as String);
+        previewFiles = [
+          for (final path in (args['paths'] as List? ?? [args['path']]))
+            File(path as String),
+        ];
+        previewIndex = args['initialIndex'] as int? ?? 0;
         if (failPreview) throw PlatformException(code: 'unsupported');
         if (defaultTargetPlatform == TargetPlatform.iOS) {
           await dismissed.future;
@@ -152,6 +166,9 @@ void main() {
     expect(openCount, 1);
     expect(await tester.runAsync(previewFile.readAsBytes), _pixel);
     expect(find.byType(ImageViewer), findsOneWidget);
+    expect(find.byType(Scaffold), findsOneWidget);
+    expect(find.byTooltip('Quick Look'), findsNothing);
+    expect(find.text('Open'), findsOneWidget);
 
     dismissed.complete();
     await _finishExport(tester, previewFile);
@@ -161,20 +178,84 @@ void main() {
     expect(dismissCount, 0);
   }, variant: _ios);
 
-  testWidgets('native preview leaves sibling images reachable', (tester) async {
+  testWidgets('Quick Look owns the gallery and dismisses to the origin', (
+    tester,
+  ) async {
     await tester.pumpWidget(_host(items()));
-    final previewFile = await _open(tester, () => staged);
-    expect(loads, [1]);
+    await tester.tap(find.text('Open'));
+    await tester.pump();
+    expect(find.byType(Scaffold), findsOneWidget);
+    expect(find.byTooltip('Quick Look'), findsNothing);
+    expect(find.text('Open'), findsOneWidget);
+    final previewFile = await _waitForPreview(tester, () => staged);
+    expect(loads, [1, 0]);
+    expect(previewFiles, hasLength(2));
+    expect(previewIndex, 1);
+    expect(previewFiles[previewIndex].path, previewFile.path);
+    for (final file in previewFiles) {
+      expect(await tester.runAsync(file.readAsBytes), _pixel);
+    }
+    expect(find.byType(Scaffold), findsOneWidget);
+    expect(dismissCount, 0);
     dismissed.complete();
     await _finishExport(tester, previewFile);
-    expect(find.byType(ImageViewer), findsOneWidget);
-    await tester.tap(find.byTooltip('Previous image'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(loads, [1, 0]);
+    for (final file in previewFiles) {
+      expect(await tester.runAsync(file.exists), false);
+    }
+    expect(find.byType(ImageViewer), findsNothing);
+    expect(find.text('Open'), findsOneWidget);
     expect(openCount, 1);
-    expect(find.text('1 of 2'), findsOneWidget);
   }, variant: _ios);
+
+  for (final invalidateOwner in [false, true]) {
+    testWidgets(
+      invalidateOwner
+          ? 'owner change cancels a partially staged Quick Look gallery'
+          : 'sibling staging failure cleans files and reveals Flutter fallback',
+      (tester) async {
+        final active = ValueNotifier(true);
+        addTearDown(active.dispose);
+        final pending = Completer<ImageViewerMedia>();
+        final gallery = items();
+        gallery[1] = ImageViewerItem(
+          load: () {
+            loads.add(1);
+            return pending.future;
+          },
+        );
+        await tester.pumpWidget(
+          _host(gallery, initialIndex: 0, active: active),
+        );
+        await tester.tap(find.text('Open'));
+        await _waitUntil(tester, () => loads.contains(1));
+        final file = await tester.runAsync(
+          () async => (await temporary.list(recursive: true).toList())
+              .whereType<File>()
+              .single,
+        );
+        expect(find.byTooltip('Quick Look'), findsNothing);
+        if (invalidateOwner) active.value = false;
+        pending.complete(
+          ImageViewerMedia.bytes(
+            invalidateOwner ? _pixel : base64Decode('AA=='),
+          ),
+        );
+        await _finishExport(tester, file!);
+        expect(openCount, 0);
+        expect(await tester.runAsync(file.exists), false);
+        if (invalidateOwner) {
+          expect(find.byType(ImageViewer), findsNothing);
+          expect(find.text('Open'), findsOneWidget);
+        } else {
+          expect(find.byType(ImageViewer), findsOneWidget);
+          expect(find.byType(Image), findsOneWidget);
+          expect(find.byTooltip('Quick Look'), findsOneWidget);
+          expect(find.text('1 of 2'), findsOneWidget);
+        }
+      },
+      variant: _ios,
+    );
+  }
 
   testWidgets(
     'failed native preview falls back to the usable Flutter gallery',
@@ -190,7 +271,7 @@ void main() {
       await tester.tap(find.byTooltip('Previous image'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
-      expect(loads, [1, 0]);
+      expect(loads, [1, 0, 0]);
       expect(openCount, 1);
       expect(find.text('1 of 2'), findsOneWidget);
     },

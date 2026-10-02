@@ -36,6 +36,7 @@ PageRoute<void> buildImageViewerRoute(
   if (defaultTargetPlatform == TargetPlatform.iOS || context.reduceMotion) {
     return PageRouteBuilder<void>(
       fullscreenDialog: true,
+      opaque: defaultTargetPlatform != TargetPlatform.iOS,
       transitionDuration: Duration.zero,
       reverseTransitionDuration: Duration.zero,
       pageBuilder: (context, _, _) => builder(context),
@@ -327,29 +328,44 @@ class _ImageViewerState extends State<ImageViewer> {
         ? null
         : box.localToGlobal(Offset.zero) & box.size;
     setState(() => _busy = true);
-    File? staged;
+    final staged = <File>[];
+    final nativeGallery =
+        native && automatic && defaultTargetPlatform == TargetPlatform.iOS;
     bool handedOff = false;
     try {
-      staged = await media.stage();
+      if (nativeGallery) {
+        for (var index = 0; index < widget.items.length; index++) {
+          final page = index == _index
+              ? media
+              : await widget.items[index].load();
+          if (!_active || generation != _generation) return;
+          staged.add(await page.stage());
+          if (!_active || generation != _generation) return;
+        }
+      } else {
+        staged.add(await media.stage());
+      }
       if (!_active || generation != _generation) return;
       if (native) {
         _nativePresented = true;
         try {
-          await NativeImagePreview.open(staged);
+          await NativeImagePreview.open(
+            staged,
+            initialIndex: nativeGallery ? _index : 0,
+          );
         } finally {
           _nativePresented = false;
         }
       } else {
         await SharePlus.instance.share(
-          ShareParams(files: [XFile(staged.path)], sharePositionOrigin: origin),
+          ShareParams(
+            files: [XFile(staged.single.path)],
+            sharePositionOrigin: origin,
+          ),
         );
       }
       handedOff = true;
-      // Keep sibling images reachable after the native viewer returns.
-      if (automatic &&
-          widget.items.length == 1 &&
-          _active &&
-          generation == _generation) {
+      if (automatic && _active && generation == _generation) {
         _close();
       }
     } catch (_) {
@@ -362,12 +378,13 @@ class _ImageViewerState extends State<ImageViewer> {
     } finally {
       // Android receivers and share extensions may keep reading after their
       // handoff returns. They become eligible for pruning after a day.
-      if (staged != null &&
-          (!handedOff ||
-              (native && defaultTargetPlatform == TargetPlatform.iOS))) {
-        await staged.parent
-            .delete(recursive: true)
-            .catchError((_) => staged!.parent);
+      if (!handedOff ||
+          (native && defaultTargetPlatform == TargetPlatform.iOS)) {
+        for (final file in staged) {
+          await file.parent
+              .delete(recursive: true)
+              .catchError((_) => file.parent);
+        }
       }
       if (mounted) {
         setState(() {
@@ -380,6 +397,12 @@ class _ImageViewerState extends State<ImageViewer> {
 
   @override
   Widget build(BuildContext context) {
+    // Quick Look animates directly over the originating screen. Reveal the
+    // Flutter gallery only if loading or native presentation fails.
+    if (defaultTargetPlatform == TargetPlatform.iOS &&
+        (_defaultPreviewPending || _openingDefaultPreview || _closing)) {
+      return const SizedBox.shrink();
+    }
     final l10n = AppLocalizations.of(context)!;
     final item = widget.items[_index];
     final showControls =
