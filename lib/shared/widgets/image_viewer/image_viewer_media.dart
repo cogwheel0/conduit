@@ -44,7 +44,13 @@ class ImageViewerMedia {
     if (sourceFile != null) {
       final handle = await sourceFile.open();
       try {
-        prefix = await handle.read(32);
+        var header = await handle.read(32);
+        final box = _fileTypeBox(header);
+        if (box != null && box.size > header.length) {
+          await handle.setPosition(0);
+          header = await handle.read(box.size);
+        }
+        prefix = header;
       } finally {
         await handle.close();
       }
@@ -75,6 +81,31 @@ class ImageViewerMedia {
         : File(path).writeAsBytes(bytes!);
   }
 
+  /// Reads the leading ISO BMFF file-type box, bounding untrusted header sizes.
+  ({int size, int brandOffset})? _fileTypeBox(Uint8List data) {
+    if (data.length < 8 || String.fromCharCodes(data.sublist(4, 8)) != 'ftyp') {
+      return null;
+    }
+    final header = ByteData.sublistView(data);
+    var size = header.getUint32(0);
+    var brandOffset = 8;
+    if (size == 1) {
+      if (data.length < 16) {
+        throw const FormatException('Incomplete image header');
+      }
+      size = header.getUint64(8);
+      brandOffset = 16;
+    }
+    // A file-type box normally has only a few four-byte brands. Never allocate
+    // or scan an arbitrary declared size while staging a cached file.
+    if (size < brandOffset + 8 ||
+        size > 64 * 1024 ||
+        (size - brandOffset) % 4 != 0) {
+      throw const FormatException('Unsupported image header');
+    }
+    return (size: size, brandOffset: brandOffset);
+  }
+
   String _extension(Uint8List data) {
     bool starts(List<int> magic) =>
         data.length >= magic.length &&
@@ -88,11 +119,19 @@ class ImageViewerMedia {
         String.fromCharCodes(data.sublist(8, 12)) == 'WEBP') {
       return 'webp';
     }
-    if (data.length >= 12 &&
-        String.fromCharCodes(data.sublist(4, 8)) == 'ftyp') {
-      final brand = String.fromCharCodes(data.sublist(8, 12));
-      if (brand == 'avif' || brand == 'avis') return 'avif';
-      if (['heic', 'heix', 'hevc', 'hevx', 'mif1'].contains(brand)) {
+    final box = _fileTypeBox(data);
+    if (box != null && box.size <= data.length) {
+      final brands = {
+        String.fromCharCodes(
+          data.sublist(box.brandOffset, box.brandOffset + 4),
+        ),
+        for (var offset = box.brandOffset + 8; offset < box.size; offset += 4)
+          String.fromCharCodes(data.sublist(offset, offset + 4)),
+      };
+      // AVIF can use mif1 as its major brand. Compatible brands identify the
+      // codec, and must be checked before the generic HEIF fallback.
+      if (brands.contains('avif') || brands.contains('avis')) return 'avif';
+      if (brands.any(['heic', 'heix', 'hevc', 'hevx', 'mif1'].contains)) {
         return 'heic';
       }
     }

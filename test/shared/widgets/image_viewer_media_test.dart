@@ -29,6 +29,44 @@ void main() {
     await temporary.delete(recursive: true);
   });
 
+  test('AVIF compatible brands beyond the initial prefix determine the staged extension', () async {
+    final header = ByteData(8)..setUint32(0, 36);
+    header.buffer.asUint8List().setRange(4, 8, ascii.encode('ftyp'));
+    final bytes = Uint8List.fromList([
+      ...header.buffer.asUint8List(),
+      ...ascii.encode('mif1'),
+      0,
+      0,
+      0,
+      0,
+      ...ascii.encode('mif1miafzzzzMA1Bavif'),
+    ]);
+    final cached = await File('${temporary.path}/cached-avif')
+        .writeAsBytes(bytes);
+    final memoryExport = await ImageViewerMedia.bytes(bytes).stage();
+    final fileExport = await ImageViewerMedia.file(cached).stage();
+    expect(
+      [memoryExport.path.split('.').last, fileExport.path.split('.').last],
+      ['avif', 'avif'],
+    );
+
+    // A later image payload must not be mistaken for a compatible brand.
+    final heicHeader = ByteData(8)..setUint32(0, 20);
+    heicHeader.buffer.asUint8List().setRange(4, 8, ascii.encode('ftyp'));
+    final heic = Uint8List.fromList([
+      ...heicHeader.buffer.asUint8List(),
+      ...ascii.encode('heic'),
+      0,
+      0,
+      0,
+      0,
+      ...ascii.encode('mif1'),
+      ...ascii.encode('avif'),
+    ]);
+    final heicExport = await ImageViewerMedia.bytes(heic).stage();
+    expect(heicExport.path.endsWith('.heic'), isTrue);
+  });
+
   test('export preserves original bytes and gives cached files their actual image extension', () async {
     final bytes = base64Decode(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==',
