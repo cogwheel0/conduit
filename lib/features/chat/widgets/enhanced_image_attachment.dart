@@ -1160,7 +1160,8 @@ class _EnhancedImageAttachmentState
     final api = ref.read(apiServiceProvider);
     final epoch = ref.read(openWebUiAuthSessionEpochProvider);
     final scope = ImageAttachmentCacheScope(api: api, authSessionEpoch: epoch);
-    if (usesAccountScopedImageCache(widget.attachmentId) && _cacheScope != scope) {
+    if (usesAccountScopedImageCache(widget.attachmentId) &&
+        _cacheScope != scope) {
       return;
     }
     final sources = <ImageAttachmentReference>[];
@@ -1271,7 +1272,8 @@ class _EnhancedImageAttachmentState
         active.value = isCurrent();
       },
     );
-    Navigator.of(context)
+    // Keep fullscreen gestures outside the drawer shell's nested navigator.
+    Navigator.of(context, rootNavigator: true)
         .push(
           buildImageViewerRoute(
             context,

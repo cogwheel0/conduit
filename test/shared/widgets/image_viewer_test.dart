@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:checks/checks.dart';
 import 'package:conduit/features/chat/widgets/enhanced_image_attachment.dart';
 import 'package:conduit/core/services/image_attachment_cache_service.dart';
+import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -49,6 +50,72 @@ Future<void> _render(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('gallery swipes stay above the app drawer', (tester) async {
+    tester.view.physicalSize = const Size(402, 874);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() => tester.view.resetPhysicalSize());
+    addTearDown(() => tester.view.resetDevicePixelRatio());
+    final epoch = Object();
+    final scope = ImageAttachmentCacheScope(api: null, authSessionEpoch: epoch);
+    for (final id in ['first', 'second']) {
+      imageAttachmentCacheStore.cacheBytes(id, _pixel, scope: scope);
+    }
+    addTearDown(debugResetImageAttachmentCaches);
+    var drawerOpened = false;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          apiServiceProvider.overrideWithValue(null),
+          openWebUiAuthSessionEpochProvider.overrideWithValue(epoch),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ResponsiveDrawerLayout(
+            edgeFraction: 1,
+            maxFraction: 1,
+            onOpenStart: () => drawerOpened = true,
+            drawer: const Text('App drawer'),
+            child: Navigator(
+              onGenerateRoute: (_) => MaterialPageRoute<void>(
+                builder: (_) => Scaffold(
+                  body: ImageAttachmentGallery(
+                    images: () => const [
+                      ImageAttachmentReference('first', label: 'First'),
+                      ImageAttachmentReference('second', label: 'Second'),
+                    ],
+                    child: const Center(
+                      child: EnhancedImageAttachment(
+                        attachmentId: 'second',
+                        disableAnimation: true,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await _render(tester);
+    await _render(tester);
+    await tester.tap(find.byType(EnhancedImageAttachment));
+    await _render(tester);
+    expect(find.text('2 of 2'), findsOneWidget);
+    await tester.dragFrom(const Offset(100, 437), const Offset(230, 0));
+    await _render(tester);
+    expect(drawerOpened, isFalse);
+    expect(find.text('1 of 2'), findsOneWidget);
+    await tester.dragFrom(const Offset(320, 437), const Offset(-230, 0));
+    await _render(tester);
+    expect(find.text('2 of 2'), findsOneWidget);
+    await tester.tap(find.byTooltip('Close'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ImageViewer), findsNothing);
+    expect(find.byType(EnhancedImageAttachment), findsOneWidget);
+  });
+
   test('gallery parsing handles long tokens and preserves image references', () {
     final content =
         '${'A' * 12000}![first](https://example.test/one.png)\n\n![second][ref]\n\n[ref]: https://example.test/two.png';
