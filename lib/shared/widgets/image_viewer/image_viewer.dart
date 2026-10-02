@@ -50,6 +50,7 @@ Future<void> showImageViewer(
       !cancelled &&
       context.mounted &&
       navigator.mounted &&
+      origin?.isActive != false &&
       (viewerRoute?.isCurrent ?? origin?.isCurrent) != false &&
       router?.currentConfiguration == configuration &&
       (request == null || request == _nativePreviewRequest) &&
@@ -138,7 +139,24 @@ Future<void> showImageViewer(
   );
   viewerRoute = route;
   onShown?.call(route);
-  await navigator.push(route);
+  void removeViewer() {
+    if (navigator.mounted && route.isActive) navigator.removeRoute(route);
+  }
+
+  final departure = origin?.popped.asStream().listen((_) {
+    cancelled = true;
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => removeViewer());
+    } else {
+      removeViewer();
+    }
+  });
+  try {
+    await navigator.push(route);
+  } finally {
+    unawaited(departure?.cancel());
+  }
 }
 
 PageRoute<void> _buildImageViewerRoute(

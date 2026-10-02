@@ -479,4 +479,61 @@ void main() {
       variant: _ios,
     );
   }
+
+  for (final navigation in ['pop', 'replace']) {
+    testWidgets(
+      'gallery closes when its nested source route is removed by $navigation',
+      (tester) async {
+        failPreview = true;
+        final nested = GlobalKey<NavigatorState>();
+        final gallery = items();
+        await tester.pumpWidget(
+          MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Navigator(
+              key: nested,
+              initialRoute: '/source',
+              onGenerateRoute: (settings) => MaterialPageRoute<void>(
+                settings: settings,
+                builder: (context) => Scaffold(
+                  body: settings.name == '/source'
+                      ? TextButton(
+                          onPressed: () =>
+                              showImageViewer(context, items: gallery),
+                          child: const Text('Open'),
+                        )
+                      : const Text('Destination'),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('Open'));
+        await _waitUntil(
+          tester,
+          () => find.byType(ImageViewer).evaluate().isNotEmpty,
+        );
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(find.byType(Image), findsOneWidget);
+        if (navigation == 'pop') {
+          nested.currentState!.pop();
+        } else {
+          unawaited(
+            nested.currentState!.pushReplacement(
+              MaterialPageRoute<void>(
+                builder: (_) => const Scaffold(body: Text('Destination')),
+              ),
+            ),
+          );
+        }
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 1));
+        expect(find.byType(ImageViewer), findsNothing);
+        expect(find.text('Destination'), findsOneWidget);
+        expect(dismissCount, 0);
+      },
+      variant: _mobile,
+    );
+  }
 }
