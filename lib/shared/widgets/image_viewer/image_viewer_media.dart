@@ -56,12 +56,16 @@ class ImageViewerMedia {
       '${(await getTemporaryDirectory()).path}/image_previews',
     );
     await root.create(recursive: true);
-    // External Android viewers may read after returning to Conduit. Keep their
-    // files for a day, then prune only this feature's staging directories.
+    // External readers may outlive the handoff. Files become eligible for
+    // pruning after a day; cleanup runs on the next export.
     await for (final entry in root.list()) {
-      if (entry is Directory &&
-          clock.now().difference((await entry.stat()).modified).inDays >= 1) {
-        await entry.delete(recursive: true);
+      if (entry is! Directory) continue;
+      try {
+        if (clock.now().difference((await entry.stat()).modified).inDays >= 1) {
+          await entry.delete(recursive: true);
+        }
+      } on FileSystemException {
+        // Concurrent exports can remove an expired directory first.
       }
     }
     final directory = await root.createTemp('preview_');

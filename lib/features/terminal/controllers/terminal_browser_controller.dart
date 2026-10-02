@@ -178,7 +178,7 @@ class TerminalBrowserController extends ChangeNotifier {
     TerminalBrowserOperationContext operationContext,
     TerminalFileEntry entry,
   ) async {
-    if (!_isCurrentOperationContext(operationContext)) {
+    if (!isCurrentOperationContext(operationContext)) {
       return null;
     }
     try {
@@ -187,9 +187,9 @@ class TerminalBrowserController extends ChangeNotifier {
         entry.path,
         sessionScopeId: operationContext.sessionScopeId,
       );
-      return _isCurrentOperationContext(operationContext) ? preview : null;
+      return isCurrentOperationContext(operationContext) ? preview : null;
     } catch (_) {
-      if (_isCurrentOperationContext(operationContext)) {
+      if (isCurrentOperationContext(operationContext)) {
         _onFailure(TerminalBrowserFailure.loadFiles);
       }
       return null;
@@ -210,7 +210,7 @@ class TerminalBrowserController extends ChangeNotifier {
           entry.path,
           sessionScopeId: operationContext.sessionScopeId,
         );
-        if (_isCurrentOperationContext(operationContext)) {
+        if (isCurrentOperationContext(operationContext)) {
           await _platformGateway.saveDownload(downloaded);
         }
       },
@@ -258,12 +258,12 @@ class TerminalBrowserController extends ChangeNotifier {
   Future<void> pickAndUploadFile(
     TerminalBrowserOperationContext operationContext,
   ) async {
-    if (!_isCurrentOperationContext(operationContext)) return;
+    if (!isCurrentOperationContext(operationContext)) return;
     TerminalUploadFile? pickedFile;
     try {
       pickedFile = await _platformGateway.pickUploadFile();
     } catch (_) {
-      if (_isCurrentOperationContext(operationContext)) {
+      if (isCurrentOperationContext(operationContext)) {
         _onFailure(TerminalBrowserFailure.upload);
       }
       return;
@@ -344,7 +344,8 @@ class TerminalBrowserController extends ChangeNotifier {
   bool _isCurrentServer(TerminalServerInfo server) =>
       _isCurrentContext(server, _gateway.sessionScopeId);
 
-  bool _isCurrentOperationContext(
+  /// Whether an operation still belongs to the active service, folder and session.
+  bool isCurrentOperationContext(
     TerminalBrowserOperationContext operationContext,
   ) =>
       !_disposed &&
@@ -362,14 +363,14 @@ class TerminalBrowserController extends ChangeNotifier {
     bool reloadAfterward = true,
     bool requestRefresh = false,
   }) async {
-    if (!_isCurrentOperationContext(operationContext)) return;
+    if (!isCurrentOperationContext(operationContext)) return;
     try {
       await mutate();
-      if (!_isCurrentOperationContext(operationContext)) return;
+      if (!isCurrentOperationContext(operationContext)) return;
       if (requestRefresh) _gateway.requestRefresh();
       if (reloadAfterward) await reload();
     } catch (_) {
-      if (_isCurrentOperationContext(operationContext)) {
+      if (isCurrentOperationContext(operationContext)) {
         _onFailure(failure);
       }
     }

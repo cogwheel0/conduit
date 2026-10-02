@@ -10,6 +10,7 @@ final class ImagePreviewBridge: NSObject, QLPreviewControllerDataSource, @precon
     private var item: NSURL?
     private var completion: FlutterResult?
 
+    /// Registers preview and dismissal calls on the Flutter engine messenger.
     func configure(messenger: FlutterBinaryMessenger) {
         FlutterMethodChannel(name: "app.cogwheel.conduit/image_preview", binaryMessenger: messenger)
             .setMethodCallHandler { [weak self] call, result in
@@ -28,12 +29,14 @@ final class ImagePreviewBridge: NSObject, QLPreviewControllerDataSource, @precon
             }
     }
 
+    /// Validates the staging boundary and holds the result until Quick Look closes.
     private func open(_ arguments: Any?, result: @escaping FlutterResult) {
         guard controller == nil,
               let args = arguments as? [String: Any], let path = args["path"] as? String else {
             return result(FlutterError(code: "busy", message: "Preview unavailable", details: nil))
         }
         let url = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL
+        // path_provider_foundation maps getTemporaryDirectory() to cachesDirectory on iOS.
         let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("image_previews")
             .resolvingSymlinksInPath().standardizedFileURL.path + "/"
@@ -59,18 +62,22 @@ final class ImagePreviewBridge: NSObject, QLPreviewControllerDataSource, @precon
         presenter.present(preview, animated: !UIAccessibility.isReduceMotionEnabled)
     }
 
+    /// Advertises the single image retained for the current presentation.
     func numberOfPreviewItems(in controller: QLPreviewController) -> Int { item == nil ? 0 : 1 }
 
+    /// Supplies the retained local file for the advertised preview index.
     func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem {
         // Quick Look calls only for indices advertised by numberOfPreviewItems.
         precondition(index == 0 && item != nil)
         return item!
     }
 
+    /// Completes only the presentation that is still owned by this bridge.
     func previewControllerDidDismiss(_ controller: QLPreviewController) {
         if self.controller === controller { finish() }
     }
 
+    /// Releases the image and completes the pending Flutter call exactly once.
     private func finish() {
         controller = nil
         item = nil

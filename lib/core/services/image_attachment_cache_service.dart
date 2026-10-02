@@ -341,6 +341,27 @@ final class ImageAttachmentCacheStore {
     return future;
   }
 
+  /// Discards one owner's value for an explicit retry. Let an existing load
+  /// settle first so its cache writes cannot restore the rejected bytes.
+  Future<void> invalidate(
+    String attachmentId, {
+    ImageAttachmentCacheScope? scope,
+  }) async {
+    final key = _key(attachmentId, scope);
+    final pending = _inFlightLoads[key];
+    if (pending != null) {
+      try {
+        await pending.future;
+      } catch (_) {
+        // A failed load must be discarded too.
+      }
+    }
+    _resolvedData.remove(key);
+    _decodedBytes.remove(key);
+    _svgFlags.remove(key);
+    _errors.remove(key);
+  }
+
   void clear({Object? invalidatedAuthSessionEpoch}) {
     if (invalidatedAuthSessionEpoch != null) {
       _invalidatedAuthSessionEpochs.add(invalidatedAuthSessionEpoch);

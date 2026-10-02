@@ -63,6 +63,7 @@ final class TerminalCoordinator extends ChangeNotifier {
     _sessionScopeSubscription = ref.listenManual<String>(
       terminalSessionScopeIdProvider,
       (_, _) {
+        _relayChange();
         if (_gateway.isActive) {
           unawaited(_contextController.sync(force: true));
         }
@@ -71,11 +72,14 @@ final class TerminalCoordinator extends ChangeNotifier {
     _selectedServerSubscription = ref
         .listenManual<AsyncValue<TerminalServerInfo?>>(
           terminalSelectedServerProvider,
-          (_, next) => next.whenData((_) {
-            if (_gateway.isActive) {
-              unawaited(_contextController.sync(force: true));
-            }
-          }),
+          (_, next) {
+            _relayChange();
+            next.whenData((_) {
+              if (_gateway.isActive) {
+                unawaited(_contextController.sync(force: true));
+              }
+            });
+          },
         );
     _singleServerDefaultPanelSubscription = ref.listenManual(
       terminalAvailableServersProvider,
@@ -121,6 +125,7 @@ final class TerminalCoordinator extends ChangeNotifier {
   }
 
   void deactivate() {
+    _relayChange();
     if (!_disposed) unawaited(_contextController.deactivate());
   }
 
@@ -135,6 +140,10 @@ final class TerminalCoordinator extends ChangeNotifier {
 
   TerminalBrowserOperationContext? captureOperationContext() =>
       _browserController.captureOperationContext();
+
+  /// Revalidates a captured file operation before showing or exporting its data.
+  bool isCurrentOperationContext(TerminalBrowserOperationContext context) =>
+      !_disposed && _browserController.isCurrentOperationContext(context);
 
   Future<TerminalFileReadResult?> readEntry(
     TerminalBrowserOperationContext operationContext,
@@ -199,6 +208,7 @@ final class TerminalCoordinator extends ChangeNotifier {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    notifyListeners();
     _refreshSubscription.close();
     _sessionScopeSubscription.close();
     _selectedServerSubscription.close();

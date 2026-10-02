@@ -2606,6 +2606,7 @@ private func cookieIsPreferred(
     didConfigureSharedFlutterEngine = true
   }
 
+  /// Binds app-owned native bridges to the shared engine used by Flutter scenes.
   private func configureApplicationFlutterChannels(
     messenger: FlutterBinaryMessenger
   ) {

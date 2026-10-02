@@ -4,13 +4,25 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.Intent
+import android.net.Uri
 import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
-class ImagePreviewFileProvider : FileProvider()
+/** Reports the same MIME type through the URI as through the handoff intent. */
+class ImagePreviewFileProvider : FileProvider() {
+    override fun getType(uri: Uri): String? =
+        imageMimeType(uri.lastPathSegment?.substringAfterLast('.').orEmpty()) ?: super.getType(uri)
+}
+
+/** Covers newer image formats even on devices whose MIME registry predates them. */
+private fun imageMimeType(extension: String): String? = when (extension.lowercase()) {
+    "avif" -> "image/avif"
+    "heic" -> "image/heic"
+    else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension.lowercase())
+}
 
 /** Grants a receiving app read access to one staged image, never a server URL. */
 class ImagePreviewBridge(private val activity: Activity, messenger: BinaryMessenger) {
@@ -24,7 +36,7 @@ class ImagePreviewBridge(private val activity: Activity, messenger: BinaryMessen
                     val file = File(path).canonicalFile
                     val root = File(activity.cacheDir, "image_previews").canonicalFile
                     require(file.path.startsWith(root.path + File.separator) && file.isFile)
-                    val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase())
+                    val mime = imageMimeType(file.extension)
                     require(mime != null && mime.startsWith("image/"))
                     val uri = FileProvider.getUriForFile(activity, activity.packageName + ".image_previews", file)
                     val view = Intent(Intent.ACTION_VIEW).apply {

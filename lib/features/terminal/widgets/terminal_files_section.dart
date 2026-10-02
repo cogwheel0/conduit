@@ -402,8 +402,20 @@ Future<void> showTerminalFilePreview(
     return;
   }
   if (preview.isImage && preview.bytes != null) {
+    bool ownsPreview() =>
+        coordinator.isCurrentOperationContext(operationContext) &&
+        isCurrent?.call() != false;
+    final active = ValueNotifier(ownsPreview());
+    void updateOwner() {
+      // Once invalidated, this captured preview can never become current again.
+      active.value = active.value && ownsPreview();
+    }
+
+    coordinator.addListener(updateOwner);
     final route = buildImageViewerRoute(
       context,
+      active: active,
+      isCurrent: ownsPreview,
       items: [
         ImageViewerItem(
           label: sanitizeUtf16(entry.displayName),
@@ -415,7 +427,12 @@ Future<void> showTerminalFilePreview(
       ],
     );
     onShown?.call(route);
-    await Navigator.of(context, rootNavigator: true).push(route);
+    try {
+      await Navigator.of(context, rootNavigator: true).push(route);
+    } finally {
+      coordinator.removeListener(updateOwner);
+      active.dispose();
+    }
     return;
   }
   final l10n = AppLocalizations.of(context)!;

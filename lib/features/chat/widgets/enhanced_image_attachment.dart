@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:markdown/markdown.dart' as md;
+import 'package:conduit_markdown/conduit_markdown.dart';
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -486,7 +487,10 @@ class ImageAttachmentGallery extends InheritedWidget {
   final List<ImageAttachmentReference> Function() images;
 
   static List<ImageAttachmentReference> markdownImages(String content) {
-    final document = md.Document(extensionSet: md.ExtensionSet.gitHubFlavored);
+    final document = md.Document(
+      extensionSet: conduitGitHubWebExtensionSet,
+      inlineSyntaxes: [LongAlphanumericRunSyntax()],
+    );
     final images = <ImageAttachmentReference>[];
     void visit(md.Node node) {
       if (node is! md.Element) return;
@@ -1156,6 +1160,9 @@ class _EnhancedImageAttachmentState
     final api = ref.read(apiServiceProvider);
     final epoch = ref.read(openWebUiAuthSessionEpochProvider);
     final scope = ImageAttachmentCacheScope(api: api, authSessionEpoch: epoch);
+    if (usesAccountScopedImageCache(widget.attachmentId) && _cacheScope != scope) {
+      return;
+    }
     final sources = <ImageAttachmentReference>[];
     final seen = <String>{};
     for (final source in gallery?.images() ?? <ImageAttachmentReference>[]) {
@@ -1196,16 +1203,27 @@ class _EnhancedImageAttachmentState
               ? ImageAttachmentCacheScope(api: api, authSessionEpoch: epoch)
               : null;
           String? downloadedKey;
+          var thumbnail =
+              source.id == widget.attachmentId && _cachedBytes != null
+              ? ImageViewerMedia.bytes(_cachedBytes!, isSvg: _isSvg)
+              : null;
           return ImageViewerItem(
             label: source.label,
             invalidate: () async {
-              if (isCurrent() && downloadedKey != null) {
+              if (!isCurrent()) return;
+              thumbnail = null;
+              await imageAttachmentCacheStore.invalidate(
+                source.id,
+                scope: scope,
+              );
+              if (downloadedKey != null) {
                 await cacheManager.removeFile(downloadedKey!);
               }
             },
             heroTag: source.id == widget.attachmentId ? _heroTag : null,
             load: () async {
               if (!isCurrent()) throw StateError('Image owner changed');
+              if (thumbnail case final media?) return media;
               final result = await _imageAttachmentLoader.load(
                 attachmentId: source.id,
                 workerManager: worker,

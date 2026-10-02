@@ -2,8 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
+import 'package:conduit/features/chat/widgets/enhanced_image_attachment.dart';
+import 'package:conduit/core/services/image_attachment_cache_service.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/widgets/image_viewer/image_viewer.dart';
+import 'package:conduit/shared/widgets/image_viewer/image_viewer_canvas.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -44,6 +49,103 @@ Future<void> _render(WidgetTester tester) async {
 }
 
 void main() {
+  test('gallery parsing handles long tokens and preserves image references', () {
+    final content =
+        '${'A' * 12000}![first](https://example.test/one.png)\n\n![second][ref]\n\n[ref]: https://example.test/two.png';
+    final timer = Stopwatch()..start();
+    final images = ImageAttachmentGallery.markdownImages(content);
+    expect(images.map((image) => image.id), [
+      'https://example.test/one.png',
+      'https://example.test/two.png',
+    ]);
+    expect(timer.elapsed, lessThan(const Duration(seconds: 1)));
+  });
+
+  testWidgets('visible thumbnail opens after its shared cache is evicted', (
+    tester,
+  ) async {
+    final epoch = Object();
+    final scope = ImageAttachmentCacheScope(api: null, authSessionEpoch: epoch);
+    imageAttachmentCacheStore.cacheBytes('offline-image', _pixel, scope: scope);
+    addTearDown(debugResetImageAttachmentCaches);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          apiServiceProvider.overrideWithValue(null),
+          openWebUiAuthSessionEpochProvider.overrideWithValue(epoch),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const Scaffold(
+            body: Center(
+              child: EnhancedImageAttachment(
+                attachmentId: 'offline-image',
+                disableAnimation: true,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await _render(tester);
+    await _render(tester);
+    // Simulate bounded-cache eviction without changing the mounted owner.
+    for (var i = 0; i < 100; i++) {
+      imageAttachmentCacheStore.cacheBytes('other-$i', _pixel, scope: scope);
+    }
+    expect(
+      imageAttachmentCacheStore.read('offline-image', scope: scope),
+      isNull,
+    );
+    await tester.tap(find.byType(EnhancedImageAttachment));
+    await _render(tester);
+    expect(find.byType(ImageViewer), findsOneWidget);
+    expect(find.text('Retry'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byType(ImageViewer),
+        matching: find.byType(Image),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('zoom reset releases the enlarged decode target', (tester) async {
+    await tester.pumpWidget(
+      _host([
+        ImageViewerItem(load: () async => ImageViewerMedia.bytes(_pixel)),
+      ]),
+    );
+    await tester.tap(find.text('Open'));
+    await _render(tester);
+    ResizeImage provider() =>
+        tester
+                .widget<Image>(
+                  find.descendant(
+                    of: find.byType(ImageViewer),
+                    matching: find.byType(Image),
+                  ),
+                )
+                .image
+            as ResizeImage;
+    final fitted = provider().width!;
+    final canvas = find.byType(ImageViewerCanvas);
+    Future<void> doubleTap() async {
+      await tester.tap(canvas);
+      await tester.pump(const Duration(milliseconds: 60));
+      await tester.tap(canvas);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+    }
+
+    await doubleTap();
+    expect(provider().width, greaterThan(fitted));
+    await doubleTap();
+    expect(provider().width, fitted);
+  });
+
   testWidgets(
     'starts at tapped image and loads other pages only on navigation',
     (tester) async {

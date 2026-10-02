@@ -25,6 +25,42 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'retry discards completed and pending values only for the selected owner',
+    () async {
+      final store = ImageAttachmentCacheStore();
+      final owner = ImageAttachmentCacheScope(
+        api: null,
+        authSessionEpoch: Object(),
+      );
+      final other = ImageAttachmentCacheScope(
+        api: null,
+        authSessionEpoch: Object(),
+      );
+      final bytes = Uint8List.fromList([1, 2, 3]);
+      store.cacheBytes('image', bytes, scope: other);
+      final pending = Completer<void>();
+      final load = store.load(
+        'image',
+        scope: owner,
+        loader: (_) async {
+          await pending.future;
+          store.cacheBytes('image', bytes, scope: owner);
+          return ImageAttachmentCacheEntry(bytes: bytes, isSvg: false);
+        },
+      );
+      final invalidation = store.invalidate('image', scope: owner);
+      pending.complete();
+      await load;
+      await invalidation;
+      expect(store.read('image', scope: owner), isNull);
+      expect(store.read('image', scope: other)?.bytes, bytes);
+      store.cacheError('image', 'failed', scope: owner);
+      await store.invalidate('image', scope: owner);
+      expect(store.read('image', scope: owner), isNull);
+    },
+  );
+
   setUp(debugResetImageAttachmentCaches);
   tearDown(debugResetImageAttachmentCaches);
 

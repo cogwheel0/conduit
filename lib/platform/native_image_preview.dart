@@ -12,6 +12,7 @@ abstract final class NativeImagePreview {
     await _channel.invokeMethod<void>('open', {'path': file.path});
   }
 
+  /// Closes an iOS preview when its originating account or route is invalidated.
   static Future<void> dismiss() async {
     if (Platform.isIOS) await _channel.invokeMethod<void>('dismiss');
   }

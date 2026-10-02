@@ -40,8 +40,23 @@ void main() {
     await tester.tap(canvas);
     await tester.pumpAndSettle();
     check(zoom).equals(1);
+    final fittedPosition = tester.getTopLeft(find.byType(ColoredBox).last);
     await tester.drag(canvas, const Offset(0, 220));
     await tester.pumpAndSettle();
     check(dismissed).equals(1);
+    expect(
+      (tester.getTopLeft(find.byType(ColoredBox).last) - fittedPosition)
+          .distance,
+      lessThan(.1),
+    );
+    await tester.tap(canvas);
+    await tester.pump(const Duration(milliseconds: 60));
+    await tester.tap(canvas);
+    await tester.pumpAndSettle();
+    check(zoom).isGreaterThan(1);
+    await tester.binding.setSurfaceSize(const Size(400, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpAndSettle();
+    check(zoom).equals(1);
   });
 }

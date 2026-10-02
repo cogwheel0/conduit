@@ -613,6 +613,7 @@ class MainActivity : FlutterFragmentActivity() {
         SUPERSEDED
     }
 
+    /** Registers app bridges and background handlers with this activity's Flutter engine. */
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         ImagePreviewBridge(this, flutterEngine.dartExecutor.binaryMessenger)

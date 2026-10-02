@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/services.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:share_plus/share_plus.dart';
@@ -24,9 +25,14 @@ PageRoute<void> buildImageViewerRoute(
   required List<ImageViewerItem> items,
   int initialIndex = 0,
   ValueListenable<bool>? active,
+  bool Function()? isCurrent,
 }) {
-  Widget builder(BuildContext context) =>
-      ImageViewer(items: items, initialIndex: initialIndex, active: active);
+  Widget builder(BuildContext context) => ImageViewer(
+    items: items,
+    initialIndex: initialIndex,
+    active: active,
+    isCurrent: isCurrent,
+  );
   if (context.reduceMotion) {
     return PageRouteBuilder<void>(
       fullscreenDialog: true,
@@ -44,6 +50,7 @@ class ImageViewer extends StatefulWidget {
     required List<ImageViewerItem> items,
     this.initialIndex = 0,
     this.active,
+    this.isCurrent,
   }) : items = List.unmodifiable(items),
        assert(items.isNotEmpty),
        assert(initialIndex >= 0 && initialIndex < items.length);
@@ -54,6 +61,9 @@ class ImageViewer extends StatefulWidget {
   /// The calling feature owns connection/session lifetime. A false value
   /// closes the preview and prevents pending loads or exports from completing.
   final ValueListenable<bool>? active;
+
+  /// Rechecks operation authority immediately before and after asynchronous work.
+  final bool Function()? isCurrent;
 
   @override
   State<ImageViewer> createState() => _ImageViewerState();
@@ -73,7 +83,11 @@ class _ImageViewerState extends State<ImageViewer> {
   ImageProvider<Object>? _provider;
   final _shareAnchor = GlobalKey();
 
-  bool get _active => mounted && !_closing && widget.active?.value != false;
+  bool get _active =>
+      mounted &&
+      !_closing &&
+      widget.active?.value != false &&
+      widget.isCurrent?.call() != false;
 
   @override
   void initState() {
@@ -86,7 +100,15 @@ class _ImageViewerState extends State<ImageViewer> {
   }
 
   void _ownerChanged() {
-    if (widget.active?.value == false) _close();
+    if (widget.active?.value != false) return;
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _close();
+      });
+    } else {
+      _close();
+    }
   }
 
   @override
@@ -218,7 +240,7 @@ class _ImageViewerState extends State<ImageViewer> {
     final media = _media;
     if (media == null) return const Center(child: CircularProgressIndicator());
     if (_svg != null) return _hero(_svg!);
-    // Decode only the active page, and only increase detail after a gesture
+    // Decode only the active page, and adjust detail after a gesture
     // settles. Six million pixels bound a decoded RGBA frame to about 24 MB.
     final base = RasterMediaPolicy.target(
       profile: RasterDecodeProfile.fullScreen,
@@ -306,7 +328,7 @@ class _ImageViewerState extends State<ImageViewer> {
       }
     } finally {
       // Android receivers and share extensions may keep reading after their
-      // handoff returns. The staging service prunes those files after a day.
+      // handoff returns. They become eligible for pruning after a day.
       if (staged != null && (!handedOff || (native && Platform.isIOS))) {
         await staged.parent
             .delete(recursive: true)
@@ -347,7 +369,7 @@ class _ImageViewerState extends State<ImageViewer> {
                         zoomLabel: l10n.imageViewerZoom,
                         resetLabel: l10n.imageViewerResetZoom,
                         onZoomSettled: (scale) {
-                          if (scale > _decodeScale && mounted) {
+                          if (scale != _decodeScale && mounted) {
                             setState(() => _decodeScale = scale);
                           }
                         },

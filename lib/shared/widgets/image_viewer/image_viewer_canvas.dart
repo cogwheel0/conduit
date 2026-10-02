@@ -138,6 +138,11 @@ class _ImageViewerCanvasState extends State<ImageViewerCanvas>
           _animation.stop();
           _transform.value = Matrix4.identity();
           _drag = Offset.zero;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              widget.onZoomSettled(_transform.value.getMaxScaleOnAxis());
+            }
+          });
         }
         return Semantics(
           image: true,
@@ -201,6 +206,7 @@ class _ImageViewerCanvasState extends State<ImageViewerCanvas>
                         (_drag.dy.abs() > math.min(140, _size.height * .18) ||
                             (_drag.dy.abs() > 32 && velocity.dy.abs() > 900))) {
                       widget.onDismiss();
+                      _snapBack(details.velocity.pixelsPerSecond);
                       return;
                     }
                     if (_axis == Axis.horizontal &&
