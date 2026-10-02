@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/foundation.dart';
+import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -20,7 +21,10 @@ import 'image_viewer_media.dart';
 
 export 'image_viewer_media.dart';
 
-({bool Function() current, Future<void> done})? _nativeImagePreview;
+({bool Function() presented, VoidCallback cancel, Future<void> done})?
+_nativeImagePreview;
+int _nativePreviewRequest = 0;
+const _imageLoadTimeout = Duration(seconds: 15);
 
 /// Opens Quick Look directly on iOS, or a Flutter gallery on other platforms
 /// and when native loading or presentation fails.
@@ -36,40 +40,67 @@ Future<void> showImageViewer(
   RangeError.checkValidIndex(initialIndex, gallery, 'initialIndex');
   final navigator = Navigator.of(context, rootNavigator: true);
   final origin = ModalRoute.of(context);
+  final router = GoRouter.maybeOf(context)?.routerDelegate;
+  final configuration = router?.currentConfiguration;
   bool cancelled = false;
+  int? request;
+  ModalRoute<dynamic>? viewerRoute;
   bool current() =>
       !cancelled &&
+      context.mounted &&
       navigator.mounted &&
-      origin?.isActive != false &&
+      (viewerRoute?.isCurrent ?? origin?.isCurrent) != false &&
+      router?.currentConfiguration == configuration &&
+      (request == null || request == _nativePreviewRequest) &&
       active?.value != false &&
       isCurrent?.call() != false;
   if (!current()) return;
   if (defaultTargetPlatform == TargetPlatform.iOS) {
-    // The native bridge owns one presentation. Ignore repeated taps while the
-    // original screen remains visible during loading.
+    // Keep a displayed native preview; a new tap can replace a pending load.
+    if (_nativeImagePreview?.presented() == true) return;
+    request = ++_nativePreviewRequest;
     while (_nativeImagePreview != null) {
       final pending = _nativeImagePreview!;
-      if (pending.current()) return;
+      pending.cancel();
       await pending.done;
       if (!current()) return;
     }
     final completion = Completer<void>();
-    _nativeImagePreview = (current: current, done: completion.future);
+    final cancellation = Completer<ImageViewerMedia?>();
     File? staged;
     bool presented = false;
-    void ownerChanged() {
-      if (current()) return;
+    bool finished = false;
+    void cancel() {
       cancelled = true;
+      if (!cancellation.isCompleted) cancellation.complete(null);
       if (presented) {
         presented = false;
         unawaited(NativeImagePreview.dismiss().catchError((Object _) {}));
       }
     }
 
+    _nativeImagePreview = (
+      presented: () => presented && current(),
+      cancel: cancel,
+      done: completion.future,
+    );
+    void ownerChanged() {
+      if (finished || current()) return;
+      cancel();
+    }
+
     active?.addListener(ownerChanged);
+    router?.addListener(ownerChanged);
+    origin?.secondaryAnimation?.addListener(ownerChanged);
+    // Popping/removing a route can have no animation, including Navigator calls
+    // made outside GoRouter. The completion also covers those departures.
+    final departure = origin?.popped.asStream().listen((_) => ownerChanged());
     try {
-      final selected = await gallery[initialIndex].load();
-      if (!current()) return;
+      final selected = await Future.any<ImageViewerMedia?>([
+        gallery[initialIndex].load().timeout(_imageLoadTimeout),
+        cancellation.future,
+      ]);
+      if (selected == null || !current()) return;
       staged = await selected.stage();
       if (!current()) return;
       presented = true;
@@ -78,8 +109,12 @@ Future<void> showImageViewer(
     } catch (_) {
       DebugLogger.log('Native image preview failed', scope: 'images/preview');
     } finally {
+      finished = true;
       presented = false;
       active?.removeListener(ownerChanged);
+      router?.removeListener(ownerChanged);
+      origin?.secondaryAnimation?.removeListener(ownerChanged);
+      unawaited(departure?.cancel());
       final file = staged;
       if (file != null) {
         await file.parent
@@ -98,6 +133,7 @@ Future<void> showImageViewer(
     active: active,
     isCurrent: current,
   );
+  viewerRoute = route;
   onShown?.call(route);
   await navigator.push(route);
 }
@@ -209,9 +245,9 @@ class _ImageViewerState extends State<ImageViewer> {
     final generation = ++_generation;
     final item = widget.items[_index];
     try {
-      if (refresh) await item.invalidate?.call();
+      if (refresh) await item.invalidate?.call().timeout(_imageLoadTimeout);
       if (!_active || generation != _generation) return;
-      final media = await item.load();
+      final media = await item.load().timeout(_imageLoadTimeout);
       final svgBytes = media.isSvg ? await media.readBytes() : null;
       if (!_active || generation != _generation) return;
       setState(() {

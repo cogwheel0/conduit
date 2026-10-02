@@ -7,6 +7,7 @@ import 'package:conduit/shared/widgets/image_viewer/image_viewer.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
 final _pixel = base64Decode(
@@ -25,19 +26,33 @@ Widget _host(
   List<ImageViewerItem> items, {
   int initialIndex = 1,
   ValueNotifier<bool>? active,
+  int? otherIndex,
 }) => MaterialApp(
   localizationsDelegates: AppLocalizations.localizationsDelegates,
   supportedLocales: AppLocalizations.supportedLocales,
   home: Builder(
     builder: (context) => Scaffold(
-      body: TextButton(
-        onPressed: () => showImageViewer(
-          context,
-          items: items,
-          initialIndex: initialIndex,
-          active: active,
-        ),
-        child: const Text('Open'),
+      body: Column(
+        children: [
+          TextButton(
+            onPressed: () => showImageViewer(
+              context,
+              items: items,
+              initialIndex: initialIndex,
+              active: active,
+            ),
+            child: const Text('Open'),
+          ),
+          if (otherIndex != null)
+            TextButton(
+              onPressed: () => showImageViewer(
+                context,
+                items: items,
+                initialIndex: otherIndex,
+              ),
+              child: const Text('Open other'),
+            ),
+        ],
       ),
     ),
   ),
@@ -338,4 +353,125 @@ void main() {
     expect(find.byType(ImageViewer), findsNothing);
     expect(find.text('Open'), findsOneWidget);
   }, variant: _ios);
+
+  testWidgets('another image can replace a stalled native load', (
+    tester,
+  ) async {
+    final pending = Completer<ImageViewerMedia>();
+    final gallery = items();
+    gallery[0] = ImageViewerItem(
+      load: () {
+        loads.add(0);
+        return pending.future;
+      },
+    );
+    await tester.pumpWidget(_host(gallery, initialIndex: 0, otherIndex: 1));
+    await tester.tap(find.text('Open'));
+    await tester.pump();
+    await tester.tap(find.text('Open other'));
+    await tester.pump();
+    try {
+      await _waitUntil(tester, () => loads.contains(1));
+      expect(loads, [0, 1]);
+      final previewFile = await _waitForPreview(tester, () => staged);
+      pending.completeError(StateError('Replaced request failed later'));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(openCount, 1);
+      expect(find.byType(ImageViewer), findsNothing);
+      dismissed.complete();
+      await _finishExport(tester, previewFile);
+      expect(
+        await tester.runAsync(() => previewFile.parent.parent.list().toList()),
+        isEmpty,
+      );
+    } finally {
+      if (!pending.isCompleted) {
+        pending.complete(ImageViewerMedia.bytes(_pixel));
+      }
+      if (!dismissed.isCompleted) dismissed.complete();
+      await tester.pump();
+    }
+  }, variant: _ios);
+
+  testWidgets('a stalled native load times out to a retryable gallery', (
+    tester,
+  ) async {
+    final pending = Completer<ImageViewerMedia>();
+    var attempts = 0;
+    final gallery = items();
+    gallery[0] = ImageViewerItem(
+      load: () {
+        attempts++;
+        if (attempts == 1) return pending.future;
+        return Future.error(StateError('Unavailable'));
+      },
+    );
+    await tester.pumpWidget(_host(gallery, initialIndex: 0));
+    await tester.tap(find.text('Open'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 15));
+    await tester.pumpAndSettle();
+    expect(find.text('Retry'), findsOneWidget);
+    expect(openCount, 0);
+    await tester.tap(find.byTooltip('Next image'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(loads, [1]);
+    expect(find.byType(Image), findsOneWidget);
+    pending.completeError(StateError('Timed-out request failed later'));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(openCount, 0);
+  }, variant: _ios);
+
+  for (final navigation in ['go', 'push', 'pop']) {
+    testWidgets(
+      'Quick Look closes when its source route is left by $navigation',
+      (tester) async {
+        final gallery = items();
+        final router = GoRouter(
+          routes: [
+            GoRoute(
+              path: '/',
+              builder: (_, _) => const Scaffold(body: Text('Destination')),
+            ),
+            GoRoute(
+              path: '/source',
+              builder: (context, _) => Scaffold(
+                body: TextButton(
+                  onPressed: () => showImageViewer(context, items: gallery),
+                  child: const Text('Open'),
+                ),
+              ),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+        unawaited(router.push('/source'));
+        await tester.pumpAndSettle();
+        final previewFile = await _open(tester, () => staged);
+        switch (navigation) {
+          case 'go':
+            router.go('/');
+          case 'push':
+            unawaited(router.push('/'));
+          case 'pop':
+            router.pop();
+        }
+        await tester.pumpAndSettle();
+        try {
+          expect(dismissCount, 1);
+          await _finishExport(tester, previewFile);
+          expect(find.text('Destination'), findsOneWidget);
+          expect(find.byType(ImageViewer), findsNothing);
+        } finally {
+          if (!dismissed.isCompleted) dismissed.complete();
+          await tester.pump();
+        }
+      },
+      variant: _ios,
+    );
+  }
 }
