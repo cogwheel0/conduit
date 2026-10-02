@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/widgets/image_viewer/image_viewer.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -14,33 +15,41 @@ final _pixel = base64Decode(
 const _preview = MethodChannel('app.cogwheel.conduit/image_preview');
 const _paths = MethodChannel('plugins.flutter.io/path_provider');
 
-Widget _host(List<ImageViewerItem> items, {ValueNotifier<bool>? active}) =>
-    MaterialApp(
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
-      supportedLocales: AppLocalizations.supportedLocales,
-      home: Builder(
-        builder: (context) => Scaffold(
-          body: TextButton(
-            onPressed: () => Navigator.of(context).push(
-              buildImageViewerRoute(
-                context,
-                items: items,
-                initialIndex: 1,
-                active: active,
-              ),
-            ),
-            child: const Text('Open'),
+const _mobile = TargetPlatformVariant({
+  TargetPlatform.iOS,
+  TargetPlatform.android,
+});
+
+Widget _host(
+  List<ImageViewerItem> items, {
+  int initialIndex = 1,
+  ValueNotifier<bool>? active,
+}) => MaterialApp(
+  localizationsDelegates: AppLocalizations.localizationsDelegates,
+  supportedLocales: AppLocalizations.supportedLocales,
+  home: Builder(
+    builder: (context) => Scaffold(
+      body: TextButton(
+        onPressed: () => Navigator.of(context).push(
+          buildImageViewerRoute(
+            context,
+            items: items,
+            initialIndex: initialIndex,
+            active: active,
           ),
         ),
+        child: const Text('Open'),
       ),
-    );
+    ),
+  ),
+);
 
 Future<File> _open(WidgetTester tester, File? Function() staged) async {
   await tester.tap(find.text('Open'));
   final deadline = DateTime.now().add(const Duration(seconds: 30));
   while (staged() == null) {
     if (DateTime.now().isAfter(deadline)) {
-      fail('Quick Look did not open automatically');
+      fail('Native image viewer did not open automatically');
     }
     await tester.pump();
     await tester.runAsync(() async {
@@ -50,10 +59,14 @@ Future<File> _open(WidgetTester tester, File? Function() staged) async {
   return staged()!;
 }
 
-Future<void> _finishExport(WidgetTester tester, File staged) async {
+Future<void> _finishExport(
+  WidgetTester tester,
+  File staged, {
+  bool retained = false,
+}) async {
   final deadline = DateTime.now().add(const Duration(seconds: 30));
   await tester.pump();
-  while (await tester.runAsync(staged.parent.exists) == true) {
+  while (!retained && await tester.runAsync(staged.parent.exists) == true) {
     if (DateTime.now().isAfter(deadline)) {
       fail('Preview staging file was not removed');
     }
@@ -90,7 +103,9 @@ void main() {
   ];
 
   setUp(() async {
-    temporary = await Directory.systemTemp.createTemp('conduit_quick_look_');
+    temporary = await Directory.systemTemp.createTemp(
+      'conduit_native_preview_',
+    );
     staged = null;
     dismissed = Completer<void>();
     loads = [];
@@ -103,7 +118,9 @@ void main() {
         openCount++;
         staged = File((call.arguments as Map)['path'] as String);
         if (failPreview) throw PlatformException(code: 'unsupported');
-        await dismissed.future;
+        if (defaultTargetPlatform == TargetPlatform.iOS) {
+          await dismissed.future;
+        }
       } else if (call.method == 'dismiss') {
         dismissCount++;
         if (!dismissed.isCompleted) dismissed.complete();
@@ -118,41 +135,85 @@ void main() {
     await temporary.delete(recursive: true);
   });
 
-  testWidgets('iOS opens the tapped original and returns after Quick Look', (
+  testWidgets('single image opens natively and returns to its origin', (
     tester,
   ) async {
-    await tester.pumpWidget(_host(items()));
+    await tester.pumpWidget(_host([items()[1]], initialIndex: 0));
     final previewFile = await _open(tester, () => staged);
     expect(loads, [1]);
     expect(openCount, 1);
     expect(await tester.runAsync(previewFile.readAsBytes), _pixel);
-    expect(find.byType(ImageViewer), findsOneWidget);
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      expect(find.byType(ImageViewer), findsOneWidget);
+    }
 
     dismissed.complete();
-    await _finishExport(tester, previewFile);
+    final retained = defaultTargetPlatform == TargetPlatform.android;
+    await _finishExport(tester, previewFile, retained: retained);
+    expect(await tester.runAsync(previewFile.exists), retained);
     expect(find.byType(ImageViewer), findsNothing);
     expect(find.text('Open'), findsOneWidget);
     expect(dismissCount, 0);
-  }, variant: const TargetPlatformVariant({TargetPlatform.iOS}));
+  }, variant: _mobile);
 
-  testWidgets('failed Quick Look falls back to the usable Flutter gallery', (
-    tester,
-  ) async {
-    failPreview = true;
+  testWidgets('native preview leaves sibling images reachable', (tester) async {
     await tester.pumpWidget(_host(items()));
     final previewFile = await _open(tester, () => staged);
-    await _finishExport(tester, previewFile);
-
+    expect(loads, [1]);
+    dismissed.complete();
+    await _finishExport(
+      tester,
+      previewFile,
+      retained: defaultTargetPlatform == TargetPlatform.android,
+    );
     expect(find.byType(ImageViewer), findsOneWidget);
-    expect(find.byType(Image), findsOneWidget);
-    expect(find.byType(SnackBar), findsNothing);
     await tester.tap(find.byTooltip('Previous image'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(loads, [1, 0]);
     expect(openCount, 1);
     expect(find.text('1 of 2'), findsOneWidget);
-  }, variant: const TargetPlatformVariant({TargetPlatform.iOS}));
+  }, variant: _mobile);
+
+  testWidgets(
+    'failed native preview falls back to the usable Flutter gallery',
+    (tester) async {
+      failPreview = true;
+      await tester.pumpWidget(_host(items()));
+      final previewFile = await _open(tester, () => staged);
+      await _finishExport(tester, previewFile);
+
+      expect(find.byType(ImageViewer), findsOneWidget);
+      expect(find.byType(Image), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
+      await tester.tap(find.byTooltip('Previous image'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(loads, [1, 0]);
+      expect(openCount, 1);
+      expect(find.text('1 of 2'), findsOneWidget);
+    },
+    variant: _mobile,
+  );
+
+  testWidgets('failed initial image leaves gallery paging available', (
+    tester,
+  ) async {
+    final gallery = items();
+    gallery[1] = ImageViewerItem(load: () async => throw StateError('Expired'));
+    await tester.pumpWidget(_host(gallery));
+    await tester.tap(find.text('Open'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Retry'), findsOneWidget);
+    await tester.tap(find.byTooltip('Previous image'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(loads, [0]);
+    expect(find.byType(Image), findsOneWidget);
+    expect(find.text('1 of 2'), findsOneWidget);
+    expect(openCount, 0);
+  }, variant: _mobile);
 
   testWidgets('owner invalidation dismisses automatic Quick Look once', (
     tester,

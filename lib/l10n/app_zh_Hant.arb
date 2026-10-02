@@ -3359,11 +3359,11 @@
   "@imageViewerQuickLook": {
     "description": "Button to open the image in the iOS system preview."
   },
-  "imageViewerOpenIn": "打開方式…",
+  "imageViewerOpenIn": "開啟方式…",
   "@imageViewerOpenIn": {
     "description": "Button to open the image in another Android app."
   },
-  "imageViewerExportFailed": "無法打開或分享此圖片。請重試。",
+  "imageViewerExportFailed": "無法開啟或分享此圖片。請重試。",
   "@imageViewerExportFailed": {
     "description": "Shown when image staging, system preview, or sharing fails."
   },

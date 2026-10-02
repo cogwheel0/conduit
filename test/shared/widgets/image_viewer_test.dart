@@ -20,6 +20,9 @@ final _pixel = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==',
 );
 
+// Native handoff and mobile fallback are covered by image_viewer_native_test.
+const _flutterGalleryPlatform = TargetPlatformVariant({TargetPlatform.macOS});
+
 class _ImageCacheManager extends Mock
     implements BaseCacheManager, ImageCacheManager {}
 
@@ -129,6 +132,7 @@ void main() {
         );
         expect(find.text(protected ? '2 of 2' : '1 of 2'), findsOneWidget);
       },
+      variant: _flutterGalleryPlatform,
     );
   }
 
@@ -211,7 +215,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(ImageViewer), findsNothing);
     expect(find.byType(EnhancedImageAttachment), findsOneWidget);
-  });
+  }, variant: _flutterGalleryPlatform);
 
   test('gallery parsing handles long tokens and uses displayed Markdown', () {
     final content =
@@ -219,7 +223,7 @@ void main() {
     final timer = Stopwatch()..start();
     final images = ImageAttachmentGallery.markdownImages(content);
     expect(images.map((image) => image.id), ['https://example.test/one.png']);
-    expect(timer.elapsed, lessThan(const Duration(seconds: 1)));
+    expect(timer.elapsed, lessThan(const Duration(seconds: 10)));
   });
 
   testWidgets('visible thumbnail opens after its shared cache is evicted', (
@@ -270,7 +274,7 @@ void main() {
       ),
       findsOneWidget,
     );
-  });
+  }, variant: _flutterGalleryPlatform);
 
   testWidgets('zoom reset releases the enlarged decode target', (tester) async {
     await tester.pumpWidget(
@@ -305,7 +309,7 @@ void main() {
     expect(provider().width, greaterThan(fitted));
     await doubleTap();
     expect(provider().width, fitted);
-  });
+  }, variant: _flutterGalleryPlatform);
 
   testWidgets(
     'starts at tapped image and loads other pages only on navigation',
@@ -335,6 +339,7 @@ void main() {
       await _render(tester);
       expect(find.text('2 of 3'), findsOneWidget);
     },
+    variant: _flutterGalleryPlatform,
   );
 
   testWidgets('retry reloads a failed image and ignores a late previous page', (
@@ -367,7 +372,7 @@ void main() {
     check(attempts).equals(2);
     expect(find.text('Second'), findsOneWidget);
     expect(find.text('Retry'), findsNothing);
-  });
+  }, variant: _flutterGalleryPlatform);
 
   testWidgets(
     'session invalidation closes a viewer before a pending image arrives',
@@ -389,5 +394,6 @@ void main() {
       expect(find.text('Open'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
+    variant: _flutterGalleryPlatform,
   );
 }

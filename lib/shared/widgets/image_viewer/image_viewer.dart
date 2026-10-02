@@ -33,7 +33,9 @@ PageRoute<void> buildImageViewerRoute(
     active: active,
     isCurrent: isCurrent,
   );
-  if (defaultTargetPlatform == TargetPlatform.iOS || context.reduceMotion) {
+  if (defaultTargetPlatform == TargetPlatform.iOS ||
+      defaultTargetPlatform == TargetPlatform.android ||
+      context.reduceMotion) {
     return PageRouteBuilder<void>(
       fullscreenDialog: true,
       transitionDuration: Duration.zero,
@@ -79,7 +81,9 @@ class _ImageViewerState extends State<ImageViewer> {
   bool _busy = false;
   bool _closing = false;
   bool _nativePresented = false;
-  bool _defaultPreviewPending = defaultTargetPlatform == TargetPlatform.iOS;
+  bool _defaultPreviewPending =
+      defaultTargetPlatform == TargetPlatform.iOS ||
+      defaultTargetPlatform == TargetPlatform.android;
   bool _openingDefaultPreview = false;
   double _decodeScale = 1;
   ImageProvider<Object>? _provider;
@@ -153,12 +157,15 @@ class _ImageViewerState extends State<ImageViewer> {
           }
           _defaultPreviewPending = false;
           _openingDefaultPreview = true;
-          unawaited(_export(native: true, closeAfterNative: true));
+          unawaited(_export(native: true, automatic: true));
         });
       }
     } catch (_) {
       if (!_active || generation != _generation) return;
-      setState(() => _failed = true);
+      setState(() {
+        _failed = true;
+        _defaultPreviewPending = false;
+      });
     }
   }
 
@@ -314,10 +321,7 @@ class _ImageViewerState extends State<ImageViewer> {
         : Hero(tag: item.heroTag!, child: image);
   }
 
-  Future<void> _export({
-    required bool native,
-    bool closeAfterNative = false,
-  }) async {
+  Future<void> _export({required bool native, bool automatic = false}) async {
     final media = _media;
     if (media == null || _busy || !_active) return;
     final l10n = AppLocalizations.of(context)!;
@@ -345,10 +349,16 @@ class _ImageViewerState extends State<ImageViewer> {
         );
       }
       handedOff = true;
-      if (closeAfterNative && _active && generation == _generation) _close();
+      // Keep sibling images reachable after the native viewer returns.
+      if (automatic &&
+          widget.items.length == 1 &&
+          _active &&
+          generation == _generation) {
+        _close();
+      }
     } catch (_) {
       DebugLogger.log('Image export failed', scope: 'images/export');
-      if (!closeAfterNative && mounted && _active) {
+      if (!automatic && mounted && _active) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(l10n.imageViewerExportFailed)));
@@ -459,10 +469,14 @@ class _ImageViewerState extends State<ImageViewer> {
                                         height: 24,
                                         child: CircularProgressIndicator(),
                                       ),
-                                    if (Platform.isIOS || Platform.isAndroid)
+                                    if (defaultTargetPlatform ==
+                                            TargetPlatform.iOS ||
+                                        defaultTargetPlatform ==
+                                            TargetPlatform.android)
                                       _button(
                                         Icons.open_in_new,
-                                        Platform.isIOS
+                                        defaultTargetPlatform ==
+                                                TargetPlatform.iOS
                                             ? l10n.imageViewerQuickLook
                                             : l10n.imageViewerOpenIn,
                                         _media == null ||
@@ -474,7 +488,8 @@ class _ImageViewerState extends State<ImageViewer> {
                                     KeyedSubtree(
                                       key: _shareAnchor,
                                       child: _button(
-                                        Platform.isIOS
+                                        defaultTargetPlatform ==
+                                                TargetPlatform.iOS
                                             ? Icons.ios_share
                                             : Icons.share_outlined,
                                         l10n.shareSystemSheet,

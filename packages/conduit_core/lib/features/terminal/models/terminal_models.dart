@@ -160,7 +160,7 @@ class TerminalFileReadResult {
   final String? text;
   final Uint8List? bytes;
 
-  bool get isImage => contentType.startsWith('image/');
+  bool get isImage => contentType.trimLeft().toLowerCase().startsWith('image/');
 
   bool get isText => text != null;
 }

@@ -421,7 +421,9 @@ Future<void> showTerminalFilePreview(
           label: sanitizeUtf16(entry.displayName),
           load: () async => ImageViewerMedia.bytes(
             preview.bytes!,
-            isSvg: preview.contentType.split(';').first == 'image/svg+xml',
+            isSvg:
+                preview.contentType.split(';').first.trim().toLowerCase() ==
+                'image/svg+xml',
           ),
         ),
       ],
@@ -480,7 +482,8 @@ Widget _terminalPreviewContent(
   int? page,
 }) {
   final theme = context.conduitTheme;
-  if (preview.contentType.split(';').first == 'application/pdf' &&
+  if (preview.contentType.split(';').first.trim().toLowerCase() ==
+          'application/pdf' &&
       preview.bytes != null) {
     return SizedBox(
       width: 520,

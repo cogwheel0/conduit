@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:conduit/shared/widgets/image_viewer/image_viewer.dart';
+import 'package:conduit/shared/widgets/jovial_svg_image.dart';
 
 import 'package:pdfrx/pdfrx.dart';
 
@@ -23,50 +24,60 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 void main() {
   group('TerminalTab', () {
-    testWidgets(
-      'file-list image preview closes when its terminal is deactivated',
-      (tester) async {
-        final service = _FakeTerminalService(
-          servers: [
-            TerminalServerInfo(
-              kind: TerminalServerKind.direct,
-              selectionId: 'https://terminal.example',
-              baseUrl: Uri.parse('https://terminal.example'),
-              name: 'Workspace',
-            ),
-          ],
-          entries: const [
-            TerminalFileEntry(
-              name: 'photo.png',
-              path: '/photo.png',
-              isDirectory: false,
-            ),
-          ],
-          ports: const [],
-        );
-        service.readResult = TerminalFileReadResult(
-          fileName: 'photo.png',
-          contentType: 'image/png',
-          bytes: base64Decode(
-            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==',
-          ),
-        );
-        final active = ValueNotifier(true);
-        addTearDown(active.dispose);
-        await tester.pumpWidget(_buildHarnessWithActivity(service, active));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('photo.png'));
-        await tester.pump();
-        await tester.pump(const Duration(seconds: 1));
-        expect(find.byType(ImageViewer), findsOneWidget);
-        active.value = false;
-        await tester.pump();
-        await tester.pump(const Duration(seconds: 1));
-        await tester.pump(const Duration(seconds: 1));
-        expect(find.byType(ImageViewer), findsNothing);
-        expect(tester.takeException(), isNull);
-      },
-    );
+    for (final svg in [false, true]) {
+      testWidgets(
+        'file-list ${svg ? 'SVG' : 'PNG'} preview closes when its terminal is deactivated',
+        (tester) async {
+          final service = _FakeTerminalService(
+            servers: [
+              TerminalServerInfo(
+                kind: TerminalServerKind.direct,
+                selectionId: 'https://terminal.example',
+                baseUrl: Uri.parse('https://terminal.example'),
+                name: 'Workspace',
+              ),
+            ],
+            entries: const [
+              TerminalFileEntry(
+                name: 'photo.png',
+                path: '/photo.png',
+                isDirectory: false,
+              ),
+            ],
+            ports: const [],
+          );
+          service.readResult = TerminalFileReadResult(
+            fileName: 'photo.png',
+            contentType: svg ? ' IMAGE/SVG+XML ; charset=utf-8' : 'image/png',
+            bytes: svg
+                ? Uint8List.fromList(
+                    utf8.encode(
+                      '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="red"/></svg>',
+                    ),
+                  )
+                : base64Decode(
+                    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==',
+                  ),
+          );
+          final active = ValueNotifier(true);
+          addTearDown(active.dispose);
+          await tester.pumpWidget(_buildHarnessWithActivity(service, active));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('photo.png'));
+          await tester.pump();
+          await tester.pump(const Duration(seconds: 1));
+          expect(find.byType(ImageViewer), findsOneWidget);
+          if (svg) expect(find.byType(JovialSvgImage), findsOneWidget);
+          active.value = false;
+          await tester.pump();
+          await tester.pump(const Duration(seconds: 1));
+          await tester.pump(const Duration(seconds: 1));
+          expect(find.byType(ImageViewer), findsNothing);
+          expect(tester.takeException(), isNull);
+        },
+        variant: const TargetPlatformVariant({TargetPlatform.macOS}),
+      );
+    }
 
     testWidgets('PDF cache identity changes for each newly read file', (
       tester,
