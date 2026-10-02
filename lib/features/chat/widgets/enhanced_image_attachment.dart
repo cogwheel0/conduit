@@ -507,7 +507,8 @@ class ImageAttachmentGallery extends InheritedWidget {
       }
     }
 
-    for (final node in document.parseLines(content.split('\n'))) {
+    final normalized = ConduitMarkdownPreprocessor.normalize(content);
+    for (final node in document.parseLines(normalized.split('\n'))) {
       visit(node);
     }
     return images;
@@ -1164,8 +1165,7 @@ class _EnhancedImageAttachmentState
         _cacheScope != scope) {
       return;
     }
-    final sources = <ImageAttachmentReference>[];
-    final seen = <String>{};
+    final sourcesById = <String, ImageAttachmentReference>{};
     for (final source in gallery?.images() ?? <ImageAttachmentReference>[]) {
       // Generic legacy attachment lists can contain documents. Include only
       // siblings that have already resolved as images, plus literal image data.
@@ -1176,16 +1176,21 @@ class _EnhancedImageAttachmentState
           (cached == null || cached.error != null)) {
         continue;
       }
-      if (seen.add(source.id)) sources.add(source);
-    }
-    if (seen.add(widget.attachmentId)) {
-      sources.add(
-        ImageAttachmentReference(
-          widget.attachmentId,
-          headers: widget.httpHeaders,
-        ),
+      final previous = sourcesById[source.id];
+      sourcesById[source.id] = ImageAttachmentReference(
+        source.id,
+        headers: _mergeHeaders(previous?.headers, source.headers),
+        label: previous?.label ?? source.label,
+        isKnownImage: previous?.isKnownImage == true || source.isKnownImage,
       );
     }
+    final tapped = sourcesById[widget.attachmentId];
+    sourcesById[widget.attachmentId] = ImageAttachmentReference(
+      widget.attachmentId,
+      headers: _mergeHeaders(tapped?.headers, widget.httpHeaders),
+      label: tapped?.label,
+    );
+    final sources = sourcesById.values.toList(growable: false);
     final initialIndex = sources.indexWhere(
       (source) => source.id == widget.attachmentId,
     );

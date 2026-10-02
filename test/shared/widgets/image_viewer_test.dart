@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
+import 'package:cached_network_image_ce/cached_network_image.dart';
+import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
 import 'package:conduit/features/chat/widgets/enhanced_image_attachment.dart';
 import 'package:conduit/core/services/image_attachment_cache_service.dart';
 import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
@@ -11,11 +13,15 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/widgets/image_viewer/image_viewer.dart';
 import 'package:conduit/shared/widgets/image_viewer/image_viewer_canvas.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:material_ui/material_ui.dart';
 
 final _pixel = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==',
 );
+
+class _ImageCacheManager extends Mock
+    implements BaseCacheManager, ImageCacheManager {}
 
 Widget _host(
   List<ImageViewerItem> items, {
@@ -50,6 +56,69 @@ Future<void> _render(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('tapped duplicate keeps its custom request headers', (
+    tester,
+  ) async {
+    const url = 'https://example.test/private.png';
+    const headers = {'X-Image-Key': 'fixture-key'};
+    final cache = _ImageCacheManager();
+    when(
+      () => cache.getImageFile(
+        any(),
+        key: any(named: 'key'),
+        headers: any(named: 'headers'),
+        maxWidth: any(named: 'maxWidth'),
+        maxHeight: any(named: 'maxHeight'),
+        withProgress: any(named: 'withProgress'),
+      ),
+    ).thenAnswer((_) => const Stream<FileResponse>.empty());
+    Map<String, String>? requestedHeaders;
+    when(
+      () => cache.getFileStream(
+        any(),
+        key: any(named: 'key'),
+        headers: any(named: 'headers'),
+      ),
+    ).thenAnswer((call) {
+      requestedHeaders = call.namedArguments[#headers] as Map<String, String>?;
+      return const Stream<FileResponse>.empty();
+    });
+    addTearDown(debugResetImageAttachmentCaches);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          apiServiceProvider.overrideWithValue(null),
+          selfSignedImageCacheManagerProvider.overrideWithValue(cache),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: ImageAttachmentGallery(
+              images: () => const [
+                ImageAttachmentReference(url, label: 'Markdown'),
+                ImageAttachmentReference(url, headers: headers),
+              ],
+              child: const Center(
+                child: EnhancedImageAttachment(
+                  attachmentId: url,
+                  httpHeaders: headers,
+                  disableAnimation: true,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await _render(tester);
+    await _render(tester);
+    await tester.tap(find.byType(EnhancedImageAttachment));
+    await _render(tester);
+    expect(find.byType(ImageViewer), findsOneWidget);
+    expect(requestedHeaders?['X-Image-Key'], 'fixture-key');
+  });
+
   testWidgets('gallery swipes stay above the app drawer', (tester) async {
     tester.view.physicalSize = const Size(402, 874);
     tester.view.devicePixelRatio = 1;
@@ -116,15 +185,12 @@ void main() {
     expect(find.byType(EnhancedImageAttachment), findsOneWidget);
   });
 
-  test('gallery parsing handles long tokens and preserves image references', () {
+  test('gallery parsing handles long tokens and uses displayed Markdown', () {
     final content =
         '${'A' * 12000}![first](https://example.test/one.png)\n\n![second][ref]\n\n[ref]: https://example.test/two.png';
     final timer = Stopwatch()..start();
     final images = ImageAttachmentGallery.markdownImages(content);
-    expect(images.map((image) => image.id), [
-      'https://example.test/one.png',
-      'https://example.test/two.png',
-    ]);
+    expect(images.map((image) => image.id), ['https://example.test/one.png']);
     expect(timer.elapsed, lessThan(const Duration(seconds: 1)));
   });
 
