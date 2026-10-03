@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/models/channel.dart';
 import 'package:conduit_core/models/channel_message.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -100,8 +101,16 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       operationGeneration == _operationGeneration &&
       _ownsChannelRequest(api, authSessionEpoch, channelId);
 
-  ChannelMessage _withOwnSender(ChannelMessage message) {
-    final me = ref.read(currentUserProvider).value;
+  /// [message] with the signed-in user as its sender when the server left it
+  /// out. The user may still be loading, and the message is stored by id, so
+  /// a socket echo could not fill the sender in later.
+  Future<ChannelMessage> _withOwnSender(ChannelMessage message) async {
+    final User? me;
+    try {
+      me = await ref.read(currentUserProvider.future);
+    } catch (_) {
+      return message;
+    }
     return me == null ? message : message.withSenderIfMissing(me);
   }
 
@@ -323,6 +332,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         tempId: tempId,
         replyToId: replyToId,
       );
+      final message = await _withOwnSender(ChannelMessage.fromJson(json));
       if (!mounted ||
           !_ownsChannelOperation(
             api,
@@ -332,7 +342,6 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           )) {
         return;
       }
-      final message = _withOwnSender(ChannelMessage.fromJson(json));
       ref
           .read(channelMessagesProvider(channelId).notifier)
           .prependMessage(message);
@@ -585,6 +594,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         parentId: parentMessageId,
         data: {'files': files},
       );
+      final message = await _withOwnSender(ChannelMessage.fromJson(json));
       if (!mounted ||
           !_ownsChannelOperation(
             api,
@@ -595,7 +605,6 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         return;
       }
 
-      final message = _withOwnSender(ChannelMessage.fromJson(json));
       if (parentMessageId != null) {
         ref
             .read(threadMessagesProvider(channelId, parentMessageId).notifier)
@@ -770,10 +779,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       )) {
         return;
       }
-      final updated = message.withUpdateResponse(ChannelMessage.fromJson(json));
       ref
           .read(channelMessagesProvider(channelId).notifier)
-          .updateMessage(updated);
+          .applyUpdateResponse(ChannelMessage.fromJson(json));
     } catch (e, st) {
       developer.log(
         'Failed to edit message',
@@ -818,10 +826,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           )) {
         return;
       }
-      final updated = message.withUpdateResponse(ChannelMessage.fromJson(json));
       ref
           .read(channelMessagesProvider(channelId).notifier)
-          .updateMessage(updated);
+          .applyUpdateResponse(ChannelMessage.fromJson(json));
     } catch (e, st) {
       developer.log(
         'Failed to toggle pin',

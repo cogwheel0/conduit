@@ -236,6 +236,40 @@ void main() {
       ]);
     });
 
+    test(
+      'an edit response keeps what a live event changed meanwhile',
+      () async {
+        final api = _QueuedChannelContentApi();
+        final container = ProviderContainer(
+          overrides: [apiServiceProvider.overrideWithValue(api)],
+        );
+        addTearDown(container.dispose);
+        final provider = channelMessagesProvider('channel');
+        final subscription = container.listen(provider, (_, _) {});
+        addTearDown(subscription.close);
+        final firstPage = container.read(provider.future);
+        await _waitFor(() => api.messageRequestCount == 1);
+        api.completeMessages(0, const <Map<String, dynamic>>[]);
+        await firstPage;
+
+        final notifier = container.read(provider.notifier);
+        notifier.prependMessage(
+          const ChannelMessage(id: 'm1', content: 'before', replyCount: 1),
+        );
+        // A reply arrives over the socket while the edit request is in flight.
+        notifier.updateMessage(
+          const ChannelMessage(id: 'm1', content: 'before', replyCount: 2),
+        );
+        notifier.applyUpdateResponse(
+          const ChannelMessage(id: 'm1', content: 'after'),
+        );
+
+        final message = container.read(provider).requireValue.single;
+        expect(message.content, 'after');
+        expect(message.replyCount, 2);
+      },
+    );
+
     test('first-page refresh preserves live updates and deletions', () async {
       final api = _QueuedChannelContentApi();
       final container = ProviderContainer(

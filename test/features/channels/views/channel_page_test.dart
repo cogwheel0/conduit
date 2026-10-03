@@ -30,6 +30,68 @@ final _channelAuthEpochProvider =
     );
 
 void main() {
+  testWidgets('a posted message gets its sender while the user still loads', (
+    tester,
+  ) async {
+    final userLoading = Completer<User?>();
+    final api = _ChannelApi(
+      // The server's answer to a post names only the sender's id.
+      sendResponse: Completer<Map<String, dynamic>>()
+        ..complete({
+          'id': 'message-2',
+          'channel_id': 'channel-1',
+          'user_id': 'user-1',
+          'content': 'hello',
+        }),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(api),
+        currentUserProvider.overrideWith((ref) => userLoading.future),
+        socketServiceProvider.overrideWithValue(null),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const ChannelPage(channelId: 'channel-1'),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1));
+
+    final send =
+        tester
+                .widget<ModernChatInput>(find.byType(ModernChatInput).first)
+                .onSendMessage('hello')
+            as Future<void>;
+    await tester.pump(const Duration(milliseconds: 1));
+    userLoading.complete(
+      const User(
+        id: 'user-1',
+        username: 'alice',
+        email: 'alice@example.test',
+        name: 'Alice',
+        role: 'user',
+      ),
+    );
+    await send;
+    await tester.pump(const Duration(milliseconds: 1));
+
+    final posted = container
+        .read(channelMessagesProvider('channel-1'))
+        .requireValue
+        .single;
+    check(posted.id).equals('message-2');
+    check(posted.userName).equals('Alice');
+  });
+
   testWidgets(
     'mounted channel reloads details when API and auth owner change',
     (tester) async {

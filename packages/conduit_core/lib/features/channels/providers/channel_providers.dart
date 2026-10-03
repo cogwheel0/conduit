@@ -296,6 +296,16 @@ class ChannelMessages extends _$ChannelMessages {
     state = AsyncValue.data(next);
   }
 
+  /// Applies an edit or pin [response] to the message it names, as the list
+  /// holds it now. A socket event can change its reactions or thread counts
+  /// while the request is in flight, and those must not be rolled back.
+  void applyUpdateResponse(ChannelMessage response) {
+    final current = state.value ?? [];
+    final index = current.indexWhere((message) => message.id == response.id);
+    if (index < 0) return;
+    updateMessage(current[index].withUpdateResponse(response));
+  }
+
   /// Removes a message from the list.
   void removeMessage(String messageId) {
     final current = state.value ?? [];
