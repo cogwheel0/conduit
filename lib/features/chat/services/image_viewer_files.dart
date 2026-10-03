@@ -85,13 +85,24 @@ ImageFileType? _sniffImageFileType(Uint8List bytes) {
   if (startsWith('ftyp'.codeUnits, 4) && bytes.length >= 12) {
     String brandAt(int offset) =>
         String.fromCharCodes(bytes.sublist(offset, offset + 4));
+    final data = bytes.buffer.asByteData(bytes.offsetInBytes, bytes.length);
+    // A size of 1 means a 64-bit size follows the type; 0 means the box runs
+    // to the end of the file.
+    var boxSize = data.getUint32(0);
+    var brandOffset = 8;
+    if (boxSize == 1) {
+      if (bytes.length < 20) return null;
+      final high = data.getUint32(8);
+      boxSize = high == 0 ? data.getUint32(12) : bytes.length;
+      brandOffset = 16;
+    }
+    if (boxSize == 0 || boxSize > bytes.length) boxSize = bytes.length;
     // The box lists compatible brands after the major brand and version.
     // AVIF files often use the generic `mif1` major brand.
-    final boxEnd = bytes.buffer.asByteData(bytes.offsetInBytes).getUint32(0);
-    final end = boxEnd < bytes.length ? boxEnd : bytes.length;
     final brands = [
-      brandAt(8),
-      for (var offset = 16; offset + 4 <= end; offset += 4) brandAt(offset),
+      brandAt(brandOffset),
+      for (var offset = brandOffset + 8; offset + 4 <= boxSize; offset += 4)
+        brandAt(offset),
     ];
     if (brands.contains('avif') || brands.contains('avis')) return _avif;
     if (const {'heic', 'heix', 'hevc', 'mif1', 'msf1'}.contains(brands[0])) {

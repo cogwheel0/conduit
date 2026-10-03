@@ -230,6 +230,27 @@ void main() {
       expect(find.byType(FullScreenImageViewer), findsNothing);
     });
 
+    testWidgets('prepares a gallery larger than the batch size', (
+      tester,
+    ) async {
+      mockTemporaryDirectory(tester);
+      final urls = [
+        for (var i = 0; i < 5; i++)
+          'data:image/png;name=p$i;base64,$_pngBase64',
+      ];
+      for (final url in urls) {
+        preCacheImageBytes(url, base64.decode(_pngBase64));
+      }
+      await pumpBubble(tester, urls: urls);
+      await tapAndPrepare(tester, find.byType(EnhancedImageAttachment).at(3));
+
+      final request =
+          verify(() => viewerApi.present(captureAny())).captured.single
+              as PlatformImageViewerRequest;
+      expect(request.items.length, 5);
+      expect(request.initialIndex, 3);
+    });
+
     testWidgets('falls back to the Flutter viewer when files cannot be '
         'written', (tester) async {
       // No path_provider handler, so creating the session directory throws.

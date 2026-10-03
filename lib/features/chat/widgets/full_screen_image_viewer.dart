@@ -45,8 +45,9 @@ typedef _ViewerImageBytes = ({Uint8List bytes, ImageFileType type});
 Future<_ViewerImageBytes> _loadViewerImageBytes(
   ProviderContainer container,
   ImageAttachmentCacheEntry entry,
-  Map<String, String>? customHeaders,
-) async {
+  Map<String, String>? customHeaders, {
+  dio.CancelToken? cancelToken,
+}) async {
   final data = entry.resolvedData;
   final bytes = entry.bytes;
   if (bytes != null) {
@@ -98,6 +99,7 @@ Future<_ViewerImageBytes> _loadViewerImageBytes(
       responseType: dio.ResponseType.bytes,
       headers: headers,
     ),
+    cancelToken: cancelToken,
   );
   final body = response.data;
   if (body == null || body.isEmpty) throw StateError('Empty image response');
@@ -225,10 +227,14 @@ class _NativeViewerFiles {
 /// before it opens the Flutter viewer instead.
 const _nativeViewerPrepareTimeout = Duration(seconds: 4);
 
+/// How many gallery pages are loaded and written at once.
+const _nativeViewerPrepareConcurrency = 3;
+
 /// Writes every gallery image to a private session directory.
 ///
 /// Returns `null` when any image fails, is an SVG (which Quick Look does not
 /// render reliably), or is not ready within [_nativeViewerPrepareTimeout].
+/// The first such page cancels the remaining downloads.
 /// The Flutter viewer then shows every page, including failed ones, so the
 /// page count always matches the message.
 Future<_NativeViewerFiles?> _prepareNativeViewerFiles({
@@ -239,54 +245,68 @@ Future<_NativeViewerFiles?> _prepareNativeViewerFiles({
   required ImageAttachmentCacheEntry initialEntry,
 }) async {
   final directory = await createImageSessionDirectory('viewer');
-  try {
-    var hasSvg = false;
-    final written = await Future.wait([
-      for (var i = 0; i < items.length; i++)
-        () async {
-          try {
-            final entry = i == initialIndex
-                ? initialEntry
-                : await _resolveViewerEntry(
-                    container,
-                    items[i].attachmentId,
-                    l10n,
-                  );
-            if (entry.error != null) return null;
-            if (entry.isSvg) {
-              hasSvg = true;
-              return null;
-            }
-            final image = await _loadViewerImageBytes(
-              container,
-              entry,
-              items[i].httpHeaders,
-            );
-            if (image.type.isSvg) {
-              hasSvg = true;
-              return null;
-            }
-            return await writeImageFile(
-              image.bytes,
-              directory: directory,
-              baseName: 'image-${i + 1}',
-              type: image.type,
-            );
-          } catch (error, stackTrace) {
-            DebugLogger.error(
-              'native-image-viewer-prepare-failed',
-              scope: 'chat/image-viewer',
-              error: error,
-              stackTrace: stackTrace,
-              data: {'index': i, 'count': items.length},
-            );
-            return null;
-          }
-        }(),
-    ]).timeout(_nativeViewerPrepareTimeout, onTimeout: () => const []);
+  final written = List<File?>.filled(items.length, null);
+  // Set once the native gallery cannot open, so pending pages stop early.
+  var abandoned = false;
+  final cancelToken = dio.CancelToken();
+  void abandon() {
+    abandoned = true;
+    cancelToken.cancel();
+  }
 
-    if (hasSvg || written.length != items.length || written.contains(null)) {
-      // Late writes into the deleted directory fail and are logged above.
+  Future<File?> prepare(int i) async {
+    final entry = i == initialIndex
+        ? initialEntry
+        : await _resolveViewerEntry(container, items[i].attachmentId, l10n);
+    if (entry.error != null || entry.isSvg || abandoned) return null;
+    final image = await _loadViewerImageBytes(
+      container,
+      entry,
+      items[i].httpHeaders,
+      cancelToken: cancelToken,
+    );
+    if (image.type.isSvg || abandoned) return null;
+    return writeImageFile(
+      image.bytes,
+      directory: directory,
+      baseName: 'image-${i + 1}',
+      type: image.type,
+    );
+  }
+
+  // A few pages at a time bound memory and connections for large galleries.
+  var next = 0;
+  Future<void> worker() async {
+    while (!abandoned && next < items.length) {
+      final i = next++;
+      try {
+        written[i] = await prepare(i);
+      } catch (error, stackTrace) {
+        if (!abandoned) {
+          DebugLogger.error(
+            'native-image-viewer-prepare-failed',
+            scope: 'chat/image-viewer',
+            error: error,
+            stackTrace: stackTrace,
+            data: {'index': i, 'count': items.length},
+          );
+        }
+      }
+      if (written[i] == null) abandon();
+    }
+  }
+
+  try {
+    final workers = math.min(_nativeViewerPrepareConcurrency, items.length);
+    await Future.wait([for (var w = 0; w < workers; w++) worker()]).timeout(
+      _nativeViewerPrepareTimeout,
+      onTimeout: () {
+        abandon();
+        return const [];
+      },
+    );
+
+    if (abandoned) {
       await deleteImageSessionDirectory(directory);
       return null;
     }

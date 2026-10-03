@@ -40,6 +40,16 @@ void main() {
           _bytes(ascii.encode('\x00\x00\x00\x18ftypmif1\x00\x00\x00\x00heic')),
         ),
       ).equals(const ImageFileType('heic', 'image/heic'));
+      // A 64-bit box size moves the brands eight bytes later.
+      check(
+        detectImageFileType(
+          _bytes([
+            ...ascii.encode('\x00\x00\x00\x01ftyp'),
+            ...[0, 0, 0, 0, 0, 0, 0, 32],
+            ...ascii.encode('mif1\x00\x00\x00\x00avif'),
+          ]),
+        ),
+      ).equals(const ImageFileType('avif', 'image/avif'));
       check(
         detectImageFileType(
           Uint8List.fromList(utf8.encode('<svg xmlns="x"></svg>')),
