@@ -408,6 +408,29 @@ Set<String> _declaredDependencies(String pubspec) {
 
 final RegExp _dependencyName = RegExp(r'^  ([a-z_0-9]+):');
 
+/// Returns [line] without its trailing `//` comment.
+///
+/// A `//` inside a string literal (`"https://..."`) is not a comment, so code
+/// after it still gets scanned.
+String stripSwiftLineComment(String line) {
+  var inString = false;
+  for (var i = 0; i < line.length; i++) {
+    final char = line[i];
+    if (inString) {
+      if (char == '\\') {
+        i++;
+      } else if (char == '"') {
+        inString = false;
+      }
+    } else if (char == '"') {
+      inString = true;
+    } else if (char == '/' && i + 1 < line.length && line[i + 1] == '/') {
+      return line.substring(0, i);
+    }
+  }
+  return line;
+}
+
 /// Holds every Swift file in ios/Runner to one side of the host seam.
 ///
 /// A new file has to be listed before this passes, which makes "does another
@@ -435,7 +458,7 @@ List<String> _scanIosBridges() {
     }
     final lines = file.readAsLinesSync();
     for (var i = 0; i < lines.length; i++) {
-      final code = lines[i].split('//').first;
+      final code = stripSwiftLineComment(lines[i]);
       for (final hostType in _iosHostTypes) {
         final match = hostType.firstMatch(code);
         if (match == null) continue;
