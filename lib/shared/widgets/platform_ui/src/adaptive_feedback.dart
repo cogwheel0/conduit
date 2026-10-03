@@ -23,8 +23,12 @@ class AdaptiveSnackBar {
     String? action,
     VoidCallback? onActionPressed,
   }) {
+    // A navigator's own context (kept by callers whose page may be gone by
+    // the time they report) sits above that navigator's overlay.
+    final contextOverlay = Overlay.maybeOf(context);
     final nativeDuration = _nativeDuration(duration);
     if (PlatformUiCapabilities.usesNativeIOS26 &&
+        contextOverlay != null &&
         action == null &&
         nativeDuration != null) {
       final style = switch (type) {
@@ -74,7 +78,8 @@ class AdaptiveSnackBar {
       return;
     }
 
-    final overlay = Overlay.of(context);
+    final overlay = contextOverlay ?? Navigator.maybeOf(context)?.overlay;
+    if (overlay == null) return;
     final previousEntry = _activeIOSEntry;
     if (previousEntry?.mounted == true) previousEntry!.remove();
     _activeIOSEntry = null;
