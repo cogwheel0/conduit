@@ -6509,5 +6509,8 @@
   "@imageViewerPosition": {"placeholders": {"current": {"type": "int", "example": "2"}, "total": {"type": "int", "example": "5"}}},
   "saveImage": "Zapisz obraz",
   "imageSaved": "Obraz zapisany",
-  "imageSaveFailed": "Nie udało się zapisać obrazu."
+  "imageSaveFailed": "Nie udało się zapisać obrazu.",
+  "settingsTitle": "Ustawienia",
+  "profileTitle": "Profil",
+  "aiAndMemoryTitle": "AI i pamięć"
 }

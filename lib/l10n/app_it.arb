@@ -1850,7 +1850,7 @@
   "settingsAppearance": "Aspetto",
   "settingsAppearanceSubtitle": "Tema, tavolozza colori e lingua",
   "settingsChatSubtitle": "Comportamento chat, azioni rapide e prompt avanzati",
-  "workspaceTitle": "Workspace",
+  "workspaceTitle": "Area di lavoro",
   "workspaceSubtitle": "Manage server resources and access.",
   "workspaceModels": "Models",
   "workspaceKnowledge": "Knowledge",
@@ -2957,7 +2957,7 @@
   "reviewerModeEnabled": "Reviewer mode enabled. You can open the demo without a server.",
   "reviewerModeDisabled": "Reviewer mode disabled.",
   "openSourceLicenses": "Open source licenses",
-  "directConnectionsTitle": "Direct Connections",
+  "directConnectionsTitle": "Connessioni dirette",
   "directConnectionsSubtitle": "Connect to OpenAI-compatible APIs and Ollama",
   "directConnectionsDescription": "Connect to model providers without Open WebUI. Credentials are stored securely on this device and sent to the provider with requests.",
   "directConnectionsCombinedDescription": "Connettiti direttamente ai fornitori di modelli usando connessioni sincronizzate da Open WebUI o salvate solo su questo dispositivo.",
@@ -3344,5 +3344,8 @@
   "@imageViewerPosition": {"placeholders": {"current": {"type": "int", "example": "2"}, "total": {"type": "int", "example": "5"}}},
   "saveImage": "Salva immagine",
   "imageSaved": "Immagine salvata",
-  "imageSaveFailed": "Impossibile salvare l'immagine."
+  "imageSaveFailed": "Impossibile salvare l'immagine.",
+  "settingsTitle": "Impostazioni",
+  "profileTitle": "Profilo",
+  "aiAndMemoryTitle": "IA e memoria"
 }

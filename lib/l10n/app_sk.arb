@@ -3505,7 +3505,7 @@
   "settingsAppearance": "Vzhľad",
   "settingsAppearanceSubtitle": "Motív, paleta farieb a jazyk",
   "settingsChatSubtitle": "Správanie chatu, rýchle akcie a pokročilé prompty",
-  "workspaceTitle": "Workspace",
+  "workspaceTitle": "Pracovný priestor",
   "workspaceSubtitle": "Manage server resources and access.",
   "workspaceModels": "Models",
   "workspaceKnowledge": "Knowledge",
@@ -4612,7 +4612,7 @@
   "reviewerModeEnabled": "Reviewer mode enabled. You can open the demo without a server.",
   "reviewerModeDisabled": "Reviewer mode disabled.",
   "openSourceLicenses": "Open source licenses",
-  "directConnectionsTitle": "Direct Connections",
+  "directConnectionsTitle": "Priame pripojenia",
   "directConnectionsSubtitle": "Connect to OpenAI-compatible APIs and Ollama",
   "directConnectionsDescription": "Connect to model providers without Open WebUI. Credentials are stored securely on this device and sent to the provider with requests.",
   "directConnectionsCombinedDescription": "Pripojte sa priamo k poskytovateľom modelov pomocou pripojení synchronizovaných z Open WebUI alebo uložených iba v tomto zariadení.",
@@ -4999,5 +4999,8 @@
   "@imageViewerPosition": {"placeholders": {"current": {"type": "int", "example": "2"}, "total": {"type": "int", "example": "5"}}},
   "saveImage": "Uložiť obrázok",
   "imageSaved": "Obrázok bol uložený",
-  "imageSaveFailed": "Obrázok sa nepodarilo uložiť."
+  "imageSaveFailed": "Obrázok sa nepodarilo uložiť.",
+  "settingsTitle": "Nastavenia",
+  "profileTitle": "Profil",
+  "aiAndMemoryTitle": "AI a pamäť"
 }

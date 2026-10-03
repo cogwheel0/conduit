@@ -3,11 +3,27 @@ import 'package:conduit_core/models/model.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/core/utils/native_sheet_utils.dart';
 import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit/l10n/app_localizations_de.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
+import 'package:conduit/l10n/app_localizations_ja.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   final l10n = AppLocalizationsEn();
+
+  test('native Settings titles follow the app language', () {
+    final de = AppLocalizationsDe();
+    check(nativeSettingsTitle(de)).equals('Einstellungen');
+    check(nativeProfileTitle(de)).equals('Profil');
+    check(nativeAiMemoryTitle(de)).equals('KI und Erinnerung');
+
+    final ja = AppLocalizationsJa();
+    check(nativeSettingsTitle(ja)).equals('設定');
+    check(nativeChatsTitle(ja)).equals('チャット');
+    check(nativeAiMemoryTitle(ja)).equals('AIとメモリ');
+
+    check(nativeSettingsTitle(l10n)).equals('Settings');
+  });
 
   test('OpenRouter image model item is exposed for the native Chats sheet', () {
     final item = buildNativeOpenRouterImageGenerationModelItem(

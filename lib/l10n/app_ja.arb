@@ -3190,7 +3190,7 @@
   "settingsAppearance": "外観",
   "settingsAppearanceSubtitle": "テーマ、カラーパレット、言語",
   "settingsChatSubtitle": "チャットの動作、クイックアクション、高度なプロンプト",
-  "workspaceTitle": "Workspace",
+  "workspaceTitle": "ワークスペース",
   "workspaceSubtitle": "Manage server resources and access.",
   "workspaceModels": "Models",
   "workspaceKnowledge": "Knowledge",
@@ -4297,7 +4297,7 @@
   "reviewerModeEnabled": "Reviewer mode enabled. You can open the demo without a server.",
   "reviewerModeDisabled": "Reviewer mode disabled.",
   "openSourceLicenses": "Open source licenses",
-  "directConnectionsTitle": "Direct Connections",
+  "directConnectionsTitle": "ダイレクト接続",
   "directConnectionsSubtitle": "Connect to OpenAI-compatible APIs and Ollama",
   "directConnectionsDescription": "Connect to model providers without Open WebUI. Credentials are stored securely on this device and sent to the provider with requests.",
   "directConnectionsCombinedDescription": "Open WebUIと同期した接続、またはこのデバイスにのみ保存した接続を使って、モデルプロバイダーに直接接続します。",
@@ -4684,5 +4684,8 @@
   "@imageViewerPosition": {"placeholders": {"current": {"type": "int", "example": "2"}, "total": {"type": "int", "example": "5"}}},
   "saveImage": "画像を保存",
   "imageSaved": "画像を保存しました",
-  "imageSaveFailed": "画像を保存できませんでした。"
+  "imageSaveFailed": "画像を保存できませんでした。",
+  "settingsTitle": "設定",
+  "profileTitle": "プロフィール",
+  "aiAndMemoryTitle": "AIとメモリ"
 }

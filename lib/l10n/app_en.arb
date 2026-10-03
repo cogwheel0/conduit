@@ -6146,5 +6146,11 @@
   "imageSaved": "Image saved",
   "@imageSaved": {"description": "Confirmation after an image is saved to the device gallery."},
   "imageSaveFailed": "Couldn't save the image.",
-  "@imageSaveFailed": {"description": "Error shown when an image cannot be saved to the device gallery."}
+  "@imageSaveFailed": {"description": "Error shown when an image cannot be saved to the device gallery."},
+  "settingsTitle": "Settings",
+  "@settingsTitle": {"description": "Title of the native Settings sheet."},
+  "profileTitle": "Profile",
+  "@profileTitle": {"description": "Title of the native Profile page in Settings."},
+  "aiAndMemoryTitle": "AI and Memory",
+  "@aiAndMemoryTitle": {"description": "Title of the native AI and Memory page in Settings."}
 }

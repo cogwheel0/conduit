@@ -3382,5 +3382,8 @@
   "@imageViewerPosition": {"placeholders": {"current": {"type": "int", "example": "2"}, "total": {"type": "int", "example": "5"}}},
   "saveImage": "Сохранить изображение",
   "imageSaved": "Изображение сохранено",
-  "imageSaveFailed": "Не удалось сохранить изображение."
+  "imageSaveFailed": "Не удалось сохранить изображение.",
+  "settingsTitle": "Настройки",
+  "profileTitle": "Профиль",
+  "aiAndMemoryTitle": "ИИ и память"
 }

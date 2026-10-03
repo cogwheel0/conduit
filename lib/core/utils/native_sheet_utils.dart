@@ -17,15 +17,15 @@ String nativeQuickActionsTitle(AppLocalizations l10n) {
   return l10n.quickActionsDescription;
 }
 
-String nativeSettingsTitle(AppLocalizations _) => 'Settings';
+String nativeSettingsTitle(AppLocalizations l10n) => l10n.settingsTitle;
 
-String nativeProfileTitle(AppLocalizations _) => 'Profile';
+String nativeProfileTitle(AppLocalizations l10n) => l10n.profileTitle;
 
 String nativeAppearanceTitle(AppLocalizations l10n) => l10n.settingsAppearance;
 
-String nativeChatsTitle(AppLocalizations _) => 'Chats';
+String nativeChatsTitle(AppLocalizations l10n) => l10n.sidebarChatsTab;
 
-String nativeAiMemoryTitle(AppLocalizations _) => 'AI and Memory';
+String nativeAiMemoryTitle(AppLocalizations l10n) => l10n.aiAndMemoryTitle;
 
 String nativeDataConnectionTitle(AppLocalizations l10n) =>
     l10n.settingsDataAndConnection;
