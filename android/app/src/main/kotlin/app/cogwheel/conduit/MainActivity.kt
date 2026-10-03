@@ -520,6 +520,7 @@ class MainActivity : FlutterFragmentActivity() {
     private lateinit var backgroundStreamingHandler: BackgroundStreamingHandler
     private lateinit var nativeSttBridge: NativeSttBridge
     private lateinit var nativeTtsBridge: NativeTtsBridge
+    private lateinit var imageGalleryBridge: ImageGalleryBridge
 
     override fun onCreate(savedInstanceState: Bundle?) {
         reconcileInterruptedShareImportIfNeeded()
@@ -623,6 +624,8 @@ class MainActivity : FlutterFragmentActivity() {
         nativeSttBridge.setup(flutterEngine)
         nativeTtsBridge = NativeTtsBridge(this)
         nativeTtsBridge.setup(flutterEngine)
+        imageGalleryBridge = ImageGalleryBridge(this)
+        imageGalleryBridge.setup(flutterEngine)
 
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ASSISTANT_CHANNEL)
         shareChannel = MethodChannel(
@@ -1763,6 +1766,9 @@ class MainActivity : FlutterFragmentActivity() {
         }
         if (::nativeTtsBridge.isInitialized) {
             nativeTtsBridge.dispose()
+        }
+        if (::imageGalleryBridge.isInitialized) {
+            imageGalleryBridge.dispose()
         }
         if (::backgroundStreamingHandler.isInitialized) {
             backgroundStreamingHandler.cleanup()

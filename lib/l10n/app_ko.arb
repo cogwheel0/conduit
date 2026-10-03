@@ -3116,5 +3116,10 @@
   "webSearchRegionWorldwide": "전 세계",
   "directModelToolsUnsupported": "이 모델은 도구를 사용할 수 없어 웹을 검색할 수 없습니다. 웹 검색과 모든 도구를 끈 후 다시 시도하세요.",
   "directContextCompactionModelCount": "{count, plural, other{모델 {count}개}}",
-  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}}
+  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
+  "imageViewerPosition": "{current}/{total}",
+  "@imageViewerPosition": {"placeholders": {"current": {"type": "int", "example": "2"}, "total": {"type": "int", "example": "5"}}},
+  "saveImage": "이미지 저장",
+  "imageSaved": "이미지를 저장했습니다",
+  "imageSaveFailed": "이미지를 저장할 수 없습니다."
 }

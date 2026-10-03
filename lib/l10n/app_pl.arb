@@ -6503,5 +6503,10 @@
   "webSearchRegionWorldwide": "Cały świat",
   "directModelToolsUnsupported": "Ten model nie może używać narzędzi, więc nie może przeszukiwać sieci. Wyłącz wyszukiwanie w sieci i wszystkie narzędzia, a następnie spróbuj ponownie.",
   "directContextCompactionModelCount": "{count, plural, one{{count} model} few{{count} modele} many{{count} modeli} other{{count} modelu}}",
-  "@directContextCompactionModelCount": {"description": "Row value on Direct Connections that opens the list of models needing a context limit.", "placeholders": {"count": {"type": "int", "example": "42"}}}
+  "@directContextCompactionModelCount": {"description": "Row value on Direct Connections that opens the list of models needing a context limit.", "placeholders": {"count": {"type": "int", "example": "42"}}},
+  "imageViewerPosition": "{current} z {total}",
+  "@imageViewerPosition": {"placeholders": {"current": {"type": "int", "example": "2"}, "total": {"type": "int", "example": "5"}}},
+  "saveImage": "Zapisz obraz",
+  "imageSaved": "Obraz zapisany",
+  "imageSaveFailed": "Nie udało się zapisać obrazu."
 }

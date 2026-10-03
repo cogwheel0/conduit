@@ -3338,5 +3338,10 @@
   "webSearchRegionWorldwide": "Weltweit",
   "directModelToolsUnsupported": "Dieses Modell kann keine Werkzeuge verwenden und deshalb nicht im Web suchen. Schalte die Websuche und alle Werkzeuge aus und versuche es erneut.",
   "directContextCompactionModelCount": "{count, plural, =1{1 Modell} other{{count} Modelle}}",
-  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}}
+  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
+  "imageViewerPosition": "{current} von {total}",
+  "@imageViewerPosition": {"placeholders": {"current": {"type": "int", "example": "2"}, "total": {"type": "int", "example": "5"}}},
+  "saveImage": "Bild speichern",
+  "imageSaved": "Bild gespeichert",
+  "imageSaveFailed": "Das Bild konnte nicht gespeichert werden."
 }

@@ -1072,6 +1072,92 @@ struct PlatformDropdownOption: Hashable, CustomStringConvertible {
 }
 
 /// Generated class from Pigeon that represents data sent in messages.
+struct PlatformImageViewerItem: Hashable, CustomStringConvertible {
+  var path: String
+  var title: String? = nil
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> PlatformImageViewerItem? {
+    let path = pigeonVar_list[0] as! String
+    let title: String? = nilOrValue(pigeonVar_list[1])
+
+    return PlatformImageViewerItem(
+      path: path,
+      title: title
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      path,
+      title,
+    ]
+  }
+  static func == (lhs: PlatformImageViewerItem, rhs: PlatformImageViewerItem) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.path, rhs.path) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("PlatformImageViewerItem")
+    ConduitPlatformApisPigeonInternal.deepHash(value: path, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: title, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "PlatformImageViewerItem(path: \(String(describing: path)), title: \(String(describing: title)))"
+  }
+}
+
+/// Generated class from Pigeon that represents data sent in messages.
+struct PlatformImageViewerRequest: Hashable, CustomStringConvertible {
+  var items: [PlatformImageViewerItem]
+  var initialIndex: Int64
+  /// Global logical rect of the tapped thumbnail, used for the zoom transition.
+  var sourceRect: PlatformRect? = nil
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> PlatformImageViewerRequest? {
+    let items = pigeonVar_list[0] as! [PlatformImageViewerItem]
+    let initialIndex = pigeonVar_list[1] as! Int64
+    let sourceRect: PlatformRect? = nilOrValue(pigeonVar_list[2])
+
+    return PlatformImageViewerRequest(
+      items: items,
+      initialIndex: initialIndex,
+      sourceRect: sourceRect
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      items,
+      initialIndex,
+      sourceRect,
+    ]
+  }
+  static func == (lhs: PlatformImageViewerRequest, rhs: PlatformImageViewerRequest) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.items, rhs.items) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.initialIndex, rhs.initialIndex) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceRect, rhs.sourceRect)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("PlatformImageViewerRequest")
+    ConduitPlatformApisPigeonInternal.deepHash(value: items, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: initialIndex, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: sourceRect, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "PlatformImageViewerRequest(items: \(String(describing: items)), initialIndex: \(String(describing: initialIndex)), sourceRect: \(String(describing: sourceRect)))"
+  }
+}
+
+/// Generated class from Pigeon that represents data sent in messages.
 struct PlatformDropdownRequest: Hashable, CustomStringConvertible {
   var title: String? = nil
   var message: String? = nil
@@ -3185,66 +3271,70 @@ private class ConduitPlatformApisPigeonCodecReader: FlutterStandardReader {
     case 154:
       return PlatformDropdownOption.fromList(self.readValue() as! [Any?])
     case 155:
-      return PlatformDropdownRequest.fromList(self.readValue() as! [Any?])
+      return PlatformImageViewerItem.fromList(self.readValue() as! [Any?])
     case 156:
-      return PlatformNativeSheetOption.fromList(self.readValue() as! [Any?])
+      return PlatformImageViewerRequest.fromList(self.readValue() as! [Any?])
     case 157:
-      return PlatformNativeSheetTheme.fromList(self.readValue() as! [Any?])
+      return PlatformDropdownRequest.fromList(self.readValue() as! [Any?])
     case 158:
-      return PlatformNativeSheetItem.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetOption.fromList(self.readValue() as! [Any?])
     case 159:
-      return PlatformNativeSheetLink.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetTheme.fromList(self.readValue() as! [Any?])
     case 160:
-      return PlatformNativeSheetSection.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetItem.fromList(self.readValue() as! [Any?])
     case 161:
-      return PlatformNativeEditProfileSheetConfig.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetLink.fromList(self.readValue() as! [Any?])
     case 162:
-      return PlatformNativeProfileSheetUser.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetSection.fromList(self.readValue() as! [Any?])
     case 163:
-      return PlatformNativeSheetDetail.fromList(self.readValue() as! [Any?])
+      return PlatformNativeEditProfileSheetConfig.fromList(self.readValue() as! [Any?])
     case 164:
-      return PlatformNativeProfileSheetConfig.fromList(self.readValue() as! [Any?])
+      return PlatformNativeProfileSheetUser.fromList(self.readValue() as! [Any?])
     case 165:
-      return PlatformNativeSheetModelOption.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetDetail.fromList(self.readValue() as! [Any?])
     case 166:
-      return PlatformNativeSheetModelSelectorRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeProfileSheetConfig.fromList(self.readValue() as! [Any?])
     case 167:
-      return PlatformNativeSheetOptionsSelectorRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetModelOption.fromList(self.readValue() as! [Any?])
     case 168:
-      return PlatformNativeSheetDatePickerRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetModelSelectorRequest.fromList(self.readValue() as! [Any?])
     case 169:
-      return PlatformNativeSheetTextEditorRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetOptionsSelectorRequest.fromList(self.readValue() as! [Any?])
     case 170:
-      return PlatformNativeSheetResultRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetDatePickerRequest.fromList(self.readValue() as! [Any?])
     case 171:
-      return PlatformNativeSheetApplyDetailPatchRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetTextEditorRequest.fromList(self.readValue() as! [Any?])
     case 172:
-      return PlatformNativeSheetControlChangedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetResultRequest.fromList(self.readValue() as! [Any?])
     case 173:
-      return PlatformNativeSheetDetailAppearedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetApplyDetailPatchRequest.fromList(self.readValue() as! [Any?])
     case 174:
-      return PlatformNativeSheetModelPinToggledEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetControlChangedEvent.fromList(self.readValue() as! [Any?])
     case 175:
-      return PlatformNativeSheetReasoningEffortChangedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetDetailAppearedEvent.fromList(self.readValue() as! [Any?])
     case 176:
-      return PlatformNativeEditProfileCommittedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetModelPinToggledEvent.fromList(self.readValue() as! [Any?])
     case 177:
-      return PlatformNativeSheetActionResult.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetReasoningEffortChangedEvent.fromList(self.readValue() as! [Any?])
     case 178:
-      return PlatformPccStatus.fromList(self.readValue() as! [Any?])
+      return PlatformNativeEditProfileCommittedEvent.fromList(self.readValue() as! [Any?])
     case 179:
-      return PlatformPccImage.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetActionResult.fromList(self.readValue() as! [Any?])
     case 180:
-      return PlatformPccMessage.fromList(self.readValue() as! [Any?])
+      return PlatformPccStatus.fromList(self.readValue() as! [Any?])
     case 181:
-      return PlatformPccToolDefinition.fromList(self.readValue() as! [Any?])
+      return PlatformPccImage.fromList(self.readValue() as! [Any?])
     case 182:
-      return PlatformPccToolCall.fromList(self.readValue() as! [Any?])
+      return PlatformPccMessage.fromList(self.readValue() as! [Any?])
     case 183:
-      return PlatformPccToolResult.fromList(self.readValue() as! [Any?])
+      return PlatformPccToolDefinition.fromList(self.readValue() as! [Any?])
     case 184:
-      return PlatformPccCompletionRequest.fromList(self.readValue() as! [Any?])
+      return PlatformPccToolCall.fromList(self.readValue() as! [Any?])
     case 185:
+      return PlatformPccToolResult.fromList(self.readValue() as! [Any?])
+    case 186:
+      return PlatformPccCompletionRequest.fromList(self.readValue() as! [Any?])
+    case 187:
       return PlatformPccStreamEvent.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
@@ -3332,98 +3422,104 @@ private class ConduitPlatformApisPigeonCodecWriter: FlutterStandardWriter {
     } else if let value = value as? PlatformDropdownOption {
       super.writeByte(154)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformDropdownRequest {
+    } else if let value = value as? PlatformImageViewerItem {
       super.writeByte(155)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetOption {
+    } else if let value = value as? PlatformImageViewerRequest {
       super.writeByte(156)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetTheme {
+    } else if let value = value as? PlatformDropdownRequest {
       super.writeByte(157)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetItem {
+    } else if let value = value as? PlatformNativeSheetOption {
       super.writeByte(158)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetLink {
+    } else if let value = value as? PlatformNativeSheetTheme {
       super.writeByte(159)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetSection {
+    } else if let value = value as? PlatformNativeSheetItem {
       super.writeByte(160)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeEditProfileSheetConfig {
+    } else if let value = value as? PlatformNativeSheetLink {
       super.writeByte(161)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeProfileSheetUser {
+    } else if let value = value as? PlatformNativeSheetSection {
       super.writeByte(162)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetDetail {
+    } else if let value = value as? PlatformNativeEditProfileSheetConfig {
       super.writeByte(163)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeProfileSheetConfig {
+    } else if let value = value as? PlatformNativeProfileSheetUser {
       super.writeByte(164)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetModelOption {
+    } else if let value = value as? PlatformNativeSheetDetail {
       super.writeByte(165)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetModelSelectorRequest {
+    } else if let value = value as? PlatformNativeProfileSheetConfig {
       super.writeByte(166)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetOptionsSelectorRequest {
+    } else if let value = value as? PlatformNativeSheetModelOption {
       super.writeByte(167)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetDatePickerRequest {
+    } else if let value = value as? PlatformNativeSheetModelSelectorRequest {
       super.writeByte(168)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetTextEditorRequest {
+    } else if let value = value as? PlatformNativeSheetOptionsSelectorRequest {
       super.writeByte(169)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetResultRequest {
+    } else if let value = value as? PlatformNativeSheetDatePickerRequest {
       super.writeByte(170)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetApplyDetailPatchRequest {
+    } else if let value = value as? PlatformNativeSheetTextEditorRequest {
       super.writeByte(171)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetControlChangedEvent {
+    } else if let value = value as? PlatformNativeSheetResultRequest {
       super.writeByte(172)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetDetailAppearedEvent {
+    } else if let value = value as? PlatformNativeSheetApplyDetailPatchRequest {
       super.writeByte(173)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetModelPinToggledEvent {
+    } else if let value = value as? PlatformNativeSheetControlChangedEvent {
       super.writeByte(174)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetReasoningEffortChangedEvent {
+    } else if let value = value as? PlatformNativeSheetDetailAppearedEvent {
       super.writeByte(175)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeEditProfileCommittedEvent {
+    } else if let value = value as? PlatformNativeSheetModelPinToggledEvent {
       super.writeByte(176)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetActionResult {
+    } else if let value = value as? PlatformNativeSheetReasoningEffortChangedEvent {
       super.writeByte(177)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccStatus {
+    } else if let value = value as? PlatformNativeEditProfileCommittedEvent {
       super.writeByte(178)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccImage {
+    } else if let value = value as? PlatformNativeSheetActionResult {
       super.writeByte(179)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccMessage {
+    } else if let value = value as? PlatformPccStatus {
       super.writeByte(180)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccToolDefinition {
+    } else if let value = value as? PlatformPccImage {
       super.writeByte(181)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccToolCall {
+    } else if let value = value as? PlatformPccMessage {
       super.writeByte(182)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccToolResult {
+    } else if let value = value as? PlatformPccToolDefinition {
       super.writeByte(183)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccCompletionRequest {
+    } else if let value = value as? PlatformPccToolCall {
       super.writeByte(184)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccStreamEvent {
+    } else if let value = value as? PlatformPccToolResult {
       super.writeByte(185)
+      super.writeValue(value.toList())
+    } else if let value = value as? PlatformPccCompletionRequest {
+      super.writeByte(186)
+      super.writeValue(value.toList())
+    } else if let value = value as? PlatformPccStreamEvent {
+      super.writeByte(187)
       super.writeValue(value.toList())
     } else {
       super.writeValue(value)
@@ -4118,6 +4214,88 @@ class NativeDropdownHostApiSetup {
       }
     } else {
       showChannel.setMessageHandler(nil)
+    }
+  }
+}
+/// iOS only. Presents local image files in Quick Look.
+///
+/// Generated protocol from Pigeon that represents a handler of messages from Flutter.
+protocol NativeImageViewerHostApi {
+  /// Completes when the viewer is dismissed. Fails when it cannot be shown.
+  func present(request: PlatformImageViewerRequest, completion: @escaping (Result<Void, Error>) -> Void)
+}
+
+/// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
+class NativeImageViewerHostApiSetup {
+  static var codec: FlutterStandardMessageCodec { ConduitPlatformApisPigeonCodec.shared }
+  /// Sets up an instance of `NativeImageViewerHostApi` to handle messages through the `binaryMessenger`.
+  static func setUp(binaryMessenger: FlutterBinaryMessenger, api: NativeImageViewerHostApi?, messageChannelSuffix: String = "") {
+    let channelSuffix = messageChannelSuffix.count > 0 ? ".\(messageChannelSuffix)" : ""
+    /// Completes when the viewer is dismissed. Fails when it cannot be shown.
+    let presentChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.NativeImageViewerHostApi.present\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      presentChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let requestArg = args[0] as! PlatformImageViewerRequest
+        api.present(request: requestArg) { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      presentChannel.setMessageHandler(nil)
+    }
+  }
+}
+/// Android only. Writes images to the shared Pictures collection.
+///
+/// Generated protocol from Pigeon that represents a handler of messages from Flutter.
+protocol ImageGalleryHostApi {
+  func canSaveImages() throws -> Bool
+  func saveImage(path: String, mimeType: String, displayName: String, completion: @escaping (Result<Void, Error>) -> Void)
+}
+
+/// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
+class ImageGalleryHostApiSetup {
+  static var codec: FlutterStandardMessageCodec { ConduitPlatformApisPigeonCodec.shared }
+  /// Sets up an instance of `ImageGalleryHostApi` to handle messages through the `binaryMessenger`.
+  static func setUp(binaryMessenger: FlutterBinaryMessenger, api: ImageGalleryHostApi?, messageChannelSuffix: String = "") {
+    let channelSuffix = messageChannelSuffix.count > 0 ? ".\(messageChannelSuffix)" : ""
+    let canSaveImagesChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.ImageGalleryHostApi.canSaveImages\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      canSaveImagesChannel.setMessageHandler { _, reply in
+        do {
+          let result = try api.canSaveImages()
+          reply(wrapResult(result))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      canSaveImagesChannel.setMessageHandler(nil)
+    }
+    let saveImageChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.ImageGalleryHostApi.saveImage\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      saveImageChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let pathArg = args[0] as! String
+        let mimeTypeArg = args[1] as! String
+        let displayNameArg = args[2] as! String
+        api.saveImage(path: pathArg, mimeType: mimeTypeArg, displayName: displayNameArg) { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      saveImageChannel.setMessageHandler(nil)
     }
   }
 }

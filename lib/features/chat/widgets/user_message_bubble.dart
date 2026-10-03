@@ -28,6 +28,7 @@ import '../utils/file_utils.dart';
 import '../utils/message_targeting.dart';
 import 'enhanced_attachment.dart';
 import 'enhanced_image_attachment.dart';
+import 'image_gallery_scope.dart';
 
 // Pre-compiled regex for extracting file IDs from URLs (performance optimization)
 // Handles both /api/v1/files/{id} and /api/v1/files/{id}/content formats
@@ -123,7 +124,12 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
 
     // Add images first
     if (imageFiles.isNotEmpty) {
-      widgets.add(_buildFileImageLayout(imageFiles, imageFiles.length));
+      widgets.add(
+        ImageGalleryScope(
+          items: _imageViewerItems(imageFiles),
+          child: _buildFileImageLayout(imageFiles, imageFiles.length),
+        ),
+      );
     }
 
     // Add non-image files
@@ -225,6 +231,13 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     _lastFilePartitions = partitions;
     return partitions;
   }
+
+  /// Lets the full-screen viewer page through this message's images.
+  List<ImageViewerItem> _imageViewerItems(List<dynamic> imageFiles) => [
+    for (final file in imageFiles)
+      if (getFileUrl(file) case final url?)
+        ImageViewerItem(attachmentId: url, httpHeaders: _headersForFile(file)),
+  ];
 
   Widget _buildFileImageLayout(List<dynamic> imageFiles, int imageCount) {
     if (imageCount == 1) {

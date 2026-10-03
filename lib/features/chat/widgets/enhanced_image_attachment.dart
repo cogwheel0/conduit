@@ -1,27 +1,29 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/rendering.dart' show RenderImage;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:dio/dio.dart' as dio;
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/utils/platform_page_route.dart';
 import '../../../shared/widgets/jovial_svg_image.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/skeleton_loader.dart';
+import '../../../shared/widgets/platform_ui/platform_ui.dart';
+import '../services/image_viewer_files.dart';
+import '../services/native_image_viewer_bridge.dart';
+import 'image_gallery_scope.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
-
-import '../../../shared/widgets/adaptive_route_shell.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -55,6 +57,8 @@ export '../../../core/services/image_attachment_cache_service.dart'
         debugSeedResolvedImageAttachment,
         imageAttachmentCacheLifecycleProvider,
         preCacheImageBytes;
+
+part 'full_screen_image_viewer.dart';
 
 final _base64WhitespacePattern = RegExp(r'\s');
 
@@ -510,6 +514,9 @@ class _EnhancedImageAttachmentState
   int _loadGeneration = 0;
   Timer? _retryLoadTimer;
   ImageAttachmentCacheScope? _cacheScope;
+  bool _openingViewer = false;
+  bool _preparingViewer = false;
+  Timer? _preparingViewerTimer;
 
   String get _profileImageKey =>
       widget.attachmentId.hashCode.toUnsigned(32).toRadixString(16);
@@ -568,6 +575,7 @@ class _EnhancedImageAttachmentState
   void dispose() {
     _loadGeneration += 1;
     _retryLoadTimer?.cancel();
+    _preparingViewerTimer?.cancel();
     super.dispose();
   }
 
@@ -1061,30 +1069,62 @@ class _EnhancedImageAttachmentState
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.onTap ?? () => _showFullScreenImage(context),
-          child: HeroMode(
-            enabled: !context.reduceMotion,
-            child: Hero(
-              tag: _heroTag,
-              flightShuttleBuilder:
-                  (
-                    flightContext,
-                    animation,
-                    flightDirection,
-                    fromHeroContext,
-                    toHeroContext,
-                  ) {
-                    final hero = flightDirection == HeroFlightDirection.push
-                        ? fromHeroContext.widget as Hero
-                        : toHeroContext.widget as Hero;
-                    return FadeTransition(
-                      opacity: animation,
-                      child: hero.child,
-                    );
-                  },
-              child: imageWidget,
+        child: Builder(
+          builder: (thumbnailContext) => GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: widget.onTap ?? () => _showFullScreenImage(thumbnailContext),
+            child: HeroMode(
+              enabled: !context.reduceMotion,
+              child: Hero(
+                tag: _heroTag,
+                flightShuttleBuilder:
+                    (
+                      flightContext,
+                      animation,
+                      flightDirection,
+                      fromHeroContext,
+                      toHeroContext,
+                    ) {
+                      // Fly the cropped thumbnail. The viewer's hero has the
+                      // image's aspect ratio, so the crop ends on the fitted
+                      // image. Corners square off as it grows.
+                      final hero = flightDirection == HeroFlightDirection.push
+                          ? fromHeroContext.widget as Hero
+                          : toHeroContext.widget as Hero;
+                      return AnimatedBuilder(
+                        animation: animation,
+                        builder: (context, child) => ClipRRect(
+                          borderRadius: BorderRadius.circular(
+                            AppBorderRadius.md * (1 - animation.value),
+                          ),
+                          child: child,
+                        ),
+                        child: hero.child,
+                      );
+                    },
+                child: _preparingViewer
+                    ? Stack(
+                        fit: StackFit.passthrough,
+                        children: [
+                          imageWidget,
+                          Positioned.fill(
+                            child: ColoredBox(
+                              color: Colors.black.withValues(alpha: 0.25),
+                              child: const Center(
+                                child: SizedBox.square(
+                                  dimension: 20,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    : imageWidget,
+              ),
             ),
           ),
         ),
@@ -1094,9 +1134,10 @@ class _EnhancedImageAttachmentState
     return wrappedImage;
   }
 
-  void _showFullScreenImage(BuildContext context) {
+  void _showFullScreenImage(BuildContext thumbnailContext) {
     // Handle both data URL string and raw bytes cases
     if (_cachedImageData == null && _cachedBytes == null) return;
+    if (_openingViewer) return;
 
     PerformanceProfiler.instance.instant(
       'image_viewer_open',
@@ -1108,330 +1149,41 @@ class _EnhancedImageAttachmentState
       },
     );
 
-    Navigator.of(context).push(
-      buildPlatformPageRoute(
-        fullscreenDialog: true,
-        builder: (context) => FullScreenImageViewer(
-          imageData: _cachedImageData,
-          imageBytes: _cachedBytes,
-          tag: _heroTag,
-          isSvg: _isSvg,
-          customHeaders: widget.httpHeaders,
-        ),
-      ),
-    );
-  }
-}
-
-class FullScreenImageViewer extends ConsumerWidget {
-  /// Image data as a URL (http://) or data URL (data:image/...) or base64 string.
-  /// Either this or [imageBytes] must be provided.
-  final String? imageData;
-
-  /// Raw image bytes. Used when [imageData] is null.
-  final Uint8List? imageBytes;
-
-  final String tag;
-  final bool isSvg;
-  final Map<String, String>? customHeaders;
-
-  const FullScreenImageViewer({
-    super.key,
-    this.imageData,
-    this.imageBytes,
-    required this.tag,
-    this.isSvg = false,
-    this.customHeaders,
-  }) : assert(
-         imageData != null || imageBytes != null,
-         'Either imageData or imageBytes must be provided',
-       );
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    Widget imageWidget;
-    final viewportSize = MediaQuery.sizeOf(context);
-    final decodeTarget = RasterMediaPolicy.forBox(
+    final (items, index) = ImageGalleryScope.galleryFor(
       context,
-      profile: RasterDecodeProfile.fullScreen,
-    );
-
-    // If we have raw bytes, use them directly
-    if (imageData == null && imageBytes != null) {
-      if (isSvg || _isSvgBytes(imageBytes!)) {
-        imageWidget = JovialSvgImage.bytes(
-          imageBytes!,
-          fit: BoxFit.contain,
-          errorBuilder: (context, error, stackTrace) => Center(
-            child: Icon(
-              Icons.error_outline,
-              color: context.conduitTheme.error,
-              size: 48,
-            ),
-          ),
-        );
-      } else {
-        imageWidget = Image(
-          image: RasterMediaPolicy.resizeProvider(
-            MemoryImage(imageBytes!),
-            decodeTarget,
-          ),
-          fit: BoxFit.contain,
-        );
-      }
-    } else if (imageData != null && imageData!.startsWith('http')) {
-      final defaultHeaders = buildImageHeadersForUrlFromWidgetRef(
-        ref,
-        imageData!,
-      );
-      final headers = _mergeHeaders(defaultHeaders, customHeaders);
-      final networkCacheKey = buildImageCacheKeyForUrlFromWidgetRef(
-        ref,
-        imageData!,
-        effectiveHeaders: headers,
-      );
-
-      if (isSvg || _isSvgUrl(imageData!)) {
-        imageWidget = JovialSvgImage.network(
-          imageData!,
-          fit: BoxFit.contain,
-          headers: headers,
-          cacheIdentity: networkCacheKey,
-          placeholderBuilder: (context) => Center(
-            child: CircularProgressIndicator(
-              color: context.conduitTheme.buttonPrimary,
-            ),
-          ),
-          errorBuilder: (context, error, stackTrace) => Center(
-            child: Icon(
-              Icons.error_outline,
-              color: context.conduitTheme.error,
-              size: 48,
-            ),
-          ),
-        );
-      } else {
-        final cacheManager = ref.watch(selfSignedImageCacheManagerProvider);
-        imageWidget = Image(
-          image: RasterMediaPolicy.resizeProvider(
-            CachedNetworkImageProvider(
-              imageData!,
-              cacheKey: networkCacheKey,
-              cacheManager: cacheManager,
-              headers: headers,
-            ),
-            decodeTarget,
-          ),
-          width: viewportSize.width,
-          height: viewportSize.height,
-          fit: BoxFit.contain,
-          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-            return wasSynchronouslyLoaded || frame != null
-                ? child
-                : SizedBox.fromSize(
-                    size: viewportSize,
-                    child: Center(
-                      child: CircularProgressIndicator(
-                        color: context.conduitTheme.buttonPrimary,
-                      ),
-                    ),
-                  );
-          },
-          errorBuilder: (context, error, stackTrace) => Center(
-            child: Icon(
-              Icons.error_outline,
-              color: context.conduitTheme.error,
-              size: 48,
-            ),
-          ),
-        );
-      }
-    } else if (imageData != null) {
-      try {
-        String actualBase64;
-        if (imageData!.startsWith('data:')) {
-          final commaIndex = imageData!.indexOf(',');
-          if (commaIndex == -1) {
-            throw const FormatException('Invalid data URI');
-          }
-          actualBase64 = imageData!.substring(commaIndex + 1);
-        } else {
-          actualBase64 = imageData!;
-        }
-        final decodedBytes = base64.decode(actualBase64);
-
-        // Check if SVG content
-        if (isSvg || _isSvgDataUrl(imageData!) || _isSvgBytes(decodedBytes)) {
-          imageWidget = JovialSvgImage.bytes(
-            decodedBytes,
-            fit: BoxFit.contain,
-            errorBuilder: (context, error, stackTrace) => Center(
-              child: Icon(
-                Icons.error_outline,
-                color: context.conduitTheme.error,
-                size: 48,
-              ),
-            ),
-          );
-        } else {
-          imageWidget = Image(
-            image: RasterMediaPolicy.resizeProvider(
-              MemoryImage(decodedBytes),
-              decodeTarget,
-            ),
-            fit: BoxFit.contain,
-          );
-        }
-      } catch (e) {
-        imageWidget = Center(
-          child: Icon(
-            Icons.error_outline,
-            color: context.conduitTheme.error,
-            size: 48,
-          ),
-        );
-      }
-    } else {
-      // No image data available - show error
-      imageWidget = Center(
-        child: Icon(
-          Icons.error_outline,
-          color: context.conduitTheme.error,
-          size: 48,
-        ),
-      );
-    }
-
-    final tokens = context.colorTokens;
-    final background = tokens.neutralTone10;
-    final iconColor = tokens.neutralOnSurface;
-
-    return AdaptiveRouteShell(
-      backgroundColor: background,
-      body: Stack(
-        children: [
-          Center(
-            child: HeroMode(
-              enabled: !context.reduceMotion,
-              child: Hero(
-                tag: tag,
-                child: InteractiveViewer(
-                  minScale: 0.5,
-                  maxScale: 5.0,
-                  child: imageWidget,
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 16,
-            right: 16,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ConduitIconButton(
-                  icon: Platform.isIOS ? Icons.ios_share : Icons.share_outlined,
-                  iconColor: iconColor,
-                  tooltip: AppLocalizations.of(context)!.shareSystemSheet,
-                  onPressed: () => _shareImage(context, ref),
-                ),
-                const SizedBox(width: 8),
-                ConduitIconButton(
-                  icon: Icons.close,
-                  iconColor: iconColor,
-                  tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ],
-            ),
-          ),
-        ],
+      ImageViewerItem(
+        attachmentId: widget.attachmentId,
+        httpHeaders: widget.httpHeaders,
       ),
+    );
+    _openingViewer = true;
+    unawaited(
+      _openImageViewer(
+        context: thumbnailContext,
+        items: items,
+        initialIndex: index,
+        initialEntry: ImageAttachmentCacheEntry(
+          resolvedData: _cachedImageData,
+          bytes: _cachedBytes,
+          isSvg: _isSvg,
+        ),
+        heroTag: _heroTag,
+        onPreparing: _setPreparingViewer,
+      ).whenComplete(() => _openingViewer = false),
     );
   }
 
-  Future<void> _shareImage(BuildContext context, WidgetRef ref) async {
-    final l10n = AppLocalizations.of(context)!;
-    try {
-      Uint8List bytes;
-      String? fileExtension;
-
-      // If we have raw bytes, use them directly
-      if (imageData == null && imageBytes != null) {
-        bytes = imageBytes!;
-        fileExtension = isSvg ? 'svg' : 'png';
-      } else if (imageData!.startsWith('http')) {
-        final api = ref.read(apiServiceProvider);
-        final defaultHeaders = readImageHeadersForUrlFromWidgetRef(
-          ref,
-          imageData!,
-        );
-        final mergedHeaders = _mergeHeaders(defaultHeaders, customHeaders);
-
-        final client = api?.dio ?? dio.Dio();
-        final response = await client.get<List<int>>(
-          imageData!,
-          options: dio.Options(
-            responseType: dio.ResponseType.bytes,
-            headers: mergedHeaders,
-          ),
-        );
-        final data = response.data;
-        if (data == null || data.isEmpty) {
-          throw Exception(l10n.emptyImageData);
-        }
-        bytes = Uint8List.fromList(data);
-
-        final contentType = response.headers.map['content-type']?.first;
-        if (contentType != null && contentType.startsWith('image/')) {
-          fileExtension = contentType.split('/').last;
-          if (fileExtension == 'jpeg') fileExtension = 'jpg';
-        } else {
-          final uri = Uri.tryParse(imageData!);
-          final lastSegment = uri?.pathSegments.isNotEmpty == true
-              ? uri!.pathSegments.last
-              : '';
-          final dotIndex = lastSegment.lastIndexOf('.');
-          if (dotIndex != -1 && dotIndex < lastSegment.length - 1) {
-            final ext = lastSegment.substring(dotIndex + 1).toLowerCase();
-            if (ext.length <= 5) {
-              fileExtension = ext;
-            }
-          }
-        }
-      } else if (imageData != null) {
-        String actualBase64 = imageData!;
-        if (imageData!.startsWith('data:')) {
-          final commaIndex = imageData!.indexOf(',');
-          final meta = imageData!.substring(5, commaIndex); // image/png;base64
-          final slashIdx = meta.indexOf('/');
-          final semicolonIdx = meta.indexOf(';');
-          if (slashIdx != -1 && semicolonIdx != -1 && slashIdx < semicolonIdx) {
-            final subtype = meta.substring(slashIdx + 1, semicolonIdx);
-            fileExtension = subtype == 'jpeg' ? 'jpg' : subtype;
-          }
-          actualBase64 = imageData!.substring(commaIndex + 1);
-        }
-        bytes = base64.decode(actualBase64);
-      } else {
-        // No image data available
-        return;
-      }
-
-      fileExtension ??= 'png';
-      final tempDir = await getTemporaryDirectory();
-      final filePath =
-          '${tempDir.path}/conduit_shared_${DateTime.now().millisecondsSinceEpoch}.$fileExtension';
-      final file = File(filePath);
-      await file.writeAsBytes(bytes);
-
-      await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
-    } catch (e) {
-      // Swallowing UI feedback per requirements; keep a log for debugging
-      DebugLogger.log(
-        'Failed to share image: $e',
-        scope: 'chat/image-attachment',
-      );
+  /// Shows a spinner on the thumbnail only when writing the native viewer's
+  /// files takes long enough to notice.
+  void _setPreparingViewer(bool preparing) {
+    _preparingViewerTimer?.cancel();
+    _preparingViewerTimer = null;
+    if (preparing) {
+      _preparingViewerTimer = Timer(const Duration(milliseconds: 150), () {
+        if (mounted) setState(() => _preparingViewer = true);
+      });
+    } else if (_preparingViewer && mounted) {
+      setState(() => _preparingViewer = false);
     }
   }
 }

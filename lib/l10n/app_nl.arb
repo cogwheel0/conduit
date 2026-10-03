@@ -3338,5 +3338,10 @@
   "webSearchRegionWorldwide": "Wereldwijd",
   "directModelToolsUnsupported": "Dit model kan geen hulpmiddelen gebruiken en kan dus niet op het web zoeken. Zet webzoeken en alle hulpmiddelen uit en probeer het opnieuw.",
   "directContextCompactionModelCount": "{count, plural, =1{1 model} other{{count} modellen}}",
-  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}}
+  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
+  "imageViewerPosition": "{current} van {total}",
+  "@imageViewerPosition": {"placeholders": {"current": {"type": "int", "example": "2"}, "total": {"type": "int", "example": "5"}}},
+  "saveImage": "Afbeelding opslaan",
+  "imageSaved": "Afbeelding opgeslagen",
+  "imageSaveFailed": "Kan de afbeelding niet opslaan."
 }

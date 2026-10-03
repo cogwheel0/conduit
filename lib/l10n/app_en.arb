@@ -6134,5 +6134,13 @@
   "directModelToolsUnsupported": "This model can't use tools, so it can't search the web. Turn off web search and any tools, then try again.",
   "@directModelToolsUnsupported": {"description": "Error shown when a Direct model rejects tool definitions, which web search needs."},
   "directContextCompactionModelCount": "{count, plural, =1{1 model} other{{count} models}}",
-  "@directContextCompactionModelCount": {"description": "Row value on Direct Connections that opens the list of models needing a context limit.", "placeholders": {"count": {"type": "int", "example": "42"}}}
+  "@directContextCompactionModelCount": {"description": "Row value on Direct Connections that opens the list of models needing a context limit.", "placeholders": {"count": {"type": "int", "example": "42"}}},
+  "imageViewerPosition": "{current} of {total}",
+  "@imageViewerPosition": {"description": "Position of the visible image in the full-screen image viewer.", "placeholders": {"current": {"type": "int", "example": "2"}, "total": {"type": "int", "example": "5"}}},
+  "saveImage": "Save image",
+  "@saveImage": {"description": "Button in the full-screen image viewer that saves the image to the device gallery."},
+  "imageSaved": "Image saved",
+  "@imageSaved": {"description": "Confirmation after an image is saved to the device gallery."},
+  "imageSaveFailed": "Couldn't save the image.",
+  "@imageSaveFailed": {"description": "Error shown when an image cannot be saved to the device gallery."}
 }
