@@ -994,4 +994,53 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('coverage follows the order sheets were opened in', (
+    tester,
+  ) async {
+    late BuildContext hostContext;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(TweakcnThemes.t3Chat),
+        home: Builder(
+          builder: (context) {
+            hostContext = context;
+            return const Scaffold(body: SizedBox.expand());
+          },
+        ),
+      ),
+    );
+
+    // The builders' own contexts, as the API hands them out.
+    late BuildContext firstContext;
+    late BuildContext secondContext;
+    unawaited(
+      ThemedSheets.showCustom<void>(
+        context: hostContext,
+        builder: (context) {
+          firstContext = context;
+          return const SizedBox(height: 100);
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(ThemedSheets.isCoveredBySheet(firstContext), isFalse);
+
+    // Both sheets are presented from the host, so neither is nested in the
+    // other; the later one is still the one on top.
+    unawaited(
+      ThemedSheets.showRoundedPage<void>(
+        context: hostContext,
+        builder: (context) {
+          secondContext = context;
+          return const SizedBox(height: 100);
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(ThemedSheets.isCoveredBySheet(firstContext), isTrue);
+    expect(ThemedSheets.isCoveredBySheet(secondContext), isFalse);
+    expect(ThemedSheets.isCoveredBySheet(hostContext), isTrue);
+  });
 }
