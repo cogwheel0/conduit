@@ -1,5 +1,6 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:checks/checks.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/platform/webview_cookie_helper.dart';
@@ -238,7 +239,7 @@ void main() {
     await harness.unmount(tester);
   });
 
-  // B-01: after a failed sign-in the router rebuilt the page without its
+  // after a failed sign-in the router rebuilt the page without its
   // route extra. The page lost LDAP from its methods while the LDAP tab stayed
   // selected, so the body went blank and the tabs no longer matched it.
   testWidgets(
@@ -279,16 +280,18 @@ void main() {
     },
   );
 
-  // B-02: leaving the page commits the autofill context, so iOS offered to
-  // save the password the server had just rejected.
+  // Leaving the page commits the autofill context, so iOS offered to save the
+  // password the server had just rejected.
   testWidgets('a rejected password is not offered to the password manager', (
     tester,
   ) async {
     debugIsWebViewSupportedOverride = false;
     addTearDown(() => debugIsWebViewSupportedOverride = null);
+    final actions = _RejectingAuthActions();
     final harness = AdaptiveAuthHarness(
       server: server,
       backendConfig: const BackendConfig(enableLdap: true),
+      authActions: actions,
     );
     addTearDown(harness.dispose);
 
@@ -317,6 +320,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
     }
 
+    check(actions.ldapAttempts).deepEquals([('ldapuser', 'wrong-password')]);
     check(disposeAction()).equals(AutofillContextAction.cancel);
 
     await tester.enterText(fields.at(1), 'another-password');
@@ -325,6 +329,53 @@ void main() {
 
     await harness.unmount(tester);
   });
+
+  testWidgets(
+    'switching tabs after a rejected password still cancels autofill',
+    (tester) async {
+      debugIsWebViewSupportedOverride = false;
+      addTearDown(() => debugIsWebViewSupportedOverride = null);
+      final actions = _RejectingAuthActions();
+      final harness = AdaptiveAuthHarness(
+        server: server,
+        backendConfig: const BackendConfig(enableLdap: true),
+        authActions: actions,
+      );
+      addTearDown(harness.dispose);
+
+      await tester.pumpWidget(
+        harness.build(initialLocation: Routes.authentication),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('LDAP'));
+      await tester.pumpAndSettle();
+      final fields = find.descendant(
+        of: find.byKey(const ValueKey('ldap_form')),
+        matching: find.byType(TextField),
+      );
+      await tester.enterText(fields.at(0), 'ldapuser');
+      await tester.enterText(fields.at(1), 'wrong-password');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sign in with LDAP'));
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 500));
+      }
+      check(actions.ldapAttempts).isNotEmpty();
+
+      tester.testTextInput.log.clear();
+      await tester.tap(find.text('Token'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('ldap_form')), findsNothing);
+      final finished = tester.testTextInput.log
+          .where((call) => call.method == 'TextInput.finishAutofillContext')
+          .toList();
+      check(finished).length.equals(1);
+      check(finished.single.arguments).equals(false);
+
+      await harness.unmount(tester);
+    },
+  );
 
   testWidgets('sign-in keeps SSO available when backend config is absent', (
     tester,
@@ -465,4 +516,19 @@ void main() {
 
     await harness.unmount(tester);
   });
+}
+
+/// Rejects every LDAP sign-in, and records what it was asked to sign in.
+class _RejectingAuthActions extends Fake implements AuthActions {
+  final ldapAttempts = <(String, String)>[];
+
+  @override
+  Future<bool> ldapLogin(
+    String username,
+    String password, {
+    bool rememberCredentials = false,
+  }) async {
+    ldapAttempts.add((username, password));
+    return false;
+  }
 }
