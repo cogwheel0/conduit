@@ -429,6 +429,57 @@ void main() {
     expect(presented!.profile.dateOfBirth, '1990-04-02');
   });
 
+  testWidgets('profile sheet keeps the cached profile when the refresh fails', (
+    tester,
+  ) async {
+    NativeProfileSheetConfig? presented;
+    const user = User(
+      id: 'user-1',
+      username: 'ava',
+      email: 'ava@example.com',
+      name: 'Ava',
+      role: 'user',
+    );
+
+    final container = ProviderContainer(
+      overrides: [
+        currentUserProvider2.overrideWithValue(user),
+        currentUserProvider.overrideWith((ref) async => user),
+        apiServiceProvider.overrideWithValue(null),
+        hermesOnlyModeProvider.overrideWithValue(false),
+        accountProfileProvider.overrideWith(_UnreachableAccountProfile.new),
+        sidebarNativeProfilePresenterProvider.overrideWithValue((config) async {
+          presented = config;
+          return true;
+        }),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(accountProfileProvider.future);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const Scaffold(body: SidebarProfileAppBarLeading()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-profile-button')),
+    );
+    await tester.pumpAndSettle();
+
+    // The sheet must not open on empty fields that a save would then write.
+    expect(presented, isNotNull);
+    expect(presented!.profile.gender, 'male');
+    expect(presented!.profile.dateOfBirth, '1990-04-02');
+  });
+
   testWidgets('sidebar material app bar uses the compact toolbar height', (
     tester,
   ) async {
@@ -533,5 +584,26 @@ class _ServerAccountProfile extends AccountProfile {
   @override
   Future<void> refresh() async {
     state = const AsyncData(_server);
+  }
+}
+
+/// Holds a loaded profile, and loses the server on refresh the way the real
+/// provider does: its state goes to loading, then to an error with no value.
+class _UnreachableAccountProfile extends AccountProfile {
+  @override
+  Future<AccountMetadata?> build() async => const AccountMetadata(
+    id: 'user-1',
+    email: 'ava@example.com',
+    name: 'Ava',
+    role: 'user',
+    isActive: true,
+    gender: 'male',
+    dateOfBirth: '1990-04-02',
+  );
+
+  @override
+  Future<void> refresh() async {
+    state = const AsyncLoading();
+    state = AsyncError(StateError('unreachable'), StackTrace.empty);
   }
 }
