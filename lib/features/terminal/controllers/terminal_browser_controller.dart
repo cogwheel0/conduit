@@ -89,26 +89,41 @@ class TerminalBrowserController extends ChangeNotifier {
 
     final currentPath = _gateway.currentPath;
     await Future.wait([
-      loadDirectory(service, server, path: currentPath, updateServerCwd: false),
+      loadDirectory(
+        service,
+        server,
+        path: currentPath,
+        updateServerCwd: false,
+        refresh: true,
+      ),
       loadPorts(service, server),
     ]);
   }
 
+  /// Lists [path] and makes it the current directory.
+  ///
+  /// A navigation supersedes the listings requested before it, so only the
+  /// newest can publish. A [refresh] lists the directory that is current
+  /// instead. It never supersedes a navigation, and it publishes only while
+  /// that directory is still current: a refresh that answers after the context
+  /// chose another path must not put the old one back.
   Future<void> loadDirectory(
     TerminalService service,
     TerminalServerInfo server, {
     required String path,
     required bool updateServerCwd,
+    bool refresh = false,
   }) async {
     final sessionScopeId = _gateway.sessionScopeId;
+    if (!_isCurrentContext(server, sessionScopeId)) return;
     final normalizedPath = ensureTerminalDirectoryPath(path);
-    // Only the newest listing may publish. A reload started before the
-    // context chose its path would otherwise put the old path and entries
-    // back when it finishes last.
-    final generation = ++_directoryLoadGeneration;
+    final generation = refresh
+        ? _directoryLoadGeneration
+        : ++_directoryLoadGeneration;
     bool isCurrentLoad() =>
         generation == _directoryLoadGeneration &&
-        _isCurrentContext(server, sessionScopeId);
+        _isCurrentContext(server, sessionScopeId) &&
+        (!refresh || _gateway.currentPath == normalizedPath);
 
     _setLoadingFiles(true);
     try {
