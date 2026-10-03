@@ -329,9 +329,14 @@ class ThemedSheets {
     required BuildContext context,
     required Future<T?> Function(_SheetCoverageToken coverage) present,
   }) async {
-    final coverage = _SheetCoverageToken(() {
-      _activeSheetCount.value = math.max(0, _activeSheetCount.value - 1);
-    });
+    // The route is pushed onto the root navigator, beside the presenting
+    // sheet rather than under it, so the nesting depth comes from the caller.
+    final coverage = _SheetCoverageToken(
+      depth: _SheetDepthScope.depthOf(context) + 1,
+      onClose: () {
+        _activeSheetCount.value = math.max(0, _activeSheetCount.value - 1);
+      },
+    );
     _activeSheetCount.value += 1;
     try {
       // Let UIKit-backed chrome leave the compositor before presenting the
@@ -394,8 +399,11 @@ class ThemedSheets {
 }
 
 class _SheetCoverageToken {
-  _SheetCoverageToken(this._onClose);
+  _SheetCoverageToken({required this.depth, required VoidCallback onClose})
+    : _onClose = onClose;
 
+  /// How many tracked sheets enclose the sheet's content, itself included.
+  final int depth;
   final VoidCallback _onClose;
   bool _closed = false;
 
@@ -424,10 +432,8 @@ class _SheetCoverageBoundaryState extends State<_SheetCoverageBoundary> {
   }
 
   @override
-  Widget build(BuildContext context) => _SheetDepthScope(
-    depth: _SheetDepthScope.depthOf(context) + 1,
-    child: widget.child,
-  );
+  Widget build(BuildContext context) =>
+      _SheetDepthScope(depth: widget.coverage.depth, child: widget.child);
 }
 
 /// How many tracked sheets enclose a subtree.

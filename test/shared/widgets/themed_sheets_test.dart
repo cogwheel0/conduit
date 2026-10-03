@@ -967,19 +967,31 @@ void main() {
       findsOneWidget,
     );
 
-    // A second sheet over the first covers the first one's chrome.
+    // A second sheet over the first covers the first one's chrome, and keeps
+    // its own.
+    late BuildContext topSheetContext;
     unawaited(
       ThemedSheets.showCustom<void>(
         context: sheetContext,
-        builder: (_) => const SizedBox(height: 200),
+        builder: (_) => Builder(
+          builder: (context) {
+            topSheetContext = context;
+            return nativeButton('top-native-button');
+          },
+        ),
       ),
     );
     await tester.pumpAndSettle();
 
     expect(ThemedSheets.isCoveredBySheet(sheetContext), isTrue);
+    expect(ThemedSheets.isCoveredBySheet(topSheetContext), isFalse);
     expect(
       find.byKey(const ValueKey<String>('inner-native-button')),
       findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('top-native-button')),
+      findsOneWidget,
     );
   });
 }
