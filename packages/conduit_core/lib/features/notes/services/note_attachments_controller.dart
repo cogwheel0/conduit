@@ -505,6 +505,9 @@ class NoteAttachmentsController {
     final ApiService? api = _container.read(apiServiceProvider);
     final AppDatabase? db = _container.read(appDatabaseProvider);
     if (api == null && db == null) return null;
+    // The session is more than the API and database objects, which can stay
+    // the same while the account changes underneath them.
+    final Object authEpoch = _container.read(openWebUiAuthSessionEpochProvider);
 
     List<Map<String, dynamic>> without(List<Map<String, dynamic>> files) =>
         files
@@ -519,6 +522,7 @@ class NoteAttachmentsController {
       api: api,
       db: db,
       title: _resolvedTitle(),
+      authEpoch: authEpoch,
       data: <String, dynamic>{'files': without(currentFiles)},
       // With a database the list is filtered from the stored row inside the
       // note lock, so an attachment added since [note] was read (a recording
@@ -538,7 +542,10 @@ class NoteAttachmentsController {
       },
       isStillOpen: () => !_disposed,
     );
-    if (updated == null || !_isCurrent(api: api, db: db)) return null;
+    if (updated == null ||
+        !_isCurrent(api: api, db: db, authEpoch: authEpoch)) {
+      return null;
+    }
     return updated;
   }
 

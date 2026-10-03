@@ -31,6 +31,17 @@ const _user = User(
   role: 'user',
 );
 
+/// A stand-in for the auth session epoch that a test can rotate, as
+/// signing out and in as another user does.
+final _testEpochProvider = NotifierProvider<_TestEpoch, Object>(_TestEpoch.new);
+
+class _TestEpoch extends Notifier<Object> {
+  @override
+  Object build() => Object();
+
+  void rotate() => state = Object();
+}
+
 class _NoDrainSyncEngine extends SyncEngine {
   @override
   Future<void> drainNow() async {}
@@ -151,6 +162,9 @@ void main() {
         appDatabaseProvider.overrideWith((ref) => db),
         apiServiceProvider.overrideWithValue(api),
         isAuthenticatedProvider2.overrideWithValue(true),
+        openWebUiAuthSessionEpochProvider.overrideWith(
+          (ref) => ref.watch(_testEpochProvider),
+        ),
         currentUserProvider2.overrideWithValue(_user),
         connectivityStatusProvider.overrideWith(_OnlineConnectivity.new),
         syncEngineProvider.overrideWith(_NoDrainSyncEngine.new),
@@ -352,6 +366,17 @@ void main() {
             .deepEquals(['new-file']);
         check((await readNote('note-1')).data.files!.map((f) => f['id']))
             .deepEquals(['new-file']);
+      },
+    );
+
+    test(
+      'removeAttachedFile returns nothing when the session changed meanwhile',
+      () async {
+        final removal = controller.removeAttachedFile('old-file');
+        // The account changes while the removal is in flight.
+        container.read(_testEpochProvider.notifier).rotate();
+
+        check(await removal).isNull();
       },
     );
 
