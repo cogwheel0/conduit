@@ -195,8 +195,10 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
             notifier.removeMessage(messageId);
           }
         case 'message:reply':
+          // The payload is the parent message itself, so its own id names the
+          // message whose reply count changed.
           if (data is Map<String, dynamic>) {
-            final parentId = data['parent_id'] as String?;
+            final parentId = data['id'] as String?;
             if (parentId != null) {
               unawaited(_refreshMessage(channelId, parentId, generation));
             }
@@ -236,6 +238,15 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
     try {
       final message = await _parseHydratedMessage(channelId, data, generation);
       if (message == null || !_ownsSubscription(channelId, generation)) {
+        return;
+      }
+      final parentId = message.parentId;
+      if (parentId != null && parentId.isNotEmpty) {
+        // A thread reply belongs to its thread, not to the channel timeline.
+        final thread = threadMessagesProvider(channelId, parentId);
+        if (ref.exists(thread)) {
+          ref.read(thread.notifier).prependMessage(message);
+        }
         return;
       }
       ref
