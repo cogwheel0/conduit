@@ -30,7 +30,7 @@ final _channelAuthEpochProvider =
     );
 
 void main() {
-  testWidgets('a posted message gets its sender while the user still loads', (
+  testWidgets('a posted message is stored at once and gets its sender later', (
     tester,
   ) async {
     final userLoading = Completer<User?>();
@@ -71,7 +71,16 @@ void main() {
                 .widget<ModernChatInput>(find.byType(ModernChatInput).first)
                 .onSendMessage('hello')
             as Future<void>;
+    // The post is stored without waiting for the user to load.
+    await send;
     await tester.pump(const Duration(milliseconds: 1));
+    final stored = container
+        .read(channelMessagesProvider('channel-1'))
+        .requireValue
+        .single;
+    check(stored.id).equals('message-2');
+    check(stored.user).isNull();
+
     userLoading.complete(
       const User(
         id: 'user-1',
@@ -81,14 +90,12 @@ void main() {
         role: 'user',
       ),
     );
-    await send;
     await tester.pump(const Duration(milliseconds: 1));
 
     final posted = container
         .read(channelMessagesProvider('channel-1'))
         .requireValue
         .single;
-    check(posted.id).equals('message-2');
     check(posted.userName).equals('Alice');
   });
 

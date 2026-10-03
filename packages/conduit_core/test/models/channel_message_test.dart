@@ -57,11 +57,39 @@ void main() {
       'updated_at': 9,
     });
 
-    final updated = listed.withUpdateResponse(response);
+    final updated = listed.withEditResponse(response);
     check(updated.content).equals('edited');
     check(updated.updatedAt).equals(9);
     check(updated.userName).equals('Ava');
     check(updated.reactions).length.equals(1);
     check(updated.replyCount).equals(3);
   });
+
+  test(
+    'an edit response does not undo a pin, and a pin does not undo an edit',
+    () {
+      final pinned = ChannelMessage.fromJson({
+        ..._bareRow(content: 'newer'),
+        'is_pinned': true,
+        'pinned_by': 'user-1',
+        'pinned_at': 5,
+      });
+      // An edit answered after the pin carries the pin state from before it.
+      final staleEdit = ChannelMessage.fromJson({
+        ..._bareRow(content: 'edited'),
+        'is_pinned': false,
+      });
+      final afterEdit = pinned.withEditResponse(staleEdit);
+      check(afterEdit.content).equals('edited');
+      check(afterEdit.isPinned).isTrue();
+
+      final stalePin = ChannelMessage.fromJson({
+        ..._bareRow(content: 'older'),
+        'is_pinned': false,
+      });
+      final afterPin = afterEdit.withPinResponse(stalePin);
+      check(afterPin.content).equals('edited');
+      check(afterPin.isPinned).isFalse();
+    },
+  );
 }

@@ -101,17 +101,40 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       operationGeneration == _operationGeneration &&
       _ownsChannelRequest(api, authSessionEpoch, channelId);
 
-  /// [message] with the signed-in user as its sender when the server left it
-  /// out. The user may still be loading, and the message is stored by id, so
-  /// a socket echo could not fill the sender in later.
-  Future<ChannelMessage> _withOwnSender(ChannelMessage message) async {
-    final User? me;
-    try {
-      me = await ref.read(currentUserProvider.future);
-    } catch (_) {
-      return message;
-    }
-    return me == null ? message : message.withSenderIfMissing(me);
+  /// Stores [message] through [store] now, with the signed-in user as its
+  /// sender when the server left it out. If the user is still loading, the
+  /// post is not held back: the sender is filled in through [fillSender] once
+  /// the user arrives, unless the channel changed owner in the meantime.
+  void _storeOwnMessage(
+    ChannelMessage message, {
+    required void Function(ChannelMessage message) store,
+    required void Function(String messageId, User sender) fillSender,
+    required ApiService api,
+    required Object authSessionEpoch,
+    required String channelId,
+    required int operationGeneration,
+  }) {
+    final me = ref.read(currentUserProvider).value;
+    store(me == null ? message : message.withSenderIfMissing(me));
+    if (me != null) return;
+    unawaited(
+      ref.read(currentUserProvider.future).then<void>((user) {
+        if (user == null ||
+            !_ownsChannelOperation(
+              api,
+              authSessionEpoch,
+              channelId,
+              operationGeneration,
+            )) {
+          return;
+        }
+        try {
+          fillSender(message.id, user);
+        } on StateError {
+          // The list was disposed while the user loaded; nothing to fill in.
+        }
+      }, onError: (_) {}),
+    );
   }
 
   void _setReplyTo(ChannelMessage message) {
@@ -332,7 +355,6 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         tempId: tempId,
         replyToId: replyToId,
       );
-      final message = await _withOwnSender(ChannelMessage.fromJson(json));
       if (!mounted ||
           !_ownsChannelOperation(
             api,
@@ -342,9 +364,18 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           )) {
         return;
       }
-      ref
-          .read(channelMessagesProvider(channelId).notifier)
-          .prependMessage(message);
+      final channelMessages = ref.read(
+        channelMessagesProvider(channelId).notifier,
+      );
+      _storeOwnMessage(
+        ChannelMessage.fromJson(json),
+        store: channelMessages.prependMessage,
+        fillSender: channelMessages.fillSender,
+        api: api,
+        authSessionEpoch: authSessionEpoch,
+        channelId: channelId,
+        operationGeneration: operationGeneration,
+      );
       _clearReplyTo();
     } catch (e, s) {
       developer.log(
@@ -594,7 +625,6 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         parentId: parentMessageId,
         data: {'files': files},
       );
-      final message = await _withOwnSender(ChannelMessage.fromJson(json));
       if (!mounted ||
           !_ownsChannelOperation(
             api,
@@ -605,14 +635,33 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         return;
       }
 
+      final message = ChannelMessage.fromJson(json);
       if (parentMessageId != null) {
-        ref
-            .read(threadMessagesProvider(channelId, parentMessageId).notifier)
-            .prependMessage(message);
+        final replies = ref.read(
+          threadMessagesProvider(channelId, parentMessageId).notifier,
+        );
+        _storeOwnMessage(
+          message,
+          store: replies.prependMessage,
+          fillSender: replies.fillSender,
+          api: api,
+          authSessionEpoch: authSessionEpoch,
+          channelId: channelId,
+          operationGeneration: operationGeneration,
+        );
       } else {
-        ref
-            .read(channelMessagesProvider(channelId).notifier)
-            .prependMessage(message);
+        final channelMessages = ref.read(
+          channelMessagesProvider(channelId).notifier,
+        );
+        _storeOwnMessage(
+          message,
+          store: channelMessages.prependMessage,
+          fillSender: channelMessages.fillSender,
+          api: api,
+          authSessionEpoch: authSessionEpoch,
+          channelId: channelId,
+          operationGeneration: operationGeneration,
+        );
         _clearReplyTo();
       }
     } catch (e, s) {
@@ -781,7 +830,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       }
       ref
           .read(channelMessagesProvider(channelId).notifier)
-          .applyUpdateResponse(ChannelMessage.fromJson(json));
+          .applyEditResponse(ChannelMessage.fromJson(json));
     } catch (e, st) {
       developer.log(
         'Failed to edit message',
@@ -828,7 +877,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       }
       ref
           .read(channelMessagesProvider(channelId).notifier)
-          .applyUpdateResponse(ChannelMessage.fromJson(json));
+          .applyPinResponse(ChannelMessage.fromJson(json));
     } catch (e, st) {
       developer.log(
         'Failed to toggle pin',

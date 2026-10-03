@@ -4,6 +4,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/models/channel.dart';
 import 'package:conduit_core/models/channel_message.dart';
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
@@ -280,9 +281,39 @@ class ChannelMessages extends _$ChannelMessages {
   /// delayed attachment messages ahead of newer messages.
   void prependMessage(ChannelMessage message) {
     final current = state.value ?? [];
-    if (current.any((m) => m.id == message.id)) return;
+    final index = current.indexWhere((m) => m.id == message.id);
+    if (index >= 0) {
+      _adoptSender(index, message.user);
+      return;
+    }
     _invalidatePendingFetchForMutation();
     state = AsyncValue.data(_insertNewestFirst(current, message));
+  }
+
+  /// Gives the message [messageId] the signed-in [sender] when it has none,
+  /// as when the user finished loading after the post was stored.
+  void fillSender(String messageId, User sender) {
+    final index = (state.value ?? []).indexWhere((m) => m.id == messageId);
+    if (index < 0) return;
+    _adoptSender(
+      index,
+      ChannelMessageUser.fromUser(sender),
+      onlyFor: sender.id,
+    );
+  }
+
+  /// A socket event can store a message before the response to its own post
+  /// arrives, and the event may name no sender. Take the sender from whichever
+  /// copy has one.
+  void _adoptSender(int index, ChannelMessageUser? sender, {String? onlyFor}) {
+    final current = state.requireValue;
+    final existing = current[index];
+    if (existing.user != null || sender == null) return;
+    if (onlyFor != null && existing.userId != onlyFor) return;
+    _invalidatePendingFetchForMutation();
+    final next = List<ChannelMessage>.of(current);
+    next[index] = existing.copyWith(user: sender);
+    state = AsyncValue.data(next);
   }
 
   /// Updates a message in the list (edit, reaction change).
@@ -296,14 +327,24 @@ class ChannelMessages extends _$ChannelMessages {
     state = AsyncValue.data(next);
   }
 
-  /// Applies an edit or pin [response] to the message it names, as the list
-  /// holds it now. A socket event can change its reactions or thread counts
-  /// while the request is in flight, and those must not be rolled back.
-  void applyUpdateResponse(ChannelMessage response) {
+  /// Applies an edit [response] to the message it names, as the list holds it
+  /// now. A socket event can change its reactions or thread counts while the
+  /// request is in flight, and those must not be rolled back.
+  void applyEditResponse(ChannelMessage response) =>
+      _applyResponse(response, (current) => current.withEditResponse(response));
+
+  /// Applies a pin or unpin [response] the same way as [applyEditResponse].
+  void applyPinResponse(ChannelMessage response) =>
+      _applyResponse(response, (current) => current.withPinResponse(response));
+
+  void _applyResponse(
+    ChannelMessage response,
+    ChannelMessage Function(ChannelMessage current) apply,
+  ) {
     final current = state.value ?? [];
     final index = current.indexWhere((message) => message.id == response.id);
     if (index < 0) return;
-    updateMessage(current[index].withUpdateResponse(response));
+    updateMessage(apply(current[index]));
   }
 
   /// Removes a message from the list.
@@ -448,9 +489,39 @@ class ThreadMessages extends _$ThreadMessages {
   /// Prepends a new reply to the thread.
   void prependMessage(ChannelMessage message) {
     final current = state.value ?? [];
-    if (current.any((m) => m.id == message.id)) return;
+    final index = current.indexWhere((m) => m.id == message.id);
+    if (index >= 0) {
+      _adoptSender(index, message.user);
+      return;
+    }
     _invalidatePendingFetchForMutation();
     state = AsyncValue.data(_insertNewestFirst(current, message));
+  }
+
+  /// Gives the message [messageId] the signed-in [sender] when it has none,
+  /// as when the user finished loading after the post was stored.
+  void fillSender(String messageId, User sender) {
+    final index = (state.value ?? []).indexWhere((m) => m.id == messageId);
+    if (index < 0) return;
+    _adoptSender(
+      index,
+      ChannelMessageUser.fromUser(sender),
+      onlyFor: sender.id,
+    );
+  }
+
+  /// A socket event can store a message before the response to its own post
+  /// arrives, and the event may name no sender. Take the sender from whichever
+  /// copy has one.
+  void _adoptSender(int index, ChannelMessageUser? sender, {String? onlyFor}) {
+    final current = state.requireValue;
+    final existing = current[index];
+    if (existing.user != null || sender == null) return;
+    if (onlyFor != null && existing.userId != onlyFor) return;
+    _invalidatePendingFetchForMutation();
+    final next = List<ChannelMessage>.of(current);
+    next[index] = existing.copyWith(user: sender);
+    state = AsyncValue.data(next);
   }
 }
 
