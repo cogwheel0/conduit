@@ -759,6 +759,7 @@ List<GoRoute> _workspaceRoutes() {
       name: name,
       pageBuilder: (context, state) => _buildPlatformPage(
         state: state,
+        noTransition: usesNoTransitionForWorkspaceRoute(mode, state.extra),
         child: WorkspacePage(
           section: section,
           mode: mode,
@@ -853,8 +854,9 @@ Page<void> _buildNoTransitionPage({
 Page<void> _buildPlatformPage({
   required GoRouterState state,
   required Widget child,
+  bool? noTransition,
 }) {
-  if (usesNoTransitionForNativeSheet(state.extra)) {
+  if (noTransition ?? usesNoTransitionForNativeSheet(state.extra)) {
     return _buildNoTransitionPage(state: state, child: child);
   }
 
@@ -878,3 +880,14 @@ Page<void> _buildPlatformPage({
 @visibleForTesting
 bool usesNoTransitionForNativeSheet(Object? extra) =>
     extra is NativeSheetNavigationOrigin;
+
+/// Only a Workspace collection is entered from native Settings. Resource
+/// pages are pushed over it in Flutter and keep the native-sheet origin for
+/// their back target, but need a real transition so the edge swipe pops them.
+@visibleForTesting
+bool usesNoTransitionForWorkspaceRoute(
+  WorkspaceRouteMode mode,
+  Object? extra,
+) =>
+    mode == WorkspaceRouteMode.collection &&
+    usesNoTransitionForNativeSheet(extra);
