@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
@@ -26,6 +27,19 @@ void main() {
       check(
         detectImageFileType(_bytes(ascii.encode('\x00\x00\x00\x18ftypavif'))),
       ).equals(const ImageFileType('avif', 'image/avif'));
+      // AVIF with the generic `mif1` major brand lists `avif` as compatible.
+      check(
+        detectImageFileType(
+          _bytes(
+            ascii.encode('\x00\x00\x00\x1cftypmif1\x00\x00\x00\x00avifmiaf'),
+          ),
+        ),
+      ).equals(const ImageFileType('avif', 'image/avif'));
+      check(
+        detectImageFileType(
+          _bytes(ascii.encode('\x00\x00\x00\x18ftypmif1\x00\x00\x00\x00heic')),
+        ),
+      ).equals(const ImageFileType('heic', 'image/heic'));
       check(
         detectImageFileType(
           Uint8List.fromList(utf8.encode('<svg xmlns="x"></svg>')),
@@ -59,6 +73,34 @@ void main() {
       ).equals(const ImageFileType('gif', 'image/gif'));
       check(detectImageFileType(unknown))
           .equals(const ImageFileType('png', 'image/png'));
+    });
+  });
+
+  group('purgeStaleImageSessions', () {
+    late Directory base;
+    setUp(() => base = Directory.systemTemp.createTempSync('image_sessions'));
+    tearDown(() => base.deleteSync(recursive: true));
+
+    test('deletes sessions once they pass the retention period', () async {
+      final share = Directory('${base.path}/share/a')
+        ..createSync(recursive: true);
+      final viewer = Directory('${base.path}/viewer/b')
+        ..createSync(recursive: true);
+      final modified = share.statSync().modified;
+
+      await purgeStaleImageSessions(
+        base,
+        now: modified.add(imageSessionRetention - const Duration(minutes: 1)),
+      );
+      check(share.existsSync()).isTrue();
+      check(viewer.existsSync()).isTrue();
+
+      await purgeStaleImageSessions(
+        base,
+        now: modified.add(imageSessionRetention + const Duration(minutes: 1)),
+      );
+      check(share.existsSync()).isFalse();
+      check(viewer.existsSync()).isFalse();
     });
   });
 }

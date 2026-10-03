@@ -45,11 +45,14 @@ class ImageGalleryScope extends InheritedWidget {
       context.getInheritedWidgetOfExactType<ImageGalleryScope>();
 
   /// Returns the gallery that contains [item] and the item's index in it.
+  ///
+  /// Repeated images appear once, so every thumbnail of the same image opens
+  /// the same page and the counter matches what the viewer shows.
   static (List<ImageViewerItem>, int) galleryFor(
     BuildContext context,
     ImageViewerItem item,
   ) {
-    final items = maybeOf(context)?.items;
+    final items = maybeOf(context)?.items.toSet().toList();
     final index = items?.indexOf(item) ?? -1;
     if (items == null || index == -1) return ([item], 0);
     return (items, index);

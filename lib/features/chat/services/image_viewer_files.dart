@@ -1,6 +1,6 @@
 import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../../core/services/image_attachment_cache_service.dart';
@@ -83,9 +83,18 @@ ImageFileType? _sniffImageFileType(Uint8List bytes) {
   }
   if (startsWith('BM'.codeUnits)) return _bmp;
   if (startsWith('ftyp'.codeUnits, 4) && bytes.length >= 12) {
-    final brand = String.fromCharCodes(bytes.sublist(8, 12));
-    if (brand == 'avif' || brand == 'avis') return _avif;
-    if (const {'heic', 'heix', 'hevc', 'mif1', 'msf1'}.contains(brand)) {
+    String brandAt(int offset) =>
+        String.fromCharCodes(bytes.sublist(offset, offset + 4));
+    // The box lists compatible brands after the major brand and version.
+    // AVIF files often use the generic `mif1` major brand.
+    final boxEnd = bytes.buffer.asByteData(bytes.offsetInBytes).getUint32(0);
+    final end = boxEnd < bytes.length ? boxEnd : bytes.length;
+    final brands = [
+      brandAt(8),
+      for (var offset = 16; offset + 4 <= end; offset += 4) brandAt(offset),
+    ];
+    if (brands.contains('avif') || brands.contains('avis')) return _avif;
+    if (const {'heic', 'heix', 'hevc', 'mif1', 'msf1'}.contains(brands[0])) {
       return _heic;
     }
   }
@@ -127,19 +136,65 @@ Future<File> writeImageFile(
   return file;
 }
 
+/// Session directories this process is still using.
+final Set<String> _liveImageSessions = {};
+
+/// How long a released session directory is kept before it is purged.
+const imageSessionRetention = Duration(hours: 1);
+
 /// Creates a private, empty directory for one viewer, share, or save session.
 ///
 /// Callers delete it with [deleteImageSessionDirectory] once the platform no
-/// longer needs the files. The files hold chat content, so they stay in the
-/// app's cache directory, which is excluded from backups.
+/// longer needs the files, or release it with [releaseImageSessionDirectory]
+/// when another app may still read them. The files hold chat content, so they
+/// stay in the app's cache directory, which is excluded from backups.
+///
+/// Also purges released or abandoned sessions, such as those left by a killed
+/// app, once they are older than [imageSessionRetention].
 Future<Directory> createImageSessionDirectory(String purpose) async {
   final temp = await getTemporaryDirectory();
-  final root = Directory('${temp.path}/conduit_images/$purpose');
+  final base = Directory('${temp.path}/conduit_images');
+  await purgeStaleImageSessions(base);
+  final root = Directory('${base.path}/$purpose');
   await root.create(recursive: true);
-  return root.createTemp();
+  final directory = await root.createTemp();
+  _liveImageSessions.add(directory.path);
+  return directory;
+}
+
+/// Deletes session directories under [base] that this process is not using
+/// and that were last modified before [imageSessionRetention] ago.
+@visibleForTesting
+Future<void> purgeStaleImageSessions(Directory base, {DateTime? now}) async {
+  final cutoff = (now ?? DateTime.now()).subtract(imageSessionRetention);
+  try {
+    if (!await base.exists()) return;
+    await for (final purpose in base.list()) {
+      if (purpose is! Directory) continue;
+      await for (final session in purpose.list()) {
+        if (session is! Directory ||
+            _liveImageSessions.contains(session.path)) {
+          continue;
+        }
+        if ((await session.stat()).modified.isBefore(cutoff)) {
+          await session.delete(recursive: true);
+        }
+      }
+    }
+  } on FileSystemException {
+    // Purging is best effort; the OS clears the cache directory eventually.
+  }
+}
+
+/// Stops tracking [directory] without deleting it, so a share target can
+/// still read its files. A later session purges it after
+/// [imageSessionRetention].
+void releaseImageSessionDirectory(Directory directory) {
+  _liveImageSessions.remove(directory.path);
 }
 
 Future<void> deleteImageSessionDirectory(Directory directory) async {
+  _liveImageSessions.remove(directory.path);
   try {
     if (await directory.exists()) {
       await directory.delete(recursive: true);

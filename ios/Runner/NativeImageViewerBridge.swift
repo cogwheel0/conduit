@@ -128,7 +128,9 @@ final class NativeImageViewerBridge: NSObject, NativeImageViewerHostApi {
         guard let presenter = topViewController(),
               presenter.viewIfLoaded?.window != nil,
               !presenter.isBeingDismissed,
-              QLPreviewController.canPreview(items[0])
+              // A page Quick Look cannot render would show blank, so let the
+              // Flutter viewer handle the whole gallery instead.
+              items.allSatisfy({ QLPreviewController.canPreview($0) })
         else {
             completion(.failure(PigeonError(
                 code: "PRESENTATION_FAILED",

@@ -1,15 +1,20 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:conduit/features/chat/services/native_image_viewer_bridge.dart';
 import 'package:conduit/features/chat/widgets/enhanced_image_attachment.dart';
 import 'package:conduit/features/chat/widgets/user_message_bubble.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:mocktail/mocktail.dart';
 
 const _pngBase64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
@@ -19,6 +24,9 @@ const _second = 'data:image/png;name=second;base64,$_pngBase64';
 const _widePngBase64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAADUlEQVR4nGP4z8AARAAI/gH/xp559wAAAABJRU5ErkJggg==';
 const _wide = 'data:image/png;name=wide;base64,$_widePngBase64';
+const _broken = 'data:image/png;name=broken;base64,!!!';
+
+class _MockViewerApi extends Mock implements NativeImageViewerHostApi {}
 
 void main() {
   setUp(() {
@@ -157,5 +165,91 @@ void main() {
     );
     expect(tester.getSize(viewerHero), const Size(400, 200));
     expect(tester.takeException(), isNull);
+  });
+
+  group('on iOS', () {
+    late _MockViewerApi viewerApi;
+    late NativeImageViewerBridge originalBridge;
+
+    setUpAll(() {
+      registerFallbackValue(
+        PlatformImageViewerRequest(items: const [], initialIndex: 0),
+      );
+    });
+
+    setUp(() {
+      viewerApi = _MockViewerApi();
+      when(() => viewerApi.present(any())).thenAnswer((_) async {});
+      originalBridge = NativeImageViewerBridge.instance;
+      NativeImageViewerBridge.instance = NativeImageViewerBridge.forTesting(
+        viewerApi: viewerApi,
+        isIOS: true,
+      );
+    });
+    tearDown(() => NativeImageViewerBridge.instance = originalBridge);
+
+    /// Serves a real temporary directory to path_provider.
+    void mockTemporaryDirectory(WidgetTester tester) {
+      final temp = Directory.systemTemp.createTempSync('viewer_test');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      const channel = MethodChannel('plugins.flutter.io/path_provider');
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        channel,
+        (call) async => temp.path,
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          null,
+        ),
+      );
+    }
+
+    /// Taps a thumbnail and lets the real file writes finish.
+    Future<void> tapAndPrepare(WidgetTester tester, Finder thumbnail) async {
+      await tester.tap(thumbnail);
+      for (var i = 0; i < 40; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump();
+      }
+      await settle(tester);
+    }
+
+    testWidgets('opens Quick Look when every page is ready', (tester) async {
+      mockTemporaryDirectory(tester);
+      await pumpBubble(tester);
+      await tapAndPrepare(tester, find.byType(EnhancedImageAttachment).at(1));
+
+      final request =
+          verify(() => viewerApi.present(captureAny())).captured.single
+              as PlatformImageViewerRequest;
+      expect(request.items.length, 2);
+      expect(request.initialIndex, 1);
+      expect(find.byType(FullScreenImageViewer), findsNothing);
+    });
+
+    testWidgets('falls back to the Flutter viewer when files cannot be '
+        'written', (tester) async {
+      // No path_provider handler, so creating the session directory throws.
+      await pumpBubble(tester);
+      await tapAndPrepare(tester, find.byType(EnhancedImageAttachment).at(1));
+
+      verifyNever(() => viewerApi.present(any()));
+      expect(find.byType(FullScreenImageViewer), findsOneWidget);
+      expect(find.text('2 of 2'), findsOneWidget);
+    });
+
+    testWidgets('keeps a failed sibling as a page in the Flutter viewer', (
+      tester,
+    ) async {
+      mockTemporaryDirectory(tester);
+      await pumpBubble(tester, urls: const [_first, _broken]);
+      await tapAndPrepare(tester, find.byType(EnhancedImageAttachment).first);
+
+      verifyNever(() => viewerApi.present(any()));
+      expect(find.text('1 of 2'), findsOneWidget);
+    });
   });
 }

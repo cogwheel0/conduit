@@ -13,6 +13,7 @@ import java.io.File
 import java.io.IOException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 
 /**
  * Saves chat images into the shared Pictures collection.
@@ -50,12 +51,17 @@ class ImageGalleryBridge(context: Context) : ImageGalleryHostApi {
             callback(Result.failure(FlutterError("UNSUPPORTED", "Saving images needs Android 10 or later", null)))
             return
         }
-        executor.execute {
-            val result = runCatching { insertImage(File(path), mimeType, displayName) }
-                .recoverCatching { error ->
-                    throw FlutterError("SAVE_FAILED", error.message ?: error.javaClass.simpleName, null)
-                }
-            mainHandler.post { callback(result) }
+        try {
+            executor.execute {
+                val result = runCatching { insertImage(File(path), mimeType, displayName) }
+                    .recoverCatching { error ->
+                        throw FlutterError("SAVE_FAILED", error.message ?: error.javaClass.simpleName, null)
+                    }
+                mainHandler.post { callback(result) }
+            }
+        } catch (error: RejectedExecutionException) {
+            // A call that raced dispose() reaches a shut-down executor.
+            callback(Result.failure(FlutterError("SAVE_FAILED", "Image gallery bridge is disposed", null)))
         }
     }
 
@@ -76,7 +82,9 @@ class ImageGalleryBridge(context: Context) : ImageGalleryHostApi {
             output.use { stream -> source.inputStream().use { it.copyTo(stream) } }
             values.clear()
             values.put(MediaStore.Images.Media.IS_PENDING, 0)
-            resolver.update(uri, values, null, null)
+            if (resolver.update(uri, values, null, null) != 1) {
+                throw IOException("MediaStore did not publish the image")
+            }
         } catch (error: Exception) {
             resolver.delete(uri, null, null)
             throw error

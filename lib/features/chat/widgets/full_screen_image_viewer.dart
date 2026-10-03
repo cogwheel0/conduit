@@ -84,7 +84,14 @@ Future<_ViewerImageBytes> _loadViewerImageBytes(
     );
   }
 
-  final client = container.read(apiServiceProvider)?.dio ?? dio.Dio();
+  final client =
+      container.read(apiServiceProvider)?.dio ??
+      dio.Dio(
+        dio.BaseOptions(
+          connectTimeout: const Duration(seconds: 15),
+          receiveTimeout: const Duration(seconds: 30),
+        ),
+      );
   final response = await client.get<List<int>>(
     data,
     options: dio.Options(
@@ -132,8 +139,9 @@ Rect? _globalRectOf(BuildContext context) {
 
 /// Opens [items] full screen, starting at [initialIndex].
 ///
-/// iOS uses Quick Look for raster images. SVGs, failures, and other
-/// platforms use [FullScreenImageViewer]. [context] should belong to the
+/// iOS uses Quick Look for raster images when every page is ready within
+/// [_nativeViewerPrepareTimeout]. SVGs, failures, slow pages, and other
+/// platforms use [FullScreenImageViewer], which loads pages on demand. [context] should belong to the
 /// tapped thumbnail so the transitions start from it.
 Future<void> _openImageViewer({
   required BuildContext context,
@@ -157,6 +165,13 @@ Future<void> _openImageViewer({
         items: items,
         initialIndex: initialIndex,
         initialEntry: initialEntry,
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'native-image-viewer-prepare-failed',
+        scope: 'chat/image-viewer',
+        error: error,
+        stackTrace: stackTrace,
       );
     } finally {
       onPreparing(false);
@@ -206,11 +221,16 @@ class _NativeViewerFiles {
   final int initialIndex;
 }
 
+/// How long the tapped thumbnail waits for every gallery image to be written
+/// before it opens the Flutter viewer instead.
+const _nativeViewerPrepareTimeout = Duration(seconds: 4);
+
 /// Writes every gallery image to a private session directory.
 ///
-/// Returns `null` when the tapped image cannot be written or any image is an
-/// SVG, which Quick Look does not render reliably. Other failed siblings are
-/// left out of the native gallery.
+/// Returns `null` when any image fails, is an SVG (which Quick Look does not
+/// render reliably), or is not ready within [_nativeViewerPrepareTimeout].
+/// The Flutter viewer then shows every page, including failed ones, so the
+/// page count always matches the message.
 Future<_NativeViewerFiles?> _prepareNativeViewerFiles({
   required ProviderContainer container,
   required AppLocalizations l10n,
@@ -263,31 +283,24 @@ Future<_NativeViewerFiles?> _prepareNativeViewerFiles({
             return null;
           }
         }(),
-    ]);
+    ]).timeout(_nativeViewerPrepareTimeout, onTimeout: () => const []);
 
-    if (hasSvg || written[initialIndex] == null) {
+    if (hasSvg || written.length != items.length || written.contains(null)) {
+      // Late writes into the deleted directory fail and are logged above.
       await deleteImageSessionDirectory(directory);
       return null;
     }
 
-    final paths = <String>[];
-    var startIndex = 0;
-    for (var i = 0; i < written.length; i++) {
-      final file = written[i];
-      if (file == null) continue;
-      if (i == initialIndex) startIndex = paths.length;
-      paths.add(file.path);
-    }
     final files = [
-      for (var i = 0; i < paths.length; i++)
+      for (var i = 0; i < written.length; i++)
         NativeImageFile(
-          path: paths[i],
-          title: paths.length > 1
-              ? l10n.imageViewerPosition(i + 1, paths.length)
+          path: written[i]!.path,
+          title: written.length > 1
+              ? l10n.imageViewerPosition(i + 1, written.length)
               : l10n.imageFileType,
         ),
     ];
-    return _NativeViewerFiles(directory, files, startIndex);
+    return _NativeViewerFiles(directory, files, initialIndex);
   } catch (_) {
     await deleteImageSessionDirectory(directory);
     rethrow;
@@ -455,7 +468,9 @@ class _FullScreenImageViewerState extends ConsumerState<FullScreenImageViewer>
         scope: 'chat/image-attachment',
       );
     } finally {
-      if (directory != null) await deleteImageSessionDirectory(directory);
+      // The share target may read the file after share() returns, so the
+      // next image session purges it once it is old enough.
+      if (directory != null) releaseImageSessionDirectory(directory);
     }
   });
 

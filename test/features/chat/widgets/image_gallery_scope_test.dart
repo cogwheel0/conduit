@@ -58,4 +58,10 @@ void main() {
     check(items).deepEquals(const [b]);
     check(index).equals(0);
   });
+
+  testWidgets('lists a repeated image once', (tester) async {
+    final (items, index) = await galleryFor(tester, b, items: const [b, a, b]);
+    check(items).deepEquals(const [b, a]);
+    check(index).equals(0);
+  });
 }
