@@ -8,6 +8,16 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+  func testAppDelegateConformsToCallKitCallbacksAtRuntime() {
+    // flutter_callkit_incoming reaches the callbacks with
+    // `UIApplication.shared.delegate as? CallkitIncomingAppDelegate`, a Swift
+    // protocol cast. The default implementations live in an extension of
+    // NativeSttCallKitAppDelegate, so the empty conformance on AppDelegate
+    // must still satisfy that cast.
+    let delegate: AnyObject = AppDelegate()
+    XCTAssertNotNil(delegate as? NativeSttCallKitAppDelegate)
+  }
+
   func testPccSnapshotDeltaEmitsOnlyNewContent() throws {
     XCTAssertEqual(
       try pccSnapshotDelta(previous: "Hello", snapshot: "Hello world"),
