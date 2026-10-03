@@ -187,7 +187,12 @@ struct ConduitSendImageIntent: AppIntent {
             throw AppIntentError.executionFailed(appLocalized("appIntent.appNotReady", "App not ready"))
         }
 
-        if let type = image.type, !type.conforms(to: .image) {
+        // Some providers omit the declared type, so fall back to the file
+        // extension. Anything that still does not resolve to an image is
+        // rejected rather than staged and sent as an attachment.
+        let type = image.type
+            ?? UTType(filenameExtension: (image.filename as NSString).pathExtension)
+        guard let type, type.conforms(to: .image) else {
             throw AppIntentError.executionFailed(
                 appLocalized("appIntent.onlyImagesSupported", "Only image files are supported.")
             )
