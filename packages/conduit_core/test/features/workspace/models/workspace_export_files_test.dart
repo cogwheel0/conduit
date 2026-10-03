@@ -31,15 +31,21 @@ void main() {
         .equals('模型_v2_x.json');
     check(WorkspaceExportFiles.sanitize('a:b*c?.json')).equals('a_b_c_.json');
     check(WorkspaceExportFiles.sanitize('')).equals('export');
-    // An overlong name is cut, keeping a short extension.
-    final long = '${'a' * 300}.json';
-    final bounded = WorkspaceExportFiles.sanitize(long);
-    check(bounded.runes.length).equals(WorkspaceExportFiles.maxNameLength);
+    // An overlong name is cut to a byte budget, keeping a short extension.
+    int bytes(String value) => utf8.encode(value).length;
+    final bounded = WorkspaceExportFiles.sanitize('${'a' * 300}.json');
+    check(bytes(bounded)).equals(WorkspaceExportFiles.maxNameBytes);
     check(bounded).endsWith('.json');
-    check(WorkspaceExportFiles.sanitize('${'模' * 300}.md').runes.length)
-        .equals(WorkspaceExportFiles.maxNameLength);
-    check(WorkspaceExportFiles.sanitize('b' * 300).runes.length)
-        .equals(WorkspaceExportFiles.maxNameLength);
+    // Three-byte characters: a hundred of them are already over 255 bytes.
+    final cjk = WorkspaceExportFiles.sanitize('${'模' * 100}.json');
+    check(bytes(cjk)).isLessOrEqual(WorkspaceExportFiles.maxNameBytes);
+    check(cjk).endsWith('.json');
+    check(cjk.startsWith('模')).isTrue();
+    check(bytes(WorkspaceExportFiles.sanitize('b' * 300)))
+        .equals(WorkspaceExportFiles.maxNameBytes);
+    // A name that fits is left alone.
+    check(WorkspaceExportFiles.sanitize('${'模' * 60}.json'))
+        .equals('${'模' * 60}.json');
 
     // Names that are only dots cannot be files.
     check(WorkspaceExportFiles.sanitize('.')).equals('export');
@@ -69,6 +75,21 @@ void main() {
     check(file.parent.parent.path)
         .equals('${dir.path}/${WorkspaceExportFiles.stagingRoot}');
     check(await file.readAsBytes()).deepEquals([1, 2, 3]);
+  });
+
+  test('a long non-Latin name can still be written', () async {
+    final dir = await Directory.systemTemp.createTemp('workspace_export');
+    addTearDown(() => dir.delete(recursive: true));
+
+    final file = await WorkspaceExportFiles.stage(
+      directory: dir,
+      filename: '${'模' * 100}.json',
+      bytes: [1],
+    );
+
+    check(await file.exists()).isTrue();
+    check(utf8.encode(file.uri.pathSegments.last).length)
+        .isLessOrEqual(WorkspaceExportFiles.maxNameBytes);
   });
 
   test('exports with the same name get their own paths', () async {

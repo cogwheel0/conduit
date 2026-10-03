@@ -17,16 +17,18 @@ abstract final class WorkspaceExportFiles {
         : '$base.$extension';
   }
 
-  /// The longest staged file name: well under the limit of a mobile file
-  /// system component, which an overlong resource name could otherwise pass.
-  static const int maxNameLength = 100;
+  /// The longest staged file name, in UTF-8 bytes: under the 255-byte limit
+  /// of a file name component on common mobile file systems, which an
+  /// overlong resource name (or a short one in a script of three-byte
+  /// characters) could otherwise pass.
+  static const int maxNameBytes = 200;
 
   /// Replaces every run of characters that are not letters or digits (in any
   /// script) or `. _ -` with one underscore, so a resource name cannot escape
   /// the staging directory or upset a share target, while a name such as
   /// `résumé` or `模型` stays recognisable. A blank name, or one that is only
-  /// dots, becomes `export`; a name over [maxNameLength] characters is cut,
-  /// keeping a short extension.
+  /// dots, becomes `export`; a name over [maxNameBytes] bytes is cut, keeping
+  /// a short extension.
   static String sanitize(String filename) {
     final trimmed = filename.trim();
     final base = trimmed.isEmpty ? 'export' : trimmed;
@@ -36,14 +38,21 @@ abstract final class WorkspaceExportFiles {
     );
     // `.` and `..` name a directory, not a file, so staging them would fail.
     if (safe == '.' || safe == '..') return 'export';
-    final runes = safe.runes.toList(growable: false);
-    if (runes.length <= maxNameLength) return safe;
+    if (utf8.encode(safe).length <= maxNameBytes) return safe;
     final dot = safe.lastIndexOf('.');
-    final extension = dot > 0 && safe.length - dot <= 16
+    final extension = dot > 0 && utf8.encode(safe.substring(dot)).length <= 16
         ? safe.substring(dot)
         : '';
-    final room = maxNameLength - extension.runes.length;
-    final stem = String.fromCharCodes(runes.take(room));
+    final room = maxNameBytes - utf8.encode(extension).length;
+    final stem = StringBuffer();
+    var used = 0;
+    for (final rune
+        in (extension.isEmpty ? safe : safe.substring(0, dot)).runes) {
+      final width = utf8.encode(String.fromCharCode(rune)).length;
+      if (used + width > room) break;
+      stem.writeCharCode(rune);
+      used += width;
+    }
     return '$stem$extension';
   }
 

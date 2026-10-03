@@ -197,8 +197,12 @@ abstract final class WorkspaceModelAvatarBounds {
     // An animated image keeps its first frame, as the platform decoders do.
     if (decoded.numFrames > 1) decoded = decoded.getFrame(0);
     // Apply the EXIF orientation first: a photo stored sideways has its sides
-    // swapped, and the target size must be worked out for what is shown.
-    decoded = img.bakeOrientation(decoded);
+    // swapped, and the target size must be worked out for what is shown. Only
+    // when there is a rotation to apply, since baking copies the whole image.
+    final orientation = decoded.exif.imageIfd.orientation;
+    if (orientation != null && orientation != 1) {
+      decoded = img.bakeOrientation(decoded);
+    }
     final target = targetSize(decoded.width, decoded.height);
     if (target == null) return const _Fits();
     try {
