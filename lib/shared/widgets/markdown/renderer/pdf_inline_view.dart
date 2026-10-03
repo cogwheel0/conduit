@@ -17,6 +17,10 @@ import 'package:pdfrx/pdfrx.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/utils/pdf_link_utils.dart';
+import 'package:conduit_core/utils/pdf_link_utils.dart'
+    as core_pdf
+    show isPdfLink;
 
 import '../../../../core/network/image_header_utils.dart';
 
@@ -506,16 +510,7 @@ class PdfInlineView extends ConsumerStatefulWidget {
   final String url;
   final String? label;
 
-  static bool isPdfLink(String href) {
-    final trimmed = href.trim();
-    if (trimmed.isEmpty) return false;
-
-    final uri = Uri.tryParse(trimmed);
-    final rawPath = uri?.path.isNotEmpty == true
-        ? uri!.path
-        : trimmed.split('?').first.split('#').first;
-    return _decodeUriComponent(rawPath).toLowerCase().endsWith('.pdf');
-  }
+  static bool isPdfLink(String href) => core_pdf.isPdfLink(href);
 
   @override
   ConsumerState<PdfInlineView> createState() => _PdfInlineViewState();
@@ -678,7 +673,7 @@ class _PdfInlineViewState extends ConsumerState<PdfInlineView> {
     try {
       final container = ProviderScope.containerOf(context, listen: false);
       final api = container.read(apiServiceProvider);
-      final requestUrl = _resolvePdfRequestUrl(loadingUrl, api?.baseUrl);
+      final requestUrl = resolvePdfRequestUrl(loadingUrl, api?.baseUrl);
       final headers = buildImageHeadersForUrlFromContainer(
         container,
         requestUrl,
@@ -862,7 +857,7 @@ class _PdfInlineViewState extends ConsumerState<PdfInlineView> {
     try {
       final pdfImage = await page.render(
         fullWidth: _previewRenderWidth,
-        fullHeight: _heightForWidth(
+        fullHeight: pdfHeightForWidth(
           pageWidth: page.width,
           pageHeight: page.height,
           width: _previewRenderWidth,
@@ -908,7 +903,7 @@ class _PdfInlineViewState extends ConsumerState<PdfInlineView> {
     // newly visible PDFs hydrate and displaced PDFs suspend raster work.
     _scheduleViewportCheck();
     final l10n = AppLocalizations.of(context);
-    final title = _pdfTitle(
+    final title = pdfTitle(
       rawLabel: widget.label,
       url: widget.url,
       fallback: l10n?.document ?? 'PDF document',
@@ -1148,12 +1143,14 @@ class _PdfFullscreenPageState extends State<_PdfFullscreenPage> {
   List<double> _aspects = const <double>[];
   double _targetWidth = 1080;
 
-  final Map<int, ui.Image> _images = <int, ui.Image>{};
-  final List<int> _lru = <int>[];
+  final PdfPageImageCache<ui.Image> _images = PdfPageImageCache<ui.Image>(
+    maxBytes: _maxBitmapBytes,
+    sizeOf: (image) => image.width * image.height * 4,
+    onEvict: (image) => image.dispose(),
+  );
   final Map<int, PdfPageRenderCancellationToken> _rendering =
       <int, PdfPageRenderCancellationToken>{};
   final Set<int> _failed = <int>{};
-  int _heldBytes = 0;
   _PdfCacheNamespaceLease? _cacheNamespaceLease;
 
   @override
@@ -1197,7 +1194,10 @@ class _PdfFullscreenPageState extends State<_PdfFullscreenPage> {
         _opened = true;
         _error = null;
         _pageCount = pages.length;
-        _aspects = <double>[for (final page in pages) _pageAspect(page)];
+        _aspects = <double>[
+          for (final page in pages)
+            pdfPageAspect(width: page.width, height: page.height),
+        ];
       });
     } catch (error) {
       await doc?.dispose();
@@ -1214,8 +1214,8 @@ class _PdfFullscreenPageState extends State<_PdfFullscreenPage> {
     if (_disposed || doc == null || index < 0 || index >= _pageCount) {
       return;
     }
-    if (_images.containsKey(index)) {
-      _touch(index);
+    if (_images.contains(index)) {
+      _images.touch(index);
       return;
     }
     if (_rendering.containsKey(index)) return;
@@ -1227,7 +1227,7 @@ class _PdfFullscreenPageState extends State<_PdfFullscreenPage> {
       _rendering[index] = token;
       final pdfImage = await page.render(
         fullWidth: _targetWidth,
-        fullHeight: _heightForWidth(
+        fullHeight: pdfHeightForWidth(
           pageWidth: page.width,
           pageHeight: page.height,
           width: _targetWidth,
@@ -1253,10 +1253,7 @@ class _PdfFullscreenPageState extends State<_PdfFullscreenPage> {
         return;
       }
 
-      _images[index] = image;
-      _heldBytes += image.width * image.height * 4;
-      _touch(index);
-      _evictIfNeeded(keep: index);
+      _images.put(index, image);
       if (mounted) setState(() {});
     } catch (_) {
       if (!_disposed && mounted) {
@@ -1267,36 +1264,13 @@ class _PdfFullscreenPageState extends State<_PdfFullscreenPage> {
     }
   }
 
-  void _touch(int index) {
-    _lru
-      ..remove(index)
-      ..insert(0, index);
-  }
-
-  void _evictIfNeeded({required int keep}) {
-    while (_heldBytes > _maxBitmapBytes && _lru.length > 1) {
-      final victim = _lru.lastWhere((index) => index != keep, orElse: () => -1);
-      if (victim < 0) break;
-      _lru.remove(victim);
-      final image = _images.remove(victim);
-      if (image == null) continue;
-      _heldBytes -= image.width * image.height * 4;
-      image.dispose();
-    }
-  }
-
   @override
   void dispose() {
     _disposed = true;
     for (final token in _rendering.values) {
       token.cancel();
     }
-    for (final image in _images.values) {
-      image.dispose();
-    }
     _images.clear();
-    _lru.clear();
-    _heldBytes = 0;
     final cacheNamespaceLease = _cacheNamespaceLease;
     _cacheNamespaceLease = null;
     unawaited(
@@ -1388,11 +1362,11 @@ class _PdfFullscreenPageState extends State<_PdfFullscreenPage> {
       itemCount: _pageCount,
       separatorBuilder: (_, _) => const SizedBox(height: Spacing.sm),
       itemBuilder: (context, index) {
-        final image = _images[index];
+        final image = _images.peek(index);
         final aspect = index < _aspects.length ? _aspects[index] : 0.707;
         if (image != null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!_disposed && _images.containsKey(index)) _touch(index);
+            if (!_disposed) _images.touch(index);
           });
           return Semantics(
             image: true,
@@ -1431,7 +1405,7 @@ class _PdfFullscreenPageState extends State<_PdfFullscreenPage> {
 }
 
 Future<void> _sharePdf(String filePath, String title) async {
-  final name = _pdfFileName(title);
+  final name = pdfShareFileName(title);
   try {
     final base = await getTemporaryDirectory();
     final root = Directory(path.join(base.path, 'pdf-share'));
@@ -1477,104 +1451,4 @@ Future<void> _sweepOldShareTemps(Directory root) async {
   } catch (_) {
     // Best effort cleanup only.
   }
-}
-
-String _pdfFileName(String title) {
-  var base = title
-      .replaceAll(RegExp(r'[^\p{L}\p{N}\s._\-]', unicode: true), ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
-  if (base.length > 80) base = base.substring(0, 80).trim();
-  if (base.isEmpty) base = 'document';
-  return base.toLowerCase().endsWith('.pdf') ? base : '$base.pdf';
-}
-
-String _pdfTitle({
-  required String? rawLabel,
-  required String url,
-  required String fallback,
-}) {
-  final label = (rawLabel ?? '')
-      .replaceFirst(RegExp(r'^\s*\u{1F4C4}\s*', unicode: true), '')
-      .trim();
-  if (label.isNotEmpty && label != url.trim()) {
-    return label;
-  }
-
-  final fileName = _fileNameFromUrl(url);
-  if (fileName != null && fileName.isNotEmpty) {
-    return fileName;
-  }
-  return fallback;
-}
-
-String? _fileNameFromUrl(String url) {
-  final trimmed = url.trim();
-  if (trimmed.isEmpty) return null;
-  final uri = Uri.tryParse(trimmed);
-  final rawPath = uri?.path.isNotEmpty == true
-      ? uri!.path
-      : trimmed.split('?').first.split('#').first;
-  final segments = rawPath.split('/').where((part) => part.isNotEmpty);
-  if (segments.isEmpty) return null;
-  return _decodeUriComponent(segments.last).trim();
-}
-
-String _resolvePdfRequestUrl(String url, String? baseUrl) {
-  final trimmed = url.trim();
-  if (trimmed.isEmpty) return url;
-
-  final uri = Uri.tryParse(trimmed);
-  if (uri == null || uri.hasScheme) {
-    return trimmed;
-  }
-
-  var baseUri = baseUrl == null
-      ? null
-      : ServerTlsHttpClientFactory.parseBaseUri(baseUrl);
-  if (baseUri == null) {
-    return trimmed;
-  }
-
-  if (trimmed.startsWith('/')) {
-    return '${_baseUrlWithoutTrailingSlash(baseUri)}$trimmed';
-  }
-
-  if (!baseUri.path.endsWith('/')) {
-    baseUri = baseUri.replace(path: '${baseUri.path}/');
-  }
-
-  return baseUri.resolveUri(uri).toString();
-}
-
-String _baseUrlWithoutTrailingSlash(Uri uri) {
-  final withoutFragment = uri.removeFragment();
-  final withoutQuery = withoutFragment.replace(query: null);
-  return withoutQuery.toString().replaceFirst(RegExp(r'/+$'), '');
-}
-
-String _decodeUriComponent(String value) {
-  try {
-    return Uri.decodeComponent(value);
-  } catch (_) {
-    return value;
-  }
-}
-
-double _heightForWidth({
-  required double pageWidth,
-  required double pageHeight,
-  required double width,
-}) {
-  if (pageWidth <= 0 || pageHeight <= 0) {
-    return width * 1.414;
-  }
-  return width * pageHeight / pageWidth;
-}
-
-double _pageAspect(PdfPage page) {
-  if (page.width <= 0 || page.height <= 0) {
-    return 0.707;
-  }
-  return page.width / page.height;
 }

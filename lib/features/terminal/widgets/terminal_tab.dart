@@ -14,7 +14,9 @@ import '../../navigation/providers/sidebar_search_providers.dart';
 import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
 import '../controllers/terminal_browser_controller.dart';
 import '../controllers/terminal_context_controller.dart';
+import '../controllers/terminal_controller_gateways.dart';
 import '../controllers/terminal_coordinator.dart';
+import '../controllers/xterm_terminal_screen.dart';
 import '../models/terminal_models.dart';
 import '../providers/terminal_providers.dart';
 import '../services/terminal_service.dart';
@@ -38,7 +40,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   final ScrollController _filesScrollController = ScrollController();
   final ScrollController _portsScrollController = ScrollController();
 
-  late final TerminalCoordinator _coordinator;
+  late final TerminalCoordinator<XtermTerminalScreen> _coordinator;
 
   bool _fullscreen = false;
 
@@ -48,13 +50,18 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   @override
   void initState() {
     super.initState();
-    _coordinator = TerminalCoordinator(
-      ref: ref,
+    _coordinator = TerminalCoordinator<XtermTerminalScreen>(
+      read: ref.read,
+      listen: ref.listenManual,
+      screen: XtermTerminalScreen(),
       isActive: () => mounted && widget.isActive,
       disconnectedLabel: () =>
           AppLocalizations.of(context)!.terminalDisconnectedStatus,
       onBrowserFailure: _handleBrowserFailure,
       onContextFailure: _handleContextFailure,
+      platformGateway: const DefaultTerminalBrowserPlatformGateway(),
+      schedulePostFrame: (callback) =>
+          WidgetsBinding.instance.addPostFrameCallback((_) => callback()),
     );
     _coordinator.addListener(_handleControllerChanged);
 
@@ -141,8 +148,8 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
         buildPlatformPageRoute<void>(
           fullscreenDialog: true,
           builder: (_) => TerminalFullscreenPage(
-            terminal: _coordinator.terminal,
-            controller: _coordinator.terminalController,
+            terminal: _coordinator.screen.terminal,
+            controller: _coordinator.screen.controller,
           ),
         ),
       );
@@ -280,8 +287,8 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
           padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
           child: sidebarPanel == TerminalSidebarPanel.console
               ? TerminalConsoleSection(
-                  terminal: _coordinator.terminal,
-                  terminalController: _coordinator.terminalController,
+                  terminal: _coordinator.screen.terminal,
+                  terminalController: _coordinator.screen.controller,
                   portsScrollController: _portsScrollController,
                   selectedServer: selectedServer,
                   connectionState: connectionState,

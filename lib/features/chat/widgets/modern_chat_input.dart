@@ -17,7 +17,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dart:io' show Platform;
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -45,7 +44,11 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
-import 'package:conduit_core/features/direct_connections/services/direct_mcp_client.dart';
+import 'package:conduit_core/features/direct_connections/controllers/direct_mcp_content_insertion.dart'
+    as core
+    show directMcpInsertionFitsComposer;
+import 'package:conduit_core/features/direct_connections/controllers/direct_mcp_content_insertion.dart'
+    show insertContentAtSelection;
 
 import '../../direct_connections/views/direct_mcp_content_sheet.dart';
 
@@ -118,28 +121,30 @@ TextEditingValue composerTextValueAfterInsertion(
   TextEditingValue current,
   String content,
 ) {
-  final text = current.text;
   final selection = current.selection;
-  final start = selection.isValid
-      ? selection.start.clamp(0, text.length).toInt()
-      : text.length;
-  final end = selection.isValid
-      ? selection.end.clamp(0, text.length).toInt()
-      : text.length;
-  final before = text.substring(0, start);
+  final inserted = insertContentAtSelection(
+    current.text,
+    selectionStart: selection.isValid ? selection.start : null,
+    selectionEnd: selection.isValid ? selection.end : null,
+    content: content,
+  );
   return TextEditingValue(
-    text: '$before$content${text.substring(end)}',
-    selection: TextSelection.collapsed(offset: before.length + content.length),
+    text: inserted.text,
+    selection: TextSelection.collapsed(offset: inserted.caret),
     composing: TextRange.empty,
   );
 }
 
 @visibleForTesting
-bool directMcpInsertionFitsComposer(TextEditingValue current, String content) =>
-    utf8
-        .encode(composerTextValueAfterInsertion(current, content).text)
-        .length <=
-    kDirectMcpMaxInsertionBytes;
+bool directMcpInsertionFitsComposer(TextEditingValue current, String content) {
+  final selection = current.selection;
+  return core.directMcpInsertionFitsComposer(
+    current.text,
+    selectionStart: selection.isValid ? selection.start : null,
+    selectionEnd: selection.isValid ? selection.end : null,
+    content: content,
+  );
+}
 
 /// Returns a stable UIKit edit-menu model for the composer.
 ///

@@ -7,7 +7,13 @@ import '../theme/theme_extensions.dart';
 import '../widgets/themed_dialogs.dart';
 import 'navigation_service.dart';
 
+import 'package:conduit_core/error/user_friendly_error.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+
+// The categorisation and the action set live in conduit_core; the action
+// type stays reachable from here.
+export 'package:conduit_core/error/user_friendly_error.dart'
+    show ErrorActionType;
 
 /// User-friendly error messages and recovery actions
 class UserFriendlyErrorHandler {
@@ -24,49 +30,24 @@ class UserFriendlyErrorHandler {
 
   /// Convert technical errors to user-friendly messages
   String getUserMessage(dynamic error) {
-    final errorString = error.toString().toLowerCase();
+    final classified = classifyUserFriendlyError(error);
     final l10n = _l10n;
 
-    if (_isNetworkError(errorString)) {
-      return _getNetworkErrorMessage(errorString, l10n);
-    } else if (_isValidationError(errorString)) {
-      return _getValidationErrorMessage(errorString, l10n);
-    } else if (_isServerError(errorString)) {
-      return _getServerErrorMessage(errorString, l10n);
-    } else if (_isAuthenticationError(errorString)) {
-      return _getAuthenticationErrorMessage(errorString, l10n);
-    } else if (_isFileError(errorString)) {
-      return _getFileErrorMessage(errorString, l10n);
-    } else if (_isPermissionError(errorString)) {
-      return _getPermissionErrorMessage(errorString, l10n);
+    if (classified.kind == UserFriendlyErrorKind.unknown) {
+      // Log technical details for debugging
+      _logError(error);
     }
 
-    // Log technical details for debugging
-    _logError(error);
-
-    // Return generic user-friendly message
-    return l10n?.errorMessage ??
-        'Something unexpected happened. Please try again.';
+    return _messageText(classified.message, l10n);
   }
 
   /// Get recovery actions for the error
   List<ErrorRecoveryAction> getRecoveryActions(dynamic error) {
-    final errorString = error.toString().toLowerCase();
     final l10n = _l10n;
-
-    if (_isNetworkError(errorString)) {
-      return _getNetworkRecoveryActions(l10n);
-    } else if (_isServerError(errorString)) {
-      return _getServerRecoveryActions(l10n);
-    } else if (_isAuthenticationError(errorString)) {
-      return _getAuthRecoveryActions(l10n);
-    } else if (_isFileError(errorString)) {
-      return _getFileRecoveryActions(l10n);
-    } else if (_isPermissionError(errorString)) {
-      return _getPermissionRecoveryActions(l10n);
-    }
-
-    return _getGenericRecoveryActions(l10n);
+    return [
+      for (final action in userFriendlyRecoveryActions(error))
+        _recoveryAction(action, l10n),
+    ];
   }
 
   /// Build error widget with recovery options
@@ -133,252 +114,143 @@ class UserFriendlyErrorHandler {
     );
   }
 
-  // Network error detection and handling
-  bool _isNetworkError(String error) {
-    return error.contains('socketexception') ||
-        error.contains('network') ||
-        error.contains('connection') ||
-        error.contains('timeout') ||
-        error.contains('handshake') ||
-        error.contains('no address associated');
-  }
-
-  String _getNetworkErrorMessage(String error, AppLocalizations? l10n) {
-    if (error.contains('timeout')) {
-      return l10n?.networkTimeoutError ??
-          'Connection timed out. Please check your internet connection and try again.';
-    } else if (error.contains('no address associated')) {
-      return l10n?.networkUnreachableError ??
-          'Cannot reach the server. Please check your server URL and internet connection.';
-    } else if (error.contains('connection refused')) {
-      return l10n?.networkServerNotResponding ??
-          'Server is not responding. Please verify the server is running and accessible.';
-    }
-    return l10n?.networkGenericError ??
-        'Network connection problem. Please check your internet connection.';
-  }
-
-  List<ErrorRecoveryAction> _getNetworkRecoveryActions(AppLocalizations? l10n) {
-    return [
-      ErrorRecoveryAction(
-        label: l10n?.retry ?? 'Retry',
-        action: ErrorActionType.retry,
-        description: l10n?.actionRetryRequest ?? 'Try the request again',
-      ),
-      ErrorRecoveryAction(
-        label: l10n?.checkConnection ?? 'Check Connection',
-        action: ErrorActionType.checkConnection,
-        description:
-            l10n?.actionVerifyConnection ?? 'Verify your internet connection',
-      ),
-    ];
-  }
-
-  // Server error detection and handling
-  bool _isServerError(String error) {
-    return error.contains('500') ||
-        error.contains('502') ||
-        error.contains('503') ||
-        error.contains('504') ||
-        error.contains('server error') ||
-        error.contains('internal server error');
-  }
-
-  String _getServerErrorMessage(String error, AppLocalizations? l10n) {
-    if (error.contains('500')) {
-      return l10n?.serverError500 ??
-          'Server is experiencing issues. This is usually temporary.';
-    } else if (error.contains('502') || error.contains('503')) {
-      return l10n?.serverErrorUnavailable ??
-          'Server is temporarily unavailable. Please try again in a moment.';
-    } else if (error.contains('504')) {
-      return l10n?.serverErrorTimeout ??
-          'Server took too long to respond. Please try again.';
-    }
-    return l10n?.serverErrorGeneric ??
-        'Server is having problems. Please try again later.';
-  }
-
-  List<ErrorRecoveryAction> _getServerRecoveryActions(AppLocalizations? l10n) {
-    return [
-      ErrorRecoveryAction(
-        label: l10n?.retry ?? 'Retry',
-        action: ErrorActionType.retry,
-        description: l10n?.actionRetryRequest ?? 'Retry your request',
-      ),
-      ErrorRecoveryAction(
-        label: l10n?.retry ?? 'Retry',
-        action: ErrorActionType.retryLater,
-        description:
-            l10n?.actionRetryAfterDelay ?? 'Wait a moment then try again',
-      ),
-    ];
-  }
-
-  // Authentication error detection and handling
-  bool _isAuthenticationError(String error) {
-    return error.contains('401') ||
-        error.contains('403') ||
-        error.contains('unauthorized') ||
-        error.contains('forbidden') ||
-        error.contains('authentication') ||
-        error.contains('token');
-  }
-
-  String _getAuthenticationErrorMessage(String error, AppLocalizations? l10n) {
-    if (error.contains('401') || error.contains('unauthorized')) {
-      return l10n?.authSessionExpired ??
-          'Your session has expired. Please sign in again.';
-    } else if (error.contains('403') || error.contains('forbidden')) {
-      return l10n?.authForbidden ??
-          'You don\'t have permission to perform this action.';
-    } else if (error.contains('token')) {
-      return l10n?.authInvalidToken ??
-          'Authentication token is invalid. Please sign in again.';
-    }
-    return l10n?.authGenericError ??
-        'Authentication problem. Please sign in again.';
-  }
-
-  List<ErrorRecoveryAction> _getAuthRecoveryActions(AppLocalizations? l10n) {
-    return [
-      ErrorRecoveryAction(
-        label: l10n?.signIn ?? 'Sign In',
-        action: ErrorActionType.signIn,
-        description: l10n?.actionSignInToAccount ?? 'Sign in to your account',
-      ),
-      ErrorRecoveryAction(
-        label: l10n?.retry ?? 'Retry',
-        action: ErrorActionType.retry,
-        description: l10n?.actionRetryOperation ?? 'Retry the request',
-      ),
-    ];
-  }
-
-  // Validation error detection and handling
-  bool _isValidationError(String error) {
-    return error.contains('validation') ||
-        error.contains('invalid') ||
-        error.contains('format') ||
-        error.contains('required') ||
-        error.contains('400');
-  }
-
-  String _getValidationErrorMessage(String error, AppLocalizations? l10n) {
-    if (error.contains('email')) {
-      return l10n?.validationInvalidEmail ??
-          'Please enter a valid email address.';
-    } else if (error.contains('password')) {
-      return l10n?.validationWeakPassword ??
-          'Password doesn\'t meet requirements. Please check and try again.';
-    } else if (error.contains('required')) {
-      return l10n?.validationMissingRequired ??
-          'Please fill in all required fields.';
-    } else if (error.contains('format')) {
-      return l10n?.validationFormatError ??
-          'Some information is in the wrong format. Please check and try again.';
-    }
-    return l10n?.validationGenericError ??
-        'Please check your input and try again.';
-  }
-
-  // File error detection and handling
-  bool _isFileError(String error) {
-    return error.contains('file') ||
-        error.contains('path') ||
-        error.contains('directory') ||
-        error.contains('not found') ||
-        error.contains('access denied');
-  }
-
-  String _getFileErrorMessage(String error, AppLocalizations? l10n) {
-    if (error.contains('not found')) {
-      return l10n?.fileNotFound ??
-          'File not found. It may have been moved or deleted.';
-    } else if (error.contains('access denied')) {
-      return l10n?.fileAccessDenied ??
-          'Cannot access the file. Please check permissions.';
-    } else if (error.contains('too large')) {
-      return l10n?.fileTooLarge ??
-          'File is too large. Please choose a smaller file.';
-    }
-    return l10n?.fileGenericError ??
-        'Problem with the file. Please try a different file.';
-  }
-
-  List<ErrorRecoveryAction> _getFileRecoveryActions(AppLocalizations? l10n) {
-    return [
-      ErrorRecoveryAction(
-        label: l10n?.chooseDifferentFile ?? 'Choose Different File',
-        action: ErrorActionType.chooseFile,
-        description: l10n?.actionSelectAnotherFile ?? 'Select another file',
-      ),
-      ErrorRecoveryAction(
-        label: l10n?.retry ?? 'Retry',
-        action: ErrorActionType.retry,
-        description: l10n?.actionRetryOperation ?? 'Retry the operation',
-      ),
-    ];
-  }
-
-  // Permission error detection and handling
-  bool _isPermissionError(String error) {
-    return error.contains('permission') ||
-        error.contains('denied') ||
-        error.contains('unauthorized') ||
-        error.contains('access');
-  }
-
-  String _getPermissionErrorMessage(String error, AppLocalizations? l10n) {
-    if (error.contains('camera')) {
-      return l10n?.permissionCameraRequired ??
-          'Camera permission is required. Please enable it in settings.';
-    } else if (error.contains('storage')) {
-      return l10n?.permissionStorageRequired ??
-          'Storage permission is required. Please enable it in settings.';
-    } else if (error.contains('microphone')) {
-      return l10n?.permissionMicrophoneRequired ??
-          'Microphone permission is required. Please enable it in settings.';
-    }
-    return l10n?.permissionGenericError ??
-        'Permission required. Please check app permissions in settings.';
-  }
-
-  List<ErrorRecoveryAction> _getPermissionRecoveryActions(
+  String _messageText(
+    UserFriendlyErrorMessage message,
     AppLocalizations? l10n,
   ) {
-    return [
-      ErrorRecoveryAction(
-        label: l10n?.openSettings ?? 'Open Settings',
-        action: ErrorActionType.openSettings,
-        description:
-            l10n?.actionOpenAppSettings ??
-            'Open app settings to grant permissions',
-      ),
-      ErrorRecoveryAction(
-        label: l10n?.retry ?? 'Retry',
-        action: ErrorActionType.retry,
-        description:
-            l10n?.actionRetryAfterPermission ??
-            'Retry after granting permission',
-      ),
-    ];
+    switch (message) {
+      case UserFriendlyErrorMessage.networkTimeout:
+        return l10n?.networkTimeoutError ??
+            'Connection timed out. Please check your internet connection and try again.';
+      case UserFriendlyErrorMessage.networkUnreachable:
+        return l10n?.networkUnreachableError ??
+            'Cannot reach the server. Please check your server URL and internet connection.';
+      case UserFriendlyErrorMessage.networkServerNotResponding:
+        return l10n?.networkServerNotResponding ??
+            'Server is not responding. Please verify the server is running and accessible.';
+      case UserFriendlyErrorMessage.networkGeneric:
+        return l10n?.networkGenericError ??
+            'Network connection problem. Please check your internet connection.';
+      case UserFriendlyErrorMessage.validationInvalidEmail:
+        return l10n?.validationInvalidEmail ??
+            'Please enter a valid email address.';
+      case UserFriendlyErrorMessage.validationWeakPassword:
+        return l10n?.validationWeakPassword ??
+            'Password doesn\'t meet requirements. Please check and try again.';
+      case UserFriendlyErrorMessage.validationMissingRequired:
+        return l10n?.validationMissingRequired ??
+            'Please fill in all required fields.';
+      case UserFriendlyErrorMessage.validationFormat:
+        return l10n?.validationFormatError ??
+            'Some information is in the wrong format. Please check and try again.';
+      case UserFriendlyErrorMessage.validationGeneric:
+        return l10n?.validationGenericError ??
+            'Please check your input and try again.';
+      case UserFriendlyErrorMessage.server500:
+        return l10n?.serverError500 ??
+            'Server is experiencing issues. This is usually temporary.';
+      case UserFriendlyErrorMessage.serverUnavailable:
+        return l10n?.serverErrorUnavailable ??
+            'Server is temporarily unavailable. Please try again in a moment.';
+      case UserFriendlyErrorMessage.serverTimeout:
+        return l10n?.serverErrorTimeout ??
+            'Server took too long to respond. Please try again.';
+      case UserFriendlyErrorMessage.serverGeneric:
+        return l10n?.serverErrorGeneric ??
+            'Server is having problems. Please try again later.';
+      case UserFriendlyErrorMessage.authSessionExpired:
+        return l10n?.authSessionExpired ??
+            'Your session has expired. Please sign in again.';
+      case UserFriendlyErrorMessage.authForbidden:
+        return l10n?.authForbidden ??
+            'You don\'t have permission to perform this action.';
+      case UserFriendlyErrorMessage.authInvalidToken:
+        return l10n?.authInvalidToken ??
+            'Authentication token is invalid. Please sign in again.';
+      case UserFriendlyErrorMessage.authGeneric:
+        return l10n?.authGenericError ??
+            'Authentication problem. Please sign in again.';
+      case UserFriendlyErrorMessage.fileNotFound:
+        return l10n?.fileNotFound ??
+            'File not found. It may have been moved or deleted.';
+      case UserFriendlyErrorMessage.fileAccessDenied:
+        return l10n?.fileAccessDenied ??
+            'Cannot access the file. Please check permissions.';
+      case UserFriendlyErrorMessage.fileTooLarge:
+        return l10n?.fileTooLarge ??
+            'File is too large. Please choose a smaller file.';
+      case UserFriendlyErrorMessage.fileGeneric:
+        return l10n?.fileGenericError ??
+            'Problem with the file. Please try a different file.';
+      case UserFriendlyErrorMessage.permissionCamera:
+        return l10n?.permissionCameraRequired ??
+            'Camera permission is required. Please enable it in settings.';
+      case UserFriendlyErrorMessage.permissionStorage:
+        return l10n?.permissionStorageRequired ??
+            'Storage permission is required. Please enable it in settings.';
+      case UserFriendlyErrorMessage.permissionMicrophone:
+        return l10n?.permissionMicrophoneRequired ??
+            'Microphone permission is required. Please enable it in settings.';
+      case UserFriendlyErrorMessage.permissionGeneric:
+        return l10n?.permissionGenericError ??
+            'Permission required. Please check app permissions in settings.';
+      case UserFriendlyErrorMessage.unexpected:
+        return l10n?.errorMessage ??
+            'Something unexpected happened. Please try again.';
+    }
   }
 
-  List<ErrorRecoveryAction> _getGenericRecoveryActions(AppLocalizations? l10n) {
-    return [
-      ErrorRecoveryAction(
-        label: l10n?.retry ?? 'Retry',
-        action: ErrorActionType.retry,
-        description: l10n?.actionRetryOperation ?? 'Retry the operation',
+  ErrorRecoveryAction _recoveryAction(
+    UserFriendlyRecoveryAction action,
+    AppLocalizations? l10n,
+  ) {
+    final (label, description) = switch (action) {
+      UserFriendlyRecoveryAction.retryRequest => (
+        l10n?.retry ?? 'Retry',
+        l10n?.actionRetryRequest ?? 'Try the request again',
       ),
-      ErrorRecoveryAction(
-        label: l10n?.back ?? 'Go Back',
-        action: ErrorActionType.goBack,
-        description:
-            l10n?.actionReturnToPrevious ?? 'Return to previous screen',
+      UserFriendlyRecoveryAction.retryServerRequest => (
+        l10n?.retry ?? 'Retry',
+        l10n?.actionRetryRequest ?? 'Retry your request',
       ),
-    ];
+      UserFriendlyRecoveryAction.retryAfterDelay => (
+        l10n?.retry ?? 'Retry',
+        l10n?.actionRetryAfterDelay ?? 'Wait a moment then try again',
+      ),
+      UserFriendlyRecoveryAction.retryOperation => (
+        l10n?.retry ?? 'Retry',
+        l10n?.actionRetryOperation ?? 'Retry the operation',
+      ),
+      UserFriendlyRecoveryAction.retryAfterPermission => (
+        l10n?.retry ?? 'Retry',
+        l10n?.actionRetryAfterPermission ?? 'Retry after granting permission',
+      ),
+      UserFriendlyRecoveryAction.checkConnection => (
+        l10n?.checkConnection ?? 'Check Connection',
+        l10n?.actionVerifyConnection ?? 'Verify your internet connection',
+      ),
+      UserFriendlyRecoveryAction.signIn => (
+        l10n?.signIn ?? 'Sign In',
+        l10n?.actionSignInToAccount ?? 'Sign in to your account',
+      ),
+      UserFriendlyRecoveryAction.chooseDifferentFile => (
+        l10n?.chooseDifferentFile ?? 'Choose Different File',
+        l10n?.actionSelectAnotherFile ?? 'Select another file',
+      ),
+      UserFriendlyRecoveryAction.openSettings => (
+        l10n?.openSettings ?? 'Open Settings',
+        l10n?.actionOpenAppSettings ?? 'Open app settings to grant permissions',
+      ),
+      UserFriendlyRecoveryAction.goBack => (
+        l10n?.back ?? 'Go Back',
+        l10n?.actionReturnToPrevious ?? 'Return to previous screen',
+      ),
+    };
+    return ErrorRecoveryAction(
+      label: label,
+      action: action.type,
+      description: description,
+    );
   }
 
   /// Log technical error details for debugging
@@ -411,19 +283,6 @@ class ErrorRecoveryAction {
     required this.description,
     this.customAction,
   });
-}
-
-/// Types of error recovery actions
-enum ErrorActionType {
-  retry,
-  retryLater,
-  goBack,
-  signIn,
-  openSettings,
-  checkConnection,
-  chooseFile,
-  contactSupport,
-  dismiss,
 }
 
 /// Error card widget

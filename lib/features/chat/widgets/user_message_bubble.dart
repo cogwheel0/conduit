@@ -8,8 +8,6 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:conduit_core/providers/app_providers.dart';
-
 import '../../../shared/services/navigation_service.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -20,12 +18,8 @@ import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/file_type_utils.dart';
 import '../../../shared/utils/locale_display_formatters.dart';
 
-import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
-import 'package:conduit_core/features/tools/providers/tools_providers.dart';
-
-import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/services/chat_message_actions.dart';
 import 'package:conduit_core/features/chat/utils/file_utils.dart';
-import 'package:conduit_core/features/chat/utils/message_targeting.dart';
 
 import 'enhanced_attachment.dart';
 import 'enhanced_image_attachment.dart';
@@ -1029,67 +1023,6 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     _editFocusNode.unfocus();
   }
 
-  List<String>? _inlineEditAttachmentIds() {
-    final attachmentIds = widget.message.attachmentIds;
-    if (attachmentIds is List && attachmentIds.isNotEmpty) {
-      final ids = attachmentIds
-          .map((id) => id?.toString().trim())
-          .whereType<String>()
-          .where((id) => id.isNotEmpty)
-          .toList(growable: false);
-      if (ids.isNotEmpty) {
-        return ids;
-      }
-    }
-
-    final files = widget.message.files;
-    if (files is! List || files.isEmpty) {
-      return null;
-    }
-
-    final ids = <String>[];
-    final seen = <String>{};
-    void addId(String? value) {
-      final id = value?.trim();
-      if (id == null || id.isEmpty || !seen.add(id)) {
-        return;
-      }
-      ids.add(id);
-    }
-
-    for (final file in files) {
-      if (file is! Map) {
-        continue;
-      }
-      // Skip note attachments: their id is a note id, not an uploaded file id,
-      // so feeding it to durableSend as a file attachment triggers a failing
-      // file-info lookup and re-sends the note as a bogus regular file.
-      if (_isRenderableNoteAttachment(file)) {
-        continue;
-      }
-      // Hermes local descriptors are historical references, not upload ids.
-      // Re-sending one through the OpenWebUI attachment path would cause an
-      // invalid file-info lookup and could target the wrong backend.
-      if (_isHermesLocalFileReference(file)) {
-        continue;
-      }
-      final explicitId = file['id']?.toString();
-      if (explicitId != null && explicitId.trim().isNotEmpty) {
-        addId(explicitId);
-        continue;
-      }
-
-      final fileUrl = getFileUrl(file);
-      if (fileUrl == null) {
-        continue;
-      }
-      final fileIdMatch = _fileIdPattern.firstMatch(fileUrl);
-      addId(fileIdMatch?.group(1) ?? fileUrl);
-    }
-
-    return ids.isEmpty ? null : ids;
-  }
-
   Future<void> _saveInlineEdit() async {
     final newText = _editController.text.trim();
     final oldText = (widget.message.content ?? '').toString();
@@ -1098,46 +1031,18 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       return;
     }
 
-    ChatSendPlaceholderHandle? pendingSend;
     try {
       final messageId = widget.message.id?.toString();
       if (messageId == null || messageId.isEmpty) {
         return;
       }
-
-      final messages = ref.read(chatMessagesProvider);
-      final idx = indexOfMessageId(messages, messageId);
-      if (idx >= 0) {
-        final active = ref.read(activeConversationProvider);
-        if (isNativeHermesConversation(active)) {
-          await regenerateEditedHermesUserMessage(
-            ref,
-            messageId: messageId,
-            content: newText,
-          );
-        } else {
-          final keep = truncateMessagesAfterId(
-            messages,
-            messageId,
-            includeTarget: false,
-          );
-          ref.read(chatMessagesProvider.notifier).setMessages(keep);
-
-          // Durable send of the edited text as a new turn (updateChat +
-          // requestCompletion under the chat lock), then drive streaming.
-          final attachments = _inlineEditAttachmentIds();
-          final toolIds = ref.read(selectedToolIdsProvider);
-          await durableSend(
-            ref,
-            newText,
-            attachments,
-            toolIds: toolIds.isNotEmpty ? toolIds : null,
-            onAssistantPlaceholderCreated: (handle) {
-              pendingSend = handle;
-            },
-          );
-        }
-      }
+      // Core re-sends the edit: Hermes replays it, anything else truncates
+      // after the message and sends the new text as a new turn.
+      await resendEditedUserMessage(
+        ref,
+        messageId: messageId,
+        newText: newText,
+      );
     } catch (error, stackTrace) {
       DebugLogger.error(
         'inline-edit-failed',
@@ -1146,7 +1051,6 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         stackTrace: stackTrace,
         data: {'messageId': widget.message.id?.toString()},
       );
-      recoverFailedChatSend(ref, error, pendingSend);
       if (mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
           SnackBar(content: Text(AppLocalizations.of(context)!.errorMessage)),
