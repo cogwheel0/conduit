@@ -100,6 +100,11 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       operationGeneration == _operationGeneration &&
       _ownsChannelRequest(api, authSessionEpoch, channelId);
 
+  ChannelMessage _withOwnSender(ChannelMessage message) {
+    final me = ref.read(currentUserProvider).value;
+    return me == null ? message : message.withSenderIfMissing(me);
+  }
+
   void _setReplyTo(ChannelMessage message) {
     setState(() => _replyToMessage = message);
   }
@@ -327,7 +332,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           )) {
         return;
       }
-      final message = ChannelMessage.fromJson(json);
+      final message = _withOwnSender(ChannelMessage.fromJson(json));
       ref
           .read(channelMessagesProvider(channelId).notifier)
           .prependMessage(message);
@@ -590,7 +595,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         return;
       }
 
-      final message = ChannelMessage.fromJson(json);
+      final message = _withOwnSender(ChannelMessage.fromJson(json));
       if (parentMessageId != null) {
         ref
             .read(threadMessagesProvider(channelId, parentMessageId).notifier)
@@ -765,7 +770,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       )) {
         return;
       }
-      final updated = ChannelMessage.fromJson(json);
+      final updated = message.withUpdateResponse(ChannelMessage.fromJson(json));
       ref
           .read(channelMessagesProvider(channelId).notifier)
           .updateMessage(updated);
@@ -813,7 +818,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           )) {
         return;
       }
-      final updated = ChannelMessage.fromJson(json);
+      final updated = message.withUpdateResponse(ChannelMessage.fromJson(json));
       ref
           .read(channelMessagesProvider(channelId).notifier)
           .updateMessage(updated);

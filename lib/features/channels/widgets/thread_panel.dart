@@ -86,7 +86,9 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
           widget.parentMessage.id != parentMessageId) {
         return;
       }
-      final message = ChannelMessage.fromJson(json);
+      final me = ref.read(currentUserProvider).value;
+      final posted = ChannelMessage.fromJson(json);
+      final message = me == null ? posted : posted.withSenderIfMissing(me);
       ref
           .read(threadMessagesProvider(channelId, parentMessageId).notifier)
           .prependMessage(message);
