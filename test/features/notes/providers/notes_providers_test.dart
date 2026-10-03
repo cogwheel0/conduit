@@ -98,12 +98,15 @@ class _RecordingVoiceInputService extends VoiceInputService {
   Completer<void>? beginGate;
 
   /// The run the service is on now, as its `textStream` reports it: each
-  /// [beginListening] starts a new one, and a test can replace it to stand in
-  /// for another consumer (the chat composer) taking the service over.
-  Stream<String> activeRun = const Stream<String>.empty();
+  /// [beginListening] starts a new one (its own controller), and a test can
+  /// replace it to stand in for another consumer (the chat composer) taking
+  /// the service over. Like the real service, every read of `textStream` is a
+  /// new wrapper over the current controller.
+  StreamController<String>? activeRun;
 
   @override
-  Stream<String> get textStream => activeRun;
+  Stream<String> get textStream =>
+      activeRun?.stream ?? const Stream<String>.empty();
 
   @override
   bool get isSupportedPlatform => true;
@@ -120,9 +123,9 @@ class _RecordingVoiceInputService extends VoiceInputService {
     beginListeningPreferences.add(preference);
     beginListeningUsesServer.add(prefersServerOnly);
     await beginGate?.future;
-    final run = StreamController<String>.broadcast().stream;
+    final run = StreamController<String>.broadcast();
     activeRun = run;
-    return run;
+    return run.stream;
   }
 
   @override
@@ -438,7 +441,7 @@ void main() {
 
           // The chat composer starts its own run on the shared service.
           if (superseded) {
-            voice.activeRun = StreamController<String>.broadcast().stream;
+            voice.activeRun = StreamController<String>.broadcast();
           }
           await tester.pumpWidget(const SizedBox.shrink());
 

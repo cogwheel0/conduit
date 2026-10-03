@@ -49,12 +49,17 @@ final class _HermesDashboardAuthPageState
       root: _root,
       accessHeaders: widget.config.accessHeaders,
     );
-    HermesDashboardWebViewPolicy.documentStartScriptsSupported().then((
-      supported,
-    ) {
-      _policy.documentStartScripts = supported;
-      if (mounted) setState(() => _documentStartChecked = true);
-    });
+    HermesDashboardWebViewPolicy.documentStartScriptsSupported().then(
+      (supported) {
+        _policy.documentStartScripts = supported;
+        if (mounted) setState(() => _documentStartChecked = true);
+      },
+      // Failing closed: an unknown capability is an unsupported one.
+      onError: (_, _) {
+        _policy.documentStartScripts = false;
+        if (mounted) setState(() => _documentStartChecked = true);
+      },
+    );
     _cookieGeneration = HermesDashboardCookieStore.begin(_root.toString());
     HermesDashboardCookieStore.snapshot(_root.toString()).then(
       (value) {

@@ -43,6 +43,17 @@ final class HermesDashboardWebViewPolicy {
   static Future<bool> documentStartScriptsSupported() =>
       _documentStartScriptsSupported ??= _checkDocumentStartScripts();
 
+  /// Whether a dashboard behind [accessHeaders] can be reached from this
+  /// device: the same rule as [supported], for callers that have no policy
+  /// yet.
+  static Future<bool> headersSupported(
+    Map<String, String> accessHeaders,
+  ) async => hermesDashboardHeadersSupported(
+    isIOS: defaultTargetPlatform == TargetPlatform.iOS,
+    accessHeaders: accessHeaders,
+    documentStartScripts: await documentStartScriptsSupported(),
+  );
+
   static Future<bool> _checkDocumentStartScripts() async {
     if (defaultTargetPlatform != TargetPlatform.android) return true;
     try {

@@ -198,7 +198,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   NoteDictationRun? _dictationRun;
   // The listening run this editor started. The voice service is shared with
   // the chat composer and holds one run at a time, so the editor stops it only
-  // while its own run is still the current one.
+  // while its own run is still the current one. Compared with `==`: reading a
+  // controller's `stream` twice gives two wrappers that are equal (same
+  // controller) but not identical, and each run has its own controller.
   Stream<String>? _dictationStream;
 
   // Markdown snapshot of the last saved/loaded document, used to detect real
@@ -786,7 +788,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         // The editor closed while listening was starting. Capture is already
         // running and dispose() saw no dictation to stop, so stop it here,
         // unless another consumer has taken the service over since.
-        if (identical(_voiceService?.textStream, stream)) {
+        if (_voiceService?.textStream == stream) {
           unawaited(_voiceService?.stopListening());
         }
         return;
@@ -847,8 +849,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   /// Whether the voice service is still on the run this editor started.
   bool get _ownsDictationRun =>
-      _dictationStream != null &&
-      identical(_voiceService?.textStream, _dictationStream);
+      _dictationStream != null && _voiceService?.textStream == _dictationStream;
 
   Future<void> _stopDictation() async {
     if (_ownsDictationRun) await _voiceService?.stopListening();

@@ -49,9 +49,11 @@ final class HermesDashboardRestBridge implements HermesDashboardBridge {
     String? body,
   }) async {
     // The headers reach the page through a script that must run before the
-    // page's own, so a WebView that cannot guarantee that never gets them.
+    // page's own, so a device that cannot guarantee that (an Android WebView
+    // without document-start scripts, or iOS, which has no header support at
+    // all) never sends them.
     if (_accessHeaders.isNotEmpty &&
-        !await HermesDashboardWebViewPolicy.documentStartScriptsSupported()) {
+        !await HermesDashboardWebViewPolicy.headersSupported(_accessHeaders)) {
       throw StateError(
         'This WebView cannot add the gateway headers safely, so the Hermes '
         'dashboard is unavailable.',
@@ -87,15 +89,35 @@ final class _HeadlessDashboardPage implements HermesDashboardPage {
         useShouldInterceptRequest: headers.isNotEmpty,
         useShouldOverrideUrlLoading: true,
       ),
-      // The main frame never leaves the dashboard's exact origin.
-      shouldOverrideUrlLoading: (_, action) async =>
-          hermesDashboardRestPageAllowsNavigation(
-            target: action.request.url?.uriValue,
-            isMainFrame: action.isForMainFrame != false,
-            root: root,
-          )
-          ? NavigationActionPolicy.ALLOW
-          : NavigationActionPolicy.CANCEL,
+      // The main frame never leaves the dashboard's exact origin, and a
+      // redirect within it keeps the access headers, which a plain redirect
+      // would drop and the gateway would then refuse.
+      shouldOverrideUrlLoading: (controller, action) async {
+        if (!hermesDashboardRestPageAllowsNavigation(
+          target: action.request.url?.uriValue,
+          isMainFrame: action.isForMainFrame != false,
+          root: root,
+        )) {
+          return NavigationActionPolicy.CANCEL;
+        }
+        if (action.isForMainFrame == false || headers.isEmpty) {
+          return NavigationActionPolicy.ALLOW;
+        }
+        final current = action.request.headers ?? const {};
+        final alreadyInjected = headers.entries.every(
+          (entry) => current[entry.key] == entry.value,
+        );
+        if (alreadyInjected) return NavigationActionPolicy.ALLOW;
+        await controller.loadUrl(
+          urlRequest: URLRequest(
+            url: action.request.url,
+            method: action.request.method,
+            body: action.request.body,
+            headers: _policy.sameOriginHeaders(current),
+          ),
+        );
+        return NavigationActionPolicy.CANCEL;
+      },
       initialUserScripts: UnmodifiableListView(_policy.userScripts),
       shouldInterceptRequest: (_, request) =>
           _policy.interceptSubresource(request),
