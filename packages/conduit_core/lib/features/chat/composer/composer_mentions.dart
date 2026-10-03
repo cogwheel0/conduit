@@ -116,9 +116,11 @@ class ComposerMentionTracker {
   /// Moves or drops mentions for the edit that turned [oldText] into
   /// [newText].
   ///
-  /// The edit starts at the first differing character. Whitespace typed
-  /// right after a mention keeps it (the space that ends it); any other
-  /// change that starts inside or at the end of a mention drops it.
+  /// The edit spans from the first differing character to the last, measured
+  /// from both ends of the text. Whitespace typed right after a mention keeps
+  /// it (the space that ends it); a mention wholly after the edited range
+  /// shifts, and any other change that touches a mention drops it, including
+  /// one that starts before the mention and runs into it.
   void reconcile(String oldText, String newText) {
     if (_mentions.isEmpty || oldText == newText) return;
 
@@ -132,6 +134,16 @@ class ComposerMentionTracker {
       changeStart++;
     }
 
+    // Where the edited range ends in the old text: what both texts share at
+    // their ends is not part of the edit.
+    var commonSuffix = 0;
+    while (commonSuffix < minLength - changeStart &&
+        oldText.codeUnitAt(oldText.length - 1 - commonSuffix) ==
+            newText.codeUnitAt(newText.length - 1 - commonSuffix)) {
+      commonSuffix++;
+    }
+    final oldChangeEnd = oldText.length - commonSuffix;
+
     final updated = <ComposerMention>[];
     for (final mention in _mentions) {
       final boundaryInsertionIsDelimiter =
@@ -143,11 +155,11 @@ class ComposerMentionTracker {
               (delta <= 0 || boundaryInsertionIsDelimiter))) {
         // After this mention: unchanged.
         updated.add(mention);
-      } else if (changeStart <= mention.start) {
-        // Before this mention: shift it.
+      } else if (mention.start >= oldChangeEnd) {
+        // The edited range ends before this mention: shift it.
         updated.add(mention._shifted(delta));
       }
-      // Overlaps the mention: drop it.
+      // The edited range touches the mention: drop it.
     }
     _mentions
       ..clear()

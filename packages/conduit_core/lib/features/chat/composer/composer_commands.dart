@@ -293,10 +293,15 @@ typedef ComposerContextSearch = ({
 /// Searches notes (when [includeNotes]), knowledge bases and knowledge files
 /// for [query] (all of them for an empty query) in parallel. A failed
 /// search contributes no rows.
+///
+/// [onNotesForbidden] runs as soon as the notes search is refused (401 or
+/// 403), without waiting for the slower searches, so notes stop being offered
+/// as soon as the server has said no.
 Future<ComposerContextSearch> searchComposerContext(
   ApiService api, {
   required String query,
   required bool includeNotes,
+  void Function()? onNotesForbidden,
 }) async {
   final normalized = query.isEmpty ? null : query;
   var notes = const <Map<String, dynamic>>[];
@@ -322,6 +327,7 @@ Future<ComposerContextSearch> searchComposerContext(
         } on DioException catch (error) {
           final status = error.response?.statusCode;
           notesForbidden = status == 401 || status == 403;
+          if (notesForbidden) onNotesForbidden?.call();
         } catch (_) {}
       }(),
     () async {

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/chat/composer/composer_commands.dart';
 import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
@@ -223,6 +225,36 @@ void main() {
       check(result.notes).isEmpty();
       check(result.notesForbidden).isTrue();
       verify(() => api.searchKnowledgeBases(query: 'plan')).called(1);
+    });
+
+    test('tells the caller about a refused notes search before the slower '
+        'searches finish', () async {
+      final slowFiles = Completer<List<Map<String, dynamic>>>();
+      when(() => api.searchKnowledgeFiles(query: any(named: 'query')))
+          .thenAnswer((_) => slowFiles.future);
+      when(() => api.searchNotes(query: any(named: 'query'))).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: '/api/v1/notes/search'),
+          response: Response(
+            requestOptions: RequestOptions(path: '/api/v1/notes/search'),
+            statusCode: 401,
+          ),
+        ),
+      );
+      var told = 0;
+
+      final search = searchComposerContext(
+        api,
+        query: 'plan',
+        includeNotes: true,
+        onNotesForbidden: () => told++,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      check(told).equals(1);
+      slowFiles.complete(const []);
+      check((await search).notesForbidden).isTrue();
+      check(told).equals(1);
     });
   });
 

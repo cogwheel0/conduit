@@ -33,6 +33,12 @@ final class WorkspaceModelAvatarImage {
 abstract final class WorkspaceModelAvatarBounds {
   static const int maxEdge = 512;
 
+  /// The most pixels this decoder will allocate for one image. A compressed
+  /// file can declare far more than its size suggests, and decoding is one
+  /// allocation of width x height x 4 bytes; larger images go to the host's
+  /// resizer, which decodes straight to the bounded size.
+  static const int maxDecodedPixels = 64 * 1000 * 1000;
+
   /// The size an image of [width] x [height] is scaled to, or null when its
   /// longest side already fits [maxEdge]. Each side is at least 1.
   static ({int width, int height})? targetSize(int width, int height) {
@@ -53,8 +59,47 @@ abstract final class WorkspaceModelAvatarBounds {
         'jpg' || 'jpeg' => 'image/jpeg',
         'gif' => 'image/gif',
         'webp' => 'image/webp',
+        'heic' => 'image/heic',
+        'heif' => 'image/heif',
+        'avif' => 'image/avif',
         _ => 'image/png',
       };
+
+  /// The mime type [bytes] announce in their first bytes, or null when they
+  /// match no format this knows. Trusted over a file extension, which the
+  /// picker can get wrong.
+  static String? mimeTypeForBytes(Uint8List bytes) {
+    bool startsWith(List<int> prefix, [int offset = 0]) {
+      if (bytes.length < offset + prefix.length) return false;
+      for (var i = 0; i < prefix.length; i++) {
+        if (bytes[offset + i] != prefix[i]) return false;
+      }
+      return true;
+    }
+
+    String ascii(int start, int end) => bytes.length < end
+        ? ''
+        : String.fromCharCodes(bytes.sublist(start, end));
+
+    if (startsWith(const [0x89, 0x50, 0x4E, 0x47])) return 'image/png';
+    if (startsWith(const [0xFF, 0xD8, 0xFF])) return 'image/jpeg';
+    if (startsWith(const [0x47, 0x49, 0x46, 0x38])) return 'image/gif';
+    if (ascii(0, 4) == 'RIFF' && ascii(8, 12) == 'WEBP') return 'image/webp';
+    if (ascii(4, 8) == 'ftyp') {
+      return switch (ascii(8, 12)) {
+        'heic' ||
+        'heix' ||
+        'heim' ||
+        'heis' ||
+        'hevc' ||
+        'hevx' => 'image/heic',
+        'mif1' || 'msf1' => 'image/heif',
+        'avif' || 'avis' => 'image/avif',
+        _ => null,
+      };
+    }
+    return null;
+  }
 
   /// Returns [bytes] unchanged when the image fits or cannot be decoded, or
   /// a PNG downscaled so its longest side is [maxEdge].
@@ -82,7 +127,7 @@ abstract final class WorkspaceModelAvatarBounds {
   }
 
   /// [bound], labelled: a downscaled image is PNG; an unchanged one keeps the
-  /// mime type of its [extension].
+  /// mime type its bytes announce, else that of its [extension].
   static Future<WorkspaceModelAvatarImage> prepare(
     Uint8List bytes, {
     String? extension,
@@ -92,12 +137,27 @@ abstract final class WorkspaceModelAvatarBounds {
     return WorkspaceModelAvatarImage(
       bytes: bounded,
       mimeType: identical(bounded, bytes)
-          ? mimeTypeForExtension(extension)
+          ? mimeTypeForBytes(bytes) ?? mimeTypeForExtension(extension)
           : 'image/png',
     );
   }
 
   static _BoundResult _boundSync(Uint8List bytes) {
+    // The header gives the size without decoding any pixels, so an image that
+    // already fits is never decoded (an animated one would decode every
+    // frame), and an oversized one is refused before it can allocate.
+    try {
+      final info = img.findDecoderForData(bytes)?.startDecode(bytes);
+      if (info != null) {
+        if (targetSize(info.width, info.height) == null) return const _Fits();
+        if (info.width * info.height > maxDecodedPixels) {
+          return const _Undecodable();
+        }
+      }
+    } catch (_) {
+      return const _Undecodable();
+    }
+
     img.Image? decoded;
     try {
       decoded = img.decodeImage(bytes);

@@ -100,14 +100,109 @@ void main() {
     },
   );
 
-  test('mimeTypeForExtension falls back to PNG', () {
+  test('mimeTypeForExtension names HEIC and falls back to PNG', () {
     check(WorkspaceModelAvatarBounds.mimeTypeForExtension('webp'))
         .equals('image/webp');
     check(WorkspaceModelAvatarBounds.mimeTypeForExtension('gif'))
         .equals('image/gif');
     check(WorkspaceModelAvatarBounds.mimeTypeForExtension('heic'))
+        .equals('image/heic');
+    check(WorkspaceModelAvatarBounds.mimeTypeForExtension('tiff'))
         .equals('image/png');
     check(WorkspaceModelAvatarBounds.mimeTypeForExtension(null))
         .equals('image/png');
+  });
+
+  group('oversized and animated images', () {
+    /// A PNG whose header declares [width] x [height] over a few real pixels:
+    /// decoding it for real would try to allocate the declared size.
+    Uint8List declaredSize(int width, int height) {
+      final bytes = Uint8List.fromList(_png(4, 4));
+      final header = ByteData.sublistView(bytes);
+      header.setUint32(16, width);
+      header.setUint32(20, height);
+      return bytes;
+    }
+
+    test('an image declaring too many pixels is never decoded', () async {
+      final bytes = declaredSize(20000, 20000);
+      int? askedEdge;
+
+      final bounded = await WorkspaceModelAvatarBounds.bound(
+        bytes,
+        platformResize: (given, edge) async {
+          askedEdge = edge;
+          return _png(8, 8);
+        },
+      );
+
+      check(askedEdge).equals(WorkspaceModelAvatarBounds.maxEdge);
+      check(img.decodePng(bounded)!.width).equals(8);
+    });
+
+    test('an oversized image with no host resizer is kept as it is', () async {
+      final bytes = declaredSize(20000, 20000);
+
+      check(identical(await WorkspaceModelAvatarBounds.bound(bytes), bytes))
+          .isTrue();
+    });
+
+    test('an animated image that fits is returned without decoding', () async {
+      final animation = img.Image(width: 64, height: 64);
+      animation.addFrame(img.Image(width: 64, height: 64));
+      animation.addFrame(img.Image(width: 64, height: 64));
+      final bytes = img.encodeGif(animation);
+
+      check(identical(await WorkspaceModelAvatarBounds.bound(bytes), bytes))
+          .isTrue();
+    });
+  });
+
+  group('mime type of an unchanged image', () {
+    Uint8List ftyp(String brand) => Uint8List.fromList([
+      0, 0, 0, 24, ...'ftyp'.codeUnits, ...brand.codeUnits, 0, 0, 0, 0, //
+      ...'mif1heic'.codeUnits,
+    ]);
+
+    test('is read from the bytes before the extension', () {
+      check(WorkspaceModelAvatarBounds.mimeTypeForBytes(_png(4, 4)))
+          .equals('image/png');
+      check(WorkspaceModelAvatarBounds.mimeTypeForBytes(_jpg(4, 4)))
+          .equals('image/jpeg');
+      check(WorkspaceModelAvatarBounds.mimeTypeForBytes(ftyp('heic')))
+          .equals('image/heic');
+      check(WorkspaceModelAvatarBounds.mimeTypeForBytes(ftyp('mif1')))
+          .equals('image/heif');
+      check(WorkspaceModelAvatarBounds.mimeTypeForBytes(ftyp('avif')))
+          .equals('image/avif');
+      check(
+        WorkspaceModelAvatarBounds.mimeTypeForBytes(
+          Uint8List.fromList(utf8.encode('plain text')),
+        ),
+      ).isNull();
+    });
+
+    test('a kept HEIC is not labelled PNG', () async {
+      final heic = ftyp('heic');
+
+      final avatar = await WorkspaceModelAvatarBounds.prepare(
+        heic,
+        extension: 'png',
+      );
+
+      check(avatar.mimeType).equals('image/heic');
+      check(avatar.toDataUrl()).startsWith('data:image/heic;base64,');
+    });
+
+    test('falls back to the extension for bytes it cannot place', () async {
+      final bytes = Uint8List.fromList(utf8.encode('unknown'));
+
+      final avatar = await WorkspaceModelAvatarBounds.prepare(
+        bytes,
+        extension: 'webp',
+      );
+
+      check(avatar.mimeType).equals('image/webp');
+    });
   });
 }

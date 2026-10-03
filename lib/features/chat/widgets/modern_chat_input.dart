@@ -1616,14 +1616,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       api,
       query: query,
       includeNotes: ref.read(notesFeatureEnabledProvider),
+      // As soon as the notes search is refused, not after the slower ones.
+      onNotesForbidden: () {
+        if (mounted &&
+            !_isDeactivated &&
+            identical(ref.read(apiServiceProvider), api) &&
+            ref.read(authTokenProvider3) == token) {
+          ref.read(notesFeatureEnabledProvider.notifier).setEnabled(false);
+        }
+      },
     );
-    if (search.notesForbidden &&
-        mounted &&
-        !_isDeactivated &&
-        identical(ref.read(apiServiceProvider), api) &&
-        ref.read(authTokenProvider3) == token) {
-      ref.read(notesFeatureEnabledProvider.notifier).setEnabled(false);
-    }
 
     if (!mounted || _isDeactivated) return;
     if (requestId != _contextSuggestionRequestId) return;

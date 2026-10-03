@@ -32,6 +32,7 @@ ProviderRead _reader({
   HermesConfig hermes = const HermesConfig(),
   bool hermesSecretsLoading = false,
   bool accountless = false,
+  List<DirectConnectionProfile> directProfiles = const [],
 }) {
   final values = <ProviderListenable<Object?>, Object?>{
     reviewerModeProvider: reviewerMode,
@@ -41,7 +42,7 @@ ProviderRead _reader({
     hermesConfigProvider: hermes,
     hermesSecretsLoadingProvider: hermesSecretsLoading,
     effectiveDirectConnectionProfilesProvider:
-        const AsyncData<List<DirectConnectionProfile>>([]),
+        AsyncData<List<DirectConnectionProfile>>(directProfiles),
     accountlessPrimaryBackendUsableProvider: accountless,
     authStateManagerProvider: const AsyncData<AuthState>(
       AuthState(status: AuthStatus.unauthenticated),
@@ -156,6 +157,79 @@ void main() {
 
       check(resolveRouteRedirect(Routes.chat, read)).isNull();
       check(resolveRouteRedirect(Routes.authentication, read)).isNull();
+    });
+
+    group('the Hermes MCP page', () {
+      const gateway = HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+      );
+      const responses = HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        apiKey: 'key',
+      );
+
+      ProviderRead accountless(
+        PreferredBackend preferred,
+        HermesConfig hermes,
+      ) => _reader(
+        activeServer: const AsyncData(null),
+        auth: AuthNavigationState.needsLogin,
+        preferred: preferred,
+        hermes: hermes,
+        accountless: true,
+        directProfiles: preferred == PreferredBackend.direct
+            ? [
+                DirectConnectionProfile(
+                  id: 'direct',
+                  name: 'Direct',
+                  adapterKey: kOpenAiCompatibleAdapterKey,
+                  baseUrl: 'https://api.example/v1',
+                  apiKey: 'key',
+                ),
+              ]
+            : const [],
+      );
+
+      test('opens where the Desktop Gateway is configured', () {
+        for (final preferred in [
+          PreferredBackend.hermes,
+          PreferredBackend.direct,
+        ]) {
+          check(
+            because: '$preferred',
+            resolveRouteRedirect(
+              Routes.hermesMcp,
+              accountless(preferred, gateway),
+            ),
+          ).isNull();
+        }
+      });
+
+      test('is not offered in Responses API mode', () {
+        check(
+          resolveRouteRedirect(
+            Routes.hermesMcp,
+            accountless(PreferredBackend.hermes, responses),
+          ),
+        ).equals(Routes.chat);
+      });
+
+      test('is not offered to a Direct-primary install without Hermes', () {
+        check(
+          resolveRouteRedirect(
+            Routes.hermesMcp,
+            accountless(PreferredBackend.direct, const HermesConfig()),
+          ),
+        ).equals(Routes.chat);
+      });
+
+      test('stays a Hermes-only location, and not a Direct-only one', () {
+        check(isHermesOnlyAppLocation(Routes.hermesMcp)).isTrue();
+        check(isDirectOnlyAppLocation(Routes.hermesMcp)).isFalse();
+      });
     });
   });
 }

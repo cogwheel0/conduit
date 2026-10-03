@@ -4,36 +4,125 @@ library;
 
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 
+/// `parse_duration`: an optional count (a bare unit means one) and a unit.
 final RegExp _hermesDurationPattern = RegExp(
-  r'^\d+\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)$',
+  r'^(\d*)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)$',
   caseSensitive: false,
 );
-final RegExp _hermesCronFieldPattern = RegExp(r'^[\d*,-/]+$');
+final RegExp _hermesCronFieldPattern = RegExp(r'^[A-Za-z\d*,\-/]+$');
+final RegExp _hermesClockTimePattern = RegExp(
+  r'^(\d{1,2})(?::(\d{2}))?(am|pm)?$',
+);
 final RegExp _hermesIsoDateTimePattern = RegExp(
   r'^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d+))?)?(?:Z|([+-])(\d{2}):?(\d{2}))?)?$',
 );
 
-/// Mirrors the schedule forms accepted by Hermes's `parse_schedule`: bare
-/// durations, recurring `every …` intervals, ISO date/times, and five-, six-,
-/// or seven-field numeric cron expressions (with optional seconds and year).
+/// Weekday names `_natural_every_to_cron` knows.
+const Set<String> _hermesWeekdayNames = {
+  'sunday', 'sun', 'monday', 'mon', 'tuesday', 'tue', 'tues', //
+  'wednesday', 'wed', 'weds', 'thursday', 'thu', 'thur', 'thurs', //
+  'friday', 'fri', 'saturday', 'sat',
+};
+
+/// Keyword day specs (`weekdays`, `daily`, ...) that stand for a day list.
+const Set<String> _hermesDaySpecKeywords = {
+  'day', 'daily', 'everyday', 'weekday', 'weekdays', 'weekend', 'weekends', //
+};
+
+/// Month and weekday names croniter accepts in the matching cron fields.
+const Map<String, int> _hermesCronMonthNames = {
+  'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6, //
+  'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
+};
+const Map<String, int> _hermesCronWeekdayNames = {
+  'sun': 0, 'mon': 1, 'tue': 2, 'wed': 3, 'thu': 4, 'fri': 5, 'sat': 6, //
+};
+
+/// Mirrors the schedule forms accepted by Hermes's `parse_schedule`:
+///
+/// - recurring intervals: a bare duration (`30m`, or just `hour`) or
+///   `every <duration>`;
+/// - one-shot delays: `in <duration>`;
+/// - natural day and time phrases, with or without `every`
+///   (`every monday 9am`, `weekdays at 9am`, `monday, wednesday at noon`);
+/// - ISO date/times;
+/// - five- to seven-field cron expressions (seconds and year optional), with
+///   month and weekday names (`JAN-MAR`, `MON-FRI`) as well as numbers.
 bool isValidHermesSchedule(String value) {
   final schedule = value.trim();
   if (schedule.isEmpty) return false;
   final lower = schedule.toLowerCase();
-  if (lower.startsWith('every ')) {
-    return _hermesDurationPattern.hasMatch(schedule.substring(6).trim());
+  final isEvery = lower.startsWith('every ');
+  final rest = isEvery ? schedule.substring(6).trim() : lower;
+  if (_isNaturalHermesSchedule(rest)) return true;
+  if (isEvery) return _hermesDurationPattern.hasMatch(rest);
+
+  final fields = schedule.split(RegExp(r'\s+'));
+  if (fields.length >= 5 &&
+      fields.take(5).every(_hermesCronFieldPattern.hasMatch)) {
+    return _isValidHermesCron(fields);
   }
-  if (_hermesDurationPattern.hasMatch(schedule)) return true;
   if (schedule.contains('T') ||
       RegExp(r'^\d{4}-\d{2}-\d{2}').hasMatch(schedule)) {
     return _isValidHermesIsoDateTime(schedule);
   }
-
-  final fields = schedule.split(RegExp(r'\s+'));
-  if (fields.length < 5 || fields.length > 7) return false;
-  if (fields.any((field) => !_hermesCronFieldPattern.hasMatch(field))) {
-    return false;
+  if (lower.startsWith('in ')) {
+    return _hermesDurationPattern.hasMatch(schedule.substring(3).trim());
   }
+  return _hermesDurationPattern.hasMatch(schedule);
+}
+
+/// `_natural_every_to_cron`: `<days> [at] <time>`, where days is a keyword
+/// spec or a list of weekday names (separated by spaces, commas or `and`).
+bool _isNaturalHermesSchedule(String rest) {
+  final tokens = rest
+      .toLowerCase()
+      .replaceAll(',', ' ')
+      .split(RegExp(r'\s+'))
+      .where((token) => token.isNotEmpty)
+      .toList();
+  if (tokens.isEmpty) return false;
+
+  var index = 1;
+  if (!_hermesDaySpecKeywords.contains(tokens.first)) {
+    var days = 0;
+    index = tokens.length;
+    for (var i = 0; i < tokens.length; i++) {
+      if (tokens[i] == 'and') continue;
+      if (!_hermesWeekdayNames.contains(tokens[i])) {
+        index = i;
+        break;
+      }
+      days++;
+    }
+    if (days == 0) return false;
+  }
+
+  var timeTokens = tokens.sublist(index);
+  if (timeTokens.isNotEmpty && timeTokens.first == 'at') {
+    timeTokens = timeTokens.sublist(1);
+  }
+  if (timeTokens.isEmpty) return false;
+  return _isHermesClockTime(timeTokens.join());
+}
+
+/// `_parse_clock_time`: `9am`, `9:30pm`, `14:00`, a bare hour, `noon`, ...
+bool _isHermesClockTime(String text) {
+  final time = text.toLowerCase();
+  if (time == 'noon' || time == 'midday' || time == 'midnight') return true;
+  final match = _hermesClockTimePattern.firstMatch(time);
+  if (match == null) return false;
+  final hour = int.parse(match.group(1)!);
+  final minute = int.parse(match.group(2) ?? '0');
+  if (match.group(3) != null && (hour < 1 || hour > 12)) return false;
+  final hour24 = match.group(3) == null
+      ? hour
+      : hour % 12 + (match.group(3) == 'pm' ? 12 : 0);
+  return hour24 <= 23 && minute <= 59;
+}
+
+bool _isValidHermesCron(List<String> fields) {
+  if (fields.length > 7) return false;
   const bounds = [
     (0, 59),
     (0, 23),
@@ -53,6 +142,15 @@ bool isValidHermesSchedule(String value) {
     return value >= minimum && value <= maximum;
   }
 
+  /// A number, or a name in the month and weekday fields.
+  int? valueOf(String text, int field) =>
+      int.tryParse(text) ??
+      switch (field) {
+        3 => _hermesCronMonthNames[text.toLowerCase()],
+        4 => _hermesCronWeekdayNames[text.toLowerCase()],
+        _ => null,
+      };
+
   bool validPart(String raw, int field) {
     if (raw.isEmpty) return false;
     final stepParts = raw.split('/');
@@ -66,10 +164,10 @@ bool isValidHermesSchedule(String value) {
     if (base == '*') return true;
     final range = base.split('-');
     if (range.length > 2) return false;
-    final start = int.tryParse(range.first);
+    final start = valueOf(range.first, field);
     if (start == null || !inBounds(start, field)) return false;
     if (range.length == 1) return true;
-    final end = int.tryParse(range.last);
+    final end = valueOf(range.last, field);
     // croniter intentionally accepts wrap-around ranges such as 22-2 hours
     // and 5-1 weekdays.
     return end != null && inBounds(end, field);

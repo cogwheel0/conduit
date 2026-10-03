@@ -28,14 +28,16 @@ Set<String> hermesDashboardCookieIdentityDelta({
 }) => {
   for (final identity in current)
     if (!baseline.contains(identity) ||
-        retainedNames.contains(
-          identity
-              .split('\u0000')
-              .first
-              .replaceFirst(RegExp(r'^__(?:Host|Secure)-'), ''),
-        ))
+        retainedNames.contains(_cookieBaseName(identity)))
       identity,
 };
+
+/// The name in a cookie [identity], without a `__Host-` or `__Secure-`
+/// prefix.
+String _cookieBaseName(String identity) => identity
+    .split('\u0000')
+    .first
+    .replaceFirst(RegExp(r'^__(?:Host|Secure)-'), '');
 
 /// The registry key for a dashboard origin (`scheme://host:port`, lower
 /// case, default port filled in), or null when [origin] has no host.
@@ -56,10 +58,12 @@ List<String> mergeHermesDashboardCookieIdentities({
   int cap = kHermesDashboardCookieRegistryCap,
 }) {
   final retained = identities
-      .where((identity) => retainedNames.any(identity.startsWith))
+      .where((identity) => retainedNames.contains(_cookieBaseName(identity)))
       .toSet();
+  // An identity already recorded moves to the end when it is retained again,
+  // so a refreshed session cookie stays the last to be dropped by the cap.
   final merged = {
-    ...existing,
+    ...existing.where((identity) => !retained.contains(identity)),
     ...identities.where((identity) => !retained.contains(identity)),
     ...retained,
   }.toList();

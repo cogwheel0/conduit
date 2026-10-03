@@ -66,6 +66,43 @@ void main() {
     check(merged[62]).equals(identity('fresh'));
   });
 
+  test('a prefixed session cookie is retained by its base name', () {
+    final existing = [for (var i = 0; i < 63; i++) identity('old$i')];
+    final merged = mergeHermesDashboardCookieIdentities(
+      existing: existing,
+      identities: {identity('__Host-hermes_session_at'), identity('fresh')},
+      retainedNames: kHermesDashboardRetainedCookieNames,
+    );
+    check(merged).length.equals(64);
+    check(merged.last).equals(identity('__Host-hermes_session_at'));
+    check(merged[62]).equals(identity('fresh'));
+  });
+
+  test('a name that only starts like a retained one is not retained', () {
+    final existing = [for (var i = 0; i < 63; i++) identity('old$i')];
+    final merged = mergeHermesDashboardCookieIdentities(
+      existing: existing,
+      identities: {
+        identity('hermes_session_at_x'),
+        identity('hermes_session_at'),
+      },
+      retainedNames: kHermesDashboardRetainedCookieNames,
+    );
+    check(merged.last).equals(identity('hermes_session_at'));
+    check(merged[62]).equals(identity('hermes_session_at_x'));
+  });
+
+  test('a refreshed session cookie moves to the end of the record', () {
+    final merged = mergeHermesDashboardCookieIdentities(
+      existing: [identity('hermes_session_at'), identity('a'), identity('b')],
+      identities: {identity('hermes_session_at')},
+      retainedNames: kHermesDashboardRetainedCookieNames,
+    );
+    check(
+      merged,
+    ).deepEquals([identity('a'), identity('b'), identity('hermes_session_at')]);
+  });
+
   test('records per origin and forgets after a clear', () async {
     const origin = 'https://hermes.example';
     final generation = HermesDashboardCookieRegistry.begin(origin);

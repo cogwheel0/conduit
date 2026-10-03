@@ -58,6 +58,37 @@ void main() {
       check(tracker.mentions.single.start).equals(4);
     });
 
+    test('drops a mention when a replacement starts before it and runs in', () {
+      final tracker = gpt();
+      // "ask @GPT-4 x" with "k @GP" replaced by "X": the edit starts before
+      // the mention and cuts into it.
+      tracker.reconcile('ask @GPT-4 x', 'asXT-4 x');
+      check(tracker.isEmpty).isTrue();
+      check(tracker.toWireFormat('asXT-4 x')).equals('asXT-4 x');
+    });
+
+    test('drops a mention when a deletion spans into it from before', () {
+      final tracker = gpt();
+      tracker.reconcile('ask @GPT-4 x', 'as-4 x');
+      check(tracker.isEmpty).isTrue();
+    });
+
+    test('shifts a mention when text before it is deleted', () {
+      final tracker = gpt();
+      tracker.reconcile('ask @GPT-4 x', '@GPT-4 x');
+      check(tracker.mentions.single)
+        ..has((m) => m.start, 'start').equals(0)
+        ..has((m) => m.end, 'end').equals(6);
+    });
+
+    test('shifts a mention when text before it is replaced', () {
+      final tracker = gpt();
+      tracker.reconcile('ask @GPT-4 x', 'tell @GPT-4 x');
+      check(tracker.mentions.single)
+        ..has((m) => m.start, 'start').equals(5)
+        ..has((m) => m.end, 'end').equals(11);
+    });
+
     test('clear forgets every mention', () {
       final tracker = gpt()..clear();
       check(tracker.isEmpty).isTrue();
