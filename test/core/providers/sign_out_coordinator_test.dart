@@ -41,6 +41,21 @@ final class _ClearedAuthStateManager extends AuthStateManager {
   }
 }
 
+/// Wipes the device stores the way the real full-data clear does.
+final class _WipingAuthStateManager extends _ClearedAuthStateManager {
+  @override
+  Future<FullAppDataClearOutcome> logoutAndClearAppData({
+    required bool keepServerDetails,
+    required Future<void> Function() beforeClear,
+  }) async {
+    await beforeClear();
+    await PreferencesStore.clear();
+    await SecureCredentialStorage(instance: ref.read(secureStorageProvider))
+        .clearAll();
+    return FullAppDataClearOutcome.cleared;
+  }
+}
+
 final class _EmptyDirectProfiles extends DirectConnectionProfilesController {
   @override
   Future<List<DirectConnectionProfile>> build() async => const [];
@@ -130,6 +145,57 @@ void main() {
       check(purgeCalls).equals(1);
     },
   );
+
+  // Riverpod keeps a notifier instance across `invalidate`, so a completed
+  // clear must release the controllers' sign-out barriers itself. Otherwise
+  // their rebuilds keep serving the connections captured before the wipe.
+  test('a completed clear forgets Direct and Hermes connections and lets new '
+      'ones be added', () async {
+    final container = ProviderContainer(
+      overrides: [
+        authStateManagerProvider.overrideWith(_WipingAuthStateManager.new),
+        directLocalDatabasePurgeProvider.overrideWithValue(() async {}),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(authStateManagerProvider.future);
+    final profiles = container.read(directConnectionProfilesProvider.notifier);
+    await container.read(directConnectionProfilesProvider.future);
+    await profiles.upsert(
+      DirectConnectionProfile(
+        id: 'before',
+        name: 'Before sign-out',
+        adapterKey: 'openai-compatible',
+        baseUrl: 'http://localhost:1234/v1',
+        apiKey: 'sk-before',
+      ),
+    );
+    await container
+        .read(hermesConfigProvider.notifier)
+        .saveConnection(baseUrl: 'http://localhost:8642');
+    check(container.read(hermesConfigProvider).baseUrl).isNotEmpty();
+
+    await container
+        .read(signOutCoordinatorProvider)
+        .signOut(keepServerDetails: false);
+
+    check(await container.read(directConnectionProfilesProvider.future))
+        .isEmpty();
+    check(container.read(hermesConfigProvider).baseUrl).isEmpty();
+
+    await profiles.upsert(
+      DirectConnectionProfile(
+        id: 'after',
+        name: 'After sign-out',
+        adapterKey: 'openai-compatible',
+        baseUrl: 'http://localhost:1235/v1',
+      ),
+    );
+    check(
+      (await container.read(directConnectionProfilesProvider.future))
+          .map((profile) => profile.id),
+    ).deepEquals(['after']);
+  });
 
   test('a completed clear leaves no incomplete-clear marker', () async {
     final container = ProviderContainer(

@@ -811,6 +811,14 @@ class HermesConfigController extends Notifier<HermesConfig> {
     _runAdmissionBlocked = false;
   }
 
+  /// Lifts the barrier once the wipe has committed. Riverpod keeps this
+  /// notifier across `invalidate`, so without this the rebuild would keep
+  /// serving the config captured before the wipe.
+  void finishAppDataClear() {
+    _appDataClearBlocked = false;
+    _configBeforeAppDataClear = null;
+  }
+
   /// Removes live connection authority after a partial wipe while the durable
   /// incomplete-logout fence keeps config and run admission blocked.
   void revokeRuntimeAfterIncompleteAppDataClear() {

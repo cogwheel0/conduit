@@ -207,6 +207,10 @@ final class DirectMcpServersController
         .resumeMutationsAfterAppDataClearAbort();
   }
 
+  /// Lifts the barrier once the wipe has committed; Riverpod keeps this
+  /// notifier across `invalidate`.
+  void finishAppDataClear() => _appDataClearBlocked = false;
+
   void revokeRuntimeAfterIncompleteAppDataClear() {
     if (!ref.mounted) return;
     _appDataClearBlocked = false;
