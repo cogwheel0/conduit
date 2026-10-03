@@ -1,21 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
-import 'package:conduit/features/direct_connections/services/apple_pcc_adapter.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:conduit_core/features/direct_connections/services/apple_pcc_adapter.dart';
+import 'package:test/test.dart';
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
-
   test(
     'PCC profile is app-owned and exposes one model when available',
     () async {
       final host = _FakePccHost();
-      final adapter = ApplePccAdapter(hostApi: host);
+      final adapter = ApplePccAdapter(host: host);
       final profile = DirectConnectionProfile.applePrivateCloudCompute();
 
       expect(profile.validateOrNull(), isNull);
@@ -29,7 +26,7 @@ void main() {
 
   test('on-device profile routes through the iOS 26 system model', () async {
     final host = _FakePccHost();
-    final adapter = ApplePccAdapter(hostApi: host);
+    final adapter = ApplePccAdapter(host: host);
     final profile = DirectConnectionProfile.appleOnDevice();
 
     expect(profile.validateOrNull(), isNull);
@@ -74,7 +71,7 @@ void main() {
 
   test('on-device listing ignores a zero context size', () async {
     final host = _FakePccHost()..onDeviceContextSize = 0;
-    final adapter = ApplePccAdapter(hostApi: host);
+    final adapter = ApplePccAdapter(host: host);
 
     final models = await adapter.listModels(
       DirectConnectionProfile.appleOnDevice(),
@@ -86,7 +83,7 @@ void main() {
   test('PCC adapter maps keyed native events into a Direct run', () async {
     final host = _FakePccHost();
     final adapter = ApplePccAdapter(
-      hostApi: host,
+      host: host,
       allowOnDeviceFallback: () => true,
     );
     final run = adapter.startCompletion(
@@ -172,7 +169,7 @@ void main() {
   });
 
   test('PCC rejects conflicting sampling controls', () {
-    final adapter = ApplePccAdapter(hostApi: _FakePccHost());
+    final adapter = ApplePccAdapter(host: _FakePccHost());
     expect(
       () => adapter.startCompletion(
         DirectConnectionProfile.applePrivateCloudCompute(),
@@ -195,7 +192,7 @@ void main() {
       final approval = Completer<DirectToolApprovalDecision>();
       final approvalRequested = Completer<void>();
       Map<String, dynamic>? executedArguments;
-      final adapter = ApplePccAdapter(hostApi: host);
+      final adapter = ApplePccAdapter(host: host);
       final run = adapter.startCompletion(
         DirectConnectionProfile.applePrivateCloudCompute(),
         DirectCompletionRequest(
@@ -260,7 +257,7 @@ void main() {
   test('PCC returns denied MCP calls without executing them', () async {
     final host = _FakePccHost();
     var executions = 0;
-    final adapter = ApplePccAdapter(hostApi: host);
+    final adapter = ApplePccAdapter(host: host);
     final run = adapter.startCompletion(
       DirectConnectionProfile.applePrivateCloudCompute(),
       DirectCompletionRequest(
@@ -320,7 +317,7 @@ void main() {
       final approval = Completer<DirectToolApprovalDecision>();
       final approvalRequested = Completer<void>();
       var executions = 0;
-      final adapter = ApplePccAdapter(hostApi: host);
+      final adapter = ApplePccAdapter(host: host);
       final run = adapter.startCompletion(
         DirectConnectionProfile.applePrivateCloudCompute(),
         DirectCompletionRequest(
@@ -373,7 +370,7 @@ void main() {
 
   test('PCC bounds native MCP callbacks', () async {
     final host = _FakePccHost();
-    final adapter = ApplePccAdapter(hostApi: host);
+    final adapter = ApplePccAdapter(host: host);
     final run = adapter.startCompletion(
       DirectConnectionProfile.applePrivateCloudCompute(),
       DirectCompletionRequest(
@@ -448,7 +445,7 @@ void main() {
 
     for (final testCase in cases) {
       final host = _FakePccHost();
-      final adapter = ApplePccAdapter(hostApi: host);
+      final adapter = ApplePccAdapter(host: host);
       final run = adapter.startCompletion(
         DirectConnectionProfile.applePrivateCloudCompute(),
         DirectCompletionRequest(
@@ -485,7 +482,7 @@ void main() {
   });
 
   test('PCC reports a non-positive top_p accurately', () {
-    final adapter = ApplePccAdapter(hostApi: _FakePccHost());
+    final adapter = ApplePccAdapter(host: _FakePccHost());
     expect(
       () => adapter.startCompletion(
         DirectConnectionProfile.applePrivateCloudCompute(),
@@ -509,7 +506,7 @@ void main() {
 
   test('cancelling a PCC run closes only that run', () async {
     final host = _FakePccHost();
-    final adapter = ApplePccAdapter(hostApi: host);
+    final adapter = ApplePccAdapter(host: host);
     final run = adapter.startCompletion(
       DirectConnectionProfile.applePrivateCloudCompute(),
       DirectCompletionRequest(
@@ -545,7 +542,7 @@ final DirectToolDefinition _toolDefinition = DirectToolDefinition(
   },
 );
 
-final class _FakePccHost extends PccHostApi {
+final class _FakePccHost extends UnavailableApplePccHost {
   final Completer<void> started = Completer<void>();
   PlatformPccCompletionRequest? request;
   String? cancelledRunId;
