@@ -18,6 +18,7 @@ import '../providers/text_to_speech_provider.dart';
 import '../providers/queued_completion_provider.dart';
 import '../providers/streaming_haptic_memory.dart';
 import 'enhanced_image_attachment.dart';
+import 'image_gallery_scope.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
@@ -1712,7 +1713,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     // Add images first
     if (imageFiles.isNotEmpty) {
-      widgets.add(_buildImagesFromFiles(imageFiles));
+      widgets.add(
+        ImageGalleryScope(
+          items: _imageViewerItems(imageFiles),
+          child: _buildImagesFromFiles(imageFiles),
+        ),
+      );
     }
 
     // Add non-image files
@@ -1732,6 +1738,13 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       children: widgets,
     );
   }
+
+  /// Lets the full-screen viewer page through this message's images.
+  List<ImageViewerItem> _imageViewerItems(List<dynamic> imageFiles) => [
+    for (final file in imageFiles)
+      if (getFileUrl(file) case final url?)
+        ImageViewerItem(attachmentId: url, httpHeaders: _headersForFile(file)),
+  ];
 
   Widget _buildImagesFromFiles(List<dynamic> imageFiles) {
     final imageCount = imageFiles.length;

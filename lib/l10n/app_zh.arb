@@ -3338,5 +3338,10 @@
   "webSearchRegionWorldwide": "全球",
   "directModelToolsUnsupported": "此模型无法使用工具，因此无法搜索网页。请关闭网页搜索和所有工具后重试。",
   "directContextCompactionModelCount": "{count, plural, other{{count} 个模型}}",
-  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}}
+  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
+  "imageViewerPosition": "{current} / {total}",
+  "@imageViewerPosition": {"placeholders": {"current": {"type": "int", "example": "2"}, "total": {"type": "int", "example": "5"}}},
+  "saveImage": "保存图片",
+  "imageSaved": "图片已保存",
+  "imageSaveFailed": "无法保存图片。"
 }

@@ -3376,5 +3376,10 @@
   "webSearchRegionWorldwide": "Весь мир",
   "directModelToolsUnsupported": "Эта модель не умеет использовать инструменты, поэтому не может искать в интернете. Отключите веб-поиск и все инструменты, затем повторите попытку.",
   "directContextCompactionModelCount": "{count, plural, one{{count} модель} few{{count} модели} many{{count} моделей} other{{count} модели}}",
-  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}}
+  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
+  "imageViewerPosition": "{current} из {total}",
+  "@imageViewerPosition": {"placeholders": {"current": {"type": "int", "example": "2"}, "total": {"type": "int", "example": "5"}}},
+  "saveImage": "Сохранить изображение",
+  "imageSaved": "Изображение сохранено",
+  "imageSaveFailed": "Не удалось сохранить изображение."
 }

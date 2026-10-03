@@ -10,6 +10,7 @@ import '../../../shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import '../../chat/utils/file_utils.dart';
 import '../../chat/widgets/enhanced_attachment.dart';
 import '../../chat/widgets/enhanced_image_attachment.dart';
+import '../../chat/widgets/image_gallery_scope.dart';
 
 /// Renders channel message text with the same Markdown pipeline used by chat.
 class ChannelMessageContent extends StatelessWidget {
@@ -70,10 +71,17 @@ class ChannelMessageAttachments extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.only(top: Spacing.xs),
-      child: Wrap(
-        spacing: Spacing.sm,
-        runSpacing: Spacing.sm,
-        children: attachmentFiles.map(_buildAttachment).toList(),
+      child: ImageGalleryScope(
+        items: [
+          for (final file in attachmentFiles)
+            if (isImageFile(file))
+              ImageViewerItem(attachmentId: getFileUrl(file)!),
+        ],
+        child: Wrap(
+          spacing: Spacing.sm,
+          runSpacing: Spacing.sm,
+          children: attachmentFiles.map(_buildAttachment).toList(),
+        ),
       ),
     );
   }

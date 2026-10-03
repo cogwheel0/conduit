@@ -1159,6 +1159,107 @@ class PlatformDropdownOption {
   }
 }
 
+class PlatformImageViewerItem {
+  PlatformImageViewerItem({required this.path, this.title});
+
+  String path;
+
+  String? title;
+
+  List<Object?> _toList() {
+    return <Object?>[path, title];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static PlatformImageViewerItem decode(Object result) {
+    result as List<Object?>;
+    return PlatformImageViewerItem(
+      path: result[0]! as String,
+      title: result[1] as String?,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! PlatformImageViewerItem || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(path, other.path) && _deepEquals(title, other.title);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'PlatformImageViewerItem(path: $path, title: $title)';
+  }
+}
+
+class PlatformImageViewerRequest {
+  PlatformImageViewerRequest({
+    required this.items,
+    required this.initialIndex,
+    this.sourceRect,
+  });
+
+  List<PlatformImageViewerItem> items;
+
+  int initialIndex;
+
+  /// Global logical rect of the tapped thumbnail, used for the zoom transition.
+  PlatformRect? sourceRect;
+
+  List<Object?> _toList() {
+    return <Object?>[items, initialIndex, sourceRect];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static PlatformImageViewerRequest decode(Object result) {
+    result as List<Object?>;
+    return PlatformImageViewerRequest(
+      items: (result[0]! as List<Object?>).cast<PlatformImageViewerItem>(),
+      initialIndex: result[1]! as int,
+      sourceRect: result[2] as PlatformRect?,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! PlatformImageViewerRequest ||
+        other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(items, other.items) &&
+        _deepEquals(initialIndex, other.initialIndex) &&
+        _deepEquals(sourceRect, other.sourceRect);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'PlatformImageViewerRequest(items: $items, initialIndex: $initialIndex, sourceRect: $sourceRect)';
+  }
+}
+
 class PlatformDropdownRequest {
   PlatformDropdownRequest({
     this.title,
@@ -3762,98 +3863,104 @@ class _PigeonCodec extends StandardMessageCodec {
     } else if (value is PlatformDropdownOption) {
       buffer.putUint8(154);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformDropdownRequest) {
+    } else if (value is PlatformImageViewerItem) {
       buffer.putUint8(155);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetOption) {
+    } else if (value is PlatformImageViewerRequest) {
       buffer.putUint8(156);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetTheme) {
+    } else if (value is PlatformDropdownRequest) {
       buffer.putUint8(157);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetItem) {
+    } else if (value is PlatformNativeSheetOption) {
       buffer.putUint8(158);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetLink) {
+    } else if (value is PlatformNativeSheetTheme) {
       buffer.putUint8(159);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetSection) {
+    } else if (value is PlatformNativeSheetItem) {
       buffer.putUint8(160);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeEditProfileSheetConfig) {
+    } else if (value is PlatformNativeSheetLink) {
       buffer.putUint8(161);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeProfileSheetUser) {
+    } else if (value is PlatformNativeSheetSection) {
       buffer.putUint8(162);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetDetail) {
+    } else if (value is PlatformNativeEditProfileSheetConfig) {
       buffer.putUint8(163);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeProfileSheetConfig) {
+    } else if (value is PlatformNativeProfileSheetUser) {
       buffer.putUint8(164);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetModelOption) {
+    } else if (value is PlatformNativeSheetDetail) {
       buffer.putUint8(165);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetModelSelectorRequest) {
+    } else if (value is PlatformNativeProfileSheetConfig) {
       buffer.putUint8(166);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetOptionsSelectorRequest) {
+    } else if (value is PlatformNativeSheetModelOption) {
       buffer.putUint8(167);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetDatePickerRequest) {
+    } else if (value is PlatformNativeSheetModelSelectorRequest) {
       buffer.putUint8(168);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetTextEditorRequest) {
+    } else if (value is PlatformNativeSheetOptionsSelectorRequest) {
       buffer.putUint8(169);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetResultRequest) {
+    } else if (value is PlatformNativeSheetDatePickerRequest) {
       buffer.putUint8(170);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetApplyDetailPatchRequest) {
+    } else if (value is PlatformNativeSheetTextEditorRequest) {
       buffer.putUint8(171);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetControlChangedEvent) {
+    } else if (value is PlatformNativeSheetResultRequest) {
       buffer.putUint8(172);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetDetailAppearedEvent) {
+    } else if (value is PlatformNativeSheetApplyDetailPatchRequest) {
       buffer.putUint8(173);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetModelPinToggledEvent) {
+    } else if (value is PlatformNativeSheetControlChangedEvent) {
       buffer.putUint8(174);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetReasoningEffortChangedEvent) {
+    } else if (value is PlatformNativeSheetDetailAppearedEvent) {
       buffer.putUint8(175);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeEditProfileCommittedEvent) {
+    } else if (value is PlatformNativeSheetModelPinToggledEvent) {
       buffer.putUint8(176);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetActionResult) {
+    } else if (value is PlatformNativeSheetReasoningEffortChangedEvent) {
       buffer.putUint8(177);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccStatus) {
+    } else if (value is PlatformNativeEditProfileCommittedEvent) {
       buffer.putUint8(178);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccImage) {
+    } else if (value is PlatformNativeSheetActionResult) {
       buffer.putUint8(179);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccMessage) {
+    } else if (value is PlatformPccStatus) {
       buffer.putUint8(180);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccToolDefinition) {
+    } else if (value is PlatformPccImage) {
       buffer.putUint8(181);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccToolCall) {
+    } else if (value is PlatformPccMessage) {
       buffer.putUint8(182);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccToolResult) {
+    } else if (value is PlatformPccToolDefinition) {
       buffer.putUint8(183);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccCompletionRequest) {
+    } else if (value is PlatformPccToolCall) {
       buffer.putUint8(184);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccStreamEvent) {
+    } else if (value is PlatformPccToolResult) {
       buffer.putUint8(185);
+      writeValue(buffer, value.encode());
+    } else if (value is PlatformPccCompletionRequest) {
+      buffer.putUint8(186);
+      writeValue(buffer, value.encode());
+    } else if (value is PlatformPccStreamEvent) {
+      buffer.putUint8(187);
       writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
@@ -3931,82 +4038,86 @@ class _PigeonCodec extends StandardMessageCodec {
       case 154:
         return PlatformDropdownOption.decode(readValue(buffer)!);
       case 155:
-        return PlatformDropdownRequest.decode(readValue(buffer)!);
+        return PlatformImageViewerItem.decode(readValue(buffer)!);
       case 156:
-        return PlatformNativeSheetOption.decode(readValue(buffer)!);
+        return PlatformImageViewerRequest.decode(readValue(buffer)!);
       case 157:
-        return PlatformNativeSheetTheme.decode(readValue(buffer)!);
+        return PlatformDropdownRequest.decode(readValue(buffer)!);
       case 158:
-        return PlatformNativeSheetItem.decode(readValue(buffer)!);
+        return PlatformNativeSheetOption.decode(readValue(buffer)!);
       case 159:
-        return PlatformNativeSheetLink.decode(readValue(buffer)!);
+        return PlatformNativeSheetTheme.decode(readValue(buffer)!);
       case 160:
-        return PlatformNativeSheetSection.decode(readValue(buffer)!);
+        return PlatformNativeSheetItem.decode(readValue(buffer)!);
       case 161:
-        return PlatformNativeEditProfileSheetConfig.decode(readValue(buffer)!);
+        return PlatformNativeSheetLink.decode(readValue(buffer)!);
       case 162:
-        return PlatformNativeProfileSheetUser.decode(readValue(buffer)!);
+        return PlatformNativeSheetSection.decode(readValue(buffer)!);
       case 163:
-        return PlatformNativeSheetDetail.decode(readValue(buffer)!);
+        return PlatformNativeEditProfileSheetConfig.decode(readValue(buffer)!);
       case 164:
-        return PlatformNativeProfileSheetConfig.decode(readValue(buffer)!);
+        return PlatformNativeProfileSheetUser.decode(readValue(buffer)!);
       case 165:
-        return PlatformNativeSheetModelOption.decode(readValue(buffer)!);
+        return PlatformNativeSheetDetail.decode(readValue(buffer)!);
       case 166:
+        return PlatformNativeProfileSheetConfig.decode(readValue(buffer)!);
+      case 167:
+        return PlatformNativeSheetModelOption.decode(readValue(buffer)!);
+      case 168:
         return PlatformNativeSheetModelSelectorRequest.decode(
           readValue(buffer)!,
         );
-      case 167:
+      case 169:
         return PlatformNativeSheetOptionsSelectorRequest.decode(
           readValue(buffer)!,
         );
-      case 168:
-        return PlatformNativeSheetDatePickerRequest.decode(readValue(buffer)!);
-      case 169:
-        return PlatformNativeSheetTextEditorRequest.decode(readValue(buffer)!);
       case 170:
-        return PlatformNativeSheetResultRequest.decode(readValue(buffer)!);
+        return PlatformNativeSheetDatePickerRequest.decode(readValue(buffer)!);
       case 171:
+        return PlatformNativeSheetTextEditorRequest.decode(readValue(buffer)!);
+      case 172:
+        return PlatformNativeSheetResultRequest.decode(readValue(buffer)!);
+      case 173:
         return PlatformNativeSheetApplyDetailPatchRequest.decode(
           readValue(buffer)!,
         );
-      case 172:
+      case 174:
         return PlatformNativeSheetControlChangedEvent.decode(
           readValue(buffer)!,
         );
-      case 173:
+      case 175:
         return PlatformNativeSheetDetailAppearedEvent.decode(
           readValue(buffer)!,
         );
-      case 174:
+      case 176:
         return PlatformNativeSheetModelPinToggledEvent.decode(
           readValue(buffer)!,
         );
-      case 175:
+      case 177:
         return PlatformNativeSheetReasoningEffortChangedEvent.decode(
           readValue(buffer)!,
         );
-      case 176:
+      case 178:
         return PlatformNativeEditProfileCommittedEvent.decode(
           readValue(buffer)!,
         );
-      case 177:
-        return PlatformNativeSheetActionResult.decode(readValue(buffer)!);
-      case 178:
-        return PlatformPccStatus.decode(readValue(buffer)!);
       case 179:
-        return PlatformPccImage.decode(readValue(buffer)!);
+        return PlatformNativeSheetActionResult.decode(readValue(buffer)!);
       case 180:
-        return PlatformPccMessage.decode(readValue(buffer)!);
+        return PlatformPccStatus.decode(readValue(buffer)!);
       case 181:
-        return PlatformPccToolDefinition.decode(readValue(buffer)!);
+        return PlatformPccImage.decode(readValue(buffer)!);
       case 182:
-        return PlatformPccToolCall.decode(readValue(buffer)!);
+        return PlatformPccMessage.decode(readValue(buffer)!);
       case 183:
-        return PlatformPccToolResult.decode(readValue(buffer)!);
+        return PlatformPccToolDefinition.decode(readValue(buffer)!);
       case 184:
-        return PlatformPccCompletionRequest.decode(readValue(buffer)!);
+        return PlatformPccToolCall.decode(readValue(buffer)!);
       case 185:
+        return PlatformPccToolResult.decode(readValue(buffer)!);
+      case 186:
+        return PlatformPccCompletionRequest.decode(readValue(buffer)!);
+      case 187:
         return PlatformPccStreamEvent.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
@@ -4913,6 +5024,108 @@ class NativeDropdownHostApi {
       isNullValid: true,
     );
     return pigeonVar_replyValue as String?;
+  }
+}
+
+/// iOS only. Presents local image files in Quick Look.
+class NativeImageViewerHostApi {
+  /// Constructor for [NativeImageViewerHostApi]. The [binaryMessenger] named argument is
+  /// available for dependency injection. If it is left null, the default
+  /// BinaryMessenger will be used which routes to the host platform.
+  NativeImageViewerHostApi({
+    BinaryMessenger? binaryMessenger,
+    String messageChannelSuffix = '',
+  }) : pigeonVar_binaryMessenger = binaryMessenger,
+       pigeonVar_messageChannelSuffix = messageChannelSuffix.isNotEmpty
+           ? '.$messageChannelSuffix'
+           : '';
+  final BinaryMessenger? pigeonVar_binaryMessenger;
+
+  static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
+
+  final String pigeonVar_messageChannelSuffix;
+
+  /// Completes when the viewer is dismissed. Fails when it cannot be shown.
+  Future<void> present(PlatformImageViewerRequest request) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.NativeImageViewerHostApi.present$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[request],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+  }
+}
+
+/// Android only. Writes images to the shared Pictures collection.
+class ImageGalleryHostApi {
+  /// Constructor for [ImageGalleryHostApi]. The [binaryMessenger] named argument is
+  /// available for dependency injection. If it is left null, the default
+  /// BinaryMessenger will be used which routes to the host platform.
+  ImageGalleryHostApi({
+    BinaryMessenger? binaryMessenger,
+    String messageChannelSuffix = '',
+  }) : pigeonVar_binaryMessenger = binaryMessenger,
+       pigeonVar_messageChannelSuffix = messageChannelSuffix.isNotEmpty
+           ? '.$messageChannelSuffix'
+           : '';
+  final BinaryMessenger? pigeonVar_binaryMessenger;
+
+  static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
+
+  final String pigeonVar_messageChannelSuffix;
+
+  Future<bool> canSaveImages() async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.ImageGalleryHostApi.canSaveImages$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as bool;
+  }
+
+  Future<void> saveImage(
+    String path,
+    String mimeType,
+    String displayName,
+  ) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.ImageGalleryHostApi.saveImage$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[path, mimeType, displayName],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
   }
 }
 

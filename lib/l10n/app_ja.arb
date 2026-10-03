@@ -4678,5 +4678,10 @@
   "webSearchRegionWorldwide": "全世界",
   "directModelToolsUnsupported": "このモデルはツールを使用できないため、Web 検索を実行できません。Web 検索とツールをすべてオフにしてから、もう一度お試しください。",
   "directContextCompactionModelCount": "{count, plural, other{{count} 個のモデル}}",
-  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}}
+  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
+  "imageViewerPosition": "{current} / {total}",
+  "@imageViewerPosition": {"placeholders": {"current": {"type": "int", "example": "2"}, "total": {"type": "int", "example": "5"}}},
+  "saveImage": "画像を保存",
+  "imageSaved": "画像を保存しました",
+  "imageSaveFailed": "画像を保存できませんでした。"
 }

@@ -250,6 +250,27 @@ class PlatformDropdownOption {
   bool destructive;
 }
 
+class PlatformImageViewerItem {
+  PlatformImageViewerItem({required this.path, this.title});
+
+  String path;
+  String? title;
+}
+
+class PlatformImageViewerRequest {
+  PlatformImageViewerRequest({
+    required this.items,
+    required this.initialIndex,
+    this.sourceRect,
+  });
+
+  List<PlatformImageViewerItem> items;
+  int initialIndex;
+
+  /// Global logical rect of the tapped thumbnail, used for the zoom transition.
+  PlatformRect? sourceRect;
+}
+
 class PlatformDropdownRequest {
   PlatformDropdownRequest({
     this.title,
@@ -935,6 +956,23 @@ abstract class NativeKeyboardAttachmentFlutterApi {
 abstract class NativeDropdownHostApi {
   @async
   String? show(PlatformDropdownRequest request);
+}
+
+/// iOS only. Presents local image files in Quick Look.
+@HostApi()
+abstract class NativeImageViewerHostApi {
+  /// Completes when the viewer is dismissed. Fails when it cannot be shown.
+  @async
+  void present(PlatformImageViewerRequest request);
+}
+
+/// Android only. Writes images to the shared Pictures collection.
+@HostApi()
+abstract class ImageGalleryHostApi {
+  bool canSaveImages();
+
+  @async
+  void saveImage(String path, String mimeType, String displayName);
 }
 
 @HostApi()
