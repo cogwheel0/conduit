@@ -573,7 +573,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   bool _desktopQueueActionBusy = false;
 
   bool get _isRouteVisible =>
-      !ThemedSheets.hasActiveSheet &&
+      !ThemedSheets.isCoveredBySheet(context) &&
       TickerMode.valuesOf(context).enabled &&
       (ModalRoute.isCurrentOf(context) ?? true);
 
@@ -729,7 +729,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   void _handleActiveSheetChanged() {
     if (!mounted) return;
-    if (ThemedSheets.hasActiveSheet && _isFallbackAttachmentPanelVisible) {
+    if (ThemedSheets.isCoveredBySheet(context) &&
+        _isFallbackAttachmentPanelVisible) {
       _dismissFallbackAttachmentPanel();
       return;
     }

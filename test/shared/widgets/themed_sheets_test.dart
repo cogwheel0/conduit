@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
@@ -920,4 +922,64 @@ void main() {
       );
     },
   );
+
+  testWidgets('a sheet does not cover the native chrome it hosts', (
+    tester,
+  ) async {
+    late BuildContext hostContext;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(TweakcnThemes.t3Chat),
+        home: Builder(
+          builder: (context) {
+            hostContext = context;
+            return const Scaffold(body: SizedBox.expand());
+          },
+        ),
+      ),
+    );
+
+    Widget nativeButton(String key) =>
+        ThemedSheets.hideNativeChromeWhileCovered(
+          child: SizedBox(key: ValueKey<String>(key), width: 40, height: 40),
+        );
+
+    // A thread panel: the composer inside the sheet keeps its send button.
+    late BuildContext sheetContext;
+    unawaited(
+      ThemedSheets.showCustom<void>(
+        context: hostContext,
+        builder: (_) => Builder(
+          builder: (context) {
+            sheetContext = context;
+            return nativeButton('inner-native-button');
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(ThemedSheets.hasActiveSheet, isTrue);
+    expect(ThemedSheets.isCoveredBySheet(hostContext), isTrue);
+    expect(ThemedSheets.isCoveredBySheet(sheetContext), isFalse);
+    expect(
+      find.byKey(const ValueKey<String>('inner-native-button')),
+      findsOneWidget,
+    );
+
+    // A second sheet over the first covers the first one's chrome.
+    unawaited(
+      ThemedSheets.showCustom<void>(
+        context: sheetContext,
+        builder: (_) => const SizedBox(height: 200),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(ThemedSheets.isCoveredBySheet(sheetContext), isTrue);
+    expect(
+      find.byKey(const ValueKey<String>('inner-native-button')),
+      findsNothing,
+    );
+  });
 }

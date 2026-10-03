@@ -40,6 +40,14 @@ class ThemedSheets {
 
   static Listenable get activeSheetListenable => _activeSheetCount;
 
+  /// Whether a Conduit bottom sheet covers [context].
+  ///
+  /// Content inside a sheet is not covered by that sheet itself, only by the
+  /// sheets presented above it, so a composer hosted in a sheet keeps its
+  /// native controls.
+  static bool isCoveredBySheet(BuildContext context) =>
+      _activeSheetCount.value > _SheetDepthScope.depthOf(context);
+
   /// Removes UIKit-backed chrome before a tracked root sheet is presented.
   ///
   /// Native glass controls use platform views whose compositor layer can sit
@@ -52,7 +60,7 @@ class ThemedSheets {
   }) {
     return ListenableBuilder(
       listenable: activeSheetListenable,
-      builder: (context, _) => hasActiveSheet ? replacement : child,
+      builder: (context, _) => isCoveredBySheet(context) ? replacement : child,
     );
   }
 
@@ -416,7 +424,24 @@ class _SheetCoverageBoundaryState extends State<_SheetCoverageBoundary> {
   }
 
   @override
-  Widget build(BuildContext context) => widget.child;
+  Widget build(BuildContext context) => _SheetDepthScope(
+    depth: _SheetDepthScope.depthOf(context) + 1,
+    child: widget.child,
+  );
+}
+
+/// How many tracked sheets enclose a subtree.
+class _SheetDepthScope extends InheritedWidget {
+  const _SheetDepthScope({required this.depth, required super.child});
+
+  final int depth;
+
+  static int depthOf(BuildContext context) =>
+      context.getInheritedWidgetOfExactType<_SheetDepthScope>()?.depth ?? 0;
+
+  @override
+  bool updateShouldNotify(_SheetDepthScope oldWidget) =>
+      depth != oldWidget.depth;
 }
 
 class SheetCloseButton extends StatelessWidget {
