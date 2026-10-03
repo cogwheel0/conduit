@@ -839,6 +839,14 @@ class DirectConnectionProfilesController
     }
   }
 
+  /// Lifts the barrier once the wipe has committed. Riverpod keeps this
+  /// notifier across `invalidate`, so without this the rebuild would keep
+  /// serving the profiles captured before the wipe.
+  void finishAppDataClear() {
+    _appDataClearBlocked = false;
+    _profilesBeforeAppDataClear = null;
+  }
+
   /// Drops every in-memory transport authority after a partial wipe and keeps
   /// the controller blocked until the durable logout fence is cleared.
   ///

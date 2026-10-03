@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/models/channel_message.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -275,6 +276,135 @@ void main() {
     },
   );
 
+  testWidgets('a thread shows reply reactions and toggles them', (
+    tester,
+  ) async {
+    final api = _ChannelApi(
+      messages: [_messageJson('Parent')],
+      threadMessages: [
+        {
+          'id': 'reply-1',
+          'channel_id': 'channel-1',
+          'parent_id': 'message-1',
+          'content': 'A reply',
+          'reactions': [
+            {
+              'name': '🎉',
+              'users': [
+                {'id': 'user-2'},
+              ],
+              'count': 1,
+            },
+          ],
+        },
+      ],
+    );
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(api),
+        currentUserProvider.overrideWith(
+          (ref) async => const User(
+            id: 'user-1',
+            username: 'alice',
+            email: 'alice@example.test',
+            name: 'Alice',
+            role: 'user',
+          ),
+        ),
+        socketServiceProvider.overrideWithValue(null),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const ChannelPage(channelId: 'channel-1'),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester
+        .widget<ConduitContextMenu>(find.byType(ConduitContextMenu).first)
+        .actions
+        .singleWhere((action) => action.label == 'Thread')
+        .onSelected();
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    final chip = find.descendant(
+      of: find.byType(ThreadPanel),
+      matching: find.widgetWithText(ActionChip, '🎉 1'),
+    );
+    expect(chip, findsOneWidget);
+    tester.widget<ActionChip>(chip).onPressed!();
+    await tester.pump(const Duration(milliseconds: 1));
+    check(api.reactedMessageIds).deepEquals(['reply-1']);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  // The phone thread sheet can be a native sheet with no Material behind it.
+  testWidgets('a thread panel without a Material ancestor shows reactions', (
+    tester,
+  ) async {
+    final api = _ChannelApi(
+      threadMessages: [
+        {
+          'id': 'reply-1',
+          'channel_id': 'channel-1',
+          'parent_id': 'message-1',
+          'content': 'A reply',
+          'reactions': [
+            {
+              'name': '🎉',
+              'users': [
+                {'id': 'user-2'},
+              ],
+              'count': 1,
+            },
+          ],
+        },
+      ],
+    );
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(api),
+        socketServiceProvider.overrideWithValue(null),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ThreadPanel(
+            channelId: 'channel-1',
+            parentMessage: ChannelMessage.fromJson(_messageJson('Parent')),
+            onClose: () {},
+            onReactionTap: (_, _) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1));
+
+    check(tester.takeException()).isNull();
+    expect(find.widgetWithText(ActionChip, '🎉 1'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
   testWidgets('channel route change clears the prior active channel', (
     tester,
   ) async {
@@ -350,6 +480,7 @@ class _ChannelApi extends ApiService {
     this.sendResponse,
     this.channelName = 'Initial channel',
     this.messages = const [],
+    this.threadMessages = const [],
   }) : super(
          serverConfig: const ServerConfig(
            id: 'test-server',
@@ -363,6 +494,8 @@ class _ChannelApi extends ApiService {
   final Completer<Map<String, dynamic>>? sendResponse;
   final String channelName;
   final List<Map<String, dynamic>> messages;
+  final List<Map<String, dynamic>> threadMessages;
+  final List<String> reactedMessageIds = [];
   int getChannelCalls = 0;
   int postChannelMessageCalls = 0;
   int addMessageReactionCalls = 0;
@@ -387,7 +520,7 @@ class _ChannelApi extends ApiService {
     String messageId, {
     int skip = 0,
     int limit = 50,
-  }) async => const [];
+  }) async => threadMessages;
 
   @override
   Future<Map<String, dynamic>> postChannelMessage(
@@ -411,6 +544,7 @@ class _ChannelApi extends ApiService {
     String name,
   ) async {
     addMessageReactionCalls += 1;
+    reactedMessageIds.add(messageId);
     return true;
   }
 

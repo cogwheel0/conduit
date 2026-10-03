@@ -451,6 +451,82 @@ void main() {
       },
     );
 
+    test(
+      'thread first-page fetch reruns after a reply it may hold changes',
+      () async {
+        final api = _QueuedChannelContentApi();
+        final container = ProviderContainer(
+          overrides: [apiServiceProvider.overrideWithValue(api)],
+        );
+        addTearDown(container.dispose);
+        final provider = threadMessagesProvider('channel', 'parent');
+        final subscription = container.listen(provider, (_, _) {});
+        addTearDown(subscription.close);
+        final firstPage = container.read(provider.future);
+        await _waitFor(() => api.threadRequestCount == 1);
+
+        // Both replies are in the pending page, not yet in the list.
+        container
+            .read(provider.notifier)
+            .updateMessage(
+              const ChannelMessage(id: 'edit-me', content: 'live edit'),
+            );
+        container.read(provider.notifier).removeMessage('delete-me');
+        api.completeThread(0, const <Map<String, dynamic>>[
+          <String, dynamic>{'id': 'edit-me', 'content': 'stale edit'},
+          <String, dynamic>{'id': 'delete-me', 'content': 'stale delete'},
+        ]);
+        await firstPage;
+
+        await _waitFor(() => api.threadRequestCount == 2);
+        api.completeThread(1, const <Map<String, dynamic>>[
+          <String, dynamic>{'id': 'edit-me', 'content': 'live edit'},
+        ]);
+        final replies = await container.read(provider.future);
+        expect(replies.single.content, 'live edit');
+      },
+    );
+
+    test(
+      'an older thread page cannot bring back a reply edited meanwhile',
+      () async {
+        final api = _QueuedChannelContentApi();
+        final container = ProviderContainer(
+          overrides: [apiServiceProvider.overrideWithValue(api)],
+        );
+        addTearDown(container.dispose);
+        final provider = threadMessagesProvider('channel', 'parent');
+        final subscription = container.listen(provider, (_, _) {});
+        addTearDown(subscription.close);
+        final firstPage = container.read(provider.future);
+        await _waitFor(() => api.threadRequestCount == 1);
+        api.completeThread(0, [
+          for (var i = 0; i < 50; i++)
+            <String, dynamic>{'id': 'reply-$i', 'content': 'reply $i'},
+        ]);
+        await firstPage;
+
+        final olderPage = container.read(provider.notifier).loadMore();
+        await _waitFor(() => api.threadRequestCount == 2);
+        container
+            .read(provider.notifier)
+            .updateMessage(
+              const ChannelMessage(id: 'older-reply', content: 'live edit'),
+            );
+        api.completeThread(1, const <Map<String, dynamic>>[
+          <String, dynamic>{'id': 'older-reply', 'content': 'stale edit'},
+        ]);
+        await olderPage;
+
+        final replies = container.read(provider).requireValue;
+        expect(
+          replies.any((message) => message.content == 'stale edit'),
+          false,
+        );
+        expect(replies, hasLength(50));
+      },
+    );
+
     test('loadMore cannot publish after the API owner changes', () async {
       final firstApi = _PaginatedChannelApi(serverId: 'server-a');
       final secondApi = _PaginatedChannelApi(

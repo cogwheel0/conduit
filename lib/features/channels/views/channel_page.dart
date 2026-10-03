@@ -17,7 +17,6 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 
 import '../utils/channel_presentation.dart';
-import '../../../core/services/haptic_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../shared/services/navigation_service.dart';
 import '../../../core/utils/model_icon_utils.dart';
@@ -45,6 +44,7 @@ import '../utils/channel_request_owner.dart';
 import '../utils/mention_utils.dart';
 import '../widgets/channel_form_dialog.dart';
 import '../widgets/channel_message_content.dart';
+import '../widgets/channel_message_reactions.dart';
 import '../widgets/thread_panel.dart';
 
 /// Full-screen view for a single channel with messaging,
@@ -161,6 +161,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
             channelId: widget.channelId,
             parentMessage: message,
             onClose: () => Navigator.pop(ctx),
+            onReactionTap: _toggleReaction,
             overflowButtonBuilder: (size) =>
                 _buildAttachmentButton(size, parentMessageId: message.id),
           ),
@@ -1436,6 +1437,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                       channelId: widget.channelId,
                       parentMessage: _threadParent!,
                       onClose: () => setState(() => _threadParent = null),
+                      onReactionTap: _toggleReaction,
                       overflowButtonBuilder: (size) => _buildAttachmentButton(
                         size,
                         parentMessageId: _threadParent!.id,
@@ -2037,7 +2039,11 @@ class _MessageBubble extends StatelessWidget {
                       ),
                     ),
                   if (message.reactions.isNotEmpty)
-                    _buildReactions(context, theme),
+                    ChannelMessageReactions(
+                      reactions: message.reactions,
+                      currentUserId: currentUserId,
+                      onReactionTap: onReactionTap,
+                    ),
                 ],
               ),
             ),
@@ -2086,47 +2092,6 @@ class _MessageBubble extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildReactions(BuildContext context, ConduitThemeExtension theme) {
-    final primaryColor = Theme.of(context).colorScheme.primary;
-
-    return Padding(
-      padding: const EdgeInsets.only(top: Spacing.xs),
-      child: Wrap(
-        spacing: Spacing.xs,
-        runSpacing: Spacing.xs,
-        children: message.reactions.map((reaction) {
-          final isActive = reaction.users.any(
-            (u) => u['user_id'] == currentUserId || u['id'] == currentUserId,
-          );
-          return ActionChip(
-            label: Text(
-              '${reaction.name} ${reaction.count}',
-              style: AppTypography.labelMediumStyle,
-            ),
-            backgroundColor: isActive
-                ? primaryColor.withValues(alpha: 0.15)
-                : theme.surfaceContainer,
-            side: BorderSide(
-              color: isActive
-                  ? primaryColor.withValues(alpha: 0.4)
-                  : theme.dividerColor,
-            ),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppBorderRadius.chip),
-            ),
-            padding: EdgeInsets.zero,
-            visualDensity: VisualDensity.compact,
-            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            onPressed: () {
-              ConduitHaptics.selectionClick();
-              onReactionTap(reaction.name);
-            },
-          );
-        }).toList(),
-      ),
     );
   }
 

@@ -141,6 +141,9 @@ final class SignOutCoordinator {
           await _ref.read(directLocalDatabasePurgeProvider)();
           directLocalPurgeCompleted = true;
           await disarmIncompleteAppDataClearMarker();
+          directProfiles.finishAppDataClear();
+          directMcpServers.finishAppDataClear();
+          hermesConfig.finishAppDataClear();
           _resetProvidersAfterFullAppDataClear(_ref);
         case FullAppDataClearOutcome.incomplete:
           directRuns.commitAppDataClear();

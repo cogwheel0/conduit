@@ -429,10 +429,16 @@ class ThreadMessages extends _$ThreadMessages {
     }
   }
 
-  void _invalidatePendingFetchForMutation() {
-    if (_buildRequestsInFlight == 0) return;
+  void _invalidatePendingFetchForMutation({bool includePagination = false}) {
+    if (_buildRequestsInFlight == 0 &&
+        (!includePagination || !_loadMoreInFlight)) {
+      return;
+    }
     _requestGeneration += 1;
     _refreshAfterMutation = true;
+    if (includePagination) {
+      _loadMoreInFlight = false;
+    }
   }
 
   void _scheduleReplacementFetchIfNeeded(int generation) {
@@ -522,6 +528,30 @@ class ThreadMessages extends _$ThreadMessages {
     final next = List<ChannelMessage>.of(current);
     next[index] = existing.copyWith(user: sender);
     state = AsyncValue.data(next);
+  }
+
+  /// Updates a reply in the thread (edit, reaction change).
+  ///
+  /// A fetch that started before the change may hold the old reply, so it is
+  /// marked stale either way; a page of older replies only when the reply is
+  /// not loaded yet, since that page skips replies already in the list.
+  void updateMessage(ChannelMessage updated) {
+    final current = state.value ?? [];
+    final index = current.indexWhere((message) => message.id == updated.id);
+    _invalidatePendingFetchForMutation(includePagination: index < 0);
+    if (index < 0 || current[index] == updated) return;
+    final next = List<ChannelMessage>.of(current);
+    next[index] = updated;
+    state = AsyncValue.data(next);
+  }
+
+  /// Removes a reply from the thread, and marks a fetch that may still hold
+  /// it stale.
+  void removeMessage(String messageId) {
+    _invalidatePendingFetchForMutation(includePagination: true);
+    final current = state.value ?? [];
+    if (!current.any((message) => message.id == messageId)) return;
+    state = AsyncValue.data(current.where((m) => m.id != messageId).toList());
   }
 }
 
