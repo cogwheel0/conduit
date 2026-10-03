@@ -72,7 +72,9 @@ BaseOptions buildSchemeLessPlaintextHealthProbeOptions(String baseUrl) {
 /// With TLS 1.3 the client finishes its side of the handshake before the
 /// server checks the certificate, so a refusal does not surface as a
 /// handshake error: the server closes the connection before the first
-/// response header arrives.
+/// response header arrives. A proxy reset or a server restart closes the
+/// connection the same way, so that signature counts only for an HTTPS request,
+/// the only kind a client certificate can be part of.
 @visibleForTesting
 bool isLikelyMutualTlsRejection(
   String errorText, {
@@ -83,7 +85,10 @@ bool isLikelyMutualTlsRejection(
       errorText.contains('TlsException') ||
       errorText.contains('CERTIFICATE_VERIFY_FAILED') ||
       errorText.contains('alert bad certificate') ||
-      errorText.contains('Connection closed before full header was received');
+      (errorText.contains(
+            'Connection closed before full header was received',
+          ) &&
+          errorText.contains('uri = https://'));
 }
 
 /// Redacts configured header values before normalizing and bounding text that

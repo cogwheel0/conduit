@@ -3,7 +3,7 @@ import 'package:conduit/features/auth/views/server_connection_page.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  // B-08: a TLS 1.3 server that refuses the client certificate closes the
+  // A TLS 1.3 server that refuses the client certificate closes the
   // connection after the client's side of the handshake, so the app saw no
   // handshake error and showed the generic "Couldn't connect".
   const closedAfterHandshake =
@@ -14,10 +14,7 @@ void main() {
 
   test('a connection closed after a client certificate reads as refused', () {
     check(
-      isLikelyMutualTlsRejection(
-        closedAfterHandshake,
-        hasMutualTlsInput: true,
-      ),
+      isLikelyMutualTlsRejection(closedAfterHandshake, hasMutualTlsInput: true),
     ).isTrue();
   });
 
@@ -26,6 +23,15 @@ void main() {
       isLikelyMutualTlsRejection(
         closedAfterHandshake,
         hasMutualTlsInput: false,
+      ),
+    ).isFalse();
+  });
+
+  test('a connection closed over plain HTTP is not a certificate refusal', () {
+    check(
+      isLikelyMutualTlsRejection(
+        closedAfterHandshake.replaceFirst('uri = https://', 'uri = http://'),
+        hasMutualTlsInput: true,
       ),
     ).isFalse();
   });
