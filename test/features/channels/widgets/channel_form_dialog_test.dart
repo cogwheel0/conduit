@@ -88,7 +88,11 @@ void main() {
     check(tester.takeException()).isNull();
     check(find.text('Also delete the file').evaluate()).isNotEmpty();
 
-    await tester.tapAt(const Offset(4, 4));
+    check(find.text('Remove file?').evaluate()).isNotEmpty();
+    // Tap the dialog's own barrier, in a corner the dialog does not cover.
+    await tester.tapAt(
+      tester.getTopLeft(find.byType(ModalBarrier).last) + const Offset(4, 4),
+    );
     await tester.pumpAndSettle();
 
     check(await result).isNull();
