@@ -57,13 +57,15 @@ Future<void> applyReleaseNotesDecision({
 
   switch (decision.type) {
     case ReleaseNotesDecisionType.none:
-      _restoreBanner(
-        service: service,
-        currentVersion: currentVersion,
-        notes: notes,
-        showBanner: showBanner,
-        clearBanner: clearBanner,
-      );
+      if (isActive()) {
+        _restoreBanner(
+          service: service,
+          currentVersion: currentVersion,
+          notes: notes,
+          showBanner: showBanner,
+          clearBanner: clearBanner,
+        );
+      }
     case ReleaseNotesDecisionType.persistOnly:
       await PreferencesStore.remove(
         PreferenceKeys.releaseNotesBannerPreviousVersion,

@@ -199,6 +199,27 @@ void main() {
           .equals('3.3.1');
     });
 
+    test('an unmounted caller leaves the banner alone on a relaunch', () async {
+      await store.setString(PreferenceKeys.lastSeenReleaseVersion, '3.3.2');
+      await store.setString(
+        PreferenceKeys.releaseNotesBannerPreviousVersion,
+        '3.3.1',
+      );
+      final banner = _Banner();
+
+      await applyReleaseNotesDecision(
+        currentVersion: '3.3.2',
+        lastSeenVersion: '3.3.2',
+        notes: [_note('3.3.2')],
+        isActive: () => false,
+        showBanner: banner.show,
+        clearBanner: banner.clear,
+      );
+
+      check(banner.shown).isEmpty();
+      check(banner.cleared).equals(0);
+    });
+
     test('a relaunch with no pending banner clears any stale one', () async {
       final banner = _Banner();
 

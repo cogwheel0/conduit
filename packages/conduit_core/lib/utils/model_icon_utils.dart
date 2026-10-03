@@ -52,9 +52,16 @@ String? deriveModelIcon(Model? model) {
 
   final metadata = model.metadata ?? const <String, dynamic>{};
   final capabilities = model.capabilities ?? const <String, dynamic>{};
-  final info = metadata['info'] as Map<String, dynamic>?;
-  final infoMeta = info?['meta'] as Map<String, dynamic>?;
-  final nestedMeta = metadata['meta'] as Map<String, dynamic>?;
+  // Server metadata, so a key may hold anything: a string, or a map that is
+  // not typed `Map<String, dynamic>`. A cast would throw on those.
+  Map<String, dynamic>? asMap(Object? value) => value is Map
+      ? <String, dynamic>{
+          for (final entry in value.entries) entry.key.toString(): entry.value,
+        }
+      : null;
+  final info = asMap(metadata['info']);
+  final infoMeta = asMap(info?['meta']);
+  final nestedMeta = asMap(metadata['meta']);
 
   final candidates = <String?>[
     pick(metadata),
@@ -62,7 +69,7 @@ String? deriveModelIcon(Model? model) {
     pick(info),
     pick(infoMeta),
     pick(capabilities),
-    pick(capabilities['meta'] as Map<String, dynamic>?),
+    pick(asMap(capabilities['meta'])),
   ];
 
   for (final candidate in candidates) {

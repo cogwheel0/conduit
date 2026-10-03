@@ -152,7 +152,12 @@ abstract interface class TerminalBrowserPlatformGateway {
 /// A file name from the server's `Content-Disposition` header, made safe to
 /// save: separators and traversal cannot steer the save location.
 String safeTerminalFileName(String fileName, {DateTime? now}) {
-  final sanitized = fileName.replaceAll(RegExp(r'[^\w\.\-]'), '_');
+  // Only what can steer or break a path is replaced: separators, reserved
+  // characters and control characters. Other characters, including non-ASCII
+  // letters, stay so two different names do not collapse into one.
+  final sanitized = fileName
+      .replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1F]'), '_')
+      .trim();
   // `.` and `..` survive character sanitization but name a directory rather
   // than a file, so writing them throws instead of producing a download.
   if (sanitized.isEmpty || sanitized == '.' || sanitized == '..') {

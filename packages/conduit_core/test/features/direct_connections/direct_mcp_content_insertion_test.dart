@@ -30,7 +30,14 @@ void main() {
     });
 
     test('appends when the field has no valid selection', () {
-      for (final selection in [(null, null), (-1, -1)]) {
+      for (final selection in [
+        (null, null),
+        (-1, -1),
+        (1, null),
+        (null, 1),
+        (1, -1),
+        (-1, 1),
+      ]) {
         final result = insertContentAtSelection(
           'abc',
           selectionStart: selection.$1,

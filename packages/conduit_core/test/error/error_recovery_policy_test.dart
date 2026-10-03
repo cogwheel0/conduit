@@ -167,11 +167,13 @@ void main() {
           .equals('An unexpected error occurred - please try again');
     });
 
-    test('generic text distinguishes exceptions', () {
+    test('generic text never repeats the exception text', () {
       check(policy.genericMessage(Exception('boom')))
-          .equals('An error occurred: Exception: boom');
+          .equals('An unexpected error occurred');
       check(policy.genericMessage('boom'))
           .equals('An unexpected error occurred');
+      check(policy.technicalDetails(Exception('boom')))
+          .equals('Exception: boom');
     });
   });
 

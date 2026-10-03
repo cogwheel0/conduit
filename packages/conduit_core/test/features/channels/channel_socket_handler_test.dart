@@ -104,6 +104,46 @@ void main() {
     check(message.reactions.map((r) => r.name)).deepEquals(['tada']);
     check(message.replyCount).equals(2);
   });
+
+  test('a thread reply edit keeps the sender and the reactions', () async {
+    container.listen(threadMessagesProvider('c1', 'p1'), (_, _) {});
+    await container.read(threadMessagesProvider('c1', 'p1').future);
+    socket.deliver(
+      messageEvent({
+        'id': 'r1',
+        'content': 'reply',
+        'parent_id': 'p1',
+        'user': {'id': 'u1', 'name': 'Ada'},
+        'reactions': [
+          {'name': 'tada', 'count': 1},
+        ],
+      }),
+    );
+    await settle();
+
+    socket.deliver({
+      'channel_id': 'c1',
+      'message_id': 'r1',
+      'data': {
+        'type': 'message:update',
+        'data': {
+          'id': 'r1',
+          'content': 'reply edited',
+          'parent_id': 'p1',
+          'data': {},
+        },
+      },
+    });
+    await settle();
+
+    final reply = container
+        .read(threadMessagesProvider('c1', 'p1'))
+        .value!
+        .single;
+    check(reply.content).equals('reply edited');
+    check(reply.userName).equals('Ada');
+    check(reply.reactions.map((r) => r.name)).deepEquals(['tada']);
+  });
 }
 
 class _CapturingSocket implements SocketService {

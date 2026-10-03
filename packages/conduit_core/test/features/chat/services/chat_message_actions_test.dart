@@ -3,6 +3,9 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/services/chat_message_actions.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -10,6 +13,42 @@ import 'package:test/test.dart';
 class _NullConversationNotifier extends ActiveConversationNotifier {
   @override
   Conversation? build() => null;
+}
+
+class _SeededConversationNotifier extends ActiveConversationNotifier {
+  _SeededConversationNotifier(this._conversation);
+
+  final Conversation _conversation;
+
+  @override
+  Conversation? build() => _conversation;
+}
+
+class _RecordingApi extends ApiService {
+  _RecordingApi({this.failAfter})
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'actions-test',
+          name: 'Actions test',
+          url: 'http://localhost:0',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  /// How many deletes succeed before the next one throws; null never throws.
+  final int? failAfter;
+  final deleted = <String>[];
+
+  @override
+  Future<void> deleteConversationMessage(
+    String conversationId,
+    String messageId,
+  ) async {
+    if (failAfter != null && deleted.length >= failAfter!) {
+      throw StateError('server rejected the delete');
+    }
+    deleted.add(messageId);
+  }
 }
 
 class _TestMessagesNotifier extends ChatMessagesNotifier {
@@ -126,6 +165,114 @@ void main() {
       final outcome = await deleteChatMessageGroup(ref, ['missing']);
       check(outcome).equals(ChatMessageDeleteOutcome.nothingToDelete);
       check(ref.read(chatMessagesProvider)).length.equals(4);
+    });
+  });
+
+  group('deleteChatMessageGroup on a server-backed chat', () {
+    Conversation conversation() => Conversation(
+      id: 'chat-1',
+      title: 'Chat',
+      createdAt: DateTime.utc(2026, 9, 25),
+      updatedAt: DateTime.utc(2026, 9, 25),
+      messages: _linearChat(),
+    );
+
+    ProviderContainer container(_RecordingApi api) {
+      final container = ProviderContainer(
+        overrides: [
+          chatMessagesProvider.overrideWith(_TestMessagesNotifier.new),
+          activeConversationProvider.overrideWith(
+            () => _SeededConversationNotifier(conversation()),
+          ),
+          apiServiceProvider.overrideWithValue(api),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(chatMessagesProvider.notifier).setMessages(_linearChat());
+      return container;
+    }
+
+    test('deletes each id on the server, bottom-up', () async {
+      final api = _RecordingApi();
+      final ref = container(api);
+
+      final outcome = await deleteChatMessageGroup(ref, ['a1', 'u2']);
+
+      check(outcome).equals(ChatMessageDeleteOutcome.deleted);
+      check(api.deleted).deepEquals(['u2', 'a1']);
+    });
+
+    test('a rejected delete restores the whole transcript', () async {
+      final api = _RecordingApi(failAfter: 0);
+      final ref = container(api);
+
+      final outcome = await deleteChatMessageGroup(ref, ['a2']);
+
+      check(outcome).equals(ChatMessageDeleteOutcome.persistFailed);
+      check(ref.read(chatMessagesProvider).map((m) => m.id).toList())
+          .deepEquals(['u1', 'a1', 'u2', 'a2']);
+      check(ref.read(activeConversationProvider)!.messages).length.equals(4);
+    });
+
+    test(
+      'a partial failure keeps what the server already deleted gone',
+      () async {
+        // Bottom-up, so u2 is deleted on the server before a1 is rejected.
+        final api = _RecordingApi(failAfter: 1);
+        final ref = container(api);
+
+        final outcome = await deleteChatMessageGroup(ref, ['a1', 'u2']);
+
+        check(outcome).equals(ChatMessageDeleteOutcome.persistFailed);
+        check(api.deleted).deepEquals(['u2']);
+        final ids = ref.read(chatMessagesProvider).map((m) => m.id).toList();
+        check(ids).not((it) => it.contains('u2'));
+        check(ids).contains('a1');
+        check(ref.read(activeConversationProvider)!.messages.map((m) => m.id))
+            .not((it) => it.contains('u2'));
+      },
+    );
+  });
+
+  group('resendEditedUserMessage', () {
+    ProviderContainer container() {
+      final container = ProviderContainer(
+        overrides: [
+          chatMessagesProvider.overrideWith(_TestMessagesNotifier.new),
+          activeConversationProvider.overrideWith(
+            _NullConversationNotifier.new,
+          ),
+          apiServiceProvider.overrideWithValue(null),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(chatMessagesProvider.notifier).setMessages(_linearChat());
+      return container;
+    }
+
+    test('does nothing for blank, unchanged or unknown messages', () async {
+      final ref = container();
+
+      check(await resendEditedUserMessage(ref, messageId: 'u2', newText: ' '))
+          .isFalse();
+      check(
+        await resendEditedUserMessage(ref, messageId: 'u2', newText: 'user u2'),
+      ).isFalse();
+      check(await resendEditedUserMessage(ref, messageId: 'nope', newText: 'x'))
+          .isFalse();
+      check(ref.read(chatMessagesProvider)).length.equals(4);
+    });
+
+    test('drops the edited message and what follows before sending, and a '
+        'failed send rethrows', () async {
+      final ref = container();
+
+      await check(
+        resendEditedUserMessage(ref, messageId: 'u2', newText: 'new text'),
+      ).throws<Object>();
+
+      check(ref.read(chatMessagesProvider).map((m) => m.id).toList())
+          .deepEquals(['u1', 'a1']);
     });
   });
 }

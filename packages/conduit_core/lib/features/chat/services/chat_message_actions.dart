@@ -37,8 +37,9 @@ enum ChatMessageDeleteOutcome {
   /// Removed locally, and on the server when the chat is server-backed.
   deleted,
 
-  /// The server rejected the delete. The transcript, active conversation and
-  /// list entry were restored; the host should report an error.
+  /// The server rejected a delete. The transcript, active conversation and
+  /// list entry were restored, except for messages the server had already
+  /// deleted, which stay removed; the host should report an error.
   persistFailed,
 }
 
@@ -49,7 +50,8 @@ enum ChatMessageDeleteOutcome {
 /// Ids are applied bottom-up so each removal only reparents rows already
 /// visited. A removed streaming message has its transport stopped first. For
 /// a server-backed chat each id is deleted on the server; a failure restores
-/// the state captured before the delete.
+/// the state captured before the delete, minus the ids the server confirmed,
+/// so the transcript never shows a message the server no longer has.
 ///
 /// [isStillCurrent] is checked after the server round trip, before a failure
 /// is rolled back (the Flutter page passes its `mounted`).
@@ -109,9 +111,11 @@ Future<ChatMessageDeleteOutcome> deleteChatMessageGroup(
   if (api == null || isTemporaryChat(updatedConversation.id)) {
     return ChatMessageDeleteOutcome.deleted;
   }
+  final deletedOnServer = <String>[];
   try {
     for (final id in orderedIds) {
       await api.deleteConversationMessage(updatedConversation.id, id);
+      deletedOnServer.add(id);
     }
     ref
         .read(conversationsProvider.notifier)
@@ -127,11 +131,29 @@ Future<ChatMessageDeleteOutcome> deleteChatMessageGroup(
     if (isStillCurrent != null && !isStillCurrent()) {
       return ChatMessageDeleteOutcome.persistFailed;
     }
-    messagesNotifier.setMessages(latestMessages);
-    ref.read(activeConversationProvider.notifier).set(activeConversation);
+    // Put back only what the server still has: replay the confirmed deletes
+    // onto the transcript captured before this call.
+    var restoredMessages = latestMessages;
+    for (final id in deletedOnServer) {
+      restoredMessages = message_tree.deleteOpenWebUiMessageFromChatMessages(
+        restoredMessages,
+        id,
+      );
+    }
+    final restoredConversation = deletedOnServer.isEmpty
+        ? activeConversation
+        : inheritNativeHermesConversationProvenance(
+            activeConversation,
+            activeConversation.copyWith(messages: restoredMessages),
+          );
+    messagesNotifier.setMessages(restoredMessages);
+    ref.read(activeConversationProvider.notifier).set(restoredConversation);
     ref
         .read(conversationsProvider.notifier)
-        .updateConversation(activeConversation.id, (_) => activeConversation);
+        .updateConversation(
+          restoredConversation.id,
+          (_) => restoredConversation,
+        );
     return ChatMessageDeleteOutcome.persistFailed;
   }
 }

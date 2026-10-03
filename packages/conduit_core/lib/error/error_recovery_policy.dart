@@ -59,11 +59,10 @@ class ErrorRecoveryPolicy {
   }
 
   /// English text for an error that is neither an [ApiError] nor a
-  /// `DioException`.
-  String genericMessage(dynamic error) {
-    if (error is Exception) return 'An error occurred: ${error.toString()}';
-    return 'An unexpected error occurred';
-  }
+  /// `DioException`. It never repeats the error's own text, which can carry
+  /// internals; [technicalDetails] holds that for logs and the details
+  /// disclosure.
+  String genericMessage(dynamic error) => 'An unexpected error occurred';
 
   /// Technical details for logs and the "details" disclosure.
   String technicalDetails(dynamic error) {

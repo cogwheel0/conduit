@@ -274,11 +274,22 @@ class UnavailableVoiceModeInput implements VoiceModeInput {
 }
 
 /// A speech engine that says nothing and finishes at once.
+///
+/// [finishStreamingTts] still reports [TtsCompleted], because that event is
+/// how the call controller learns an assistant turn is over and listening can
+/// resume. Without it a host that binds recognition but no speech would sit in
+/// the speaking phase after the first reply.
 class SilentVoiceModeSpeech implements VoiceModeSpeech {
-  const SilentVoiceModeSpeech();
+  SilentVoiceModeSpeech();
+
+  final StreamController<TtsEvent> _events =
+      StreamController<TtsEvent>.broadcast();
+
+  /// Closes the event stream. The provider calls this on disposal.
+  Future<void> dispose() => _events.close();
 
   @override
-  Stream<TtsEvent> get events => const Stream<TtsEvent>.empty();
+  Stream<TtsEvent> get events => _events.stream;
   @override
   void setVoiceCallActive(bool active) {}
   @override
@@ -295,7 +306,10 @@ class SilentVoiceModeSpeech implements VoiceModeSpeech {
   @override
   Future<void> feedStreamingText(String accumulatedText) async {}
   @override
-  Future<void> finishStreamingTts({String? finalText}) async {}
+  Future<void> finishStreamingTts({String? finalText}) async {
+    if (!_events.isClosed) _events.add(const TtsCompleted());
+  }
+
   @override
   Future<void> stopStreamingTts() async {}
   @override
@@ -397,9 +411,11 @@ final voiceModeInputProvider = Provider<VoiceModeInput>(
 );
 
 /// The speech engine. Hosts bind their text-to-speech service.
-final voiceModeSpeechProvider = Provider<VoiceModeSpeech>(
-  (ref) => const SilentVoiceModeSpeech(),
-);
+final voiceModeSpeechProvider = Provider<VoiceModeSpeech>((ref) {
+  final speech = SilentVoiceModeSpeech();
+  ref.onDispose(speech.dispose);
+  return speech;
+});
 
 /// The system call UI.
 final voiceCallKitProvider = Provider<VoiceCallKitPort>(

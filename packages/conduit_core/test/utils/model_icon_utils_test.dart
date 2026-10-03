@@ -67,6 +67,65 @@ void main() {
     });
   });
 
+  group('deriveModelIcon', () {
+    Model model({Map<String, dynamic>? metadata, Map<String, dynamic>? caps}) =>
+        Model(id: 'm', name: 'M', metadata: metadata, capabilities: caps);
+
+    test('reads the nested metadata locations', () {
+      check(deriveModelIcon(model(metadata: {'icon': ' a.png '})))
+          .equals('a.png');
+      check(
+        deriveModelIcon(
+          model(
+            metadata: {
+              'info': {
+                'meta': {'profile_image_url': 'b.png'},
+              },
+            },
+          ),
+        ),
+      ).equals('b.png');
+      check(
+        deriveModelIcon(
+          model(
+            caps: {
+              'meta': {'avatar': 'c.png'},
+            },
+          ),
+        ),
+      ).equals('c.png');
+    });
+
+    test('server metadata of the wrong shape resolves to no icon', () {
+      check(deriveModelIcon(model(metadata: {'info': 'text', 'meta': 3})))
+          .isNull();
+      check(
+        deriveModelIcon(
+          model(
+            caps: {
+              'meta': ['x'],
+            },
+          ),
+        ),
+      ).isNull();
+      check(
+        deriveModelIcon(
+          model(
+            metadata: {
+              'info': {'meta': 'oops'},
+            },
+          ),
+        ),
+      ).isNull();
+    });
+
+    test('a map that is not typed as string keys still reads', () {
+      final untyped = <Object, Object?>{'icon': 'd.png'};
+      check(deriveModelIcon(model(metadata: {'meta': untyped})))
+          .equals('d.png');
+    });
+  });
+
   group('model avatar URL', () {
     test(
       'a legacy data or external image in nested metadata is used as is',

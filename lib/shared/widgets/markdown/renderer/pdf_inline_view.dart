@@ -1151,6 +1151,10 @@ class _PdfFullscreenPageState extends State<_PdfFullscreenPage> {
   final Map<int, PdfPageRenderCancellationToken> _rendering =
       <int, PdfPageRenderCancellationToken>{};
   final Set<int> _failed = <int>{};
+
+  /// Pages the list currently has built (on screen or inside its cache
+  /// extent). Their bitmaps are in use, so the cache must not evict them.
+  final Set<int> _builtPages = <int>{};
   _PdfCacheNamespaceLease? _cacheNamespaceLease;
 
   @override
@@ -1253,7 +1257,7 @@ class _PdfFullscreenPageState extends State<_PdfFullscreenPage> {
         return;
       }
 
-      _images.put(index, image);
+      _images.put(index, image, keep: _builtPages.contains);
       if (mounted) setState(() {});
     } catch (_) {
       if (!_disposed && mounted) {
@@ -1361,47 +1365,89 @@ class _PdfFullscreenPageState extends State<_PdfFullscreenPage> {
       scrollCacheExtent: const ScrollCacheExtent.pixels(900),
       itemCount: _pageCount,
       separatorBuilder: (_, _) => const SizedBox(height: Spacing.sm),
-      itemBuilder: (context, index) {
-        final image = _images.peek(index);
-        final aspect = index < _aspects.length ? _aspects[index] : 0.707;
-        if (image != null) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!_disposed) _images.touch(index);
-          });
-          return Semantics(
-            image: true,
-            label: 'Page ${index + 1} of $_pageCount',
-            child: AspectRatio(
-              aspectRatio: aspect,
-              child: RawImage(image: image, fit: BoxFit.fill),
-            ),
-          );
-        }
+      itemBuilder: (context, index) => _PdfPageSlot(
+        key: ValueKey<int>(index),
+        index: index,
+        builtPages: _builtPages,
+        child: Builder(
+          builder: (context) {
+            final image = _images.peek(index);
+            final aspect = index < _aspects.length ? _aspects[index] : 0.707;
+            if (image != null) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!_disposed) _images.touch(index);
+              });
+              return Semantics(
+                image: true,
+                label: 'Page ${index + 1} of $_pageCount',
+                child: AspectRatio(
+                  aspectRatio: aspect,
+                  child: RawImage(image: image, fit: BoxFit.fill),
+                ),
+              );
+            }
 
-        if (!_failed.contains(index)) {
-          unawaited(_ensureRendered(index));
-        }
-        return AspectRatio(
-          aspectRatio: aspect,
-          child: ColoredBox(
-            color: conduitTheme.surfaceContainer,
-            child: Center(
-              child: _failed.contains(index)
-                  ? Icon(Icons.broken_image_outlined, color: scheme.error)
-                  : SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: conduitTheme.loadingIndicator,
-                      ),
-                    ),
-            ),
-          ),
-        );
-      },
+            if (!_failed.contains(index)) {
+              unawaited(_ensureRendered(index));
+            }
+            return AspectRatio(
+              aspectRatio: aspect,
+              child: ColoredBox(
+                color: conduitTheme.surfaceContainer,
+                child: Center(
+                  child: _failed.contains(index)
+                      ? Icon(Icons.broken_image_outlined, color: scheme.error)
+                      : SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: conduitTheme.loadingIndicator,
+                          ),
+                        ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
+}
+
+/// Marks its page as built in [builtPages] while it is in the tree, so the
+/// bitmap cache keeps the pages the list may still draw.
+class _PdfPageSlot extends StatefulWidget {
+  const _PdfPageSlot({
+    super.key,
+    required this.index,
+    required this.builtPages,
+    required this.child,
+  });
+
+  final int index;
+  final Set<int> builtPages;
+  final Widget child;
+
+  @override
+  State<_PdfPageSlot> createState() => _PdfPageSlotState();
+}
+
+class _PdfPageSlotState extends State<_PdfPageSlot> {
+  @override
+  void initState() {
+    super.initState();
+    widget.builtPages.add(widget.index);
+  }
+
+  @override
+  void dispose() {
+    widget.builtPages.remove(widget.index);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 Future<void> _sharePdf(String filePath, String title) async {

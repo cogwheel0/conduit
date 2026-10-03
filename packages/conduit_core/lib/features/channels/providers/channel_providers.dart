@@ -328,15 +328,7 @@ class ChannelMessages extends _$ChannelMessages {
     final index = current.indexWhere((message) => message.id == updated.id);
     if (index < 0) return;
     final previous = current[index];
-    if (updated.user == null && previous.user != null) {
-      updated = updated.copyWith(
-        user: previous.user,
-        reactions: previous.reactions,
-        replyCount: previous.replyCount,
-        latestReplyAt: previous.latestReplyAt,
-        replyToMessage: updated.replyToMessage ?? previous.replyToMessage,
-      );
-    }
+    updated = _keepingMetadataOfBareUpdate(previous, updated);
     if (previous == updated) return;
     _invalidatePendingFetchForMutation();
     final next = List<ChannelMessage>.of(current);
@@ -556,7 +548,9 @@ class ThreadMessages extends _$ThreadMessages {
     final current = state.value ?? [];
     final index = current.indexWhere((message) => message.id == updated.id);
     _invalidatePendingFetchForMutation(includePagination: index < 0);
-    if (index < 0 || current[index] == updated) return;
+    if (index < 0) return;
+    updated = _keepingMetadataOfBareUpdate(current[index], updated);
+    if (current[index] == updated) return;
     final next = List<ChannelMessage>.of(current);
     next[index] = updated;
     state = AsyncValue.data(next);
@@ -570,6 +564,23 @@ class ThreadMessages extends _$ThreadMessages {
     if (!current.any((message) => message.id == messageId)) return;
     state = AsyncValue.data(current.where((m) => m.id != messageId).toList());
   }
+}
+
+/// [updated] with what the bare `MessageModel` of an edit cannot carry taken
+/// from [previous]: the sender, reactions and reply counts. Only a payload
+/// without a sender is bare; a full message replaces the row as it is.
+ChannelMessage _keepingMetadataOfBareUpdate(
+  ChannelMessage previous,
+  ChannelMessage updated,
+) {
+  if (updated.user != null || previous.user == null) return updated;
+  return updated.copyWith(
+    user: previous.user,
+    reactions: previous.reactions,
+    replyCount: previous.replyCount,
+    latestReplyAt: previous.latestReplyAt,
+    replyToMessage: updated.replyToMessage ?? previous.replyToMessage,
+  );
 }
 
 List<ChannelMessage> _insertNewestFirst(

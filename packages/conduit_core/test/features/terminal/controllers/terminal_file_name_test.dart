@@ -11,7 +11,14 @@ void main() {
     check(sanitize('report.txt')).equals('report.txt');
     check(sanitize('../../etc/passwd')).equals('.._.._etc_passwd');
     check(sanitize('/etc/passwd')).equals('_etc_passwd');
-    check(sanitize('a b;rm -rf.txt')).equals('a_b_rm_-rf.txt');
+    check(sanitize(r'..\..\evil.exe')).equals('.._.._evil.exe');
+    check(sanitize('a:b*c?"d<e>f|g.txt')).equals('a_b_c__d_e_f_g.txt');
+    check(sanitize('line\nbreak\x00.txt')).equals('line_break_.txt');
+
+    // Characters that cannot steer a path are kept, so distinct names stay
+    // distinct.
+    check(sanitize('报告 (final).pdf')).equals('报告 (final).pdf');
+    check(sanitize('报告.pdf')).not((it) => it.equals(sanitize('結果.pdf')));
 
     // Pure dot components survive character sanitization but name a directory,
     // so they must fall back rather than produce an unwritable target.
