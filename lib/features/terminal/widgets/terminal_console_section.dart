@@ -63,7 +63,9 @@ class _TerminalConsoleSectionState extends State<TerminalConsoleSection> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     // The sidebar keeps its tab bar fixed and does not resize for the
-    // keyboard, so lift the console and its key toolbar above it here.
+    // keyboard, so lift the console and its key toolbar above it here. A
+    // scaffold that does resize removes the inset from its body's media
+    // query, so this reads zero there and nothing is lifted twice.
     final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
     return Padding(
       padding: EdgeInsets.only(

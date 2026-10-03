@@ -581,6 +581,44 @@ void main() {
       expect(console.bottom, lessThanOrEqualTo(screenHeight - keyboardHeight));
     });
 
+    testWidgets('a resizing sidebar lifts the inline console only once', (
+      tester,
+    ) async {
+      final fakeService = _FakeTerminalService(
+        servers: <TerminalServerInfo>[
+          TerminalServerInfo(
+            kind: TerminalServerKind.direct,
+            selectionId: 'https://terminal.example',
+            baseUrl: Uri.parse('https://terminal.example'),
+            name: 'Workspace',
+          ),
+        ],
+        entries: const <TerminalFileEntry>[],
+        ports: const <TerminalListeningPort>[],
+      );
+
+      // The scaffold shrinks its body for the keyboard and removes the inset
+      // from the body's media query, so the console must not lift again.
+      await tester.pumpWidget(_buildHarness(fakeService));
+      await tester.pumpAndSettle();
+      ProviderScope.containerOf(tester.element(find.byType(TerminalTab)))
+          .read(terminalSidebarPanelProvider.notifier)
+          .setPanel(TerminalSidebarPanel.console);
+      await tester.pumpAndSettle();
+      final restingBottom = tester
+          .getRect(find.byType(TerminalConsoleSurface))
+          .bottom;
+
+      const keyboardHeight = 300.0;
+      final dpr = tester.view.devicePixelRatio;
+      tester.view.viewInsets = FakeViewPadding(bottom: keyboardHeight * dpr);
+      addTearDown(tester.view.resetViewInsets);
+      await tester.pumpAndSettle();
+
+      final console = tester.getRect(find.byType(TerminalConsoleSurface));
+      expect(restingBottom - console.bottom, keyboardHeight);
+    });
+
     testWidgets('ignores stale file loads after switching terminal servers', (
       tester,
     ) async {
