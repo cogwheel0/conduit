@@ -532,17 +532,14 @@ class ThreadMessages extends _$ThreadMessages {
 
   /// Updates a reply in the thread (edit, reaction change).
   ///
-  /// A reply missing from the list may still be in a fetch that started
-  /// before the change, so that fetch is marked stale either way.
+  /// A fetch that started before the change may hold the old reply, so it is
+  /// marked stale either way; a page of older replies only when the reply is
+  /// not loaded yet, since that page skips replies already in the list.
   void updateMessage(ChannelMessage updated) {
     final current = state.value ?? [];
     final index = current.indexWhere((message) => message.id == updated.id);
-    if (index < 0) {
-      _invalidatePendingFetchForMutation();
-      return;
-    }
-    if (current[index] == updated) return;
-    _invalidatePendingFetchForMutation();
+    _invalidatePendingFetchForMutation(includePagination: index < 0);
+    if (index < 0 || current[index] == updated) return;
     final next = List<ChannelMessage>.of(current);
     next[index] = updated;
     state = AsyncValue.data(next);
