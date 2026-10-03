@@ -1,3 +1,7 @@
+// FLUTTER HOST ONLY. Swizzles Flutter's FlutterTextInputView to attach a
+// native accessory bar, so it is not a `ConduitBridge` and other
+// hosts do not copy this file. The Flutter app delegate attaches it directly.
+
 import Flutter
 import ObjectiveC.runtime
 import UIKit

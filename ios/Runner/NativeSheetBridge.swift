@@ -1115,7 +1115,7 @@ func applyNativeSheetModelUpdateSynchronouslyOnMain(
     }
 }
 
-final class NativeSheetBridge: NativeSheetHostApi {
+final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
     static let shared = NativeSheetBridge()
 
     private enum ActiveSheetMode {
@@ -1145,9 +1145,13 @@ final class NativeSheetBridge: NativeSheetHostApi {
     private weak var activeModelSelectorController: NativeModelSelectorTableViewController?
     private var activeModelSelectorPresentationId: String?
 
+    private var host: ConduitBridgeHost?
+
     private init() {}
 
-    func configure(messenger: FlutterBinaryMessenger) {
+    func attach(to host: ConduitBridgeHost) {
+        self.host = host
+        let messenger = host.messenger
         flutterApi = NativeSheetFlutterApi(binaryMessenger: messenger)
         NativeSheetHostApiSetup.setUp(
             binaryMessenger: messenger,
@@ -1203,10 +1207,7 @@ final class NativeSheetBridge: NativeSheetHostApi {
     func requestAppStoreReview() throws -> Bool {
         let request = {
             MainActor.assumeIsolated {
-                guard let scene = UIApplication.shared.connectedScenes
-                    .compactMap({ $0 as? UIWindowScene })
-                    .first(where: { $0.activationState == .foregroundActive })
-                else {
+                guard let scene = self.host?.activeWindowScene else {
                     return false
                 }
 
@@ -2217,13 +2218,7 @@ final class NativeSheetBridge: NativeSheetHostApi {
     }
 
     private func topViewController() -> UIViewController? {
-        let root = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows)
-            .first { $0.isKeyWindow }?
-            .rootViewController
-
-        return topViewController(from: root)
+        topViewController(from: host?.presentingViewController)
     }
 
     private func topViewController(from root: UIViewController?) -> UIViewController? {

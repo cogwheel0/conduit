@@ -15,6 +15,17 @@
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		A66B6643C89B7BB44E2B9471 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 42FA90454A654BE3B4EA8A89 /* Pods_RunnerTests.framework */; };
+		C073CCD19D2508BCAD536200 /* NativeIosTtsBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C07E41E507BC83CDF6A2F806 /* NativeIosTtsBridge.swift */; };
+		C073D293D6D3C0AE42208200 /* AppIntentBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0733DBE0EC21B8BA584F742 /* AppIntentBridge.swift */; };
+		C0778A160B9E0F6B3D0E5C00 /* BackgroundStreamingHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C07B0ACB6D900F7182D98598 /* BackgroundStreamingHandler.swift */; };
+		C0784AC8CDA88C741E323C00 /* CookieBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C073FA4B620A52333B648A35 /* CookieBridge.swift */; };
+		C078DBCB5B400CC724551100 /* ConduitBridgeHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = C07202B2AF712D67C45FE1BC /* ConduitBridgeHost.swift */; };
+		C079094EC8D3F2DCA002F300 /* VoiceAudioRouteBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0748D3BCA6CB2E7D24C8438 /* VoiceAudioRouteBridge.swift */; };
+		C0799EE7361E2F33F8F82200 /* ConduitAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = C073CB9E0C18631B25DCC01B /* ConduitAppIntents.swift */; };
+		C07A1ABDC1D26441C3348E00 /* AppIntentInvocationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0700E3C1D3E25D23C2D9095 /* AppIntentInvocationStore.swift */; };
+		C07CD0FC676C9F75CE320600 /* FlutterConduitBridgeHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = C07CD1E93C33B4AE1AD1A0F2 /* FlutterConduitBridgeHost.swift */; };
+		C07E03850D838F4CC4E73700 /* ShareImportBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C076D53F677D9AB9577FCB47 /* ShareImportBridge.swift */; };
+		C07FFD404BC56A760606B800 /* PlatformEnvironmentBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C07D6E81F9707D1BBEDB9BB5 /* PlatformEnvironmentBridge.swift */; };
 		CA4A256DAFB6E4374BC67B91 /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E952EFF81F1FEABA348FE2CC /* Pods_Runner.framework */; };
 		D2A0B1C42F5E4D6C7B8A9012 /* NativePasteBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B1C32F5E4D6C7B8A9012 /* NativePasteBridge.swift */; };
 		D2A0B1D42F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B1D32F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift */; };
@@ -112,6 +123,17 @@
 		97C146FD1CF9000F007C117D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		C0700E3C1D3E25D23C2D9095 /* AppIntentInvocationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIntentInvocationStore.swift; sourceTree = "<group>"; };
+		C07202B2AF712D67C45FE1BC /* ConduitBridgeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitBridgeHost.swift; sourceTree = "<group>"; };
+		C0733DBE0EC21B8BA584F742 /* AppIntentBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIntentBridge.swift; sourceTree = "<group>"; };
+		C073CB9E0C18631B25DCC01B /* ConduitAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitAppIntents.swift; sourceTree = "<group>"; };
+		C073FA4B620A52333B648A35 /* CookieBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CookieBridge.swift; sourceTree = "<group>"; };
+		C0748D3BCA6CB2E7D24C8438 /* VoiceAudioRouteBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceAudioRouteBridge.swift; sourceTree = "<group>"; };
+		C076D53F677D9AB9577FCB47 /* ShareImportBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareImportBridge.swift; sourceTree = "<group>"; };
+		C07B0ACB6D900F7182D98598 /* BackgroundStreamingHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundStreamingHandler.swift; sourceTree = "<group>"; };
+		C07CD1E93C33B4AE1AD1A0F2 /* FlutterConduitBridgeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlutterConduitBridgeHost.swift; sourceTree = "<group>"; };
+		C07D6E81F9707D1BBEDB9BB5 /* PlatformEnvironmentBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformEnvironmentBridge.swift; sourceTree = "<group>"; };
+		C07E41E507BC83CDF6A2F806 /* NativeIosTtsBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeIosTtsBridge.swift; sourceTree = "<group>"; };
 		D2A0B1C32F5E4D6C7B8A9012 /* NativePasteBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePasteBridge.swift; sourceTree = "<group>"; };
 		D2A0B1D32F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeKeyboardAttachmentBridge.swift; sourceTree = "<group>"; };
 		D2A0B1E32F5E4D6C7B8A9012 /* NativeSheetBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSheetBridge.swift; sourceTree = "<group>"; };
@@ -340,6 +362,17 @@
 				1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */,
 				1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */,
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
+				C07D6E81F9707D1BBEDB9BB5 /* PlatformEnvironmentBridge.swift */,
+				C07CD1E93C33B4AE1AD1A0F2 /* FlutterConduitBridgeHost.swift */,
+				C07202B2AF712D67C45FE1BC /* ConduitBridgeHost.swift */,
+				C073FA4B620A52333B648A35 /* CookieBridge.swift */,
+				C073CB9E0C18631B25DCC01B /* ConduitAppIntents.swift */,
+				C0733DBE0EC21B8BA584F742 /* AppIntentBridge.swift */,
+				C0700E3C1D3E25D23C2D9095 /* AppIntentInvocationStore.swift */,
+				C07E41E507BC83CDF6A2F806 /* NativeIosTtsBridge.swift */,
+				C0748D3BCA6CB2E7D24C8438 /* VoiceAudioRouteBridge.swift */,
+				C07B0ACB6D900F7182D98598 /* BackgroundStreamingHandler.swift */,
+				C076D53F677D9AB9577FCB47 /* ShareImportBridge.swift */,
 				D2A0B2132F5E4D6C7B8A9012 /* ConduitPlatformApis.g.swift */,
 				D2A0B1C32F5E4D6C7B8A9012 /* NativePasteBridge.swift */,
 				D2A0B1D32F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift */,
@@ -654,6 +687,17 @@
 				D2A0B1C42F5E4D6C7B8A9012 /* NativePasteBridge.swift in Sources */,
 				D2A0B2312F5E4D6C7B8A9012 /* NativeShareEnvelopeStore.swift in Sources */,
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
+				C07FFD404BC56A760606B800 /* PlatformEnvironmentBridge.swift in Sources */,
+				C07CD0FC676C9F75CE320600 /* FlutterConduitBridgeHost.swift in Sources */,
+				C078DBCB5B400CC724551100 /* ConduitBridgeHost.swift in Sources */,
+				C0784AC8CDA88C741E323C00 /* CookieBridge.swift in Sources */,
+				C0799EE7361E2F33F8F82200 /* ConduitAppIntents.swift in Sources */,
+				C073D293D6D3C0AE42208200 /* AppIntentBridge.swift in Sources */,
+				C07A1ABDC1D26441C3348E00 /* AppIntentInvocationStore.swift in Sources */,
+				C073CCD19D2508BCAD536200 /* NativeIosTtsBridge.swift in Sources */,
+				C079094EC8D3F2DCA002F300 /* VoiceAudioRouteBridge.swift in Sources */,
+				C0778A160B9E0F6B3D0E5C00 /* BackgroundStreamingHandler.swift in Sources */,
+				C07E03850D838F4CC4E73700 /* ShareImportBridge.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
