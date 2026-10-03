@@ -215,20 +215,24 @@ final class ShareImportBridge: ConduitBridge {
 
   private func takePendingShareImportPayload() -> [String: Any]? {
     guard let store = shareEnvelopeStore,
-          let snapshot = try? store.takeCurrent(),
-          let rawItems = (try? JSONSerialization.jsonObject(
-            with: snapshot.envelope.itemsJSON
-          ))
-      as? [[String: Any]],
-      let status = (try? JSONSerialization.jsonObject(
-        with: snapshot.statusJSON
-      )) as? [String: Any],
-      let payload = nativeValidatedShareImportPayload(
-        rawItems: rawItems,
-        message: snapshot.envelope.message,
-        status: status,
-        shareStagingDirectoryPath: shareStagingDirectoryPath()
-      ) else {
+          let snapshot = try? store.takeCurrent() else {
+      return nil
+    }
+    guard let rawItems = (try? JSONSerialization.jsonObject(
+      with: snapshot.envelope.itemsJSON
+    )) as? [[String: Any]],
+          let status = (try? JSONSerialization.jsonObject(
+            with: snapshot.statusJSON
+          )) as? [String: Any],
+          let payload = nativeValidatedShareImportPayload(
+            rawItems: rawItems,
+            message: snapshot.envelope.message,
+            status: status,
+            shareStagingDirectoryPath: shareStagingDirectoryPath()
+          ) else {
+      // A terminal snapshot that fails validation can never yield a payload.
+      // Clear it by its exact ID so later polls do not reject it again.
+      _ = try? store.clearStatus(id: snapshot.envelope.id)
       return nil
     }
     return payload
