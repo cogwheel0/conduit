@@ -551,12 +551,21 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
       scope: 'models/default',
       data: {'count': models.length},
     );
-    if (models.isEmpty) {
+    // An Open WebUI account whose models did not load (an expired proxy
+    // session, a failed fetch) must not fall through to an on-device, Direct
+    // or Hermes model the user never chose for it.
+    final selectedModel =
+        _modelForPreferredBackend(models, preferredBackend) ??
+        models
+            .where(
+              (model) =>
+                  !isLocallyMintedDirectModel(model) && !isHermesModel(model),
+            )
+            .firstOrNull;
+    if (selectedModel == null) {
       DebugLogger.warning('no-models', scope: 'models/default');
       return null;
     }
-    final selectedModel =
-        _modelForPreferredBackend(models, preferredBackend) ?? models.first;
     if (!ref.read(isManualModelSelectionProvider)) {
       ref.read(selectedModelProvider.notifier).set(selectedModel);
       if (!isLocallyMintedDirectModel(selectedModel) &&

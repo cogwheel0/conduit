@@ -11,7 +11,10 @@ import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -166,6 +169,26 @@ class _PendingDefaultModelApi extends ApiService {
   Future<List<Model>> getModels({bool includeHidden = false}) async => const [
     Model(id: 'owui/stale', name: 'Stale OpenWebUI model'),
   ];
+}
+
+class _UnreachableDefaultApi extends ApiService {
+  _UnreachableDefaultApi(this.workerManager)
+    : super(serverConfig: _modelsServer, workerManager: workerManager);
+
+  final WorkerManager workerManager;
+
+  @override
+  Future<String?> getDefaultModel() async =>
+      throw StateError('proxy session expired');
+}
+
+class _FixedModels extends Models {
+  _FixedModels(this.models);
+
+  final List<Model> models;
+
+  @override
+  Future<List<Model>> build() async => models;
 }
 
 class _PendingModels extends Models {
@@ -655,6 +678,82 @@ void main() {
         check(container.read(selectedModelProvider)).identicalTo(selected);
       },
     );
+
+    // B-05: when an Open WebUI account's models fail to load (the login proxy
+    // expired its cookie), the fallback picked the first remaining model, an
+    // on-device or Direct one the user never chose for this account.
+    test(
+      'an Open WebUI account without models does not fall back to local ones',
+      () async {
+        final local = DirectModelRegistry().replaceProfileModels(
+          DirectConnectionProfile(
+            id: 'local-profile',
+            name: 'On device',
+            adapterKey: 'ollama',
+            baseUrl: 'http://localhost:11434',
+          ),
+          [DirectRemoteModel(id: 'local-model')],
+        ).single;
+        final workerManager = WorkerManager();
+        final api = _UnreachableDefaultApi(workerManager);
+        final container = ProviderContainer(
+          overrides: [
+            reviewerModeProvider.overrideWithValue(false),
+            preferredBackendProvider.overrideWith(
+              () => _FakePreferredBackendController(PreferredBackend.owui),
+            ),
+            isAuthenticatedProvider2.overrideWithValue(true),
+            isAuthLoadingProvider2.overrideWithValue(false),
+            authStatusProvider.overrideWithValue(AuthStatus.authenticated),
+            authTokenProvider3.overrideWithValue('token'),
+            activeServerProvider.overrideWith((ref) async => _modelsServer),
+            apiServiceProvider.overrideWithValue(api),
+            appSettingsProvider.overrideWithValue(const AppSettings()),
+            optimizedStorageServiceProvider.overrideWithValue(
+              _FakeOptimizedStorageService(),
+            ),
+            hermesConfigProvider.overrideWith(
+              () => _FakeHermesConfigController(_usableHermes),
+            ),
+            modelsProvider.overrideWith(
+              () => _FixedModels([local, hermesSyntheticModel()]),
+            ),
+          ],
+        );
+        _addOwnedApiCleanup(container, api, workerManager);
+        await container.read(activeServerProvider.future);
+
+        check(await container.read(defaultModelProvider.future)).isNull();
+        check(container.read(selectedModelProvider)).isNull();
+      },
+    );
+
+    test('a missing Open WebUI model is replaced only by another one', () {
+      final local = DirectModelRegistry().replaceProfileModels(
+        DirectConnectionProfile(
+          id: 'local-profile',
+          name: 'On device',
+          adapterKey: 'ollama',
+          baseUrl: 'http://localhost:11434',
+        ),
+        [DirectRemoteModel(id: 'local-model')],
+      ).single;
+      const missing = Model(id: 'owui-gone', name: 'Gone');
+      const other = Model(id: 'owui-other', name: 'Other');
+
+      check(
+        replacementForUnavailableLocalModel(
+          models: [local, hermesSyntheticModel()],
+          current: missing,
+        ),
+      ).isNull();
+      check(
+        replacementForUnavailableLocalModel(
+          models: [local, other],
+          current: missing,
+        ),
+      ).identicalTo(other);
+    });
 
     test(
       'authenticated default still selects Hermes when the api is unavailable',
