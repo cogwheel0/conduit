@@ -176,7 +176,6 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
 
       final type = envelope['type'] as String?;
       final data = envelope['data'];
-      final notifier = ref.read(channelMessagesProvider(channelId).notifier);
 
       switch (type) {
         case 'message':
@@ -192,7 +191,13 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
               ? data['id'] as String?
               : data as String?;
           if (messageId != null) {
-            notifier.removeMessage(messageId);
+            final parentId = data is Map ? data['parent_id'] as String? : null;
+            _applyToOwner(
+              channelId,
+              parentId,
+              (messages) => messages.removeMessage(messageId),
+              (thread) => thread.removeMessage(messageId),
+            );
           }
         case 'message:reply':
           // The payload is the parent message itself, so its own id names the
@@ -240,18 +245,12 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
       if (message == null || !_ownsSubscription(channelId, generation)) {
         return;
       }
-      final parentId = message.parentId;
-      if (parentId != null && parentId.isNotEmpty) {
-        // A thread reply belongs to its thread, not to the channel timeline.
-        final thread = threadMessagesProvider(channelId, parentId);
-        if (ref.exists(thread)) {
-          ref.read(thread.notifier).prependMessage(message);
-        }
-        return;
-      }
-      ref
-          .read(channelMessagesProvider(channelId).notifier)
-          .prependMessage(message);
+      _applyToOwner(
+        channelId,
+        message.parentId,
+        (messages) => messages.prependMessage(message),
+        (thread) => thread.prependMessage(message),
+      );
     } catch (e, st) {
       _logHydratedMessageError('prepend', channelId, data, e, st);
     }
@@ -267,9 +266,7 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
       if (message == null || !_ownsSubscription(channelId, generation)) {
         return;
       }
-      ref
-          .read(channelMessagesProvider(channelId).notifier)
-          .updateMessage(message);
+      _applyUpdate(channelId, message);
     } catch (e, st) {
       _logHydratedMessageError('update', channelId, data, e, st);
     }
@@ -342,10 +339,7 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
         return;
       }
 
-      final message = ChannelMessage.fromJson(json);
-      ref
-          .read(channelMessagesProvider(channelId).notifier)
-          .updateMessage(message);
+      _applyUpdate(channelId, ChannelMessage.fromJson(json));
     } catch (e, st) {
       developer.log(
         'Failed to refresh message $messageId',
@@ -354,6 +348,30 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
         stackTrace: st,
       );
     }
+  }
+
+  void _applyUpdate(String channelId, ChannelMessage message) => _applyToOwner(
+    channelId,
+    message.parentId,
+    (messages) => messages.updateMessage(message),
+    (thread) => thread.updateMessage(message),
+  );
+
+  /// Applies a change to the list that holds the message: the channel
+  /// timeline, or for a thread reply ([parentId] set) that thread, when it is
+  /// loaded. A reply never belongs in the timeline.
+  void _applyToOwner(
+    String channelId,
+    String? parentId,
+    void Function(ChannelMessages messages) applyToChannel,
+    void Function(ThreadMessages thread) applyToThread,
+  ) {
+    if (parentId == null || parentId.isEmpty) {
+      applyToChannel(ref.read(channelMessagesProvider(channelId).notifier));
+      return;
+    }
+    final thread = threadMessagesProvider(channelId, parentId);
+    if (ref.exists(thread)) applyToThread(ref.read(thread.notifier));
   }
 
   /// Handles a typing indicator event.

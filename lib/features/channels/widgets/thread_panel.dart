@@ -26,6 +26,7 @@ import '../providers/channel_providers.dart';
 import '../utils/channel_request_owner.dart';
 import '../utils/mention_utils.dart';
 import 'channel_message_content.dart';
+import 'channel_message_reactions.dart';
 
 /// Side panel (tablet) or bottom sheet (mobile) for
 /// viewing and replying to a message thread.
@@ -37,6 +38,7 @@ class ThreadPanel extends ConsumerStatefulWidget {
     required this.channelId,
     required this.parentMessage,
     required this.onClose,
+    required this.onReactionTap,
     this.overflowButtonBuilder,
   });
 
@@ -48,6 +50,9 @@ class ThreadPanel extends ConsumerStatefulWidget {
 
   /// Called when the user closes the panel.
   final VoidCallback onClose;
+
+  /// Toggles the signed-in user's [emoji] reaction on a reply.
+  final void Function(ChannelMessage reply, String emoji) onReactionTap;
 
   /// Builder for the overflow (+) attachment button.
   final Widget Function(double size)? overflowButtonBuilder;
@@ -140,87 +145,94 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
       threadMessagesProvider(widget.channelId, widget.parentMessage.id),
     );
 
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.surfaceBackground,
-        border: Border(left: BorderSide(color: theme.dividerColor)),
-      ),
-      child: Column(
-        children: [
-          _ThreadHeader(theme: theme, onClose: widget.onClose),
-          const Divider(height: 1),
-          _ParentMessageTile(
-            message: widget.parentMessage,
-            api: api,
-            theme: theme,
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: threadAsync.when(
-                    data: (messages) => _ThreadReplies(
-                      messages: messages
-                          .where((m) => m.id != widget.parentMessage.id)
-                          .toList(),
-                      api: api,
-                      theme: theme,
-                      bottomPadding: _composerHeight + bottomInset,
-                    ),
-                    loading: () =>
-                        const Center(child: CircularProgressIndicator()),
-                    error: (e, _) => Center(
-                      child: Text(
-                        e.toString(),
-                        style: AppTypography.bodyMediumStyle.copyWith(
-                          color: theme.error,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: bottomInset,
-                  child: ConduitChromeGradientFade.bottom(
-                    contentHeight: (_composerHeight - Spacing.xl).clamp(
-                      0.0,
-                      double.infinity,
-                    ),
-                    fadeHeight: Spacing.md,
-                  ),
-                ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: bottomInset,
-                  child: RepaintBoundary(
-                    child: MeasureSize(
-                      onChange: (size) {
-                        if (!mounted) return;
-                        setState(() => _composerHeight = size.height);
-                      },
-                      child: SafeArea(
-                        top: false,
-                        left: false,
-                        right: false,
-                        minimum: const EdgeInsets.only(bottom: Spacing.sm),
-                        child: ModernChatInput(
-                          onSendMessage: _sendReply,
-                          placeholder: l10n.replyInputPlaceholder,
-                          overflowButtonBuilder: widget.overflowButtonBuilder,
-                          bottomPadding: 0,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+    // The phone sheet can be a native one with no Material behind it, and the
+    // reaction chips need one.
+    return Material(
+      type: MaterialType.transparency,
+      child: Container(
+        decoration: BoxDecoration(
+          color: theme.surfaceBackground,
+          border: Border(left: BorderSide(color: theme.dividerColor)),
+        ),
+        child: Column(
+          children: [
+            _ThreadHeader(theme: theme, onClose: widget.onClose),
+            const Divider(height: 1),
+            _ParentMessageTile(
+              message: widget.parentMessage,
+              api: api,
+              theme: theme,
             ),
-          ),
-        ],
+            const Divider(height: 1),
+            Expanded(
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: threadAsync.when(
+                      data: (messages) => _ThreadReplies(
+                        messages: messages
+                            .where((m) => m.id != widget.parentMessage.id)
+                            .toList(),
+                        api: api,
+                        theme: theme,
+                        currentUserId: ref.watch(currentUserProvider).value?.id,
+                        onReactionTap: widget.onReactionTap,
+                        bottomPadding: _composerHeight + bottomInset,
+                      ),
+                      loading: () =>
+                          const Center(child: CircularProgressIndicator()),
+                      error: (e, _) => Center(
+                        child: Text(
+                          e.toString(),
+                          style: AppTypography.bodyMediumStyle.copyWith(
+                            color: theme.error,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: bottomInset,
+                    child: ConduitChromeGradientFade.bottom(
+                      contentHeight: (_composerHeight - Spacing.xl).clamp(
+                        0.0,
+                        double.infinity,
+                      ),
+                      fadeHeight: Spacing.md,
+                    ),
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: bottomInset,
+                    child: RepaintBoundary(
+                      child: MeasureSize(
+                        onChange: (size) {
+                          if (!mounted) return;
+                          setState(() => _composerHeight = size.height);
+                        },
+                        child: SafeArea(
+                          top: false,
+                          left: false,
+                          right: false,
+                          minimum: const EdgeInsets.only(bottom: Spacing.sm),
+                          child: ModernChatInput(
+                            onSendMessage: _sendReply,
+                            placeholder: l10n.replyInputPlaceholder,
+                            overflowButtonBuilder: widget.overflowButtonBuilder,
+                            bottomPadding: 0,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -331,12 +343,16 @@ class _ThreadReplies extends StatelessWidget {
     required this.messages,
     this.api,
     required this.theme,
+    required this.currentUserId,
+    required this.onReactionTap,
     this.bottomPadding = 0,
   });
 
   final List<ChannelMessage> messages;
   final ApiService? api;
   final ConduitThemeExtension theme;
+  final String? currentUserId;
+  final void Function(ChannelMessage reply, String emoji) onReactionTap;
   final double bottomPadding;
 
   @override
@@ -407,6 +423,12 @@ class _ThreadReplies extends StatelessWidget {
                       stateScopeId: 'channel-thread:${message.id}',
                     ),
                     ChannelMessageAttachments(files: message.data?['files']),
+                    if (message.reactions.isNotEmpty)
+                      ChannelMessageReactions(
+                        reactions: message.reactions,
+                        currentUserId: currentUserId,
+                        onReactionTap: (emoji) => onReactionTap(message, emoji),
+                      ),
                   ],
                 ),
               ),

@@ -103,7 +103,7 @@ void main() {
       await pumpEventQueue();
 
       final thread = container.read(threadMessagesProvider('c1', 'parent'));
-      expect(thread.requireValue.map((m) => m.id), ['reply']);
+      expect(thread.requireValue.map((m) => m.id), ['reply', 'r1']);
       final channel = container.read(channelMessagesProvider('c1'));
       expect(channel.requireValue.map((m) => m.id), ['parent']);
     });
@@ -130,8 +130,63 @@ void main() {
       final channel = container.read(channelMessagesProvider('c1'));
       expect(channel.requireValue.single.replyCount, 1);
     });
+
+    test('edits of a reply update the open thread', () async {
+      socket.emitChannelEvent(
+        _event('message:update', {
+          'id': 'r1',
+          'channel_id': 'c1',
+          'parent_id': 'parent',
+          'content': 'edited',
+        }),
+      );
+      await pumpEventQueue();
+
+      final thread = container.read(threadMessagesProvider('c1', 'parent'));
+      expect(thread.requireValue.single.content, 'edited');
+      final channel = container.read(channelMessagesProvider('c1'));
+      expect(channel.requireValue.single.content, 'parent');
+    });
+
+    test('deleting a reply removes it from the open thread', () async {
+      socket.emitChannelEvent(
+        _event('message:delete', {
+          'id': 'r1',
+          'channel_id': 'c1',
+          'parent_id': 'parent',
+        }),
+      );
+      await pumpEventQueue();
+
+      final thread = container.read(threadMessagesProvider('c1', 'parent'));
+      expect(thread.requireValue, isEmpty);
+      final channel = container.read(channelMessagesProvider('c1'));
+      expect(channel.requireValue.map((m) => m.id), ['parent']);
+    });
+
+    test('reactions on a reply update the open thread', () async {
+      socket.emitChannelEvent(
+        _event('message:reaction:add', {
+          'id': 'r1',
+          'channel_id': 'c1',
+          'parent_id': 'parent',
+          'name': 'thumbsup',
+        }),
+      );
+      await pumpEventQueue();
+
+      expect(api.refreshedMessageIds, ['r1']);
+      final thread = container.read(threadMessagesProvider('c1', 'parent'));
+      expect(thread.requireValue.single.reactions.single.name, 'thumbsup');
+    });
   });
 }
+
+Map<String, dynamic> _event(String type, Map<String, dynamic> data) => {
+  'channel_id': 'c1',
+  'message_id': data['id'],
+  'data': {'type': type, 'data': data},
+};
 
 class _ThreadApi extends ApiService {
   _ThreadApi()
@@ -161,7 +216,9 @@ class _ThreadApi extends ApiService {
     String messageId, {
     int skip = 0,
     int limit = 50,
-  }) async => [];
+  }) async => [
+    {'id': 'r1', 'channel_id': channelId, 'parent_id': messageId},
+  ];
 
   @override
   Future<Map<String, dynamic>?> getChannelMessage(
@@ -169,6 +226,22 @@ class _ThreadApi extends ApiService {
     String messageId,
   ) async {
     refreshedMessageIds.add(messageId);
+    if (messageId == 'r1') {
+      return {
+        'id': 'r1',
+        'channel_id': channelId,
+        'parent_id': 'parent',
+        'reactions': [
+          {
+            'name': 'thumbsup',
+            'users': [
+              {'id': 'friend'},
+            ],
+            'count': 1,
+          },
+        ],
+      };
+    }
     return {
       'id': messageId,
       'channel_id': channelId,

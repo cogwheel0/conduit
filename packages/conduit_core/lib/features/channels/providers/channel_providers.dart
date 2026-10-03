@@ -429,10 +429,16 @@ class ThreadMessages extends _$ThreadMessages {
     }
   }
 
-  void _invalidatePendingFetchForMutation() {
-    if (_buildRequestsInFlight == 0) return;
+  void _invalidatePendingFetchForMutation({bool includePagination = false}) {
+    if (_buildRequestsInFlight == 0 &&
+        (!includePagination || !_loadMoreInFlight)) {
+      return;
+    }
     _requestGeneration += 1;
     _refreshAfterMutation = true;
+    if (includePagination) {
+      _loadMoreInFlight = false;
+    }
   }
 
   void _scheduleReplacementFetchIfNeeded(int generation) {
@@ -522,6 +528,25 @@ class ThreadMessages extends _$ThreadMessages {
     final next = List<ChannelMessage>.of(current);
     next[index] = existing.copyWith(user: sender);
     state = AsyncValue.data(next);
+  }
+
+  /// Updates a reply in the thread (edit, reaction change).
+  void updateMessage(ChannelMessage updated) {
+    final current = state.value ?? [];
+    final index = current.indexWhere((message) => message.id == updated.id);
+    if (index < 0 || current[index] == updated) return;
+    _invalidatePendingFetchForMutation();
+    final next = List<ChannelMessage>.of(current);
+    next[index] = updated;
+    state = AsyncValue.data(next);
+  }
+
+  /// Removes a reply from the thread.
+  void removeMessage(String messageId) {
+    final current = state.value ?? [];
+    if (!current.any((message) => message.id == messageId)) return;
+    _invalidatePendingFetchForMutation(includePagination: true);
+    state = AsyncValue.data(current.where((m) => m.id != messageId).toList());
   }
 }
 
