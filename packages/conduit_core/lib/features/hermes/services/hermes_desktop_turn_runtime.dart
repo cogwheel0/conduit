@@ -39,6 +39,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     final seenEventOrder = Queue<String>();
     var activeRuntimeId = binding.runtimeId;
     var promptAcknowledged = false;
+    // Set once the gateway shows this turn running. Until then an idle
+    // `session.info` is left over from before the prompt (session setup, a
+    // late MCP refresh) and must not end the turn before it starts.
+    var turnStarted = false;
     var disconnectReconciliationRunning = false;
     final eventsBeforePromptAcknowledgement = Queue<HermesDesktopEvent>();
     late final StreamSubscription<HermesDesktopEvent> subscription;
@@ -94,12 +98,19 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       String firstValue(Iterable<String> keys) => keys
           .map(value)
           .firstWhere((candidate) => candidate.isNotEmpty, orElse: () => '');
+      if (event.type == 'message.start' ||
+          event.type == 'message.complete' ||
+          event.type.endsWith('.request') ||
+          (event.type == 'session.info' && payload['running'] == true)) {
+        turnStarted = true;
+      }
       if (_projectHermesTurnEvent(
         event,
         add: controller.add,
         value: value,
         firstValue: firstValue,
       )) {
+        turnStarted = true;
         return;
       }
       switch (event.type) {
@@ -228,7 +239,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
               storedId: binding.storedId,
               runtimeId: binding.runtimeId,
             );
-          } else if (!running && promptAcknowledged) {
+          } else if (!running && promptAcknowledged && turnStarted) {
             finish(authoritativeIdle: true);
           }
         case 'error':
