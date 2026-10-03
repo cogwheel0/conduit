@@ -37,8 +37,15 @@ final class _RiverpodHermesConnectionGateway
     // (issue #683).
     final persistRotations =
         sameConnection && draft.desktopCredentials?.nativeTokens != null;
+    // The throwaway service needs the host's dashboard WebView bridge. Without
+    // it, dashboard-cookie requests (the ws-ticket call in `health()`) have no
+    // way to reach the dashboard, so a reachable, signed-in server is reported
+    // as unreachable.
     final service = HermesDesktopApiService(
       config: draft.copyWith(enabled: true),
+      dashboardBridgeFactory: _ref.read(
+        hostHermesDashboardBridgeFactoryProvider,
+      ),
       onCredentialsChanged: persistRotations
           ? (credentials) => _ref
                 .read(hermesConfigProvider.notifier)
