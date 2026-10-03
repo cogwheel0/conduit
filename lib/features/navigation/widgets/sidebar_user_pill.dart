@@ -425,6 +425,13 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
             ? await _loadHermesAvatarBytes()
             : null;
         if (!context.mounted) return;
+        // The profile details editor preselects the stored gender and birth
+        // date and saves every field, so it must not open on a profile that
+        // was never loaded or has changed on the server since.
+        if (!hermesOnly && user != null) {
+          await _refreshAccountProfile(ref);
+          if (!context.mounted) return;
+        }
         final config = _buildNativeProfileSheetConfig(
           context: context,
           ref: ref,
@@ -473,6 +480,21 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _refreshAccountProfile(WidgetRef ref) async {
+    try {
+      await ref
+          .read(accountProfileProvider.notifier)
+          .refresh()
+          .timeout(const Duration(seconds: 5));
+    } catch (error) {
+      DebugLogger.warning(
+        'account-profile-refresh-failed',
+        scope: 'navigation/profile',
+        data: {'error': error.toString()},
+      );
+    }
   }
 
   NativeProfileSheetConfig _buildNativeProfileSheetConfig({
