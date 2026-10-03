@@ -523,6 +523,7 @@ void main() {
           replies.any((message) => message.content == 'stale edit'),
           false,
         );
+        expect(replies, hasLength(50));
       },
     );
 
