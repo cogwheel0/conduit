@@ -408,27 +408,66 @@ Set<String> _declaredDependencies(String pubspec) {
 
 final RegExp _dependencyName = RegExp(r'^  ([a-z_0-9]+):');
 
-/// Returns [line] without its trailing `//` comment.
+/// Returns Swift [source] with comments blanked out.
 ///
-/// A `//` inside a string literal (`"https://..."`) is not a comment, so code
-/// after it still gets scanned.
-String stripSwiftLineComment(String line) {
-  var inString = false;
-  for (var i = 0; i < line.length; i++) {
-    final char = line[i];
-    if (inString) {
-      if (char == '\\') {
+/// Line comments and (nested) block comments become spaces, and newlines stay,
+/// so line numbers still match the file. String literals are kept as code: a
+/// `//` inside `"https://..."` is not a comment, and code after it still gets
+/// scanned.
+String stripSwiftComments(String source) {
+  final out = StringBuffer();
+  final length = source.length;
+  var blockDepth = 0;
+  var i = 0;
+  while (i < length) {
+    final char = source[i];
+    final next = i + 1 < length ? source[i + 1] : '';
+    if (blockDepth > 0) {
+      if (char == '/' && next == '*') {
+        blockDepth++;
+        out.write('  ');
+        i += 2;
+      } else if (char == '*' && next == '/') {
+        blockDepth--;
+        out.write('  ');
+        i += 2;
+      } else {
+        out.write(char == '\n' ? '\n' : ' ');
         i++;
-      } else if (char == '"') {
-        inString = false;
       }
+    } else if (char == '/' && next == '/') {
+      while (i < length && source[i] != '\n') {
+        out.write(' ');
+        i++;
+      }
+    } else if (char == '/' && next == '*') {
+      blockDepth = 1;
+      out.write('  ');
+      i += 2;
     } else if (char == '"') {
-      inString = true;
-    } else if (char == '/' && i + 1 < line.length && line[i + 1] == '/') {
-      return line.substring(0, i);
+      final multiline = source.startsWith('"""', i);
+      final quote = multiline ? '"""' : '"';
+      out.write(quote);
+      i += quote.length;
+      while (i < length && !source.startsWith(quote, i)) {
+        if (!multiline && source[i] == '\n') break;
+        if (source[i] == '\\' && i + 1 < length) {
+          out.write(source[i]);
+          i++;
+        }
+        out.write(source[i]);
+        i++;
+      }
+      if (i < length && source.startsWith(quote, i)) {
+        out.write(quote);
+        i += quote.length;
+      }
+    } else {
+      out.write(char);
+      i++;
     }
   }
-  return line;
+  return out.toString();
 }
 
 /// Holds every Swift file in ios/Runner to one side of the host seam.
@@ -456,9 +495,9 @@ List<String> _scanIosBridges() {
       violations.add('$path is listed as host-agnostic but does not exist');
       continue;
     }
-    final lines = file.readAsLinesSync();
+    final lines = stripSwiftComments(file.readAsStringSync()).split('\n');
     for (var i = 0; i < lines.length; i++) {
-      final code = stripSwiftLineComment(lines[i]);
+      final code = lines[i];
       for (final hostType in _iosHostTypes) {
         final match = hostType.firstMatch(code);
         if (match == null) continue;
