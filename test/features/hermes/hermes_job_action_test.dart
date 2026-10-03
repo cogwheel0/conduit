@@ -8,7 +8,6 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/utils/hermes_schedule_format.dart';
 import 'package:conduit/features/hermes/views/hermes_jobs_page.dart';
-import 'package:conduit/features/hermes/widgets/hermes_job_editor.dart';
 import 'package:conduit/features/hermes/widgets/hermes_jobs_sheet.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
@@ -16,30 +15,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('Hermes schedule validation mirrors the server input forms', () {
-    check(isValidHermesSchedule('0 9 * * 1')).isTrue();
-    check(isValidHermesSchedule('0 22-2 * * 5-1')).isTrue();
-    check(isValidHermesSchedule('0 0 * * 7')).isTrue();
-    check(isValidHermesSchedule('0 9 * * * 30')).isTrue();
-    check(isValidHermesSchedule('0 0 * * 6 0')).isTrue();
-    check(isValidHermesSchedule('0 9 * * * * 2027')).isTrue();
-    check(isValidHermesSchedule('every 30m')).isTrue();
-    check(isValidHermesSchedule('EVERY 2 hours')).isTrue();
-    check(isValidHermesSchedule('45m')).isTrue();
-    check(isValidHermesSchedule('2027-04-05T09:30:00Z')).isTrue();
-    check(isValidHermesSchedule('2027-04-05T09:30:00+05:30')).isTrue();
-    check(isValidHermesSchedule('60 9 * * 1')).isFalse();
-    check(isValidHermesSchedule('0 9 * * * 2027')).isFalse();
-    check(isValidHermesSchedule('0 0 * * 7 0')).isFalse();
-    check(isValidHermesSchedule('0 0 * * 7 0 2027')).isFalse();
-    check(isValidHermesSchedule('0 9 * * * * 2100')).isFalse();
-    check(isValidHermesSchedule('0 9 * *')).isFalse();
-    check(isValidHermesSchedule('0 9 * JAN MON')).isFalse();
-    check(isValidHermesSchedule('every soon')).isFalse();
-    check(isValidHermesSchedule('2027-99-99T09:30')).isFalse();
-    check(isValidHermesSchedule('2027-02-29T09:30')).isFalse();
-    check(isValidHermesSchedule('2027-04-05T25:30')).isFalse();
-  });
+  // Schedule validation moved to conduit_core
+  // (hermes_schedule_validation_test.dart).
 
   test('common Hermes cron schedules have concise cadence labels', () {
     check(describeHermesCronSchedule('* * * * *')).equals('Every minute');

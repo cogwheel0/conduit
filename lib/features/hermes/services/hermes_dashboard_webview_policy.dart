@@ -4,46 +4,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
-import 'package:conduit_core/auth/webview_origin.dart';
-
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_access.dart';
-
-Map<String, String> hermesHeadersWithoutAccessCredentials(
-  Map<String, String> headers,
-  Map<String, String> accessHeaders,
-) {
-  final reserved = accessHeaders.keys.map((name) => name.toLowerCase()).toSet();
-  return {
-    for (final entry in headers.entries)
-      if (!reserved.contains(entry.key.toLowerCase())) entry.key: entry.value,
-  };
-}
-
-({bool allowed, bool leftDashboard, bool returnedToDashboard})
-hermesDashboardNavigationTransition({
-  required Uri target,
-  required Uri dashboardRoot,
-  required bool leftDashboard,
-  required bool returnedToDashboard,
-}) {
-  final exact = webViewUrlHasExactServerOrigin(
-    target.toString(),
-    dashboardRoot.toString(),
-  );
-  if (exact) {
-    return (
-      allowed: true,
-      leftDashboard: leftDashboard,
-      returnedToDashboard: returnedToDashboard || leftDashboard,
-    );
-  }
-  final allowed = !returnedToDashboard && target.scheme == 'https';
-  return (
-    allowed: allowed,
-    leftDashboard: leftDashboard || allowed,
-    returnedToDashboard: returnedToDashboard,
-  );
-}
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_webview_rules.dart';
 
 final class HermesDashboardWebViewPolicy {
   HermesDashboardWebViewPolicy({
@@ -67,14 +29,10 @@ final class HermesDashboardWebViewPolicy {
     accessHeaders: accessHeaders,
   );
 
-  bool isExact(Uri target) =>
-      webViewUrlHasExactServerOrigin(target.toString(), root.toString());
+  bool isExact(Uri target) => hermesDashboardIsExactOrigin(target, root);
 
-  Map<String, String> sameOriginHeaders(Map<String, dynamic>? headers) => {
-    for (final entry in (headers ?? const {}).entries)
-      entry.key: entry.value.toString(),
-    ...accessHeaders,
-  };
+  Map<String, String> sameOriginHeaders(Map<String, dynamic>? headers) =>
+      hermesDashboardSameOriginHeaders(headers, accessHeaders);
 
   Map<String, String> crossOriginHeaders(Map<String, String>? headers) =>
       hermesHeadersWithoutAccessCredentials(headers ?? const {}, accessHeaders);
@@ -143,9 +101,12 @@ final class HermesDashboardWebViewPolicy {
     WebResourceRequest request,
   ) async {
     final target = request.url.uriValue;
-    if (request.isForMainFrame == true ||
-        request.method?.toUpperCase() != 'GET' ||
-        !isExact(target)) {
+    if (!hermesDashboardInterceptsSubresource(
+      method: request.method,
+      isMainFrame: request.isForMainFrame == true,
+      target: target,
+      root: root,
+    )) {
       return null;
     }
     late final Response<List<int>> response;

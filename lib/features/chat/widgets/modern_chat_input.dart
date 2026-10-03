@@ -1,5 +1,4 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart'
     show ValueNotifier, kIsWeb, visibleForTesting;
 import 'package:material_ui/material_ui.dart';
@@ -20,6 +19,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:conduit_core/features/chat/composer/composer_commands.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 
 import '../services/clipboard_attachment_service.dart';
@@ -1175,8 +1175,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     _ensureFocusedIfEnabled();
   }
 
-  static final RegExp _promptCommandBoundary = RegExp(r'\s');
-
   _ComposerTypography _composerTypography(BuildContext context) {
     final direction = Directionality.of(context);
     final textScaler = MediaQuery.textScalerOf(context);
@@ -1439,43 +1437,25 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     bool enabled,
   ) {
     if (!enabled) return null;
-    if (!selection.isValid || !selection.isCollapsed) return null;
-
-    final int cursor = selection.start;
-    if (cursor < 0 || cursor > text.length) return null;
-    if (cursor == 0) return null;
-
-    int start = cursor;
-    while (start > 0) {
-      final String previous = text.substring(start - 1, start);
-      if (_promptCommandBoundary.hasMatch(previous)) {
-        break;
-      }
-      start--;
-    }
-
-    final String candidate = text.substring(start, cursor);
-    if (candidate.isEmpty ||
-        !(candidate.startsWith('/') ||
-            candidate.startsWith('#') ||
-            candidate.startsWith('@') ||
-            candidate.startsWith('\$'))) {
-      return null;
-    }
-
-    if (candidate.startsWith('\$') && !_openWebUiSkillsAvailable) {
-      return null;
-    }
-
-    // `#` suggestions are OpenWebUI knowledge and server-file resources. A
-    // Hermes session cannot resolve those ids, so do not offer a control whose
-    // result would be silently dropped by the active transport.
-    if (candidate.startsWith('#')) {
-      final model = ref.read(selectedModelProvider);
-      if (model != null && isHermesModel(model)) return null;
-    }
-
-    return PromptCommandMatch(command: candidate, start: start, end: cursor);
+    if (!selection.isValid) return null;
+    final model = ref.read(selectedModelProvider);
+    // The token rules are conduit_core's (composer_commands.dart). `$` needs
+    // Open WebUI skills; `#` suggestions are Open WebUI knowledge and
+    // server-file resources, which a Hermes session cannot resolve, so the
+    // control is not offered there.
+    final match = resolveComposerCommand(
+      text,
+      selectionStart: selection.start,
+      selectionEnd: selection.end,
+      allowSkills: _openWebUiSkillsAvailable,
+      allowContext: model == null || !isHermesModel(model),
+    );
+    if (match == null) return null;
+    return PromptCommandMatch(
+      command: match.command,
+      start: match.start,
+      end: match.end,
+    );
   }
 
   List<Prompt> _filterPrompts(List<Prompt> prompts) {
@@ -1505,23 +1485,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     return filtered;
   }
 
-  List<Model> _filterModels(List<Model> models) {
-    if (models.isEmpty) return const <Model>[];
-    final String query = _currentPromptCommand.toLowerCase().trim();
-    final String searchQuery = query.startsWith('@')
-        ? query.substring(1)
-        : query;
-
-    if (searchQuery.isEmpty) return models;
-
-    return models
-        .where(
-          (m) =>
-              m.name.toLowerCase().contains(searchQuery) ||
-              m.id.toLowerCase().contains(searchQuery),
-        )
-        .toList();
-  }
+  List<Model> _filterModels(List<Model> models) =>
+      filterModelsForMention(models, _currentPromptCommand);
 
   void _clearSkillSuggestions() {
     _skillSuggestionDebounce?.cancel();
@@ -1557,19 +1522,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     try {
-      final response = await api.getWorkspaceSkills(
-        query: query.isEmpty ? null : query,
-        page: 1,
-      );
+      final skills = await searchComposerSkills(api, query: query);
       if (!_skillSuggestionRequestIsCurrent(command, requestId, api, token)) {
         return;
       }
-      final skills = response.items
-          .where(
-            (skill) =>
-                skill.isActive && skill.id.isNotEmpty && skill.name.isNotEmpty,
-          )
-          .toList(growable: false);
       setState(() {
         _skillSuggestions = AsyncData(skills);
         _promptSelectionIndex = skills.isEmpty
@@ -1653,143 +1609,54 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     final l10n = AppLocalizations.of(context)!;
-    final normalizedQuery = query.isEmpty ? null : query;
-    final notesEnabled = ref.read(notesFeatureEnabledProvider);
-
-    List<Map<String, dynamic>> noteResults = const <Map<String, dynamic>>[];
-    List<Map<String, dynamic>> baseResults = const <Map<String, dynamic>>[];
-    List<Map<String, dynamic>> fileResults = const <Map<String, dynamic>>[];
-
-    Future<List<Map<String, dynamic>>> safeSearch(
-      Future<List<Map<String, dynamic>>> Function() loader,
-    ) async {
-      try {
-        return await loader();
-      } catch (_) {
-        return const <Map<String, dynamic>>[];
-      }
+    final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
+    // The searches and the rows they become are conduit_core's
+    // (composer_commands.dart); this adds the icons.
+    final search = await searchComposerContext(
+      api,
+      query: query,
+      includeNotes: ref.read(notesFeatureEnabledProvider),
+    );
+    if (search.notesForbidden &&
+        mounted &&
+        !_isDeactivated &&
+        identical(ref.read(apiServiceProvider), api) &&
+        ref.read(authTokenProvider3) == token) {
+      ref.read(notesFeatureEnabledProvider.notifier).setEnabled(false);
     }
-
-    await Future.wait<void>([
-      if (notesEnabled)
-        () async {
-          try {
-            noteResults = await api.searchNotes(query: normalizedQuery);
-          } on DioException catch (error) {
-            final statusCode = error.response?.statusCode;
-            if ((statusCode == 401 || statusCode == 403) &&
-                mounted &&
-                !_isDeactivated &&
-                identical(ref.read(apiServiceProvider), api) &&
-                ref.read(authTokenProvider3) == token) {
-              ref.read(notesFeatureEnabledProvider.notifier).setEnabled(false);
-            }
-            noteResults = const <Map<String, dynamic>>[];
-          } catch (_) {
-            noteResults = const <Map<String, dynamic>>[];
-          }
-        }(),
-      () async {
-        baseResults = await safeSearch(
-          () => api.searchKnowledgeBases(query: normalizedQuery),
-        );
-      }(),
-      () async {
-        fileResults = await safeSearch(
-          () => api.searchKnowledgeFiles(query: normalizedQuery),
-        );
-      }(),
-    ]);
 
     if (!mounted || _isDeactivated) return;
     if (requestId != _contextSuggestionRequestId) return;
     if (!_currentPromptCommand.startsWith('#')) return;
     if (_currentPromptCommand != command) return;
 
-    String titleForNote(Map<String, dynamic> json) {
-      final title = _ComposerContextSuggestion.stringValue(json['title']);
-      return title ?? l10n.untitled;
-    }
-
-    String titleForBase(Map<String, dynamic> json) {
-      return _ComposerContextSuggestion.stringValue(json['name']) ??
-          _ComposerContextSuggestion.stringValue(json['title']) ??
-          l10n.knowledgeBase;
-    }
-
-    String titleForFile(Map<String, dynamic> json) {
-      final meta = _ComposerContextSuggestion.mapValue(json['meta']);
-      return _ComposerContextSuggestion.stringValue(meta?['name']) ??
-          _ComposerContextSuggestion.stringValue(meta?['filename']) ??
-          _ComposerContextSuggestion.stringValue(json['filename']) ??
-          _ComposerContextSuggestion.stringValue(json['name']) ??
-          l10n.file;
-    }
-
-    String? fileCollectionName(Map<String, dynamic> json) {
-      final collection = _ComposerContextSuggestion.mapValue(
-        json['collection'],
-      );
-      return _ComposerContextSuggestion.stringValue(collection?['name']) ??
-          _ComposerContextSuggestion.stringValue(json['collection_name']);
-    }
-
-    String? fileSource(Map<String, dynamic> json) {
-      final meta = _ComposerContextSuggestion.mapValue(json['meta']);
-      return _ComposerContextSuggestion.stringValue(meta?['source']) ??
-          _ComposerContextSuggestion.stringValue(json['source']);
-    }
-
-    final List<_ComposerContextSuggestion> suggestions =
-        <_ComposerContextSuggestion>[
-          ...noteResults.take(_maxContextSuggestionsPerType).map((json) {
-            final id = _ComposerContextSuggestion.stringValue(json['id']);
-            if (id == null) return null;
-            return _ComposerContextSuggestion(
-              type: _ComposerContextSuggestionType.note,
-              id: id,
-              displayName: titleForNote(json),
-              icon: Theme.of(context).platform == TargetPlatform.iOS
-                  ? CupertinoIcons.doc_text
-                  : Icons.sticky_note_2_outlined,
-            );
-          }).whereType<_ComposerContextSuggestion>(),
-          ...baseResults.take(_maxContextSuggestionsPerType).map((json) {
-            final id = _ComposerContextSuggestion.stringValue(json['id']);
-            if (id == null) return null;
-            return _ComposerContextSuggestion(
-              type: _ComposerContextSuggestionType.knowledgeBase,
-              id: id,
-              displayName: titleForBase(json),
-              subtitle: _ComposerContextSuggestion.stringValue(
-                json['description'],
-              ),
-              icon: Theme.of(context).platform == TargetPlatform.iOS
-                  ? CupertinoIcons.folder
-                  : Icons.folder_outlined,
-            );
-          }).whereType<_ComposerContextSuggestion>(),
-          ...fileResults.take(_maxContextSuggestionsPerType).map((json) {
-            final id = _ComposerContextSuggestion.stringValue(json['id']);
-            if (id == null) return null;
-
-            final collectionName = fileCollectionName(json);
-            final source = fileSource(json);
-            final subtitle = collectionName ?? source;
-
-            return _ComposerContextSuggestion(
-              type: _ComposerContextSuggestionType.knowledgeFile,
-              id: id,
-              displayName: titleForFile(json),
-              subtitle: subtitle,
-              collectionName: collectionName,
-              source: source,
-              icon: Theme.of(context).platform == TargetPlatform.iOS
-                  ? CupertinoIcons.doc
-                  : Icons.description_outlined,
-            );
-          }).whereType<_ComposerContextSuggestion>(),
-        ];
+    final List<_ComposerContextSuggestion> suggestions = [
+      for (final suggestion in buildComposerContextSuggestions(
+        notes: search.notes,
+        bases: search.bases,
+        files: search.files,
+        untitledLabel: l10n.untitled,
+        knowledgeBaseLabel: l10n.knowledgeBase,
+        fileLabel: l10n.file,
+        perType: _maxContextSuggestionsPerType,
+      ))
+        _ComposerContextSuggestion(
+          type: suggestion.type,
+          id: suggestion.id,
+          displayName: suggestion.displayName,
+          subtitle: suggestion.subtitle,
+          collectionName: suggestion.collectionName,
+          source: suggestion.source,
+          icon: switch (suggestion.type) {
+            _ComposerContextSuggestionType.note =>
+              isIOS ? CupertinoIcons.doc_text : Icons.sticky_note_2_outlined,
+            _ComposerContextSuggestionType.knowledgeBase =>
+              isIOS ? CupertinoIcons.folder : Icons.folder_outlined,
+            _ComposerContextSuggestionType.knowledgeFile =>
+              isIOS ? CupertinoIcons.doc : Icons.description_outlined,
+          },
+        ),
+    ];
 
     setState(() {
       _isContextSuggestionLoading = false;
@@ -1802,51 +1669,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     });
   }
 
-  ({String text, int cursorOffset}) _removeCommandToken(
-    String text,
-    TextRange range,
-  ) {
-    final String before = text.substring(0, range.start);
-
-    int tokenEnd = range.end;
-    while (tokenEnd < text.length) {
-      final nextCharacter = text.substring(tokenEnd, tokenEnd + 1);
-      if (_promptCommandBoundary.hasMatch(nextCharacter)) {
-        break;
-      }
-      tokenEnd++;
-    }
-
-    String after = text.substring(tokenEnd);
-    final String? previousBoundary = before.isEmpty
-        ? null
-        : before.substring(before.length - 1);
-    final String? nextBoundary = after.isEmpty ? null : after.substring(0, 1);
-
-    if (previousBoundary != null &&
-        nextBoundary != null &&
-        _promptCommandBoundary.hasMatch(previousBoundary) &&
-        _promptCommandBoundary.hasMatch(nextBoundary)) {
-      after = after.substring(1);
-    } else if (before.isEmpty &&
-        nextBoundary != null &&
-        _promptCommandBoundary.hasMatch(nextBoundary)) {
-      after = after.substring(1);
-    }
-
-    return (text: '$before$after', cursorOffset: before.length);
-  }
-
   void _applyContextSuggestion(_ComposerContextSuggestion suggestion) {
     final TextRange? range = _currentPromptRange;
     if (range == null) return;
 
     ConduitHaptics.selectionClick();
 
-    final result = _removeCommandToken(_controller.text, range);
+    final result = removeComposerCommandToken(
+      _controller.text,
+      range.start,
+      range.end,
+    );
     _controller.value = TextEditingValue(
       text: result.text,
-      selection: TextSelection.collapsed(offset: result.cursorOffset),
+      selection: TextSelection.collapsed(offset: result.caret),
       composing: TextRange.empty,
     );
 
@@ -1884,24 +1720,29 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (range == null) return;
 
     // Replace the @query with @ModelName (keep it visible like OpenWebUI).
-    final String text = _controller.text;
-    final String before = text.substring(0, range.start);
-    final String after = text.substring(range.end);
-    final String mention = '@${model.name} ';
-    final String newText = '$before$mention$after';
-    final int newCursor = before.length + mention.length;
+    final inserted = insertComposerMention(
+      _controller.text,
+      ComposerCommandMatch(
+        command: _currentPromptCommand,
+        start: range.start,
+        end: range.end,
+      ),
+      prefix: '@',
+      label: model.name,
+    );
+    final String newText = inserted.text;
 
     _controller.value = TextEditingValue(
       text: newText,
-      selection: TextSelection.collapsed(offset: newCursor),
+      selection: TextSelection.collapsed(offset: inserted.caret),
     );
 
     // Track the mention range for styled rendering
     // (exclude trailing space) and store the model ID
     // so we can convert to OpenWebUI wire format on send.
     _controller.addMention(
-      range.start,
-      range.start + mention.trimRight().length,
+      inserted.mentionStart,
+      inserted.mentionEnd,
       idType: 'M',
       id: model.id,
       label: model.name,
@@ -1923,23 +1764,28 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final range = _currentPromptRange;
     if (range == null) return;
 
-    final text = _controller.text;
-    final before = text.substring(0, range.start);
-    final after = text.substring(range.end);
-    final mention = '\$${skill.name} ';
-    final newText = '$before$mention$after';
-    final newCursor = before.length + mention.length;
+    final inserted = insertComposerMention(
+      _controller.text,
+      ComposerCommandMatch(
+        command: _currentPromptCommand,
+        start: range.start,
+        end: range.end,
+      ),
+      prefix: '\$',
+      label: skill.name,
+    );
+    final newText = inserted.text;
 
     _controller.value = TextEditingValue(
       text: newText,
-      selection: TextSelection.collapsed(offset: newCursor),
+      selection: TextSelection.collapsed(offset: inserted.caret),
     );
     _controller.addMention(
-      range.start,
-      range.start + mention.trimRight().length,
+      inserted.mentionStart,
+      inserted.mentionEnd,
       id: skill.id,
       label: skill.name,
-      kind: MentionKind.skill,
+      kind: ComposerMentionKind.skill,
     );
 
     setState(() {
@@ -5152,8 +4998,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 }
 
-enum _ComposerContextSuggestionType { note, knowledgeBase, knowledgeFile }
+/// conduit_core's suggestion kinds (composer_commands.dart).
+typedef _ComposerContextSuggestionType = ComposerContextSuggestionType;
 
+/// A core [ComposerContextSuggestion] with the icon this composer draws.
 class _ComposerContextSuggestion {
   const _ComposerContextSuggestion({
     required this.type,
@@ -5172,26 +5020,6 @@ class _ComposerContextSuggestion {
   final String? collectionName;
   final String? source;
   final IconData icon;
-
-  static String? stringValue(Object? value) {
-    final text = value?.toString().trim();
-    if (text == null || text.isEmpty) {
-      return null;
-    }
-    return text;
-  }
-
-  static Map<String, dynamic>? mapValue(Object? value) {
-    if (value is Map<String, dynamic>) {
-      return value;
-    }
-    if (value is Map) {
-      return value.map(
-        (key, entryValue) => MapEntry(key.toString(), entryValue),
-      );
-    }
-    return null;
-  }
 }
 
 class _ContextSuggestionPlaceholder extends StatelessWidget {

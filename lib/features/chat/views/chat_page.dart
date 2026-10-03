@@ -49,12 +49,15 @@ import 'package:conduit_core/features/direct_connections/services/direct_model_r
 import '../../direct_connections/widgets/direct_mcp_message_interactions.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/composer/openwebui_prompt_answers.dart';
 import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provider.dart';
+import 'package:conduit_core/features/chat/providers/openwebui_prompt_resolution.dart';
+import 'package:conduit_core/features/chat/providers/temporary_chat_save.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
-import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_bot_chat.dart';
 import 'package:conduit_core/features/hermes/services/hermes_decision_projection.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
@@ -233,42 +236,12 @@ String? chatHermesBotTitle(Conversation? conversation) {
   return chatHermesBotPresentation(conversation)?.title;
 }
 
-typedef HermesBotChatPresentation = ({
-  String title,
-  String? avatar,
-  String shape,
-  String color,
-  String? imageKind,
-});
-
 @visibleForTesting
 Widget debugBuildHermesBotToolbarTitleForTesting({
   required HermesBotChatPresentation bot,
   required double maxWidth,
   bool active = false,
 }) => _HermesBotToolbarTitle(bot: bot, maxWidth: maxWidth, active: active);
-
-@visibleForTesting
-HermesBotChatPresentation? chatHermesBotPresentation(
-  Conversation? conversation,
-) {
-  if (!isNativeHermesConversation(conversation)) return null;
-  final title = conversation!.metadata[kHermesBotTitleMetadataKey];
-  if (title is! String || title.trim().isEmpty) return null;
-  final avatar = conversation.metadata[kHermesBotAvatarMetadataKey];
-  final shape = conversation.metadata[kHermesBotShapeMetadataKey];
-  final color = conversation.metadata[kHermesBotColorMetadataKey];
-  final imageKind = conversation.metadata[kHermesBotImageKindMetadataKey];
-  return (
-    title: title.trim(),
-    avatar: avatar is String && avatar.startsWith('data:image/')
-        ? avatar
-        : null,
-    shape: shape is String ? shape : 'squircle',
-    color: color is String ? color : '#8b5cf6',
-    imageKind: imageKind is String ? imageKind : null,
-  );
-}
 
 class _HermesBotToolbarTitle extends StatelessWidget {
   const _HermesBotToolbarTitle({
@@ -732,103 +705,42 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   bool _isSavingTemporary = false;
 
   /// Persists a temporary chat to the server, transitioning it
-  /// into a permanent conversation.
+  /// into a permanent conversation (conduit_core's saveTemporaryChat).
   Future<void> _saveTemporaryChat() async {
     if (_isSavingTemporary) return;
     if (_messageSendAdmission.isHeld || ref.read(isChatStreamingProvider)) {
       return;
     }
-    final sourceConversation = ref.read(activeConversationProvider);
-    final sourceApi = ref.read(apiServiceProvider);
-    if (sourceConversation == null || sourceApi == null) return;
-    final sourceConversationId = conversationScopedId(sourceConversation);
+    if (ref.read(activeConversationProvider) == null ||
+        ref.read(apiServiceProvider) == null) {
+      return;
+    }
     final sourceConversationGeneration = _conversationOwnerGeneration;
-    final sourceAuthSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
     setState(() {
       _isSavingTemporary = true;
     });
     try {
-      final messages = (await readCompleteActiveChatHistory(ref)).messages;
-      if (messages.isEmpty) return;
-      if (!_ownsDeferredConversationMutation(
-        api: sourceApi,
-        authSessionEpoch: sourceAuthSessionEpoch,
-        conversationId: sourceConversationId,
-        conversationGeneration: sourceConversationGeneration,
-      )) {
-        return;
-      }
-
-      // Generate title from first user message
-      final firstUserMsg = messages.firstWhere(
-        (m) => m.role == 'user',
-        orElse: () => messages.first,
+      final outcome = await saveTemporaryChat(
+        ref,
+        isCurrentOwner: () =>
+            mounted &&
+            _conversationOwnerGeneration == sourceConversationGeneration,
       );
-      final title = firstUserMsg.content.length > 50
-          ? '${firstUserMsg.content.substring(0, 50)}...'
-          : firstUserMsg.content.isEmpty
-          ? 'New Chat'
-          : firstUserMsg.content;
-
-      final selectedModel = ref.read(selectedModelProvider);
-      final serverConversation = await sourceApi.createConversation(
-        title: title,
-        messages: messages,
-        model: selectedModel?.id ?? '',
-        systemPrompt: sourceConversation.systemPrompt,
-        folderId: sourceConversation.folderId,
-      );
-      if (!_ownsDeferredConversationMutation(
-        api: sourceApi,
-        authSessionEpoch: sourceAuthSessionEpoch,
-        conversationId: sourceConversationId,
-        conversationGeneration: sourceConversationGeneration,
-      )) {
-        return;
-      }
-
-      // Transition to permanent chat
-      final updatedConversation = serverConversation.copyWith(
-        messages: messages,
-      );
-      ref.read(activeConversationProvider.notifier).set(updatedConversation);
-      ref
-          .read(conversationsProvider.notifier)
-          .upsertConversation(
-            updatedConversation.copyWith(
-              messages: const [],
-              updatedAt: DateTime.now(),
-            ),
-            trustFolderConversation:
-                updatedConversation.folderId != null &&
-                updatedConversation.folderId!.isNotEmpty,
+      if (!mounted) return;
+      switch (outcome) {
+        case TemporaryChatSaveOutcome.saved:
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            SnackBar(content: Text(AppLocalizations.of(context)!.chatSaved)),
           );
-      ref.read(temporaryChatEnabledProvider.notifier).set(false);
-      refreshConversationsCache(ref);
-
-      if (mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context)!.chatSaved)),
-        );
+        case TemporaryChatSaveOutcome.failed:
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            SnackBar(
+              content: Text(AppLocalizations.of(context)!.chatSaveFailed),
+            ),
+          );
+        case TemporaryChatSaveOutcome.skipped:
+          break;
       }
-    } catch (e, stackTrace) {
-      if (mounted &&
-          _ownsDeferredConversationMutation(
-            api: sourceApi,
-            authSessionEpoch: sourceAuthSessionEpoch,
-            conversationId: sourceConversationId,
-            conversationGeneration: sourceConversationGeneration,
-          )) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context)!.chatSaveFailed)),
-        );
-      }
-      DebugLogger.error(
-        'temporary-chat-save-failed',
-        scope: 'chat/page',
-        error: e,
-        stackTrace: stackTrace,
-      );
     } finally {
       if (mounted) {
         setState(() {
@@ -839,30 +751,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _isSavingTemporary = false;
       }
     }
-  }
-
-  bool _ownsDeferredConversationMutation({
-    required ApiService api,
-    required Object authSessionEpoch,
-    required String conversationId,
-    required int conversationGeneration,
-  }) {
-    if (!mounted) return false;
-    final activeConversation = ref.read(activeConversationProvider);
-    return debugShouldApplyDeferredConversationMutationForTesting(
-          isMounted: true,
-          scheduledConversationId: conversationId,
-          activeConversationId: activeConversation == null
-              ? null
-              : conversationScopedId(activeConversation),
-          scheduledGeneration: conversationGeneration,
-          activeGeneration: _conversationOwnerGeneration,
-        ) &&
-        identical(ref.read(apiServiceProvider), api) &&
-        identical(
-          ref.read(openWebUiAuthSessionEpochProvider),
-          authSessionEpoch,
-        );
   }
 
   Future<void> _checkAndAutoSelectModel() async {
@@ -2133,11 +2021,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   int _renderedTranscriptCount(
     List<ChatMessage> completeMessages,
     ChatTranscriptPagingState paging,
-  ) {
-    return paging.loadedCount == 0 && completeMessages.isNotEmpty
-        ? math.min(kChatTranscriptPageSize, completeMessages.length)
-        : math.min(paging.loadedCount, completeMessages.length);
-  }
+  ) => renderedTranscriptCount(
+    total: completeMessages.length,
+    loadedCount: paging.loadedCount,
+  );
 
   List<ChatMessage> _renderedTranscriptWindow(
     List<ChatMessage> completeMessages,
@@ -3886,12 +3773,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           _resolvePersistedOpenWebUiPrompt(
                             activeConversationId!,
                             persistedPrompt,
-                            persistedPrompt.prompt.kind ==
-                                    OpenWebUiComposerPromptKind.askUser
-                                ? OpenWebUiToolCallAction.reject
-                                : approved
-                                ? OpenWebUiToolCallAction.approve
-                                : OpenWebUiToolCallAction.reject,
+                            openWebUiDecisionAction(
+                              persistedPrompt.prompt,
+                              approved,
+                            ),
                           ),
                     );
                   } else if (matchingLivePrompt != null) {
@@ -4021,45 +3906,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     OpenWebUiPendingToolPrompt pending,
     OpenWebUiToolCallAction action, {
     Map<String, dynamic>? answers,
-  }) async {
-    final api = ref.read(apiServiceProvider);
-    final conversation = ref.read(activeConversationProvider);
-    if (api == null ||
-        conversation == null ||
-        !debugCanUsePersistedOpenWebUiPromptForTesting(
-          isLoadingConversation: ref.read(isLoadingConversationProvider),
-          ownerConversationId: ownerConversationId,
-          activeConversationId: conversation.id,
-        ) ||
-        !conversationUsesOpenWebUiStorage(conversation) ||
-        isTemporaryChat(conversation.id)) {
-      throw StateError('Open WebUI chat is unavailable.');
-    }
-    final chatId = ownerConversationId;
-    final authEpoch = ref.read(openWebUiAuthSessionEpochProvider);
-    final taskIds = await api.resolveChatMessageToolCall(
-      chatId: chatId,
-      messageId: pending.messageId,
-      callId: pending.callId,
-      action: action,
-      answers: answers,
-    );
-    if (!mounted ||
-        !identical(api, ref.read(apiServiceProvider)) ||
-        !identical(authEpoch, ref.read(openWebUiAuthSessionEpochProvider)) ||
-        ref.read(activeConversationProvider)?.id != chatId) {
-      return;
-    }
-    await ref
-        .read(chatMessagesProvider.notifier)
-        .resumeAfterOpenWebUiToolCall(
-          messageId: pending.messageId,
-          callId: pending.callId,
-          action: action,
-          taskIds: taskIds,
-          answers: answers,
-        );
-  }
+  }) => resolvePersistedOpenWebUiPrompt(
+    ref,
+    ownerConversationId: ownerConversationId,
+    pending: pending,
+    action: action,
+    answers: answers,
+    isMounted: () => mounted,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -5408,8 +5262,12 @@ bool debugShouldLoadOlderPageForTesting({
   required bool hasOlder,
   required bool isLoadingOlder,
   required bool anyOldestLoadedRowVisible,
-}) =>
-    hasUserScrolled && hasOlder && !isLoadingOlder && anyOldestLoadedRowVisible;
+}) => shouldLoadOlderTranscriptPage(
+  hasUserScrolled: hasUserScrolled,
+  hasOlder: hasOlder,
+  isLoadingOlder: isLoadingOlder,
+  oldestLoadedRowVisible: anyOldestLoadedRowVisible,
+);
 
 @visibleForTesting
 bool debugCanSubmitChatMessageForTesting({
@@ -5427,11 +5285,11 @@ bool debugCanUsePersistedOpenWebUiPromptForTesting({
   required bool isLoadingConversation,
   required String? ownerConversationId,
   required String? activeConversationId,
-}) {
-  return !isLoadingConversation &&
-      ownerConversationId != null &&
-      ownerConversationId == activeConversationId;
-}
+}) => canUsePersistedOpenWebUiPrompt(
+  isLoadingConversation: isLoadingConversation,
+  ownerConversationId: ownerConversationId,
+  activeConversationId: activeConversationId,
+);
 
 @visibleForTesting
 bool debugShouldConsumeScreenContextForTesting({

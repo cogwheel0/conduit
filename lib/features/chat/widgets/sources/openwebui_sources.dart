@@ -1,127 +1,32 @@
 import 'dart:async';
-import 'dart:collection';
-import 'dart:io' show HttpClient, HttpHeaders, Platform;
+import 'dart:io' show Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit_core/models/chat_message.dart';
+
 import '../../../../core/services/native_sheet_bridge.dart';
 import '../../../../shared/services/raster_media_policy.dart';
 import '../../../../shared/theme/theme_extensions.dart';
 import '../../../../shared/utils/adaptive_glass.dart';
 import '../../../../shared/utils/external_link_launcher.dart';
+
+import 'package:conduit_core/utils/source_presentation.dart';
 import 'package:conduit_core/utils/source_reference_helper.dart';
+
 import '../../../../shared/widgets/sheet_handle.dart';
 import '../../../../shared/widgets/themed_sheets.dart';
 
-typedef SourceFaviconDomainResolver = Future<String> Function(String url);
-typedef SourceGroundingRedirectResolver = Future<Uri?> Function(Uri source);
-
-const _googleGroundingRedirectHost = 'vertexaisearch.cloud.google.com';
-const _googleGroundingRedirectPath = '/grounding-api-redirect';
-const _sourceFaviconDomainCacheLimit = 256;
-
-typedef _SourceFaviconDomainCacheKey = ({
-  String sourceUrl,
-  SourceGroundingRedirectResolver? redirectResolver,
-});
-
-final LinkedHashMap<_SourceFaviconDomainCacheKey, Future<String>>
-_sourceFaviconDomainCache =
-    LinkedHashMap<_SourceFaviconDomainCacheKey, Future<String>>();
-
-bool _isGoogleGroundingRedirect(Uri? uri) =>
-    uri != null &&
-    uri.scheme.toLowerCase() == 'https' &&
-    uri.host.toLowerCase() == _googleGroundingRedirectHost &&
-    (uri.path == _googleGroundingRedirectPath ||
-        uri.path.startsWith('$_googleGroundingRedirectPath/'));
-
-/// Resolves the display domain hidden behind Gemini grounding redirect URLs.
-///
-/// OpenRouter intentionally returns an opaque Google redirect for Gemini web
-/// citations. Resolving only this exact HTTPS endpoint keeps ordinary source
-/// rendering free of extra network requests and never forwards app headers or
-/// credentials to the cited site.
-Future<String> resolveSourceFaviconDomain(
-  String sourceUrl, {
-  SourceGroundingRedirectResolver? redirectResolver,
-}) {
-  final key = (sourceUrl: sourceUrl.trim(), redirectResolver: redirectResolver);
-  final cached = _sourceFaviconDomainCache.remove(key);
-  if (cached != null) {
-    _sourceFaviconDomainCache[key] = cached;
-    return cached;
-  }
-
-  final result = _resolveSourceFaviconDomainUncached(
-    sourceUrl,
-    redirectResolver: redirectResolver,
-  );
-  _sourceFaviconDomainCache[key] = result;
-  while (_sourceFaviconDomainCache.length > _sourceFaviconDomainCacheLimit) {
-    _sourceFaviconDomainCache.remove(_sourceFaviconDomainCache.keys.first);
-  }
-  return result;
-}
-
-Future<String> _resolveSourceFaviconDomainUncached(
-  String sourceUrl, {
-  SourceGroundingRedirectResolver? redirectResolver,
-}) async {
-  final source = Uri.tryParse(sourceUrl);
-  final fallback = SourceReferenceHelper.extractDomain(sourceUrl).trim();
-  if (!_isGoogleGroundingRedirect(source)) {
-    return fallback;
-  }
-
-  try {
-    final destination = await (redirectResolver ?? _resolveGroundingRedirect)(
-      source!,
-    ).timeout(const Duration(seconds: 3));
-    if (destination == null ||
-        destination.scheme.toLowerCase() != 'https' ||
-        destination.userInfo.isNotEmpty ||
-        destination.host.trim().isEmpty) {
-      return fallback;
-    }
-    var domain = destination.host.trim().toLowerCase();
-    if (domain.startsWith('www.')) {
-      domain = domain.substring(4);
-    }
-    return domain;
-  } catch (_) {
-    return fallback;
-  }
-}
-
-@visibleForTesting
-void debugResetSourceFaviconDomainCache() {
-  _sourceFaviconDomainCache.clear();
-}
-
-Future<Uri?> _resolveGroundingRedirect(Uri source) async {
-  final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
-  try {
-    final request = await client.getUrl(source);
-    request
-      ..followRedirects = false
-      ..maxRedirects = 0;
-    final response = await request.close().timeout(const Duration(seconds: 3));
-    final location = response.headers.value(HttpHeaders.locationHeader);
-    if (response.statusCode < 300 ||
-        response.statusCode >= 400 ||
-        location == null ||
-        location.trim().isEmpty) {
-      return null;
-    }
-    return source.resolve(location.trim());
-  } finally {
-    client.close(force: true);
-  }
-}
+// The favicon resolver, snippets and labels are conduit_core's
+// (utils/source_presentation.dart); re-exported for existing importers.
+export 'package:conduit_core/utils/source_presentation.dart'
+    show
+        SourceFaviconDomainResolver,
+        SourceGroundingRedirectResolver,
+        debugResetSourceFaviconDomainCache,
+        resolveSourceFaviconDomain;
 
 /// OpenWebUI-style sources component with a compact chip and details sheet.
 class OpenWebUISourcesWidget extends StatelessWidget {
@@ -161,7 +66,7 @@ class OpenWebUISourcesWidget extends StatelessWidget {
         );
         final textPainter = TextPainter(
           text: TextSpan(
-            text: _sourceCountLabel(sources.length),
+            text: sourceCountLabel(sources.length),
             style: labelStyle,
           ),
           maxLines: 1,
@@ -178,7 +83,7 @@ class OpenWebUISourcesWidget extends StatelessWidget {
 
         return Semantics(
           button: true,
-          label: _sourceCountLabel(sources.length),
+          label: sourceCountLabel(sources.length),
           child: AdaptiveButton.child(
             onPressed: () => _showSourcesBottomSheet(context),
             style: usesOpaqueFallback
@@ -237,7 +142,7 @@ class OpenWebUISourcesWidget extends StatelessWidget {
           const SizedBox(width: 8),
         ],
         Text(
-          _sourceCountLabel(sources.length),
+          sourceCountLabel(sources.length),
           style: AppTypography.labelMediumStyle.copyWith(
             fontWeight: FontWeight.w600,
             color: theme.textPrimary.withValues(alpha: 0.8),
@@ -264,7 +169,7 @@ class OpenWebUISourcesWidget extends StatelessWidget {
         await NativeSheetBridge.instance.presentSheet(
           root: NativeSheetDetailConfig(
             id: 'chat-sources',
-            title: _sourceCountLabel(sources.length),
+            title: sourceCountLabel(sources.length),
             items: [
               for (var index = 0; index < sources.length; index++)
                 _buildNativeSourceItem(
@@ -329,7 +234,7 @@ class OpenWebUISourcesWidget extends StatelessWidget {
                         const SizedBox(width: Spacing.sm),
                         Expanded(
                           child: Text(
-                            _sourceCountLabel(sources.length),
+                            sourceCountLabel(sources.length),
                             style: AppTypography.bodyLargeStyle.copyWith(
                               fontWeight: FontWeight.w600,
                               color: liveTheme.textPrimary,
@@ -380,7 +285,7 @@ class OpenWebUISourcesWidget extends StatelessWidget {
     final theme = context.conduitTheme;
     final url = SourceReferenceHelper.getSourceUrl(source);
     final displayText = SourceReferenceHelper.getSourceLabel(source, index);
-    final snippet = _sourceSnippet(source);
+    final snippet = sourceSnippet(source);
     final type = source.type?.trim();
     final hasType = type != null && type.isNotEmpty;
 
@@ -500,8 +405,8 @@ class OpenWebUISourcesWidget extends StatelessWidget {
     String? faviconDomain,
   }) {
     final url = SourceReferenceHelper.getSourceUrl(source);
-    final snippet = _sourceSnippet(source);
-    final type = _sourceType(source);
+    final snippet = sourceSnippet(source);
+    final type = sourceType(source);
 
     return NativeSheetItemConfig(
       id: 'source-$index',
@@ -514,84 +419,8 @@ class OpenWebUISourcesWidget extends StatelessWidget {
       sourceUrl: url,
       sourceType: type,
       snippet: snippet,
-      faviconUrl: _sourceFaviconUrl(url, domain: faviconDomain),
+      faviconUrl: sourceFaviconUrl(url, domain: faviconDomain),
     );
-  }
-
-  String _sourceCountLabel(int count) {
-    return count == 1 ? '1 Source' : '$count Sources';
-  }
-
-  String? _sourceType(ChatSourceReference source) {
-    final type = source.type?.trim();
-    return type == null || type.isEmpty ? null : type;
-  }
-
-  String? _sourceSnippet(ChatSourceReference source) {
-    final candidates = <dynamic>[
-      source.snippet,
-      ..._metadataSnippetCandidates(source),
-    ];
-
-    for (final candidate in candidates) {
-      final normalized = _normalizeSnippet(candidate);
-      if (normalized != null) {
-        return normalized;
-      }
-    }
-
-    return null;
-  }
-
-  Iterable<dynamic> _metadataSnippetCandidates(
-    ChatSourceReference source,
-  ) sync* {
-    final metadata = source.metadata;
-    if (metadata == null) {
-      return;
-    }
-
-    final documents = metadata['documents'];
-    if (documents is List) {
-      for (final document in documents) {
-        yield document;
-      }
-    }
-
-    final primaryMetadata = SourceReferenceHelper.primaryMetadata(source);
-    final nestedSource = SourceReferenceHelper.nestedSourceMetadata(source);
-    for (final entry in [primaryMetadata, nestedSource]) {
-      if (entry == null) {
-        continue;
-      }
-      yield entry['snippet'];
-      yield entry['content'];
-      yield entry['description'];
-      yield entry['text'];
-    }
-  }
-
-  String? _normalizeSnippet(dynamic value) {
-    if (value == null) {
-      return null;
-    }
-
-    final text = value.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
-    return text.isEmpty ? null : text;
-  }
-
-  String? _sourceFaviconUrl(String? url, {String? domain}) {
-    if (url == null) {
-      return null;
-    }
-
-    final resolvedDomain =
-        domain?.trim() ?? SourceReferenceHelper.extractDomain(url).trim();
-    if (resolvedDomain.isEmpty) {
-      return null;
-    }
-
-    return 'https://www.google.com/s2/favicons?sz=32&domain=$resolvedDomain';
   }
 }
 
@@ -664,7 +493,7 @@ class _SourceFaviconState extends State<_SourceFavicon> {
     final generation = ++_resolutionGeneration;
     _domain = SourceReferenceHelper.extractDomain(widget.url);
     final source = Uri.tryParse(widget.url);
-    _waitingForGroundingRedirect = _isGoogleGroundingRedirect(source);
+    _waitingForGroundingRedirect = isGoogleGroundingRedirect(source);
     if (!_waitingForGroundingRedirect) {
       return;
     }
