@@ -28,6 +28,11 @@ class _NoModels extends Models {
   Future<List<Model>> build() async => const <Model>[];
 }
 
+class _FailingModels extends Models {
+  @override
+  Future<List<Model>> build() async => throw StateError('server unreachable');
+}
+
 /// A root that follows [appLocaleProvider] the way `ConduitApp` does.
 class _LocalizedRoot extends ConsumerWidget {
   const _LocalizedRoot();
@@ -113,5 +118,59 @@ void main() {
     check(appearance.last.title).equals(spanish.settingsAppearance);
     check(appearance.last.title)
         .not((it) => it.equals(english.settingsAppearance));
+  });
+
+  testWidgets('Appearance keeps its pickers when the models request fails', (
+    tester,
+  ) async {
+    NativeSheetBridge.instance.debugIsIOSOverride = true;
+    final patches = <PlatformNativeSheetApplyDetailPatchRequest>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockDecodedMessageHandler<Object?>(_applyDetailPatchChannel, (
+          message,
+        ) async {
+          patches.add(
+            (message! as List<Object?>).single!
+                as PlatformNativeSheetApplyDetailPatchRequest,
+          );
+          return <Object?>[true];
+        });
+
+    final storage = _MockOptimizedStorageService();
+    when(storage.getThemeMode).thenReturn(null);
+    when(storage.getThemePaletteId).thenReturn(null);
+    when(storage.getLocaleCode).thenReturn(null);
+    when(storage.getReviewerMode).thenAnswer((_) async => false);
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        modelsProvider.overrideWith(_FailingModels.new),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const _LocalizedRoot(),
+      ),
+    );
+    await tester.pump();
+
+    final service = container.read(nativeSheetHydrationServiceProvider);
+    final opened = service.hydrateDetail(NativeSheetRoutes.appearance);
+    await tester.pump();
+    await opened;
+
+    final appearance = patches.where((p) => p.detailId == 'appearance');
+    check(appearance).length.equals(1);
+    final ids = [
+      for (final section in appearance.single.sections)
+        for (final item in section.items) item.id,
+    ];
+    check(ids).containsEqualInOrder(['theme-light', 'theme-palette']);
+    check(ids).contains('language');
+    // The pages that do need the server show the error instead.
+    check(patches.where((p) => p.detailId == 'chats')).isNotEmpty();
   });
 }

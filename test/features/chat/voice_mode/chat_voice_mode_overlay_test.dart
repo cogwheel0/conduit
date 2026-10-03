@@ -100,6 +100,58 @@ void main() {
     );
   });
 
+  testWidgets('an error is shown by its kind, never as an exception text', (
+    tester,
+  ) async {
+    final container = ProviderContainer(
+      overrides: [
+        chatVoiceModeControllerProvider.overrideWith(
+          () => _TestVoiceModeController(
+            const ChatVoiceModeSnapshot(
+              phase: ChatVoiceModePhase.error,
+              errorMessage: 'Microphone permission denied.',
+              errorKind: ChatVoiceModeError.microphoneDenied,
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_buildActiveHarness(container));
+    final l10n = AppLocalizations.of(
+      tester.element(find.byType(ChatVoiceModeOverlay)),
+    )!;
+
+    expect(find.text(l10n.microphonePermissionDenied), findsOneWidget);
+
+    final controller = container.read(
+      chatVoiceModeControllerProvider.notifier,
+    ) as _TestVoiceModeController;
+    controller.update(
+      const ChatVoiceModeSnapshot(
+        phase: ChatVoiceModePhase.error,
+        errorMessage: 'SocketException: connection refused',
+        errorKind: ChatVoiceModeError.other,
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('SocketException: connection refused'), findsNothing);
+    expect(find.text(l10n.voiceCallFailed), findsOneWidget);
+
+    controller.update(
+      const ChatVoiceModeSnapshot(
+        phase: ChatVoiceModePhase.error,
+        errorMessage: 'The server could not answer.',
+        errorKind: ChatVoiceModeError.message,
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('The server could not answer.'), findsOneWidget);
+  });
+
   testWidgets('reduced motion makes voice surface changes spatially static', (
     tester,
   ) async {

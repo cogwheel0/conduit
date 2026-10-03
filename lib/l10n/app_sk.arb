@@ -5011,5 +5011,11 @@
   "@voiceCallExpand": {
     "description": "Accessibility label for the button that opens the minimized voice call pill back into the full panel."
   },
-  "askConduitAction": "Opýtať sa Conduitu"
+  "askConduitAction": "Opýtať sa Conduitu",
+  "voiceCallStartTimeout": "Spustenie hlasového hovoru trvalo príliš dlho. Skúste to znova.",
+  "@voiceCallStartTimeout": {"description": "Error shown when starting a voice call takes too long."},
+  "voiceCallNoSpeech": "Nebola zistená žiadna reč.",
+  "@voiceCallNoSpeech": {"description": "Message shown when the voice call heard no speech for several tries."},
+  "voiceCallFailed": "Hlasový hovor nemohol pokračovať.",
+  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."}
 }

@@ -93,6 +93,7 @@ import 'package:conduit_core/features/chat/services/historical_message_regenerat
 
 import '../voice_mode/chat_voice_mode_controller.dart';
 import '../voice_mode/chat_voice_mode_overlay.dart';
+import '../voice_mode/voice_mode_error_text.dart';
 import '../voice_call/presentation/voice_call_launcher.dart';
 import '../../../core/services/media_upload_controller.dart';
 
@@ -1957,9 +1958,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         stackTrace: stackTrace,
       );
       if (!mounted) return;
-      final message = error is StateError
+      final l10n = AppLocalizations.of(context)!;
+      final message = error is VoiceCallStartException
+          ? voiceModeErrorText(l10n, kind: error.kind, message: error.message)!
+          : error is StateError
           ? error.message.toString()
-          : AppLocalizations.of(context)!.errorMessage;
+          : l10n.errorMessage;
       ScaffoldMessenger.maybeOf(context)
           ?.showSnackBar(SnackBar(content: Text(message)));
     }

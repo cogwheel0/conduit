@@ -5,7 +5,8 @@
 // written by hive_ce 2.14.0, the version v2.0.0 first shipped
 // (test/fixtures/legacy_install/generate.sh rebuilds it). The app runs the
 // same chain at startup (lib/main.dart): PersistenceMigrator, then
-// HivePrefsMigrator, and later the sync engine's HiveCacheMigrator.
+// HivePrefsMigrator, and later the sync engine's migrations: the outbound task
+// queue first, then HiveCacheMigrator.
 import 'dart:convert';
 import 'dart:io';
 
@@ -17,12 +18,20 @@ import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/persistence_migrator.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
+import 'package:conduit_core/sync/chat_locks.dart';
+import 'package:conduit_core/sync/clock.dart';
 import 'package:conduit_core/sync/hive_cache_migrator.dart';
+import 'package:conduit_core/sync/outbox_task_queue_migrator.dart';
 import 'package:drift/native.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:test/test.dart';
 
 const _fixture = 'test/fixtures/legacy_install/v3.3.1/conduit_hive';
+
+class _FixedClock implements SyncClock {
+  @override
+  int nowEpochSeconds() => 1700000000;
+}
 
 void main() {
   late Directory home;
@@ -52,6 +61,14 @@ void main() {
       preferences: prefs,
     ).migrateIfNeeded();
     await HivePrefsMigrator(hiveBoxes: boxes).migrateIfNeeded();
+    // The sync engine converts the queued sends before the caches, as here.
+    await OutboxTaskQueueMigrator(
+      db: db,
+      hiveBoxes: boxes,
+      chatLocks: ConversationLocks(),
+      clock: _FixedClock(),
+      resolveDefaultModel: () => 'llama3:8b',
+    ).migrateIfNeeded();
     await HiveCacheMigrator(
       db: db,
       hiveBoxes: boxes,
@@ -151,6 +168,55 @@ void main() {
       check(uploads.single.retryCount).equals(1);
     },
   );
+
+  test('a send still queued in a v3.3.1 install is not lost', () async {
+    final target = Directory('${home.path}/conduit_hive')..createSync();
+    for (final file in Directory(_fixture).listSync().whereType<File>()) {
+      file.copySync('${target.path}/${file.uri.pathSegments.last}');
+    }
+    final boxes = await openBoxes();
+    // The user sent a message offline; it was still queued when they updated.
+    await boxes.caches.put(HiveStoreKeys.taskQueue, <Map<String, dynamic>>[
+      {
+        'runtimeType': 'sendTextMessage',
+        'id': 'queued-1',
+        'conversationId': null,
+        'text': 'Sent while offline',
+        'attachments': <String>[],
+        'toolIds': <String>['tool-a'],
+        'status': 'queued',
+      },
+      {
+        'runtimeType': 'sendTextMessage',
+        'id': 'done-1',
+        'conversationId': null,
+        'text': 'Already delivered',
+        'attachments': <String>[],
+        'toolIds': <String>[],
+        'status': 'succeeded',
+      },
+    ]);
+
+    await runStartupChain(boxes);
+
+    // Only the queued send becomes a local chat, with its outbox operations.
+    final chats = await db.select(db.chats).get();
+    check(chats).length.equals(1);
+    final messages = await db.messagesDao.getForChat(chats.single.id);
+    check(messages.where((m) => m.role == 'user').map((m) => m.content))
+        .deepEquals(['Sent while offline']);
+    final ops = await db.outboxDao.pendingForChat(chats.single.id);
+    check(ops.map((op) => op.kind))
+        .deepEquals(['createChat', 'requestCompletion']);
+
+    // The queue is consumed, and the rest of the install still migrates.
+    check(boxes.caches.get(HiveStoreKeys.taskQueue)).isNull();
+    check(
+      await db.syncMetaDao.getValue(OutboxTaskQueueMigrator.migratedFlagKey),
+    ).equals('1');
+    check(PreferencesStore.getString(PreferenceKeys.themeMode)).equals('dark');
+    check(await db.attachmentQueueDao.getAll()).length.equals(1);
+  });
 
   test('the chain is idempotent across launches', () async {
     final target = Directory('${home.path}/conduit_hive')..createSync();

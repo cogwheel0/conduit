@@ -11,6 +11,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 
 import '../features/chat/services/file_attachment_service.dart';
 import '../features/chat/voice_call/presentation/voice_call_launcher.dart';
+import '../features/chat/voice_mode/voice_mode_error_text.dart';
 import '../shared/services/navigation_service.dart';
 import '../core/services/media_upload_controller.dart';
 
@@ -144,10 +145,12 @@ class AndroidAssistantHandler {
       await NavigationService.navigateToChat();
       final context = NavigationService.context;
       if (context == null || !context.mounted) return;
-      final message = error is StateError
+      final l10n = AppLocalizations.of(context);
+      final message = error is VoiceCallStartException && l10n != null
+          ? voiceModeErrorText(l10n, kind: error.kind, message: error.message)!
+          : error is StateError
           ? error.message.toString()
-          : AppLocalizations.of(context)?.errorMessage ??
-                'Unable to start a voice call.';
+          : l10n?.errorMessage ?? 'Unable to start a voice call.';
       ScaffoldMessenger.maybeOf(context)
           ?.showSnackBar(SnackBar(content: Text(message)));
     }
