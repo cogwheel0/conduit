@@ -60,23 +60,33 @@ class _CapabilityChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
     final color = enabled ? theme.success : theme.textSecondary;
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Spacing.sm,
-        vertical: Spacing.xs,
-      ),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(AppBorderRadius.pill),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(enabled ? Icons.check : Icons.remove, size: 14, color: color),
-          const SizedBox(width: Spacing.xs),
-          Text(label, style: AppTypography.captionStyle.copyWith(color: color)),
-        ],
+    // The check or dash and the colour are the only signs of the state, so
+    // assistive technology is told it.
+    return Semantics(
+      label: '$label, ${enabled ? l10n.enabled : l10n.disabled}',
+      excludeSemantics: true,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.sm,
+          vertical: Spacing.xs,
+        ),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(AppBorderRadius.pill),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(enabled ? Icons.check : Icons.remove, size: 14, color: color),
+            const SizedBox(width: Spacing.xs),
+            Text(
+              label,
+              style: AppTypography.captionStyle.copyWith(color: color),
+            ),
+          ],
+        ),
       ),
     );
   }

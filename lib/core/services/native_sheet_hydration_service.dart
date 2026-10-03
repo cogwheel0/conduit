@@ -107,9 +107,22 @@ nativeHydratedServerReasoningEffort({
 }
 
 class NativeSheetHydrationService {
-  NativeSheetHydrationService(this._ref);
+  NativeSheetHydrationService(this._ref) {
+    final sheetEvents = NativeSheetBridge.instance.events.listen((event) {
+      if (event is NativeSheetDismissed) _appearanceDetailPresented = false;
+    });
+    _ref.onDispose(sheetEvents.cancel);
+    // The native sheet keeps the rows it was handed, so a language chosen
+    // inside it left every label in the old language until the sheet was
+    // reopened. Hand it rows built in the new language.
+    _ref.listen<Locale?>(appLocaleProvider, (previous, next) {
+      if (previous == next || !_appearanceDetailPresented) return;
+      unawaited(_rehydrateAppearanceAfterLocaleChange());
+    });
+  }
 
   final Ref _ref;
+  bool _appearanceDetailPresented = false;
   final NativeSheetHydrationGeneration _modelSelectorHydration =
       NativeSheetHydrationGeneration();
   final NativeSheetPresentationAdmission _modelSelectorPresentation =
@@ -431,6 +444,22 @@ class NativeSheetHydrationService {
     }
   }
 
+  /// The rows read their strings from the app's localizations, which switch on
+  /// the frame that follows the locale change, so wait for that frame first.
+  Future<void> _rehydrateAppearanceAfterLocaleChange() async {
+    try {
+      await WidgetsBinding.instance.endOfFrame;
+      await hydrateDetail(NativeSheetRoutes.appearance);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'native-sheet-locale-rehydrate-failed',
+        scope: 'native-sheet/hydration',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
   Future<void> hydrateDetail(String detailId) async {
     final ctx = NavigationService.context;
     if (ctx == null || !ctx.mounted) return;
@@ -449,6 +478,9 @@ class NativeSheetHydrationService {
       case NativeSheetRoutes.appearance:
       case NativeSheetRoutes.chats:
       case NativeSheetRoutes.dataConnection:
+        if (detailId == NativeSheetRoutes.appearance) {
+          _appearanceDetailPresented = true;
+        }
         await _hydrateNativeSignalStyleSettingsDetails(ctx, l10n);
         return;
       case NativeSheetRoutes.aiMemory:
