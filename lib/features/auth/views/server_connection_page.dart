@@ -66,6 +66,26 @@ BaseOptions buildSchemeLessPlaintextHealthProbeOptions(String baseUrl) {
   );
 }
 
+/// Whether a failed connection to a server configured with a client
+/// certificate looks like the server refusing that certificate.
+///
+/// With TLS 1.3 the client finishes its side of the handshake before the
+/// server checks the certificate, so a refusal does not surface as a
+/// handshake error: the server closes the connection before the first
+/// response header arrives.
+@visibleForTesting
+bool isLikelyMutualTlsRejection(
+  String errorText, {
+  required bool hasMutualTlsInput,
+}) {
+  if (!hasMutualTlsInput) return false;
+  return errorText.contains('HandshakeException') ||
+      errorText.contains('TlsException') ||
+      errorText.contains('CERTIFICATE_VERIFY_FAILED') ||
+      errorText.contains('alert bad certificate') ||
+      errorText.contains('Connection closed before full header was received');
+}
+
 /// Redacts configured header values before normalizing and bounding text that
 /// came from a server, proxy, or transport error.
 ///
@@ -1017,16 +1037,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     // Handle specific error types
     if (errorText.contains('mTLS certificate setup failed')) {
       return cleanError;
-    } else if (errorText.contains('HandshakeException') &&
-        _hasAnyMutualTlsInput) {
-      return AppLocalizations.of(context)!.mutualTlsHandshakeFailed;
-    } else if (errorText.contains('TlsException') && _hasAnyMutualTlsInput) {
-      return AppLocalizations.of(context)!.mutualTlsHandshakeFailed;
-    } else if (errorText.contains('CERTIFICATE_VERIFY_FAILED') &&
-        _hasAnyMutualTlsInput) {
-      return AppLocalizations.of(context)!.mutualTlsHandshakeFailed;
-    } else if (errorText.contains('alert bad certificate') &&
-        _hasAnyMutualTlsInput) {
+    } else if (isLikelyMutualTlsRejection(
+      errorText,
+      hasMutualTlsInput: _hasAnyMutualTlsInput,
+    )) {
       return AppLocalizations.of(context)!.mutualTlsHandshakeFailed;
     }
 
