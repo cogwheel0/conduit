@@ -55,6 +55,9 @@ class TerminalBrowserController extends ChangeNotifier {
 
   bool _loadingFiles = false;
   int _directoryLoadGeneration = 0;
+  int _loadSequence = 0;
+  int _publishedSequence = 0;
+  String? _publishedPath;
   bool _loadingPorts = false;
   bool _disposed = false;
 
@@ -106,7 +109,9 @@ class TerminalBrowserController extends ChangeNotifier {
   /// newest can publish. A [refresh] lists the directory that is current
   /// instead. It never supersedes a navigation, and it publishes only while
   /// that directory is still current: a refresh that answers after the context
-  /// chose another path must not put the old one back.
+  /// chose another path must not put the old one back. Two listings of the
+  /// same directory, a refresh among them, publish in the order they were
+  /// requested, whatever order they answer in.
   Future<void> loadDirectory(
     TerminalService service,
     TerminalServerInfo server, {
@@ -117,6 +122,7 @@ class TerminalBrowserController extends ChangeNotifier {
     final sessionScopeId = _gateway.sessionScopeId;
     if (!_isCurrentContext(server, sessionScopeId)) return;
     final normalizedPath = ensureTerminalDirectoryPath(path);
+    final sequence = ++_loadSequence;
     final generation = refresh
         ? _directoryLoadGeneration
         : ++_directoryLoadGeneration;
@@ -135,6 +141,11 @@ class TerminalBrowserController extends ChangeNotifier {
       if (!isCurrentLoad()) {
         return;
       }
+      if (_publishedPath == normalizedPath && sequence < _publishedSequence) {
+        return;
+      }
+      _publishedPath = normalizedPath;
+      _publishedSequence = sequence;
 
       _gateway.setCurrentPath(normalizedPath);
       _gateway.setEntries(entries);
@@ -153,7 +164,9 @@ class TerminalBrowserController extends ChangeNotifier {
         _onFailure(TerminalBrowserFailure.loadFiles);
       }
     } finally {
-      if (isCurrentLoad()) {
+      // Loading ends with the newest request, not with whichever answers last.
+      if (sequence == _loadSequence &&
+          _isCurrentContext(server, sessionScopeId)) {
         _setLoadingFiles(false);
       }
     }

@@ -389,6 +389,47 @@ void main() {
       check(harness.browser.loadingFiles).isFalse();
     },
   );
+
+  test(
+    'overlapping reloads publish in the order they were requested',
+    () async {
+      final service = _MockTerminalService();
+      final gateway = _FakeTerminalGateway(service: service)
+        ..selectedTerminalId = server.selectionId
+        ..selectedServer = server
+        ..currentPath = '/workspace/'
+        ..sessionScopeId = 'scope';
+      final harness = _TerminalControllerHarness(gateway);
+      addTearDown(harness.dispose);
+      final listings = [
+        Completer<List<TerminalFileEntry>>(),
+        Completer<List<TerminalFileEntry>>(),
+      ];
+      var requested = 0;
+      when(
+        () => service.listFiles(server, '/workspace/', sessionScopeId: 'scope'),
+      ).thenAnswer((_) => listings[requested++].future);
+      when(() => service.getListeningPorts(server, sessionScopeId: 'scope'))
+          .thenAnswer((_) async => const []);
+
+      // Creating a folder refreshes the listing and then reloads it again.
+      final first = harness.browser.reload();
+      final second = harness.browser.reload();
+      listings[1].complete(const [
+        TerminalFileEntry(
+          name: 'new-folder',
+          path: '/workspace/new-folder',
+          isDirectory: true,
+        ),
+      ]);
+      await second;
+      listings[0].complete(const <TerminalFileEntry>[]);
+      await first;
+
+      check(gateway.entries.single.name).equals('new-folder');
+      check(harness.browser.loadingFiles).isFalse();
+    },
+  );
 }
 
 final class _TerminalControllerHarness {
