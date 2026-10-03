@@ -184,11 +184,23 @@ void main() {
       check(img.decodePng(bounded)!.width).equals(8);
     });
 
-    test('an oversized image with no host resizer is kept as it is', () async {
+    test('an oversized image no host can resize is rejected', () async {
       final bytes = declaredSize(20000, 20000);
 
-      check(identical(await WorkspaceModelAvatarBounds.bound(bytes), bytes))
-          .isTrue();
+      await check(WorkspaceModelAvatarBounds.bound(bytes))
+          .throws<WorkspaceAvatarTooLargeException>();
+      await check(
+        WorkspaceModelAvatarBounds.bound(
+          bytes,
+          platformResize: (_, _) async => null,
+        ),
+      ).throws<WorkspaceAvatarTooLargeException>();
+      await check(
+        WorkspaceModelAvatarBounds.bound(
+          bytes,
+          platformResize: (_, _) async => throw StateError('codec failed'),
+        ),
+      ).throws<WorkspaceAvatarTooLargeException>();
     });
 
     test(
@@ -240,17 +252,60 @@ void main() {
 
     test('a file over the scan limit goes to the host resizer', () async {
       final big = Uint8List(WorkspaceModelAvatarBounds.maxInputBytes + 1);
+      final resized = _png(8, 8);
       int? askedEdge;
 
-      await WorkspaceModelAvatarBounds.bound(
+      final bounded = await WorkspaceModelAvatarBounds.bound(
         big,
         platformResize: (_, edge) async {
           askedEdge = edge;
-          return null;
+          return resized;
         },
       );
 
       check(askedEdge).equals(WorkspaceModelAvatarBounds.maxEdge);
+      check(identical(bounded, resized)).isTrue();
+    });
+
+    test(
+      'a file over the scan limit that no host resizes is rejected',
+      () async {
+        final big = Uint8List(WorkspaceModelAvatarBounds.maxInputBytes + 1);
+
+        await check(WorkspaceModelAvatarBounds.bound(big))
+            .throws<WorkspaceAvatarTooLargeException>();
+      },
+    );
+
+    test('a GIF whose canvas fits is kept however large the file is', () async {
+      final big = Uint8List(WorkspaceModelAvatarBounds.maxInputBytes + 1)
+        ..setAll(0, [...'GIF89a'.codeUnits, 64, 0, 64, 0]);
+      var asked = false;
+
+      final bounded = await WorkspaceModelAvatarBounds.bound(
+        big,
+        platformResize: (_, _) async {
+          asked = true;
+          return null;
+        },
+      );
+
+      check(asked).isFalse();
+      check(identical(bounded, big)).isTrue();
+    });
+
+    test('an unreadable file is kept only while it is small', () async {
+      final small = Uint8List.fromList(utf8.encode('heic stand-in'));
+      // Text, not zeros: a lenient decoder reads a run of zeros as an empty
+      // image.
+      final large = Uint8List.fromList(
+        List.filled(WorkspaceModelAvatarBounds.maxKeptBytes + 1, 0x78),
+      );
+
+      check(identical(await WorkspaceModelAvatarBounds.bound(small), small))
+          .isTrue();
+      await check(WorkspaceModelAvatarBounds.bound(large))
+          .throws<WorkspaceAvatarTooLargeException>();
     });
 
     test('an animated image that fits is returned without decoding', () async {

@@ -12,6 +12,15 @@ typedef WorkspaceAvatarPlatformResize = Future<Uint8List?> Function(
   int maxEdge,
 );
 
+/// An image that could not be bounded: it is too large to scan here and the
+/// host could not resize it either, so embedding it would bloat the model.
+final class WorkspaceAvatarTooLargeException implements Exception {
+  const WorkspaceAvatarTooLargeException();
+
+  @override
+  String toString() => 'The image is too large to use as an avatar.';
+}
+
 /// An avatar ready to embed in a model's `meta.profile_image_url`.
 final class WorkspaceModelAvatarImage {
   const WorkspaceModelAvatarImage({
@@ -44,6 +53,11 @@ abstract final class WorkspaceModelAvatarBounds {
   /// crafted file of many tiny frames could cost far more memory than its
   /// size or canvas suggests; larger files go to the host's resizer.
   static const int maxInputBytes = 16 * 1024 * 1024;
+
+  /// The most a file this decoder cannot read (an unknown format the host
+  /// could not resize either) is kept as it is. Past it the avatar is
+  /// rejected rather than embedded at full size.
+  static const int maxKeptBytes = 1024 * 1024;
 
   /// The size an image of [width] x [height] is scaled to, or null when its
   /// longest side already fits [maxEdge]. Each side is at least 1.
@@ -134,11 +148,14 @@ abstract final class WorkspaceModelAvatarBounds {
     return null;
   }
 
-  /// Returns [bytes] unchanged when the image fits or cannot be decoded, or
-  /// a PNG downscaled so its longest side is [maxEdge].
+  /// Returns [bytes] unchanged when the image fits, or a PNG downscaled so its
+  /// longest side is [maxEdge].
   ///
-  /// A format `package:image` cannot decode goes to [platformResize] when the
-  /// host has one; without it such a file is kept as it is.
+  /// A format `package:image` cannot decode, or an image too large to scan
+  /// here, goes to [platformResize] when the host has one. If that cannot
+  /// bound it either, a file of at most [maxKeptBytes] in an unknown format is
+  /// kept as it is; anything larger, or an image too large to scan, throws
+  /// [WorkspaceAvatarTooLargeException].
   static Future<Uint8List> bound(
     Uint8List bytes, {
     WorkspaceAvatarPlatformResize? platformResize,
@@ -150,12 +167,28 @@ abstract final class WorkspaceModelAvatarBounds {
       case _Resized(:final png):
         return png;
       case _Undecodable():
-        if (platformResize == null) return bytes;
-        try {
-          return await platformResize(bytes, maxEdge) ?? bytes;
-        } catch (_) {
-          return bytes;
+        final resized = await _hostResize(bytes, platformResize);
+        if (resized != null) return resized;
+        if (bytes.length > maxKeptBytes) {
+          throw const WorkspaceAvatarTooLargeException();
         }
+        return bytes;
+      case _TooLarge():
+        final resized = await _hostResize(bytes, platformResize);
+        if (resized != null) return resized;
+        throw const WorkspaceAvatarTooLargeException();
+    }
+  }
+
+  static Future<Uint8List?> _hostResize(
+    Uint8List bytes,
+    WorkspaceAvatarPlatformResize? platformResize,
+  ) async {
+    if (platformResize == null) return null;
+    try {
+      return await platformResize(bytes, maxEdge);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -198,13 +231,19 @@ abstract final class WorkspaceModelAvatarBounds {
     // The header gives the size without decoding any pixels, so an image that
     // already fits is never decoded (an animated one would decode every
     // frame), and an oversized one is refused before it can allocate.
-    if (bytes.length > maxInputBytes) return const _Undecodable();
     try {
-      final size = _gifCanvasSize(bytes) ?? _declaredSize(bytes);
+      // A GIF's canvas is in its header, so one that already fits is done
+      // however large the file is, before any size limit applies.
+      final gif = _gifCanvasSize(bytes);
+      if (gif != null && targetSize(gif.width, gif.height) == null) {
+        return const _Fits();
+      }
+      if (bytes.length > maxInputBytes) return const _TooLarge();
+      final size = gif ?? _declaredSize(bytes);
       if (size != null) {
         if (targetSize(size.width, size.height) == null) return const _Fits();
         if (size.width * size.height > maxDecodedPixels) {
-          return const _Undecodable();
+          return const _TooLarge();
         }
       }
     } catch (_) {
@@ -251,6 +290,10 @@ sealed class _BoundResult {
 
 final class _Fits extends _BoundResult {
   const _Fits();
+}
+
+final class _TooLarge extends _BoundResult {
+  const _TooLarge();
 }
 
 final class _Undecodable extends _BoundResult {
