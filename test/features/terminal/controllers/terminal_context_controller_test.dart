@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/features/terminal/controllers/terminal_browser_controller.dart';
 import 'package:conduit/features/terminal/controllers/terminal_context_controller.dart';
@@ -230,6 +232,55 @@ void main() {
         sessionScopeId: 'scope-a',
       ),
     ).called(1);
+  });
+
+  test('an older directory listing cannot replace a newer one', () async {
+    final service = _MockTerminalService();
+    final gateway = _FakeTerminalGateway(service: service)
+      ..selectedTerminalId = server.selectionId
+      ..selectedServer = server
+      ..currentPath = '/old/'
+      ..sessionScopeId = 'scope';
+    final harness = _TerminalControllerHarness(gateway);
+    addTearDown(harness.dispose);
+    final oldListing = Completer<List<TerminalFileEntry>>();
+    when(() => service.listFiles(server, '/old/', sessionScopeId: 'scope'))
+        .thenAnswer((_) => oldListing.future);
+    when(
+      () => service.listFiles(server, '/workspace/', sessionScopeId: 'scope'),
+    ).thenAnswer(
+      (_) async => const [
+        TerminalFileEntry(
+          name: 'new.txt',
+          path: '/workspace/new.txt',
+          isDirectory: false,
+        ),
+      ],
+    );
+    when(() => service.getListeningPorts(server, sessionScopeId: 'scope'))
+        .thenAnswer((_) async => const []);
+
+    // A reload of the old path is still waiting when the context picks its
+    // own path and lists that.
+    final reload = harness.browser.reload();
+    await harness.browser.loadDirectory(
+      service,
+      server,
+      path: '/workspace/',
+      updateServerCwd: false,
+    );
+    oldListing.complete(const [
+      TerminalFileEntry(
+        name: 'old.txt',
+        path: '/old/old.txt',
+        isDirectory: false,
+      ),
+    ]);
+    await reload;
+
+    check(gateway.currentPath).equals('/workspace/');
+    check(gateway.entries.single.name).equals('new.txt');
+    check(harness.browser.loadingFiles).isFalse();
   });
 }
 

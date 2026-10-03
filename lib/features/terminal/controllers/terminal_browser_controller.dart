@@ -54,6 +54,7 @@ class TerminalBrowserController extends ChangeNotifier {
   final void Function(TerminalBrowserFailure failure) _onFailure;
 
   bool _loadingFiles = false;
+  int _directoryLoadGeneration = 0;
   bool _loadingPorts = false;
   bool _disposed = false;
 
@@ -101,6 +102,13 @@ class TerminalBrowserController extends ChangeNotifier {
   }) async {
     final sessionScopeId = _gateway.sessionScopeId;
     final normalizedPath = ensureTerminalDirectoryPath(path);
+    // Only the newest listing may publish. A reload started before the
+    // context chose its path would otherwise put the old path and entries
+    // back when it finishes last.
+    final generation = ++_directoryLoadGeneration;
+    bool isCurrentLoad() =>
+        generation == _directoryLoadGeneration &&
+        _isCurrentContext(server, sessionScopeId);
 
     _setLoadingFiles(true);
     try {
@@ -109,7 +117,7 @@ class TerminalBrowserController extends ChangeNotifier {
         normalizedPath,
         sessionScopeId: sessionScopeId,
       );
-      if (!_isCurrentContext(server, sessionScopeId)) {
+      if (!isCurrentLoad()) {
         return;
       }
 
@@ -126,11 +134,11 @@ class TerminalBrowserController extends ChangeNotifier {
         );
       }
     } catch (_) {
-      if (_isCurrentContext(server, sessionScopeId)) {
+      if (isCurrentLoad()) {
         _onFailure(TerminalBrowserFailure.loadFiles);
       }
     } finally {
-      if (_isCurrentContext(server, sessionScopeId)) {
+      if (isCurrentLoad()) {
         _setLoadingFiles(false);
       }
     }
