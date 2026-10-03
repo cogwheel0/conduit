@@ -2896,6 +2896,17 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     }
   }
 
+  /// Notes open with `go`, so the editor is often the only page in its
+  /// navigator; popping it would leave nothing on screen.
+  void _leaveMissingNote() {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    } else {
+      context.go('/chat');
+    }
+  }
+
   Widget _buildNotFoundState(BuildContext context) {
     final theme = context.conduitTheme;
     final sidebarTheme = context.sidebarTheme;
@@ -2933,7 +2944,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             ),
             const SizedBox(height: Spacing.lg),
             AdaptiveButton.child(
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: _leaveMissingNote,
               color: sidebarTheme.primary,
               style: AdaptiveButtonStyle.bordered,
               borderRadius: BorderRadius.circular(AppBorderRadius.button),

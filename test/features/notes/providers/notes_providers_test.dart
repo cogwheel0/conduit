@@ -30,6 +30,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 const _testUser = User(
   id: 'user-1',
@@ -115,6 +116,7 @@ Widget _noteEditorHarness({
   bool withBackRoute = false,
   TargetPlatform platform = TargetPlatform.android,
   Map<String, dynamic>? noteJson,
+  GoRouter? router,
 }) {
   final initialNote = noteJson ?? _deletedNoteJson();
   return ProviderScope(
@@ -130,22 +132,34 @@ Widget _noteEditorHarness({
       noteByIdProvider('deleted-note')
           .overrideWith((ref) async => Note.fromJson(initialNote)),
     ],
-    child: MaterialApp(
-      theme: AppTheme.light(TweakcnThemes.conduit).copyWith(platform: platform),
-      localizationsDelegates: conduitLocalizationsDelegates,
-      supportedLocales: AppLocalizations.supportedLocales,
-      builder: noteJson == null
-          ? null
-          : (context, child) => flutter.Material(child: child),
-      initialRoute: withBackRoute ? '/editor' : null,
-      home: withBackRoute ? null : const NoteEditorPage(noteId: 'deleted-note'),
-      routes: withBackRoute
-          ? <String, WidgetBuilder>{
-              '/': (_) => const Scaffold(key: Key('notes-root')),
-              '/editor': (_) => const NoteEditorPage(noteId: 'deleted-note'),
-            }
-          : const <String, WidgetBuilder>{},
-    ),
+    child: router != null
+        ? MaterialApp.router(
+            theme: AppTheme.light(TweakcnThemes.conduit)
+                .copyWith(platform: platform),
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            routerConfig: router,
+          )
+        : MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.conduit)
+                .copyWith(platform: platform),
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            builder: noteJson == null
+                ? null
+                : (context, child) => flutter.Material(child: child),
+            initialRoute: withBackRoute ? '/editor' : null,
+            home: withBackRoute
+                ? null
+                : const NoteEditorPage(noteId: 'deleted-note'),
+            routes: withBackRoute
+                ? <String, WidgetBuilder>{
+                    '/': (_) => const Scaffold(key: Key('notes-root')),
+                    '/editor': (_) =>
+                        const NoteEditorPage(noteId: 'deleted-note'),
+                  }
+                : const <String, WidgetBuilder>{},
+          ),
   );
 }
 
@@ -352,6 +366,53 @@ void main() {
         ErrorWidget.builder = originalErrorWidgetBuilder;
       },
     );
+
+    testWidgets('Go Back on a deleted note returns to chat when it is the '
+        'only page', (tester) async {
+      final originalErrorWidgetBuilder = ErrorWidget.builder;
+      await tester.binding.setSurfaceSize(const Size(1200, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await _seedDeletedNote(db);
+      final router = GoRouter(
+        initialLocation: '/notes/deleted-note',
+        routes: [
+          GoRoute(
+            path: '/chat',
+            builder: (_, _) => const Scaffold(key: Key('chat-root')),
+          ),
+          GoRoute(
+            path: '/notes/:id',
+            builder: (_, state) =>
+                NoteEditorPage(noteId: state.pathParameters['id']!),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        _noteEditorHarness(
+          db: db,
+          syncEngine: _DeletingOnReconcileSyncEngine(db),
+          router: router,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final refresh = tester.widget<RefreshIndicator>(
+        find.byType(RefreshIndicator),
+      );
+      await refresh.onRefresh();
+      await tester.pumpAndSettle();
+      check(find.text('Note not found').evaluate()).isNotEmpty();
+
+      await tester.tap(find.text('Go Back'));
+      await tester.pumpAndSettle();
+
+      check(find.byKey(const Key('chat-root')).evaluate()).isNotEmpty();
+      check(router.routerDelegate.currentConfiguration.uri.path)
+          .equals('/chat');
+      await tester.pumpWidget(const SizedBox.shrink());
+      ErrorWidget.builder = originalErrorWidgetBuilder;
+    });
 
     testWidgets('editor refresh recovers edits autosaved before deletion', (
       tester,
