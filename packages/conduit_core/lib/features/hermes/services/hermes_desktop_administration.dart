@@ -125,16 +125,18 @@ final class _HermesDesktopAdministration {
     String? command,
     List<String> arguments = const [],
     String? bearerToken,
+    HermesMcpToolFilter? toolFilter,
   }) async {
     await mcpRequest(
       'mcp.servers.add',
       params: {
         'name': name,
-        'config': {
-          if (url?.isNotEmpty == true) 'url': url,
-          if (command?.isNotEmpty == true) 'command': command,
-          if (arguments.isNotEmpty) 'args': arguments,
-        },
+        'config': hermesMcpServerConfig(
+          url: url,
+          command: command,
+          arguments: arguments,
+          toolFilter: toolFilter,
+        ),
         if (bearerToken?.isNotEmpty == true) 'bearer_token': bearerToken,
       },
     );

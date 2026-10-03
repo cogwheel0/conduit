@@ -58,6 +58,42 @@ class HermesBot {
 
   final DateTime? lastActive;
 
+  /// Whether upstream considers this `profiles.list` row a Bot Mode bot.
+  ///
+  /// Upstream marks a bot by giving its `profile.yaml` a `ui_meta['hermes-bots']`
+  /// mapping (`tools/bot_mode_probe.py` `_bots_meta` / `_is_bot_managed`), and
+  /// `profiles.list` surfaces that mapping as `ui_meta`. Every other profile,
+  /// including an untouched `default`, is just a profile. An empty mapping still
+  /// counts: upstream tests `is not None` on a dict, not truthiness.
+  static bool isBotRow(Map<String, dynamic> json) {
+    final meta = json['ui_meta'];
+    return meta is Map && meta['hermes-bots'] is Map;
+  }
+
+  /// Projects a `profiles.list` result onto the Bot Mode roster.
+  ///
+  /// Empty when the gateway predates Bot Mode (no `bot_mode_protocol` flag).
+  /// That flag arrived with the teammate protocol, after `ui_meta` was already
+  /// served on every row, so a flagged gateway always carries the bot marker.
+  static List<HermesBot> rosterFromProfilesList(
+    Map<String, dynamic> result, {
+    int limit = 256,
+  }) {
+    if (result['bot_mode_protocol'] != true) return const [];
+    final rows = result['profiles'];
+    if (rows is! List) return const [];
+    final bots = <HermesBot>[];
+    for (final row in rows) {
+      if (row is! Map) continue;
+      final json = Map<String, dynamic>.from(row);
+      if (!isBotRow(json)) continue;
+      final bot = fromJson(json);
+      if (bot != null) bots.add(bot);
+      if (bots.length >= limit) break;
+    }
+    return bots;
+  }
+
   /// Parses one `profiles.list` row, or null when it is not a usable bot.
   static HermesBot? fromJson(Map<String, dynamic> json) {
     final name = validateHermesBoundedString(json['name'], maxCharacters: 64);

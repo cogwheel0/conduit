@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -37,65 +35,24 @@ final class HermesDashboardWebViewPolicy {
   Map<String, String> crossOriginHeaders(Map<String, String>? headers) =>
       hermesHeadersWithoutAccessCredentials(headers ?? const {}, accessHeaders);
 
-  String get bootstrapScript {
-    final origin = jsonEncode(root.origin);
-    final headers = jsonEncode(accessHeaders);
-    return '''(() => {
-    const dashboardOrigin = $origin;
-    const accessHeaders = $headers;
-    const nativeFetch = window.fetch.bind(window);
-    const secure = async (element) => {
-      const tag = element.tagName;
-      const attribute = tag === 'LINK' ? 'href' : 'src';
-      if (!['SCRIPT', 'LINK', 'IMG', 'IFRAME'].includes(tag) ||
-          element.dataset.hermesHeadersApplied === '1') return;
-      const raw = element.getAttribute(attribute);
-      if (!raw) return;
-      const target = new URL(raw, document.baseURI);
-      if (target.origin !== dashboardOrigin) return;
-      element.dataset.hermesHeadersApplied = '1';
-      const response = await nativeFetch(target.href, {
-        headers: accessHeaders,
-        credentials: 'include',
-        redirect: 'error'
-      });
-      if (!response.ok) return;
-      let blob;
-      if (tag === 'IFRAME') {
-        const html = await response.text();
-        blob = new Blob([
-          '<base href="' + target.href.replace(/"/g, '&quot;') + '">',
-          html
-        ], {type: 'text/html'});
-      } else if (tag === 'LINK') {
-        const css = (await response.text()).replace(
-          /url\\(\\s*(['"]?)(?!data:|blob:|https?:|\\/\\/|#)([^'"\\)]+)\\1\\s*\\)/gi,
-          (_, quote, value) => 'url(' + quote + new URL(value, target.href).href + quote + ')'
-        ).replace(
-          /@import\\s+(['"])(?!data:|blob:|https?:|\\/\\/)([^'"]+)\\1/gi,
-          (_, quote, value) => '@import ' + quote + new URL(value, target.href).href + quote
-        );
-        blob = new Blob([css], {type: 'text/css'});
-      } else {
-        blob = await response.blob();
-      }
-      element.setAttribute(attribute, URL.createObjectURL(blob));
-    };
-    const scan = (node) => {
-      if (!(node instanceof Element)) return;
-      void secure(node);
-      for (const child of node.querySelectorAll('script[src],link[href],img[src],iframe[src]')) {
-        void secure(child);
-      }
-    };
-    new MutationObserver((records) => {
-      for (const record of records) {
-        for (const node of record.addedNodes) scan(node);
-      }
-    }).observe(document, {childList: true, subtree: true});
-    scan(document.documentElement);
-  })();''';
-  }
+  /// The page's fetch/XHR header script (core's
+  /// [hermesDashboardRequestHeaderScript]) for non-GET dashboard calls, run
+  /// only on the dashboard's origin. GETs get the headers from
+  /// [interceptSubresource]. The values never become readable by the page:
+  /// no inappwebview fetch/XHR interceptor (which hands the modified request
+  /// back to page JavaScript) and no script in other origins' documents.
+  List<UserScript> get userScripts => accessHeaders.isEmpty
+      ? const []
+      : [
+          UserScript(
+            source: hermesDashboardRequestHeaderScript(
+              root: root,
+              accessHeaders: accessHeaders,
+            ),
+            injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+            allowedOriginRules: {root.origin},
+          ),
+        ];
 
   Future<WebResourceResponse?> interceptSubresource(
     WebResourceRequest request,

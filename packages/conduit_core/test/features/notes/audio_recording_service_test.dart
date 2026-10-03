@@ -1,21 +1,17 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:conduit/features/notes/services/audio_recording_service.dart';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:record/record.dart';
+import 'package:checks/checks.dart';
+import 'package:conduit_core/features/notes/services/audio_recording_service.dart';
+import 'package:test/test.dart';
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
-
   group('AudioRecordingService', () {
     test('starts microphone background lease before recorder', () async {
       final tempDir = await _createTempDir();
       final events = <String>[];
-      final recorder = _FakeAudioRecorderClient(events: events);
-      final background = _FakeAudioRecordingBackgroundCoordinator(
-        events: events,
-      );
+      final recorder = _FakeNoteAudioRecorder(events: events);
+      final background = _FakeBackgroundCoordinator(events: events);
       final service = AudioRecordingService(
         recorder: recorder,
         backgroundCoordinator: background,
@@ -27,28 +23,34 @@ void main() {
         await _deleteTempDir(tempDir);
       });
 
-      await service.startRecording();
+      final path = await service.startRecording();
 
-      expect(events, <String>['lease-start', 'recorder-start']);
-      expect(
-        recorder.lastConfig?.androidConfig.audioSource,
-        AndroidAudioSource.mic,
+      check(events).deepEquals(<String>['lease-start', 'recorder-start']);
+      check(path).endsWith('.m4a');
+      check(path).contains('note_recording_');
+      check(background.startCalls).equals(1);
+      check(service.isRecording).isTrue();
+    });
+
+    test('takes the file extension from the recorder', () async {
+      final tempDir = await _createTempDir();
+      final service = AudioRecordingService(
+        recorder: _FakeNoteAudioRecorder(events: <String>[], extension: 'wav'),
+        temporaryDirectoryProvider: () async => tempDir,
       );
-      expect(
-        recorder.lastConfig?.androidConfig.audioManagerMode,
-        AudioManagerMode.modeNormal,
-      );
-      expect(background.startCalls, 1);
-      expect(service.isRecording, isTrue);
+      addTearDown(() async {
+        await service.dispose();
+        await _deleteTempDir(tempDir);
+      });
+
+      check(await service.startRecording()).endsWith('.wav');
     });
 
     test('stopRecording returns file and releases background lease', () async {
       final tempDir = await _createTempDir();
       final events = <String>[];
-      final recorder = _FakeAudioRecorderClient(events: events);
-      final background = _FakeAudioRecordingBackgroundCoordinator(
-        events: events,
-      );
+      final recorder = _FakeNoteAudioRecorder(events: events);
+      final background = _FakeBackgroundCoordinator(events: events);
       final service = AudioRecordingService(
         recorder: recorder,
         backgroundCoordinator: background,
@@ -63,16 +65,16 @@ void main() {
       await service.startRecording();
       final file = await service.stopRecording();
 
-      expect(file, isNotNull);
-      expect(await file!.length(), recorder.bytesWrittenOnStop);
-      expect(events, <String>[
+      check(file).isNotNull();
+      check(await file!.length()).equals(recorder.bytesWrittenOnStop);
+      check(events).deepEquals(<String>[
         'lease-start',
         'recorder-start',
         'recorder-stop',
         'lease-stop',
       ]);
-      expect(background.stopCalls, 1);
-      expect(service.isRecording, isFalse);
+      check(background.stopCalls).equals(1);
+      check(service.isRecording).isFalse();
     });
 
     test(
@@ -80,10 +82,8 @@ void main() {
       () async {
         final tempDir = await _createTempDir();
         final events = <String>[];
-        final recorder = _FakeAudioRecorderClient(events: events);
-        final background = _FakeAudioRecordingBackgroundCoordinator(
-          events: events,
-        );
+        final recorder = _FakeNoteAudioRecorder(events: events);
+        final background = _FakeBackgroundCoordinator(events: events);
         final service = AudioRecordingService(
           recorder: recorder,
           backgroundCoordinator: background,
@@ -98,28 +98,26 @@ void main() {
         final path = await service.startRecording();
         await service.cancelRecording();
 
-        expect(await File(path).exists(), isFalse);
-        expect(events, <String>[
+        check(await File(path).exists()).isFalse();
+        check(events).deepEquals(<String>[
           'lease-start',
           'recorder-start',
           'recorder-stop',
           'lease-stop',
         ]);
-        expect(background.stopCalls, 1);
-        expect(service.isRecording, isFalse);
+        check(background.stopCalls).equals(1);
+        check(service.isRecording).isFalse();
       },
     );
 
     test('releases background lease if recorder start fails', () async {
       final tempDir = await _createTempDir();
       final events = <String>[];
-      final recorder = _FakeAudioRecorderClient(
+      final recorder = _FakeNoteAudioRecorder(
         events: events,
         startError: Exception('recorder failed'),
       );
-      final background = _FakeAudioRecordingBackgroundCoordinator(
-        events: events,
-      );
+      final background = _FakeBackgroundCoordinator(events: events);
       final service = AudioRecordingService(
         recorder: recorder,
         backgroundCoordinator: background,
@@ -131,11 +129,12 @@ void main() {
         await _deleteTempDir(tempDir);
       });
 
-      await expectLater(service.startRecording(), throwsException);
+      await check(service.startRecording()).throws<Exception>();
 
-      expect(events, <String>['lease-start', 'recorder-start', 'lease-stop']);
-      expect(background.stopCalls, 1);
-      expect(service.isRecording, isFalse);
+      check(events)
+          .deepEquals(<String>['lease-start', 'recorder-start', 'lease-stop']);
+      check(background.stopCalls).equals(1);
+      check(service.isRecording).isFalse();
     });
 
     test(
@@ -143,13 +142,11 @@ void main() {
       () async {
         final tempDir = await _createTempDir();
         final events = <String>[];
-        final recorder = _FakeAudioRecorderClient(
+        final recorder = _FakeNoteAudioRecorder(
           events: events,
           bytesWrittenOnStop: 10,
         );
-        final background = _FakeAudioRecordingBackgroundCoordinator(
-          events: events,
-        );
+        final background = _FakeBackgroundCoordinator(events: events);
         final service = AudioRecordingService(
           recorder: recorder,
           backgroundCoordinator: background,
@@ -163,20 +160,17 @@ void main() {
 
         final path = await service.startRecording();
 
-        await expectLater(
-          service.stopRecording(),
-          throwsA(isA<AudioRecordingException>()),
-        );
+        await check(service.stopRecording()).throws<AudioRecordingException>();
 
-        expect(await File(path).exists(), isFalse);
-        expect(events, <String>[
+        check(await File(path).exists()).isFalse();
+        check(events).deepEquals(<String>[
           'lease-start',
           'recorder-start',
           'recorder-stop',
           'lease-stop',
         ]);
-        expect(background.stopCalls, 1);
-        expect(service.isRecording, isFalse);
+        check(background.stopCalls).equals(1);
+        check(service.isRecording).isFalse();
       },
     );
 
@@ -185,13 +179,11 @@ void main() {
       () async {
         final tempDir = await _createTempDir();
         final events = <String>[];
-        final recorder = _FakeAudioRecorderClient(
+        final recorder = _FakeNoteAudioRecorder(
           events: events,
           hasPermissionResult: false,
         );
-        final background = _FakeAudioRecordingBackgroundCoordinator(
-          events: events,
-        );
+        final background = _FakeBackgroundCoordinator(events: events);
         final service = AudioRecordingService(
           recorder: recorder,
           backgroundCoordinator: background,
@@ -203,13 +195,48 @@ void main() {
           await _deleteTempDir(tempDir);
         });
 
-        await expectLater(service.startRecording(), throwsException);
+        await check(service.startRecording()).throws<Exception>();
 
-        expect(events, isEmpty);
-        expect(background.startCalls, 0);
-        expect(service.isRecording, isFalse);
+        check(events).isEmpty();
+        check(background.startCalls).equals(0);
+        check(service.isRecording).isFalse();
       },
     );
+
+    test('reports the elapsed duration while recording', () async {
+      final tempDir = await _createTempDir();
+      final service = AudioRecordingService(
+        recorder: _FakeNoteAudioRecorder(events: <String>[]),
+        temporaryDirectoryProvider: () async => tempDir,
+      );
+      addTearDown(() async {
+        await service.dispose();
+        await _deleteTempDir(tempDir);
+      });
+
+      await service.startRecording();
+      final first = await service.durationStream.first.timeout(
+        const Duration(seconds: 2),
+      );
+      check(first).isGreaterOrEqual(Duration.zero);
+      check(service.currentDuration).isGreaterThan(Duration.zero);
+    });
+  });
+
+  group('noteRecordingFileName', () {
+    test('keeps the recorded extension', () {
+      final now = DateTime.fromMillisecondsSinceEpoch(1700000000000);
+      check(noteRecordingFileName('/tmp/x/note_recording_1.wav', now: now))
+          .equals('recording_1700000000000.wav');
+      check(noteRecordingFileName('/tmp/x/note_recording_1.M4A', now: now))
+          .equals('recording_1700000000000.m4a');
+    });
+
+    test('defaults to m4a when the path has no extension', () {
+      final now = DateTime.fromMillisecondsSinceEpoch(1700000000000);
+      check(noteRecordingFileName('/tmp/dir.with.dots/recording', now: now))
+          .equals('recording_1700000000000.m4a');
+    });
   });
 }
 
@@ -223,30 +250,31 @@ Future<void> _deleteTempDir(Directory dir) async {
   }
 }
 
-class _FakeAudioRecorderClient implements AudioRecorderClient {
-  _FakeAudioRecorderClient({
+class _FakeNoteAudioRecorder implements NoteAudioRecorder {
+  _FakeNoteAudioRecorder({
     required this.events,
     this.hasPermissionResult = true,
     this.startError,
     this.bytesWrittenOnStop = 2048,
-  });
+    String extension = 'm4a',
+  }) : fileExtension = extension;
 
   final List<String> events;
   final bool hasPermissionResult;
   final Object? startError;
   final int bytesWrittenOnStop;
 
-  RecordConfig? lastConfig;
+  @override
+  final String fileExtension;
+
   String? startedPath;
-  int stopCalls = 0;
 
   @override
   Future<bool> hasPermission() async => hasPermissionResult;
 
   @override
-  Future<void> start(RecordConfig config, {required String path}) async {
+  Future<void> start(String path) async {
     events.add('recorder-start');
-    lastConfig = config;
     startedPath = path;
     final error = startError;
     if (error != null) {
@@ -257,7 +285,6 @@ class _FakeAudioRecorderClient implements AudioRecorderClient {
   @override
   Future<String?> stop() async {
     events.add('recorder-stop');
-    stopCalls += 1;
     final path = startedPath;
     if (path == null) return null;
 
@@ -266,16 +293,16 @@ class _FakeAudioRecorderClient implements AudioRecorderClient {
   }
 
   @override
-  Stream<Amplitude> onAmplitudeChanged(Duration interval) =>
-      const Stream<Amplitude>.empty();
+  Stream<double> amplitudeChanges(Duration interval) =>
+      const Stream<double>.empty();
 
   @override
   Future<void> dispose() async {}
 }
 
-class _FakeAudioRecordingBackgroundCoordinator
+class _FakeBackgroundCoordinator
     implements AudioRecordingBackgroundCoordinator {
-  _FakeAudioRecordingBackgroundCoordinator({required this.events});
+  _FakeBackgroundCoordinator({required this.events});
 
   final List<String> events;
   int startCalls = 0;

@@ -120,6 +120,63 @@ void main() {
     check(bot.lastActive).isNotNull();
   });
 
+  group('roster from profiles.list', () {
+    Map<String, dynamic> listing({bool flag = true}) => {
+      if (flag) 'bot_mode_protocol': true,
+      'profiles': [
+        {'name': 'default', 'is_default': true, 'ui_meta_revisions': {}},
+        {
+          'name': 'plain',
+          'ui_meta': {
+            'hermes-bots-groups': {'x': 1},
+          },
+        },
+        {
+          'name': 'researcher',
+          'ui_meta': {
+            'hermes-bots': {'title': 'Research'},
+          },
+        },
+        {
+          'name': 'bare-bot',
+          'ui_meta': {'hermes-bots': <String, dynamic>{}},
+        },
+        {
+          'name': 'scalar-meta',
+          'ui_meta': {'hermes-bots': 'nope'},
+        },
+      ],
+    };
+
+    test('only profiles carrying ui_meta hermes-bots are bots', () {
+      final bots = HermesBot.rosterFromProfilesList(listing());
+
+      check(bots.map((bot) => bot.name).toList())
+          .deepEquals(['researcher', 'bare-bot']);
+      check(bots.first.title).equals('Research');
+    });
+
+    test('the default profile is a bot only once it carries the marker', () {
+      final bots = HermesBot.rosterFromProfilesList({
+        'bot_mode_protocol': true,
+        'profiles': [
+          {
+            'name': 'default',
+            'ui_meta': {
+              'hermes-bots': {'title': 'Hermes'},
+            },
+          },
+        ],
+      });
+
+      check(bots.single.name).equals('default');
+    });
+
+    test('a gateway without bot_mode_protocol has no roster', () {
+      check(HermesBot.rosterFromProfilesList(listing(flag: false))).isEmpty();
+    });
+  });
+
   test('sorting an unmodifiable roster does not throw', () {
     // The Bot-Mode-off path returns `const []`; sorting that in place throws
     // UnsupportedError, which the provider's catch would mask as "no bots".
