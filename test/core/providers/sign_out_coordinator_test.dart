@@ -12,6 +12,8 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/services/secure_credential_storage.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -149,8 +151,8 @@ void main() {
   // Riverpod keeps a notifier instance across `invalidate`, so a completed
   // clear must release the controllers' sign-out barriers itself. Otherwise
   // their rebuilds keep serving the connections captured before the wipe.
-  test('a completed clear forgets Direct and Hermes connections and lets new '
-      'ones be added', () async {
+  test('a completed clear forgets Direct, MCP and Hermes connections and lets '
+      'new ones be added', () async {
     final container = ProviderContainer(
       overrides: [
         authStateManagerProvider.overrideWith(_WipingAuthStateManager.new),
@@ -170,9 +172,11 @@ void main() {
         apiKey: 'sk-before',
       ),
     );
-    await container
-        .read(hermesConfigProvider.notifier)
-        .saveConnection(baseUrl: 'http://localhost:8642');
+    final mcpServers = container.read(directMcpServersProvider.notifier);
+    await container.read(directMcpServersProvider.future);
+    await mcpServers.upsert(_mcpServer('mcp-before'));
+    final hermes = container.read(hermesConfigProvider.notifier);
+    await hermes.saveConnection(baseUrl: 'http://localhost:8642');
     check(container.read(hermesConfigProvider).baseUrl).isNotEmpty();
 
     await container
@@ -181,6 +185,7 @@ void main() {
 
     check(await container.read(directConnectionProfilesProvider.future))
         .isEmpty();
+    check(await container.read(directMcpServersProvider.future)).isEmpty();
     check(container.read(hermesConfigProvider).baseUrl).isEmpty();
 
     await profiles.upsert(
@@ -195,6 +200,14 @@ void main() {
       (await container.read(directConnectionProfilesProvider.future))
           .map((profile) => profile.id),
     ).deepEquals(['after']);
+    await mcpServers.upsert(_mcpServer('mcp-after'));
+    check(
+      (await container.read(directMcpServersProvider.future))
+          .map((server) => server.id),
+    ).deepEquals(['mcp-after']);
+    await hermes.saveConnection(baseUrl: 'http://localhost:8643');
+    check(container.read(hermesConfigProvider).baseUrl)
+        .equals('http://localhost:8643');
   });
 
   test('a completed clear leaves no incomplete-clear marker', () async {
@@ -362,3 +375,9 @@ void main() {
     check(await reopened.chatsDao.getChat('device-chat')).isNull();
   });
 }
+
+DirectMcpServer _mcpServer(String id) => DirectMcpServer(
+  id: id,
+  name: 'Server $id',
+  endpoint: 'https://$id.example/mcp',
+);
