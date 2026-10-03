@@ -530,42 +530,12 @@ class NativeSheetHydrationService {
         NativeSheetDetailConfig(
           id: detailId,
           title: l10n.aboutApp,
-          items: [
-            NativeSheetItemConfig(
-              id: 'app-version',
-              title: l10n.appVersion,
-              subtitle: appVersionLabel,
-              sfSymbol: 'app.badge',
-              kind: NativeSheetItemKind.info,
-            ),
-            if (!hermesOnly)
-              NativeSheetItemConfig(
-                id: 'server-name',
-                title: l10n.serverNameLabel,
-                subtitle: serverName,
-                sfSymbol: 'server.rack',
-                kind: NativeSheetItemKind.info,
-              ),
-            if (!hermesOnly)
-              NativeSheetItemConfig(
-                id: 'server-version',
-                title: l10n.serverVersionLabel,
-                subtitle: serverVersion,
-                sfSymbol: 'number',
-                kind: NativeSheetItemKind.info,
-              ),
-            NativeSheetItemConfig(
-              id: NativeSheetRoutes.releaseNotesManual,
-              title: l10n.releaseNotesTitle,
-              sfSymbol: 'sparkles',
-            ),
-            NativeSheetItemConfig(
-              id: 'github',
-              title: l10n.githubRepository,
-              sfSymbol: 'chevron.left.forwardslash.chevron.right',
-              url: 'https://github.com/cogwheel0/conduit',
-            ),
-          ],
+          items: buildNativeAboutItems(
+            l10n,
+            appVersion: appVersionLabel,
+            serverName: hermesOnly ? null : serverName,
+            serverVersion: hermesOnly ? null : serverVersion,
+          ),
         ),
       );
     } catch (error, stackTrace) {

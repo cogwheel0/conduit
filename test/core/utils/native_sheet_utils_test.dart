@@ -11,6 +11,31 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   final l10n = AppLocalizationsEn();
 
+  test('the native About page links the open source licenses', () {
+    final items = buildNativeAboutItems(
+      l10n,
+      appVersion: '4.1.8 (149)',
+      serverName: 'Open WebUI',
+      serverVersion: '0.11.4',
+    );
+
+    final licenses = items.singleWhere(
+      (item) => item.id == NativeSheetRoutes.openSourceLicenses,
+    );
+    check(licenses.title).equals('Open source licenses');
+    check(items.map((item) => item.id)).contains('server-version');
+  });
+
+  test('the Hermes-only About page has no server rows', () {
+    final ids = buildNativeAboutItems(
+      l10n,
+      appVersion: '4.1.8',
+    ).map((item) => item.id);
+
+    check(ids).not((it) => it.contains('server-name'));
+    check(ids).contains(NativeSheetRoutes.openSourceLicenses);
+  });
+
   test('native Settings titles follow the app language', () {
     final de = AppLocalizationsDe();
     check(nativeSettingsTitle(de)).equals('Einstellungen');
