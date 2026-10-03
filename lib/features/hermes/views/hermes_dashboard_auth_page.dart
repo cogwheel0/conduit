@@ -32,6 +32,7 @@ final class _HermesDashboardAuthPageState
   bool _leftDashboard = false;
   bool _returnedToDashboard = false;
   bool _checking = false;
+  bool _documentStartChecked = false;
   String? _error;
   Set<String>? _cookieBaseline;
   late final int _cookieGeneration;
@@ -48,6 +49,12 @@ final class _HermesDashboardAuthPageState
       root: _root,
       accessHeaders: widget.config.accessHeaders,
     );
+    HermesDashboardWebViewPolicy.documentStartScriptsSupported().then((
+      supported,
+    ) {
+      _policy.documentStartScripts = supported;
+      if (mounted) setState(() => _documentStartChecked = true);
+    });
     _cookieGeneration = HermesDashboardCookieStore.begin(_root.toString());
     HermesDashboardCookieStore.snapshot(_root.toString()).then(
       (value) {
@@ -94,12 +101,13 @@ final class _HermesDashboardAuthPageState
               padding: EdgeInsets.all(24),
               child: Text(
                 'Dashboard sign-in with custom gateway headers is not '
-                'supported on iOS. Use native PKCE or remove the headers.',
+                'supported on this device. Use native PKCE or remove the '
+                'headers.',
                 textAlign: TextAlign.center,
               ),
             ),
           )
-        : _cookieBaseline == null
+        : _cookieBaseline == null || !_documentStartChecked
         ? const Center(child: CircularProgressIndicator.adaptive())
         : Stack(
             children: [

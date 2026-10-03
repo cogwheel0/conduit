@@ -22,10 +22,37 @@ final class HermesDashboardWebViewPolicy {
   final Map<String, String> accessHeaders;
   final Dio _resourceClient;
 
+  /// Whether the WebView runs user scripts before the page's own (see
+  /// [documentStartScriptsSupported]). Set once that is known; until then the
+  /// policy assumes it does.
+  bool documentStartScripts = true;
+
   bool get supported => hermesDashboardHeadersSupported(
     isIOS: defaultTargetPlatform == TargetPlatform.iOS,
     accessHeaders: accessHeaders,
+    documentStartScripts: documentStartScripts,
   );
+
+  static Future<bool>? _documentStartScriptsSupported;
+
+  /// Whether this WebView can run a script before the page's scripts. The
+  /// header script holds the gateway credentials, so it is installed only
+  /// where it is certain to run first: iOS injects at document start natively
+  /// (and has no header support at all), while Android needs the
+  /// document-start feature of its WebView.
+  static Future<bool> documentStartScriptsSupported() =>
+      _documentStartScriptsSupported ??= _checkDocumentStartScripts();
+
+  static Future<bool> _checkDocumentStartScripts() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return true;
+    try {
+      return await WebViewFeature.isFeatureSupported(
+        WebViewFeature.DOCUMENT_START_SCRIPT,
+      );
+    } catch (_) {
+      return false;
+    }
+  }
 
   bool isExact(Uri target) => hermesDashboardIsExactOrigin(target, root);
 
@@ -41,7 +68,7 @@ final class HermesDashboardWebViewPolicy {
   /// [interceptSubresource]. The values never become readable by the page:
   /// no inappwebview fetch/XHR interceptor (which hands the modified request
   /// back to page JavaScript) and no script in other origins' documents.
-  List<UserScript> get userScripts => accessHeaders.isEmpty
+  List<UserScript> get userScripts => accessHeaders.isEmpty || !supported
       ? const []
       : [
           UserScript(

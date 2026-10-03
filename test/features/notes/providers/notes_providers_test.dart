@@ -97,6 +97,14 @@ class _RecordingVoiceInputService extends VoiceInputService {
   /// while listening is still starting.
   Completer<void>? beginGate;
 
+  /// The run the service is on now, as its `textStream` reports it: each
+  /// [beginListening] starts a new one, and a test can replace it to stand in
+  /// for another consumer (the chat composer) taking the service over.
+  Stream<String> activeRun = const Stream<String>.empty();
+
+  @override
+  Stream<String> get textStream => activeRun;
+
   @override
   bool get isSupportedPlatform => true;
 
@@ -112,7 +120,9 @@ class _RecordingVoiceInputService extends VoiceInputService {
     beginListeningPreferences.add(preference);
     beginListeningUsesServer.add(prefersServerOnly);
     await beginGate?.future;
-    return const Stream<String>.empty();
+    final run = StreamController<String>.broadcast().stream;
+    activeRun = run;
+    return run;
   }
 
   @override
@@ -387,6 +397,55 @@ void main() {
         check(voice.disposeCalls).equals(0);
       },
     );
+
+    for (final superseded in [false, true]) {
+      testWidgets(
+        superseded
+            ? 'closing the editor after another consumer took the voice '
+                  'service leaves that run alone'
+            : 'closing the editor stops the dictation it started',
+        (tester) async {
+          await tester.binding.setSurfaceSize(const Size(1200, 900));
+          addTearDown(() => tester.binding.setSurfaceSize(null));
+          final originalOnError = FlutterError.onError;
+          addTearDown(() => FlutterError.onError = originalOnError);
+          FlutterError.onError = (details) {
+            if (details.exceptionAsString().contains(
+              'ListTile background color or ink splashes may be invisible',
+            )) {
+              return;
+            }
+            originalOnError?.call(details);
+          };
+          final voice = _RecordingVoiceInputService();
+          await tester.pumpWidget(
+            _noteEditorHarness(
+              db: db,
+              syncEngine: _NoDrainSyncEngine(),
+              noteJson: _deletedNoteJson(),
+              extraOverrides: [
+                voiceInputServiceProvider.overrideWithValue(voice),
+              ],
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          await tester.tap(find.byIcon(Icons.mic_rounded));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Dictation'));
+          await tester.pumpAndSettle();
+          check(voice.beginListeningPreferences).length.equals(1);
+
+          // The chat composer starts its own run on the shared service.
+          if (superseded) {
+            voice.activeRun = StreamController<String>.broadcast().stream;
+          }
+          await tester.pumpWidget(const SizedBox.shrink());
+
+          check(voice.stopCalls).equals(superseded ? 0 : 1);
+        },
+      );
+    }
 
     testWidgets('checkbox toggles autosave canonical markdown', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1200, 900));

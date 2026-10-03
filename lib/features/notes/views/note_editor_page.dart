@@ -196,6 +196,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   // The in-progress dictation run: each (cumulative) transcript update
   // replaces the previous one without disturbing the rest of the document.
   NoteDictationRun? _dictationRun;
+  // The listening run this editor started. The voice service is shared with
+  // the chat composer and holds one run at a time, so the editor stops it only
+  // while its own run is still the current one.
+  Stream<String>? _dictationStream;
 
   // Markdown snapshot of the last saved/loaded document, used to detect real
   // edits. Compared against the re-encoded current document so opening a note
@@ -336,7 +340,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // The service is the app-wide provider instance shared with the chat
     // composer: never dispose it here, and only stop it when this editor's
     // own dictation run is still the active listener.
-    if (_isRecording) _voiceService?.stopListening();
+    if (_isRecording && _ownsDictationRun) _voiceService?.stopListening();
     _titleController.dispose();
     _contentChangesSubscription?.cancel();
     _contentController?.dispose();
@@ -780,10 +784,14 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       final stream = await _voiceService!.beginListening();
       if (!mounted) {
         // The editor closed while listening was starting. Capture is already
-        // running and dispose() saw no dictation to stop, so stop it here.
-        unawaited(_voiceService?.stopListening());
+        // running and dispose() saw no dictation to stop, so stop it here,
+        // unless another consumer has taken the service over since.
+        if (identical(_voiceService?.textStream, stream)) {
+          unawaited(_voiceService?.stopListening());
+        }
         return;
       }
+      _dictationStream = stream;
 
       // Anchor the dictation run at the current selection. The trailing
       // line-break of a Parchment document is not editable, so clamp before
@@ -820,10 +828,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         },
         onDone: () {
           if (!mounted) return;
+          _dictationStream = null;
           setState(() => _isRecording = false);
         },
         onError: (_) {
           if (!mounted) return;
+          _dictationStream = null;
           setState(() => _isRecording = false);
         },
       );
@@ -835,9 +845,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     }
   }
 
+  /// Whether the voice service is still on the run this editor started.
+  bool get _ownsDictationRun =>
+      _dictationStream != null &&
+      identical(_voiceService?.textStream, _dictationStream);
+
   Future<void> _stopDictation() async {
-    await _voiceService?.stopListening();
+    if (_ownsDictationRun) await _voiceService?.stopListening();
     _voiceSub?.cancel();
+    _dictationStream = null;
     _dictationRun = null;
     if (mounted) {
       setState(() => _isRecording = false);

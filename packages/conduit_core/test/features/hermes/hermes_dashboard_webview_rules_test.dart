@@ -25,6 +25,34 @@ void main() {
         .isTrue();
   });
 
+  test('fails closed where a script cannot run before the page\'s own', () {
+    const headers = {'CF-Access-Client-Secret': 'secret'};
+    // An Android WebView without the document-start feature: the script that
+    // carries the headers could run after page code replaced fetch.
+    check(
+      hermesDashboardHeadersSupported(
+        isIOS: false,
+        accessHeaders: headers,
+        documentStartScripts: false,
+      ),
+    ).isFalse();
+    check(
+      hermesDashboardHeadersSupported(
+        isIOS: false,
+        accessHeaders: headers,
+        documentStartScripts: true,
+      ),
+    ).isTrue();
+    // Without headers there is no script and nothing to protect.
+    check(
+      hermesDashboardHeadersSupported(
+        isIOS: false,
+        accessHeaders: const {},
+        documentStartScripts: false,
+      ),
+    ).isTrue();
+  });
+
   test('derives the dashboard pages from the configured base URL', () {
     final nested = hermesDashboardRoot(' https://hermes.example/agent/v1/ ');
     check(nested.toString()).equals('https://hermes.example/agent');

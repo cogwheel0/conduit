@@ -8,11 +8,15 @@ library;
 
 /// Whether the dashboard may be reached with gateway access headers.
 ///
-/// Takes a bool rather than Flutter's `TargetPlatform` so callers outside the
-/// widget layer can ask: the question is only ever "is this iOS", and the
-/// REST client that needs the answer has no business importing Flutter to
-/// phrase it.
+/// Takes bools rather than Flutter's `TargetPlatform` so callers outside the
+/// widget layer can ask: the question is "is this iOS", and, where the
+/// headers go through a page script, whether the WebView can run a script
+/// before the page's own ([documentStartScripts]; Android WebViews without
+/// the document-start feature cannot, and a script that runs late could be
+/// shadowed by page code that replaced `fetch` first). The REST client that
+/// needs the answer has no business importing Flutter to phrase it.
 bool hermesDashboardHeadersSupported({
   required bool isIOS,
   required Map<String, String> accessHeaders,
-}) => !isIOS || accessHeaders.isEmpty;
+  bool documentStartScripts = true,
+}) => accessHeaders.isEmpty || (!isIOS && documentStartScripts);

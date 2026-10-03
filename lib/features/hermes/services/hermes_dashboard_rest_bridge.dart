@@ -22,6 +22,7 @@ final class HermesDashboardRestBridge implements HermesDashboardBridge {
     final generation = HermesDashboardCookieStore.begin(origin);
     final baseline = HermesDashboardCookieStore.snapshot(origin);
     return HermesDashboardRestBridge._(
+      accessHeaders,
       HermesDashboardRestSession(
         root: root,
         accessHeaders: accessHeaders,
@@ -36,8 +37,9 @@ final class HermesDashboardRestBridge implements HermesDashboardBridge {
     );
   }
 
-  HermesDashboardRestBridge._(this._session);
+  HermesDashboardRestBridge._(this._accessHeaders, this._session);
 
+  final Map<String, String> _accessHeaders;
   final HermesDashboardRestSession _session;
 
   @override
@@ -45,7 +47,18 @@ final class HermesDashboardRestBridge implements HermesDashboardBridge {
     String method,
     Uri uri, {
     String? body,
-  }) => _session.request(method, uri, body: body);
+  }) async {
+    // The headers reach the page through a script that must run before the
+    // page's own, so a WebView that cannot guarantee that never gets them.
+    if (_accessHeaders.isNotEmpty &&
+        !await HermesDashboardWebViewPolicy.documentStartScriptsSupported()) {
+      throw StateError(
+        'This WebView cannot add the gateway headers safely, so the Hermes '
+        'dashboard is unavailable.',
+      );
+    }
+    return _session.request(method, uri, body: body);
+  }
 
   @override
   Future<void> reload() => _session.reload();
