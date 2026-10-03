@@ -269,6 +269,7 @@
   "mutualTlsPrivateKeyPemRequired": "所選私鑰檔案必須包含 PEM 私鑰。",
   "mutualTlsFileReadFailed": "無法讀取所選的 mTLS 檔案。",
   "mutualTlsHandshakeFailed": "伺服器拒絕了 mTLS 憑證。請確認憑證、私鑰與密碼是否正確。",
+  "mutualTlsConnectionClosed": "伺服器在回應之前關閉了連線。如果它需要用戶端憑證，請確認憑證、私鑰與密碼是否正確。",
   "headerNameTooLong": "標頭名稱太長（最多 64 個字符）",
   "headerNameInvalidChars": "無效的標頭名稱。僅使用字母、數字和這些符號：!#$&-^_`|~",
   "headerNameReserved": "無法覆蓋保留的標頭「{key}」",

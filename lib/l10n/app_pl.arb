@@ -1414,6 +1414,7 @@
     "description": "Error shown when a picked certificate or key file cannot be read as text."
   },
   "mutualTlsHandshakeFailed": "Serwer odrzucił dane uwierzytelniające mTLS. Sprawdź, czy certyfikat, klucz prywatny i hasło są poprawne.",
+  "mutualTlsConnectionClosed": "Serwer zamknął połączenie przed odpowiedzią. Jeśli wymaga certyfikatu klienta, sprawdź, czy certyfikat, klucz prywatny i hasło są poprawne.",
   "@mutualTlsHandshakeFailed": {
     "description": "Connection error shown when the TLS handshake fails while mTLS credentials are configured."
   },

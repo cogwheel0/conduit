@@ -1417,6 +1417,10 @@
   "@mutualTlsHandshakeFailed": {
     "description": "Connection error shown when the TLS handshake fails while mTLS credentials are configured."
   },
+  "mutualTlsConnectionClosed": "The server closed the connection before replying. If it requires a client certificate, confirm that the certificate, private key, and password are correct.",
+  "@mutualTlsConnectionClosed": {
+    "description": "Connection error shown when the server closes an HTTPS connection before replying while mTLS credentials are configured, which a refused client certificate also causes."
+  },
   "headerNameTooLong": "Header name too long (max 64 characters)",
   "@headerNameTooLong": {
     "description": "Validation message for header name length."

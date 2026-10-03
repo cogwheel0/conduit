@@ -1181,6 +1181,7 @@
     "description": "Error shown when a picked certificate or key file cannot be read as text."
   },
   "mutualTlsHandshakeFailed": "Server odmietol prihlasovacie údaje mTLS. Overte, že certifikát, súkromný kľúč a heslo sú správne.",
+  "mutualTlsConnectionClosed": "Server ukončil spojenie pred odpoveďou. Ak vyžaduje klientsky certifikát, overte, že certifikát, súkromný kľúč a heslo sú správne.",
   "@mutualTlsHandshakeFailed": {
     "description": "Connection error shown when the TLS handshake fails while mTLS credentials are configured."
   },

@@ -271,6 +271,7 @@
   "mutualTlsPrivateKeyPemRequired": "Die ausgewählte Schlüsseldatei muss einen PEM-Privatschlüssel enthalten.",
   "mutualTlsFileReadFailed": "Die ausgewählte mTLS-Datei konnte nicht gelesen werden.",
   "mutualTlsHandshakeFailed": "Der Server hat die mTLS-Anmeldedaten abgelehnt. Prüfe, ob Zertifikat, Privatschlüssel und Passwort korrekt sind.",
+  "mutualTlsConnectionClosed": "Der Server hat die Verbindung geschlossen, bevor er geantwortet hat. Falls er ein Clientzertifikat verlangt, prüfe, ob Zertifikat, Privatschlüssel und Passwort korrekt sind.",
   "headerNameTooLong": "Header-Name zu lang (max. 64 Zeichen)",
   "headerNameInvalidChars": "Ungültiger Header-Name. Verwende nur Buchstaben, Zahlen und diese Zeichen: !#$&-^_`|~",
   "headerNameReserved": "Reservierten Header \"{key}\" kann nicht überschrieben werden",

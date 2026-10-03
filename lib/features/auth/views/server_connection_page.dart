@@ -67,14 +67,8 @@ BaseOptions buildSchemeLessPlaintextHealthProbeOptions(String baseUrl) {
 }
 
 /// Whether a failed connection to a server configured with a client
-/// certificate looks like the server refusing that certificate.
-///
-/// With TLS 1.3 the client finishes its side of the handshake before the
-/// server checks the certificate, so a refusal does not surface as a
-/// handshake error: the server closes the connection before the first
-/// response header arrives. A proxy reset or a server restart closes the
-/// connection the same way, so that signature counts only for an HTTPS request,
-/// the only kind a client certificate can be part of.
+/// certificate failed in the TLS handshake itself, which is a certificate
+/// problem and nothing else.
 @visibleForTesting
 bool isLikelyMutualTlsRejection(
   String errorText, {
@@ -84,12 +78,26 @@ bool isLikelyMutualTlsRejection(
   return errorText.contains('HandshakeException') ||
       errorText.contains('TlsException') ||
       errorText.contains('CERTIFICATE_VERIFY_FAILED') ||
-      errorText.contains('alert bad certificate') ||
-      (errorText.contains(
-            'Connection closed before full header was received',
-          ) &&
-          errorText.contains('uri = https://'));
+      errorText.contains('alert bad certificate');
 }
+
+/// Whether a failed HTTPS connection, to a server configured with a client
+/// certificate, was closed before the first response header arrived.
+///
+/// With TLS 1.3 the client finishes its side of the handshake before the
+/// server checks the certificate, so a refusal does not surface as a
+/// handshake error: the server closes the connection instead. A proxy reset or
+/// a server restart closes it the same way, so this cannot say the certificate
+/// was refused, only that it is worth checking. A plain HTTP request cannot
+/// involve a client certificate.
+@visibleForTesting
+bool isConnectionClosedWithClientCertificate(
+  String errorText, {
+  required bool hasMutualTlsInput,
+}) =>
+    hasMutualTlsInput &&
+    errorText.contains('Connection closed before full header was received') &&
+    errorText.contains('uri = https://');
 
 /// Redacts configured header values before normalizing and bounding text that
 /// came from a server, proxy, or transport error.
@@ -1047,6 +1055,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       hasMutualTlsInput: _hasAnyMutualTlsInput,
     )) {
       return AppLocalizations.of(context)!.mutualTlsHandshakeFailed;
+    } else if (isConnectionClosedWithClientCertificate(
+      errorText,
+      hasMutualTlsInput: _hasAnyMutualTlsInput,
+    )) {
+      return AppLocalizations.of(context)!.mutualTlsConnectionClosed;
     }
 
     final exactServerUrlError = _formatExactServerUrlError(

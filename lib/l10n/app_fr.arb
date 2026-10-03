@@ -269,6 +269,7 @@
   "mutualTlsPrivateKeyPemRequired": "Le fichier de clé privée sélectionné doit contenir une clé privée PEM.",
   "mutualTlsFileReadFailed": "Impossible de lire le fichier mTLS sélectionné.",
   "mutualTlsHandshakeFailed": "Le serveur a rejeté les identifiants mTLS. Vérifiez que le certificat, la clé privée et le mot de passe sont corrects.",
+  "mutualTlsConnectionClosed": "Le serveur a fermé la connexion avant de répondre. S'il exige un certificat client, vérifiez que le certificat, la clé privée et le mot de passe sont corrects.",
   "headerNameTooLong": "Nom d'en-tête trop long (max 64 caractères)",
   "headerNameInvalidChars": "Nom d'en-tête invalide. Utilisez uniquement des lettres, des chiffres et ces symboles : !#$&-^_`|~",
   "headerNameReserved": "Impossible d'écraser l'en-tête réservé « {key} »",

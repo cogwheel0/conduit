@@ -1181,6 +1181,7 @@
     "description": "Error shown when a picked certificate or key file cannot be read as text."
   },
   "mutualTlsHandshakeFailed": "サーバーが mTLS 認証情報を拒否しました。証明書、秘密鍵、パスワードが正しいことを確認してください。",
+  "mutualTlsConnectionClosed": "サーバーが応答する前に接続を閉じました。クライアント証明書が必要な場合は、証明書、秘密鍵、パスワードが正しいことを確認してください。",
   "@mutualTlsHandshakeFailed": {
     "description": "Connection error shown when the TLS handshake fails while mTLS credentials are configured."
   },
