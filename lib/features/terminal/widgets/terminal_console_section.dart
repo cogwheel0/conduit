@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:xterm/xterm.dart';
@@ -60,10 +62,16 @@ class _TerminalConsoleSectionState extends State<TerminalConsoleSection> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    // The sidebar keeps its tab bar fixed and does not resize for the
+    // keyboard, so lift the console and its key toolbar above it here.
+    final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
     return Padding(
       padding: EdgeInsets.only(
         top: sidebarTabContentTopPadding(context),
-        bottom: sidebarTabContentBottomPadding(context),
+        bottom: math.max(
+          sidebarTabContentBottomPadding(context),
+          keyboardInset + Spacing.sm,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

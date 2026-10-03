@@ -8,6 +8,7 @@ import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit/features/terminal/models/terminal_models.dart';
 import 'package:conduit/features/terminal/providers/terminal_providers.dart';
 import 'package:conduit/features/terminal/services/terminal_service.dart';
+import 'package:conduit/features/terminal/widgets/terminal_console_surface.dart';
 import 'package:conduit/features/terminal/widgets/terminal_tab.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -545,6 +546,41 @@ void main() {
       expect(find.text('pty-made.txt'), findsOneWidget);
     });
 
+    testWidgets('the inline console sits above the keyboard', (tester) async {
+      final fakeService = _FakeTerminalService(
+        servers: <TerminalServerInfo>[
+          TerminalServerInfo(
+            kind: TerminalServerKind.direct,
+            selectionId: 'https://terminal.example',
+            baseUrl: Uri.parse('https://terminal.example'),
+            name: 'Workspace',
+          ),
+        ],
+        entries: const <TerminalFileEntry>[],
+        ports: const <TerminalListeningPort>[],
+      );
+
+      // The sidebar does not resize for the keyboard (its tab bar stays put).
+      await tester.pumpWidget(
+        _buildHarness(fakeService, resizeToAvoidBottomInset: false),
+      );
+      await tester.pumpAndSettle();
+      ProviderScope.containerOf(tester.element(find.byType(TerminalTab)))
+          .read(terminalSidebarPanelProvider.notifier)
+          .setPanel(TerminalSidebarPanel.console);
+      await tester.pumpAndSettle();
+
+      const keyboardHeight = 300.0;
+      final dpr = tester.view.devicePixelRatio;
+      tester.view.viewInsets = FakeViewPadding(bottom: keyboardHeight * dpr);
+      addTearDown(tester.view.resetViewInsets);
+      await tester.pumpAndSettle();
+
+      final screenHeight = tester.view.physicalSize.height / dpr;
+      final console = tester.getRect(find.byType(TerminalConsoleSurface));
+      expect(console.bottom, lessThanOrEqualTo(screenHeight - keyboardHeight));
+    });
+
     testWidgets('ignores stale file loads after switching terminal servers', (
       tester,
     ) async {
@@ -697,6 +733,7 @@ Widget _buildHarness(
   bool isActive = true,
   bool autoConnect = false,
   TerminalChannelConnector? channelConnector,
+  bool resizeToAvoidBottomInset = true,
 }) {
   return ProviderScope(
     overrides: [
@@ -708,7 +745,10 @@ Widget _buildHarness(
     child: MaterialApp(
       localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      home: Scaffold(body: TerminalTab(isActive: isActive)),
+      home: Scaffold(
+        resizeToAvoidBottomInset: resizeToAvoidBottomInset,
+        body: TerminalTab(isActive: isActive),
+      ),
     ),
   );
 }
