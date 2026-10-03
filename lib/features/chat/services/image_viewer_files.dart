@@ -105,7 +105,15 @@ ImageFileType? _sniffImageFileType(Uint8List bytes) {
         brandAt(offset),
     ];
     if (brands.contains('avif') || brands.contains('avis')) return _avif;
-    if (const {'heic', 'heix', 'hevc', 'mif1', 'msf1'}.contains(brands[0])) {
+    if (const {
+      'heic',
+      'heix',
+      'heim',
+      'heis',
+      'hevc',
+      'mif1',
+      'msf1',
+    }.contains(brands[0])) {
       return _heic;
     }
   }

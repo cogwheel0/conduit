@@ -246,6 +246,7 @@ Future<_NativeViewerFiles?> _prepareNativeViewerFiles({
 }) async {
   final directory = await createImageSessionDirectory('viewer');
   final written = List<File?>.filled(items.length, null);
+  final pendingWrites = <Future<void>>[];
   // Set once the native gallery cannot open, so pending pages stop early.
   var abandoned = false;
   final cancelToken = dio.CancelToken();
@@ -266,13 +267,23 @@ Future<_NativeViewerFiles?> _prepareNativeViewerFiles({
       cancelToken: cancelToken,
     );
     if (image.type.isSvg || abandoned) return null;
-    return writeImageFile(
+    final write = writeImageFile(
       image.bytes,
       directory: directory,
       baseName: 'image-${i + 1}',
       type: image.type,
     );
+    pendingWrites.add(write.then<void>((_) {}, onError: (_) {}));
+    return write;
   }
+
+  // A write still running after a timeout could recreate a file in the
+  // deleted directory, so delete once started writes settle. The fallback
+  // viewer does not wait for this.
+  void deleteAfterWrites() => unawaited(
+    Future.wait(pendingWrites)
+        .whenComplete(() => deleteImageSessionDirectory(directory)),
+  );
 
   // A few pages at a time bound memory and connections for large galleries.
   var next = 0;
@@ -307,7 +318,7 @@ Future<_NativeViewerFiles?> _prepareNativeViewerFiles({
     );
 
     if (abandoned) {
-      await deleteImageSessionDirectory(directory);
+      deleteAfterWrites();
       return null;
     }
 
@@ -322,7 +333,7 @@ Future<_NativeViewerFiles?> _prepareNativeViewerFiles({
     ];
     return _NativeViewerFiles(directory, files, initialIndex);
   } catch (_) {
-    await deleteImageSessionDirectory(directory);
+    deleteAfterWrites();
     rethrow;
   }
 }

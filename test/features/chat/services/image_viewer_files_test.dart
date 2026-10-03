@@ -40,6 +40,9 @@ void main() {
           _bytes(ascii.encode('\x00\x00\x00\x18ftypmif1\x00\x00\x00\x00heic')),
         ),
       ).equals(const ImageFileType('heic', 'image/heic'));
+      check(
+        detectImageFileType(_bytes(ascii.encode('\x00\x00\x00\x18ftypheis'))),
+      ).equals(const ImageFileType('heic', 'image/heic'));
       // A 64-bit box size moves the brands eight bytes later.
       check(
         detectImageFileType(
