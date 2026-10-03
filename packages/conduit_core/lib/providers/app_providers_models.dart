@@ -711,7 +711,14 @@ Model? replacementForUnavailableLocalModel({
     return models.where(isLocallyMintedDirectModel).firstOrNull ??
         models.firstOrNull;
   }
-  return models.firstOrNull;
+  // A missing Open WebUI model (its list failed to load, or it was removed)
+  // is replaced only by another Open WebUI model, never by an on-device,
+  // Direct or Hermes one the user did not choose.
+  return models
+      .where(
+        (model) => !isLocallyMintedDirectModel(model) && !isHermesModel(model),
+      )
+      .firstOrNull;
 }
 
 typedef _OwnedModels = ({

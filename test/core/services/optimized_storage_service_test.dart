@@ -2290,6 +2290,26 @@ void main() {
     );
   });
 
+  // sign-out blocks preference writes before the wipe, and the restore of
+  // the kept active server id ran into that barrier, so the kept address was
+  // read-suppressed and the app fell back to the backend chooser.
+  test('kept server details survive the sign-out preference barrier', () async {
+    final config = _serverConfig('server-a').copyWith(isActive: true);
+    await storage.saveServerConfigs([config]);
+    await storage.setActiveServerId(config.id);
+    await PreferencesStore.blockWritesForAppDataClear();
+    addTearDown(PreferencesStore.resumeWritesAfterAppDataClear);
+
+    final cleared = await storage.clearAllIf(
+      canClear: () => true,
+      preserveServerDetails: true,
+    );
+
+    check(cleared).isTrue();
+    check(await storage.getServerConfigs()).length.equals(1);
+    check(await storage.getActiveServerId()).equals(config.id);
+  });
+
   test('conditional full wipe removes server details by default', () async {
     await saveServerConfigs(['server-a']);
     await storage.setActiveServerId('server-a');

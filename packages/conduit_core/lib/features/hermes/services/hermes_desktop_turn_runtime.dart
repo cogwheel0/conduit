@@ -39,6 +39,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     final seenEventOrder = Queue<String>();
     var activeRuntimeId = binding.runtimeId;
     var promptAcknowledged = false;
+    // Set once the gateway shows this turn running. Until then an idle
+    // `session.info` is left over from before the prompt (session setup, a
+    // late MCP refresh) and must not end the turn before it starts.
+    var turnStarted = false;
     var disconnectReconciliationRunning = false;
     final eventsBeforePromptAcknowledgement = Queue<HermesDesktopEvent>();
     late final StreamSubscription<HermesDesktopEvent> subscription;
@@ -94,6 +98,13 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       String firstValue(Iterable<String> keys) => keys
           .map(value)
           .firstWhere((candidate) => candidate.isNotEmpty, orElse: () => '');
+      // Only the reply's own events show that the submitted turn is running.
+      // A late tool, subagent or request event can belong to earlier work, and
+      // must not let an idle session.info end this turn.
+      if (event.type.startsWith('message.') ||
+          (event.type == 'session.info' && payload['running'] == true)) {
+        turnStarted = true;
+      }
       if (_projectHermesTurnEvent(
         event,
         add: controller.add,
@@ -228,7 +239,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
               storedId: binding.storedId,
               runtimeId: binding.runtimeId,
             );
-          } else if (!running && promptAcknowledged) {
+          } else if (!running && promptAcknowledged && turnStarted) {
             finish(authoritativeIdle: true);
           }
         case 'error':

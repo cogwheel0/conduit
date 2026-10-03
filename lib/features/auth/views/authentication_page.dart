@@ -109,6 +109,13 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
   bool _obscurePassword = true;
   AuthMode _authMode = AuthMode.credentials;
+
+  // The route hands these over in its `extra`, which go_router does not keep
+  // when it rebuilds the page from restored route information (it happened
+  // on the refresh after a failed sign-in). Keep what this page was opened
+  // with, so the methods, the selected tab and its form stay in step.
+  late ServerConfig? _serverConfig = widget.serverConfig;
+  late BackendConfig? _backendConfig = widget.backendConfig;
   String? _loginError;
   bool _isSigningIn = false;
   bool _serverConfigSaved = false;
@@ -125,18 +132,17 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
   /// Whether the server has OAuth/SSO providers configured.
   bool get _hasSsoEnabled =>
-      isWebViewSupported && (widget.backendConfig?.hasSsoEnabled ?? true);
+      isWebViewSupported && (_backendConfig?.hasSsoEnabled ?? true);
 
   /// Whether LDAP authentication is enabled on the server.
-  bool get _hasLdapEnabled => widget.backendConfig?.enableLdap == true;
+  bool get _hasLdapEnabled => _backendConfig?.enableLdap == true;
 
   /// Whether the login form (email/password) is enabled on the server.
-  bool get _hasLoginFormEnabled =>
-      widget.backendConfig?.enableLoginForm ?? true;
+  bool get _hasLoginFormEnabled => _backendConfig?.enableLoginForm ?? true;
 
   /// OAuth providers available on the server.
   OAuthProviders get _oauthProviders =>
-      widget.backendConfig?.oauthProviders ?? const OAuthProviders();
+      _backendConfig?.oauthProviders ?? const OAuthProviders();
 
   /// Available sign-in methods for this server.
   List<AuthMode> get _availableAuthModes {
@@ -185,6 +191,13 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
         if (mounted) _checkAuthStateError();
       }
     });
+  }
+
+  @override
+  void didUpdateWidget(AuthenticationPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _serverConfig = widget.serverConfig ?? _serverConfig;
+    _backendConfig = widget.backendConfig ?? _backendConfig;
   }
 
   void _resetTransientLogin() {
@@ -273,8 +286,8 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     try {
       // Save server config on first sign-in attempt if it's a new config
       // This persists the server so user can retry with different credentials
-      if (widget.serverConfig != null && !_serverConfigSaved) {
-        await _saveServerConfig(widget.serverConfig!);
+      if (_serverConfig != null && !_serverConfigSaved) {
+        await _saveServerConfig(_serverConfig!);
         _serverConfigSaved = true;
       }
 
@@ -343,7 +356,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     }
     await _waitForApiService(config);
 
-    final backendConfig = widget.backendConfig;
+    final backendConfig = _backendConfig;
     if (backendConfig != null) {
       // The config was already verified for this server before sign-in. Keep it
       // associated with the newly active server so capability warnings and
@@ -449,9 +462,15 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     );
   }
 
+  /// Leaving the page commits the autofill context, which makes iOS offer to
+  /// save the password. Not for one the server just rejected.
+  AutofillContextAction get _autofillDisposeAction => _loginError == null
+      ? AutofillContextAction.commit
+      : AutofillContextAction.cancel;
+
   ServerConfig? get _resolvedServerConfig {
     final activeServerAsync = ref.watch(activeServerProvider);
-    return widget.serverConfig ??
+    return _serverConfig ??
         activeServerAsync.maybeWhen(data: (s) => s, orElse: () => null);
   }
 
@@ -612,6 +631,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     final l10n = AppLocalizations.of(context)!;
 
     return AutofillGroup(
+      onDisposeAction: _autofillDisposeAction,
       child: Column(
         key: const ValueKey('credentials_form'),
         children: [
@@ -679,6 +699,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     final l10n = AppLocalizations.of(context)!;
 
     return AutofillGroup(
+      onDisposeAction: _autofillDisposeAction,
       child: Column(
         key: const ValueKey('ldap_form'),
         children: [
@@ -756,9 +777,9 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     // example when the selected server's API client is not ready in time), so
     // surface that like the credentials path instead of silently doing
     // nothing; the user can then retry the SSO button.
-    if (widget.serverConfig != null && !_serverConfigSaved) {
+    if (_serverConfig != null && !_serverConfigSaved) {
       try {
-        await _saveServerConfig(widget.serverConfig!);
+        await _saveServerConfig(_serverConfig!);
         _serverConfigSaved = true;
       } catch (e) {
         DebugLogger.error(
@@ -778,7 +799,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       if (!mounted) return;
     }
 
-    await context.pushNamed(RouteNames.ssoAuth, extra: widget.serverConfig);
+    await context.pushNamed(RouteNames.ssoAuth, extra: _serverConfig);
     if (mounted) setState(() => _isSigningIn = false);
   }
 

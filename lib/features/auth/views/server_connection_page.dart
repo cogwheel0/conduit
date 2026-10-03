@@ -66,6 +66,39 @@ BaseOptions buildSchemeLessPlaintextHealthProbeOptions(String baseUrl) {
   );
 }
 
+/// Whether a failed connection to a server configured with a client
+/// certificate failed in the TLS handshake itself, which is a certificate
+/// problem and nothing else.
+@visibleForTesting
+bool isLikelyMutualTlsRejection(
+  String errorText, {
+  required bool hasMutualTlsInput,
+}) {
+  if (!hasMutualTlsInput) return false;
+  return errorText.contains('HandshakeException') ||
+      errorText.contains('TlsException') ||
+      errorText.contains('CERTIFICATE_VERIFY_FAILED') ||
+      errorText.contains('alert bad certificate');
+}
+
+/// Whether a failed HTTPS connection, to a server configured with a client
+/// certificate, was closed before the first response header arrived.
+///
+/// With TLS 1.3 the client finishes its side of the handshake before the
+/// server checks the certificate, so a refusal does not surface as a
+/// handshake error: the server closes the connection instead. A proxy reset or
+/// a server restart closes it the same way, so this cannot say the certificate
+/// was refused, only that it is worth checking. A plain HTTP request cannot
+/// involve a client certificate.
+@visibleForTesting
+bool isConnectionClosedWithClientCertificate(
+  String errorText, {
+  required bool hasMutualTlsInput,
+}) =>
+    hasMutualTlsInput &&
+    errorText.contains('Connection closed before full header was received') &&
+    errorText.contains('uri = https://');
+
 /// Redacts configured header values before normalizing and bounding text that
 /// came from a server, proxy, or transport error.
 ///
@@ -370,6 +403,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
       if (healthResult == HealthCheckResult.unreachable) {
         throw Exception(l10n.couldNotConnectGeneric);
+      }
+
+      if (healthResult == HealthCheckResult.notOpenWebUI) {
+        throw Exception(l10n.serverNotOpenWebUI);
       }
 
       if (healthResult == HealthCheckResult.unhealthy) {
@@ -1013,17 +1050,16 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     // Handle specific error types
     if (errorText.contains('mTLS certificate setup failed')) {
       return cleanError;
-    } else if (errorText.contains('HandshakeException') &&
-        _hasAnyMutualTlsInput) {
+    } else if (isLikelyMutualTlsRejection(
+      errorText,
+      hasMutualTlsInput: _hasAnyMutualTlsInput,
+    )) {
       return AppLocalizations.of(context)!.mutualTlsHandshakeFailed;
-    } else if (errorText.contains('TlsException') && _hasAnyMutualTlsInput) {
-      return AppLocalizations.of(context)!.mutualTlsHandshakeFailed;
-    } else if (errorText.contains('CERTIFICATE_VERIFY_FAILED') &&
-        _hasAnyMutualTlsInput) {
-      return AppLocalizations.of(context)!.mutualTlsHandshakeFailed;
-    } else if (errorText.contains('alert bad certificate') &&
-        _hasAnyMutualTlsInput) {
-      return AppLocalizations.of(context)!.mutualTlsHandshakeFailed;
+    } else if (isConnectionClosedWithClientCertificate(
+      errorText,
+      hasMutualTlsInput: _hasAnyMutualTlsInput,
+    )) {
+      return AppLocalizations.of(context)!.mutualTlsConnectionClosed;
     }
 
     final exactServerUrlError = _formatExactServerUrlError(

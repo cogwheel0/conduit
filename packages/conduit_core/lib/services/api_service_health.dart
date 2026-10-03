@@ -194,6 +194,8 @@ mixin _HealthApi on _ApiServiceBase {
         return HealthCheckResult.healthy;
       }
 
+      if (statusCode == 404) return HealthCheckResult.notOpenWebUI;
+
       return HealthCheckResult.unhealthy;
     } on DioException catch (e) {
       response ??= e.response;

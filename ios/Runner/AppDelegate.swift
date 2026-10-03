@@ -6,6 +6,7 @@ import Flutter
 import AppIntents
 import UIKit
 import UniformTypeIdentifiers
+import UserNotifications
 import WebKit
 
 private func appLocalized(_ key: String, _ fallback: String) -> String {
@@ -2542,6 +2543,11 @@ private func cookieIsPreferred(
   ) -> Bool {
     backgroundStreamingHandler = BackgroundStreamingHandler()
     backgroundStreamingHandler?.registerBackgroundTasks()
+    // FlutterAppDelegate forwards notification callbacks to plugins only while
+    // it is the notification center's delegate. Without this, a tap on a
+    // Conduit notification never reached flutter_local_notifications. Set it
+    // before launch finishes so a tap that cold-starts the app is delivered.
+    UNUserNotificationCenter.current().delegate = self
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 

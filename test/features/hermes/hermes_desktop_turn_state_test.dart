@@ -98,6 +98,19 @@ final class _GatewayHarness {
     }),
   );
 
+  /// Pushes a turn event for [runtimeId], e.g. `message.start`.
+  void event(
+    String runtimeId,
+    String type, [
+    Map<String, dynamic> payload = const {},
+  ]) => incoming.add(
+    jsonEncode({
+      'jsonrpc': '2.0',
+      'method': 'event',
+      'params': {'type': type, 'session_id': runtimeId, 'payload': payload},
+    }),
+  );
+
   Future<void> dispose() => incoming.close();
 }
 
@@ -314,6 +327,7 @@ void main() {
       sessionId: 'stored-existing',
       options: const HermesDesktopSessionOptions(),
     );
+    harness.event('runtime-existing', 'message.start');
     harness.sessionInfo('runtime-existing', running: false);
     await response.events.toList();
 
@@ -686,6 +700,7 @@ void main() {
         fast: true,
       ),
     );
+    harness.event('runtime-bot', 'message.start');
     harness.sessionInfo('runtime-bot', running: false);
     await response.events.toList();
 
@@ -705,4 +720,86 @@ void main() {
     check(adapter.requested.where((uri) => uri.path.endsWith('/messages')))
         .isEmpty();
   });
+  // the gateway reports `session.info` asynchronously after a session is
+  // created or resumed. An idle one that lands while `prompt.submit` is in
+  // flight was replayed after the acknowledgement and ended the turn before
+  // its first delta, leaving an empty reply.
+  test('an idle session.info from before the turn does not end it', () async {
+    final deltas = await _replyAfterPreTurnFrames(
+      (harness) => harness.sessionInfo('runtime-race', running: false),
+    );
+    check(deltas).equals('Hello there.');
+  });
+
+  test(
+    'a late tool event does not let an idle session.info end the turn',
+    () async {
+      final deltas = await _replyAfterPreTurnFrames((harness) {
+        harness.event('runtime-race', 'tool.complete', {'name': 'earlier'});
+        harness.sessionInfo('runtime-race', running: false);
+      });
+      check(deltas).equals('Hello there.');
+    },
+  );
+}
+
+/// Streams a reply while [preTurnFrames] arrive before `prompt.submit` is
+/// acknowledged, and returns the text that reached the caller.
+Future<String> _replyAfterPreTurnFrames(
+  void Function(_GatewayHarness harness) preTurnFrames,
+) async {
+  SharedPreferences.setMockInitialValues({});
+  PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+  final harness = _GatewayHarness();
+  final rpc = HermesDesktopRpcClient(
+    channelFactory: (_, _, {httpClient}) => harness.channel,
+  );
+  final service = HermesDesktopApiService(
+    config: HermesConfig(
+      enabled: true,
+      baseUrl: 'https://hermes.example',
+      mode: HermesBackendMode.desktopGateway,
+      desktopCredentials: HermesDesktopCredentials(
+        legacyToken: 'session-token',
+      ),
+    ),
+    dio: _statusDio(),
+    rpc: rpc,
+  );
+  addTearDown(() async {
+    service.close();
+    await harness.dispose();
+  });
+
+  harness.responder = (method) {
+    if (method == 'prompt.submit') {
+      // Delivered before the acknowledgement, as on the wire.
+      preTurnFrames(harness);
+      return {'status': 'streaming'};
+    }
+    return switch (method) {
+      'session.resume' => {
+        'session_id': 'runtime-race',
+        'stored_session_id': 'stored-race',
+        'running': false,
+      },
+      'config.get' => {'value': 'medium'},
+      _ => const {},
+    };
+  };
+
+  final response = await service.streamDesktopResponse(
+    HermesChatInput.text('hello'),
+    sessionId: 'stored-race',
+    options: const HermesDesktopSessionOptions(),
+  );
+  final events = response.events.toList();
+  await Future<void>.delayed(Duration.zero);
+  harness.event('runtime-race', 'message.start');
+  harness.event('runtime-race', 'message.delta', {'text': 'Hello there.'});
+  harness.event('runtime-race', 'message.complete', {'text': 'Hello there.'});
+  harness.sessionInfo('runtime-race', running: false);
+
+  final deltas = (await events).whereType<HermesTokenDelta>();
+  return deltas.map((event) => event.content).join();
 }

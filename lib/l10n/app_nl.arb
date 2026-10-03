@@ -269,6 +269,7 @@
   "mutualTlsPrivateKeyPemRequired": "Het geselecteerde privésleutelbestand moet een PEM-privésleutel bevatten.",
   "mutualTlsFileReadFailed": "Kan het geselecteerde mTLS-bestand niet lezen.",
   "mutualTlsHandshakeFailed": "De server heeft de mTLS-inloggegevens geweigerd. Controleer of het certificaat, de privésleutel en het wachtwoord correct zijn.",
+  "mutualTlsConnectionClosed": "De server heeft de verbinding gesloten voordat hij antwoordde. Als hij een clientcertificaat vereist, controleer dan of het certificaat, de privésleutel en het wachtwoord correct zijn.",
   "headerNameTooLong": "Header-naam te lang (max 64 tekens)",
   "headerNameInvalidChars": "Ongeldige header-naam. Gebruik alleen letters, cijfers en deze symbolen: !#$&-^_`|~",
   "headerNameReserved": "Kan gereserveerde header '{key}' niet overschrijven",
