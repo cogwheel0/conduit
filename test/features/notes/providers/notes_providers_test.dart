@@ -523,18 +523,4 @@ void main() {
       },
     );
   });
-
-  group('NoteUpdater', () {
-    late AppDatabase db;
-
-    setUp(() {
-      db = AppDatabase(NativeDatabase.memory());
-    });
-
-    tearDown(() async {
-      await db.close();
-    });
-  });
-
-  group('NotePinToggler', () {});
 }

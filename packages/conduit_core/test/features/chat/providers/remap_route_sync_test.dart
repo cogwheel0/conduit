@@ -4,7 +4,9 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/ports/ports.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit_core/sync/sync_api_client.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
@@ -38,9 +40,14 @@ void main() {
     await db.close();
   });
 
-  ProviderContainer makeContainer({bool apiUnavailable = false}) {
+  ProviderContainer makeContainer({
+    bool apiUnavailable = false,
+    RouteNavigatorPort? navigator,
+  }) {
     final container = ProviderContainer(
       overrides: [
+        if (navigator != null)
+          routeNavigatorProvider.overrideWithValue(navigator),
         ...openWebUiStorageOpenOverrides(database: db),
         apiServiceProvider.overrideWith(
           (ref) => apiUnavailable
@@ -184,6 +191,102 @@ void main() {
     check(container.read(pendingFolderIdProvider)).equals('srv-folder');
   });
 
+  test(
+    'folder remap moves an open folder route through the navigator',
+    () async {
+      final navigator = _RecordingNavigator('/folder/local%3Af2?view=grid');
+      final container = makeContainer(navigator: navigator);
+      container.read(remapRouteSyncProvider);
+
+      await _seedBareLocalFolder(db, 'local:f2');
+      await _runRemapAndWait(
+        remapperOf(container),
+        (remapper) => remapper.remapFolder(
+          localId: 'local:f2',
+          serverId: 'srv-folder-2',
+          serverUpdatedAt: 1,
+        ),
+      );
+      await _waitUntil(() => navigator.went.isNotEmpty);
+
+      check(navigator.went).deepEquals(['/folder/srv-folder-2?view=grid']);
+    },
+  );
+
+  test('folder remap leaves a different open route alone', () async {
+    final navigator = _RecordingNavigator('/folder/other');
+    final container = makeContainer(navigator: navigator);
+    container.read(remapRouteSyncProvider);
+
+    await _seedBareLocalFolder(db, 'local:f3');
+    await _runRemapAndWait(
+      remapperOf(container),
+      (remapper) => remapper.remapFolder(
+        localId: 'local:f3',
+        serverId: 'srv-folder-3',
+        serverUpdatedAt: 1,
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    check(navigator.went).isEmpty();
+  });
+
+  test('note remap moves an open note route through the navigator', () async {
+    final navigator = _RecordingNavigator('/notes/local%3An2?mode=edit');
+    final container = makeContainer(navigator: navigator);
+    container.read(remapRouteSyncProvider);
+
+    await db
+        .into(db.notes)
+        .insert(
+          NotesCompanion.insert(
+            id: 'local:n2',
+            title: 'N',
+            createdAt: 1,
+            updatedAt: 1,
+          ),
+        );
+    await _runRemapAndWait(
+      remapperOf(container),
+      (remapper) => remapper.remapNote(
+        localId: 'local:n2',
+        serverId: 'srv-note-2',
+        serverCreatedAt: 1,
+        serverUpdatedAt: 1,
+      ),
+    );
+    await _waitUntil(() => navigator.went.isNotEmpty);
+
+    check(navigator.went).deepEquals(['/notes/srv-note-2?mode=edit']);
+  });
+
+  test('a navigator that rejects the route does not break the remap', () async {
+    final navigator = _RecordingNavigator(
+      '/folder/local%3Af4',
+      rejectsNavigation: true,
+    );
+    final container = makeContainer(navigator: navigator);
+    container.read(remapRouteSyncProvider);
+    container.read(pendingFolderIdProvider.notifier).set('local:f4');
+
+    await _seedBareLocalFolder(db, 'local:f4');
+    await _runRemapAndWait(
+      remapperOf(container),
+      (remapper) => remapper.remapFolder(
+        localId: 'local:f4',
+        serverId: 'srv-folder-4',
+        serverUpdatedAt: 1,
+      ),
+    );
+    await _waitUntil(
+      () => container.read(pendingFolderIdProvider) == 'srv-folder-4',
+    );
+
+    check(navigator.went).isEmpty();
+    check(container.read(pendingFolderIdProvider)).equals('srv-folder-4');
+  });
+
   test('active id remap survives a failing context provider', () {
     final container = makeContainer(apiUnavailable: true);
     container
@@ -298,4 +401,21 @@ Future<void> _seedBareLocalFolder(AppDatabase db, String id) async {
           dirty: const Value(true),
         ),
       );
+}
+
+/// A host router showing [currentRoute] that records where it is sent.
+class _RecordingNavigator implements RouteNavigatorPort {
+  _RecordingNavigator(this.currentRoute, {this.rejectsNavigation = false});
+
+  @override
+  final String? currentRoute;
+
+  final bool rejectsNavigation;
+  final went = <String>[];
+
+  @override
+  void go(String location) {
+    if (rejectsNavigation) throw StateError('router rejected $location');
+    went.add(location);
+  }
 }
