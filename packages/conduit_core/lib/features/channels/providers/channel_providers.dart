@@ -531,21 +531,29 @@ class ThreadMessages extends _$ThreadMessages {
   }
 
   /// Updates a reply in the thread (edit, reaction change).
+  ///
+  /// A reply missing from the list may still be in a fetch that started
+  /// before the change, so that fetch is marked stale either way.
   void updateMessage(ChannelMessage updated) {
     final current = state.value ?? [];
     final index = current.indexWhere((message) => message.id == updated.id);
-    if (index < 0 || current[index] == updated) return;
+    if (index < 0) {
+      _invalidatePendingFetchForMutation();
+      return;
+    }
+    if (current[index] == updated) return;
     _invalidatePendingFetchForMutation();
     final next = List<ChannelMessage>.of(current);
     next[index] = updated;
     state = AsyncValue.data(next);
   }
 
-  /// Removes a reply from the thread.
+  /// Removes a reply from the thread, and marks a fetch that may still hold
+  /// it stale.
   void removeMessage(String messageId) {
+    _invalidatePendingFetchForMutation(includePagination: true);
     final current = state.value ?? [];
     if (!current.any((message) => message.id == messageId)) return;
-    _invalidatePendingFetchForMutation(includePagination: true);
     state = AsyncValue.data(current.where((m) => m.id != messageId).toList());
   }
 }
