@@ -13,6 +13,18 @@ Uint8List _png(int width, int height) {
   return img.encodePng(image);
 }
 
+/// CRC-32 as PNG chunks use it.
+int _crc32(List<int> data) {
+  var crc = 0xFFFFFFFF;
+  for (final byte in data) {
+    crc ^= byte;
+    for (var bit = 0; bit < 8; bit++) {
+      crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320 : crc >> 1;
+    }
+  }
+  return crc ^ 0xFFFFFFFF;
+}
+
 Uint8List _jpg(int width, int height) =>
     img.encodeJpg(img.Image(width: width, height: height));
 
@@ -119,6 +131,20 @@ void main() {
         .equals('image/png');
   });
 
+  test('an EXIF-rotated photo is bounded as it is shown', () async {
+    // 1600x900 stored sideways: shown as 900 wide and 1600 tall.
+    final photo = img.Image(width: 1600, height: 900);
+    img.fill(photo, color: img.ColorRgb8(10, 120, 200));
+    photo.exif.imageIfd.orientation = 6;
+    final bytes = img.encodeJpg(photo);
+
+    final bounded = await WorkspaceModelAvatarBounds.bound(bytes);
+
+    final decoded = img.decodePng(bounded)!;
+    check(decoded.width).equals(288);
+    check(decoded.height).equals(512);
+  });
+
   group('oversized and animated images', () {
     /// A PNG whose header declares [width] x [height] over a few real pixels:
     /// decoding it for real would try to allocate the declared size.
@@ -127,8 +153,20 @@ void main() {
       final header = ByteData.sublistView(bytes);
       header.setUint32(16, width);
       header.setUint32(20, height);
+      // A decoder rejects an IHDR whose checksum no longer matches, which
+      // would make this look undecodable instead of oversized.
+      header.setUint32(29, _crc32(bytes.sublist(12, 29)));
       return bytes;
     }
+
+    test('the oversized fixture really declares its size to the decoder', () {
+      final info = img
+          .findDecoderForData(declaredSize(20000, 20000))!
+          .startDecode(declaredSize(20000, 20000))!;
+
+      check(info.width).equals(20000);
+      check(info.height).equals(20000);
+    });
 
     test('an image declaring too many pixels is never decoded', () async {
       final bytes = declaredSize(20000, 20000);
@@ -188,8 +226,7 @@ void main() {
 
   group('mime type of an unchanged image', () {
     Uint8List ftyp(String brand) => Uint8List.fromList([
-      0, 0, 0, 24, ...'ftyp'.codeUnits, ...brand.codeUnits, 0, 0, 0, 0, //
-      ...'mif1heic'.codeUnits,
+      0, 0, 0, 16, ...'ftyp'.codeUnits, ...brand.codeUnits, 0, 0, 0, 0, //
     ]);
 
     test('is read from the bytes before the extension', () {
@@ -223,6 +260,32 @@ void main() {
           Uint8List.fromList(utf8.encode('plain text')),
         ),
       ).isNull();
+    });
+
+    test('compatible brands decide when the major brand is generic', () {
+      Uint8List box(String major, List<String> compatible) {
+        final body = [
+          ...'ftyp'.codeUnits,
+          ...major.codeUnits,
+          0, 0, 0, 0, //
+          for (final brand in compatible) ...brand.codeUnits,
+        ];
+        final size = body.length + 4;
+        return Uint8List.fromList([0, 0, 0, size, ...body]);
+      }
+
+      check(
+        WorkspaceModelAvatarBounds.mimeTypeForBytes(
+          box('mif1', ['mif1', 'avif']),
+        ),
+      ).equals('image/avif');
+      check(
+        WorkspaceModelAvatarBounds.mimeTypeForBytes(
+          box('mif1', ['mif1', 'heic']),
+        ),
+      ).equals('image/heic');
+      check(WorkspaceModelAvatarBounds.mimeTypeForBytes(box('mif1', ['mif1'])))
+          .equals('image/heif');
     });
 
     test('a kept HEIC is not labelled PNG', () async {

@@ -93,17 +93,37 @@ abstract final class WorkspaceModelAvatarBounds {
     }
     if (ascii(0, 4) == 'RIFF' && ascii(8, 12) == 'WEBP') return 'image/webp';
     if (ascii(4, 8) == 'ftyp') {
-      return switch (ascii(8, 12)) {
-        'heic' ||
-        'heix' ||
-        'heim' ||
-        'heis' ||
-        'hevc' ||
-        'hevx' => 'image/heic',
-        'mif1' || 'msf1' => 'image/heif',
-        'avif' || 'avis' => 'image/avif',
-        _ => null,
+      // The major brand can be the generic `mif1` for an AVIF or HEIC file,
+      // so every brand the box lists counts, the specific ones first.
+      final boxSize = bytes.length < 8
+          ? 0
+          : (bytes[0] << 24 | bytes[1] << 16 | bytes[2] << 8 | bytes[3]);
+      final end = boxSize < 16 || boxSize > bytes.length
+          ? (bytes.length < 16 ? bytes.length : 16)
+          : boxSize;
+      final brands = <String>{
+        ascii(8, 12),
+        for (var at = 16; at + 4 <= end; at += 4) ascii(at, at + 4),
       };
+      if (brands.any((brand) => brand == 'avif' || brand == 'avis')) {
+        return 'image/avif';
+      }
+      if (brands.any(
+        (brand) => const {
+          'heic',
+          'heix',
+          'heim',
+          'heis',
+          'hevc',
+          'hevx',
+        }.contains(brand),
+      )) {
+        return 'image/heic';
+      }
+      if (brands.any((brand) => brand == 'mif1' || brand == 'msf1')) {
+        return 'image/heif';
+      }
+      return null;
     }
     return null;
   }
@@ -176,6 +196,9 @@ abstract final class WorkspaceModelAvatarBounds {
     if (decoded == null) return const _Undecodable();
     // An animated image keeps its first frame, as the platform decoders do.
     if (decoded.numFrames > 1) decoded = decoded.getFrame(0);
+    // Apply the EXIF orientation first: a photo stored sideways has its sides
+    // swapped, and the target size must be worked out for what is shown.
+    decoded = img.bakeOrientation(decoded);
     final target = targetSize(decoded.width, decoded.height);
     if (target == null) return const _Fits();
     try {

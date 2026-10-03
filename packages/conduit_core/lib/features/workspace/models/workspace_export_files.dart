@@ -17,11 +17,16 @@ abstract final class WorkspaceExportFiles {
         : '$base.$extension';
   }
 
+  /// The longest staged file name: well under the limit of a mobile file
+  /// system component, which an overlong resource name could otherwise pass.
+  static const int maxNameLength = 100;
+
   /// Replaces every run of characters that are not letters or digits (in any
   /// script) or `. _ -` with one underscore, so a resource name cannot escape
   /// the staging directory or upset a share target, while a name such as
-  /// `résumé` or `模型` stays recognisable. A blank name, or one that is only dots,
-  /// becomes `export`.
+  /// `résumé` or `模型` stays recognisable. A blank name, or one that is only
+  /// dots, becomes `export`; a name over [maxNameLength] characters is cut,
+  /// keeping a short extension.
   static String sanitize(String filename) {
     final trimmed = filename.trim();
     final base = trimmed.isEmpty ? 'export' : trimmed;
@@ -30,7 +35,16 @@ abstract final class WorkspaceExportFiles {
       '_',
     );
     // `.` and `..` name a directory, not a file, so staging them would fail.
-    return safe == '.' || safe == '..' ? 'export' : safe;
+    if (safe == '.' || safe == '..') return 'export';
+    final runes = safe.runes.toList(growable: false);
+    if (runes.length <= maxNameLength) return safe;
+    final dot = safe.lastIndexOf('.');
+    final extension = dot > 0 && safe.length - dot <= 16
+        ? safe.substring(dot)
+        : '';
+    final room = maxNameLength - extension.runes.length;
+    final stem = String.fromCharCodes(runes.take(room));
+    return '$stem$extension';
   }
 
   /// [data] as pretty-printed UTF-8 JSON.
@@ -40,12 +54,17 @@ abstract final class WorkspaceExportFiles {
   /// How long a staged export is kept. A share target (Android's chooser, a
   /// mail app) can read the file after the share call returns, so nothing is
   /// deleted right after sharing; the next export removes older ones.
-  static const Duration staleAfter = Duration(hours: 1);
+  static const Duration staleAfter = Duration(hours: 24);
 
-  /// Writes [bytes] under the sanitized [filename] in a new directory inside
-  /// [directory], so two exports with the same name never share a path: a
-  /// share sheet still reading the first file cannot be handed the second's
-  /// bytes. Staged exports older than [keepFor] are removed first.
+  /// The directory inside the caller's temporary directory that holds staged
+  /// exports, so cleaning it up can never touch anything else.
+  static const String stagingRoot = 'workspace_exports';
+
+  /// Writes [bytes] under the sanitized [filename] in a new directory of its
+  /// own below `[directory]/workspace_exports`, so two exports with the same
+  /// name never share a path: a share sheet still reading the first file
+  /// cannot be handed the second's bytes. Staged exports older than [keepFor]
+  /// are removed first.
   static Future<File> stage({
     required Directory directory,
     required String filename,
@@ -53,8 +72,10 @@ abstract final class WorkspaceExportFiles {
     Duration keepFor = staleAfter,
   }) async {
     final safeName = sanitize(filename);
-    await _removeStale(directory, keepFor);
-    final staging = await directory.createTemp(_stagingPrefix);
+    final root = await Directory('${directory.path}/$stagingRoot')
+        .create(recursive: true);
+    await _removeStale(root, keepFor);
+    final staging = await root.createTemp('export_');
     final file = File('${staging.path}/$safeName');
     await file.writeAsBytes(bytes, flush: true);
     DebugLogger.log(
@@ -65,27 +86,24 @@ abstract final class WorkspaceExportFiles {
     return file;
   }
 
-  static const String _stagingPrefix = 'export_';
-
-  /// Deletes the staged export directories in [directory] last written more
-  /// than [keepFor] ago. Best effort: a failure leaves them for next time.
-  static Future<void> _removeStale(
-    Directory directory,
-    Duration keepFor,
-  ) async {
+  /// Deletes the staged export directories in [root] last written more than
+  /// [keepFor] ago. Best effort and per entry: one that cannot be removed is
+  /// left for next time and does not stop the others.
+  static Future<void> _removeStale(Directory root, Duration keepFor) async {
+    final cutoff = DateTime.now().subtract(keepFor);
+    final List<FileSystemEntity> entries;
     try {
-      final cutoff = DateTime.now().subtract(keepFor);
-      await for (final entity in directory.list(followLinks: false)) {
-        if (entity is! Directory) continue;
-        final name = entity.uri.pathSegments.lastWhere(
-          (segment) => segment.isNotEmpty,
-          orElse: () => '',
-        );
-        if (!name.startsWith(_stagingPrefix)) continue;
+      entries = await root.list(followLinks: false).toList();
+    } catch (_) {
+      return;
+    }
+    for (final entity in entries) {
+      if (entity is! Directory) continue;
+      try {
         if ((await entity.stat()).modified.isBefore(cutoff)) {
           await entity.delete(recursive: true);
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
+    }
   }
 }

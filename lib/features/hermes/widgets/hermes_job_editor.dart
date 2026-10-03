@@ -144,7 +144,11 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
               label: l10n.hermesJobScheduleLabel,
               hint: l10n.hermesJobScheduleHint,
               controller: _schedule,
-              errorText: _errorText(l10n, errors.schedule),
+              errorText: _errorText(
+                l10n,
+                errors.schedule,
+                maximum: kMaxHermesJobScheduleCharacters,
+              ),
               onChanged: (_) {
                 if (_showErrors) setState(() {});
               },

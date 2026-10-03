@@ -87,6 +87,23 @@ void main() {
     }
   });
 
+  test('a schedule over the server limit is reported as too long', () {
+    final atLimit = validateHermesJobDraft(
+      name: 'n',
+      prompt: 'p',
+      schedule: '${'0,' * 1000}0 * * * *',
+    );
+    // About 2,000 characters: within the limit, and a valid cron expression.
+    check(atLimit.schedule).isNull();
+
+    final over = validateHermesJobDraft(
+      name: 'n',
+      prompt: 'p',
+      schedule: '${'0,' * 1024}0 * * * *',
+    );
+    check(over.schedule).equals(HermesJobFieldError.tooLong);
+  });
+
   test('the job draft check reports each field', () {
     final valid = validateHermesJobDraft(
       name: ' Morning brief ',

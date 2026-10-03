@@ -31,6 +31,16 @@ void main() {
         .equals('模型_v2_x.json');
     check(WorkspaceExportFiles.sanitize('a:b*c?.json')).equals('a_b_c_.json');
     check(WorkspaceExportFiles.sanitize('')).equals('export');
+    // An overlong name is cut, keeping a short extension.
+    final long = '${'a' * 300}.json';
+    final bounded = WorkspaceExportFiles.sanitize(long);
+    check(bounded.runes.length).equals(WorkspaceExportFiles.maxNameLength);
+    check(bounded).endsWith('.json');
+    check(WorkspaceExportFiles.sanitize('${'模' * 300}.md').runes.length)
+        .equals(WorkspaceExportFiles.maxNameLength);
+    check(WorkspaceExportFiles.sanitize('b' * 300).runes.length)
+        .equals(WorkspaceExportFiles.maxNameLength);
+
     // Names that are only dots cannot be files.
     check(WorkspaceExportFiles.sanitize('.')).equals('export');
     check(WorkspaceExportFiles.sanitize('..')).equals('export');
@@ -55,7 +65,9 @@ void main() {
     );
 
     check(file.uri.pathSegments.last).equals('a_b_c.json');
-    check(file.parent.parent.path).equals(dir.path);
+    // Inside the export-owned directory, in a directory of its own.
+    check(file.parent.parent.path)
+        .equals('${dir.path}/${WorkspaceExportFiles.stagingRoot}');
     check(await file.readAsBytes()).deepEquals([1, 2, 3]);
   });
 
@@ -82,7 +94,10 @@ void main() {
   test('staging removes older exports and leaves everything else', () async {
     final dir = await Directory.systemTemp.createTemp('workspace_export');
     addTearDown(() => dir.delete(recursive: true));
-    final other = Directory('${dir.path}/unrelated')..createSync();
+    // Neighbours of the export directory are never touched, even when their
+    // name starts like a staged export's.
+    final other = Directory('${dir.path}/export_unrelated')..createSync();
+    File('${other.path}/keep.txt').writeAsStringSync('keep');
 
     final old = await WorkspaceExportFiles.stage(
       directory: dir,
@@ -112,5 +127,6 @@ void main() {
     check(await recent.exists()).isFalse();
     check(await fresh.exists()).isTrue();
     check(await other.exists()).isTrue();
+    check(File('${other.path}/keep.txt').existsSync()).isTrue();
   });
 }

@@ -214,7 +214,8 @@ enum HermesJobFieldError { required, tooLong, invalidSchedule }
 /// The job editor's checks, per field (trimmed): name and prompt are
 /// required and bounded ([kMaxHermesJobNameCharacters],
 /// [kMaxHermesJobPromptCharacters], counted in code points); the schedule is
-/// required and must pass [isValidHermesSchedule].
+/// required, bounded ([kMaxHermesJobScheduleCharacters]) and must pass
+/// [isValidHermesSchedule].
 ({
   HermesJobFieldError? name,
   HermesJobFieldError? prompt,
@@ -238,6 +239,8 @@ validateHermesJobDraft({
     prompt: bounded(prompt, kMaxHermesJobPromptCharacters),
     schedule: trimmedSchedule.isEmpty
         ? HermesJobFieldError.required
+        : trimmedSchedule.runes.length > kMaxHermesJobScheduleCharacters
+        ? HermesJobFieldError.tooLong
         : isValidHermesSchedule(trimmedSchedule)
         ? null
         : HermesJobFieldError.invalidSchedule,
