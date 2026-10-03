@@ -433,19 +433,26 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
             ? await _currentAccountProfile(ref)
             : null;
         if (!context.mounted) return;
-        final config = _buildNativeProfileSheetConfig(
-          context: context,
-          ref: ref,
-          accountProfile: accountProfile,
-          user: user,
-          api: api,
-          displayName: displayName,
-          initials: initial,
-          canManageWorkspace: canManageWorkspace,
-          hermesAvatarBytes: hermesAvatarBytes,
-        );
-        final presented = await nativeProfilePresenter(config);
-        if (presented) return;
+        // With no profile at all, the sheet would offer empty fields that a
+        // save writes over the stored ones. The settings page loads the
+        // profile itself and reports a failure, so go there instead.
+        final profileUnavailable =
+            !hermesOnly && user != null && accountProfile == null;
+        if (!profileUnavailable) {
+          final config = _buildNativeProfileSheetConfig(
+            context: context,
+            ref: ref,
+            accountProfile: accountProfile,
+            user: user,
+            api: api,
+            displayName: displayName,
+            initials: initial,
+            canManageWorkspace: canManageWorkspace,
+            hermesAvatarBytes: hermesAvatarBytes,
+          );
+          final presented = await nativeProfilePresenter(config);
+          if (presented) return;
+        }
       }
 
       if (context.mounted) {
@@ -503,6 +510,8 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         data: {'error': error.toString()},
       );
     }
+    // The widget can be gone by now, and its ref must not be read then.
+    if (!ref.context.mounted) return cached;
     return ref.read(accountProfileProvider).asData?.value ?? cached;
   }
 

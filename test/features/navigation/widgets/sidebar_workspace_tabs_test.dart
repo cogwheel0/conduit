@@ -480,6 +480,67 @@ void main() {
     expect(presented!.profile.dateOfBirth, '1990-04-02');
   });
 
+  testWidgets('profile click goes to settings when no profile can be loaded', (
+    tester,
+  ) async {
+    var nativePresentationCalls = 0;
+    const user = User(
+      id: 'user-1',
+      username: 'ava',
+      email: 'ava@example.com',
+      name: 'Ava',
+      role: 'user',
+    );
+    final router = GoRouter(
+      initialLocation: '/',
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (_, _) =>
+              const Scaffold(body: SidebarProfileAppBarLeading()),
+        ),
+        GoRoute(
+          path: Routes.profile,
+          name: RouteNames.profile,
+          builder: (_, _) => const Scaffold(body: Text('Settings destination')),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentUserProvider2.overrideWithValue(user),
+          currentUserProvider.overrideWith((ref) async => user),
+          apiServiceProvider.overrideWithValue(null),
+          hermesOnlyModeProvider.overrideWithValue(false),
+          // Never loaded, and the refresh fails: no profile to edit.
+          accountProfileProvider.overrideWith(_UnloadedAccountProfile.new),
+          sidebarNativeProfilePresenterProvider.overrideWithValue((_) async {
+            nativePresentationCalls++;
+            return true;
+          }),
+        ],
+        child: MaterialApp.router(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          routerConfig: router,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-profile-button')),
+    );
+    await tester.pumpAndSettle();
+
+    // The native editor would offer empty fields that a save writes back.
+    expect(nativePresentationCalls, 0);
+    expect(find.text('Settings destination'), findsOneWidget);
+  });
+
   testWidgets('sidebar material app bar uses the compact toolbar height', (
     tester,
   ) async {
@@ -604,6 +665,17 @@ class _UnreachableAccountProfile extends AccountProfile {
   @override
   Future<void> refresh() async {
     state = const AsyncLoading();
+    state = AsyncError(StateError('unreachable'), StackTrace.empty);
+  }
+}
+
+/// A profile that never loaded, and whose refresh fails.
+class _UnloadedAccountProfile extends AccountProfile {
+  @override
+  Future<AccountMetadata?> build() async => null;
+
+  @override
+  Future<void> refresh() async {
     state = AsyncError(StateError('unreachable'), StackTrace.empty);
   }
 }
