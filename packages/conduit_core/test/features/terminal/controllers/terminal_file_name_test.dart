@@ -15,6 +15,10 @@ void main() {
     check(sanitize('a:b*c?"d<e>f|g.txt')).equals('a_b_c__d_e_f_g.txt');
     check(sanitize('line\nbreak\x00.txt')).equals('line_break_.txt');
 
+    // A direction override would disguise the extension in a save dialog.
+    check(sanitize('report\u202Egnp.exe')).equals('report_gnp.exe');
+    check(sanitize('a\u200Eb\u061Cc\u2066d\u2069.txt')).equals('a_b_c_d_.txt');
+
     // Characters that cannot steer a path are kept, so distinct names stay
     // distinct.
     check(sanitize('报告 (final).pdf')).equals('报告 (final).pdf');
