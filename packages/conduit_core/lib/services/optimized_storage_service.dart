@@ -1896,8 +1896,15 @@ class OptimizedStorageService {
     });
   }
 
-  Future<void> _writeActiveServerIdWithoutConfigSync(String? serverId) async {
-    await PreferencesStore.putChecked(_activeServerIdKey, serverId);
+  Future<void> _writeActiveServerIdWithoutConfigSync(
+    String? serverId, {
+    bool bypassAppDataClearBarrier = false,
+  }) async {
+    await PreferencesStore.putChecked(
+      _activeServerIdKey,
+      serverId,
+      bypassAppDataClearBarrier: bypassAppDataClearBarrier,
+    );
     _activeServerIdReadSuppressed = false;
     _serverOwnershipRevision++;
     _cacheActiveServerId(serverId);
@@ -2693,7 +2700,12 @@ class OptimizedStorageService {
         configsRestored = true;
       });
       await attempt(() async {
-        await _writeActiveServerIdWithoutConfigSync(retainedActiveServerId);
+        // The sign-out wipe holds the preference write barrier; this restore
+        // is part of that wipe, like the keys PreferencesStore.clear keeps.
+        await _writeActiveServerIdWithoutConfigSync(
+          retainedActiveServerId,
+          bypassAppDataClearBarrier: true,
+        );
         activeIdRestored = true;
       });
       if (configsRestored && activeIdRestored) {
