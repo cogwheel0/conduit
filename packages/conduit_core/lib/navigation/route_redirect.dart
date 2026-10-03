@@ -1,0 +1,345 @@
+import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/workspace/providers/workspace_capabilities_provider.dart';
+import 'package:conduit_core/navigation/routes.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
+import 'package:riverpod/misc.dart';
+import 'package:riverpod/riverpod.dart';
+
+/// Reads a provider without listening: `Ref.read`, `WidgetRef.read` and
+/// `ProviderContainer.read` all fit.
+typedef ProviderRead = T Function<T>(ProviderListenable<T> provider);
+
+/// The providers [resolveRouteRedirect] depends on. A host re-evaluates its
+/// redirect whenever one of them changes.
+final List<ProviderListenable<Object?>> routeRedirectDependencies = [
+  reviewerModeProvider,
+  activeServerProvider,
+  authNavigationStateProvider,
+  workspaceCapabilitiesProvider,
+  // Hermes-only routing: re-evaluate when the preferred backend changes or
+  // the Hermes config becomes usable (secrets finish loading).
+  preferredBackendProvider,
+  hermesConfigProvider,
+  hermesSecretsLoadingProvider,
+  effectiveDirectConnectionProfilesProvider,
+];
+
+/// App-local destinations that remain meaningful without an OpenWebUI account.
+/// Keep this list explicit so adding an OWUI-only profile route does not expose
+/// it to Hermes-only users by accident.
+bool isHermesOnlyAppLocation(String location) =>
+    _isAccountlessBackendLocation(location);
+
+bool _isAccountlessBackendLocation(String location) {
+  return location == Routes.chat ||
+      location == Routes.profile ||
+      location == Routes.audioSettings ||
+      location == Routes.appearanceSettings ||
+      location == Routes.chatSettings ||
+      location == Routes.dataConnectionSettings ||
+      location == Routes.personalization ||
+      isDirectConnectionsLocation(location) ||
+      location == Routes.hermesSettings ||
+      location == Routes.hermesJobs ||
+      location == Routes.about;
+}
+
+bool isDirectConnectionsLocation(String location) {
+  return location == Routes.directConnections ||
+      location.startsWith('${Routes.directConnections}/');
+}
+
+/// App-local surfaces available when direct APIs are the primary backend.
+bool isDirectOnlyAppLocation(String location) =>
+    _isAccountlessBackendLocation(location);
+
+String incompleteHermesDestination({
+  required bool secretsLoading,
+  bool activeServerLoading = false,
+}) {
+  return secretsLoading || activeServerLoading
+      ? Routes.splash
+      : Routes.hermesSettings;
+}
+
+/// Where the app should send a user who asked for [location], or null to let
+/// them stay.
+///
+/// The router's redirect policy, kept here so it is tested without
+/// go_router or Flutter.
+String? resolveRouteRedirect(String location, ProviderRead read) {
+  final reviewerMode = read(reviewerModeProvider);
+  if (reviewerMode) {
+    // Stay on whatever route if already in chat; otherwise go to chat.
+    if (location == Routes.chat) return null;
+    return Routes.chat;
+  }
+
+  final activeServerAsync = read(activeServerProvider);
+  final authState = read(authNavigationStateProvider);
+  final preferredBackend = read(preferredBackendProvider);
+  final hermesConfig = read(hermesConfigProvider);
+  final hermesUsable = hermesConfig.isUsable;
+  final hermesSecretsLoading = read(hermesSecretsLoadingProvider);
+  final prefersHermes = preferredBackend == PreferredBackend.hermes;
+  final prefersDirect = preferredBackend == PreferredBackend.direct;
+  final directProfiles = read(effectiveDirectConnectionProfilesProvider);
+  final directProfilesLoading = directProfiles.isLoading;
+  final directUsable =
+      !directProfiles.isLoading &&
+      !directProfiles.hasError &&
+      (directProfiles.value?.any((profile) => profile.isUsable) ?? false);
+  final usesAccountlessPrimaryBackend = read(
+    accountlessPrimaryBackendUsableProvider,
+  );
+  final isLocalBackendSetup =
+      location == Routes.backendChooser ||
+      location == Routes.hermesSettings ||
+      isDirectConnectionsLocation(location);
+
+  // A stale optional Open WebUI credential must not block local-backend
+  // recovery or an explicit authentication/recovery flow. Other backend
+  // modes retain forced auth.
+  final authSnapshot = read(authStateManagerProvider)
+      .maybeWhen(data: (s) => s, orElse: () => null);
+  if (!usesAccountlessPrimaryBackend &&
+      !prefersDirect &&
+      !(prefersHermes && hermesConfig.enabled) &&
+      !isLocalBackendSetup &&
+      !isAuthLocation(location) &&
+      authSnapshot?.error?.contains('apiKey') == true) {
+    return Routes.authentication;
+  }
+
+  // Authentication is authoritative even while the selected server
+  // provider is refreshing or recovering from a transient storage error.
+  // In particular, Direct-primary installs may add OpenWebUI from an auth
+  // route while their optional server provider is still loading. Do not let
+  // the accountless fallback below strand a completed sign-in on that page.
+  if (authState == AuthNavigationState.authenticated &&
+      isAuthLocation(location) &&
+      location != Routes.connectionIssue) {
+    return Routes.chat;
+  }
+
+  // Onboarding and local backend setup screens always render.
+  if (isLocalBackendSetup) {
+    return null;
+  }
+
+  if (activeServerAsync.isLoading) {
+    // Avoid redirect loops: do not override explicit auth routes while loading
+    if (isAuthLocation(location)) return null;
+    if (prefersDirect && !directUsable) {
+      final destination = directProfilesLoading
+          ? Routes.splash
+          : '${Routes.directConnections}?onboarding=true';
+      return location == Uri.parse(destination).path ? null : destination;
+    }
+    if (usesAccountlessPrimaryBackend) {
+      return _accountlessOrAuthRedirect(location, read);
+    }
+    if (prefersHermes && hermesConfig.enabled) {
+      if (hermesSecretsLoading && isHermesOnlyAppLocation(location)) {
+        return null;
+      }
+      final destination = incompleteHermesDestination(
+        secretsLoading: hermesSecretsLoading,
+        activeServerLoading: true,
+      );
+      return location == destination ? null : destination;
+    }
+    // Keep splash during server loading otherwise
+    return location == Routes.splash ? null : Routes.splash;
+  }
+
+  if (activeServerAsync.hasError) {
+    if (prefersDirect && !directUsable) {
+      if (isAuthLocation(location)) return null;
+      final destination = directProfilesLoading
+          ? Routes.splash
+          : '${Routes.directConnections}?onboarding=true';
+      return location == Uri.parse(destination).path ? null : destination;
+    }
+    if (usesAccountlessPrimaryBackend) {
+      return _accountlessOrAuthRedirect(location, read);
+    }
+    if (prefersHermes && hermesConfig.enabled) {
+      if (isAuthLocation(location)) return null;
+      if (hermesSecretsLoading && isHermesOnlyAppLocation(location)) {
+        return null;
+      }
+      final destination = incompleteHermesDestination(
+        secretsLoading: hermesSecretsLoading,
+      );
+      return location == destination ? null : destination;
+    }
+    return location == Routes.connectionIssue ? null : Routes.connectionIssue;
+  }
+
+  final activeServer = activeServerAsync.asData?.value;
+  final hasActiveServer = activeServer != null;
+  // A preferred Direct backend is usable only while at least one validated,
+  // enabled profile has resolved. With an authenticated OpenWebUI session we
+  // can fall back to mixed mode; otherwise recover Direct setup instead of
+  // leaving the user in a model-less chat.
+  if (prefersDirect &&
+      !directUsable &&
+      (!hasActiveServer || authState != AuthNavigationState.authenticated)) {
+    if (isAuthLocation(location)) return null;
+    final destination = directProfilesLoading
+        ? Routes.splash
+        : '${Routes.directConnections}?onboarding=true';
+    return location == Uri.parse(destination).path ? null : destination;
+  }
+
+  // Logout intentionally retains the OpenWebUI server. While Hermes secrets
+  // hydrate, or when a saved key is missing, that signed-out optional server
+  // must not take ownership of routing before Hermes can recover.
+  if (prefersHermes &&
+      authState != AuthNavigationState.authenticated &&
+      hermesConfig.enabled &&
+      !hermesUsable) {
+    if (isAuthLocation(location)) return null;
+    if (hermesSecretsLoading && isHermesOnlyAppLocation(location)) {
+      return null;
+    }
+    final destination = incompleteHermesDestination(
+      secretsLoading: hermesSecretsLoading,
+    );
+    return location == destination ? null : destination;
+  }
+
+  // A usable accountless-primary backend never depends on an Open WebUI auth
+  // session. Auth routes remain reachable so users can add or repair an
+  // optional Open WebUI connection. Once that session is authenticated, its
+  // server-backed surfaces remain available too.
+  if (usesAccountlessPrimaryBackend &&
+      (!hasActiveServer || authState != AuthNavigationState.authenticated)) {
+    return _accountlessOrAuthRedirect(location, read);
+  }
+
+  // Incomplete Hermes-only mode: recover setup without an OWUI server.
+  if (prefersHermes && !hasActiveServer) {
+    // Let a Hermes-only user reach the OWUI connect/auth flow so they can add
+    // an Open WebUI server (bidirectional switching). Once connected,
+    // preferredBackend flips to owui and this branch no longer applies.
+    if (isAuthLocation(location)) return null;
+    // Hold the splash only while secure storage is actually loading. Once it
+    // settles without a usable key, send the user to Hermes settings so the
+    // install can recover from a deleted/unavailable secret.
+    if (hermesConfig.enabled) {
+      if (hermesSecretsLoading && isHermesOnlyAppLocation(location)) {
+        return null;
+      }
+      final destination = incompleteHermesDestination(
+        secretsLoading: hermesSecretsLoading,
+      );
+      return location == destination ? null : destination;
+    }
+  }
+
+  if (!hasActiveServer) {
+    // No server configured - redirect to onboarding chooser.
+    // Exception: allow staying on server connection, authentication,
+    // proxy auth, and SSO pages during the connection/auth flow.
+    if (location == Routes.serverConnection ||
+        location == Routes.authentication ||
+        location == Routes.proxyAuth ||
+        location == Routes.ssoAuth ||
+        location == Routes.login) {
+      return null;
+    }
+    return Routes.backendChooser;
+  }
+
+  // Allow staying on server connection page
+  if (location == Routes.serverConnection) {
+    // If authenticated but on server connection page, go to chat
+    // Otherwise stay on server connection page (for back navigation)
+    return authState == AuthNavigationState.authenticated ? Routes.chat : null;
+  }
+
+  switch (authState) {
+    case AuthNavigationState.loading:
+      // Keep user on auth routes while loading to prevent bounce
+      if (isAuthLocation(location)) return null;
+      // Otherwise keep splash during session establishment
+      return location == Routes.splash ? null : Routes.splash;
+    case AuthNavigationState.needsLogin:
+      if (location == Routes.connectionIssue) return null;
+      // Redirect to authentication page if not already on an auth route
+      // This handles the post-logout case where we want sign-in, not server setup
+      if (isAuthLocation(location)) return null;
+      return Routes.authentication;
+    case AuthNavigationState.error:
+      final authSnapshot = read(authStateManagerProvider)
+          .maybeWhen(data: (state) => state, orElse: () => null);
+      final hasValidToken = authSnapshot?.hasValidToken ?? false;
+      final isAuthFormRoute = isAuthLocation(location);
+      if (!hasValidToken && isAuthFormRoute) {
+        // Keep user on the login/authentication flow to show inline errors
+        return null;
+      }
+      // Proxy re-authentication keeps the token and runs from the
+      // connection issue page; do not bounce it back there.
+      if (location == Routes.proxyAuth) return null;
+      // Otherwise show connection issue page for recoverable auth errors
+      return location == Routes.connectionIssue ? null : Routes.connectionIssue;
+    case AuthNavigationState.authenticated:
+      // Avoid unnecessary redirects if already on a non-auth route
+      if (isAuthLocation(location) ||
+          location == Routes.splash ||
+          location == Routes.connectionIssue) {
+        return Routes.chat;
+      }
+      return _workspaceRedirect(location, read);
+  }
+}
+
+String? _workspaceRedirect(String location, ProviderRead read) {
+  if (location != Routes.workspace &&
+      !location.startsWith('${Routes.workspace}/')) {
+    return null;
+  }
+
+  final capabilities = read(workspaceCapabilitiesProvider);
+  // Fail closed in the page gate while permissions are loading or errored.
+  if (!capabilities.hasValue) return null;
+
+  final permitted = permittedWorkspaceSections(capabilities.requireValue);
+  if (permitted.isEmpty) {
+    return location == Routes.workspace ? null : Routes.workspace;
+  }
+
+  if (location == Routes.workspace) return permitted.first.path;
+  final requested = workspaceSectionForPath(location);
+  if (requested == null || !permitted.contains(requested)) {
+    return permitted.first.path;
+  }
+  return null;
+}
+
+bool isAuthLocation(String location) {
+  return location == Routes.serverConnection ||
+      location == Routes.login ||
+      location == Routes.authentication ||
+      location == Routes.connectionIssue ||
+      location == Routes.ssoAuth ||
+      location == Routes.proxyAuth;
+}
+
+String? _accountlessOrAuthRedirect(String location, ProviderRead read) {
+  if (isAuthLocation(location)) return null;
+  final prefersDirect =
+      read(preferredBackendProvider) == PreferredBackend.direct;
+  final isAllowed = prefersDirect
+      ? isDirectOnlyAppLocation(location)
+      : isHermesOnlyAppLocation(location);
+  return isAllowed ? null : Routes.chat;
+}

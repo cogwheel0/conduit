@@ -7,7 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:path/path.dart' as path;
 
-import '../features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+
 import '../features/chat/services/file_attachment_service.dart';
 import '../features/chat/voice_call/presentation/voice_call_launcher.dart';
 import '../shared/services/navigation_service.dart';

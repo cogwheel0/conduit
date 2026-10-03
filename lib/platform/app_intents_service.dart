@@ -17,8 +17,9 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../shared/services/navigation_service.dart';
-import '../features/chat/providers/chat_providers.dart';
-import '../features/chat/providers/context_attachments_provider.dart';
+
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 

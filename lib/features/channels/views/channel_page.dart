@@ -38,7 +38,9 @@ import '../../../shared/widgets/themed_sheets.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../chat/services/file_attachment_service.dart';
 import '../../chat/widgets/modern_chat_input.dart';
-import '../providers/channel_providers.dart';
+
+import 'package:conduit_core/features/channels/providers/channel_providers.dart';
+
 import '../providers/channel_socket_handler.dart';
 import '../utils/channel_request_owner.dart';
 import '../utils/mention_utils.dart';

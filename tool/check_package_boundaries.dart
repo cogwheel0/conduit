@@ -33,6 +33,18 @@ const List<String> _flutterFreeDirectories = <String>[
   'lib/core/database',
   'lib/core/models',
   'lib/core/sync',
+  'lib/features/channels/providers',
+  'lib/features/chat/models',
+  'lib/features/chat/utils',
+  'lib/features/navigation/models',
+  'lib/features/notes/providers',
+  'lib/features/prompts/providers',
+  'lib/features/support/data',
+  'lib/features/terminal/models',
+  'lib/features/terminal/providers',
+  'lib/features/terminal/services',
+  'lib/features/workspace/models',
+  'lib/shared/models',
 ];
 
 /// Individual libraries that are Flutter-free ahead of their directory.

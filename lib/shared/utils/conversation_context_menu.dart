@@ -14,7 +14,8 @@ import 'package:material_ui/material_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:conduit/features/chat/providers/chat_providers.dart' as chat;
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    as chat;
 import 'package:conduit/features/chat/widgets/chat_share_sheet.dart';
 import 'package:conduit/features/navigation/widgets/folder_tree_guides.dart';
 

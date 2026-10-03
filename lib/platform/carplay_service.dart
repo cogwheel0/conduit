@@ -5,7 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:riverpod/riverpod.dart';
 
-import '../features/chat/voice_call/voice_call_eligibility.dart';
+import 'package:conduit_core/features/chat/voice_call/voice_call_eligibility.dart';
+
 import '../features/chat/voice_mode/chat_voice_mode_controller.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';

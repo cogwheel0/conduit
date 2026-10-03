@@ -17,7 +17,7 @@ import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 
-import '../sync/sync_triggers.dart';
+import 'package:conduit_core/sync/sync_triggers.dart';
 
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 
@@ -50,11 +50,12 @@ import 'package:conduit_core/models/server_config.dart';
 
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 
-import '../../features/chat/providers/chat_providers.dart';
-import '../../features/chat/providers/context_attachments_provider.dart';
-import '../../features/chat/providers/knowledge_cache_provider.dart';
-import '../../features/chat/providers/remap_route_sync_provider.dart';
-import '../../features/channels/providers/channel_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
+import 'package:conduit_core/features/chat/providers/knowledge_cache_provider.dart';
+import 'package:conduit_core/features/chat/providers/remap_route_sync_provider.dart';
+import 'package:conduit_core/features/channels/providers/channel_providers.dart';
+
 import '../../features/channels/providers/channel_socket_handler.dart';
 
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';

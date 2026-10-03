@@ -10,7 +10,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit/core/providers/app_startup_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
-import 'package:conduit/features/chat/providers/context_attachments_provider.dart';
+import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

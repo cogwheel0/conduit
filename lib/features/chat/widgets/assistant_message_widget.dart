@@ -15,8 +15,10 @@ import 'package:conduit_core/features/web_search/services/direct_web_search_mode
 import 'package:conduit_markdown/conduit_markdown.dart';
 
 import '../providers/text_to_speech_provider.dart';
-import '../providers/queued_completion_provider.dart';
-import '../providers/streaming_haptic_memory.dart';
+
+import 'package:conduit_core/features/chat/providers/queued_completion_provider.dart';
+import 'package:conduit_core/features/chat/providers/streaming_haptic_memory.dart';
+
 import 'enhanced_image_attachment.dart';
 import 'image_gallery_scope.dart';
 
@@ -30,13 +32,15 @@ import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/web_content_embed.dart';
-import '../providers/chat_providers.dart'
+
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         chatComposerTextInsertionTargetId,
         isChatStreamingProvider,
         sendMessageWithContainer,
         streamingContentProvider,
         chatMessagesProvider;
+
 import '../../../shared/utils/external_link_launcher.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -47,12 +51,15 @@ import 'package:conduit_core/services/settings_service.dart';
 
 import 'sources/openwebui_sources.dart';
 import '../providers/assistant_response_builder_provider.dart';
-import '../views/chat_turn_render_state.dart';
+
+import 'package:conduit_core/features/chat/views/chat_turn_render_state.dart';
 
 import 'package:conduit_core/services/worker_manager.dart';
 
 import 'streaming_status_widget.dart';
-import '../utils/file_utils.dart';
+
+import 'package:conduit_core/features/chat/utils/file_utils.dart';
+
 import 'code_execution_display.dart';
 import 'follow_up_suggestions.dart';
 import 'usage_stats_modal.dart';

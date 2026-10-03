@@ -1,6 +1,6 @@
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/chat_message.dart';
-import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/notes/views/note_editor_page.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';

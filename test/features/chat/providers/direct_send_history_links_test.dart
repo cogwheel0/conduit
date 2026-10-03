@@ -21,7 +21,7 @@ import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
-import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/services/file_attachment_service.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';

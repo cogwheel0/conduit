@@ -1,7 +1,8 @@
 import 'package:flutter/foundation.dart';
 
 import 'renderer/latex_preprocessor.dart';
-import 'streaming_markdown_preparation.dart';
+
+import 'package:conduit_core/utils/streaming_markdown_preparation.dart';
 
 enum MarkdownRenderTier { plainText, richText, blocks }
 

@@ -23,11 +23,14 @@ import 'package:conduit_core/services/socket_service.dart'
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
-import '../providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+
 import '../providers/text_to_speech_provider.dart';
 import '../services/text_to_speech_service.dart';
 import '../services/voice_input_service.dart';
-import '../voice_call/voice_call_eligibility.dart';
+
+import 'package:conduit_core/features/chat/voice_call/voice_call_eligibility.dart';
+
 import 'chat_voice_audio_session_coordinator.dart';
 
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';

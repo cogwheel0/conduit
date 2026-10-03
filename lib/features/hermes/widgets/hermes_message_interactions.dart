@@ -10,7 +10,7 @@ import 'package:conduit_core/providers/app_providers.dart'
     show activeConversationProvider;
 import 'package:conduit_core/utils/debug_logger.dart';
 
-import '../../chat/providers/chat_providers.dart'
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         captureHermesApprovalProjectionStateUpdater,
         chatMessagesProvider,

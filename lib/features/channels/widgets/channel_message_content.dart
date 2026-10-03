@@ -7,7 +7,9 @@ import '../../../shared/widgets/markdown/markdown_config.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 
 import '../../../shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
-import '../../chat/utils/file_utils.dart';
+
+import 'package:conduit_core/features/chat/utils/file_utils.dart';
+
 import '../../chat/widgets/enhanced_attachment.dart';
 import '../../chat/widgets/enhanced_image_attachment.dart';
 import '../../chat/widgets/image_gallery_scope.dart';

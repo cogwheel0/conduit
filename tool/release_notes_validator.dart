@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:conduit/features/release_notes/models/release_version.dart';
+import 'package:conduit_core/features/release_notes/models/release_version.dart';
 
 /// Localization keys the release-notes sheet chrome still reads from ARB.
 const releaseNotesShellLocalizationKeys = <String>[

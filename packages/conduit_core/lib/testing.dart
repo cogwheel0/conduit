@@ -16,4 +16,5 @@ export 'testing/fake_app_lifecycle.dart';
 export 'testing/fake_open_webui_server.dart';
 export 'testing/fake_sync_api_client.dart';
 export 'testing/gated_close_database.dart';
+export 'testing/openwebui_storage_overrides.dart';
 export 'testing/transcript_chain_fixture.dart';

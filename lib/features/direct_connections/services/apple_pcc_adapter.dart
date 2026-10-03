@@ -12,13 +12,6 @@ import 'package:conduit_core/features/direct_connections/models/direct_remote_mo
 import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
 
-const List<String> kApplePccReasoningEfforts = <String>[
-  'automatic',
-  'light',
-  'moderate',
-  'deep',
-];
-
 const int _kApplePccMaxImages = 4;
 const int _kApplePccMaxImageBytes = 20 * 1024 * 1024;
 const int _kApplePccMaxSchemaCharacters = 64 * 1024;

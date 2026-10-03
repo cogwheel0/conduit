@@ -1,4 +1,5 @@
 import 'package:conduit_core/conduit_core.dart';
+import 'package:conduit_core/services/location_service.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -169,6 +170,35 @@ void main() {
 
     test('the unbound host factory is the silent one', () {
       expect(AudioPlaybackPort.hostFactory(), isA<NullAudioPlayback>());
+    });
+  });
+
+  group('NullWakelock', () {
+    test('is the unbound host default and accepts both toggles', () async {
+      expect(WakelockPort.hostDefault, isA<NullWakelock>());
+      await const NullWakelock().toggle(enable: true);
+      await const NullWakelock().toggle(enable: false);
+    });
+  });
+
+  group('NullLocationPort', () {
+    test('is the unbound host default', () {
+      expect(LocationPort.hostDefault, isA<NullLocationPort>());
+    });
+
+    test('reports services off and no fix, so lookups fail cleanly', () async {
+      const port = NullLocationPort();
+      expect(await port.isLocationServiceEnabled(), isFalse);
+      expect(await port.checkPermission(), LocationPermissionStatus.denied);
+      expect(await port.requestPermission(), LocationPermissionStatus.denied);
+      await expectLater(port.currentPosition(), throwsStateError);
+    });
+
+    test('a LocationService on it resolves to a failure', () async {
+      final result = await const LocationService(port: NullLocationPort())
+          .resolveCurrentLocation();
+      expect(result.hasLocation, isFalse);
+      expect(result.failureReason, UserLocationFailureReason.servicesDisabled);
     });
   });
 }

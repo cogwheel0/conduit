@@ -15,7 +15,9 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import '../../l10n/app_localizations.dart';
 import 'data/release_notes_repository.dart';
 import 'models/release_note.dart';
-import 'release_notes_bootstrap.dart';
+
+import 'package:conduit_core/features/release_notes/release_notes_bootstrap.dart';
+
 import 'release_notes_banner_controller.dart';
 import 'services/release_notes_service.dart';
 import '../../shared/services/app_package_info.dart';

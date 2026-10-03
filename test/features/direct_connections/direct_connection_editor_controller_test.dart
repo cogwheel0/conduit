@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_draft.dart';
+import 'package:conduit_core/features/direct_connections/controllers/direct_connection_editor_draft.dart';
 import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_form.dart';
 import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_workflow.dart';
 import 'package:conduit/features/direct_connections/controllers/direct_custom_headers_controller.dart';

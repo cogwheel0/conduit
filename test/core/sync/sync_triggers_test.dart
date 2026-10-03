@@ -16,7 +16,7 @@ import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/sync_api_client.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
-import 'package:conduit/core/sync/sync_triggers.dart';
+import 'package:conduit_core/sync/sync_triggers.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/platform/flutter_app_lifecycle.dart';
 import 'package:drift/native.dart';

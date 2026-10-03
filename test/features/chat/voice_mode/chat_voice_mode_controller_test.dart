@@ -12,11 +12,11 @@ import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
-import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/services/text_to_speech_service.dart';
 import 'package:conduit/features/chat/services/voice_input_service.dart';
-import 'package:conduit/features/chat/voice_call/voice_call_eligibility.dart';
+import 'package:conduit_core/features/chat/voice_call/voice_call_eligibility.dart';
 import 'package:conduit/features/chat/voice_call/presentation/voice_call_launcher.dart';
 import 'package:conduit/features/chat/voice_mode/chat_voice_audio_session_coordinator.dart';
 import 'package:conduit/features/chat/voice_mode/chat_voice_mode_controller.dart';
@@ -33,8 +33,6 @@ import 'package:conduit_core/ports/app_lifecycle.dart';
 import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/testing.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import '../../../support/openwebui_storage_test_overrides.dart';
 
 const _model = Model(id: 'test-model', name: 'Test Model');
 const _fallbackModel = Model(id: 'fallback-model', name: 'Fallback Model');
