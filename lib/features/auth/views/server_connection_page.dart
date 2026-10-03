@@ -372,6 +372,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         throw Exception(l10n.couldNotConnectGeneric);
       }
 
+      if (healthResult == HealthCheckResult.notOpenWebUI) {
+        throw Exception(l10n.serverNotOpenWebUI);
+      }
+
       if (healthResult == HealthCheckResult.unhealthy) {
         throw Exception(l10n.serverErrorUnavailable);
       }

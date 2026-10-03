@@ -284,6 +284,7 @@ enum _ChatRequestMetadataFormat { modernV09, legacyPreV09 }
 /// - [unhealthy]: Server responded but not with expected status
 /// - [proxyAuthRequired]: Server is behind an auth proxy (oauth2-proxy, etc.)
 /// - [unreachable]: Server could not be reached at all
+/// - [notOpenWebUI]: Server answered, but has no Open WebUI health route
 enum HealthCheckResult {
   /// Server is healthy and responding normally
   healthy,
@@ -297,6 +298,10 @@ enum HealthCheckResult {
 
   /// Server could not be reached
   unreachable,
+
+  /// Server answered 404 for `/health`, which every Open WebUI serves, so the
+  /// address does not point at an Open WebUI server
+  notOpenWebUI,
 }
 
 /// The Open WebUI HTTP client.
