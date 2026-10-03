@@ -4781,7 +4781,10 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch section {
         case 0: featuredModels.count
-        case 1: 1
+        // Like the Flutter sheet, offer the row only when the selected model
+        // has an effort to choose; a disabled row looks tappable but does
+        // nothing. A late hydration update reloads this section.
+        case 1: effortSelectionEnabled ? 1 : 0
         case 2: moreModels.isEmpty ? 0 : 1
         default: 0
         }
@@ -4812,12 +4815,7 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
             content.image = UIImage(systemName: "clock")
             content.text = configuration.reasoningEffortTitle
             content.secondaryText = effortLabel(reasoningEffortValue)
-            cell.isUserInteractionEnabled = effortSelectionEnabled
-            cell.accessoryType = effortSelectionEnabled ? .disclosureIndicator : .none
-            if !effortSelectionEnabled {
-                content.textProperties.color = NativeSheetTheme.shared.secondaryForeground
-                content.secondaryTextProperties.color = NativeSheetTheme.shared.secondaryForeground
-            }
+            cell.accessoryType = .disclosureIndicator
         } else {
             content.image = UIImage(systemName: "ellipsis")
             content.text = configuration.moreModelsTitle
