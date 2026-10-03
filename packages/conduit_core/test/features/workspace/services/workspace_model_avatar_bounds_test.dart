@@ -213,6 +213,46 @@ void main() {
       },
     );
 
+    test(
+      'a GIF is sized from its header, without scanning its frames',
+      () async {
+        // Only the header of a 64x64 GIF: a decoder that scans the frames would
+        // fail on it and hand it to the host resizer, which must not happen.
+        final header = Uint8List.fromList([
+          ...'GIF89a'.codeUnits,
+          64, 0, 64, 0, // logical screen: 64 x 64
+          0, 0, 0,
+        ]);
+        var asked = false;
+
+        final bounded = await WorkspaceModelAvatarBounds.bound(
+          header,
+          platformResize: (_, _) async {
+            asked = true;
+            return null;
+          },
+        );
+
+        check(asked).isFalse();
+        check(identical(bounded, header)).isTrue();
+      },
+    );
+
+    test('a file over the scan limit goes to the host resizer', () async {
+      final big = Uint8List(WorkspaceModelAvatarBounds.maxInputBytes + 1);
+      int? askedEdge;
+
+      await WorkspaceModelAvatarBounds.bound(
+        big,
+        platformResize: (_, edge) async {
+          askedEdge = edge;
+          return null;
+        },
+      );
+
+      check(askedEdge).equals(WorkspaceModelAvatarBounds.maxEdge);
+    });
+
     test('an animated image that fits is returned without decoding', () async {
       final animation = img.Image(width: 64, height: 64);
       animation.addFrame(img.Image(width: 64, height: 64));

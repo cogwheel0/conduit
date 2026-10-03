@@ -39,6 +39,12 @@ abstract final class WorkspaceModelAvatarBounds {
   /// resizer, which decodes straight to the bounded size.
   static const int maxDecodedPixels = 64 * 1000 * 1000;
 
+  /// The largest file this decoder will scan. A decoder reads a file's own
+  /// structure before it decodes any pixels (a GIF lists every frame), so a
+  /// crafted file of many tiny frames could cost far more memory than its
+  /// size or canvas suggests; larger files go to the host's resizer.
+  static const int maxInputBytes = 16 * 1024 * 1024;
+
   /// The size an image of [width] x [height] is scaled to, or null when its
   /// longest side already fits [maxEdge]. Each side is at least 1.
   static ({int width, int height})? targetSize(int width, int height) {
@@ -169,15 +175,35 @@ abstract final class WorkspaceModelAvatarBounds {
     );
   }
 
+  /// The canvas of a GIF, read from its logical screen descriptor (bytes 6
+  /// to 9) without scanning the frames, which is what a decoder's own header
+  /// pass would do. Null for anything that is not a GIF.
+  static ({int width, int height})? _gifCanvasSize(Uint8List bytes) {
+    if (bytes.length < 10 ||
+        bytes[0] != 0x47 ||
+        bytes[1] != 0x49 ||
+        bytes[2] != 0x46 ||
+        bytes[3] != 0x38) {
+      return null;
+    }
+    return (width: bytes[6] | bytes[7] << 8, height: bytes[8] | bytes[9] << 8);
+  }
+
+  static ({int width, int height})? _declaredSize(Uint8List bytes) {
+    final info = img.findDecoderForData(bytes)?.startDecode(bytes);
+    return info == null ? null : (width: info.width, height: info.height);
+  }
+
   static _BoundResult _boundSync(Uint8List bytes) {
     // The header gives the size without decoding any pixels, so an image that
     // already fits is never decoded (an animated one would decode every
     // frame), and an oversized one is refused before it can allocate.
+    if (bytes.length > maxInputBytes) return const _Undecodable();
     try {
-      final info = img.findDecoderForData(bytes)?.startDecode(bytes);
-      if (info != null) {
-        if (targetSize(info.width, info.height) == null) return const _Fits();
-        if (info.width * info.height > maxDecodedPixels) {
+      final size = _gifCanvasSize(bytes) ?? _declaredSize(bytes);
+      if (size != null) {
+        if (targetSize(size.width, size.height) == null) return const _Fits();
+        if (size.width * size.height > maxDecodedPixels) {
           return const _Undecodable();
         }
       }
