@@ -98,9 +98,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       String firstValue(Iterable<String> keys) => keys
           .map(value)
           .firstWhere((candidate) => candidate.isNotEmpty, orElse: () => '');
-      if (event.type == 'message.start' ||
-          event.type == 'message.complete' ||
-          event.type.endsWith('.request') ||
+      // Only the reply's own events show that the submitted turn is running.
+      // A late tool, subagent or request event can belong to earlier work, and
+      // must not let an idle session.info end this turn.
+      if (event.type.startsWith('message.') ||
           (event.type == 'session.info' && payload['running'] == true)) {
         turnStarted = true;
       }
@@ -110,7 +111,6 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         value: value,
         firstValue: firstValue,
       )) {
-        turnStarted = true;
         return;
       }
       switch (event.type) {
