@@ -238,6 +238,47 @@ void main() {
     await harness.unmount(tester);
   });
 
+  // B-01: after a failed sign-in the router rebuilt the page without its
+  // route extra. The page lost LDAP from its methods while the LDAP tab stayed
+  // selected, so the body went blank and the tabs no longer matched it.
+  testWidgets(
+    'sign-in keeps its methods when the route rebuilds without them',
+    (tester) async {
+      debugIsWebViewSupportedOverride = false;
+      addTearDown(() => debugIsWebViewSupportedOverride = null);
+      final harness = AdaptiveAuthHarness(
+        server: server,
+        backendConfig: const BackendConfig(enableLdap: true),
+      );
+      addTearDown(harness.dispose);
+
+      await tester.pumpWidget(
+        harness.build(initialLocation: Routes.authentication),
+      );
+      await tester.pumpAndSettle();
+      final labels = tester
+          .widget<AdaptiveSegmentedControl>(
+            find.byType(AdaptiveSegmentedControl),
+          )
+          .labels;
+      await tester.tap(find.text('LDAP'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('ldap_form')), findsOneWidget);
+
+      harness.routeExtraLost.value = true;
+      await tester.pumpAndSettle();
+
+      final selector = tester.widget<AdaptiveSegmentedControl>(
+        find.byType(AdaptiveSegmentedControl),
+      );
+      check(selector.labels).deepEquals(labels);
+      check(selector.labels[selector.selectedIndex]).equals('LDAP');
+      expect(find.byKey(const ValueKey('ldap_form')), findsOneWidget);
+
+      await harness.unmount(tester);
+    },
+  );
+
   testWidgets('sign-in keeps SSO available when backend config is absent', (
     tester,
   ) async {

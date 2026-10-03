@@ -65,6 +65,10 @@ class AdaptiveAuthHarness {
   final void Function(FlutterErrorDetails)? _previousFlutterOnError =
       FlutterError.onError;
 
+  /// When set, the route rebuilds the page as the app's router does when the
+  /// route's `extra` is gone: with no server or backend config.
+  final routeExtraLost = ValueNotifier<bool>(false);
+
   late GoRouter router;
   bool _disposed = false;
 
@@ -76,9 +80,14 @@ class AdaptiveAuthHarness {
         GoRoute(
           path: Routes.authentication,
           name: RouteNames.authentication,
-          builder: (_, _) => AuthenticationPage(
-            serverConfig: server,
-            backendConfig: backendConfig,
+          builder: (_, _) => ValueListenableBuilder<bool>(
+            valueListenable: routeExtraLost,
+            builder: (_, extraLost, _) => extraLost
+                ? const AuthenticationPage()
+                : AuthenticationPage(
+                    serverConfig: server,
+                    backendConfig: backendConfig,
+                  ),
           ),
         ),
         GoRoute(
@@ -138,6 +147,7 @@ class AdaptiveAuthHarness {
     _disposed = true;
     PlatformUiCapabilities.debugPlatformOverride = null;
     router.dispose();
+    routeExtraLost.dispose();
     ErrorWidget.builder = _previousErrorWidgetBuilder;
     FlutterError.onError = _previousFlutterOnError;
   }
