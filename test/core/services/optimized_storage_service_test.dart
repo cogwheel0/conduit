@@ -2290,7 +2290,7 @@ void main() {
     );
   });
 
-  // B-06: sign-out blocks preference writes before the wipe, and the restore of
+  // sign-out blocks preference writes before the wipe, and the restore of
   // the kept active server id ran into that barrier, so the kept address was
   // read-suppressed and the app fell back to the backend chooser.
   test('kept server details survive the sign-out preference barrier', () async {

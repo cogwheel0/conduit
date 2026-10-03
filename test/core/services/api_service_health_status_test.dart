@@ -29,7 +29,7 @@ Future<HealthCheckResult> _probe(int status) async {
 }
 
 void main() {
-  // B-03: a reachable server without Open WebUI's /health route was reported
+  // a reachable server without Open WebUI's /health route was reported
   // as temporarily unavailable instead of not being Open WebUI.
   test('a 404 on /health means the server is not Open WebUI', () async {
     check(await _probe(404)).equals(HealthCheckResult.notOpenWebUI);

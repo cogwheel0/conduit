@@ -679,7 +679,7 @@ void main() {
       },
     );
 
-    // B-05: when an Open WebUI account's models fail to load (the login proxy
+    // when an Open WebUI account's models fail to load (the login proxy
     // expired its cookie), the fallback picked the first remaining model, an
     // on-device or Direct one the user never chose for this account.
     test(
