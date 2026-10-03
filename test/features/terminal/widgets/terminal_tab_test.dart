@@ -497,6 +497,54 @@ void main() {
       expect(find.text('localhost:3000'), findsOneWidget);
     });
 
+    testWidgets('returning to the files panel lists files made meanwhile', (
+      tester,
+    ) async {
+      final entries = <TerminalFileEntry>[
+        const TerminalFileEntry(
+          name: 'alpha.txt',
+          path: '/workspace/alpha.txt',
+          isDirectory: false,
+        ),
+      ];
+      final fakeService = _FakeTerminalService(
+        servers: <TerminalServerInfo>[
+          TerminalServerInfo(
+            kind: TerminalServerKind.direct,
+            selectionId: 'https://terminal.example',
+            baseUrl: Uri.parse('https://terminal.example'),
+            name: 'Workspace',
+          ),
+        ],
+        entries: entries,
+        ports: const <TerminalListeningPort>[],
+      );
+
+      await tester.pumpWidget(_buildHarness(fakeService));
+      await tester.pumpAndSettle();
+      expect(find.text('alpha.txt'), findsOneWidget);
+
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(TerminalTab)),
+      );
+      final panel = container.read(terminalSidebarPanelProvider.notifier);
+      panel.setPanel(TerminalSidebarPanel.console);
+      await tester.pumpAndSettle();
+
+      // The shell creates a file while the console is shown.
+      entries.add(
+        const TerminalFileEntry(
+          name: 'pty-made.txt',
+          path: '/workspace/pty-made.txt',
+          isDirectory: false,
+        ),
+      );
+      panel.setPanel(TerminalSidebarPanel.files);
+      await tester.pumpAndSettle();
+
+      expect(find.text('pty-made.txt'), findsOneWidget);
+    });
+
     testWidgets('ignores stale file loads after switching terminal servers', (
       tester,
     ) async {
@@ -809,7 +857,8 @@ class _FakeTerminalService extends TerminalService {
     if (completer != null) {
       return completer.future;
     }
-    return entriesByServer[server.selectionId] ?? entries;
+    // A copy, like a decoded response: later edits must not leak in.
+    return List.of(entriesByServer[server.selectionId] ?? entries);
   }
 
   @override

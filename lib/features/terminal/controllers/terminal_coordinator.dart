@@ -77,6 +77,18 @@ final class TerminalCoordinator extends ChangeNotifier {
             }
           }),
         );
+    // The shell writes files while the console is shown; list the
+    // directory again when the Files panel comes back.
+    _panelSubscription = ref.listenManual<TerminalSidebarPanel>(
+      terminalSidebarPanelProvider,
+      (previous, next) {
+        if (previous != next &&
+            next == TerminalSidebarPanel.files &&
+            _gateway.isActive) {
+          unawaited(_contextController.reloadBrowser());
+        }
+      },
+    );
     _singleServerDefaultPanelSubscription = ref.listenManual(
       terminalAvailableServersProvider,
       (_, next) => _handleInitialServerList(next),
@@ -91,6 +103,7 @@ final class TerminalCoordinator extends ChangeNotifier {
   late final TerminalContextController _contextController;
   late final ProviderSubscription<int> _refreshSubscription;
   late final ProviderSubscription<String> _sessionScopeSubscription;
+  late final ProviderSubscription<TerminalSidebarPanel> _panelSubscription;
   late final ProviderSubscription<AsyncValue<TerminalServerInfo?>>
   _selectedServerSubscription;
   ProviderSubscription<AsyncValue<List<TerminalServerInfo>>>?
@@ -201,6 +214,7 @@ final class TerminalCoordinator extends ChangeNotifier {
     _disposed = true;
     _refreshSubscription.close();
     _sessionScopeSubscription.close();
+    _panelSubscription.close();
     _selectedServerSubscription.close();
     _singleServerDefaultPanelSubscription?.close();
     _contextController
