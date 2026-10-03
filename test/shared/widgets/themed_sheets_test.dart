@@ -1043,4 +1043,59 @@ void main() {
     expect(ThemedSheets.isCoveredBySheet(secondContext), isFalse);
     expect(ThemedSheets.isCoveredBySheet(hostContext), isTrue);
   });
+
+  testWidgets('a sheet on a nested navigator does not cover a root sheet', (
+    tester,
+  ) async {
+    late BuildContext rootHostContext;
+    late BuildContext nestedHostContext;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(TweakcnThemes.t3Chat),
+        home: Builder(
+          builder: (context) {
+            rootHostContext = context;
+            return Scaffold(
+              body: Navigator(
+                onGenerateRoute: (_) => MaterialPageRoute<void>(
+                  builder: (context) {
+                    nestedHostContext = context;
+                    return const SizedBox.expand();
+                  },
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+
+    late BuildContext rootSheetContext;
+    unawaited(
+      ThemedSheets.showRoundedPage<void>(
+        context: rootHostContext,
+        builder: (context) {
+          rootSheetContext = context;
+          return const SizedBox(height: 100);
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Opened later, but its route sits below the root navigator's.
+    late BuildContext nestedSheetContext;
+    unawaited(
+      ThemedSheets.showCustom<void>(
+        context: nestedHostContext,
+        builder: (context) {
+          nestedSheetContext = context;
+          return const SizedBox(height: 100);
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(ThemedSheets.isCoveredBySheet(rootSheetContext), isFalse);
+    expect(ThemedSheets.isCoveredBySheet(nestedSheetContext), isTrue);
+  });
 }

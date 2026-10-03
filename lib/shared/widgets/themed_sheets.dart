@@ -52,7 +52,17 @@ class ThemedSheets {
     final own = _SheetScope.tokenOf(context);
     if (own == null) return _openSheets.isNotEmpty;
     final index = _openSheets.indexOf(own);
-    return index >= 0 && index < _openSheets.length - 1;
+    if (index < 0) return false;
+    // Root-navigator routes draw above nested ones, whenever they opened.
+    // Within one level, a later sheet is above an earlier one.
+    return _openSheets.indexed.any((entry) {
+      final (otherIndex, other) = entry;
+      if (otherIndex == index) return false;
+      if (other.onRootNavigator != own.onRootNavigator) {
+        return other.onRootNavigator;
+      }
+      return otherIndex > index;
+    });
   }
 
   /// Removes UIKit-backed chrome before a tracked root sheet is presented.
@@ -141,6 +151,7 @@ class ThemedSheets {
     if (MediaQuery.disableAnimationsOf(context)) {
       return _showTracked<T>(
         context: context,
+        useRootNavigator: true,
         present: (coverage) => showModalBottomSheet<T>(
           context: context,
           useRootNavigator: true,
@@ -166,6 +177,7 @@ class ThemedSheets {
 
     return _showTracked<T>(
       context: context,
+      useRootNavigator: true,
       present: (coverage) {
         Widget child = _SheetCoverageBoundary(
           coverage: coverage,
@@ -220,6 +232,7 @@ class ThemedSheets {
     final resolvedShape = shape ?? roundedShapeFor(context);
     return _showTracked<T>(
       context: context,
+      useRootNavigator: useRootNavigator,
       present: (coverage) {
         Widget sheetBuilder(BuildContext sheetContext) =>
             _SheetCoverageBoundary(
@@ -276,6 +289,7 @@ class ThemedSheets {
     FocusManager.instance.primaryFocus?.unfocus();
     return _showTracked<T>(
       context: context,
+      useRootNavigator: true,
       present: (coverage) {
         Widget sheetBuilder(BuildContext sheetContext) =>
             _SheetCoverageBoundary(
@@ -334,13 +348,22 @@ class ThemedSheets {
 
   static Future<T?> _showTracked<T>({
     required BuildContext context,
+    required bool useRootNavigator,
     required Future<T?> Function(_SheetCoverageToken coverage) present,
   }) async {
     // Coverage follows the order the sheets were opened in, not where the
     // presenting context sits: the route goes onto the root navigator, beside
-    // the presenting sheet rather than under it.
+    // the presenting sheet rather than under it. A sheet on a nested navigator
+    // sits below one on the root navigator whenever it was opened.
+    final navigator = Navigator.maybeOf(
+      context,
+      rootNavigator: useRootNavigator,
+    );
     late final _SheetCoverageToken coverage;
     coverage = _SheetCoverageToken(
+      onRootNavigator:
+          navigator == null ||
+          identical(navigator, Navigator.maybeOf(context, rootNavigator: true)),
       onClose: () {
         _openSheets.remove(coverage);
         _activeSheetCount.value = _openSheets.length;
@@ -409,8 +432,14 @@ class ThemedSheets {
 }
 
 class _SheetCoverageToken {
-  _SheetCoverageToken({required VoidCallback onClose}) : _onClose = onClose;
+  _SheetCoverageToken({
+    required this.onRootNavigator,
+    required VoidCallback onClose,
+  }) : _onClose = onClose;
 
+  /// Whether the sheet's route is on the root navigator, whose routes draw
+  /// above those of every nested navigator.
+  final bool onRootNavigator;
   final VoidCallback _onClose;
   bool _closed = false;
 
