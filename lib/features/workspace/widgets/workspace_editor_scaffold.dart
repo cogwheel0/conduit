@@ -45,7 +45,9 @@ class WorkspaceEditorAction {
 ///
 /// Behaviour:
 /// * A [PopScope] dirty-guard confirms discard before leaving when [isDirty].
-/// * [readOnly] hides the save affordance and surfaces a [WorkspaceReadOnlyBadge].
+/// * [readOnly] hides the save affordance. It also surfaces a
+///   [WorkspaceReadOnlyBadge] unless [onEdit] is set: a detail page shows its
+///   fields read-only, but one that offers Edit is not view-only access.
 /// * [errorMessage]/[onRetry] render an inline, retryable error banner without
 ///   collapsing the body to an empty list.
 /// * [isLoading] shows an inline loading state in place of [child].
@@ -87,6 +89,8 @@ class WorkspaceEditorScaffold extends StatelessWidget {
   final VoidCallback? onEdit;
   final Widget? header;
 
+  bool get _showsReadOnlyBadge => readOnly && onEdit == null;
+
   Future<bool> _confirmDiscard(BuildContext context) async {
     final l10n = AppLocalizations.of(context)!;
     return ThemedDialogs.confirm(
@@ -109,7 +113,7 @@ class WorkspaceEditorScaffold extends StatelessWidget {
     // detail pages rather than native push destinations.
     final effectiveHeader =
         header ??
-        (compact && readOnly
+        (compact && _showsReadOnlyBadge
             ? const Align(
                 alignment: AlignmentDirectional.centerStart,
                 child: WorkspaceReadOnlyBadge(),
@@ -362,12 +366,12 @@ class WorkspaceEditorScaffold extends StatelessWidget {
               semanticsLabel: title,
             ),
           ),
-          if (readOnly)
+          if (_showsReadOnlyBadge)
             const Padding(
               padding: EdgeInsets.only(left: Spacing.sm),
               child: WorkspaceReadOnlyBadge(),
             )
-          else if (onSave != null) ...[
+          else if (!readOnly && onSave != null) ...[
             const SizedBox(width: Spacing.sm),
             _SaveButton(
               onSave: onSave!,

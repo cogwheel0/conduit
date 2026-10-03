@@ -1850,7 +1850,7 @@
   "settingsAppearance": "外观",
   "settingsAppearanceSubtitle": "主题、调色板和语言",
   "settingsChatSubtitle": "聊天行为、快捷操作和高级提示词",
-  "workspaceTitle": "Workspace",
+  "workspaceTitle": "工作区",
   "workspaceSubtitle": "Manage server resources and access.",
   "workspaceModels": "Models",
   "workspaceKnowledge": "Knowledge",
@@ -2957,7 +2957,7 @@
   "reviewerModeEnabled": "Reviewer mode enabled. You can open the demo without a server.",
   "reviewerModeDisabled": "Reviewer mode disabled.",
   "openSourceLicenses": "Open source licenses",
-  "directConnectionsTitle": "Direct Connections",
+  "directConnectionsTitle": "直接连接",
   "directConnectionsSubtitle": "Connect to OpenAI-compatible APIs and Ollama",
   "directConnectionsDescription": "Connect to model providers without Open WebUI. Credentials are stored securely on this device and sent to the provider with requests.",
   "directConnectionsCombinedDescription": "使用从 Open WebUI 同步或仅保存在本机的连接，直接连接模型提供商。",
@@ -3344,5 +3344,8 @@
   "@imageViewerPosition": {"placeholders": {"current": {"type": "int", "example": "2"}, "total": {"type": "int", "example": "5"}}},
   "saveImage": "保存图片",
   "imageSaved": "图片已保存",
-  "imageSaveFailed": "无法保存图片。"
+  "imageSaveFailed": "无法保存图片。",
+  "settingsTitle": "设置",
+  "profileTitle": "个人资料",
+  "aiAndMemoryTitle": "AI 与记忆"
 }

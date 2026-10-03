@@ -286,7 +286,6 @@ void main() {
       check(s!.title).equals('Trip planning');
       check(s.updatedAt).isNotNull();
     });
-
   });
 
   group('hermesMessagesToChatMessages', () {

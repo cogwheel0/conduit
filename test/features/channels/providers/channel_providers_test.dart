@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/channel_message.dart';
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
@@ -234,6 +235,110 @@ void main() {
         'socket-message',
         'history',
       ]);
+    });
+
+    test(
+      'an edit response keeps what a live event changed meanwhile',
+      () async {
+        final api = _QueuedChannelContentApi();
+        final container = ProviderContainer(
+          overrides: [apiServiceProvider.overrideWithValue(api)],
+        );
+        addTearDown(container.dispose);
+        final provider = channelMessagesProvider('channel');
+        final subscription = container.listen(provider, (_, _) {});
+        addTearDown(subscription.close);
+        final firstPage = container.read(provider.future);
+        await _waitFor(() => api.messageRequestCount == 1);
+        api.completeMessages(0, const <Map<String, dynamic>>[]);
+        await firstPage;
+
+        final notifier = container.read(provider.notifier);
+        notifier.prependMessage(
+          const ChannelMessage(id: 'm1', content: 'before', replyCount: 1),
+        );
+        // A reply arrives over the socket while the edit request is in flight.
+        notifier.updateMessage(
+          const ChannelMessage(id: 'm1', content: 'before', replyCount: 2),
+        );
+        notifier.applyEditResponse(
+          const ChannelMessage(id: 'm1', content: 'after'),
+        );
+
+        final message = container.read(provider).requireValue.single;
+        expect(message.content, 'after');
+        expect(message.replyCount, 2);
+      },
+    );
+
+    test('a post response gives a bare socket echo its sender', () async {
+      final api = _QueuedChannelContentApi();
+      final container = ProviderContainer(
+        overrides: [apiServiceProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+      final provider = channelMessagesProvider('channel');
+      final subscription = container.listen(provider, (_, _) {});
+      addTearDown(subscription.close);
+      final firstPage = container.read(provider.future);
+      await _waitFor(() => api.messageRequestCount == 1);
+      api.completeMessages(0, const <Map<String, dynamic>>[]);
+      await firstPage;
+
+      final notifier = container.read(provider.notifier);
+      // The socket event wins the race and names only the sender's id.
+      notifier.prependMessage(
+        const ChannelMessage(id: 'm1', userId: 'user-1', content: 'hi'),
+      );
+      notifier.prependMessage(
+        const ChannelMessage(
+          id: 'm1',
+          userId: 'user-1',
+          content: 'hi',
+          user: ChannelMessageUser(id: 'user-1', name: 'Alice'),
+        ),
+      );
+
+      final message = container.read(provider).requireValue.single;
+      expect(message.userName, 'Alice');
+    });
+
+    test('fillSender names only the sender of a bare message', () async {
+      final api = _QueuedChannelContentApi();
+      final container = ProviderContainer(
+        overrides: [apiServiceProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+      final provider = channelMessagesProvider('channel');
+      final subscription = container.listen(provider, (_, _) {});
+      addTearDown(subscription.close);
+      final firstPage = container.read(provider.future);
+      await _waitFor(() => api.messageRequestCount == 1);
+      api.completeMessages(0, const <Map<String, dynamic>>[]);
+      await firstPage;
+
+      const alice = User(
+        id: 'user-1',
+        username: 'alice',
+        email: 'alice@example.test',
+        name: 'Alice',
+        role: 'user',
+      );
+      final notifier = container.read(provider.notifier);
+      notifier.prependMessage(
+        const ChannelMessage(id: 'mine', userId: 'user-1', content: 'a'),
+      );
+      notifier.prependMessage(
+        const ChannelMessage(id: 'theirs', userId: 'user-2', content: 'b'),
+      );
+      notifier.fillSender('mine', alice);
+      notifier.fillSender('theirs', alice);
+
+      final messages = {
+        for (final m in container.read(provider).requireValue) m.id: m,
+      };
+      expect(messages['mine']!.userName, 'Alice');
+      expect(messages['theirs']!.userName, 'Unknown');
     });
 
     test('first-page refresh preserves live updates and deletions', () async {

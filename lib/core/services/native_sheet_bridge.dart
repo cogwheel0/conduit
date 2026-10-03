@@ -123,6 +123,7 @@ class NativeSheetRoutes {
   static const notificationSettings = 'notification-settings';
   static const workspace = 'workspace-entry';
   static const releaseNotesManual = 'release-notes-manual';
+  static const openSourceLicenses = 'open-source-licenses';
 }
 
 class NativeSheetBridge implements NativeSheetFlutterApi {

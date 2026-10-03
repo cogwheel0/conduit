@@ -560,6 +560,14 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         return;
       }
 
+      if (event.id == NativeSheetRoutes.openSourceLicenses) {
+        await _dismissNativeSheetBeforeFollowUp();
+        final context = NavigationService.context;
+        if (context == null || !context.mounted) return;
+        showLicensePage(context: context, applicationName: 'Conduit');
+        return;
+      }
+
       if (event.id.startsWith('tts-voice-pick:')) {
         await _handleNativeTtsVoicePick(event);
         return;

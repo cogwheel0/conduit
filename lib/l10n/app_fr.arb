@@ -1850,7 +1850,7 @@
   "settingsAppearance": "Apparence",
   "settingsAppearanceSubtitle": "Thème, palette de couleurs et langue",
   "settingsChatSubtitle": "Comportement du chat, actions rapides et prompts avancés",
-  "workspaceTitle": "Workspace",
+  "workspaceTitle": "Espace de travail",
   "workspaceSubtitle": "Manage server resources and access.",
   "workspaceModels": "Models",
   "workspaceKnowledge": "Knowledge",
@@ -3344,5 +3344,8 @@
   "@imageViewerPosition": {"placeholders": {"current": {"type": "int", "example": "2"}, "total": {"type": "int", "example": "5"}}},
   "saveImage": "Enregistrer l'image",
   "imageSaved": "Image enregistrée",
-  "imageSaveFailed": "Impossible d'enregistrer l'image."
+  "imageSaveFailed": "Impossible d'enregistrer l'image.",
+  "settingsTitle": "Réglages",
+  "profileTitle": "Profil",
+  "aiAndMemoryTitle": "IA et mémoire"
 }

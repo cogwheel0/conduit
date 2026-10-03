@@ -1,6 +1,8 @@
 // ignore_for_file: invalid_annotation_target
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'user.dart';
+
 part 'channel_message.freezed.dart';
 part 'channel_message.g.dart';
 
@@ -59,6 +61,33 @@ sealed class ChannelMessage with _$ChannelMessage {
   /// Display name from the embedded user object.
   String get userName => user?.name ?? 'Unknown';
 
+  /// This message with [sender] embedded when the server left it out: the
+  /// post endpoint answers with a bare row that names only `user_id`.
+  ChannelMessage withSenderIfMissing(User sender) {
+    if (user != null || userId != sender.id) return this;
+    return copyWith(user: ChannelMessageUser.fromUser(sender));
+  }
+
+  /// Applies an edit [response] to this message. Only what an edit changes is
+  /// taken from it, so a pin that was answered first is not undone. The
+  /// response is a bare row without the reactions and thread counts of list
+  /// responses, so keep those.
+  ChannelMessage withEditResponse(ChannelMessage response) => copyWith(
+    content: response.content,
+    data: response.data ?? data,
+    meta: response.meta ?? meta,
+    updatedAt: response.updatedAt ?? updatedAt,
+    user: response.user ?? user,
+  );
+
+  /// Applies a pin or unpin [response] to this message. Only the pin fields
+  /// are taken from it, so an edit that was answered first is not undone.
+  ChannelMessage withPinResponse(ChannelMessage response) => copyWith(
+    isPinned: response.isPinned,
+    pinnedBy: response.pinnedBy,
+    pinnedAt: response.pinnedAt,
+  );
+
   /// Profile image URL from the embedded user object.
   String? get userProfileImage => user?.profileImageUrl;
 
@@ -85,6 +114,14 @@ sealed class ChannelMessageUser with _$ChannelMessageUser {
 
   factory ChannelMessageUser.fromJson(Map<String, dynamic> json) =>
       _$ChannelMessageUserFromJson(json);
+
+  /// The signed-in [user] as a message sender.
+  factory ChannelMessageUser.fromUser(User user) => ChannelMessageUser(
+    id: user.id,
+    name: user.name ?? user.username,
+    email: user.email,
+    profileImageUrl: user.profileImage,
+  );
 }
 
 /// Handles the server returning `data` as either a bool

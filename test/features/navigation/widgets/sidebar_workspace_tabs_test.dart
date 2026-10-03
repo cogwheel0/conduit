@@ -1,3 +1,4 @@
+import 'package:conduit_core/models/account_metadata.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/models/channel.dart';
@@ -13,6 +14,7 @@ import 'package:conduit/features/navigation/widgets/conversation_tile.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
@@ -376,6 +378,169 @@ void main() {
     expect(nativePresentationCalls, 1);
   });
 
+  testWidgets('profile sheet opens on the server profile, not a stale one', (
+    tester,
+  ) async {
+    NativeProfileSheetConfig? presented;
+    const user = User(
+      id: 'user-1',
+      username: 'ava',
+      email: 'ava@example.com',
+      name: 'Ava',
+      role: 'user',
+    );
+
+    final container = ProviderContainer(
+      overrides: [
+        currentUserProvider2.overrideWithValue(user),
+        currentUserProvider.overrideWith((ref) async => user),
+        apiServiceProvider.overrideWithValue(null),
+        hermesOnlyModeProvider.overrideWithValue(false),
+        accountProfileProvider.overrideWith(_ServerAccountProfile.new),
+        sidebarNativeProfilePresenterProvider.overrideWithValue((config) async {
+          presented = config;
+          return true;
+        }),
+      ],
+    );
+    addTearDown(container.dispose);
+    // Loaded at sign-in, before the gender was set from another client.
+    await container.read(accountProfileProvider.future);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const Scaffold(body: SidebarProfileAppBarLeading()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-profile-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(presented, isNotNull);
+    expect(presented!.profile.gender, 'male');
+    expect(presented!.profile.dateOfBirth, '1990-04-02');
+  });
+
+  testWidgets('profile sheet keeps the cached profile when the refresh fails', (
+    tester,
+  ) async {
+    NativeProfileSheetConfig? presented;
+    const user = User(
+      id: 'user-1',
+      username: 'ava',
+      email: 'ava@example.com',
+      name: 'Ava',
+      role: 'user',
+    );
+
+    final container = ProviderContainer(
+      overrides: [
+        currentUserProvider2.overrideWithValue(user),
+        currentUserProvider.overrideWith((ref) async => user),
+        apiServiceProvider.overrideWithValue(null),
+        hermesOnlyModeProvider.overrideWithValue(false),
+        accountProfileProvider.overrideWith(_UnreachableAccountProfile.new),
+        sidebarNativeProfilePresenterProvider.overrideWithValue((config) async {
+          presented = config;
+          return true;
+        }),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(accountProfileProvider.future);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const Scaffold(body: SidebarProfileAppBarLeading()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-profile-button')),
+    );
+    await tester.pumpAndSettle();
+
+    // The sheet must not open on empty fields that a save would then write.
+    expect(presented, isNotNull);
+    expect(presented!.profile.gender, 'male');
+    expect(presented!.profile.dateOfBirth, '1990-04-02');
+  });
+
+  testWidgets('profile click goes to settings when no profile can be loaded', (
+    tester,
+  ) async {
+    var nativePresentationCalls = 0;
+    const user = User(
+      id: 'user-1',
+      username: 'ava',
+      email: 'ava@example.com',
+      name: 'Ava',
+      role: 'user',
+    );
+    final router = GoRouter(
+      initialLocation: '/',
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (_, _) =>
+              const Scaffold(body: SidebarProfileAppBarLeading()),
+        ),
+        GoRoute(
+          path: Routes.profile,
+          name: RouteNames.profile,
+          builder: (_, _) => const Scaffold(body: Text('Settings destination')),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentUserProvider2.overrideWithValue(user),
+          currentUserProvider.overrideWith((ref) async => user),
+          apiServiceProvider.overrideWithValue(null),
+          hermesOnlyModeProvider.overrideWithValue(false),
+          // Never loaded, and the refresh fails: no profile to edit.
+          accountProfileProvider.overrideWith(_UnloadedAccountProfile.new),
+          sidebarNativeProfilePresenterProvider.overrideWithValue((_) async {
+            nativePresentationCalls++;
+            return true;
+          }),
+        ],
+        child: MaterialApp.router(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          routerConfig: router,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-profile-button')),
+    );
+    await tester.pumpAndSettle();
+
+    // The native editor would offer empty fields that a save writes back.
+    expect(nativePresentationCalls, 0);
+    expect(find.text('Settings destination'), findsOneWidget);
+  });
+
   testWidgets('sidebar material app bar uses the compact toolbar height', (
     tester,
   ) async {
@@ -453,4 +618,64 @@ void main() {
     expect(find.text('Alpha Chat'), findsOneWidget);
     expect(find.text('Beta Chat'), findsOneWidget);
   });
+}
+
+/// Holds a profile loaded before the user set their gender elsewhere; the
+/// server now has the gender and birth date.
+class _ServerAccountProfile extends AccountProfile {
+  static const _server = AccountMetadata(
+    id: 'user-1',
+    email: 'ava@example.com',
+    name: 'Ava',
+    role: 'user',
+    isActive: true,
+    gender: 'male',
+    dateOfBirth: '1990-04-02',
+  );
+
+  @override
+  Future<AccountMetadata?> build() async => const AccountMetadata(
+    id: 'user-1',
+    email: 'ava@example.com',
+    name: 'Ava',
+    role: 'user',
+    isActive: true,
+  );
+
+  @override
+  Future<void> refresh() async {
+    state = const AsyncData(_server);
+  }
+}
+
+/// Holds a loaded profile, and loses the server on refresh the way the real
+/// provider does: its state goes to loading, then to an error with no value.
+class _UnreachableAccountProfile extends AccountProfile {
+  @override
+  Future<AccountMetadata?> build() async => const AccountMetadata(
+    id: 'user-1',
+    email: 'ava@example.com',
+    name: 'Ava',
+    role: 'user',
+    isActive: true,
+    gender: 'male',
+    dateOfBirth: '1990-04-02',
+  );
+
+  @override
+  Future<void> refresh() async {
+    state = const AsyncLoading();
+    state = AsyncError(StateError('unreachable'), StackTrace.empty);
+  }
+}
+
+/// A profile that never loaded, and whose refresh fails.
+class _UnloadedAccountProfile extends AccountProfile {
+  @override
+  Future<AccountMetadata?> build() async => null;
+
+  @override
+  Future<void> refresh() async {
+    state = AsyncError(StateError('unreachable'), StackTrace.empty);
+  }
 }

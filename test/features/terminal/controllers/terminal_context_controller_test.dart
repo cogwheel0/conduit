@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/features/terminal/controllers/terminal_browser_controller.dart';
 import 'package:conduit/features/terminal/controllers/terminal_context_controller.dart';
@@ -231,6 +233,203 @@ void main() {
       ),
     ).called(1);
   });
+
+  test('an older directory listing cannot replace a newer one', () async {
+    final service = _MockTerminalService();
+    final gateway = _FakeTerminalGateway(service: service)
+      ..selectedTerminalId = server.selectionId
+      ..selectedServer = server
+      ..currentPath = '/old/'
+      ..sessionScopeId = 'scope';
+    final harness = _TerminalControllerHarness(gateway);
+    addTearDown(harness.dispose);
+    final oldListing = Completer<List<TerminalFileEntry>>();
+    when(() => service.listFiles(server, '/old/', sessionScopeId: 'scope'))
+        .thenAnswer((_) => oldListing.future);
+    when(
+      () => service.listFiles(server, '/workspace/', sessionScopeId: 'scope'),
+    ).thenAnswer(
+      (_) async => const [
+        TerminalFileEntry(
+          name: 'new.txt',
+          path: '/workspace/new.txt',
+          isDirectory: false,
+        ),
+      ],
+    );
+    when(() => service.getListeningPorts(server, sessionScopeId: 'scope'))
+        .thenAnswer((_) async => const []);
+
+    // A reload of the old path is still waiting when the context picks its
+    // own path and lists that.
+    final reload = harness.browser.reload();
+    await harness.browser.loadDirectory(
+      service,
+      server,
+      path: '/workspace/',
+      updateServerCwd: false,
+    );
+    oldListing.complete(const [
+      TerminalFileEntry(
+        name: 'old.txt',
+        path: '/old/old.txt',
+        isDirectory: false,
+      ),
+    ]);
+    await reload;
+
+    check(gateway.currentPath).equals('/workspace/');
+    check(gateway.entries.single.name).equals('new.txt');
+    check(harness.browser.loadingFiles).isFalse();
+  });
+
+  for (final reloadAnswersFirst in [true, false]) {
+    test(
+      'a reload does not discard a folder being opened '
+      '(${reloadAnswersFirst ? 'reload answers first' : 'folder answers first'})',
+      () async {
+        final service = _MockTerminalService();
+        final gateway = _FakeTerminalGateway(service: service)
+          ..selectedTerminalId = server.selectionId
+          ..selectedServer = server
+          ..currentPath = '/old/'
+          ..sessionScopeId = 'scope';
+        final harness = _TerminalControllerHarness(gateway);
+        addTearDown(harness.dispose);
+        final folderListing = Completer<List<TerminalFileEntry>>();
+        final reloadListing = Completer<List<TerminalFileEntry>>();
+        when(
+          () => service.listFiles(server, '/folder/', sessionScopeId: 'scope'),
+        ).thenAnswer((_) => folderListing.future);
+        when(() => service.listFiles(server, '/old/', sessionScopeId: 'scope'))
+            .thenAnswer((_) => reloadListing.future);
+        when(() => service.getListeningPorts(server, sessionScopeId: 'scope'))
+            .thenAnswer((_) async => const []);
+        const folderEntries = [
+          TerminalFileEntry(
+            name: 'inside.txt',
+            path: '/folder/inside.txt',
+            isDirectory: false,
+          ),
+        ];
+        const oldEntries = [
+          TerminalFileEntry(
+            name: 'outside.txt',
+            path: '/old/outside.txt',
+            isDirectory: false,
+          ),
+        ];
+
+        // The user opens a folder, switches to Console and back before it has
+        // answered, and the Files panel reloads the path that is still current.
+        final navigation = harness.browser.loadDirectory(
+          service,
+          server,
+          path: '/folder/',
+          updateServerCwd: false,
+        );
+        final reload = harness.browser.reload();
+        if (reloadAnswersFirst) {
+          reloadListing.complete(oldEntries);
+          await reload;
+          folderListing.complete(folderEntries);
+          await navigation;
+        } else {
+          folderListing.complete(folderEntries);
+          await navigation;
+          reloadListing.complete(oldEntries);
+          await reload;
+        }
+
+        check(gateway.currentPath).equals('/folder/');
+        check(gateway.entries.single.name).equals('inside.txt');
+        check(harness.browser.loadingFiles).isFalse();
+      },
+    );
+  }
+
+  test(
+    'a listing for a replaced server does not cancel the current one',
+    () async {
+      final service = _MockTerminalService();
+      final gateway = _FakeTerminalGateway(service: service)
+        ..selectedTerminalId = server.selectionId
+        ..selectedServer = server
+        ..currentPath = '/workspace/'
+        ..sessionScopeId = 'scope';
+      final harness = _TerminalControllerHarness(gateway);
+      addTearDown(harness.dispose);
+      final currentListing = Completer<List<TerminalFileEntry>>();
+      when(
+        () => service.listFiles(server, '/workspace/', sessionScopeId: 'scope'),
+      ).thenAnswer((_) => currentListing.future);
+
+      final current = harness.browser.loadDirectory(
+        service,
+        server,
+        path: '/workspace/',
+        updateServerCwd: false,
+      );
+      await harness.browser.loadDirectory(
+        service,
+        replacementServer,
+        path: '/replacement/',
+        updateServerCwd: false,
+      );
+      currentListing.complete(const [
+        TerminalFileEntry(
+          name: 'README.md',
+          path: '/workspace/README.md',
+          isDirectory: false,
+        ),
+      ]);
+      await current;
+
+      check(gateway.entries.single.name).equals('README.md');
+      check(harness.browser.loadingFiles).isFalse();
+    },
+  );
+
+  test(
+    'overlapping reloads publish in the order they were requested',
+    () async {
+      final service = _MockTerminalService();
+      final gateway = _FakeTerminalGateway(service: service)
+        ..selectedTerminalId = server.selectionId
+        ..selectedServer = server
+        ..currentPath = '/workspace/'
+        ..sessionScopeId = 'scope';
+      final harness = _TerminalControllerHarness(gateway);
+      addTearDown(harness.dispose);
+      final listings = [
+        Completer<List<TerminalFileEntry>>(),
+        Completer<List<TerminalFileEntry>>(),
+      ];
+      var requested = 0;
+      when(
+        () => service.listFiles(server, '/workspace/', sessionScopeId: 'scope'),
+      ).thenAnswer((_) => listings[requested++].future);
+      when(() => service.getListeningPorts(server, sessionScopeId: 'scope'))
+          .thenAnswer((_) async => const []);
+
+      // Creating a folder refreshes the listing and then reloads it again.
+      final first = harness.browser.reload();
+      final second = harness.browser.reload();
+      listings[1].complete(const [
+        TerminalFileEntry(
+          name: 'new-folder',
+          path: '/workspace/new-folder',
+          isDirectory: true,
+        ),
+      ]);
+      await second;
+      listings[0].complete(const <TerminalFileEntry>[]);
+      await first;
+
+      check(gateway.entries.single.name).equals('new-folder');
+      check(harness.browser.loadingFiles).isFalse();
+    },
+  );
 }
 
 final class _TerminalControllerHarness {

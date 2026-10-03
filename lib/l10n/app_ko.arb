@@ -1628,7 +1628,7 @@
   "settingsAppearance": "모양",
   "settingsAppearanceSubtitle": "테마, 색상 팔레트 및 언어",
   "settingsChatSubtitle": "채팅 동작, 빠른 작업 및 고급 프롬프트",
-  "workspaceTitle": "Workspace",
+  "workspaceTitle": "워크스페이스",
   "workspaceSubtitle": "Manage server resources and access.",
   "workspaceModels": "Models",
   "workspaceKnowledge": "Knowledge",
@@ -3122,5 +3122,8 @@
   "@imageViewerPosition": {"placeholders": {"current": {"type": "int", "example": "2"}, "total": {"type": "int", "example": "5"}}},
   "saveImage": "이미지 저장",
   "imageSaved": "이미지를 저장했습니다",
-  "imageSaveFailed": "이미지를 저장할 수 없습니다."
+  "imageSaveFailed": "이미지를 저장할 수 없습니다.",
+  "settingsTitle": "설정",
+  "profileTitle": "프로필",
+  "aiAndMemoryTitle": "AI 및 메모리"
 }

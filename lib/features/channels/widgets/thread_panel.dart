@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:developer' as developer;
 
 import 'package:material_ui/material_ui.dart';
@@ -86,10 +87,37 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
           widget.parentMessage.id != parentMessageId) {
         return;
       }
-      final message = ChannelMessage.fromJson(json);
-      ref
-          .read(threadMessagesProvider(channelId, parentMessageId).notifier)
-          .prependMessage(message);
+      final me = ref.read(currentUserProvider).value;
+      final posted = ChannelMessage.fromJson(json);
+      final replies = ref.read(
+        threadMessagesProvider(channelId, parentMessageId).notifier,
+      );
+      replies.prependMessage(
+        me == null ? posted : posted.withSenderIfMissing(me),
+      );
+      if (me == null) {
+        // The user is still loading. Do not hold the reply back for it.
+        unawaited(
+          ref.read(currentUserProvider.future).then<void>((user) {
+            if (user == null ||
+                !mounted ||
+                !isChannelRequestOwnerCurrent(
+                  ref: ref,
+                  api: api,
+                  authSessionEpoch: authSessionEpoch,
+                ) ||
+                widget.channelId != channelId ||
+                widget.parentMessage.id != parentMessageId) {
+              return;
+            }
+            try {
+              replies.fillSender(posted.id, user);
+            } on StateError {
+              // The thread was disposed while the user loaded.
+            }
+          }, onError: (_) {}),
+        );
+      }
     } catch (e, st) {
       developer.log(
         'Failed to send thread reply',

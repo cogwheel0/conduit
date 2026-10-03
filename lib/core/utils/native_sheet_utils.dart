@@ -17,18 +17,67 @@ String nativeQuickActionsTitle(AppLocalizations l10n) {
   return l10n.quickActionsDescription;
 }
 
-String nativeSettingsTitle(AppLocalizations _) => 'Settings';
+String nativeSettingsTitle(AppLocalizations l10n) => l10n.settingsTitle;
 
-String nativeProfileTitle(AppLocalizations _) => 'Profile';
+String nativeProfileTitle(AppLocalizations l10n) => l10n.profileTitle;
 
 String nativeAppearanceTitle(AppLocalizations l10n) => l10n.settingsAppearance;
 
-String nativeChatsTitle(AppLocalizations _) => 'Chats';
+String nativeChatsTitle(AppLocalizations l10n) => l10n.sidebarChatsTab;
 
-String nativeAiMemoryTitle(AppLocalizations _) => 'AI and Memory';
+String nativeAiMemoryTitle(AppLocalizations l10n) => l10n.aiAndMemoryTitle;
 
 String nativeDataConnectionTitle(AppLocalizations l10n) =>
     l10n.settingsDataAndConnection;
+
+/// Rows of the native About page. The server rows are left out when there
+/// is no Open WebUI server (Hermes-only).
+List<NativeSheetItemConfig> buildNativeAboutItems(
+  AppLocalizations l10n, {
+  required String appVersion,
+  String? serverName,
+  String? serverVersion,
+}) => [
+  NativeSheetItemConfig(
+    id: 'app-version',
+    title: l10n.appVersion,
+    subtitle: appVersion,
+    sfSymbol: 'app.badge',
+    kind: NativeSheetItemKind.info,
+  ),
+  if (serverName != null)
+    NativeSheetItemConfig(
+      id: 'server-name',
+      title: l10n.serverNameLabel,
+      subtitle: serverName,
+      sfSymbol: 'server.rack',
+      kind: NativeSheetItemKind.info,
+    ),
+  if (serverVersion != null)
+    NativeSheetItemConfig(
+      id: 'server-version',
+      title: l10n.serverVersionLabel,
+      subtitle: serverVersion,
+      sfSymbol: 'number',
+      kind: NativeSheetItemKind.info,
+    ),
+  NativeSheetItemConfig(
+    id: NativeSheetRoutes.releaseNotesManual,
+    title: l10n.releaseNotesTitle,
+    sfSymbol: 'sparkles',
+  ),
+  NativeSheetItemConfig(
+    id: 'github',
+    title: l10n.githubRepository,
+    sfSymbol: 'chevron.left.forwardslash.chevron.right',
+    url: 'https://github.com/cogwheel0/conduit',
+  ),
+  NativeSheetItemConfig(
+    id: NativeSheetRoutes.openSourceLicenses,
+    title: l10n.openSourceLicenses,
+    sfSymbol: 'doc.text',
+  ),
+];
 
 String? resolveNativeSheetModelName(List<Model> models, String? modelId) {
   if (modelId == null || modelId.isEmpty) return null;

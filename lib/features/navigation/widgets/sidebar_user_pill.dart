@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:conduit_core/models/account_metadata.dart';
 import 'package:conduit_core/models/user.dart';
 
 import '../../../core/network/image_header_utils.dart';
@@ -425,18 +426,33 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
             ? await _loadHermesAvatarBytes()
             : null;
         if (!context.mounted) return;
-        final config = _buildNativeProfileSheetConfig(
-          context: context,
-          ref: ref,
-          user: user,
-          api: api,
-          displayName: displayName,
-          initials: initial,
-          canManageWorkspace: canManageWorkspace,
-          hermesAvatarBytes: hermesAvatarBytes,
-        );
-        final presented = await nativeProfilePresenter(config);
-        if (presented) return;
+        // The profile details editor preselects the stored gender and birth
+        // date and saves every field, so it must not open on a profile that
+        // was never loaded or has changed on the server since.
+        final accountProfile = !hermesOnly && user != null
+            ? await _currentAccountProfile(ref)
+            : null;
+        if (!context.mounted) return;
+        // With no profile at all, the sheet would offer empty fields that a
+        // save writes over the stored ones. The settings page loads the
+        // profile itself and reports a failure, so go there instead.
+        final profileUnavailable =
+            !hermesOnly && user != null && accountProfile == null;
+        if (!profileUnavailable) {
+          final config = _buildNativeProfileSheetConfig(
+            context: context,
+            ref: ref,
+            accountProfile: accountProfile,
+            user: user,
+            api: api,
+            displayName: displayName,
+            initials: initial,
+            canManageWorkspace: canManageWorkspace,
+            hermesAvatarBytes: hermesAvatarBytes,
+          );
+          final presented = await nativeProfilePresenter(config);
+          if (presented) return;
+        }
       }
 
       if (context.mounted) {
@@ -475,9 +491,34 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     );
   }
 
+  /// The account profile to open the editor on: the one just loaded from the
+  /// server, else the cached one when the refresh fails or takes too long.
+  ///
+  /// A refresh replaces the provider's state with a loading or error value
+  /// that carries no profile, so the cached copy is read before it starts.
+  Future<AccountMetadata?> _currentAccountProfile(WidgetRef ref) async {
+    final cached = ref.read(accountProfileProvider).asData?.value;
+    try {
+      await ref
+          .read(accountProfileProvider.notifier)
+          .refresh()
+          .timeout(const Duration(seconds: 5));
+    } catch (error) {
+      DebugLogger.warning(
+        'account-profile-refresh-failed',
+        scope: 'navigation/profile',
+        data: {'error': error.toString()},
+      );
+    }
+    // The widget can be gone by now, and its ref must not be read then.
+    if (!ref.context.mounted) return cached;
+    return ref.read(accountProfileProvider).asData?.value ?? cached;
+  }
+
   NativeProfileSheetConfig _buildNativeProfileSheetConfig({
     required BuildContext context,
     required WidgetRef ref,
+    required AccountMetadata? accountProfile,
     required dynamic user,
     required dynamic api,
     required String displayName,
@@ -493,7 +534,6 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     final avatarUrl = resolveUserAvatarUrlForUser(api, user);
     final avatarBytes = _decodeDataImage(avatarUrl);
     final email = _extractEmail(user) ?? l10n.noEmailLabel;
-    final accountProfile = ref.read(accountProfileProvider).asData?.value;
     final appSettings = ref.read(appSettingsProvider);
     final nativeAudio = buildNativeAudioSheetParts(l10n, appSettings);
     final settingsTitle = nativeSettingsTitle(l10n);

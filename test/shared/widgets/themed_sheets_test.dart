@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
@@ -920,4 +922,180 @@ void main() {
       );
     },
   );
+
+  testWidgets('a sheet does not cover the native chrome it hosts', (
+    tester,
+  ) async {
+    late BuildContext hostContext;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(TweakcnThemes.t3Chat),
+        home: Builder(
+          builder: (context) {
+            hostContext = context;
+            return const Scaffold(body: SizedBox.expand());
+          },
+        ),
+      ),
+    );
+
+    Widget nativeButton(String key) =>
+        ThemedSheets.hideNativeChromeWhileCovered(
+          child: SizedBox(key: ValueKey<String>(key), width: 40, height: 40),
+        );
+
+    // A thread panel: the composer inside the sheet keeps its send button.
+    late BuildContext sheetContext;
+    unawaited(
+      ThemedSheets.showCustom<void>(
+        context: hostContext,
+        builder: (_) => Builder(
+          builder: (context) {
+            sheetContext = context;
+            return nativeButton('inner-native-button');
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(ThemedSheets.hasActiveSheet, isTrue);
+    expect(ThemedSheets.isCoveredBySheet(hostContext), isTrue);
+    expect(ThemedSheets.isCoveredBySheet(sheetContext), isFalse);
+    expect(
+      find.byKey(const ValueKey<String>('inner-native-button')),
+      findsOneWidget,
+    );
+
+    // A second sheet over the first covers the first one's chrome, and keeps
+    // its own.
+    late BuildContext topSheetContext;
+    unawaited(
+      ThemedSheets.showCustom<void>(
+        context: sheetContext,
+        builder: (_) => Builder(
+          builder: (context) {
+            topSheetContext = context;
+            return nativeButton('top-native-button');
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(ThemedSheets.isCoveredBySheet(sheetContext), isTrue);
+    expect(ThemedSheets.isCoveredBySheet(topSheetContext), isFalse);
+    expect(
+      find.byKey(const ValueKey<String>('inner-native-button')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('top-native-button')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('coverage follows the order sheets were opened in', (
+    tester,
+  ) async {
+    late BuildContext hostContext;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(TweakcnThemes.t3Chat),
+        home: Builder(
+          builder: (context) {
+            hostContext = context;
+            return const Scaffold(body: SizedBox.expand());
+          },
+        ),
+      ),
+    );
+
+    // The builders' own contexts, as the API hands them out.
+    late BuildContext firstContext;
+    late BuildContext secondContext;
+    unawaited(
+      ThemedSheets.showCustom<void>(
+        context: hostContext,
+        builder: (context) {
+          firstContext = context;
+          return const SizedBox(height: 100);
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(ThemedSheets.isCoveredBySheet(firstContext), isFalse);
+
+    // Both sheets are presented from the host, so neither is nested in the
+    // other; the later one is still the one on top.
+    unawaited(
+      ThemedSheets.showRoundedPage<void>(
+        context: hostContext,
+        builder: (context) {
+          secondContext = context;
+          return const SizedBox(height: 100);
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(ThemedSheets.isCoveredBySheet(firstContext), isTrue);
+    expect(ThemedSheets.isCoveredBySheet(secondContext), isFalse);
+    expect(ThemedSheets.isCoveredBySheet(hostContext), isTrue);
+  });
+
+  testWidgets('a sheet on a nested navigator does not cover a root sheet', (
+    tester,
+  ) async {
+    late BuildContext rootHostContext;
+    late BuildContext nestedHostContext;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(TweakcnThemes.t3Chat),
+        home: Builder(
+          builder: (context) {
+            rootHostContext = context;
+            return Scaffold(
+              body: Navigator(
+                onGenerateRoute: (_) => MaterialPageRoute<void>(
+                  builder: (context) {
+                    nestedHostContext = context;
+                    return const SizedBox.expand();
+                  },
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+
+    late BuildContext rootSheetContext;
+    unawaited(
+      ThemedSheets.showRoundedPage<void>(
+        context: rootHostContext,
+        builder: (context) {
+          rootSheetContext = context;
+          return const SizedBox(height: 100);
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Opened later, but its route sits below the root navigator's.
+    late BuildContext nestedSheetContext;
+    unawaited(
+      ThemedSheets.showCustom<void>(
+        context: nestedHostContext,
+        builder: (context) {
+          nestedSheetContext = context;
+          return const SizedBox(height: 100);
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(ThemedSheets.isCoveredBySheet(rootSheetContext), isFalse);
+    expect(ThemedSheets.isCoveredBySheet(nestedSheetContext), isTrue);
+  });
 }

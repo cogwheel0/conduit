@@ -31,14 +31,39 @@ class ThemedSheets {
 
   static final ValueNotifier<int> _activeSheetCount = ValueNotifier<int>(0);
 
+  /// The open tracked sheets, bottom first.
+  static final List<_SheetCoverageToken> _openSheets = [];
+
   /// Whether a Conduit bottom sheet currently covers application content.
   ///
   /// This is independent of navigator nesting. Native UIKit platform views on
   /// an inner route can otherwise remain composited above a sheet presented by
   /// the root navigator.
-  static bool get hasActiveSheet => _activeSheetCount.value > 0;
+  static bool get hasActiveSheet => _openSheets.isNotEmpty;
 
   static Listenable get activeSheetListenable => _activeSheetCount;
+
+  /// Whether a Conduit bottom sheet covers [context].
+  ///
+  /// Content inside a sheet is not covered by that sheet itself, only by the
+  /// sheets presented above it, so a composer hosted in a sheet keeps its
+  /// native controls.
+  static bool isCoveredBySheet(BuildContext context) {
+    final own = _SheetScope.tokenOf(context);
+    if (own == null) return _openSheets.isNotEmpty;
+    final index = _openSheets.indexOf(own);
+    if (index < 0) return false;
+    // Root-navigator routes draw above nested ones, whenever they opened.
+    // Within one level, a later sheet is above an earlier one.
+    return _openSheets.indexed.any((entry) {
+      final (otherIndex, other) = entry;
+      if (otherIndex == index) return false;
+      if (other.onRootNavigator != own.onRootNavigator) {
+        return other.onRootNavigator;
+      }
+      return otherIndex > index;
+    });
+  }
 
   /// Removes UIKit-backed chrome before a tracked root sheet is presented.
   ///
@@ -52,7 +77,7 @@ class ThemedSheets {
   }) {
     return ListenableBuilder(
       listenable: activeSheetListenable,
-      builder: (context, _) => hasActiveSheet ? replacement : child,
+      builder: (context, _) => isCoveredBySheet(context) ? replacement : child,
     );
   }
 
@@ -126,6 +151,7 @@ class ThemedSheets {
     if (MediaQuery.disableAnimationsOf(context)) {
       return _showTracked<T>(
         context: context,
+        useRootNavigator: true,
         present: (coverage) => showModalBottomSheet<T>(
           context: context,
           useRootNavigator: true,
@@ -151,6 +177,7 @@ class ThemedSheets {
 
     return _showTracked<T>(
       context: context,
+      useRootNavigator: true,
       present: (coverage) {
         Widget child = _SheetCoverageBoundary(
           coverage: coverage,
@@ -205,11 +232,12 @@ class ThemedSheets {
     final resolvedShape = shape ?? roundedShapeFor(context);
     return _showTracked<T>(
       context: context,
+      useRootNavigator: useRootNavigator,
       present: (coverage) {
         Widget sheetBuilder(BuildContext sheetContext) =>
             _SheetCoverageBoundary(
               coverage: coverage,
-              child: builder(sheetContext),
+              child: Builder(builder: builder),
             );
         if (PlatformUiCapabilities.usesNativeIOS26) {
           return CNBottomSheet.show<T>(
@@ -261,13 +289,14 @@ class ThemedSheets {
     FocusManager.instance.primaryFocus?.unfocus();
     return _showTracked<T>(
       context: context,
+      useRootNavigator: true,
       present: (coverage) {
         Widget sheetBuilder(BuildContext sheetContext) =>
             _SheetCoverageBoundary(
               coverage: coverage,
               child: FractionallySizedBox(
                 heightFactor: DraggableModalSheetSizes.maxChildSize,
-                child: builder(sheetContext),
+                child: Builder(builder: builder),
               ),
             );
         final arguments = (
@@ -319,12 +348,29 @@ class ThemedSheets {
 
   static Future<T?> _showTracked<T>({
     required BuildContext context,
+    required bool useRootNavigator,
     required Future<T?> Function(_SheetCoverageToken coverage) present,
   }) async {
-    final coverage = _SheetCoverageToken(() {
-      _activeSheetCount.value = math.max(0, _activeSheetCount.value - 1);
-    });
-    _activeSheetCount.value += 1;
+    // Coverage follows the order the sheets were opened in, not where the
+    // presenting context sits: the route goes onto the root navigator, beside
+    // the presenting sheet rather than under it. A sheet on a nested navigator
+    // sits below one on the root navigator whenever it was opened.
+    final navigator = Navigator.maybeOf(
+      context,
+      rootNavigator: useRootNavigator,
+    );
+    late final _SheetCoverageToken coverage;
+    coverage = _SheetCoverageToken(
+      onRootNavigator:
+          navigator == null ||
+          identical(navigator, Navigator.maybeOf(context, rootNavigator: true)),
+      onClose: () {
+        _openSheets.remove(coverage);
+        _activeSheetCount.value = _openSheets.length;
+      },
+    );
+    _openSheets.add(coverage);
+    _activeSheetCount.value = _openSheets.length;
     try {
       // Let UIKit-backed chrome leave the compositor before presenting the
       // Flutter route. Hiding it after the route is pushed is one frame late.
@@ -386,8 +432,14 @@ class ThemedSheets {
 }
 
 class _SheetCoverageToken {
-  _SheetCoverageToken(this._onClose);
+  _SheetCoverageToken({
+    required this.onRootNavigator,
+    required VoidCallback onClose,
+  }) : _onClose = onClose;
 
+  /// Whether the sheet's route is on the root navigator, whose routes draw
+  /// above those of every nested navigator.
+  final bool onRootNavigator;
   final VoidCallback _onClose;
   bool _closed = false;
 
@@ -416,7 +468,21 @@ class _SheetCoverageBoundaryState extends State<_SheetCoverageBoundary> {
   }
 
   @override
-  Widget build(BuildContext context) => widget.child;
+  Widget build(BuildContext context) =>
+      _SheetScope(token: widget.coverage, child: widget.child);
+}
+
+/// The tracked sheet that encloses a subtree.
+class _SheetScope extends InheritedWidget {
+  const _SheetScope({required this.token, required super.child});
+
+  final _SheetCoverageToken token;
+
+  static _SheetCoverageToken? tokenOf(BuildContext context) =>
+      context.getInheritedWidgetOfExactType<_SheetScope>()?.token;
+
+  @override
+  bool updateShouldNotify(_SheetScope oldWidget) => token != oldWidget.token;
 }
 
 class SheetCloseButton extends StatelessWidget {
