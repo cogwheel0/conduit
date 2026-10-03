@@ -135,7 +135,7 @@ void main() {
       final ref = container(withApi: _CreatingApi(gate: gate.future));
 
       final saving = saveTemporaryChat(ref);
-      await Future<void>.delayed(Duration.zero);
+      await api.requested.future;
       ref
           .read(activeConversationProvider.notifier)
           .set(temporary('local:temp-2'));
@@ -156,7 +156,7 @@ void main() {
         ref,
         isCurrentOwner: () => pageStillOwnsChat,
       );
-      await Future<void>.delayed(Duration.zero);
+      await api.requested.future;
       pageStillOwnsChat = false;
       gate.complete();
 
@@ -211,6 +211,10 @@ class _CreatingApi extends ApiService {
 
   final Future<void>? gate;
   final bool fails;
+
+  /// Completes when [createConversation] is called, so a test can change
+  /// ownership while the request is really in flight.
+  final requested = Completer<void>();
   final created =
       <({String title, List<ChatMessage> messages, String? folderId})>[];
 
@@ -223,6 +227,7 @@ class _CreatingApi extends ApiService {
     String? folderId,
   }) async {
     created.add((title: title, messages: messages, folderId: folderId));
+    if (!requested.isCompleted) requested.complete();
     await gate;
     if (fails) throw StateError('server refused');
     return Conversation(

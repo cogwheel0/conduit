@@ -153,6 +153,28 @@ void main() {
           .isTrue();
     });
 
+    test(
+      'an oversized animated image is bounded from its first frame',
+      () async {
+        final animation = img.Image(width: 900, height: 450);
+        img.fill(animation, color: img.ColorRgb8(200, 30, 30));
+        for (var i = 0; i < 2; i++) {
+          final frame = img.Image(width: 900, height: 450);
+          img.fill(frame, color: img.ColorRgb8(30, 30, 200));
+          animation.addFrame(frame);
+        }
+
+        final bounded = await WorkspaceModelAvatarBounds.bound(
+          img.encodeGif(animation),
+        );
+
+        final decoded = img.decodePng(bounded)!;
+        check(decoded.width).equals(512);
+        check(decoded.height).equals(256);
+        check(decoded.numFrames).equals(1);
+      },
+    );
+
     test('an animated image that fits is returned without decoding', () async {
       final animation = img.Image(width: 64, height: 64);
       animation.addFrame(img.Image(width: 64, height: 64));

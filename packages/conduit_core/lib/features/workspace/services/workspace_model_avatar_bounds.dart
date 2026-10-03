@@ -167,7 +167,9 @@ abstract final class WorkspaceModelAvatarBounds {
 
     img.Image? decoded;
     try {
-      decoded = img.decodeImage(bytes);
+      // Only the first frame: an animated image keeps just that one, so
+      // decoding the rest would be memory spent for nothing.
+      decoded = img.decodeImage(bytes, frame: 0);
     } catch (_) {
       return const _Undecodable();
     }
