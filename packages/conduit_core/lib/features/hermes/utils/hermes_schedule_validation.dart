@@ -14,7 +14,7 @@ final RegExp _hermesClockTimePattern = RegExp(
   r'^(\d{1,2})(?::(\d{2}))?(am|pm)?$',
 );
 final RegExp _hermesIsoDateTimePattern = RegExp(
-  r'^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d+))?)?(?:Z|([+-])(\d{2}):?(\d{2}))?)?$',
+  r'^(\d{4})-(\d{2})-(\d{2})(?:[Tt ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d+))?)?(?:Z|([+-])(\d{2}):?(\d{2}))?)?$',
 );
 
 /// Weekday names `_natural_every_to_cron` knows.

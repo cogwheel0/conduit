@@ -226,9 +226,42 @@ void main() {
         ).equals(Routes.chat);
       });
 
-      test('stays a Hermes-only location, and not a Direct-only one', () {
-        check(isHermesOnlyAppLocation(Routes.hermesMcp)).isTrue();
+      test('is in no location-only allowlist', () {
+        // Such a list answers for every Hermes configuration, including the
+        // loading branches that run before the mode is known to be usable.
+        check(isHermesOnlyAppLocation(Routes.hermesMcp)).isFalse();
         check(isDirectOnlyAppLocation(Routes.hermesMcp)).isFalse();
+      });
+
+      test('is not offered while the gateway configuration is unusable', () {
+        // Desktop Gateway mode with no valid endpoint is not a usable
+        // backend, so the user is sent to finish setting it up instead.
+        const incomplete = HermesConfig(
+          enabled: true,
+          mode: HermesBackendMode.desktopGateway,
+        );
+        final read = _reader(
+          activeServer: const AsyncData(null),
+          auth: AuthNavigationState.needsLogin,
+          preferred: PreferredBackend.hermes,
+          hermes: incomplete,
+        );
+
+        check(resolveRouteRedirect(Routes.hermesMcp, read))
+            .equals(Routes.hermesSettings);
+      });
+
+      test('is not offered while Hermes secrets are still loading', () {
+        final read = _reader(
+          activeServer: const AsyncData(null),
+          auth: AuthNavigationState.needsLogin,
+          preferred: PreferredBackend.hermes,
+          hermes: const HermesConfig(enabled: true),
+          hermesSecretsLoading: true,
+        );
+
+        check(resolveRouteRedirect(Routes.hermesMcp, read))
+            .equals(Routes.splash);
       });
     });
   });

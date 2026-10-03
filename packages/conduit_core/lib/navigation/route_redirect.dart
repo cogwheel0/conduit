@@ -31,12 +31,13 @@ final List<ProviderListenable<Object?>> routeRedirectDependencies = [
 ];
 
 /// App-local destinations that remain meaningful without an OpenWebUI account.
-/// The Hermes MCP page is not listed: it also needs the Desktop Gateway, so
-/// the redirect checks the Hermes mode for that route itself.
+/// The Hermes MCP page is not listed, here or in any other location check:
+/// it needs a usable Desktop Gateway, so the accountless redirect decides it
+/// from the Hermes configuration itself.
 /// Keep this list explicit so adding an OWUI-only profile route does not expose
 /// it to Hermes-only users by accident.
 bool isHermesOnlyAppLocation(String location) =>
-    _isAccountlessBackendLocation(location) || location == Routes.hermesMcp;
+    _isAccountlessBackendLocation(location);
 
 bool _isAccountlessBackendLocation(String location) {
   return location == Routes.chat ||
@@ -344,11 +345,12 @@ String? _accountlessOrAuthRedirect(String location, ProviderRead read) {
   final bool isAllowed;
   if (location == Routes.hermesMcp) {
     // The MCP page talks to the Hermes Desktop Gateway. In any other backend
-    // mode it can only fail to load while still offering to add servers, so
-    // the destination exists only where that gateway is configured.
+    // mode, or with an incomplete gateway configuration, it can only fail to
+    // load while still offering to add servers, so the destination exists
+    // only where that gateway is usable.
     final hermes = read(hermesConfigProvider);
     isAllowed =
-        hermes.enabled && hermes.mode == HermesBackendMode.desktopGateway;
+        hermes.isUsable && hermes.mode == HermesBackendMode.desktopGateway;
   } else {
     isAllowed = prefersDirect
         ? isDirectOnlyAppLocation(location)

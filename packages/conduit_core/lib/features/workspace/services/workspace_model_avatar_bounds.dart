@@ -62,6 +62,8 @@ abstract final class WorkspaceModelAvatarBounds {
         'heic' => 'image/heic',
         'heif' => 'image/heif',
         'avif' => 'image/avif',
+        'bmp' => 'image/bmp',
+        'tif' || 'tiff' => 'image/tiff',
         _ => 'image/png',
       };
 
@@ -84,6 +86,11 @@ abstract final class WorkspaceModelAvatarBounds {
     if (startsWith(const [0x89, 0x50, 0x4E, 0x47])) return 'image/png';
     if (startsWith(const [0xFF, 0xD8, 0xFF])) return 'image/jpeg';
     if (startsWith(const [0x47, 0x49, 0x46, 0x38])) return 'image/gif';
+    if (startsWith(const [0x42, 0x4D])) return 'image/bmp';
+    if (startsWith(const [0x49, 0x49, 0x2A, 0x00]) ||
+        startsWith(const [0x4D, 0x4D, 0x00, 0x2A])) {
+      return 'image/tiff';
+    }
     if (ascii(0, 4) == 'RIFF' && ascii(8, 12) == 'WEBP') return 'image/webp';
     if (ascii(4, 8) == 'ftyp') {
       return switch (ascii(8, 12)) {

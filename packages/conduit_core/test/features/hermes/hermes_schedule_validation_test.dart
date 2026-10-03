@@ -16,6 +16,8 @@ void main() {
     check(isValidHermesSchedule('45m')).isTrue();
     check(isValidHermesSchedule('2027-04-05T09:30:00Z')).isTrue();
     check(isValidHermesSchedule('2027-04-05T09:30:00+05:30')).isTrue();
+    check(isValidHermesSchedule('2027-04-05t09:30')).isTrue();
+    check(isValidHermesSchedule('2027-04-05 09:30')).isTrue();
     check(isValidHermesSchedule('60 9 * * 1')).isFalse();
     check(isValidHermesSchedule('0 9 * * * 2027')).isFalse();
     check(isValidHermesSchedule('0 0 * * 7 0')).isFalse();

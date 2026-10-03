@@ -14,6 +14,10 @@ void main() {
         .equals('Models.JSON');
     check(WorkspaceExportFiles.withExtension('  ', 'json'))
         .equals('export.json');
+    check(WorkspaceExportFiles.withExtension('models.json', 'JSON'))
+        .equals('models.json');
+    check(WorkspaceExportFiles.withExtension('models', 'JSON'))
+        .equals('models.JSON');
   });
 
   test('sanitize collapses unsafe runs and blocks path escapes', () {
@@ -27,6 +31,10 @@ void main() {
         .equals('模型_v2_x.json');
     check(WorkspaceExportFiles.sanitize('a:b*c?.json')).equals('a_b_c_.json');
     check(WorkspaceExportFiles.sanitize('')).equals('export');
+    // Names that are only dots cannot be files.
+    check(WorkspaceExportFiles.sanitize('.')).equals('export');
+    check(WorkspaceExportFiles.sanitize('..')).equals('export');
+    check(WorkspaceExportFiles.sanitize(' .. ')).equals('export');
   });
 
   test('jsonBytes pretty-prints UTF-8 JSON', () {
@@ -69,5 +77,40 @@ void main() {
     check(first.path).not((it) => it.equals(second.path));
     check(await first.readAsBytes()).deepEquals([1]);
     check(await second.readAsBytes()).deepEquals([2]);
+  });
+
+  test('staging removes older exports and leaves everything else', () async {
+    final dir = await Directory.systemTemp.createTemp('workspace_export');
+    addTearDown(() => dir.delete(recursive: true));
+    final other = Directory('${dir.path}/unrelated')..createSync();
+
+    final old = await WorkspaceExportFiles.stage(
+      directory: dir,
+      filename: 'old.json',
+      bytes: [1],
+    );
+    // A recent export survives an ordinary export.
+    final recent = await WorkspaceExportFiles.stage(
+      directory: dir,
+      filename: 'recent.json',
+      bytes: [2],
+    );
+    check(await old.exists()).isTrue();
+    check(await recent.exists()).isTrue();
+
+    // With a zero keep time everything staged before is stale.
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    final fresh = await WorkspaceExportFiles.stage(
+      directory: dir,
+      filename: 'fresh.json',
+      bytes: [3],
+      keepFor: Duration.zero,
+    );
+
+    check(await old.exists()).isFalse();
+    check(await old.parent.exists()).isFalse();
+    check(await recent.exists()).isFalse();
+    check(await fresh.exists()).isTrue();
+    check(await other.exists()).isTrue();
   });
 }

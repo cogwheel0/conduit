@@ -108,6 +108,12 @@ void main() {
     check(WorkspaceModelAvatarBounds.mimeTypeForExtension('heic'))
         .equals('image/heic');
     check(WorkspaceModelAvatarBounds.mimeTypeForExtension('tiff'))
+        .equals('image/tiff');
+    check(WorkspaceModelAvatarBounds.mimeTypeForExtension('TIF'))
+        .equals('image/tiff');
+    check(WorkspaceModelAvatarBounds.mimeTypeForExtension('bmp'))
+        .equals('image/bmp');
+    check(WorkspaceModelAvatarBounds.mimeTypeForExtension('xyz'))
         .equals('image/png');
     check(WorkspaceModelAvatarBounds.mimeTypeForExtension(null))
         .equals('image/png');
@@ -175,6 +181,21 @@ void main() {
           .equals('image/heif');
       check(WorkspaceModelAvatarBounds.mimeTypeForBytes(ftyp('avif')))
           .equals('image/avif');
+      check(
+        WorkspaceModelAvatarBounds.mimeTypeForBytes(
+          Uint8List.fromList([0x42, 0x4D, 0, 0]),
+        ),
+      ).equals('image/bmp');
+      check(
+        WorkspaceModelAvatarBounds.mimeTypeForBytes(
+          Uint8List.fromList([0x49, 0x49, 0x2A, 0x00]),
+        ),
+      ).equals('image/tiff');
+      check(
+        WorkspaceModelAvatarBounds.mimeTypeForBytes(
+          Uint8List.fromList([0x4D, 0x4D, 0x00, 0x2A]),
+        ),
+      ).equals('image/tiff');
       check(
         WorkspaceModelAvatarBounds.mimeTypeForBytes(
           Uint8List.fromList(utf8.encode('plain text')),
