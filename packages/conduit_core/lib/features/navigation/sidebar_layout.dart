@@ -58,12 +58,11 @@ final class SidebarTabletWidthRange {
   /// The widest the sidebar may be in a window [viewportWidth] wide: the
   /// maximum, less what the content needs, never under the minimum.
   double maximumFor(double viewportWidth) {
-    final protectedContentMaximum = math.max(
-      defaultSidebarTabletWidth,
-      viewportWidth - minimumContentWidth,
-    );
+    // The range's own minimum is the floor (the clamp below), not the
+    // standard sidebar width: a range that allows a narrower sidebar must be
+    // able to give the content its room.
     return math
-        .min(maximum, protectedContentMaximum)
+        .min(maximum, viewportWidth - minimumContentWidth)
         .clamp(minimum, maximum)
         .toDouble();
   }

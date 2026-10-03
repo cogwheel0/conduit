@@ -176,26 +176,28 @@ const String kHermesDashboardFetchScript = '''
 ''';
 
 /// A document-start script that adds [accessHeaders] to the page's own
-/// `fetch` and `XMLHttpRequest` calls to the dashboard origin, for methods
-/// other than GET. GETs are left to the host, which adds the headers
-/// natively to the dashboard's subresource GETs (the app's
-/// `shouldInterceptRequest`); that does not cover HEAD, so the script does.
+/// `fetch` calls to the dashboard origin, for methods other than GET. GETs
+/// are left to the host, which adds the headers natively to the dashboard's
+/// subresource GETs (the app's `shouldInterceptRequest`); that does not cover
+/// HEAD, so the script does.
+///
+/// `XMLHttpRequest` is left alone on purpose. It cannot be told to refuse a
+/// redirect, so a same-origin redirect to another origin would carry the
+/// gateway credentials there, and the dashboard does not use it.
 ///
 /// The header values must never become readable by the page: a script on the
 /// dashboard origin (or anything it loads) is not trusted with the gateway
 /// secret. So the script
 ///  * does nothing outside the dashboard origin;
 ///  * captures, before any page script runs, every function it calls later
-///    (`Reflect.apply`, the `URL`/`Request`/`Headers` accessors, the XHR
-///    methods, `WeakMap`, `String`) and calls only those, with indexed loops
+///    (`Reflect.apply`, the `URL`/`Request`/`Headers` accessors) and calls
+///    only those, with indexed loops
 ///    and null-prototype objects, so a replaced prototype method, getter or
 ///    iterator never sees the values;
-///  * hands the values only to the captured native `fetch` (inside a
-///    null-prototype header record) and to the captured `setRequestHeader`
-///    right before the captured `send`;
+///  * hands the values only to the captured native `fetch`, inside a
+///    null-prototype header record;
 ///  * resolves each URL once and sends exactly what it checked (a fetch goes
-///    out as the `Request` it built; an XHR is reopened on the resolved URL
-///    before its headers are set);
+///    out as the `Request` it built);
 ///  * defaults a fetch that carries the headers to `redirect: 'error'`
 ///    (`'manual'` is kept), so a redirect cannot take them elsewhere;
 ///  * refuses `navigator.serviceWorker.register` and adds nothing while a
@@ -217,15 +219,10 @@ String hermesDashboardRequestHeaderScript({
   const getDescriptor = Object.getOwnPropertyDescriptor;
   const defineProperty = Object.defineProperty;
   const createObject = Object.create;
-  const toText = String;
   const toLowerCase = String.prototype.toLowerCase;
-  const toUpperCase = String.prototype.toUpperCase;
   const getter = (target, name) => getDescriptor(target, name).get;
   const NativeURL = window.URL;
   const urlOrigin = getter(NativeURL.prototype, 'origin');
-  const urlHref = getter(NativeURL.prototype, 'href');
-  const currentDocument = window.document;
-  const baseURI = getter(window.Node.prototype, 'baseURI');
   const NativeRequest = window.Request;
   const requestUrl = getter(NativeRequest.prototype, 'url');
   const requestMethod = getter(NativeRequest.prototype, 'method');
@@ -233,14 +230,6 @@ String hermesDashboardRequestHeaderScript({
   const requestRedirect = getter(NativeRequest.prototype, 'redirect');
   const headersForEach = window.Headers.prototype.forEach;
   const nativeFetch = window.fetch;
-  const NativeWeakMap = window.WeakMap;
-  const weakGet = NativeWeakMap.prototype.get;
-  const weakSet = NativeWeakMap.prototype.set;
-  const xhrProto = window.XMLHttpRequest.prototype;
-  const xhrOpen = xhrProto.open;
-  const xhrSetRequestHeader = xhrProto.setRequestHeader;
-  const xhrSend = xhrProto.send;
-  const xhrReadyState = getter(xhrProto, 'readyState');
   const workers = window.navigator.serviceWorker;
   const workerProto = workers ? window.ServiceWorkerContainer.prototype : null;
   const workerController = workerProto ? getter(workerProto, 'controller') : null;
@@ -307,65 +296,6 @@ String hermesDashboardRequestHeaderScript({
     options.headers = headers;
     options.redirect = apply(requestRedirect, request, []) === 'manual' ? 'manual' : 'error';
     return apply(nativeFetch, window, [request, options]);
-  };
-  const xhrState = new NativeWeakMap();
-  xhrProto.open = function open(method, url) {
-    const count = arguments.length;
-    if (count < 2) return apply(xhrOpen, this, arguments);
-    const methodText = toText(method);
-    let target = toText(url);
-    try {
-      target = apply(urlHref, new NativeURL(target, apply(baseURI, currentDocument, [])), []);
-    } catch (_) {
-      // open() reports the invalid URL itself.
-    }
-    const args = count === 2
-      ? [methodText, target]
-      : count === 3
-        ? [methodText, target, arguments[2]]
-        : count === 4
-          ? [methodText, target, arguments[2], arguments[3]]
-          : [methodText, target, arguments[2], arguments[3], arguments[4]];
-    const result = apply(xhrOpen, this, args);
-    const entry = createObject(null);
-    entry.args = args;
-    entry.add = addsHeaders(apply(toUpperCase, methodText, []), target);
-    entry.headers = createObject(null);
-    entry.count = 0;
-    entry.sent = false;
-    apply(weakSet, xhrState, [this, entry]);
-    return result;
-  };
-  xhrProto.setRequestHeader = function setRequestHeader(name, value) {
-    const nameText = toText(name);
-    const valueText = toText(value);
-    if (isReserved(apply(toLowerCase, nameText, []))) return;
-    const result = apply(xhrSetRequestHeader, this, [nameText, valueText]);
-    const entry = apply(weakGet, xhrState, [this]);
-    if (entry !== undefined && entry.add) {
-      entry.headers[entry.count] = [nameText, valueText];
-      entry.count = entry.count + 1;
-    }
-    return result;
-  };
-  xhrProto.send = function send() {
-    const entry = apply(weakGet, xhrState, [this]);
-    if (entry === undefined || !entry.add || entry.sent ||
-        apply(xhrReadyState, this, []) !== 1 || controlled()) {
-      return apply(xhrSend, this, arguments);
-    }
-    entry.sent = true;
-    // Reopen on the URL that was checked (open() from another realm could
-    // have changed it), replay the page's headers, then add the access
-    // headers; nothing of the page runs between these calls.
-    apply(xhrOpen, this, entry.args);
-    for (let i = 0; i < entry.count; i++) {
-      apply(xhrSetRequestHeader, this, entry.headers[i]);
-    }
-    for (let i = 0; i < accessNames.length; i++) {
-      apply(xhrSetRequestHeader, this, [accessNames[i], accessValues[i]]);
-    }
-    return apply(xhrSend, this, arguments);
   };
 })();''';
 }

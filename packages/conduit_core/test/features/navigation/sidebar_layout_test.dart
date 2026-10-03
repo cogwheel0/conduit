@@ -38,6 +38,17 @@ void main() {
       check(range.maximumFor(500)).equals(320);
     });
 
+    test('a range with a narrower minimum protects the content with it', () {
+      const narrow = SidebarTabletWidthRange(minimum: 240, maximum: 480);
+
+      // 600 wide, 320 kept for the content: the sidebar may use 280, not the
+      // standard 320.
+      check(narrow.maximumFor(600)).equals(280);
+      // Never under its own minimum, however narrow the window.
+      check(narrow.maximumFor(500)).equals(240);
+      check(narrow.maximumFor(1180)).equals(480);
+    });
+
     test('shows a narrower width without changing the preference', () {
       check(range.effectiveWidth(preferredWidth: 480, viewportWidth: 1180))
           .equals(480);

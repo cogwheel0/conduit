@@ -56,7 +56,32 @@ void main() {
         (path: '/', domain: 'gateway.example', secure: true),
         (path: '/hermes', domain: null, secure: true),
         (path: '/hermes', domain: 'gateway.example', secure: true),
+        (path: '/hermes/', domain: null, secure: true),
+        (path: '/hermes/', domain: 'gateway.example', secure: true),
       ]);
+    });
+
+    test('a cookie stored with a trailing-slash path is expired at it', () {
+      // Replacement needs the exact path: `/hermes/` is not `/hermes`.
+      final writes = androidWebViewCookieExpiries(
+        url: Uri.parse('https://gateway.example/hermes/'),
+        name: '__Secure-hermes_session_rt',
+        path: '/hermes/',
+      );
+
+      check(writes.map((w) => w.path))
+          .containsEqualInOrder(['/hermes', '/hermes/', '/']);
+      check(writes.every((w) => w.secure)).isTrue();
+    });
+
+    test('a __Host- cookie is never expired at another path', () {
+      final writes = androidWebViewCookieExpiries(
+        url: Uri.parse('https://gateway.example/hermes/'),
+        name: '__Host-hermes_session_at',
+        path: '/hermes/',
+      );
+
+      check(writes.map((w) => w.path)).deepEquals(['/']);
     });
 
     test('a bare cookie over HTTP is not marked Secure', () {

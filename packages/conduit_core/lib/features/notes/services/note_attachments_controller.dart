@@ -506,11 +506,12 @@ class NoteAttachmentsController {
     final AppDatabase? db = _container.read(appDatabaseProvider);
     if (api == null && db == null) return null;
 
+    List<Map<String, dynamic>> without(List<Map<String, dynamic>> files) =>
+        files
+            .where((Map<String, dynamic> f) => f['id']?.toString() != fileId)
+            .toList();
     final List<Map<String, dynamic>> currentFiles =
         note.data.files ?? <Map<String, dynamic>>[];
-    final List<Map<String, dynamic>> updatedFiles = currentFiles
-        .where((Map<String, dynamic> f) => f['id']?.toString() != fileId)
-        .toList();
     final Note? updated = await persistNoteUpdate(
       _container,
       noteId: _noteId,
@@ -518,7 +519,23 @@ class NoteAttachmentsController {
       api: api,
       db: db,
       title: _resolvedTitle(),
-      data: <String, dynamic>{'files': updatedFiles},
+      data: <String, dynamic>{'files': without(currentFiles)},
+      // With a database the list is filtered from the stored row inside the
+      // note lock, so an attachment added since [note] was read (a recording
+      // finishing, a pull) is kept rather than overwritten.
+      dataFrom: (Map<String, dynamic> existing) {
+        final Object? raw = existing['files'];
+        return <String, dynamic>{
+          'files': without(
+            raw is List
+                ? raw
+                      .whereType<Map>()
+                      .map((Map file) => Map<String, dynamic>.from(file))
+                      .toList()
+                : <Map<String, dynamic>>[],
+          ),
+        };
+      },
       isStillOpen: () => !_disposed,
     );
     if (updated == null || !_isCurrent(api: api, db: db)) return null;

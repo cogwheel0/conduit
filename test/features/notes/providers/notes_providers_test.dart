@@ -91,6 +91,11 @@ class _RecordingVoiceInputService extends VoiceInputService {
   final List<SttPreference> beginListeningPreferences = <SttPreference>[];
   final List<bool> beginListeningUsesServer = <bool>[];
   int disposeCalls = 0;
+  int stopCalls = 0;
+
+  /// When set, [beginListening] waits for it, so a test can close the editor
+  /// while listening is still starting.
+  Completer<void>? beginGate;
 
   @override
   bool get isSupportedPlatform => true;
@@ -106,11 +111,14 @@ class _RecordingVoiceInputService extends VoiceInputService {
   }) async {
     beginListeningPreferences.add(preference);
     beginListeningUsesServer.add(prefersServerOnly);
+    await beginGate?.future;
     return const Stream<String>.empty();
   }
 
   @override
-  Future<void> stopListening() async {}
+  Future<void> stopListening() async {
+    stopCalls++;
+  }
 
   @override
   Future<void> dispose() async {
@@ -327,6 +335,55 @@ void main() {
 
         // Leaving the editor must not dispose the shared service.
         await tester.pumpWidget(const SizedBox.shrink());
+        check(voice.disposeCalls).equals(0);
+      },
+    );
+
+    testWidgets(
+      'closing the editor while dictation is starting stops the capture',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 900));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        final originalOnError = FlutterError.onError;
+        addTearDown(() => FlutterError.onError = originalOnError);
+        FlutterError.onError = (details) {
+          if (details.exceptionAsString().contains(
+            'ListTile background color or ink splashes may be invisible',
+          )) {
+            return;
+          }
+          originalOnError?.call(details);
+        };
+        final voice = _RecordingVoiceInputService()
+          ..beginGate = Completer<void>();
+        await tester.pumpWidget(
+          _noteEditorHarness(
+            db: db,
+            syncEngine: _NoDrainSyncEngine(),
+            noteJson: _deletedNoteJson(),
+            extraOverrides: [
+              voiceInputServiceProvider.overrideWithValue(voice),
+            ],
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byIcon(Icons.mic_rounded));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Dictation'));
+        await tester.pump();
+        check(voice.beginListeningPreferences).length.equals(1);
+
+        // The editor closes before beginListening returns: dispose sees no
+        // dictation in progress.
+        await tester.pumpWidget(const SizedBox.shrink());
+        check(voice.stopCalls).equals(0);
+
+        voice.beginGate!.complete();
+        await tester.pump();
+        await tester.pump();
+
+        check(voice.stopCalls).equals(1);
         check(voice.disposeCalls).equals(0);
       },
     );

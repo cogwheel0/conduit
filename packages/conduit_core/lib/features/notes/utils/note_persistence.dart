@@ -45,6 +45,11 @@ bool isCurrentNoteEditorSession(
 /// written into a newly active account. [isStillOpen] is the editor's
 /// `mounted`: with it false the notes list is not touched.
 ///
+/// With a database, [dataFrom] builds a further patch from the stored note's
+/// data inside the note lock (over [data]), so an edit of a list such as the
+/// attached files starts from the row as it is when it is written. The API
+/// path has no such lock and sends [data] as given.
+///
 /// [noteId] is the id the editor was opened with, whose keep-alive detail is
 /// invalidated; the durable write goes to [writeId] (the loaded note's id,
 /// which may be the server id a `local:` one was remapped to).
@@ -56,6 +61,7 @@ Future<Note?> persistNoteUpdate(
   required AppDatabase? db,
   required String title,
   required Map<String, dynamic> data,
+  Map<String, dynamic> Function(Map<String, dynamic> existing)? dataFrom,
   Object? authEpoch,
   ApiAuthSnapshot? authSnapshot,
   CancelToken? cancelToken,
@@ -77,6 +83,7 @@ Future<Note?> persistNoteUpdate(
       id: writeId ?? noteId,
       title: title,
       data: data,
+      dataFrom: dataFrom,
     );
   } else {
     // Session confirmed current, so the live API equals the captured one.

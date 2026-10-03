@@ -317,6 +317,44 @@ void main() {
       check((await readNote('note-1')).data.files).isNotNull().isEmpty();
     });
 
+    test(
+      'removeAttachedFile keeps a file attached after the note was read',
+      () async {
+        // The editor's snapshot (openNote) lists only old-file; a recording
+        // finished since and is already in the stored row.
+        await db
+            .into(db.notes)
+            .insertOnConflictUpdate(
+              serverToNoteRow({
+                'id': 'note-1',
+                'user_id': 'user-1',
+                'title': 'Meeting',
+                'data': {
+                  'content': {'md': 'hello', 'html': ''},
+                  'files': [
+                    {'type': 'file', 'id': 'old-file', 'name': 'old.pdf'},
+                    {'type': 'file', 'id': 'new-file', 'name': 'new.m4a'},
+                  ],
+                },
+                'meta': {},
+                'is_pinned': false,
+                'created_at': 1713786305000000000,
+                'updated_at': 1713786305000000000,
+              }),
+            );
+        check(openNote.data.files!.map((f) => f['id']))
+            .deepEquals(['old-file']);
+
+        final updated = await controller.removeAttachedFile('old-file');
+
+        check(updated).isNotNull();
+        check(updated!.data.files!.map((f) => f['id']))
+            .deepEquals(['new-file']);
+        check((await readNote('note-1')).data.files!.map((f) => f['id']))
+            .deepEquals(['new-file']);
+      },
+    );
+
     test('a recording staged for another note is not attached here', () async {
       final loaded = await store.stage(
         source: await recording('other.m4a'),

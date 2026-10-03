@@ -214,17 +214,12 @@ void main() {
     // Everything the wrappers call is captured before any page script runs.
     for (final capture in [
       'const apply = Reflect.apply;',
-      'const toText = String;',
       'const toLowerCase = String.prototype.toLowerCase;',
       'const createObject = Object.create;',
       "const urlOrigin = getter(NativeURL.prototype, 'origin');",
       "const requestUrl = getter(NativeRequest.prototype, 'url');",
       'const headersForEach = window.Headers.prototype.forEach;',
       'const nativeFetch = window.fetch;',
-      'const xhrOpen = xhrProto.open;',
-      'const xhrSetRequestHeader = xhrProto.setRequestHeader;',
-      'const xhrSend = xhrProto.send;',
-      'const weakGet = NativeWeakMap.prototype.get;',
     ]) {
       check(captures).contains(capture);
     }
@@ -248,6 +243,10 @@ void main() {
     ]) {
       check(calls).not((it) => it.contains(forbidden));
     }
+    // XMLHttpRequest cannot refuse a redirect, so it is never touched and
+    // never carries the credentials.
+    check(script).not((it) => it.contains('XMLHttpRequest'));
+    check(script).not((it) => it.contains('setRequestHeader'));
     // GET is left to the host's native rule; a fetch that carries the
     // headers cannot follow a redirect elsewhere.
     check(script)

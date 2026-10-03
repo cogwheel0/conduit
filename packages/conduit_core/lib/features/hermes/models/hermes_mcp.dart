@@ -125,9 +125,21 @@ final class HermesMcpToolFilter {
       other is HermesMcpToolFilter && _deepEquals(_raw, other._raw);
 
   @override
-  int get hashCode => Object.hashAll(
-    _raw.entries.map((e) => Object.hash(e.key, e.value.toString())),
-  );
+  int get hashCode => _deepHash(_raw);
+}
+
+/// A hash that agrees with [_deepEquals]: map entries count in any order,
+/// list elements in order, and nested values by content.
+int _deepHash(Object? value) {
+  if (value is Map) {
+    return Object.hashAllUnordered(
+      value.entries.map(
+        (entry) => Object.hash(entry.key, _deepHash(entry.value)),
+      ),
+    );
+  }
+  if (value is List) return Object.hashAll(value.map(_deepHash));
+  return value.hashCode;
 }
 
 List<String>? _filterNames(Object? value) {

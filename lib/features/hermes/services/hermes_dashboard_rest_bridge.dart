@@ -144,7 +144,11 @@ final class _HeadlessDashboardPage implements HermesDashboardPage {
 
   @override
   Future<void> dispose() async {
-    await _webView.dispose();
-    _policy.close();
+    // The policy's client closes even when the WebView fails to dispose.
+    try {
+      await _webView.dispose();
+    } finally {
+      _policy.close();
+    }
   }
 }

@@ -778,7 +778,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       }
 
       final stream = await _voiceService!.beginListening();
-      if (!mounted) return;
+      if (!mounted) {
+        // The editor closed while listening was starting. Capture is already
+        // running and dispose() saw no dictation to stop, so stop it here.
+        unawaited(_voiceService?.stopListening());
+        return;
+      }
 
       // Anchor the dictation run at the current selection. The trailing
       // line-break of a Parchment document is not editable, so clamp before

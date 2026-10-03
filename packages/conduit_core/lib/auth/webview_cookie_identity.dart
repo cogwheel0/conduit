@@ -34,7 +34,17 @@ typedef WebViewCookieExpiry = ({String path, String? domain, bool secure});
 ///  * the host-only cookie (no `Domain`) and, when given, the [domain]
 ///    cookie; never a `Domain` for `__Host-`, which forbids one;
 ///  * [path], `/` and [url]'s own path (a server behind a proxy prefix sets
-///    `Path=<prefix>`, as Hermes' dashboard does); only `/` for `__Host-`.
+///    `Path=<prefix>`, as Hermes' dashboard does), each with and without a
+///    trailing slash, since a cookie stored with `Path=/prefix/` is replaced
+///    only by that exact path; only `/` for `__Host-`.
+///
+/// Android's cookie manager reports only a cookie's name and value, so the
+/// path and domain of a tracked cookie cannot be told apart from another
+/// cookie's of the same name. The writes are therefore scoped to the tracked
+/// cookie's name and the origin's host, not to a path: a cookie another
+/// service stored under the same name on the same host can be expired along
+/// with it, which is the price of being able to clear a cookie whose path is
+/// unknown.
 List<WebViewCookieExpiry> androidWebViewCookieExpiries({
   required Uri url,
   required String name,
@@ -53,7 +63,13 @@ List<WebViewCookieExpiry> androidWebViewCookieExpiries({
 
   final paths = hostOnly
       ? const ['/']
-      : {normalized(path), '/', normalized(url.path)}.toList();
+      : {
+          for (final candidate in [
+            normalized(path),
+            '/',
+            normalized(url.path),
+          ]) ...[candidate, if (candidate != '/') '$candidate/'],
+        }.toList();
   final hint = domain?.trim();
   final domains = hostOnly || hint == null || hint.isEmpty
       ? const <String?>[null]

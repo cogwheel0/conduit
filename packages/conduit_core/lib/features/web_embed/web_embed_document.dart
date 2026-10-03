@@ -40,10 +40,13 @@ bool isRemoteWebEmbedSource(String source) {
 }
 
 /// The remote URL [source] names, with `//` resolved to https, or null when
-/// it is not a remote URL or does not parse.
+/// it is not a remote URL, does not parse, or names no host. Surrounding
+/// whitespace is ignored, as [isRemoteWebEmbedSource] ignores it.
 Uri? resolveRemoteWebEmbedUri(String source) {
   if (!isRemoteWebEmbedSource(source)) return null;
-  return Uri.tryParse(source.startsWith('//') ? 'https:$source' : source);
+  final raw = source.trim();
+  final uri = Uri.tryParse(raw.startsWith('//') ? 'https:$raw' : raw);
+  return uri == null || uri.host.isEmpty ? null : uri;
 }
 
 // ---------------------------------------------------------------------------
