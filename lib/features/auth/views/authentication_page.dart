@@ -462,6 +462,12 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     );
   }
 
+  /// Leaving the page commits the autofill context, which makes iOS offer to
+  /// save the password. Not for one the server just rejected.
+  AutofillContextAction get _autofillDisposeAction => _loginError == null
+      ? AutofillContextAction.commit
+      : AutofillContextAction.cancel;
+
   ServerConfig? get _resolvedServerConfig {
     final activeServerAsync = ref.watch(activeServerProvider);
     return _serverConfig ??
@@ -625,6 +631,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     final l10n = AppLocalizations.of(context)!;
 
     return AutofillGroup(
+      onDisposeAction: _autofillDisposeAction,
       child: Column(
         key: const ValueKey('credentials_form'),
         children: [
@@ -692,6 +699,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     final l10n = AppLocalizations.of(context)!;
 
     return AutofillGroup(
+      onDisposeAction: _autofillDisposeAction,
       child: Column(
         key: const ValueKey('ldap_form'),
         children: [

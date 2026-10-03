@@ -279,6 +279,53 @@ void main() {
     },
   );
 
+  // B-02: leaving the page commits the autofill context, so iOS offered to
+  // save the password the server had just rejected.
+  testWidgets('a rejected password is not offered to the password manager', (
+    tester,
+  ) async {
+    debugIsWebViewSupportedOverride = false;
+    addTearDown(() => debugIsWebViewSupportedOverride = null);
+    final harness = AdaptiveAuthHarness(
+      server: server,
+      backendConfig: const BackendConfig(enableLdap: true),
+    );
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.authentication),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('LDAP'));
+    await tester.pumpAndSettle();
+    AutofillContextAction disposeAction() => tester
+        .widget<AutofillGroup>(find.byType(AutofillGroup))
+        .onDisposeAction;
+    check(disposeAction()).equals(AutofillContextAction.commit);
+
+    final fields = find.descendant(
+      of: find.byKey(const ValueKey('ldap_form')),
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(fields.at(0), 'ldapuser');
+    await tester.enterText(fields.at(1), 'wrong-password');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sign in with LDAP'));
+    // The attempt waits on timers (server selection) that pumpAndSettle does
+    // not advance.
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    check(disposeAction()).equals(AutofillContextAction.cancel);
+
+    await tester.enterText(fields.at(1), 'another-password');
+    await tester.pumpAndSettle();
+    check(disposeAction()).equals(AutofillContextAction.commit);
+
+    await harness.unmount(tester);
+  });
+
   testWidgets('sign-in keeps SSO available when backend config is absent', (
     tester,
   ) async {
