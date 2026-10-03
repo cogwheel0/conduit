@@ -345,13 +345,18 @@ class BackgroundStreamingHandler: NSObject, ConduitBridge, BackgroundStreamingHo
         taskIdentifier = UIApplication.shared.beginBackgroundTask(withName: "ConduitStreaming") { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
+                // keepAlive replaces the task before ending the old one. A
+                // replaced task expiring is not a suspension: the newer
+                // task still holds background time.
+                guard self.backgroundTask == taskIdentifier else {
+                    if taskIdentifier != .invalid {
+                        UIApplication.shared.endBackgroundTask(taskIdentifier)
+                    }
+                    return
+                }
                 self.notifyStreamsSuspending(reason: "background_task_expiring")
                 self.flutterApi?.backgroundTaskExpiring { _ in }
-                if self.backgroundTask == taskIdentifier {
-                    self.endBackgroundTask()
-                } else if taskIdentifier != .invalid {
-                    UIApplication.shared.endBackgroundTask(taskIdentifier)
-                }
+                self.endBackgroundTask()
             }
         }
         return taskIdentifier
