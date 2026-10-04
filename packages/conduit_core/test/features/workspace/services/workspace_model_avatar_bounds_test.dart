@@ -222,6 +222,9 @@ void main() {
         check(decoded.width).equals(512);
         check(decoded.height).equals(256);
         check(decoded.numFrames).equals(1);
+        // The first frame is the red one; a later (blue) frame would flip this.
+        final pixel = decoded.getPixel(100, 100);
+        check(pixel.r.toInt()).isGreaterThan(pixel.b.toInt());
       },
     );
 
