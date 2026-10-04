@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
@@ -23,6 +24,7 @@ import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:dio/dio.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -32,6 +34,9 @@ import 'package:conduit/platform/flutter_key_value_store.dart';
 void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
+    // The plugin mock is process-wide: a Hermes key another file stored would
+    // make the Hermes config usable and restore an accountless model here.
+    FlutterSecureStorage.setMockInitialValues(<String, String>{});
     PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     HermesLocalDocumentTrustStore.debugResetRuntimeState();
   });
@@ -155,6 +160,8 @@ void main() {
           secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           hermesApiServiceProvider.overrideWithValue(service),
           modelsProvider.overrideWith(_FailingModels.new),
+          authStateManagerProvider.overrideWith(_SignedOutAuthStateManager.new),
+          reviewerModeProvider.overrideWithValue(false),
         ],
       );
       addTearDown(container.dispose);
@@ -358,6 +365,8 @@ void main() {
           secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           hermesApiServiceProvider.overrideWithValue(service),
           modelsProvider.overrideWith(_FailingModels.new),
+          authStateManagerProvider.overrideWith(_SignedOutAuthStateManager.new),
+          reviewerModeProvider.overrideWithValue(false),
           activeConversationProvider.overrideWith(
             () => _SeededActiveConversation(currentConversation),
           ),
@@ -715,6 +724,8 @@ void main() {
         secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         hermesApiServiceProvider.overrideWithValue(service),
         modelsProvider.overrideWith(_FailingModels.new),
+        authStateManagerProvider.overrideWith(_SignedOutAuthStateManager.new),
+        reviewerModeProvider.overrideWithValue(false),
       ],
     );
     addTearDown(container.dispose);
@@ -867,4 +878,12 @@ class _TestModels extends Models {
 class _FailingModels extends Models {
   @override
   Future<List<Model>> build() async => throw StateError('models unavailable');
+}
+
+/// Signed out without reading storage: opening a session builds the selected
+/// model, whose auth readiness would otherwise need the Hive boxes.
+class _SignedOutAuthStateManager extends AuthStateManager {
+  @override
+  Future<AuthState> build() async =>
+      const AuthState(status: AuthStatus.unauthenticated);
 }

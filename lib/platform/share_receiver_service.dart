@@ -11,7 +11,8 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 
-import '../features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+
 import '../features/chat/services/file_attachment_service.dart';
 
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';

@@ -8,10 +8,14 @@ import '../../l10n/app_localizations.dart';
 import '../../shared/theme/theme_extensions.dart';
 import '../../shared/utils/external_link_launcher.dart';
 import '../../shared/widgets/themed_sheets.dart';
-import '../support/data/support_links.dart';
+
+import 'package:conduit_core/features/support/support_links.dart';
+
 import 'data/release_links.dart';
 import 'models/release_note.dart';
-import 'models/release_version.dart';
+
+import 'package:conduit_core/features/release_notes/models/release_version.dart';
+
 import 'widgets/release_notes_sheet.dart';
 
 typedef ReviewUrlLauncher = Future<bool> Function(String url);

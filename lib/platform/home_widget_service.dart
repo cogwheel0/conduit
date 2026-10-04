@@ -12,9 +12,12 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 
-import '../features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+
 import '../features/chat/services/file_attachment_service.dart';
-import '../features/chat/voice_call/voice_call_eligibility.dart';
+
+import 'package:conduit_core/features/chat/voice_call/voice_call_eligibility.dart';
+
 import '../l10n/app_localizations.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';

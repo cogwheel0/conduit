@@ -18,7 +18,8 @@ import '../shared/services/navigation_service.dart';
 
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 
-import '../features/chat/voice_call/voice_call_eligibility.dart';
+import 'package:conduit_core/features/chat/voice_call/voice_call_eligibility.dart';
+
 import '../shared/theme/theme_providers.dart';
 
 part 'quick_actions_service.g.dart';

@@ -1,4 +1,7 @@
 import 'package:conduit_core/conduit_core.dart';
+import 'package:conduit_core/providers/host_ports.dart';
+import 'package:conduit_core/services/location_service.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -171,4 +174,89 @@ void main() {
       expect(AudioPlaybackPort.hostFactory(), isA<NullAudioPlayback>());
     });
   });
+
+  group('NullUiRequestPort', () {
+    test('declines confirmations and cancels prompts', () async {
+      const port = NullUiRequestPort();
+
+      // A tool approval with nobody watching must be a no, never a yes.
+      expect(await port.confirm(title: 'Run tool?'), isFalse);
+      expect(await port.promptForText(title: 'Value'), isNull);
+      expect(() => port.notify(UiNoticeLevel.info, 'hi'), returnsNormally);
+    });
+
+    test(
+      'is what an unbound host gets, and a bound port replaces it',
+      () async {
+        final unbound = ProviderContainer();
+        addTearDown(unbound.dispose);
+        expect(unbound.read(uiRequestPortProvider), isA<NullUiRequestPort>());
+
+        final bound = ProviderContainer(
+          overrides: [
+            uiRequestPortProvider.overrideWithValue(_ApprovingUiRequests()),
+          ],
+        );
+        addTearDown(bound.dispose);
+        expect(
+          await bound.read(uiRequestPortProvider).confirm(title: 'Run tool?'),
+          isTrue,
+        );
+      },
+    );
+  });
+
+  group('NullWakelock', () {
+    test('is the unbound host default and accepts both toggles', () async {
+      expect(WakelockPort.hostDefault, isA<NullWakelock>());
+      await const NullWakelock().toggle(enable: true);
+      await const NullWakelock().toggle(enable: false);
+    });
+  });
+
+  group('NullLocationPort', () {
+    test('is the unbound host default', () {
+      expect(LocationPort.hostDefault, isA<NullLocationPort>());
+    });
+
+    test('reports services off and no fix, so lookups fail cleanly', () async {
+      const port = NullLocationPort();
+      expect(await port.isLocationServiceEnabled(), isFalse);
+      expect(await port.checkPermission(), LocationPermissionStatus.denied);
+      expect(await port.requestPermission(), LocationPermissionStatus.denied);
+      await expectLater(port.currentPosition(), throwsStateError);
+    });
+
+    test('a LocationService on it resolves to a failure', () async {
+      final result = await const LocationService(port: NullLocationPort())
+          .resolveCurrentLocation();
+      expect(result.hasLocation, isFalse);
+      expect(result.failureReason, UserLocationFailureReason.servicesDisabled);
+    });
+  });
+}
+
+class _ApprovingUiRequests implements UiRequestPort {
+  @override
+  Future<bool> confirm({
+    required String title,
+    String message = '',
+    String? confirmLabel,
+    String? cancelLabel,
+  }) async => true;
+
+  @override
+  Future<String?> promptForText({
+    required String title,
+    String message = '',
+    String? placeholder,
+    String? initialValue,
+    UiTextInputType inputType = UiTextInputType.text,
+    List<UiSelectOption> options = const [],
+    String? confirmLabel,
+    String? cancelLabel,
+  }) async => initialValue;
+
+  @override
+  void notify(UiNoticeLevel level, String message) {}
 }

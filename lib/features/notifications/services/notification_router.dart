@@ -2,8 +2,9 @@ import 'dart:collection';
 
 import 'package:conduit_core/services/settings_service.dart';
 
-import '../models/app_notification.dart';
-import 'active_view_tracker.dart';
+import 'package:conduit_core/features/notifications/models/app_notification.dart';
+import 'package:conduit_core/features/notifications/services/active_view_tracker.dart';
+
 import 'local_notification_service.dart';
 import 'notification_sound_service.dart';
 

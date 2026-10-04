@@ -10,7 +10,9 @@ import '../../../shared/widgets/utility_components.dart';
 import '../../../shared/widgets/adaptive_dropdown_field.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../profile/widgets/adaptive_segmented_selector.dart';
-import '../controllers/direct_connection_editor_draft.dart';
+
+import 'package:conduit_core/features/direct_connections/controllers/direct_connection_editor_draft.dart';
+
 import '../controllers/direct_connection_editor_form.dart';
 import '../controllers/direct_custom_headers_controller.dart';
 

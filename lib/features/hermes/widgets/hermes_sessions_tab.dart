@@ -9,10 +9,13 @@ import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
-import '../../navigation/models/sidebar_navigation_model.dart';
+
+import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
+
 import '../../navigation/widgets/chats_drawer.dart'
     show sidebarSectionDisclosureIcon;
-import '../../navigation/widgets/drawer_section_notifiers.dart';
+
+import 'package:conduit_core/features/navigation/providers/drawer_section_notifiers.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';

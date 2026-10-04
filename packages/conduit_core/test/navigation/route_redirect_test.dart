@@ -1,0 +1,161 @@
+import 'package:checks/checks.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/navigation/route_redirect.dart';
+import 'package:conduit_core/navigation/routes.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
+import 'package:riverpod/misc.dart';
+import 'package:riverpod/riverpod.dart';
+import 'package:test/test.dart';
+
+const _server = ServerConfig(
+  id: 'server',
+  name: 'Server',
+  url: 'https://owui.example',
+);
+
+/// A [ProviderRead] over fixed values, so the policy runs with no container
+/// and no Flutter binding. A provider the case did not set throws, which
+/// shows up as a failing test when the policy starts reading something new.
+ProviderRead _reader({
+  bool reviewerMode = false,
+  AsyncValue<ServerConfig?> activeServer = const AsyncData(_server),
+  AuthNavigationState auth = AuthNavigationState.authenticated,
+  PreferredBackend preferred = PreferredBackend.owui,
+  HermesConfig hermes = const HermesConfig(),
+  bool hermesSecretsLoading = false,
+  bool accountless = false,
+}) {
+  final values = <ProviderListenable<Object?>, Object?>{
+    reviewerModeProvider: reviewerMode,
+    activeServerProvider: activeServer,
+    authNavigationStateProvider: auth,
+    preferredBackendProvider: preferred,
+    hermesConfigProvider: hermes,
+    hermesSecretsLoadingProvider: hermesSecretsLoading,
+    effectiveDirectConnectionProfilesProvider:
+        const AsyncData<List<DirectConnectionProfile>>([]),
+    accountlessPrimaryBackendUsableProvider: accountless,
+    authStateManagerProvider: const AsyncData<AuthState>(
+      AuthState(status: AuthStatus.unauthenticated),
+    ),
+  };
+  return <T>(ProviderListenable<T> provider) {
+    if (!values.containsKey(provider)) {
+      throw StateError('Unexpected provider read: $provider');
+    }
+    return values[provider] as T;
+  };
+}
+
+void main() {
+  group('resolveRouteRedirect', () {
+    test('reviewer mode pins the app to chat', () {
+      final read = _reader(reviewerMode: true);
+
+      check(resolveRouteRedirect(Routes.profile, read)).equals(Routes.chat);
+      check(resolveRouteRedirect(Routes.chat, read)).isNull();
+    });
+
+    test('an authenticated session leaves auth pages for chat', () {
+      final read = _reader();
+
+      check(resolveRouteRedirect(Routes.authentication, read))
+          .equals(Routes.chat);
+      check(resolveRouteRedirect(Routes.splash, read)).equals(Routes.chat);
+      check(resolveRouteRedirect(Routes.chat, read)).isNull();
+    });
+
+    test('a signed-out session is sent to authentication', () {
+      final read = _reader(auth: AuthNavigationState.needsLogin);
+
+      check(resolveRouteRedirect(Routes.chat, read))
+          .equals(Routes.authentication);
+      check(resolveRouteRedirect(Routes.authentication, read)).isNull();
+    });
+
+    test('a loading session holds the splash', () {
+      final read = _reader(auth: AuthNavigationState.loading);
+
+      check(resolveRouteRedirect(Routes.chat, read)).equals(Routes.splash);
+      check(resolveRouteRedirect(Routes.splash, read)).isNull();
+    });
+
+    test('a recoverable auth error shows the connection issue page', () {
+      final read = _reader(auth: AuthNavigationState.error);
+
+      check(resolveRouteRedirect(Routes.chat, read))
+          .equals(Routes.connectionIssue);
+      check(resolveRouteRedirect(Routes.connectionIssue, read)).isNull();
+    });
+
+    test('a failed or loading server lookup does not strand the user', () {
+      final failed = _reader(
+        activeServer: AsyncError<ServerConfig?>('boom', StackTrace.empty),
+        auth: AuthNavigationState.needsLogin,
+      );
+      final loading = _reader(
+        activeServer: const AsyncLoading(),
+        auth: AuthNavigationState.needsLogin,
+      );
+
+      check(resolveRouteRedirect(Routes.chat, failed))
+          .equals(Routes.connectionIssue);
+      check(resolveRouteRedirect(Routes.chat, loading)).equals(Routes.splash);
+      check(resolveRouteRedirect(Routes.authentication, loading)).isNull();
+    });
+
+    test('no server sends onboarding to the backend chooser', () {
+      final read = _reader(
+        activeServer: const AsyncData(null),
+        auth: AuthNavigationState.needsLogin,
+      );
+
+      check(resolveRouteRedirect(Routes.chat, read))
+          .equals(Routes.backendChooser);
+      check(resolveRouteRedirect(Routes.serverConnection, read)).isNull();
+    });
+
+    test('Hermes-only setup waits on secrets, then recovers in settings', () {
+      const hermes = HermesConfig(enabled: true);
+      final loading = _reader(
+        activeServer: const AsyncData(null),
+        auth: AuthNavigationState.needsLogin,
+        preferred: PreferredBackend.hermes,
+        hermes: hermes,
+        hermesSecretsLoading: true,
+      );
+      final settled = _reader(
+        activeServer: const AsyncData(null),
+        auth: AuthNavigationState.needsLogin,
+        preferred: PreferredBackend.hermes,
+        hermes: hermes,
+      );
+
+      check(resolveRouteRedirect(Routes.chat, loading)).isNull();
+      check(resolveRouteRedirect(Routes.notes, loading)).equals(Routes.splash);
+      check(resolveRouteRedirect(Routes.notes, settled))
+          .equals(Routes.hermesSettings);
+      check(resolveRouteRedirect(Routes.hermesSettings, settled)).isNull();
+    });
+
+    test('a usable accountless backend never needs an account', () {
+      final read = _reader(
+        activeServer: const AsyncData(null),
+        auth: AuthNavigationState.needsLogin,
+        preferred: PreferredBackend.unset,
+        accountless: true,
+      );
+
+      check(resolveRouteRedirect(Routes.chat, read)).isNull();
+      check(resolveRouteRedirect(Routes.authentication, read)).isNull();
+    });
+  });
+}

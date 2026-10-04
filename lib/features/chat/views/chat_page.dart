@@ -47,8 +47,9 @@ import 'package:conduit_core/features/direct_connections/services/direct_chat_br
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 
 import '../../direct_connections/widgets/direct_mcp_message_interactions.dart';
-import '../providers/chat_providers.dart';
-import '../providers/openwebui_chat_prompt_provider.dart';
+
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provider.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
@@ -85,8 +86,10 @@ import '../widgets/context_attachment_widget.dart';
 import '../widgets/server_file_picker_sheet.dart';
 import '../services/clipboard_attachment_service.dart';
 import '../services/file_attachment_service.dart';
-import '../services/chat_transport_dispatch.dart';
-import '../services/historical_message_regeneration.dart';
+
+import 'package:conduit_core/features/chat/services/chat_transport_dispatch.dart';
+import 'package:conduit_core/features/chat/services/historical_message_regeneration.dart';
+
 import '../voice_mode/chat_voice_mode_controller.dart';
 import '../voice_mode/chat_voice_mode_overlay.dart';
 import '../voice_call/presentation/voice_call_launcher.dart';
@@ -102,7 +105,8 @@ import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
 
-import '../providers/context_attachments_provider.dart';
+import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
+
 import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/themed_sheets.dart';
@@ -112,9 +116,11 @@ import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/markdown/markdown_loading_skeleton.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
-import 'chat_bottom_anchor_controller.dart';
-import 'chat_timeline_render_model.dart';
-import 'chat_turn_render_state.dart';
+
+import 'package:conduit_core/features/chat/views/chat_bottom_anchor_controller.dart';
+import 'package:conduit_core/features/chat/views/chat_timeline_render_model.dart';
+import 'package:conduit_core/features/chat/views/chat_turn_render_state.dart';
+
 import '../widgets/streaming_turn_footer.dart';
 import '../widgets/openwebui_prompt_overlay.dart';
 import '../widgets/openwebui_task_list.dart';

@@ -11,7 +11,8 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import '../../l10n/app_localizations.dart';
 import '../theme/theme_extensions.dart';
 import 'conduit_components.dart';
-import 'server_version_warning_controller.dart';
+
+import 'package:conduit_core/providers/server_version_warning_controller.dart';
 
 const serverVersionWarningCardKey = ValueKey<String>(
   'server-version-warning-card',

@@ -8,7 +8,7 @@ import 'package:conduit/features/chat/views/chat_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/server_version_warning_card.dart';
-import 'package:conduit/shared/widgets/server_version_warning_controller.dart';
+import 'package:conduit_core/providers/server_version_warning_controller.dart';
 import 'package:checks/checks.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

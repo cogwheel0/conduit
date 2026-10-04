@@ -8,8 +8,11 @@ import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit_core/models/note.dart';
+
 import '../../../shared/services/navigation_service.dart';
+
 import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/utils/locale_display_formatters.dart';
@@ -19,8 +22,10 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../navigation/providers/sidebar_search_providers.dart';
 import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
-import '../../navigation/models/sidebar_navigation_model.dart';
-import '../../navigation/widgets/drawer_section_notifiers.dart';
+
+import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
+import 'package:conduit_core/features/navigation/providers/drawer_section_notifiers.dart';
+
 import '../../navigation/widgets/conversation_tile.dart';
 import '../../navigation/utils/sidebar_create_action.dart';
 import '../providers/notes_providers.dart';

@@ -8,8 +8,10 @@ import 'package:uuid/uuid.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 
 import '../../features/chat/providers/text_to_speech_provider.dart';
-import '../../features/chat/models/model_selector_layout.dart';
-import '../../features/chat/providers/reasoning_effort_provider.dart';
+
+import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
+import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart';
+
 import '../../l10n/app_localizations.dart';
 import '../../shared/theme/theme_extensions.dart';
 import '../../shared/theme/tweakcn_themes.dart';

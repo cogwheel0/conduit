@@ -9,7 +9,7 @@ import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/channels/widgets/channel_list_tab.dart';
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
-import 'package:conduit/features/navigation/models/sidebar_navigation_model.dart';
+import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit/features/navigation/widgets/conversation_tile.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';

@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 
-import 'release_version.dart';
+import 'package:conduit_core/features/release_notes/models/release_version.dart';
 
 class ReleaseNote {
   ReleaseNote({

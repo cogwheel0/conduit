@@ -11,7 +11,9 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/sidebar_layout_constants.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
-import '../../chat/providers/chat_providers.dart';
+
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+
 import '../providers/sidebar_providers.dart';
 import 'responsive_drawer_layout.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';

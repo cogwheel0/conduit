@@ -1,0 +1,421 @@
+import 'dart:async';
+
+import 'package:checks/checks.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:drift/drift.dart' show Value;
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/ports/ports.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/host_ports.dart';
+import 'package:conduit_core/sync/id_remapper.dart';
+import 'package:conduit_core/sync/sync_api_client.dart';
+import 'package:conduit_core/sync/sync_engine.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/chat/providers/remap_route_sync_provider.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:drift/native.dart';
+import 'package:riverpod/riverpod.dart';
+import 'package:test/test.dart';
+
+import 'package:conduit_core/testing.dart';
+
+/// Wiring C: when a `local:` id is remapped, the active-chat / pending-folder
+/// id must follow IN PLACE (no nav, no visible rebuild — NON-NEGOTIABLE 6).
+///
+/// The engine owns the single [IdRemapper] and surfaces it via [remapEvents];
+/// the real `remapRouteSyncProvider` listens there. The tests drive a real,
+/// committed remap through that SAME engine remapper and assert the swap.
+void main() {
+  late AppDatabase db;
+  late FakeOpenWebUiServer server;
+  late FakeSyncApiClient client;
+
+  setUp(() {
+    db = AppDatabase(NativeDatabase.memory());
+    server = FakeOpenWebUiServer();
+    client = FakeSyncApiClient(server);
+  });
+
+  tearDown(() async {
+    await db.close();
+  });
+
+  ProviderContainer makeContainer({
+    bool apiUnavailable = false,
+    RouteNavigatorPort? navigator,
+  }) {
+    final container = ProviderContainer(
+      overrides: [
+        if (navigator != null)
+          routeNavigatorProvider.overrideWithValue(navigator),
+        ...openWebUiStorageOpenOverrides(database: db),
+        apiServiceProvider.overrideWith(
+          (ref) => apiUnavailable
+              ? throw StateError('API context unavailable')
+              : null,
+        ),
+        reviewerModeProvider.overrideWithValue(false),
+        syncApiClientProvider.overrideWith((ref) => client),
+        isAuthenticatedProvider2.overrideWith((ref) => true),
+      ],
+    );
+    addTearDown(container.dispose);
+    return container;
+  }
+
+  IdRemapper remapperOf(ProviderContainer container) {
+    final remapper = container
+        .read(syncEngineProvider.notifier)
+        .remapperForTesting;
+    return remapper!;
+  }
+
+  Conversation rawConv(String id) => Conversation(
+    id: id,
+    title: 'C',
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+    messages: const [],
+  );
+
+  Conversation conv(String id) => rawConv(id);
+
+  test('chat remap swaps the active conversation id in place', () async {
+    final container = makeContainer();
+    container.read(remapRouteSyncProvider); // install the real consumer.
+
+    const localId = 'local:swap1';
+    container.read(activeConversationProvider.notifier).set(conv(localId));
+
+    await _seedBareLocalChat(db, localId);
+    await _runRemapAndWait(
+      remapperOf(container),
+      (remapper) => remapper.remapChat(
+        localId: localId,
+        serverId: 'server-1',
+        serverCreatedAt: 1,
+        serverUpdatedAt: 1,
+      ),
+    );
+    await _waitUntil(
+      () => container.read(activeConversationProvider)?.id == 'server-1',
+    );
+
+    check(container.read(activeConversationProvider)?.id).equals('server-1');
+  });
+
+  test('chat remap leaves a DIFFERENT active conversation untouched', () async {
+    final container = makeContainer();
+    container.read(remapRouteSyncProvider);
+
+    container.read(activeConversationProvider.notifier).set(conv('other'));
+
+    await _seedBareLocalChat(db, 'local:swap2');
+    await _runRemapAndWait(
+      remapperOf(container),
+      (remapper) => remapper.remapChat(
+        localId: 'local:swap2',
+        serverId: 'server-2',
+        serverCreatedAt: 1,
+        serverUpdatedAt: 1,
+      ),
+    );
+
+    check(container.read(activeConversationProvider)?.id).equals('other');
+  });
+
+  test(
+    'OpenWebUI remap cannot retarget a colliding native Hermes shell',
+    () async {
+      final container = makeContainer();
+      container.read(remapRouteSyncProvider);
+      const localId = 'local:hermes_remap-collision';
+      final native = markNativeHermesConversation(rawConv(localId));
+      container.read(activeConversationProvider.notifier).set(native);
+
+      await _seedBareLocalChat(db, localId);
+      await _runRemapAndWait(
+        remapperOf(container),
+        (remapper) => remapper.remapChat(
+          localId: localId,
+          serverId: 'server-collision',
+          serverCreatedAt: 1,
+          serverUpdatedAt: 1,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      final active = container.read(activeConversationProvider);
+      check(active?.id).equals(localId);
+      check(identical(active, native)).isTrue();
+      check(isNativeHermesConversation(active)).isTrue();
+    },
+  );
+
+  test('defensive in-place remap preserves native Hermes provenance', () {
+    final container = makeContainer();
+    const localId = 'local:hermes_defensive-remap';
+    container
+        .read(activeConversationProvider.notifier)
+        .set(markNativeHermesConversation(rawConv(localId)));
+
+    container
+        .read(activeConversationProvider.notifier)
+        .remapIdInPlace(fromId: localId, toId: 'remapped-hermes-session');
+
+    final active = container.read(activeConversationProvider);
+    check(active?.id).equals('remapped-hermes-session');
+    check(isNativeHermesConversation(active)).isTrue();
+  });
+
+  test('folder remap swaps the pending folder id in place', () async {
+    final container = makeContainer();
+    container.read(remapRouteSyncProvider);
+
+    const localFolder = 'local:f1';
+    container.read(pendingFolderIdProvider.notifier).set(localFolder);
+
+    await _seedBareLocalFolder(db, localFolder);
+    await _runRemapAndWait(
+      remapperOf(container),
+      (remapper) => remapper.remapFolder(
+        localId: localFolder,
+        serverId: 'srv-folder',
+        serverUpdatedAt: 1,
+      ),
+    );
+    await _waitUntil(
+      () => container.read(pendingFolderIdProvider) == 'srv-folder',
+    );
+
+    check(container.read(pendingFolderIdProvider)).equals('srv-folder');
+  });
+
+  test(
+    'folder remap moves an open folder route through the navigator',
+    () async {
+      final navigator = _RecordingNavigator('/folder/local%3Af2?view=grid');
+      final container = makeContainer(navigator: navigator);
+      container.read(remapRouteSyncProvider);
+
+      await _seedBareLocalFolder(db, 'local:f2');
+      await _runRemapAndWait(
+        remapperOf(container),
+        (remapper) => remapper.remapFolder(
+          localId: 'local:f2',
+          serverId: 'srv-folder-2',
+          serverUpdatedAt: 1,
+        ),
+      );
+      await _waitUntil(() => navigator.went.isNotEmpty);
+
+      check(navigator.went).deepEquals(['/folder/srv-folder-2?view=grid']);
+    },
+  );
+
+  test('folder remap leaves a different open route alone', () async {
+    final navigator = _RecordingNavigator('/folder/other');
+    final container = makeContainer(navigator: navigator);
+    container.read(remapRouteSyncProvider);
+
+    await _seedBareLocalFolder(db, 'local:f3');
+    await _runRemapAndWait(
+      remapperOf(container),
+      (remapper) => remapper.remapFolder(
+        localId: 'local:f3',
+        serverId: 'srv-folder-3',
+        serverUpdatedAt: 1,
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    check(navigator.went).isEmpty();
+  });
+
+  test('note remap moves an open note route through the navigator', () async {
+    final navigator = _RecordingNavigator('/notes/local%3An2?mode=edit');
+    final container = makeContainer(navigator: navigator);
+    container.read(remapRouteSyncProvider);
+
+    await db
+        .into(db.notes)
+        .insert(
+          NotesCompanion.insert(
+            id: 'local:n2',
+            title: 'N',
+            createdAt: 1,
+            updatedAt: 1,
+          ),
+        );
+    await _runRemapAndWait(
+      remapperOf(container),
+      (remapper) => remapper.remapNote(
+        localId: 'local:n2',
+        serverId: 'srv-note-2',
+        serverCreatedAt: 1,
+        serverUpdatedAt: 1,
+      ),
+    );
+    await _waitUntil(() => navigator.went.isNotEmpty);
+
+    check(navigator.went).deepEquals(['/notes/srv-note-2?mode=edit']);
+  });
+
+  test('a navigator that rejects the route does not break the remap', () async {
+    final navigator = _RecordingNavigator(
+      '/folder/local%3Af4',
+      rejectsNavigation: true,
+    );
+    final container = makeContainer(navigator: navigator);
+    container.read(remapRouteSyncProvider);
+    container.read(pendingFolderIdProvider.notifier).set('local:f4');
+
+    await _seedBareLocalFolder(db, 'local:f4');
+    await _runRemapAndWait(
+      remapperOf(container),
+      (remapper) => remapper.remapFolder(
+        localId: 'local:f4',
+        serverId: 'srv-folder-4',
+        serverUpdatedAt: 1,
+      ),
+    );
+    await _waitUntil(
+      () => container.read(pendingFolderIdProvider) == 'srv-folder-4',
+    );
+
+    check(navigator.went).isEmpty();
+    check(container.read(pendingFolderIdProvider)).equals('srv-folder-4');
+  });
+
+  test('active id remap survives a failing context provider', () {
+    final container = makeContainer(apiUnavailable: true);
+    container
+        .read(activeConversationProvider.notifier)
+        .set(conv('local:context-failure'));
+
+    check(
+      () => container
+          .read(activeConversationProvider.notifier)
+          .remapIdInPlace(
+            fromId: 'local:context-failure',
+            toId: 'server-context-failure',
+          ),
+    ).returnsNormally();
+    check(container.read(activeConversationProvider)?.id)
+        .equals('server-context-failure');
+  });
+
+  test('note route remap preserves query params', () {
+    check(
+      remappedNoteRouteForTesting(
+        '/notes/local%3An1?mode=edit',
+        fromId: 'local:n1',
+        toId: 'server-note-1',
+      ),
+    ).equals('/notes/server-note-1?mode=edit');
+
+    check(
+      remappedNoteRouteForTesting(
+        '/notes/other?mode=edit',
+        fromId: 'local:n1',
+        toId: 'server-note-1',
+      ),
+    ).isNull();
+  });
+
+  test('folder route remap preserves query params', () {
+    check(
+      remappedFolderRouteForTesting(
+        '/folder/local%3Af1?view=grid',
+        fromId: 'local:f1',
+        toId: 'srv-folder',
+      ),
+    ).equals('/folder/srv-folder?view=grid');
+
+    check(
+      remappedFolderRouteForTesting(
+        '/folder/other?view=grid',
+        fromId: 'local:f1',
+        toId: 'srv-folder',
+      ),
+    ).isNull();
+  });
+}
+
+Future<void> _runRemapAndWait(
+  IdRemapper remapper,
+  Future<void> Function(IdRemapper remapper) run,
+) async {
+  final delivered = Completer<void>();
+  late final StreamSubscription<RemapEvent> sub;
+  sub = remapper.remapEvents.listen((_) {
+    if (!delivered.isCompleted) {
+      delivered.complete();
+    }
+  });
+  try {
+    await run(remapper);
+    await delivered.future.timeout(const Duration(seconds: 2));
+  } finally {
+    await sub.cancel();
+  }
+}
+
+Future<void> _waitUntil(
+  bool Function() condition, {
+  Duration timeout = const Duration(seconds: 2),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) {
+      throw TimeoutException('condition not met within $timeout');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
+
+Future<void> _seedBareLocalChat(AppDatabase db, String id) async {
+  await db
+      .into(db.chats)
+      .insert(
+        ChatsCompanion.insert(
+          id: id,
+          title: 'T',
+          createdAt: 1,
+          updatedAt: 1,
+          dirty: const Value(true),
+          bodySynced: const Value(true),
+        ),
+      );
+}
+
+Future<void> _seedBareLocalFolder(AppDatabase db, String id) async {
+  await db
+      .into(db.folders)
+      .insert(
+        FoldersCompanion.insert(
+          id: id,
+          name: 'F',
+          createdAt: 1,
+          updatedAt: 1,
+          dirty: const Value(true),
+        ),
+      );
+}
+
+/// A host router showing [currentRoute] that records where it is sent.
+class _RecordingNavigator implements RouteNavigatorPort {
+  _RecordingNavigator(this.currentRoute, {this.rejectsNavigation = false});
+
+  @override
+  final String? currentRoute;
+
+  final bool rejectsNavigation;
+  final went = <String>[];
+
+  @override
+  void go(String location) {
+    if (rejectsNavigation) throw StateError('router rejected $location');
+    went.add(location);
+  }
+}

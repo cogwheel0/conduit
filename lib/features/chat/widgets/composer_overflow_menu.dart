@@ -21,7 +21,8 @@ import '../../terminal/providers/terminal_providers.dart';
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
 
-import '../providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+
 import 'composer_overflow_items.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';

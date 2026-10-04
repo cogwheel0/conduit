@@ -12,8 +12,9 @@ import '../../../core/providers/app_startup_providers.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
-import '../../chat/providers/chat_providers.dart' as chat;
-import '../../chat/providers/context_attachments_provider.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    as chat;
+import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 
 part 'conversation_selection_provider.g.dart';
 

@@ -23,7 +23,10 @@ import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_selection_sheet.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
-import '../../chat/providers/chat_providers.dart' show restoreDefaultModel;
+
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show restoreDefaultModel;
+
 import '../widgets/customization_tile.dart';
 import '../widgets/default_model_sheet.dart';
 import '../widgets/expandable_card.dart';

@@ -12,7 +12,7 @@ import 'package:conduit/features/auth/views/authentication_page.dart';
 import 'package:conduit/features/auth/views/backend_chooser_page.dart';
 import 'package:conduit/features/auth/views/server_connection_page.dart';
 import 'package:conduit/features/direct_connections/views/direct_connection_editor_page.dart';
-import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_draft.dart';
+import 'package:conduit_core/features/direct_connections/controllers/direct_connection_editor_draft.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/services/apple_pcc_adapter.dart';
 import 'package:conduit/features/direct_connections/views/direct_connections_page.dart';

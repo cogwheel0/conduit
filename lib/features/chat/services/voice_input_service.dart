@@ -20,7 +20,8 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'native_stt_service.dart';
-import 'server_vad_recorder.dart';
+
+import 'package:conduit_core/features/chat/services/server_vad_recorder.dart';
 
 part 'voice_input_service.g.dart';
 

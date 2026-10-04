@@ -9,7 +9,7 @@ import '../../../core/utils/current_localizations.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
-import '../models/app_notification.dart';
+import 'package:conduit_core/features/notifications/models/app_notification.dart';
 
 part 'local_notification_service.g.dart';
 

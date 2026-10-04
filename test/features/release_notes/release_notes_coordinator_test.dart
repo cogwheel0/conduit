@@ -8,7 +8,7 @@ import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/release_notes/data/release_notes_repository.dart';
 import 'package:conduit/features/release_notes/models/release_note.dart';
-import 'package:conduit/features/release_notes/release_notes_bootstrap.dart';
+import 'package:conduit_core/features/release_notes/release_notes_bootstrap.dart';
 import 'package:conduit/features/release_notes/release_notes_coordinator.dart';
 import 'package:conduit/features/release_notes/widgets/release_notes_banner.dart';
 import 'package:conduit/l10n/app_localizations.dart';

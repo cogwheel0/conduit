@@ -20,11 +20,11 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/channels/widgets/channel_list_tab.dart';
-import 'package:conduit/features/channels/providers/channel_providers.dart';
+import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
-import 'package:conduit/features/navigation/models/sidebar_navigation_model.dart';
+import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit/features/navigation/widgets/chats_drawer.dart';
-import 'package:conduit/features/navigation/widgets/drawer_section_notifiers.dart';
+import 'package:conduit_core/features/navigation/providers/drawer_section_notifiers.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
@@ -43,7 +43,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
-import '../../../support/openwebui_storage_test_overrides.dart';
+import 'package:conduit_core/testing.dart';
 
 /// Label within [NavigationBar] built by Conduit platform UI from
 /// [AdaptiveBottomNavigationBar.items].

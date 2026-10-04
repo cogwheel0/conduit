@@ -3,8 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
-import '../models/chat_context_attachment.dart';
-import '../providers/context_attachments_provider.dart';
+
+import 'package:conduit_core/features/chat/models/chat_context_attachment.dart';
+import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 
 class ContextAttachmentWidget extends ConsumerWidget {
   const ContextAttachmentWidget({super.key});

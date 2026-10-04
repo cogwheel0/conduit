@@ -16,7 +16,10 @@ import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
-import '../../chat/providers/chat_providers.dart' show isChatStreamingProvider;
+
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show isChatStreamingProvider;
+
 import '../../navigation/widgets/conversation_tile.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';

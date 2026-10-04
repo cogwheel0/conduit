@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_draft.dart';
+import 'package:conduit_core/features/direct_connections/controllers/direct_connection_editor_draft.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/services/openwebui_direct_connection_store.dart';
