@@ -5,8 +5,10 @@ import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 
 /// A host's own decoder for formats `package:image` cannot read (HEIC on
-/// iOS). Returns PNG bytes no larger than [maxEdge] on either side, or null
-/// when it cannot decode [bytes] either.
+/// iOS), and for images too large to scan here. Returns PNG bytes no larger
+/// than [maxEdge] on either side; returns [bytes] itself when the image
+/// already fits and needs no resize; and null when it cannot decode [bytes]
+/// either.
 typedef WorkspaceAvatarPlatformResize = Future<Uint8List?> Function(
   Uint8List bytes,
   int maxEdge,
@@ -167,6 +169,8 @@ abstract final class WorkspaceModelAvatarBounds {
       case _Resized(:final png):
         return png;
       case _Undecodable():
+        // The host returns the bytes themselves when the image already fits,
+        // which is a valid avatar in a format only it can read.
         final resized = await _hostResize(bytes, platformResize);
         if (resized != null) return resized;
         if (bytes.length > maxKeptBytes) {
@@ -174,8 +178,10 @@ abstract final class WorkspaceModelAvatarBounds {
         }
         return bytes;
       case _TooLarge():
+        // Too large to embed as it is, so only a smaller image from the host
+        // will do, not the original handed back as "fits".
         final resized = await _hostResize(bytes, platformResize);
-        if (resized != null) return resized;
+        if (resized != null && !identical(resized, bytes)) return resized;
         throw const WorkspaceAvatarTooLargeException();
     }
   }
@@ -208,17 +214,14 @@ abstract final class WorkspaceModelAvatarBounds {
     );
   }
 
-  /// The canvas of a GIF, read from its logical screen descriptor (bytes 6
-  /// to 9) without scanning the frames, which is what a decoder's own header
-  /// pass would do. Null for anything that is not a GIF.
+  /// The canvas of a GIF, read from its logical screen descriptor (the seven
+  /// bytes after the six-byte `GIF87a` or `GIF89a` signature) without
+  /// scanning the frames, which is what a decoder's own header pass would do.
+  /// Null for anything that is not a GIF with a complete descriptor.
   static ({int width, int height})? _gifCanvasSize(Uint8List bytes) {
-    if (bytes.length < 10 ||
-        bytes[0] != 0x47 ||
-        bytes[1] != 0x49 ||
-        bytes[2] != 0x46 ||
-        bytes[3] != 0x38) {
-      return null;
-    }
+    if (bytes.length < 13) return null;
+    final signature = String.fromCharCodes(bytes.sublist(0, 6));
+    if (signature != 'GIF87a' && signature != 'GIF89a') return null;
     return (width: bytes[6] | bytes[7] << 8, height: bytes[8] | bytes[9] << 8);
   }
 
@@ -231,15 +234,10 @@ abstract final class WorkspaceModelAvatarBounds {
     // The header gives the size without decoding any pixels, so an image that
     // already fits is never decoded (an animated one would decode every
     // frame), and an oversized one is refused before it can allocate.
+    // Nothing over the limit is scanned, however its header reads.
+    if (bytes.length > maxInputBytes) return const _TooLarge();
     try {
-      // A GIF's canvas is in its header, so one that already fits is done
-      // however large the file is, before any size limit applies.
-      final gif = _gifCanvasSize(bytes);
-      if (gif != null && targetSize(gif.width, gif.height) == null) {
-        return const _Fits();
-      }
-      if (bytes.length > maxInputBytes) return const _TooLarge();
-      final size = gif ?? _declaredSize(bytes);
+      final size = _gifCanvasSize(bytes) ?? _declaredSize(bytes);
       if (size != null) {
         if (targetSize(size.width, size.height) == null) return const _Fits();
         if (size.width * size.height > maxDecodedPixels) {

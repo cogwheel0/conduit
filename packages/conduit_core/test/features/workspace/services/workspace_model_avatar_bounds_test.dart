@@ -277,22 +277,74 @@ void main() {
       },
     );
 
-    test('a GIF whose canvas fits is kept however large the file is', () async {
-      final big = Uint8List(WorkspaceModelAvatarBounds.maxInputBytes + 1)
-        ..setAll(0, [...'GIF89a'.codeUnits, 64, 0, 64, 0]);
-      var asked = false;
+    test(
+      'a GIF over the scan limit is rejected, whatever its header says',
+      () async {
+        final big = Uint8List(WorkspaceModelAvatarBounds.maxInputBytes + 1)
+          ..setAll(0, [...'GIF89a'.codeUnits, 64, 0, 64, 0, 0, 0, 0]);
 
-      final bounded = await WorkspaceModelAvatarBounds.bound(
-        big,
+        await check(WorkspaceModelAvatarBounds.bound(big))
+            .throws<WorkspaceAvatarTooLargeException>();
+      },
+    );
+
+    test('a file that only starts like a GIF is not sized as one', () async {
+      var asked = false;
+      // `GIF8` and a small canvas, but no real signature or descriptor.
+      final fake = Uint8List.fromList([
+        ...'GIF8xx'.codeUnits,
+        64,
+        0,
+        64,
+        0,
+        0,
+        0,
+        0,
+      ]);
+
+      await WorkspaceModelAvatarBounds.bound(
+        fake,
         platformResize: (_, _) async {
           asked = true;
           return null;
         },
       );
 
-      check(asked).isFalse();
-      check(identical(bounded, big)).isTrue();
+      // Not a GIF, so it is unreadable and goes to the host.
+      check(asked).isTrue();
     });
+
+    test(
+      'an image the host says already fits is kept, however large',
+      () async {
+        // A format only the host reads, over the size an unreadable file may
+        // keep: the host's answer is that no resize is needed.
+        final large = Uint8List.fromList(
+          List.filled(WorkspaceModelAvatarBounds.maxKeptBytes + 1, 0x78),
+        );
+
+        final bounded = await WorkspaceModelAvatarBounds.bound(
+          large,
+          platformResize: (bytes, _) async => bytes,
+        );
+
+        check(identical(bounded, large)).isTrue();
+      },
+    );
+
+    test(
+      'a file too large to scan is not kept because the host says it fits',
+      () async {
+        final big = Uint8List(WorkspaceModelAvatarBounds.maxInputBytes + 1);
+
+        await check(
+          WorkspaceModelAvatarBounds.bound(
+            big,
+            platformResize: (bytes, _) async => bytes,
+          ),
+        ).throws<WorkspaceAvatarTooLargeException>();
+      },
+    );
 
     test('an unreadable file is kept only while it is small', () async {
       final small = Uint8List.fromList(utf8.encode('heic stand-in'));

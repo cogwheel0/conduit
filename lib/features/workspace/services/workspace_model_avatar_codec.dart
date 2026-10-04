@@ -40,7 +40,8 @@ abstract final class WorkspaceModelAvatarCodec {
         descriptor.width,
         descriptor.height,
       );
-      if (target == null) return null;
+      // Already within the limit: nothing to shrink, and not a failure.
+      if (target == null) return bytes;
       codec = await descriptor.instantiateCodec(
         targetWidth: target.width,
         targetHeight: target.height,
