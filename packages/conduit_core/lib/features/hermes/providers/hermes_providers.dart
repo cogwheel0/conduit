@@ -42,6 +42,7 @@ import 'package:conduit_core/features/hermes/models/hermes_toolset.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_connection_coordinator.dart';
 import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
@@ -270,12 +271,31 @@ class HermesConfigController extends Notifier<HermesConfig> {
     });
   }
 
-  /// Rotates the short-lived native token pair without changing connection
-  /// identity or cancelling the turn that triggered the refresh.
-  Future<void> setDesktopNativeTokens(HermesDesktopTokenSet? tokens) {
+  /// Binds native credential writes to the current connection lifetime. Capture
+  /// before sign-in or refresh starts; later connection edits or sign-out revoke
+  /// the writer, while token rotations leave it valid.
+  HermesDesktopCredentialsWriter nativeCredentialsWriter() {
+    final epoch = _connectionMutationEpoch;
+    final connection = state;
+    return (credentials) =>
+        _setDesktopNativeTokens(credentials.nativeTokens, epoch, connection);
+  }
+
+  Future<void> _setDesktopNativeTokens(
+    HermesDesktopTokenSet? tokens,
+    int epoch,
+    HermesConfig connection,
+  ) {
     return _serializeMutation(() async {
       await _secretsHydration;
       _throwIfSecretsUnavailable();
+      if (epoch != _connectionMutationEpoch ||
+          !hermesDesktopConnectionMatches(state, connection) ||
+          state.mode != connection.mode ||
+          state.allowSelfSignedCertificates !=
+              connection.allowSelfSignedCertificates) {
+        throw StateError('Hermes connection changed before sign-in completed.');
+      }
       final previous = state.desktopCredentials;
       final next = HermesDesktopCredentials(
         legacyToken: previous?.legacyToken,
@@ -1345,6 +1365,9 @@ final hermesApiServiceProvider = Provider<HermesBackendService?>((ref) {
   if (!config.isUsable) return null;
   final HermesBackendService service;
   if (config.mode == HermesBackendMode.desktopGateway) {
+    final writeCredentials = ref
+        .read(hermesConfigProvider.notifier)
+        .nativeCredentialsWriter();
     final desktopService = HermesDesktopApiService(
       config: config,
       openExternalUrl: ref.read(openExternalUrlProvider),
@@ -1354,9 +1377,7 @@ final hermesApiServiceProvider = Provider<HermesBackendService?>((ref) {
       onCredentialsChanged: (credentials) async {
         try {
           if (!ref.mounted) return;
-          await ref
-              .read(hermesConfigProvider.notifier)
-              .setDesktopNativeTokens(credentials.nativeTokens);
+          await writeCredentials(credentials);
         } catch (error) {
           DebugLogger.error(
             'desktop-token-rotation-persist-failed',

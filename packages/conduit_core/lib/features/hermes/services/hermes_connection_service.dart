@@ -37,6 +37,9 @@ final class _RiverpodHermesConnectionGateway
     // (issue #683).
     final persistRotations =
         sameConnection && draft.desktopCredentials?.nativeTokens != null;
+    final writeCredentials = persistRotations
+        ? _ref.read(hermesConfigProvider.notifier).nativeCredentialsWriter()
+        : null;
     final service = HermesDesktopApiService(
       config: draft.copyWith(enabled: true),
       // Dashboard-cookie gateways answer only through the host's WebView
@@ -44,11 +47,7 @@ final class _RiverpodHermesConnectionGateway
       dashboardBridgeFactory: _ref.read(
         hostHermesDashboardBridgeFactoryProvider,
       ),
-      onCredentialsChanged: persistRotations
-          ? (credentials) => _ref
-                .read(hermesConfigProvider.notifier)
-                .setDesktopNativeTokens(credentials.nativeTokens)
-          : null,
+      onCredentialsChanged: writeCredentials,
     );
     try {
       return await service.health();

@@ -129,6 +129,9 @@ class _HermesDesktopConnectionSectionState
       return;
     }
     final identity = _authDraftIdentity(draft.config);
+    final writeCredentials = ref
+        .read(hermesConfigProvider.notifier)
+        .nativeCredentialsWriter();
     final epoch = ++_profileEpoch;
     if (!mounted) return;
     setState(() {
@@ -153,9 +156,7 @@ class _HermesDesktopConnectionSectionState
               'Save the Hermes server before refreshing its sign-in.',
             );
           }
-          await ref
-              .read(hermesConfigProvider.notifier)
-              .setDesktopNativeTokens(credentials.nativeTokens);
+          await writeCredentials(credentials);
         },
       );
       final current = _controller
@@ -223,13 +224,14 @@ class _HermesDesktopConnectionSectionState
     if (!await widget.saveSettings()) return;
     final saved = ref.read(hermesConfigProvider);
     if (saved.mode != HermesBackendMode.desktopGateway) return;
+    final writeCredentials = ref
+        .read(hermesConfigProvider.notifier)
+        .nativeCredentialsWriter();
     try {
       final live = ref.read(hermesApiServiceProvider);
       await _desktopConnection.signInNative(
         saved.copyWith(enabled: true),
-        onCredentialsChanged: (credentials) => ref
-            .read(hermesConfigProvider.notifier)
-            .setDesktopNativeTokens(credentials.nativeTokens),
+        onCredentialsChanged: writeCredentials,
         service: live is HermesDesktopApiService ? live : null,
       );
       if (mounted) {

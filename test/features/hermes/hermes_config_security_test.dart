@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
@@ -32,6 +33,106 @@ void main() {
   });
 
   tearDown(PreferencesStore.debugReset);
+
+  test(
+    'native credential writer remains valid across token rotations',
+    () async {
+      final storage = FlutterSecureKeyValueStore();
+      final container = await _readyHermesContainer(storage);
+      addTearDown(container.dispose);
+      final controller = container.read(hermesConfigProvider.notifier);
+      final writeCredentials = controller.nativeCredentialsWriter();
+
+      await writeCredentials(_nativeCredentials('first'));
+      await writeCredentials(_nativeCredentials('rotated'));
+
+      check(
+        container
+            .read(hermesConfigProvider)
+            .desktopCredentials
+            ?.nativeTokens
+            ?.accessToken,
+      ).equals('rotated');
+      final stored = jsonDecode(
+        (await storage.read(key: 'hermes_desktop_credentials_v1'))!,
+      ) as Map;
+      check((stored['native_tokens'] as Map)['access_token']).equals('rotated');
+    },
+  );
+
+  for (final revocation in [
+    'gateway replacement',
+    'sign-out',
+    'return to original gateway',
+  ]) {
+    test(
+      'native credential writer rejects late completion after $revocation',
+      () async {
+        final storage = FlutterSecureKeyValueStore();
+        final container = await _readyHermesContainer(storage);
+        addTearDown(container.dispose);
+        final controller = container.read(hermesConfigProvider.notifier);
+        await controller.saveConnection(
+          baseUrl: 'https://one.example/v1',
+          mode: HermesBackendMode.desktopGateway,
+          desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+        );
+        final writeCredentials = controller.nativeCredentialsWriter();
+        final change = revocation == 'sign-out'
+            ? controller.signOutDesktop()
+            : controller.saveConnection(baseUrl: 'https://two.example/v1');
+        if (revocation == 'return to original gateway') {
+          await change;
+          await controller.saveConnection(baseUrl: 'https://one.example/v1');
+        }
+        // For replacement and sign-out, the write queues before the revocation
+        // starts. Checking only when the callback is invoked would miss this.
+        final rejected = expectLater(
+          writeCredentials(_nativeCredentials('late')),
+          throwsStateError,
+        );
+        await change;
+        await rejected;
+
+        check(
+          container.read(hermesConfigProvider).desktopCredentials?.nativeTokens,
+        ).isNull();
+        check(await storage.read(key: 'hermes_desktop_credentials_v1'))
+            .isNull();
+      },
+    );
+  }
+
+  test('native credential writer captured during replacement keeps its original gateway', () async {
+    final storage = _GatedSecureStorage({
+      'hermes_api_key_v1': 'key-for-one',
+      'hermes_session_key_v1': 'memory-for-one',
+    }, gatedWriteKey: 'hermes_api_key_v1');
+    addTearDown(storage.releaseAll);
+    final container = await _readyHermesContainer(storage);
+    addTearDown(container.dispose);
+    final controller = container.read(hermesConfigProvider.notifier);
+    final change = controller.saveConnection(
+      baseUrl: 'https://two.example/v1',
+      apiKeyChanged: true,
+      apiKey: 'key-for-two',
+    );
+    await storage.writeStarted.future.timeout(const Duration(seconds: 1));
+    final writeCredentials = controller.nativeCredentialsWriter();
+    final rejected = expectLater(
+      writeCredentials(_nativeCredentials('late')),
+      throwsStateError,
+    );
+    storage.releaseWrite();
+    await change;
+    await rejected;
+
+    check(container.read(hermesConfigProvider).baseUrl)
+        .equals('https://two.example/v1');
+    check(container.read(hermesConfigProvider).desktopCredentials?.nativeTokens)
+        .isNull();
+    check(storage.values['hermes_desktop_credentials_v1']).isNull();
+  });
 
   test('connection URLs reject query strings and fragments', () async {
     check(
@@ -1419,6 +1520,15 @@ void main() {
     );
   });
 }
+
+HermesDesktopCredentials _nativeCredentials(String token) =>
+    HermesDesktopCredentials(
+      nativeTokens: HermesDesktopTokenSet(
+        accessToken: token,
+        refreshToken: '$token-refresh',
+        expiresAt: DateTime.utc(2030),
+      ),
+    );
 
 Future<ProviderContainer> _readyHermesContainer(
   SecureKeyValueStore storage,
