@@ -52,6 +52,11 @@ jobs:
       # step; the runner groups the files into a few entrypoints.
       - run: dart run tool/run_test_shards.dart
         timeout-minutes: 30
+      - name: Android native tests
+        run: |
+          flutter build apk --debug --target-platform android-arm64
+          cd android
+          ./gradlew :app:testDebugUnitTest -Ptarget-platform=android-arm64
 
   # Each workspace member analyzes and tests on its own, which is what proves
   # the pub workspace actually works per package.

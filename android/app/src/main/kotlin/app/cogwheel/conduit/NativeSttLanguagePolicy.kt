@@ -55,6 +55,42 @@ internal object NativeSttLanguagePolicy {
             .sortedBy { it.lowercase(Locale.ROOT) }
     }
 
+    /**
+     * Recovery stays within the requested language and script. Older engines
+     * that cannot list languages get a language-only retry instead of another
+     * guessed region. Automatic recognition may also use the engine default.
+     * The caller removes failed requests and limits the number of attempts.
+     */
+    fun fallbackLocaleIds(
+        localeId: String?,
+        systemLocaleId: String,
+        supportedLocaleIds: List<String>?
+    ): List<String?> {
+        val requested = Locale.forLanguageTag(
+            (localeId?.takeIf { it.isNotBlank() } ?: systemLocaleId)
+                .trim().replace('_', '-')
+        )
+        val candidates = if (supportedLocaleIds != null) {
+            normalizeLocaleIds(supportedLocaleIds)
+                .map(Locale::forLanguageTag)
+                .filter {
+                    it.language == requested.language &&
+                        (requested.script.isBlank() || it.script == requested.script)
+                }
+                .sortedBy { if (it == requested) 0 else 1 }
+                .map(Locale::toLanguageTag)
+        } else if (requested.language.isNotBlank()) {
+            listOf(Locale.Builder().setLanguage(requested.language)
+                .setScript(requested.script).build().toLanguageTag())
+        } else {
+            emptyList()
+        }
+        return buildList {
+            if (localeId.isNullOrBlank()) add(null)
+            addAll(candidates)
+        }.distinct()
+    }
+
     private fun primaryLanguage(localeId: String): String? {
         return localeId
             .trim()

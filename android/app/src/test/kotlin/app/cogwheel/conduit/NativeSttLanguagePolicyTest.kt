@@ -110,4 +110,44 @@ class NativeSttLanguagePolicyTest {
             )
         )
     }
+
+    @Test
+    fun regionalRecoveryUsesOnlySupportedVariantsOfTheRequestedLanguage() {
+        assertEquals(
+            listOf("en-IN", "en-GB", "en-US"),
+            NativeSttLanguagePolicy.fallbackLocaleIds(
+                "en_IN", "pl-PL", listOf("pl-PL", "en-US", "en-IN", "en-GB")
+            )
+        )
+        assertEquals(
+            emptyList<String>(),
+            NativeSttLanguagePolicy.fallbackLocaleIds("pl-PL", "en-US", listOf("en-US"))
+        )
+    }
+
+    @Test
+    fun explicitScriptIsPreservedDuringLanguageRecovery() {
+        assertEquals(
+            listOf("zh-Hant-TW"),
+            NativeSttLanguagePolicy.fallbackLocaleIds(
+                "zh-Hant-HK", "en-US", listOf("zh-Hans-CN", "zh-Hant-TW")
+            )
+        )
+        assertEquals(
+            listOf("zh-Hant"),
+            NativeSttLanguagePolicy.fallbackLocaleIds("zh-Hant-HK", "en-US", null)
+        )
+    }
+
+    @Test
+    fun automaticRecoveryCanUseTheEngineDefaultAndSystemLanguageVariants() {
+        assertEquals(
+            listOf(null, "en-US"),
+            NativeSttLanguagePolicy.fallbackLocaleIds(null, "en-IN", listOf("en-US", "pl-PL"))
+        )
+        assertEquals(
+            listOf(null, "en"),
+            NativeSttLanguagePolicy.fallbackLocaleIds(null, "en-IN", null)
+        )
+    }
 }

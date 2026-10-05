@@ -17,6 +17,7 @@ import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_connection_coordinator.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 
 import 'hermes_dashboard_auth_page.dart';
 
@@ -39,7 +40,15 @@ class HermesDesktopConnectionSection extends ConsumerStatefulWidget {
 
 class _HermesDesktopConnectionSectionState
     extends ConsumerState<HermesDesktopConnectionSection> {
-  static const _desktopConnection = HermesDesktopConnectionCoordinator();
+  // Setup runs before the live Hermes client exists, so temporary clients
+  // need the same host capabilities as the enabled client.
+  HermesDesktopConnectionCoordinator get _desktopConnection =>
+      HermesDesktopConnectionCoordinator(
+        openExternalUrl: ref.read(openExternalUrlProvider),
+        dashboardBridgeFactory: ref.read(
+          hostHermesDashboardBridgeFactoryProvider,
+        ),
+      );
   List<String> _profiles = const [];
   String? _profilesError;
   bool _profilesLoading = false;
@@ -120,6 +129,9 @@ class _HermesDesktopConnectionSectionState
       return;
     }
     final identity = _authDraftIdentity(draft.config);
+    final writeCredentials = ref
+        .read(hermesConfigProvider.notifier)
+        .nativeCredentialsWriter();
     final epoch = ++_profileEpoch;
     if (!mounted) return;
     setState(() {
@@ -144,9 +156,7 @@ class _HermesDesktopConnectionSectionState
               'Save the Hermes server before refreshing its sign-in.',
             );
           }
-          await ref
-              .read(hermesConfigProvider.notifier)
-              .setDesktopNativeTokens(credentials.nativeTokens);
+          await writeCredentials(credentials);
         },
       );
       final current = _controller
@@ -214,13 +224,14 @@ class _HermesDesktopConnectionSectionState
     if (!await widget.saveSettings()) return;
     final saved = ref.read(hermesConfigProvider);
     if (saved.mode != HermesBackendMode.desktopGateway) return;
+    final writeCredentials = ref
+        .read(hermesConfigProvider.notifier)
+        .nativeCredentialsWriter();
     try {
       final live = ref.read(hermesApiServiceProvider);
       await _desktopConnection.signInNative(
         saved.copyWith(enabled: true),
-        onCredentialsChanged: (credentials) => ref
-            .read(hermesConfigProvider.notifier)
-            .setDesktopNativeTokens(credentials.nativeTokens),
+        onCredentialsChanged: writeCredentials,
         service: live is HermesDesktopApiService ? live : null,
       );
       if (mounted) {
