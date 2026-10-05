@@ -32,6 +32,7 @@ final class _HermesDashboardAuthPageState
   bool _leftDashboard = false;
   bool _returnedToDashboard = false;
   bool _checking = false;
+  bool _documentStartChecked = false;
   String? _error;
   Set<String>? _cookieBaseline;
   late final int _cookieGeneration;
@@ -47,6 +48,17 @@ final class _HermesDashboardAuthPageState
     _policy = HermesDashboardWebViewPolicy(
       root: _root,
       accessHeaders: widget.config.accessHeaders,
+    );
+    HermesDashboardWebViewPolicy.documentStartScriptsSupported().then(
+      (supported) {
+        _policy.documentStartScripts = supported;
+        if (mounted) setState(() => _documentStartChecked = true);
+      },
+      // Failing closed: an unknown capability is an unsupported one.
+      onError: (_, _) {
+        _policy.documentStartScripts = false;
+        if (mounted) setState(() => _documentStartChecked = true);
+      },
     );
     _cookieGeneration = HermesDashboardCookieStore.begin(_root.toString());
     HermesDashboardCookieStore.snapshot(_root.toString()).then(
@@ -66,12 +78,11 @@ final class _HermesDashboardAuthPageState
   }
 
   Future<bool> _isAuthenticated(InAppWebViewController controller) async {
+    // No access headers in the arguments: they would be readable by the
+    // page. The check is a GET, which interceptSubresource sends with them.
     final result = await controller.callAsyncJavaScript(
       functionBody: kHermesDashboardSignInCheckScript,
-      arguments: {
-        'url': hermesDashboardAuthCheckUrl(_root).toString(),
-        'headers': _policy.accessHeaders,
-      },
+      arguments: {'url': hermesDashboardAuthCheckUrl(_root).toString()},
     );
     return result?.error == null && result?.value == true;
   }
@@ -95,12 +106,13 @@ final class _HermesDashboardAuthPageState
               padding: EdgeInsets.all(24),
               child: Text(
                 'Dashboard sign-in with custom gateway headers is not '
-                'supported on iOS. Use native PKCE or remove the headers.',
+                'supported on this device. Use native PKCE or remove the '
+                'headers.',
                 textAlign: TextAlign.center,
               ),
             ),
           )
-        : _cookieBaseline == null
+        : _cookieBaseline == null || !_documentStartChecked
         ? const Center(child: CircularProgressIndicator.adaptive())
         : Stack(
             children: [
@@ -112,50 +124,11 @@ final class _HermesDashboardAuthPageState
                 initialSettings: InAppWebViewSettings(
                   javaScriptEnabled: true,
                   useShouldOverrideUrlLoading: true,
-                  useShouldInterceptAjaxRequest: true,
-                  useShouldInterceptFetchRequest: true,
                   useShouldInterceptRequest: true,
                 ),
-                initialUserScripts: UnmodifiableListView([
-                  UserScript(
-                    source: _policy.bootstrapScript,
-                    injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
-                  ),
-                ]),
+                initialUserScripts: UnmodifiableListView(_policy.userScripts),
                 shouldInterceptRequest: (_, request) =>
                     _policy.interceptSubresource(request),
-                shouldInterceptAjaxRequest: (_, request) async {
-                  final target = request.url?.uriValue;
-                  if (target != null && _policy.isExact(target)) {
-                    request.headers ??= AjaxRequestHeaders({});
-                    for (final entry in _policy.accessHeaders.entries) {
-                      request.headers!.setRequestHeader(entry.key, entry.value);
-                    }
-                  } else {
-                    final current = request.headers?.getHeaders().map(
-                      (key, value) => MapEntry(key, value.toString()),
-                    );
-                    request.headers = AjaxRequestHeaders(
-                      _policy.crossOriginHeaders(current),
-                    );
-                  }
-                  return request;
-                },
-                shouldInterceptFetchRequest: (_, request) async {
-                  final target = request.url?.uriValue;
-                  if (target != null && _policy.isExact(target)) {
-                    request.headers = _policy.sameOriginHeaders(
-                      request.headers,
-                    );
-                  } else {
-                    request.headers = _policy.crossOriginHeaders(
-                      request.headers?.map(
-                        (key, value) => MapEntry(key, value.toString()),
-                      ),
-                    );
-                  }
-                  return request;
-                },
                 onWebViewCreated: (controller) => _controller = controller,
                 onLoadStart: (_, _) {
                   if (mounted) {

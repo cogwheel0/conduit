@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:dio/dio.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,8 +9,9 @@ import 'package:go_router/go_router.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_core/features/workspace/models/workspace_capabilities.dart';
+import 'package:conduit_core/features/workspace/models/workspace_collection_view.dart';
 import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart';
-import 'package:conduit/features/workspace/models/workspace_prompt_command.dart';
 import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
@@ -71,52 +71,33 @@ class WorkspaceGate extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (ref.watch(reviewerModeProvider)) {
-      return const _WorkspaceGateState(kind: _GateStateKind.denied);
-    }
-
-    final capabilities = ref.watch(workspaceCapabilitiesProvider);
-    return capabilities.when(
-      loading: () => const _WorkspaceGateState(
+    final reviewerMode = ref.watch(reviewerModeProvider);
+    final status = resolveWorkspaceGate(
+      reviewerMode: reviewerMode,
+      capabilities: reviewerMode
+          ? const AsyncLoading<WorkspaceCapabilities>()
+          : ref.watch(workspaceCapabilitiesProvider),
+      section: section,
+    );
+    return switch (status) {
+      WorkspaceGateStatus.ready => child,
+      WorkspaceGateStatus.loading => const _WorkspaceGateState(
         key: Key('workspace-loading'),
         kind: _GateStateKind.loading,
       ),
-      error: (error, _) => _WorkspaceGateState(
+      WorkspaceGateStatus.denied => _WorkspaceGateState(
+        key: reviewerMode ? null : const Key('workspace-denied'),
+        kind: _GateStateKind.denied,
+      ),
+      WorkspaceGateStatus.unsupported ||
+      WorkspaceGateStatus.error => _WorkspaceGateState(
         key: const Key('workspace-error'),
-        kind: _isUnsupported(error)
+        kind: status == WorkspaceGateStatus.unsupported
             ? _GateStateKind.unsupported
             : _GateStateKind.error,
         onRetry: () => ref.invalidate(workspaceCapabilitiesProvider),
       ),
-      data: (value) {
-        final permitted = permittedWorkspaceSections(value);
-        final requested = section;
-        if (requested == null) {
-          return permitted.isEmpty
-              ? const _WorkspaceGateState(
-                  key: Key('workspace-denied'),
-                  kind: _GateStateKind.denied,
-                )
-              : const _WorkspaceGateState(
-                  key: Key('workspace-loading'),
-                  kind: _GateStateKind.loading,
-                );
-        }
-        if (!permitted.contains(requested)) {
-          return const _WorkspaceGateState(
-            key: Key('workspace-denied'),
-            kind: _GateStateKind.denied,
-          );
-        }
-        return child;
-      },
-    );
-  }
-
-  static bool _isUnsupported(Object error) {
-    return error is DioException &&
-        (error.response?.statusCode == 404 ||
-            error.response?.statusCode == 405);
+    };
   }
 }
 
@@ -247,12 +228,9 @@ class WorkspaceScaffold extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
-    final permitted = ref
-        .watch(workspaceCapabilitiesProvider)
-        .maybeWhen(
-          data: permittedWorkspaceSections,
-          orElse: () => const <WorkspaceSection>[],
-        );
+    final permitted = permittedWorkspaceSectionsOf(
+      ref.watch(workspaceCapabilitiesProvider),
+    );
     // The three-pane layout reserves 184px for the rail and 320px for the
     // collection list (plus dividers); anything below the Material expanded
     // breakpoint leaves the detail/editor pane too narrow to render forms, so

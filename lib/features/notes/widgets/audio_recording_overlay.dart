@@ -7,7 +7,6 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:record/record.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../services/audio_recording_service.dart';
@@ -36,7 +35,8 @@ class AudioRecordingOverlay extends StatefulWidget {
 
 class _AudioRecordingOverlayState extends State<AudioRecordingOverlay>
     with SingleTickerProviderStateMixin {
-  final AudioRecordingService _recordingService = AudioRecordingService();
+  final AudioRecordingService _recordingService =
+      createNoteAudioRecordingService();
 
   bool _isRecording = false;
   bool _isProcessing = false;
@@ -46,7 +46,7 @@ class _AudioRecordingOverlayState extends State<AudioRecordingOverlay>
   double _amplitude = 0.0;
 
   StreamSubscription<Duration>? _durationSub;
-  StreamSubscription<Amplitude>? _amplitudeSub;
+  StreamSubscription<double>? _amplitudeSub;
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -87,9 +87,9 @@ class _AudioRecordingOverlayState extends State<AudioRecordingOverlay>
       _amplitudeSub = _recordingService.amplitudeStream.listen((amp) {
         if (mounted) {
           // Normalize amplitude to 0-1 range
-          // amp.current is in dBFS, typically -160 to 0
+          // amp is in dBFS, typically -160 to 0
           // We normalize from -60 to 0 for a reasonable range
-          final normalized = ((amp.current + 60) / 60).clamp(0.0, 1.0);
+          final normalized = ((amp + 60) / 60).clamp(0.0, 1.0);
           setState(() => _amplitude = normalized);
         }
       });

@@ -9,6 +9,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
+import 'package:conduit_core/features/notes/services/note_audio_download.dart';
 import 'package:conduit_core/services/api_service.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -17,47 +18,6 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
-
-const _defaultAudioExtension = '.m4a';
-const _maxAudioTempFileIdLength = 64;
-final _safeAudioExtension = RegExp(r'^\.[A-Za-z0-9]{1,10}$');
-final _unsafeAudioTempFileIdCharacter = RegExp(r'[^A-Za-z0-9_-]');
-
-String _audioDownloadTempFileName({
-  required String fileId,
-  required String serverFileName,
-  required int timestamp,
-}) {
-  final basename = serverFileName.replaceAll(r'\', '/').split('/').last;
-  final extensionStart = basename.lastIndexOf('.');
-  final candidateExtension = extensionStart > 0
-      ? basename.substring(extensionStart)
-      : _defaultAudioExtension;
-  final extension = _safeAudioExtension.hasMatch(candidateExtension)
-      ? candidateExtension
-      : _defaultAudioExtension;
-
-  final sanitizedFileId = fileId.replaceAll(
-    _unsafeAudioTempFileIdCharacter,
-    '_',
-  );
-  final nonEmptyFileId = sanitizedFileId.isEmpty ? 'file' : sanitizedFileId;
-  final boundedFileId = nonEmptyFileId.length > _maxAudioTempFileIdLength
-      ? nonEmptyFileId.substring(0, _maxAudioTempFileIdLength)
-      : nonEmptyFileId;
-  return 'audio_${boundedFileId}_$timestamp$extension';
-}
-
-@visibleForTesting
-String audioDownloadTempFileNameForTesting({
-  required String fileId,
-  required String serverFileName,
-  required int timestamp,
-}) => _audioDownloadTempFileName(
-  fileId: fileId,
-  serverFileName: serverFileName,
-  timestamp: timestamp,
-);
 
 /// A dialog for playing audio files.
 class AudioPlayerDialog extends StatefulWidget {
@@ -220,47 +180,28 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
     final cancelToken = CancelToken();
     _downloadCancelToken = cancelToken;
     try {
-      final fileInfo = await api.getFileInfo(fileId, cancelToken: cancelToken);
+      final download = await fetchNoteAudio(
+        api,
+        fileId,
+        cancelToken: cancelToken,
+      );
       if (_isDisposed) throw StateError('Audio player was disposed');
-      final filename = fileInfo['filename'] as String? ?? 'audio.m4a';
 
       final tempDir = await getTemporaryDirectory();
       if (_isDisposed) throw StateError('Audio player was disposed');
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final tempFileName = _audioDownloadTempFileName(
+      final tempFileName = noteAudioTempFileName(
         fileId: fileId,
-        serverFileName: filename,
-        timestamp: timestamp,
+        serverFileName: download.fileName,
+        timestamp: DateTime.now().millisecondsSinceEpoch,
       );
       final tempPath = path.join(tempDir.path, tempFileName);
       final tempFile = File(tempPath);
       _tempFile = tempFile;
-
-      final response = await api.dio.get(
-        '/api/v1/files/$fileId/content',
-        options: Options(responseType: ResponseType.bytes),
-        cancelToken: cancelToken,
-      );
-      final responseData = response.data;
-      if (responseData is! List<int>) {
-        throw StateError(
-          'Unexpected audio response type: ${responseData.runtimeType}',
-        );
-      }
+      await tempFile.writeAsBytes(download.bytes, flush: true);
       if (_isDisposed) {
         await _deleteTemporaryFile(tempFile);
         throw StateError('Audio player was disposed');
       }
-      await tempFile.writeAsBytes(responseData, flush: true);
-      if (_isDisposed) {
-        await _deleteTemporaryFile(tempFile);
-        throw StateError('Audio player was disposed');
-      }
-      DebugLogger.log(
-        'audio-download-ready',
-        scope: 'notes/audio/player',
-        data: {'bytes': responseData.length},
-      );
       return tempPath;
     } finally {
       if (identical(_downloadCancelToken, cancelToken)) {

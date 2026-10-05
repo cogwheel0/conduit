@@ -76,6 +76,100 @@ void main() {
     check(probe.prompts).equals(2);
   });
 
+  group('MCP server tool filter', () {
+    Map<String, dynamic> row(Object? tools) => {
+      'name': 'docs',
+      'url': 'https://example.com/mcp',
+      'tools': tools,
+    };
+
+    test('reads include, exclude and the utility switches', () {
+      final filter = HermesMcpServer.fromJson(
+        row({
+          'include': ['search', 'get_*'],
+          'exclude': 'delete_*',
+          'resources': false,
+          'prompts': 'off',
+        }),
+      ).toolFilter;
+
+      check(filter).isNotNull();
+      check(filter!.include).isNotNull().deepEquals(['search', 'get_*']);
+      check(filter.exclude).isNotNull().deepEquals(['delete_*']);
+      check(filter.resources).equals(false);
+      check(filter.prompts).equals(false);
+      check(filter.isEmpty).isFalse();
+      check(filter.summary).equals(
+        'only search, get_* · except delete_* · no resources · no prompts',
+      );
+    });
+
+    test('an empty include is an explicit register-nothing whitelist', () {
+      final filter = HermesMcpServer.fromJson(row({'include': []})).toolFilter;
+
+      check(filter!.include).isNotNull().isEmpty();
+      check(filter.summary).equals('none');
+    });
+
+    test('no filter object means everything registers', () {
+      check(HermesMcpServer.fromJson(row(null)).toolFilter).isNull();
+      check(HermesMcpServer.fromJson(row(const [])).toolFilter).isNull();
+      check(HermesMcpServer.fromJson(row({})).toolFilter!.summary).isNull();
+    });
+
+    test('a filter object is not misread as tool names', () {
+      final server = HermesMcpServer.fromJson(
+        row({
+          'include': ['search'],
+        }),
+      );
+
+      check(server.tools).isEmpty();
+      check(server.toolFilter!.include).isNotNull().deepEquals(['search']);
+    });
+
+    test('round-trips unchanged, including keys the client does not know', () {
+      final wire = {
+        'include': ['search'],
+        'exclude': ['x_*'],
+        'resources': 'no',
+        'future_key': {
+          'nested': [1, 2],
+        },
+      };
+      final filter = HermesMcpServer.fromJson(row(wire)).toolFilter!;
+
+      check(filter.toJson()).deepEquals(wire);
+      // Mutating the source or the copy must not leak either way.
+      (wire['include'] as List).add('late');
+      check((filter.toJson()['include'] as List).length).equals(1);
+      check(
+        hermesMcpServerConfig(
+          url: 'https://example.com/mcp',
+          toolFilter: filter,
+        ),
+      ).deepEquals({
+        'url': 'https://example.com/mcp',
+        'tools': {
+          'include': ['search'],
+          'exclude': ['x_*'],
+          'resources': 'no',
+          'future_key': {
+            'nested': [1, 2],
+          },
+        },
+      });
+    });
+
+    test('the add config omits tools when there is no filter', () {
+      check(hermesMcpServerConfig(command: 'npx', arguments: ['-y', 'x']))
+          .deepEquals({
+            'command': 'npx',
+            'args': ['-y', 'x'],
+          });
+    });
+  });
+
   test('ambiguous prompt recovery requires a newer transcript row', () {
     check(hermesTranscriptHasNewPrompt({'old'}, {'old'})).isFalse();
     check(hermesTranscriptHasNewPrompt({'old'}, {'old', 'new'})).isTrue();

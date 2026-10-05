@@ -167,6 +167,7 @@ Future<Note?> durableUpdateNote(
   required String id,
   String? title,
   Map<String, dynamic>? data,
+  Map<String, dynamic> Function(Map<String, dynamic> existing)? dataFrom,
 }) async {
   // Resolve a stale `local:` id to the server id BEFORE locking so the lock,
   // write, and read-back all key on the row the DAO actually mutates.
@@ -182,12 +183,19 @@ Future<Note?> durableUpdateNote(
     // a concurrent pull/merge (which takes the same note lock) can't change the
     // row between the read and the write and invalidate the merge baseline.
     Map<String, dynamic>? mergedData;
-    if (data != null) {
+    if (data != null || dataFrom != null) {
       final existingRow = await db.notesDao.getNote(resolvedId);
       final existing = existingRow == null
           ? const <String, dynamic>{}
           : decodeNoteData(existingRow.data);
-      mergedData = <String, dynamic>{...existing, ...data};
+      // [dataFrom] reads the row as it is now, inside the lock, so a change
+      // made since the caller last looked (a recording attached meanwhile)
+      // is part of what the patch is built from.
+      mergedData = <String, dynamic>{
+        ...existing,
+        ...?data,
+        ...?dataFrom?.call(existing),
+      };
     }
 
     await db.notesDao.updateNoteWithOutbox(

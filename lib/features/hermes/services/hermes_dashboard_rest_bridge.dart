@@ -1,29 +1,31 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
-import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart';
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_rest_session.dart';
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_webview_rules.dart';
 
 import 'hermes_dashboard_cookie_store.dart';
+import 'hermes_dashboard_webview_policy.dart';
 
 /// The dashboard REST bridge over a headless `flutter_inappwebview` page.
 /// When the page opens, how requests queue and what counts as an answer is
 /// conduit_core's [HermesDashboardRestSession].
 final class HermesDashboardRestBridge implements HermesDashboardBridge {
   factory HermesDashboardRestBridge({
-    required HermesConfig config,
     required Uri root,
+    required Map<String, String> accessHeaders,
   }) {
     final origin = root.toString();
     final generation = HermesDashboardCookieStore.begin(origin);
     final baseline = HermesDashboardCookieStore.snapshot(origin);
     return HermesDashboardRestBridge._(
+      accessHeaders,
       HermesDashboardRestSession(
         root: root,
-        accessHeaders: config.accessHeaders,
+        accessHeaders: accessHeaders,
         openPage: _HeadlessDashboardPage.new,
         beforeOpen: () => baseline,
         afterResponse: () async => HermesDashboardCookieStore.register(
@@ -35,8 +37,9 @@ final class HermesDashboardRestBridge implements HermesDashboardBridge {
     );
   }
 
-  HermesDashboardRestBridge._(this._session);
+  HermesDashboardRestBridge._(this._accessHeaders, this._session);
 
+  final Map<String, String> _accessHeaders;
   final HermesDashboardRestSession _session;
 
   @override
@@ -44,7 +47,20 @@ final class HermesDashboardRestBridge implements HermesDashboardBridge {
     String method,
     Uri uri, {
     String? body,
-  }) => _session.request(method, uri, body: body);
+  }) async {
+    // The headers reach the page through a script that must run before the
+    // page's own, so a device that cannot guarantee that (an Android WebView
+    // without document-start scripts, or iOS, which has no header support at
+    // all) never sends them.
+    if (_accessHeaders.isNotEmpty &&
+        !await HermesDashboardWebViewPolicy.headersSupported(_accessHeaders)) {
+      throw StateError(
+        'This WebView cannot add the gateway headers safely, so the Hermes '
+        'dashboard is unavailable.',
+      );
+    }
+    return _session.request(method, uri, body: body);
+  }
 
   @override
   Future<void> reload() => _session.reload();
@@ -53,13 +69,58 @@ final class HermesDashboardRestBridge implements HermesDashboardBridge {
   Future<void> close() => _session.close();
 }
 
+/// The hidden page adds the access headers to its dashboard requests as the
+/// sign-in page does ([HermesDashboardWebViewPolicy]: GETs natively, other
+/// methods through the fetch/XHR script); requests never pass them as
+/// script arguments.
 final class _HeadlessDashboardPage implements HermesDashboardPage {
-  _HeadlessDashboardPage(Uri root, Map<String, String> headers) {
+  _HeadlessDashboardPage(Uri root, Map<String, String> headers)
+    : _policy = HermesDashboardWebViewPolicy(
+        root: root,
+        accessHeaders: headers,
+      ) {
     _webView = HeadlessInAppWebView(
       initialUrlRequest: URLRequest(
         url: WebUri(root.toString()),
         headers: headers,
       ),
+      initialSettings: InAppWebViewSettings(
+        javaScriptEnabled: true,
+        useShouldInterceptRequest: headers.isNotEmpty,
+        useShouldOverrideUrlLoading: true,
+      ),
+      // The main frame never leaves the dashboard's exact origin, and a
+      // redirect within it keeps the access headers, which a plain redirect
+      // would drop and the gateway would then refuse.
+      shouldOverrideUrlLoading: (controller, action) async {
+        if (!hermesDashboardRestPageAllowsNavigation(
+          target: action.request.url?.uriValue,
+          isMainFrame: action.isForMainFrame != false,
+          root: root,
+        )) {
+          return NavigationActionPolicy.CANCEL;
+        }
+        if (action.isForMainFrame == false || headers.isEmpty) {
+          return NavigationActionPolicy.ALLOW;
+        }
+        final current = action.request.headers ?? const {};
+        final alreadyInjected = headers.entries.every(
+          (entry) => current[entry.key] == entry.value,
+        );
+        if (alreadyInjected) return NavigationActionPolicy.ALLOW;
+        await controller.loadUrl(
+          urlRequest: URLRequest(
+            url: action.request.url,
+            method: action.request.method,
+            body: action.request.body,
+            headers: _policy.sameOriginHeaders(current),
+          ),
+        );
+        return NavigationActionPolicy.CANCEL;
+      },
+      initialUserScripts: UnmodifiableListView(_policy.userScripts),
+      shouldInterceptRequest: (_, request) =>
+          _policy.interceptSubresource(request),
       onWebViewCreated: (controller) => _controller = controller,
       onLoadStop: (controller, url) {
         final loaded = Uri.tryParse(url?.toString() ?? '');
@@ -80,6 +141,7 @@ final class _HeadlessDashboardPage implements HermesDashboardPage {
     });
   }
 
+  final HermesDashboardWebViewPolicy _policy;
   late final HeadlessInAppWebView _webView;
   InAppWebViewController? _controller;
   final Completer<void> _loaded = Completer<void>();
@@ -110,8 +172,18 @@ final class _HeadlessDashboardPage implements HermesDashboardPage {
       _live.evaluateJavascript(source: source);
 
   @override
+  Future<Uri?> currentUrl() async => (await _live.getUrl())?.uriValue;
+
+  @override
   Future<void> reload() => _live.reload();
 
   @override
-  Future<void> dispose() => _webView.dispose();
+  Future<void> dispose() async {
+    // The policy's client closes even when the WebView fails to dispose.
+    try {
+      await _webView.dispose();
+    } finally {
+      _policy.close();
+    }
+  }
 }

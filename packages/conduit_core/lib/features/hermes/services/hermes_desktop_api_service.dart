@@ -443,12 +443,14 @@ final class HermesDesktopApiService
     String? command,
     List<String> arguments = const [],
     String? bearerToken,
+    HermesMcpToolFilter? toolFilter,
   }) => _administration.addMcpServer(
     name: name,
     url: url,
     command: command,
     arguments: arguments,
     bearerToken: bearerToken,
+    toolFilter: toolFilter,
   );
 
   Future<void> addMcpPreset(String name) => _administration.addMcpPreset(name);

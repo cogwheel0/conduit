@@ -3127,5 +3127,6 @@
   "profileTitle": "프로필",
   "aiAndMemoryTitle": "AI 및 메모리",
   "voiceCallMinimize": "최소화",
-  "voiceCallExpand": "펼치기"
+  "voiceCallExpand": "펼치기",
+  "askConduitAction": "Conduit에게 물어보기"
 }

@@ -1,21 +1,22 @@
 import 'dart:async';
 import 'dart:collection';
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit_core/features/web_embed/web_embed_document.dart';
+import 'package:conduit_core/features/web_embed/web_embed_policy.dart';
 
 import '../theme/theme_extensions.dart';
 import '../utils/external_link_launcher.dart';
 import 'webview_content_height.dart';
 
-const _embedDefaultHeight = 360.0;
-const _embedFallbackHeight = 160.0;
-const _embedMinHeight = 220.0;
-const _embedMaxHeight = 900.0;
+const _embedDefaultHeight = kWebEmbedDefaultHeight;
+const _embedFallbackHeight = kWebEmbedFallbackHeight;
+const _embedMinHeight = kWebEmbedMinHeight;
+const _embedMaxHeight = kWebEmbedMaxHeight;
 
 class WebContentEmbed extends StatefulWidget {
   const WebContentEmbed({
@@ -196,21 +197,9 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     };
   }
 
-  bool get _isRemoteUrl {
-    final raw = widget.source.trim();
-    return raw.startsWith('http://') ||
-        raw.startsWith('https://') ||
-        raw.startsWith('//');
-  }
+  bool get _isRemoteUrl => isRemoteWebEmbedSource(widget.source);
 
-  Uri? get _resolvedRemoteUri {
-    if (!_isRemoteUrl) {
-      return null;
-    }
-    return Uri.tryParse(
-      widget.source.startsWith('//') ? 'https:${widget.source}' : widget.source,
-    );
-  }
+  Uri? get _resolvedRemoteUri => resolveRemoteWebEmbedUri(widget.source);
 
   bool get _hasController =>
       _controller != null || _debugHasSeededController || _shouldRenderWebView;
@@ -778,187 +767,34 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     );
   }
 
+  // The documents and the policy decisions are conduit_core's
+  // (features/web_embed/), tested there.
   static String _wrapHtmlDocument(
     String source, {
     String argsText = '',
     bool fillAvailableHeight = false,
-  }) {
-    final sandboxedSource = _injectSandboxBootstrap(source, argsText: argsText);
-    final encodedSource = _escapeHtmlAttribute(sandboxedSource);
-    return _wrapSandboxedFrameDocument(
-      sourceAttribute: 'srcdoc="$encodedSource"',
-      fillAvailableHeight: fillAvailableHeight,
-    );
-  }
+  }) => wrapSandboxedHtmlDocument(
+    source,
+    argsText: argsText,
+    fillAvailableHeight: fillAvailableHeight,
+  );
 
   static String _wrapRemoteDocument(
     Uri source, {
     bool fillAvailableHeight = false,
-  }) {
-    final encodedSource = _escapeHtmlAttribute(source.toString());
-    return _wrapSandboxedFrameDocument(
-      sourceAttribute: 'src="$encodedSource"',
-      fillAvailableHeight: fillAvailableHeight,
-    );
-  }
+  }) => wrapSandboxedRemoteDocument(
+    source,
+    fillAvailableHeight: fillAvailableHeight,
+  );
 
-  static String _wrapSandboxedFrameDocument({
-    required String sourceAttribute,
-    required bool fillAvailableHeight,
-  }) {
-    return '''
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <style>
-      html, body {
-        margin: 0;
-        padding: 0;
-        background: transparent;
-        width: 100%;
-      }
-      #embed-frame {
-        display: block;
-        width: 100%;
-        height: ${fillAvailableHeight ? '100vh' : '${_embedDefaultHeight}px'};
-        min-height: ${_embedMinHeight}px;
-        border: 0;
-        background: transparent;
-      }
-    </style>
-    <script>
-      (() => {
-        const minHeight = $_embedMinHeight;
-        const maxHeight = $_embedMaxHeight;
-        const fillAvailableHeight = $fillAvailableHeight;
-        window.addEventListener('message', (event) => {
-          const data = event.data || {};
-          const frame = document.getElementById('embed-frame');
-          if (!frame || event.source !== frame.contentWindow) return;
+  static String _frameBootstrapScript(String argsText) =>
+      webEmbedFrameBootstrapScript(argsText);
 
-          if (data.type !== 'conduit-embed-height') return;
+  static String _inlineArgumentsScript(String argsText) =>
+      webEmbedInlineArgumentsScript(argsText);
 
-          const height = Number(data.height);
-          if (!Number.isFinite(height) || height <= 0) return;
-
-          if (fillAvailableHeight) return;
-
-          const clamped = Math.min(Math.max(height, minHeight), maxHeight);
-          frame.style.height = `\${clamped}px`;
-        });
-      })();
-    </script>
-  </head>
-  <body>
-    <iframe
-      id="embed-frame"
-      sandbox="allow-scripts allow-forms allow-popups"
-      referrerpolicy="no-referrer"
-      $sourceAttribute
-    ></iframe>
-  </body>
-</html>
-''';
-  }
-
-  static String _injectSandboxBootstrap(
-    String source, {
-    required String argsText,
-  }) {
-    final argumentsScript = _inlineArgumentsScript(argsText);
-    if (argumentsScript.isEmpty) {
-      return source;
-    }
-    final bootstrap =
-        '''
-<script>
-$argumentsScript
-</script>
-''';
-
-    final headMatch = RegExp(
-      r'<head\b[^>]*>',
-      caseSensitive: false,
-    ).firstMatch(source);
-    if (headMatch != null) {
-      return source.replaceRange(headMatch.end, headMatch.end, bootstrap);
-    }
-
-    final htmlMatch = RegExp(
-      r'<html\b[^>]*>',
-      caseSensitive: false,
-    ).firstMatch(source);
-    if (htmlMatch != null) {
-      return source.replaceRange(htmlMatch.end, htmlMatch.end, bootstrap);
-    }
-
-    return '$bootstrap$source';
-  }
-
-  static String _frameBootstrapScript(String argsText) {
-    return '''
-${_inlineArgumentsScript(argsText)}
-$_allFrameBootstrapScript
-''';
-  }
-
-  static String _inlineArgumentsScript(String argsText) {
-    return argsText.trim().isEmpty
-        ? ''
-        : 'window.args = ${_jsonForInlineScript(argsText)};';
-  }
-
-  static const String _allFrameBootstrapScript = '''
-  (() => {
-    const reportHeight = () => {
-      const body = document.body;
-      const html = document.documentElement;
-      const height = Math.ceil(Math.max(
-        body?.scrollHeight || 0,
-        body?.offsetHeight || 0,
-        html?.clientHeight || 0,
-        html?.scrollHeight || 0,
-        html?.offsetHeight || 0
-      ));
-      parent.postMessage({ type: 'conduit-embed-height', height }, '*');
-    };
-
-    window.addEventListener('load', reportHeight);
-    if (typeof ResizeObserver !== 'undefined') {
-      const observer = new ResizeObserver(reportHeight);
-      const observeDocument = () => {
-        if (document.documentElement) observer.observe(document.documentElement);
-        if (document.body) observer.observe(document.body);
-      };
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', observeDocument, { once: true });
-      } else {
-        observeDocument();
-      }
-    }
-    setTimeout(reportHeight, 0);
-    setTimeout(reportHeight, 250);
-    setTimeout(reportHeight, 1000);
-  })();
-''';
-
-  static String _jsonForInlineScript(String value) {
-    return jsonEncode(value)
-        .replaceAll('&', r'\u0026')
-        .replaceAll('<', r'\u003C')
-        .replaceAll('>', r'\u003E');
-  }
-
-  static String _escapeHtmlAttribute(String value) {
-    return value
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#39;');
-  }
+  static const String _allFrameBootstrapScript =
+      webEmbedAllFrameBootstrapScript;
 
   static bool _isUserActivatedNavigation(NavigationAction action) =>
       _hasUserActivationEvidence(
@@ -969,98 +805,52 @@ $_allFrameBootstrapScript
   static bool _hasUserActivationEvidence({
     required bool? hasGesture,
     required bool linkActivated,
-  }) {
-    // Android reports hasGesture, so an explicit false must stay authoritative
-    // for scripted anchor clicks. iOS reports null and exposes only the
-    // navigation type, which remains the fallback for genuine link taps there.
-    return hasGesture == true || (hasGesture == null && linkActivated);
-  }
+  }) => webEmbedHasUserActivationEvidence(
+    hasGesture: hasGesture,
+    linkActivated: linkActivated,
+  );
 
-  static bool _shouldAllowAutomaticNavigation(String targetUrl) {
-    final uri = Uri.tryParse(targetUrl.trim());
-    if (uri == null) {
-      return false;
-    }
+  static bool _shouldAllowAutomaticNavigation(String targetUrl) =>
+      webEmbedShouldAllowAutomaticNavigation(targetUrl);
 
-    final scheme = uri.scheme.toLowerCase();
-    return scheme == 'http' ||
-        scheme == 'https' ||
-        (scheme == 'about' &&
-            const {'blank', 'srcdoc'}.contains(uri.path.toLowerCase()));
-  }
-
-  static bool _shouldAllowInlineFragmentNavigation(String targetUrl) {
-    final uri = Uri.tryParse(targetUrl.trim());
-    return uri != null &&
-        uri.hasFragment &&
-        uri.scheme.toLowerCase() == 'about' &&
-        const {'blank', 'srcdoc'}.contains(uri.path.toLowerCase());
-  }
+  static bool _shouldAllowInlineFragmentNavigation(String targetUrl) =>
+      webEmbedShouldAllowInlineFragmentNavigation(targetUrl);
 
   static bool _shouldSurfaceLoadFailure({
     required bool isForMainFrame,
     required Iterable<String> remoteEmbedUrls,
     required String requestUrl,
-  }) {
-    if (isForMainFrame) {
-      return true;
-    }
-    final normalizedRequest = _normalizedDocumentUrl(requestUrl);
-    if (normalizedRequest == null) {
-      return false;
-    }
-    return remoteEmbedUrls.any(
-      (url) => _normalizedDocumentUrl(url) == normalizedRequest,
-    );
-  }
-
-  static String? _normalizedDocumentUrl(String rawUrl) {
-    final uri = Uri.tryParse(rawUrl.trim());
-    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
-      return null;
-    }
-    final scheme = uri.scheme.toLowerCase();
-    if (scheme != 'http' && scheme != 'https') {
-      return null;
-    }
-    final path = uri.path.isEmpty ? '/' : uri.path;
-    return '$scheme|${uri.userInfo}|${uri.host.toLowerCase()}|${uri.port}|'
-        '$path|${uri.query}';
-  }
+  }) => webEmbedShouldSurfaceLoadFailure(
+    isForMainFrame: isForMainFrame,
+    remoteEmbedUrls: remoteEmbedUrls,
+    requestUrl: requestUrl,
+  );
 
   static bool _shouldHandleCreateWindow({
     required bool requestIsCurrent,
     required String? targetUrl,
-  }) =>
-      requestIsCurrent &&
-      targetUrl != null &&
-      targetUrl.isNotEmpty &&
-      parseAllowedExternalLink(targetUrl) != null;
+  }) => webEmbedShouldHandleCreateWindow(
+    requestIsCurrent: requestIsCurrent,
+    targetUrl: targetUrl,
+  );
 
   static bool _shouldResolveMissingPopupUrl({
     required bool requestIsCurrent,
     required String? targetUrl,
-  }) => requestIsCurrent && (targetUrl == null || targetUrl.isEmpty);
+  }) => webEmbedShouldResolveMissingPopupUrl(
+    requestIsCurrent: requestIsCurrent,
+    targetUrl: targetUrl,
+  );
 
   static bool _shouldOpenNavigationExternally({
     required String targetUrl,
     required String? currentUrl,
     required bool userActivated,
-  }) {
-    if (!userActivated || parseAllowedExternalLink(targetUrl) == null) {
-      return false;
-    }
-
-    final target = Uri.tryParse(targetUrl);
-    final current = currentUrl == null ? null : Uri.tryParse(currentUrl);
-    if (target == null || current == null) {
-      return true;
-    }
-
-    final targetWithoutFragment = target.replace(fragment: '');
-    final currentWithoutFragment = current.replace(fragment: '');
-    return targetWithoutFragment != currentWithoutFragment;
-  }
+  }) => webEmbedShouldOpenNavigationExternally(
+    targetUrl: targetUrl,
+    currentUrl: currentUrl,
+    userActivated: userActivated,
+  );
 
   static Future<bool> _openAllowedExternalLink(
     String rawUrl, {

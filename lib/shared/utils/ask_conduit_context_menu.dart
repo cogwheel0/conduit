@@ -2,9 +2,10 @@ import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:conduit_core/features/chat/composer/ask_conduit.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 
-const String _askConduitLabel = 'Ask Conduit';
+import '../../l10n/app_localizations.dart';
 
 bool get _canShowAskConduitSelectionAction =>
     !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
@@ -26,25 +27,25 @@ List<ContextMenuButtonItem> withAskConduitContextMenuItem({
   required String? selectedText,
   required String? composerTargetId,
   required VoidCallback hideToolbar,
+  required String label,
 }) {
-  final text = selectedText;
-  if (!_canShowAskConduitSelectionAction ||
-      composerTargetId == null ||
-      composerTargetId.isEmpty ||
-      text == null ||
-      text.trim().isEmpty) {
+  final text = askConduitInsertionText(
+    selectedText: selectedText,
+    composerTargetId: composerTargetId,
+  );
+  if (!_canShowAskConduitSelectionAction || text == null) {
     return items;
   }
 
   return [
     ...items,
     ContextMenuButtonItem(
-      label: _askConduitLabel,
+      label: label,
       onPressed: () {
         hideToolbar();
         ref
             .read(composerTextInsertionProvider.notifier)
-            .insert(targetId: composerTargetId, text: text);
+            .insert(targetId: composerTargetId!, text: text);
       },
     ),
   ];
@@ -63,6 +64,7 @@ Widget buildAskConduitSelectionAreaContextMenu({
     selectedText: selectedText,
     composerTargetId: composerTargetId,
     hideToolbar: () => selectableRegionState.hideToolbar(false),
+    label: AppLocalizations.of(selectableRegionState.context)!.askConduitAction,
   );
 
   if (identical(items, defaultItems)) {
