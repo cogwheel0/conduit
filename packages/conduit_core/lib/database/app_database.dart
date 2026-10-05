@@ -24,11 +24,18 @@ part 'app_database.g.dart';
 
 /// Conduit's per-server local database (CDT-RFC-001).
 ///
-/// Current schema version 8 includes sync metadata, chats, messages, folders,
+/// Current schema version 10 includes sync metadata, chats, messages, folders,
 /// outbox operations, notes, the shared chat/note FTS substrate, and (v6) the
 /// per-server app cache + attachment upload queue. Version 7 adds the bounded
 /// chat-list window index used by active and archived drawer pagination.
 /// Version 8 adds crash-safe native-share dedupe receipts to attachment rows.
+/// Version 9 adds the message branch index
+/// (`idx_messages_chat_parent_role`). Version 10 adds `chats.user_id`, so a
+/// chat shared by another user stays read-only on a DB-first open.
+///
+/// Keep this list in step with [schemaVersion] and [migration]: the ladder
+/// below is the only place a schema change is described, and the drift between
+/// the two is invisible to the tests.
 ///
 /// One database file exists per [ServerConfig]; lifecycle (open/close/delete
 /// on server switch or removal) is owned by [DatabaseManager].

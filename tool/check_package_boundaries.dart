@@ -29,33 +29,37 @@ import 'dart:io';
 /// time a directory comes off Flutter it is added here, so the next change
 /// cannot silently put the dependency back — which is exactly how an
 /// extraction stalls.
+///
+/// Every directory listed here now holds nothing but three-line `export`
+/// shims forwarding to the core, so what these entries really protect is the
+/// old import paths against gaining a Flutter dependency again. The
+/// authoritative guarantee lives in [_scanForTransitiveFlutter], which reads
+/// each imported package's own pubspec and covers the whole of
+/// `packages/conduit_core/lib` whether or not a path is named here.
+///
+/// [_checkListedPathsExist] fails the run when an entry stops existing. That
+/// is load-bearing: the first version of this list named eight directories
+/// that had already been deleted, and because a missing directory simply
+/// scanned clean, the locks went vacuous without anyone noticing.
 const List<String> _flutterFreeDirectories = <String>[
-  'lib/core/database',
-  'lib/core/models',
-  'lib/core/sync',
   'lib/features/channels/providers',
-  'lib/features/chat/models',
-  'lib/features/chat/utils',
-  'lib/features/navigation/models',
   'lib/features/notes/providers',
   'lib/features/prompts/providers',
-  'lib/features/support/data',
   'lib/features/terminal/models',
   'lib/features/terminal/providers',
   'lib/features/terminal/services',
   'lib/features/workspace/models',
-  'lib/shared/models',
 ];
 
 /// Individual libraries that are Flutter-free ahead of their directory.
 ///
-/// `lib/core/providers` still holds `app_startup_providers.dart`, which binds
-/// the Flutter host implementations and is meant to. That is no reason to
-/// leave the rest of the directory unlocked.
-const List<String> _flutterFreeFiles = <String>[
-  'lib/core/providers/app_providers.dart',
-  'lib/core/providers/host_ports.dart',
-];
+/// Empty on purpose, and not a mistake to "tidy away": the mechanism stays
+/// because a library is often taken off Flutter well before the directory
+/// around it is. It was used by `lib/core/providers/app_providers.dart` and
+/// `lib/core/providers/host_ports.dart` until both moved into
+/// `packages/conduit_core`; the next file in that position should be added
+/// back here rather than left to review.
+const List<String> _flutterFreeFiles = <String>[];
 
 /// Imports that make a directory non-portable to the daemon.
 const List<String> _flutterImports = <String>[
@@ -188,6 +192,9 @@ void main() {
 
   // `lib/platform` is deliberately absent: it exists precisely to hold the
   // Flutter implementations of the core's ports.
+  violations.addAll(
+    _checkListedPathsExist(_flutterFreeDirectories, 'Flutter-free directory'),
+  );
   for (final path in _flutterFreeDirectories) {
     violations.addAll(
       _scan(
@@ -201,6 +208,9 @@ void main() {
     );
   }
 
+  violations.addAll(
+    _checkListedPathsExist(_flutterFreeFiles, 'Flutter-free file'),
+  );
   for (final path in _flutterFreeFiles) {
     violations.addAll(
       _scanFile(
@@ -228,8 +238,31 @@ void main() {
   exitCode = 1;
 }
 
+/// Reports every listed path that no longer exists.
+///
+/// A lock on a path that is gone protects nothing, and silently scanning a
+/// missing directory clean is how eight of these went vacuous during the core
+/// extraction. This mirrors what [_scanIosBridges] already does for its Swift
+/// lists, including the "listed but does not exist" wording, so a file that
+/// moves is reported rather than quietly dropped from the rule.
+///
+/// Only the Flutter-free lists are checked. `_webSafePackages` and
+/// `_desktopUiNeverDeclarable` also name things that do not exist yet, but
+/// those are rules for the packages the daemon and renderer will add, so a
+/// missing path there is intent rather than rot.
+List<String> _checkListedPathsExist(List<String> paths, String kind) {
+  return <String>[
+    for (final path in paths)
+      if (!FileSystemEntity.isFileSync(path) && !Directory(path).existsSync())
+        '$path is listed as a $kind but does not exist - remove it, or point '
+            'it at wherever that code lives now',
+  ];
+}
+
 List<String> _scan(Directory dir, List<String> forbidden, String because) {
-  // A package that does not exist yet is not a violation.
+  // A web-safe package the desktop renderer has not added yet is not a
+  // violation. The Flutter-free lists get their missing paths reported by
+  // [_checkListedPathsExist] before they reach here.
   if (!dir.existsSync()) return const <String>[];
   return _scanFiles(dir.listSync(recursive: true), forbidden, because);
 }

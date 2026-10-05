@@ -104,7 +104,11 @@ coverage/
 
 # Generated files
 *.g.dart
-!lib/core/platform/conduit_platform_apis.g.dart
+# The one generated file that stays tracked: the Pigeon Dart binding. It is
+# regenerated only by the separate `tool/pigeon_codegen` step, not by
+# build_runner, so a fresh clone would otherwise have no Dart half of the
+# platform channels until someone ran Pigeon.
+!lib/platform/conduit_platform_apis.g.dart
 *.freezed.dart
 lib/l10n/app_localizations.dart
 lib/l10n/app_localizations_*.dart
