@@ -3356,5 +3356,11 @@
   "@voiceCallExpand": {
     "description": "Accessibility label for the button that opens the minimized voice call pill back into the full panel."
   },
-  "askConduitAction": "问 Conduit"
+  "askConduitAction": "问 Conduit",
+  "voiceCallStartTimeout": "启动语音通话耗时过长，请重试。",
+  "@voiceCallStartTimeout": {"description": "Error shown when starting a voice call takes too long."},
+  "voiceCallNoSpeech": "未检测到语音。",
+  "@voiceCallNoSpeech": {"description": "Message shown when the voice call heard no speech for several tries."},
+  "voiceCallFailed": "语音通话无法继续。",
+  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."}
 }

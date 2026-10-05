@@ -3356,5 +3356,11 @@
   "@voiceCallExpand": {
     "description": "Accessibility label for the button that opens the minimized voice call pill back into the full panel."
   },
-  "askConduitAction": "Chiedi a Conduit"
+  "askConduitAction": "Chiedi a Conduit",
+  "voiceCallStartTimeout": "L'avvio della chiamata vocale ha richiesto troppo tempo. Riprova.",
+  "@voiceCallStartTimeout": {"description": "Error shown when starting a voice call takes too long."},
+  "voiceCallNoSpeech": "Nessun parlato rilevato.",
+  "@voiceCallNoSpeech": {"description": "Message shown when the voice call heard no speech for several tries."},
+  "voiceCallFailed": "La chiamata vocale non può continuare.",
+  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."}
 }

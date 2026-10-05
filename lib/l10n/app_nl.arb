@@ -3356,5 +3356,11 @@
   "@voiceCallExpand": {
     "description": "Accessibility label for the button that opens the minimized voice call pill back into the full panel."
   },
-  "askConduitAction": "Vraag Conduit"
+  "askConduitAction": "Vraag Conduit",
+  "voiceCallStartTimeout": "Het starten van het spraakgesprek duurde te lang. Probeer het opnieuw.",
+  "@voiceCallStartTimeout": {"description": "Error shown when starting a voice call takes too long."},
+  "voiceCallNoSpeech": "Geen spraak gedetecteerd.",
+  "@voiceCallNoSpeech": {"description": "Message shown when the voice call heard no speech for several tries."},
+  "voiceCallFailed": "Het spraakgesprek kon niet worden voortgezet.",
+  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."}
 }

@@ -6524,5 +6524,11 @@
   "askConduitAction": "Zapytaj Conduit",
   "@askConduitAction": {
     "description": "Long-press menu action that puts the selected answer text into the chat composer to ask about it."
-  }
+  },
+  "voiceCallStartTimeout": "Rozpoczęcie połączenia głosowego trwało zbyt długo. Spróbuj ponownie.",
+  "@voiceCallStartTimeout": {"description": "Error shown when starting a voice call takes too long."},
+  "voiceCallNoSpeech": "Nie wykryto mowy.",
+  "@voiceCallNoSpeech": {"description": "Message shown when the voice call heard no speech for several tries."},
+  "voiceCallFailed": "Nie można kontynuować połączenia głosowego.",
+  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."}
 }

@@ -3128,5 +3128,11 @@
   "aiAndMemoryTitle": "AI 및 메모리",
   "voiceCallMinimize": "최소화",
   "voiceCallExpand": "펼치기",
-  "askConduitAction": "Conduit에게 물어보기"
+  "askConduitAction": "Conduit에게 물어보기",
+  "voiceCallStartTimeout": "음성 통화를 시작하는 데 너무 오래 걸렸습니다. 다시 시도해 주세요.",
+  "@voiceCallStartTimeout": {"description": "Error shown when starting a voice call takes too long."},
+  "voiceCallNoSpeech": "음성이 감지되지 않았습니다.",
+  "@voiceCallNoSpeech": {"description": "Message shown when the voice call heard no speech for several tries."},
+  "voiceCallFailed": "음성 통화를 계속할 수 없습니다.",
+  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."}
 }

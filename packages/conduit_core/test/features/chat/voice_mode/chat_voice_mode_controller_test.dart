@@ -104,8 +104,11 @@ void main() {
       check(input.permissionCalls).equals(1);
       check(input.beginCalls).equals(0);
       check(background.started).isEmpty();
-      check(container.read(chatVoiceModeControllerProvider).phase)
-          .equals(ChatVoiceModePhase.error);
+      final snapshot = container.read(chatVoiceModeControllerProvider);
+      check(snapshot.phase).equals(ChatVoiceModePhase.error);
+      // The host says this in the user's language; it never prints the
+      // exception text.
+      check(snapshot.errorKind).equals(ChatVoiceModeError.microphoneDenied);
     },
   );
 
@@ -309,6 +312,8 @@ void main() {
       check(result).equals(ChatVoiceModeStartResult.failed);
       check(snapshot.phase).equals(ChatVoiceModePhase.error);
       check(snapshot.errorMessage).isNotNull().contains('eligibility exploded');
+      // An unknown exception is only for logs; the host shows a generic line.
+      check(snapshot.errorKind).equals(ChatVoiceModeError.other);
       check(snapshot.activeCallId).isNull();
     },
   );
@@ -349,6 +354,7 @@ void main() {
     check(result).equals(ChatVoiceModeStartResult.failed);
     check(snapshot.phase).equals(ChatVoiceModePhase.error);
     check(snapshot.errorMessage).equals('Voice services timed out. Try again.');
+    check(snapshot.errorKind).equals(ChatVoiceModeError.timeout);
     check(snapshot.activeCallId).isNull();
   });
 

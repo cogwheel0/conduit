@@ -61,6 +61,7 @@ import '../../chat/widgets/file_attachment_widget.dart';
 import '../../chat/widgets/modern_chat_input.dart';
 import '../../chat/widgets/server_file_picker_sheet.dart';
 import '../../chat/voice_call/presentation/voice_call_launcher.dart';
+import '../../chat/voice_mode/voice_mode_error_text.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -835,9 +836,12 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         stackTrace: stackTrace,
       );
       if (!mounted) return;
-      final message = error is StateError
+      final l10n = AppLocalizations.of(context)!;
+      final message = error is VoiceCallStartException
+          ? voiceModeErrorText(l10n, kind: error.kind, message: error.message)!
+          : error is StateError
           ? error.message.toString()
-          : AppLocalizations.of(context)!.errorMessage;
+          : l10n.errorMessage;
       ScaffoldMessenger.maybeOf(context)
           ?.showSnackBar(SnackBar(content: Text(message)));
     }

@@ -4696,5 +4696,11 @@
   "@voiceCallExpand": {
     "description": "Accessibility label for the button that opens the minimized voice call pill back into the full panel."
   },
-  "askConduitAction": "Conduit に質問"
+  "askConduitAction": "Conduit に質問",
+  "voiceCallStartTimeout": "音声通話の開始に時間がかかりすぎました。もう一度お試しください。",
+  "@voiceCallStartTimeout": {"description": "Error shown when starting a voice call takes too long."},
+  "voiceCallNoSpeech": "音声が検出されませんでした。",
+  "@voiceCallNoSpeech": {"description": "Message shown when the voice call heard no speech for several tries."},
+  "voiceCallFailed": "音声通話を続行できませんでした。",
+  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."}
 }

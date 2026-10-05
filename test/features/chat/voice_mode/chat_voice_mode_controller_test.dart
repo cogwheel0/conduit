@@ -111,11 +111,13 @@ void main() {
           .read(voiceCallLauncherProvider)
           .launch(startNewConversation: false),
       throwsA(
-        isA<StateError>().having(
-          (error) => error.message,
-          'message',
-          'Rejected test voice start.',
-        ),
+        isA<VoiceCallStartException>()
+            .having(
+              (error) => error.message,
+              'message',
+              'Rejected test voice start.',
+            )
+            .having((error) => error.kind, 'kind', isNull),
       ),
     );
   });

@@ -107,9 +107,22 @@ nativeHydratedServerReasoningEffort({
 }
 
 class NativeSheetHydrationService {
-  NativeSheetHydrationService(this._ref);
+  NativeSheetHydrationService(this._ref) {
+    final sheetEvents = NativeSheetBridge.instance.events.listen((event) {
+      if (event is NativeSheetDismissed) _appearanceDetailPresented = false;
+    });
+    _ref.onDispose(sheetEvents.cancel);
+    // The native sheet keeps the rows it was handed, so a language chosen
+    // inside it left every label in the old language until the sheet was
+    // reopened. Hand it rows built in the new language.
+    _ref.listen<Locale?>(appLocaleProvider, (previous, next) {
+      if (previous == next || !_appearanceDetailPresented) return;
+      unawaited(_rehydrateAppearanceAfterLocaleChange());
+    });
+  }
 
   final Ref _ref;
+  bool _appearanceDetailPresented = false;
   final NativeSheetHydrationGeneration _modelSelectorHydration =
       NativeSheetHydrationGeneration();
   final NativeSheetPresentationAdmission _modelSelectorPresentation =
@@ -431,6 +444,22 @@ class NativeSheetHydrationService {
     }
   }
 
+  /// The rows read their strings from the app's localizations, which switch on
+  /// the frame that follows the locale change, so wait for that frame first.
+  Future<void> _rehydrateAppearanceAfterLocaleChange() async {
+    try {
+      await WidgetsBinding.instance.endOfFrame;
+      await hydrateDetail(NativeSheetRoutes.appearance);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'native-sheet-locale-rehydrate-failed',
+        scope: 'native-sheet/hydration',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
   Future<void> hydrateDetail(String detailId) async {
     final ctx = NavigationService.context;
     if (ctx == null || !ctx.mounted) return;
@@ -449,6 +478,9 @@ class NativeSheetHydrationService {
       case NativeSheetRoutes.appearance:
       case NativeSheetRoutes.chats:
       case NativeSheetRoutes.dataConnection:
+        if (detailId == NativeSheetRoutes.appearance) {
+          _appearanceDetailPresented = true;
+        }
         await _hydrateNativeSignalStyleSettingsDetails(ctx, l10n);
         return;
       case NativeSheetRoutes.aiMemory:
@@ -920,61 +952,12 @@ class NativeSheetHydrationService {
     );
   }
 
-  Future<void> _hydrateNativeSignalStyleSettingsDetails(
-    BuildContext context,
-    AppLocalizations l10n,
-  ) async {
+  Future<void> _applyNativeAppearanceDetail(AppLocalizations l10n) async {
     try {
-      final hasOpenWebUiAccount = _ref.read(openWebUiAccountAvailableProvider);
-      final modelsFuture = _ref.read(modelsProvider.future);
-      final models = await modelsFuture;
-      final tools = hasOpenWebUiAccount
-          ? await _ref.read(toolsListProvider.future)
-          : const <Tool>[];
-      if (!context.mounted) return;
-
-      final appSettings = _ref.read(appSettingsProvider);
-      final openRouterImageGenerationModelItem =
-          buildNativeOpenRouterImageGenerationModelItem(
-            l10n,
-            models: models,
-            selectedModelId: appSettings.openRouterImageGenerationModel,
-          );
       final themeMode = _ref.read(appThemeModeProvider);
       final appLocale = _ref.read(appLocaleProvider);
       final activePalette = _ref.read(appThemePaletteProvider);
-      final transportAvail = _ref.read(socketTransportOptionsProvider);
-      final selectedModel = _ref.read(selectedModelProvider);
-      final socketService = _ref.read(socketServiceProvider);
-
       final currentLanguageTag = appLocale?.toLanguageTag() ?? 'system';
-      var effectiveTransport = appSettings.socketTransportMode;
-      if (!transportAvail.allowPolling && effectiveTransport == 'polling') {
-        effectiveTransport = 'ws';
-      } else if (!transportAvail.allowWebsocketOnly &&
-          effectiveTransport == 'ws') {
-        effectiveTransport = 'polling';
-      }
-      final transportLabel = effectiveTransport == 'polling'
-          ? l10n.transportModePolling
-          : l10n.transportModeWs;
-      final filters = selectedModel?.filters ?? const [];
-      final allowedQuickIds = <String>{
-        'web',
-        'image',
-        ...tools.map((tool) => tool.id),
-        ...filters.map((filter) => 'filter:${filter.id}'),
-      };
-      final selectedQuickPills = appSettings.quickPills
-          .where((id) => allowedQuickIds.contains(id))
-          .toList();
-      final quickActionsTitle = nativeQuickActionsTitle(l10n);
-      final quickPillsSubtitle = l10n.quickActionsSelectedCount(
-        selectedQuickPills.length,
-      );
-      final defaultModelSubtitle =
-          resolveNativeSheetModelName(models, appSettings.defaultModel) ??
-          l10n.autoSelect;
       final themeItems = <NativeSheetItemConfig>[
         NativeSheetItemConfig(
           id: 'theme-light',
@@ -1018,7 +1001,75 @@ class NativeSheetHydrationService {
           ],
         ),
       );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'native-appearance-hydration-failed',
+        scope: 'native-sheet',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      await _patchNativeDetailError(
+        NativeSheetRoutes.appearance,
+        l10n.unableToLoadOpenWebuiSettings,
+      );
+    }
+  }
 
+  Future<void> _hydrateNativeSignalStyleSettingsDetails(
+    BuildContext context,
+    AppLocalizations l10n,
+  ) async {
+    // Appearance reads only local settings, so it is applied before anything
+    // that waits on the server, and a failed models or tools request cannot
+    // replace it (and the language picker) with an error row.
+    await _applyNativeAppearanceDetail(l10n);
+    try {
+      final hasOpenWebUiAccount = _ref.read(openWebUiAccountAvailableProvider);
+      final modelsFuture = _ref.read(modelsProvider.future);
+      final models = await modelsFuture;
+      final tools = hasOpenWebUiAccount
+          ? await _ref.read(toolsListProvider.future)
+          : const <Tool>[];
+      if (!context.mounted) return;
+
+      final appSettings = _ref.read(appSettingsProvider);
+      final openRouterImageGenerationModelItem =
+          buildNativeOpenRouterImageGenerationModelItem(
+            l10n,
+            models: models,
+            selectedModelId: appSettings.openRouterImageGenerationModel,
+          );
+      final transportAvail = _ref.read(socketTransportOptionsProvider);
+      final selectedModel = _ref.read(selectedModelProvider);
+      final socketService = _ref.read(socketServiceProvider);
+
+      var effectiveTransport = appSettings.socketTransportMode;
+      if (!transportAvail.allowPolling && effectiveTransport == 'polling') {
+        effectiveTransport = 'ws';
+      } else if (!transportAvail.allowWebsocketOnly &&
+          effectiveTransport == 'ws') {
+        effectiveTransport = 'polling';
+      }
+      final transportLabel = effectiveTransport == 'polling'
+          ? l10n.transportModePolling
+          : l10n.transportModeWs;
+      final filters = selectedModel?.filters ?? const [];
+      final allowedQuickIds = <String>{
+        'web',
+        'image',
+        ...tools.map((tool) => tool.id),
+        ...filters.map((filter) => 'filter:${filter.id}'),
+      };
+      final selectedQuickPills = appSettings.quickPills
+          .where((id) => allowedQuickIds.contains(id))
+          .toList();
+      final quickActionsTitle = nativeQuickActionsTitle(l10n);
+      final quickPillsSubtitle = l10n.quickActionsSelectedCount(
+        selectedQuickPills.length,
+      );
+      final defaultModelSubtitle =
+          resolveNativeSheetModelName(models, appSettings.defaultModel) ??
+          l10n.autoSelect;
       final modelItems = <NativeSheetItemConfig>[
         NativeSheetItemConfig(
           id: 'default-model',
@@ -1175,10 +1226,6 @@ class NativeSheetHydrationService {
         scope: 'native-sheet',
         error: error,
         stackTrace: stackTrace,
-      );
-      await _patchNativeDetailError(
-        NativeSheetRoutes.appearance,
-        l10n.unableToLoadOpenWebuiSettings,
       );
       await _patchNativeDetailError(
         NativeSheetRoutes.chats,
