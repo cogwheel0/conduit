@@ -1,6 +1,7 @@
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit_core/navigation/routes.dart';
@@ -30,6 +31,9 @@ final List<ProviderListenable<Object?>> routeRedirectDependencies = [
 ];
 
 /// App-local destinations that remain meaningful without an OpenWebUI account.
+/// The Hermes MCP page is not listed, here or in any other location check:
+/// it needs a usable Desktop Gateway, so the accountless redirect decides it
+/// from the Hermes configuration itself.
 /// Keep this list explicit so adding an OWUI-only profile route does not expose
 /// it to Hermes-only users by accident.
 bool isHermesOnlyAppLocation(String location) =>
@@ -338,8 +342,19 @@ String? _accountlessOrAuthRedirect(String location, ProviderRead read) {
   if (isAuthLocation(location)) return null;
   final prefersDirect =
       read(preferredBackendProvider) == PreferredBackend.direct;
-  final isAllowed = prefersDirect
-      ? isDirectOnlyAppLocation(location)
-      : isHermesOnlyAppLocation(location);
+  final bool isAllowed;
+  if (location == Routes.hermesMcp) {
+    // The MCP page talks to the Hermes Desktop Gateway. In any other backend
+    // mode, or with an incomplete gateway configuration, it can only fail to
+    // load while still offering to add servers, so the destination exists
+    // only where that gateway is usable.
+    final hermes = read(hermesConfigProvider);
+    isAllowed =
+        hermes.isUsable && hermes.mode == HermesBackendMode.desktopGateway;
+  } else {
+    isAllowed = prefersDirect
+        ? isDirectOnlyAppLocation(location)
+        : isHermesOnlyAppLocation(location);
+  }
   return isAllowed ? null : Routes.chat;
 }

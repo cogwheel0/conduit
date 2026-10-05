@@ -12,6 +12,26 @@ List<T> latestTranscriptWindow<T>(List<T> complete, int loadedCount) {
   return List<T>.unmodifiable(complete.sublist(complete.length - count));
 }
 
+/// How many of the [total] messages the timeline shows: the paging state's
+/// [loadedCount], or a first page while paging has not caught up with a
+/// transcript that just loaded.
+int renderedTranscriptCount({required int total, required int loadedCount}) {
+  if (loadedCount == 0 && total > 0) {
+    return total < kChatTranscriptPageSize ? total : kChatTranscriptPageSize;
+  }
+  return loadedCount < total ? loadedCount : total;
+}
+
+/// Whether to load the next older page: the user has scrolled the timeline
+/// themselves, older messages exist, none are loading, and the oldest
+/// loaded row is on screen.
+bool shouldLoadOlderTranscriptPage({
+  required bool hasUserScrolled,
+  required bool hasOlder,
+  required bool isLoadingOlder,
+  required bool oldestLoadedRowVisible,
+}) => hasUserScrolled && hasOlder && !isLoadingOlder && oldestLoadedRowVisible;
+
 @immutable
 final class MessageWindowCursor {
   const MessageWindowCursor(this.messageId);

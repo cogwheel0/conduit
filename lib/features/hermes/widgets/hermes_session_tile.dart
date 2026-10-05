@@ -28,6 +28,7 @@ import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_bot_chat.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_decision_projection.dart';
@@ -433,11 +434,7 @@ Future<void> openHermesSession(
       metadata: {
         'backend': 'hermes',
         'hermesSessionId': session.id,
-        if (bot != null) kHermesBotTitleMetadataKey: bot.title,
-        kHermesBotAvatarMetadataKey: ?botAvatar,
-        if (bot != null) kHermesBotShapeMetadataKey: bot.avatarShape,
-        if (bot != null) kHermesBotColorMetadataKey: bot.avatarColor,
-        kHermesBotImageKindMetadataKey: ?bot?.avatarImageKind,
+        ...hermesBotChatMetadata(bot: bot, avatar: botAvatar),
         kHermesConnectionIdentityMetadataKey: ?connectionIdentity,
       },
     ),

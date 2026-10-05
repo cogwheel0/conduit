@@ -5,6 +5,7 @@ import 'package:conduit_core/models/model.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
+import 'package:conduit_core/features/hermes/services/hermes_bot_chat.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';

@@ -7,113 +7,7 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
-
-final RegExp _hermesDurationPattern = RegExp(
-  r'^\d+\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)$',
-  caseSensitive: false,
-);
-final RegExp _hermesCronFieldPattern = RegExp(r'^[\d*,-/]+$');
-final RegExp _hermesIsoDateTimePattern = RegExp(
-  r'^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d+))?)?(?:Z|([+-])(\d{2}):?(\d{2}))?)?$',
-);
-
-/// Mirrors the schedule forms accepted by Hermes's `parse_schedule`: bare
-/// durations, recurring `every …` intervals, ISO date/times, and five-, six-,
-/// or seven-field numeric cron expressions (with optional seconds and year).
-@visibleForTesting
-bool isValidHermesSchedule(String value) {
-  final schedule = value.trim();
-  if (schedule.isEmpty) return false;
-  final lower = schedule.toLowerCase();
-  if (lower.startsWith('every ')) {
-    return _hermesDurationPattern.hasMatch(schedule.substring(6).trim());
-  }
-  if (_hermesDurationPattern.hasMatch(schedule)) return true;
-  if (schedule.contains('T') ||
-      RegExp(r'^\d{4}-\d{2}-\d{2}').hasMatch(schedule)) {
-    return _isValidHermesIsoDateTime(schedule);
-  }
-
-  final fields = schedule.split(RegExp(r'\s+'));
-  if (fields.length < 5 || fields.length > 7) return false;
-  if (fields.any((field) => !_hermesCronFieldPattern.hasMatch(field))) {
-    return false;
-  }
-  const bounds = [
-    (0, 59),
-    (0, 23),
-    (1, 31),
-    (1, 12),
-    (0, 7),
-    (0, 59),
-    (1970, 2099),
-  ];
-
-  bool inBounds(int value, int field) {
-    final (minimum, configuredMaximum) = bounds[field];
-    // croniter accepts Sunday=7 only in the traditional five-field form.
-    // Extended forms use the sixth field for seconds and require weekdays
-    // in the 0-6 range.
-    final maximum = field == 4 && fields.length > 5 ? 6 : configuredMaximum;
-    return value >= minimum && value <= maximum;
-  }
-
-  bool validPart(String raw, int field) {
-    if (raw.isEmpty) return false;
-    final stepParts = raw.split('/');
-    if (stepParts.length > 2) return false;
-    if (stepParts.length == 2) {
-      final step = int.tryParse(stepParts[1]);
-      if (step == null || step <= 0) return false;
-    }
-
-    final base = stepParts.first;
-    if (base == '*') return true;
-    final range = base.split('-');
-    if (range.length > 2) return false;
-    final start = int.tryParse(range.first);
-    if (start == null || !inBounds(start, field)) return false;
-    if (range.length == 1) return true;
-    final end = int.tryParse(range.last);
-    // croniter intentionally accepts wrap-around ranges such as 22-2 hours
-    // and 5-1 weekdays.
-    return end != null && inBounds(end, field);
-  }
-
-  for (var field = 0; field < fields.length; field++) {
-    final parts = fields[field].split(',');
-    if (parts.isEmpty || parts.any((part) => !validPart(part, field))) {
-      return false;
-    }
-  }
-  return true;
-}
-
-bool _isValidHermesIsoDateTime(String value) {
-  final match = _hermesIsoDateTimePattern.firstMatch(value);
-  if (match == null) return false;
-  final year = int.parse(match.group(1)!);
-  final month = int.parse(match.group(2)!);
-  final day = int.parse(match.group(3)!);
-  if (year == 0 || month < 1 || month > 12 || day < 1 || day > 31) {
-    return false;
-  }
-  final normalizedDate = DateTime.utc(year, month, day);
-  if (normalizedDate.year != year ||
-      normalizedDate.month != month ||
-      normalizedDate.day != day) {
-    return false;
-  }
-  final hourText = match.group(4);
-  if (hourText == null) return true;
-  final hour = int.parse(hourText);
-  final minute = int.parse(match.group(5)!);
-  final second = int.tryParse(match.group(6) ?? '0') ?? 0;
-  if (hour > 23 || minute > 59 || second > 59) return false;
-  final offsetHour = int.tryParse(match.group(9) ?? '0') ?? 0;
-  final offsetMinute = int.tryParse(match.group(10) ?? '0') ?? 0;
-  return offsetHour <= 23 && offsetMinute <= 59;
-}
+import 'package:conduit_core/features/hermes/utils/hermes_schedule_validation.dart';
 
 /// Shows the create/edit dialog for a scheduled Hermes job and returns the
 /// entered name, prompt, and schedule, or null if cancelled.
@@ -178,22 +72,36 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
     final name = _name.text.trim();
     final prompt = _prompt.text.trim();
     final schedule = _schedule.text.trim();
-    if (name.isEmpty ||
-        name.runes.length > kMaxHermesJobNameCharacters ||
-        prompt.isEmpty ||
-        prompt.runes.length > kMaxHermesJobPromptCharacters ||
-        !isValidHermesSchedule(schedule)) {
+    if (!hermesJobDraftIsValid(
+      validateHermesJobDraft(name: name, prompt: prompt, schedule: schedule),
+    )) {
       setState(() => _showErrors = true);
       return;
     }
     Navigator.of(context).pop((name: name, prompt: prompt, schedule: schedule));
   }
 
+  String? _errorText(
+    AppLocalizations l10n,
+    HermesJobFieldError? error, {
+    int maximum = 0,
+  }) => switch (_showErrors ? error : null) {
+    null => null,
+    HermesJobFieldError.required => l10n.requiredFieldHelper,
+    HermesJobFieldError.tooLong => l10n.hermesJobTooLong(maximum),
+    HermesJobFieldError.invalidSchedule => l10n.hermesJobScheduleInvalid,
+  };
+
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final isEditing = widget.initialPrompt != null;
     final l10n = AppLocalizations.of(context) ?? AppLocalizationsEn();
+    final errors = validateHermesJobDraft(
+      name: _name.text,
+      prompt: _prompt.text,
+      schedule: _schedule.text,
+    );
 
     return ThemedDialogs.buildBase(
       context: context,
@@ -206,13 +114,11 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
               label: l10n.name,
               hint: l10n.hermesJobNameHint,
               controller: _name,
-              errorText: _showErrors && _name.text.trim().isEmpty
-                  ? l10n.requiredFieldHelper
-                  : _showErrors &&
-                        _name.text.trim().runes.length >
-                            kMaxHermesJobNameCharacters
-                  ? l10n.hermesJobTooLong(kMaxHermesJobNameCharacters)
-                  : null,
+              errorText: _errorText(
+                l10n,
+                errors.name,
+                maximum: kMaxHermesJobNameCharacters,
+              ),
               onChanged: (_) {
                 if (_showErrors) setState(() {});
               },
@@ -224,13 +130,11 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
               controller: _prompt,
               minLines: 2,
               maxLines: 5,
-              errorText: _showErrors && _prompt.text.trim().isEmpty
-                  ? l10n.requiredFieldHelper
-                  : _showErrors &&
-                        _prompt.text.trim().runes.length >
-                            kMaxHermesJobPromptCharacters
-                  ? l10n.hermesJobTooLong(kMaxHermesJobPromptCharacters)
-                  : null,
+              errorText: _errorText(
+                l10n,
+                errors.prompt,
+                maximum: kMaxHermesJobPromptCharacters,
+              ),
               onChanged: (_) {
                 if (_showErrors) setState(() {});
               },
@@ -240,11 +144,11 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
               label: l10n.hermesJobScheduleLabel,
               hint: l10n.hermesJobScheduleHint,
               controller: _schedule,
-              errorText: _showErrors && _schedule.text.trim().isEmpty
-                  ? l10n.requiredFieldHelper
-                  : _showErrors && !isValidHermesSchedule(_schedule.text)
-                  ? l10n.hermesJobScheduleInvalid
-                  : null,
+              errorText: _errorText(
+                l10n,
+                errors.schedule,
+                maximum: kMaxHermesJobScheduleCharacters,
+              ),
               onChanged: (_) {
                 if (_showErrors) setState(() {});
               },

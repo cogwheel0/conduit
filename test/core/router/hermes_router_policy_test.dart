@@ -175,6 +175,8 @@ void main() {
         Routes.notificationSettings,
         Routes.notes,
         Routes.channel,
+        // Needs a usable Desktop Gateway; the redirect decides it.
+        Routes.hermesMcp,
       ]) {
         check(isHermesOnlyAppLocation(location)).isFalse();
       }
