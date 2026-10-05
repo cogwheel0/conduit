@@ -8,7 +8,6 @@ import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/secure_credential_storage.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
-import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/features/direct_connections/services/apple_pcc_adapter.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
@@ -47,7 +46,7 @@ void main() {
         overrides: [
           applePccPlatformSupportedProvider.overrideWithValue(false),
           applePccAdapterProvider.overrideWithValue(
-            ApplePccAdapter(hostApi: _UnreachablePccHost()),
+            ApplePccAdapter(host: _UnreachablePccHost()),
           ),
         ],
       );
@@ -2438,7 +2437,7 @@ final class _FailingReloadSecureStorage implements SecureKeyValueStore {
 
 /// Fails loudly if a status probe reaches the platform channel where Apple
 /// models cannot exist.
-final class _UnreachablePccHost extends PccHostApi {
+final class _UnreachablePccHost extends UnavailableApplePccHost {
   @override
   Future<PlatformPccStatus> getStatus(PlatformAppleModel model) =>
       throw StateError('Apple status probed on an unsupported platform');

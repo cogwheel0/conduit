@@ -2,7 +2,6 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
-import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
@@ -251,7 +250,7 @@ class BackendOnboardingHarness {
         // onboarding coverage still exercises them.
         applePccPlatformSupportedProvider.overrideWithValue(true),
         applePccAdapterProvider.overrideWithValue(
-          ApplePccAdapter(hostApi: _AvailablePccHost()),
+          ApplePccAdapter(host: _AvailablePccHost()),
         ),
         appleOnDeviceStatusProvider.overrideWith(
           (_) async => _unavailableAppleStatus(),
@@ -284,7 +283,7 @@ class BackendOnboardingHarness {
 
 /// Answers status probes instantly so Apple discovery never leaves a pending
 /// platform-channel timer behind in widget tests.
-final class _AvailablePccHost extends PccHostApi {
+final class _AvailablePccHost extends UnavailableApplePccHost {
   @override
   Future<PlatformPccStatus> getStatus(PlatformAppleModel model) async =>
       PlatformPccStatus(
