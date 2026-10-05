@@ -1,9 +1,7 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:mcp_dart/mcp_dart.dart' as mcp;
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
@@ -12,11 +10,11 @@ import '../../../shared/widgets/adaptive_dropdown_field.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 
+import 'package:conduit_core/features/direct_connections/controllers/direct_mcp_content_load_session.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_mcp_content.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
-import 'package:conduit_core/features/direct_connections/services/direct_mcp_client.dart';
 
 class DirectMcpContentSheet extends ConsumerStatefulWidget {
   const DirectMcpContentSheet({super.key});
@@ -40,13 +38,11 @@ class _DirectMcpContentSheetState extends ConsumerState<DirectMcpContentSheet> {
   DirectMcpServer? _argumentServer;
   DirectMcpPromptSummary? _argumentPrompt;
   bool _loading = false;
-  int _requestGeneration = 0;
-  mcp.BasicAbortController? _abort;
+  final _loads = DirectMcpContentLoadSession();
 
   @override
   void dispose() {
-    _requestGeneration++;
-    _abort?.abort();
+    _loads.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -70,88 +66,83 @@ class _DirectMcpContentSheetState extends ConsumerState<DirectMcpContentSheet> {
     Map<String, String> arguments,
   ) async {
     final l10n = AppLocalizations.of(context)!;
-    await _load((signal) async {
-      final result = await ref.read(directMcpPromptPreviewLoaderProvider)(
-        server,
-        prompt,
-        arguments,
-        signal,
-      );
-      return formatDirectMcpPromptInsertion(
+    final loader = ref.read(directMcpPromptPreviewLoaderProvider);
+    _beginLoad();
+    final outcome = await _loads.loadPrompt(loader, server, prompt, arguments);
+    _finishLoad(
+      outcome,
+      (preview) => formatDirectMcpPromptInsertion(
         heading: l10n.directMcpContentPromptHeading(
           server.name,
           prompt.displayName,
         ),
-        preview: result,
+        preview: preview,
         roleLabel: (role) => switch (role) {
           'system' => l10n.system,
           'assistant' => l10n.directMcpContentRoleAssistant,
           _ => l10n.directMcpContentRoleUser,
         },
-      );
-    });
+      ),
+    );
   }
 
   Future<void> _loadResource(
     DirectMcpServer server,
     DirectMcpResourceSummary resource,
-  ) {
+  ) async {
     final l10n = AppLocalizations.of(context)!;
-    return _load((signal) async {
-      final result = await ref.read(directMcpResourcePreviewLoaderProvider)(
-        server,
-        resource,
-        signal,
-      );
-      return formatDirectMcpResourceInsertion(
+    final loader = ref.read(directMcpResourcePreviewLoaderProvider);
+    _beginLoad();
+    final outcome = await _loads.loadResource(loader, server, resource);
+    _finishLoad(
+      outcome,
+      (preview) => formatDirectMcpResourceInsertion(
         heading: l10n.directMcpContentResourceHeading(
           server.name,
           resource.uri,
         ),
-        preview: result,
-      );
-    });
+        preview: preview,
+      ),
+    );
   }
 
-  Future<void> _load(
-    Future<String> Function(mcp.AbortSignal signal) operation,
-  ) async {
-    final generation = ++_requestGeneration;
-    final abort = mcp.BasicAbortController();
-    _abort?.abort();
-    _abort = abort;
+  void _beginLoad() {
     setState(() {
       _loading = true;
       _error = null;
     });
-    try {
-      abort.signal.throwIfAborted();
-      final preview = await operation(abort.signal);
-      if (!mounted || generation != _requestGeneration) return;
-      if (utf8.encode(preview).length > kDirectMcpMaxInsertionBytes) {
-        setState(
-          () => _error = AppLocalizations.of(context)!.directMcpContentTooLarge,
-        );
+  }
+
+  /// Shows [outcome] unless it was superseded: cancelling already reset the
+  /// loading state, and a newer load owns it.
+  void _finishLoad<T>(
+    DirectMcpLoadOutcome<T> outcome,
+    String Function(T value) format,
+  ) {
+    if (!mounted) return;
+    switch (outcome) {
+      case DirectMcpLoadSuperseded<T>():
         return;
-      }
-      setState(() => _preview = preview);
-    } catch (error) {
-      if (!mounted ||
-          generation != _requestGeneration ||
-          error is mcp.AbortError) {
-        return;
-      }
-      setState(() => _error = _messageFor(error));
-    } finally {
-      if (mounted && generation == _requestGeneration) {
-        setState(() => _loading = false);
-      }
+      case DirectMcpLoaded<T>(:final value):
+        final preview = format(value);
+        setState(() {
+          _loading = false;
+          if (directMcpInsertionTooLarge(preview)) {
+            _error = AppLocalizations.of(context)!.directMcpContentTooLarge;
+          } else {
+            _preview = preview;
+          }
+        });
+      case DirectMcpLoadFailed<T>(:final error):
+        setState(() {
+          _loading = false;
+          _error = _messageFor(error);
+        });
     }
   }
 
   void _cancelLoad() {
-    _requestGeneration++;
-    _abort?.abort();
+    _loads.cancel();
     setState(() {
       _loading = false;
       _error = null;
@@ -311,23 +302,9 @@ class _DirectMcpContentSheetState extends ConsumerState<DirectMcpContentSheet> {
         ),
       ),
       data: (content) {
-        final query = _searchController.text.trim().toLowerCase();
-        final prompts = content.prompts.where(
-          (prompt) => _matches(
-            query,
-            prompt.displayName,
-            prompt.name,
-            prompt.description,
-          ),
-        );
-        final resources = content.resources.where(
-          (resource) => _matches(
-            query,
-            resource.displayName,
-            resource.uri,
-            resource.description,
-          ),
-        );
+        final query = _searchController.text.trim();
+        final prompts = filterDirectMcpPrompts(content.prompts, query);
+        final resources = filterDirectMcpResources(content.resources, query);
         if (prompts.isEmpty && resources.isEmpty) {
           return _buildMessage(
             query.isEmpty
@@ -519,12 +496,6 @@ class _DirectMcpContentSheetState extends ConsumerState<DirectMcpContentSheet> {
     header: true,
     child: Text(label, style: context.conduitTheme.label),
   );
-
-  bool _matches(String query, String first, String second, String third) =>
-      query.isEmpty ||
-      first.toLowerCase().contains(query) ||
-      second.toLowerCase().contains(query) ||
-      third.toLowerCase().contains(query);
 }
 
 class _DirectMcpPromptArgumentsForm extends StatefulWidget {
@@ -600,8 +571,7 @@ class _DirectMcpPromptArgumentsFormState
                                 (value == null || value.trim().isEmpty)) {
                               return l10n.requiredFieldHelper;
                             }
-                            if (utf8.encode(value ?? '').length >
-                                kDirectMcpMaxPromptArgumentValueBytes) {
+                            if (directMcpArgumentValueTooLarge(value ?? '')) {
                               return l10n.directMcpContentTooLarge;
                             }
                             return null;

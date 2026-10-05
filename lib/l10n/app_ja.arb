@@ -4687,5 +4687,13 @@
   "imageSaveFailed": "画像を保存できませんでした。",
   "settingsTitle": "設定",
   "profileTitle": "プロフィール",
-  "aiAndMemoryTitle": "AIとメモリ"
+  "aiAndMemoryTitle": "AIとメモリ",
+  "voiceCallMinimize": "最小化",
+  "@voiceCallMinimize": {
+    "description": "Accessibility label for the button that shrinks the voice call panel to a small pill."
+  },
+  "voiceCallExpand": "展開",
+  "@voiceCallExpand": {
+    "description": "Accessibility label for the button that opens the minimized voice call pill back into the full panel."
+  }
 }

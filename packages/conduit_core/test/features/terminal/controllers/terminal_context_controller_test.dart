@@ -1,15 +1,17 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/features/terminal/controllers/terminal_browser_controller.dart';
-import 'package:conduit/features/terminal/controllers/terminal_context_controller.dart';
-import 'package:conduit/features/terminal/controllers/terminal_controller_gateways.dart';
-import 'package:conduit/features/terminal/controllers/terminal_session_controller.dart';
-import 'package:conduit/features/terminal/models/terminal_models.dart';
-import 'package:conduit/features/terminal/services/terminal_service.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:conduit_core/features/terminal/controllers/terminal_browser_controller.dart';
+import 'package:conduit_core/features/terminal/controllers/terminal_context_controller.dart';
+import 'package:conduit_core/features/terminal/controllers/terminal_controller_gateways.dart';
+import 'package:conduit_core/features/terminal/controllers/terminal_session_controller.dart';
+import 'package:conduit_core/features/terminal/models/terminal_models.dart';
+import 'package:conduit_core/features/terminal/services/terminal_service.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:test/test.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+
+import 'fake_terminal_screen.dart';
 
 void main() {
   final server = TerminalServerInfo(
@@ -441,6 +443,7 @@ final class _TerminalControllerHarness {
     session = TerminalSessionController(
       gateway: gateway,
       isCurrentContext: isCurrentContext,
+      screen: screen,
     );
     browser = TerminalBrowserController(
       gateway: gateway,
@@ -459,6 +462,7 @@ final class _TerminalControllerHarness {
   }
 
   final _FakeTerminalGateway gateway;
+  final FakeTerminalScreen screen = FakeTerminalScreen();
   final List<TerminalContextFailure> failures = [];
   late final TerminalSessionController session;
   late final TerminalBrowserController browser;

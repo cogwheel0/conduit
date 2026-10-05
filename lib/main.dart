@@ -75,6 +75,10 @@ import 'core/utils/current_localizations.dart';
 import 'package:conduit_core/features/chat/services/request_completion_runner.dart';
 
 import 'features/chat/providers/text_to_speech_provider.dart';
+import 'core/services/callkit_service.dart';
+import 'features/chat/services/voice_input_service.dart';
+import 'features/chat/voice_mode/chat_voice_audio_session_coordinator.dart';
+import 'features/chat/voice_mode/chat_voice_mode_controller.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatWakelockCoordinatorProvider, restoreDefaultModel;
@@ -370,6 +374,26 @@ void main() {
           // queued completions re-enter the streaming pipeline.
           requestCompletionRunnerProvider.overrideWith(
             (ref) => ref.watch(chatRequestCompletionRunnerProvider),
+          ),
+          // The voice-call controller lives in conduit_core; these are the
+          // host capabilities it drives (voice_mode_ports.dart).
+          voiceModeInputProvider.overrideWith(
+            (ref) => ref.watch(voiceInputServiceProvider),
+          ),
+          voiceModeSpeechProvider.overrideWith(
+            (ref) => ref.watch(textToSpeechServiceProvider),
+          ),
+          voiceCallKitProvider.overrideWith(
+            (ref) => ref.watch(callKitServiceProvider),
+          ),
+          voiceAudioSessionProvider.overrideWith(
+            (ref) => ref.watch(chatVoiceAudioSessionCoordinatorProvider),
+          ),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            ChatVoiceModeBackgroundCoordinator(),
+          ),
+          voiceModePlatformProvider.overrideWithValue(
+            const FlutterVoiceModePlatform(),
           ),
         ],
       );

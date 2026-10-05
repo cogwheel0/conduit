@@ -317,10 +317,19 @@ class ChannelMessages extends _$ChannelMessages {
   }
 
   /// Updates a message in the list (edit, reaction change).
+  ///
+  /// The edit endpoint and the `message:update` event carry the bare
+  /// `MessageModel` (routers/channels.py): no `user`, reactions or reply
+  /// count. A payload without a user keeps those from the message it
+  /// replaces, so an edit does not turn the sender into "Unknown" and drop
+  /// the reaction chips.
   void updateMessage(ChannelMessage updated) {
     final current = state.value ?? [];
     final index = current.indexWhere((message) => message.id == updated.id);
-    if (index < 0 || current[index] == updated) return;
+    if (index < 0) return;
+    final previous = current[index];
+    updated = _keepingMetadataOfBareUpdate(previous, updated);
+    if (previous == updated) return;
     _invalidatePendingFetchForMutation();
     final next = List<ChannelMessage>.of(current);
     next[index] = updated;
@@ -539,7 +548,9 @@ class ThreadMessages extends _$ThreadMessages {
     final current = state.value ?? [];
     final index = current.indexWhere((message) => message.id == updated.id);
     _invalidatePendingFetchForMutation(includePagination: index < 0);
-    if (index < 0 || current[index] == updated) return;
+    if (index < 0) return;
+    updated = _keepingMetadataOfBareUpdate(current[index], updated);
+    if (current[index] == updated) return;
     final next = List<ChannelMessage>.of(current);
     next[index] = updated;
     state = AsyncValue.data(next);
@@ -553,6 +564,23 @@ class ThreadMessages extends _$ThreadMessages {
     if (!current.any((message) => message.id == messageId)) return;
     state = AsyncValue.data(current.where((m) => m.id != messageId).toList());
   }
+}
+
+/// [updated] with what the bare `MessageModel` of an edit cannot carry taken
+/// from [previous]: the sender, reactions and reply counts. Only a payload
+/// without a sender is bare; a full message replaces the row as it is.
+ChannelMessage _keepingMetadataOfBareUpdate(
+  ChannelMessage previous,
+  ChannelMessage updated,
+) {
+  if (updated.user != null || previous.user == null) return updated;
+  return updated.copyWith(
+    user: previous.user,
+    reactions: previous.reactions,
+    replyCount: previous.replyCount,
+    latestReplyAt: previous.latestReplyAt,
+    replyToMessage: updated.replyToMessage ?? previous.replyToMessage,
+  );
 }
 
 List<ChannelMessage> _insertNewestFirst(

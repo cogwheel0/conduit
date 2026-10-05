@@ -6152,5 +6152,13 @@
   "profileTitle": "Profile",
   "@profileTitle": {"description": "Title of the native Profile page in Settings."},
   "aiAndMemoryTitle": "AI and Memory",
-  "@aiAndMemoryTitle": {"description": "Title of the native AI and Memory page in Settings."}
+  "@aiAndMemoryTitle": {"description": "Title of the native AI and Memory page in Settings."},
+  "voiceCallMinimize": "Minimize",
+  "@voiceCallMinimize": {
+    "description": "Accessibility label for the button that shrinks the voice call panel to a small pill."
+  },
+  "voiceCallExpand": "Expand",
+  "@voiceCallExpand": {
+    "description": "Accessibility label for the button that opens the minimized voice call pill back into the full panel."
+  }
 }

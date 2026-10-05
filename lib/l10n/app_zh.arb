@@ -3347,5 +3347,13 @@
   "imageSaveFailed": "无法保存图片。",
   "settingsTitle": "设置",
   "profileTitle": "个人资料",
-  "aiAndMemoryTitle": "AI 与记忆"
+  "aiAndMemoryTitle": "AI 与记忆",
+  "voiceCallMinimize": "最小化",
+  "@voiceCallMinimize": {
+    "description": "Accessibility label for the button that shrinks the voice call panel to a small pill."
+  },
+  "voiceCallExpand": "展开",
+  "@voiceCallExpand": {
+    "description": "Accessibility label for the button that opens the minimized voice call pill back into the full panel."
+  }
 }

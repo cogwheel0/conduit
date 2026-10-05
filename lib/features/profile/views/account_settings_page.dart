@@ -14,6 +14,8 @@ import 'package:conduit_core/services/api_service.dart';
 import '../../../core/services/ios_native_dropdown_bridge.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 
+import 'package:conduit_core/utils/account_profile_form.dart';
+import 'package:conduit_core/utils/profile_avatar.dart';
 import 'package:conduit_core/utils/user_avatar_utils.dart';
 
 import '../../../l10n/app_localizations.dart';
@@ -45,7 +47,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
 
   String? _loadedProfileId;
   String _selectedGenderValue = '';
-  String _avatarImageUrl = '/user.png';
+  String _avatarImageUrl = kDefaultProfileImagePath;
   bool _avatarUsesInitials = false;
   bool _savingProfile = false;
   bool _changingPassword = false;
@@ -478,7 +480,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     _bioController.text = profile.bio ?? '';
     _applyGender(profile.gender);
     _birthDateController.text = profile.dateOfBirth ?? '';
-    _avatarImageUrl = _normalizeAvatarUrl(profile.profileImageUrl);
+    _avatarImageUrl = normalizeProfileImageUrl(profile.profileImageUrl);
     _avatarUsesInitials = false;
   }
 
@@ -531,40 +533,13 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
   }
 
   void _applyGender(String? value) {
-    final normalized = value?.trim();
-    if (normalized == null || normalized.isEmpty) {
-      _selectedGenderValue = '';
-      _genderController.clear();
-      return;
-    }
-    if (normalized == 'male' || normalized == 'female') {
-      _selectedGenderValue = normalized;
-      _genderController.clear();
-      return;
-    }
-    _selectedGenderValue = 'custom';
-    _genderController.text = normalized;
+    final gender = splitProfileGender(value);
+    _selectedGenderValue = gender.choice;
+    _genderController.text = gender.custom;
   }
 
-  String _normalizeAvatarUrl(String? value) {
-    final trimmed = value?.trim();
-    if (trimmed == null || trimmed.isEmpty) {
-      return '/user.png';
-    }
-    return trimmed;
-  }
-
-  String get _resolvedGender {
-    switch (_selectedGenderValue) {
-      case 'male':
-      case 'female':
-        return _selectedGenderValue;
-      case 'custom':
-        return _genderController.text.trim();
-      default:
-        return '';
-    }
-  }
+  String get _resolvedGender =>
+      resolveProfileGender(_selectedGenderValue, _genderController.text);
 
   String _selectedGenderLabel(AppLocalizations l10n, String value) {
     return switch (value) {
@@ -586,36 +561,17 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
   String _resolvedAvatarUrl(ApiService? api) =>
       resolveUserProfileImageUrl(api, _avatarImageUrl) ?? _avatarImageUrl;
 
-  DateTime? _parseBirthDate(String value) {
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) {
-      return null;
-    }
-    return DateTime.tryParse(trimmed);
-  }
+  DateTime? _parseBirthDate(String value) => parseProfileBirthDate(value);
 
-  String _formatBirthDate(DateTime value) {
-    final date = DateTime(value.year, value.month, value.day);
-    return date.toIso8601String().split('T').first;
-  }
+  String _formatBirthDate(DateTime value) => formatProfileBirthDate(value);
 
-  DateTime _clampBirthDate(DateTime value) {
-    final minimum = DateTime(1900, 1, 1);
-    final maximum = DateTime.now();
-    if (value.isBefore(minimum)) {
-      return minimum;
-    }
-    if (value.isAfter(maximum)) {
-      return maximum;
-    }
-    return value;
-  }
+  DateTime _clampBirthDate(DateTime value) => clampProfileBirthDate(value);
 
   Future<void> _pickBirthDate() async {
     final initialDate = _clampBirthDate(
       _parseBirthDate(_birthDateController.text) ?? DateTime(1990, 1, 1),
     );
-    final firstDate = DateTime(1900, 1, 1);
+    final firstDate = kEarliestProfileBirthDate;
     final lastDate = DateTime.now();
 
     final platform = Theme.of(context).platform;
@@ -874,17 +830,17 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
   void _removeAvatar() {
     setState(() {
       _avatarUsesInitials = false;
-      _avatarImageUrl = '/user.png';
+      _avatarImageUrl = kDefaultProfileImagePath;
     });
   }
 
   Future<String> _generateInitialsAvatarDataUrl(String name) async {
-    final initials = _extractInitials(name);
+    final initials = extractAvatarInitials(name);
     const dimension = 250;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     final center = const Offset(dimension / 2, dimension / 2);
-    final paint = Paint()..color = _avatarBackgroundColor(name);
+    final paint = Paint()..color = Color(initialsAvatarColorValue(name));
 
     canvas.drawCircle(center, dimension / 2, paint);
 
@@ -913,35 +869,9 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
     final bytes = byteData?.buffer.asUint8List();
     if (bytes == null) {
-      return '/user.png';
+      return kDefaultProfileImagePath;
     }
     return 'data:image/png;base64,${base64Encode(bytes)}';
-  }
-
-  String _extractInitials(String name) {
-    final words = name
-        .trim()
-        .split(RegExp(r'\s+'))
-        .where((part) => part.isNotEmpty)
-        .toList();
-
-    if (words.isEmpty) {
-      return 'U';
-    }
-    if (words.length == 1) {
-      final word = words.first;
-      final length = word.length >= 2 ? 2 : 1;
-      return word.substring(0, length).toUpperCase();
-    }
-    return '${words.first[0]}${words[1][0]}'.toUpperCase();
-  }
-
-  Color _avatarBackgroundColor(String seed) {
-    final normalized = seed.trim().toLowerCase();
-    final hue = normalized.isEmpty
-        ? 215.0
-        : (normalized.hashCode.abs() % 360).toDouble();
-    return HSLColor.fromAHSL(1, hue, 0.55, 0.52).toColor();
   }
 
   Future<void> _changePassword() async {

@@ -7,14 +7,13 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
-/// Avatar URL scheme for a bundled models.dev logo: `modellogo:<id>`.
-const String kModelLogoUrlScheme = 'modellogo:';
+export 'package:conduit_core/features/direct_connections/services/model_logo_catalog.dart'
+    show kModelLogoUrlScheme;
 
 const String _kModelLogoDirectory = 'assets/model_logos';
 
 /// The bundled models.dev logo catalog, loaded once at startup.
 abstract final class ModelLogos {
-  static ModelLogoCatalog? _catalog;
   static Future<void>? _loading;
 
   /// Loads `catalog.json`. Safe to call more than once; failures leave
@@ -26,7 +25,7 @@ abstract final class ModelLogos {
       final json = await rootBundle.loadString(
         '$_kModelLogoDirectory/catalog.json',
       );
-      _catalog = ModelLogoCatalog.fromJson(
+      installedModelLogoCatalog = ModelLogoCatalog.fromJson(
         jsonDecode(json) as Map<String, dynamic>,
       );
     } catch (error) {
@@ -40,22 +39,12 @@ abstract final class ModelLogos {
 
   /// The avatar URL for a Direct [model] minted by this device, or `null`
   /// when its maker and provider are both unknown.
-  static String? avatarUrlForDirectModel(Model model) {
-    final catalog = _catalog;
-    final metadata = model.metadata;
-    final remoteId = metadata?['remoteModelId'];
-    if (catalog == null || remoteId is! String) return null;
-    final logo = catalog.logoFor(
-      remoteModelId: remoteId,
-      baseHost: metadata?['directBaseHost'] as String?,
-      adapterKey: metadata?['adapterKey'] as String?,
-    );
-    return logo == null ? null : '$kModelLogoUrlScheme$logo';
-  }
+  static String? avatarUrlForDirectModel(Model model) =>
+      directModelLogoAvatarUrl(model);
 
   /// Replaces the catalog, for tests.
   static void debugSetCatalog(ModelLogoCatalog? catalog) {
-    _catalog = catalog;
+    installedModelLogoCatalog = catalog;
     _loading = catalog == null ? null : Future.value();
   }
 }
