@@ -172,13 +172,22 @@ final class HermesDashboardRestSession implements HermesDashboardBridge {
       try {
         final page = _page;
         if (page != null) {
-          await page.reload();
-          await Future<void>(() async {
-            while (await page.evaluateJavaScript('document.readyState') !=
-                'complete') {
-              await Future<void>.delayed(readyStatePoll);
-            }
-          }).timeout(reloadTimeout);
+          try {
+            // One deadline for the whole reload: starting it and waiting for
+            // the document, so neither can hold the queue forever.
+            await Future<void>(() async {
+              await page.reload();
+              while (await page.evaluateJavaScript('document.readyState') !=
+                  'complete') {
+                await Future<void>.delayed(readyStatePoll);
+              }
+            }).timeout(reloadTimeout);
+          } catch (_) {
+            // The page's state is unknown, so no queued request runs on it:
+            // it is closed and the next request opens a fresh one.
+            await _discard(page);
+            rethrow;
+          }
         }
         completer.complete();
       } catch (error, stackTrace) {

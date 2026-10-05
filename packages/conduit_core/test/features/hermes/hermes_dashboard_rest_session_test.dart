@@ -49,8 +49,14 @@ final class _FakePage implements HermesDashboardPage {
     return readyStates.length > 1 ? readyStates.removeAt(0) : readyStates.first;
   }
 
+  /// When set, [reload] waits for it (a reload that never finishes).
+  Completer<void>? reloadHold;
+
   @override
-  Future<void> reload() async => log.add('reload');
+  Future<void> reload() async {
+    log.add('reload');
+    await reloadHold?.future;
+  }
 
   @override
   Future<void> dispose() async => disposed = true;
@@ -67,11 +73,13 @@ void main() {
     bool loadImmediately = true,
     Duration openTimeout = const Duration(seconds: 15),
     Duration requestTimeout = const Duration(seconds: 30),
+    Duration reloadTimeout = const Duration(seconds: 10),
   }) => HermesDashboardRestSession(
     root: root,
     accessHeaders: access,
     openTimeout: openTimeout,
     requestTimeout: requestTimeout,
+    reloadTimeout: reloadTimeout,
     readyStatePoll: Duration.zero,
     beforeOpen: () async => events.add('baseline'),
     afterResponse: () async => events.add('record'),
@@ -260,6 +268,23 @@ void main() {
       ]);
     },
   );
+
+  test('a reload that never finishes times out and closes the page', () async {
+    final bridge = session(reloadTimeout: const Duration(milliseconds: 20));
+    await bridge.request('GET', Uri.parse('https://hermes.example/warm'));
+    final first = pages.single;
+    first.reloadHold = Completer<void>();
+
+    final reloaded = bridge.reload();
+    final after = bridge.request('GET', Uri.parse('https://hermes.example/n'));
+
+    await check(reloaded).throws<TimeoutException>();
+    // The queue moved on, onto a fresh page rather than the one in doubt.
+    check(first.disposed).isTrue();
+    check((await after).body).equals('https://hermes.example/n');
+    check(pages).length.equals(2);
+    first.reloadHold!.complete();
+  });
 
   test('refuses answers that are not a status and body', () async {
     final bridge = session();
