@@ -18,6 +18,9 @@ final class _FakePage implements HermesDashboardPage {
   bool disposed = false;
   Uri? current;
 
+  /// When set, the next call waits for it (a fetch that is slow to answer).
+  Completer<void>? hold;
+
   @override
   Future<Uri?> currentUrl() async => current ?? root;
 
@@ -33,6 +36,7 @@ final class _FakePage implements HermesDashboardPage {
     calls.add(arguments);
     log.add('call ${arguments['url']}');
     await Future<void>.delayed(Duration.zero);
+    await hold?.future;
     final respond = answer;
     return respond == null
         ? {'status': 200, 'body': '${arguments['url']}'}
@@ -62,10 +66,12 @@ void main() {
   HermesDashboardRestSession session({
     bool loadImmediately = true,
     Duration openTimeout = const Duration(seconds: 15),
+    Duration requestTimeout = const Duration(seconds: 30),
   }) => HermesDashboardRestSession(
     root: root,
     accessHeaders: access,
     openTimeout: openTimeout,
+    requestTimeout: requestTimeout,
     readyStatePoll: Duration.zero,
     beforeOpen: () async => events.add('baseline'),
     afterResponse: () async => events.add('record'),
@@ -195,6 +201,65 @@ void main() {
     check(pages.single.disposed).isTrue();
     check(bridge.isOpen).isFalse();
   });
+
+  test(
+    'a request that times out closes the page, and the next one reopens',
+    () async {
+      final bridge = session(requestTimeout: const Duration(milliseconds: 20));
+      await bridge.request('GET', Uri.parse('https://hermes.example/warm'));
+      final first = pages.single;
+      first.hold = Completer<void>();
+
+      final slow = bridge.request(
+        'POST',
+        Uri.parse('https://hermes.example/w'),
+      );
+      final next = bridge.request('GET', Uri.parse('https://hermes.example/n'));
+
+      await check(slow).throws<TimeoutException>();
+      // The page that still has the write in flight is gone, not reused.
+      check(first.disposed).isTrue();
+      check((await next).body).equals('https://hermes.example/n');
+      check(pages).length.equals(2);
+      check(pages.last.log).deepEquals(['call https://hermes.example/n']);
+      first.hold!.complete();
+    },
+  );
+
+  test(
+    'reload waits for queued requests and holds later ones behind it',
+    () async {
+      final bridge = session();
+      await bridge.request('GET', Uri.parse('https://hermes.example/warm'));
+      final page = pages.single;
+      page.log.clear();
+      page.hold = Completer<void>();
+
+      final inFlight = bridge.request(
+        'GET',
+        Uri.parse('https://hermes.example/a'),
+      );
+      final reloaded = bridge.reload();
+      final after = bridge.request(
+        'GET',
+        Uri.parse('https://hermes.example/b'),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      // The reload has not interrupted the fetch that was running.
+      check(page.log).deepEquals(['call https://hermes.example/a']);
+      page.hold!.complete();
+      await inFlight;
+      await reloaded;
+      await after;
+
+      check(page.log).deepEquals([
+        'call https://hermes.example/a',
+        'reload',
+        'call https://hermes.example/b',
+      ]);
+    },
+  );
 
   test('refuses answers that are not a status and body', () async {
     final bridge = session();
