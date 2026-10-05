@@ -17,6 +17,7 @@ import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_connection_coordinator.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 
 import 'hermes_dashboard_auth_page.dart';
 
@@ -39,7 +40,15 @@ class HermesDesktopConnectionSection extends ConsumerStatefulWidget {
 
 class _HermesDesktopConnectionSectionState
     extends ConsumerState<HermesDesktopConnectionSection> {
-  static const _desktopConnection = HermesDesktopConnectionCoordinator();
+  // Setup runs before the live Hermes client exists, so temporary clients
+  // need the same host capabilities as the enabled client.
+  HermesDesktopConnectionCoordinator get _desktopConnection =>
+      HermesDesktopConnectionCoordinator(
+        openExternalUrl: ref.read(openExternalUrlProvider),
+        dashboardBridgeFactory: ref.read(
+          hostHermesDashboardBridgeFactoryProvider,
+        ),
+      );
   List<String> _profiles = const [];
   String? _profilesError;
   bool _profilesLoading = false;

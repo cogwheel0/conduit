@@ -51,6 +51,8 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
     private var platformAllowOnlineFallback = true
     private var platformLocaleId: String? = null
     private var platformLanguageSwitchLanguages: List<String>? = null
+    private var platformLanguageFallbacks: List<String?>? = null
+    private val platformFailedLocaleIds = mutableSetOf<String?>()
     private var platformEngineName = "android_speech"
     private var platformCommittedText = ""
     @Volatile
@@ -452,8 +454,11 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         platformEmitPartialResults = emitPartialResults
         platformAccumulateResults = accumulateResults
         platformAllowOnlineFallback = allowOnlineFallback
-        platformLocaleId = localeId
+        platformLocaleId = localeId?.takeIf { it.isNotBlank() }
+            ?.let { parseLocale(it).toLanguageTag() }
         platformLanguageSwitchLanguages = languageSwitch?.languages
+        platformLanguageFallbacks = null
+        platformFailedLocaleIds.clear()
         platformEngineName = if (languageSwitch == null) {
             "android_speech"
         } else {
@@ -552,15 +557,72 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                 restartPlatformRecognizerIfActive(delayMs = 300L)
                 return
             }
-            emitError(
-                "ANDROID_SPEECH_$error",
-                platformSpeechErrorMessage(error),
-                platformEngineName
-            )
-            emitDone(platformEngineName)
+            if (error == AndroidSpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED &&
+                recoverUnsupportedPlatformLanguage()
+            ) return
+            finishPlatformError(error)
         }
 
         override fun onEvent(eventType: Int, params: Bundle?) {}
+    }
+
+    private fun finishPlatformError(error: Int) {
+        platformStopRequested = true
+        platformRestartJob?.cancel()
+        platformRestartJob = null
+        emitError("ANDROID_SPEECH_$error", platformSpeechErrorMessage(error), platformEngineName)
+        emitDone(platformEngineName)
+    }
+
+    private fun recoverUnsupportedPlatformLanguage(): Boolean {
+        val recognizer = activePlatformRecognizer ?: return false
+        val generation = recognitionGeneration
+        // A rejected switching request has not yet tried the engine's default
+        // single-language request, even though both use a null locale.
+        if (platformLanguageSwitchLanguages == null) {
+            platformFailedLocaleIds.add(platformLocaleId)
+        }
+        platformRestartJob?.cancel()
+        platformRestartJob = scope.launch {
+            if (platformLanguageFallbacks == null) {
+                // Reuse the active recognizer for the support check. Rebinding
+                // the recognition service can disconnect it (issue #762).
+                val supported = platformRecognitionLanguages(
+                    allowOnlineFallback = platformAllowOnlineFallback,
+                    requestLanguageSwitch = false,
+                    recognizer = recognizer
+                )
+                if (!isCurrentGeneration(generation) || platformStopRequested ||
+                    activePlatformRecognizer !== recognizer
+                ) return@launch
+                platformLanguageFallbacks = NativeSttLanguagePolicy.fallbackLocaleIds(
+                    localeId = platformLocaleId,
+                    systemLocaleId = Locale.getDefault().toLanguageTag(),
+                    supportedLocaleIds = supported
+                ).filterNot { it in platformFailedLocaleIds }.take(2)
+            }
+            val remaining = platformLanguageFallbacks.orEmpty()
+                .filterNot { it in platformFailedLocaleIds }
+            if (remaining.isEmpty()) {
+                finishPlatformError(AndroidSpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED)
+                return@launch
+            }
+            platformLanguageSwitchLanguages = null
+            platformLocaleId = remaining.first()
+            platformFailedLocaleIds.add(platformLocaleId)
+            platformEngineName = "android_speech"
+            delay(300L)
+            if (!isCurrentGeneration(generation) || platformStopRequested ||
+                activePlatformRecognizer !== recognizer
+            ) return@launch
+            try {
+                recognizer.startListening(platformRecognizerIntent())
+            } catch (error: Throwable) {
+                Log.w(TAG, "Android speech language recovery failed", error)
+                finishPlatformError(AndroidSpeechRecognizer.ERROR_CLIENT)
+            }
+        }
+        return true
     }
 
     private fun restartPlatformRecognizerIfActive(delayMs: Long = 200L) {
@@ -599,11 +661,9 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                     RecognizerIntent.EXTRA_LANGUAGE_SWITCH_ALLOWED_LANGUAGES,
                     ArrayList(languageSwitchLanguages)
                 )
-            } else {
-                val locale = parseLocale(platformLocaleId).toLanguageTag()
+            } else if (platformLocaleId != null) {
+                val locale = platformLocaleId
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, locale)
-                putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, false)
             }
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, platformEmitPartialResults)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
@@ -758,6 +818,10 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
             AndroidSpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Speech recognizer is busy"
             AndroidSpeechRecognizer.ERROR_SERVER -> "Speech recognition server error"
             AndroidSpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech input"
+            AndroidSpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ->
+                "The speech recognizer does not support this language. Choose another speech language or STT mode."
+            AndroidSpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE ->
+                "The speech language is not downloaded. Download it in your speech recognition settings or choose another STT mode."
             else -> "Android speech recognition failed"
         }
     }

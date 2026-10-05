@@ -1,5 +1,7 @@
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/ports/external_url_port.dart';
 
 HermesDesktopAuthKind hermesRecommendedDesktopAuth(
   Map<String, dynamic> status, {
@@ -43,7 +45,13 @@ bool hermesDesktopConnectionMatches(HermesConfig left, HermesConfig right) {
 }
 
 final class HermesDesktopConnectionCoordinator {
-  const HermesDesktopConnectionCoordinator();
+  const HermesDesktopConnectionCoordinator({
+    this.openExternalUrl,
+    this.dashboardBridgeFactory,
+  });
+
+  final OpenExternalUrlPort? openExternalUrl;
+  final HermesDashboardBridgeFactory? dashboardBridgeFactory;
 
   Future<List<String>> profiles(
     HermesConfig config, {
@@ -90,6 +98,8 @@ final class HermesDesktopConnectionCoordinator {
   }) async {
     final service = HermesDesktopApiService(
       config: config,
+      openExternalUrl: openExternalUrl,
+      dashboardBridgeFactory: dashboardBridgeFactory,
       onCredentialsChanged: onCredentialsChanged,
     );
     try {
