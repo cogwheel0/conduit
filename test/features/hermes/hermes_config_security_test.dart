@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
@@ -9,6 +10,7 @@ import 'package:conduit/features/hermes/controllers/hermes_connection_controller
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_connection_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -33,6 +35,98 @@ void main() {
   });
 
   tearDown(PreferencesStore.debugReset);
+
+  for (final operation in ['connection edit', 'sign-out']) {
+    test(
+      'live native token refresh persists after failed $operation',
+      () async {
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(() => server.close(force: true));
+        server.listen((request) async {
+          request.response.headers.contentType = ContentType.json;
+          switch (request.uri.path) {
+            case '/api/status':
+              request.response.write('{"auth_required":true}');
+            case '/auth/native/refresh':
+              check(request.method).equals('POST');
+              request.response.write(
+                jsonEncode({
+                  'access_token': 'refreshed-access',
+                  'refresh_token': 'refreshed-refresh',
+                  'expires_at':
+                      DateTime.utc(2030).millisecondsSinceEpoch ~/ 1000,
+                }),
+              );
+            case '/api/profiles':
+              check(request.headers.value(HttpHeaders.authorizationHeader))
+                  .equals('Bearer refreshed-access');
+              request.response.write('{"profiles":[{"name":"default"}]}');
+            default:
+              request.response.statusCode = HttpStatus.notFound;
+          }
+          await request.response.close();
+        });
+        final storage = _FailOnceSecureStorage({
+          'hermes_api_key_v1': 'key-for-one',
+          'hermes_session_key_v1': 'memory-for-one',
+        });
+        final container = await _readyHermesContainer(storage);
+        addTearDown(container.dispose);
+        final controller = container.read(hermesConfigProvider.notifier);
+        await controller.saveConnection(
+          baseUrl: 'http://127.0.0.1:${server.port}',
+          mode: HermesBackendMode.desktopGateway,
+          desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+          desktopCredentialsChanged: true,
+          desktopCredentials: HermesDesktopCredentials(
+            nativeTokens: HermesDesktopTokenSet(
+              accessToken: 'expired-access',
+              refreshToken: 'original-refresh',
+              expiresAt: DateTime.utc(2020),
+            ),
+          ),
+        );
+        // Create the live client before the failed mutation revokes its writer.
+        container.read(hermesApiServiceProvider);
+        final oldSignIn = controller.nativeCredentialsWriter();
+        if (operation == 'sign-out') {
+          storage.failNextDeleteFor = 'hermes_desktop_credentials_v1';
+          await expectLater(controller.signOutDesktop(), throwsStateError);
+        } else {
+          storage.failNextWriteFor = 'hermes_api_key_v1';
+          await expectLater(
+            controller.saveConnection(
+              baseUrl: 'https://replacement.example',
+              apiKeyChanged: true,
+              apiKey: 'replacement-key',
+            ),
+            throwsStateError,
+          );
+        }
+
+        final live =
+            container.read(hermesApiServiceProvider) as HermesDesktopApiService;
+        check(await live.listProfiles()).deepEquals(['default']);
+        final persisted =
+            jsonDecode(storage.values['hermes_desktop_credentials_v1']!) as Map;
+        check((persisted['native_tokens'] as Map)['access_token'])
+            .equals('refreshed-access');
+        check((persisted['native_tokens'] as Map)['refresh_token'])
+            .equals('refreshed-refresh');
+        await expectLater(
+          oldSignIn(_nativeCredentials('late')),
+          throwsStateError,
+        );
+        check(
+          container
+              .read(hermesConfigProvider)
+              .desktopCredentials
+              ?.nativeTokens
+              ?.accessToken,
+        ).equals('refreshed-access');
+      },
+    );
+  }
 
   test(
     'native credential writer remains valid across token rotations',
@@ -1637,6 +1731,7 @@ class _FailOnceSecureStorage implements SecureKeyValueStore {
 
   final Map<String, String> values;
   String? failNextWriteFor;
+  String? failNextDeleteFor;
   final List<String> failWriteSequence = <String>[];
   bool failReads = false;
 
@@ -1665,6 +1760,10 @@ class _FailOnceSecureStorage implements SecureKeyValueStore {
 
   @override
   Future<void> delete({required String key}) async {
+    if (failNextDeleteFor == key) {
+      failNextDeleteFor = null;
+      throw StateError('delete failed for $key');
+    }
     values.remove(key);
   }
 

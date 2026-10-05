@@ -1016,6 +1016,13 @@ class HermesConfigController extends Notifier<HermesConfig> {
     _connectionMutationEpoch++;
     try {
       return await operation();
+    } catch (_) {
+      // Even a rolled-back edit revoked the live client's credential writer.
+      // Rebuild it for the retained connection without reviving old callbacks.
+      if (ref.mounted && !_mutationsBlocked) {
+        ref.read(hermesConnectionGenerationProvider.notifier).bump();
+      }
+      rethrow;
     } finally {
       if (!_mutationsBlocked) {
         _runAdmissionBlocked = false;
