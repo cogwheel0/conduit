@@ -156,6 +156,26 @@ func pccGenerationSchema(json: String, name: String) throws -> GenerationSchema 
         } else {
             throw PccBridgeError.invalidSchema
         }
+        func numericBounds() throws -> (minimum: NSNumber?, maximum: NSNumber?) {
+            func number(_ key: String) throws -> NSNumber? {
+                guard let value = raw[key] else { return nil }
+                guard let number = value as? NSNumber,
+                      CFGetTypeID(number) != CFBooleanGetTypeID(),
+                      number.doubleValue.isFinite
+                else {
+                    throw PccBridgeError.invalidSchema
+                }
+                return number
+            }
+            let minimum = try number("minimum")
+            let maximum = try number("maximum")
+            if let minimum, let maximum,
+               minimum.compare(maximum) == .orderedDescending
+            {
+                throw PccBridgeError.invalidSchema
+            }
+            return (minimum, maximum)
+        }
         switch type {
         case "object":
             guard let rawProperties = raw["properties"] as? [String: Any],
@@ -239,15 +259,31 @@ func pccGenerationSchema(json: String, name: String) throws -> GenerationSchema 
             }
             return DynamicGenerationSchema(type: String.self)
         case "integer":
-            guard raw["minimum"] == nil, raw["maximum"] == nil else {
-                throw PccBridgeError.invalidSchema
+            let bounds = try numericBounds()
+            var guides: [GenerationGuide<Int>] = []
+            if let minimum = bounds.minimum {
+                guard let value = minimum as? Int else {
+                    throw PccBridgeError.invalidSchema
+                }
+                guides.append(.minimum(value))
             }
-            return DynamicGenerationSchema(type: Int.self)
+            if let maximum = bounds.maximum {
+                guard let value = maximum as? Int else {
+                    throw PccBridgeError.invalidSchema
+                }
+                guides.append(.maximum(value))
+            }
+            return DynamicGenerationSchema(type: Int.self, guides: guides)
         case "number":
-            guard raw["minimum"] == nil, raw["maximum"] == nil else {
-                throw PccBridgeError.invalidSchema
+            let bounds = try numericBounds()
+            var guides: [GenerationGuide<Double>] = []
+            if let minimum = bounds.minimum {
+                guides.append(.minimum(minimum.doubleValue))
             }
-            return DynamicGenerationSchema(type: Double.self)
+            if let maximum = bounds.maximum {
+                guides.append(.maximum(maximum.doubleValue))
+            }
+            return DynamicGenerationSchema(type: Double.self, guides: guides)
         case "boolean":
             return DynamicGenerationSchema(type: Bool.self)
         case "null":

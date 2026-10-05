@@ -122,14 +122,53 @@ class RunnerTests: XCTestCase {
       json: #"{"type":"string","enum":[]}"#,
       name: "EmptyEnum"
     ))
-    XCTAssertThrowsError(try pccGenerationSchema(
-      json: #"{"type":"integer","minimum":0}"#,
-      name: "UnsupportedMinimum"
-    ))
-    XCTAssertThrowsError(try pccGenerationSchema(
-      json: #"{"type":"number","maximum":1}"#,
-      name: "UnsupportedMaximum"
-    ))
+    // Numeric bounds occur in tool arguments as well as response schemas.
+    // In particular, web_search's optional max_results must retain its
+    // limits instead of causing the whole native tool to be skipped.
+    let boundedSearch = try pccGenerationSchema(
+      json: #"{"type":"object","properties":{"query":{"type":"string"},"max_results":{"type":"integer","minimum":1,"maximum":3}},"required":["query"]}"#,
+      name: "WebSearchArguments"
+    )
+    let encodedSearch = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(boundedSearch)) as? [String: Any]
+    )
+    let properties = try XCTUnwrap(encodedSearch["properties"] as? [String: Any])
+    let maxResults = try XCTUnwrap(properties["max_results"] as? [String: Any])
+    XCTAssertEqual(maxResults["minimum"] as? Int, 1)
+    XCTAssertEqual(maxResults["maximum"] as? Int, 3)
+    XCTAssertEqual(encodedSearch["required"] as? [String], ["query"])
+
+    for json in [
+      #"{"type":"integer","minimum":-2}"#,
+      #"{"type":"integer","maximum":5}"#,
+      #"{"type":"integer","minimum":1,"maximum":1}"#,
+      #"{"type":"number","minimum":0.25,"maximum":0.75}"#,
+      #"{"type":"number","minimum":-0.5}"#,
+      #"{"type":"number","maximum":1}"#,
+    ] {
+      let schema = try pccGenerationSchema(json: json, name: "NumericBounds")
+      let expected = try XCTUnwrap(
+        JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
+      )
+      let actual = try XCTUnwrap(
+        JSONSerialization.jsonObject(with: JSONEncoder().encode(schema)) as? [String: Any]
+      )
+      for key in ["minimum", "maximum"] {
+        XCTAssertEqual(actual[key] as? NSNumber, expected[key] as? NSNumber, json)
+      }
+    }
+    for json in [
+      #"{"type":"integer","minimum":"1"}"#,
+      #"{"type":"integer","maximum":true}"#,
+      #"{"type":"integer","minimum":0.5}"#,
+      #"{"type":"integer","maximum":9223372036854775808}"#,
+      #"{"type":"integer","minimum":3,"maximum":1}"#,
+      #"{"type":"number","minimum":false}"#,
+      #"{"type":"number","maximum":"1"}"#,
+      #"{"type":"number","minimum":0.75,"maximum":0.25}"#,
+    ] {
+      XCTAssertThrowsError(try pccGenerationSchema(json: json, name: "InvalidBounds"), json)
+    }
     XCTAssertThrowsError(try pccGenerationSchema(
       json: #"{"type":[],"properties":{}}"#,
       name: "EmptyTypeArray"

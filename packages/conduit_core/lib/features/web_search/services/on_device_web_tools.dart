@@ -107,8 +107,9 @@ final class OnDeviceWebToolSession {
         displayName: 'Web search',
         description:
             'Search the web for current information. Returns titles, URLs '
-            'and short snippets. Today is $today. Call $kWebFetchToolName '
-            'to read a result in full.',
+            'and short snippets. Today is $today. Answer from the snippets '
+            'when they are sufficient. Call $kWebFetchToolName only when '
+            'you need more detail from a result.',
         inputSchema: {
           'type': 'object',
           'required': ['query'],
@@ -128,8 +129,9 @@ final class OnDeviceWebToolSession {
         name: kWebFetchToolName,
         displayName: 'Read web page',
         description:
-            'Read one web page as text. The URL must come from '
-            '$kWebSearchToolName results or from the user\'s message.',
+            'Read one web page as text. Use an exact URL from '
+            '$kWebSearchToolName results or from the user\'s message. '
+            'Never guess a URL. Search first if you do not have one.',
         inputSchema: {
           'type': 'object',
           'required': ['url'],
@@ -230,7 +232,8 @@ final class OnDeviceWebToolSession {
     if (!_fetchableUrls.contains(url)) {
       throw const FormatException(
         'web_fetch only accepts an exact URL from web_search results or from '
-        'the user\'s message.',
+        'the user\'s message. Call web_search to find a URL, then use an '
+        'exact URL from its results. Do not retry this guessed URL.',
       );
     }
     final page = await _fetcher.fetch(
