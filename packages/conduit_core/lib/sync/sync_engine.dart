@@ -640,15 +640,25 @@ class SyncEngine extends _$SyncEngine {
     if (remapper == null) return null;
     final boundSessionEpoch = sessionEpoch ?? _sessionEpoch;
     // The server answers the account this pull was built for; once the session
-    // moves on, a late response is no evidence about the new account.
+    // moves on, a late response is no evidence about the new account. The API
+    // client and database outlive a sign-in change on the same server, so the
+    // authentication session is fenced as well as the dependency epoch.
     final readerId = ref.read(currentUserProvider2)?.id;
+    final authSession = ref.read(openWebUiAuthSessionEpochProvider);
     return NotePullSync(
       client: client,
       db: db,
       locks: noteLocks,
       remapper: remapper,
       readerAccountId: () =>
-          boundSessionEpoch == _sessionEpoch ? readerId : null,
+          ref.mounted &&
+              boundSessionEpoch == _sessionEpoch &&
+              identical(
+                ref.read(openWebUiAuthSessionEpochProvider),
+                authSession,
+              )
+          ? readerId
+          : null,
       onFeatureEnabled: (enabled) {
         if (!ref.mounted) return;
         if (boundSessionEpoch != _sessionEpoch) return;
