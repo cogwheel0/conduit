@@ -3,7 +3,9 @@ import 'dart:typed_data';
 
 import 'package:uuid/uuid.dart';
 
+import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 
 import '../utils/message_tree_utils.dart' as message_tree;
@@ -19,6 +21,11 @@ import 'structured_output_renderer.dart';
 /// can be executed inside a background worker.
 
 const _uuid = Uuid();
+
+/// The chat's own `chat.params`. Only a nested `chat` object carries it; list
+/// summaries without one read as no overrides.
+Map<String, dynamic> _chatParams(Object? chatObject) =>
+    openWebUiChatParamsFrom(chatObject is Map ? chatObject['params'] : null);
 
 Map<String, dynamic> parseConversationSummary(Map<String, dynamic> chatData) {
   final id = (chatData['id'] ?? '').toString();
@@ -55,6 +62,7 @@ Map<String, dynamic> parseConversationSummary(Map<String, dynamic> chatData) {
     'lastReadAt': lastReadAt?.toIso8601String(),
     'model': chatData['model']?.toString(),
     'systemPrompt': systemPrompt,
+    'chatParams': _chatParams(chatObject),
     'messages': const <Map<String, dynamic>>[],
     'metadata': {
       ..._coerceJsonMap(chatData['metadata']),
@@ -100,6 +108,7 @@ Map<String, dynamic> parseFullConversation(Map<String, dynamic> chatData) {
   }
 
   String? model;
+  var savedModels = const <String>[];
   Map<String, dynamic>? historyMessagesMap;
   List<Map<String, dynamic>>? messagesList;
 
@@ -123,6 +132,7 @@ Map<String, dynamic> parseFullConversation(Map<String, dynamic> chatData) {
     if (models is List && models.isNotEmpty) {
       model = models.first?.toString();
     }
+    savedModels = _coerceStringList(models);
   }
 
   if ((messagesList == null || messagesList.isEmpty) &&
@@ -197,10 +207,14 @@ Map<String, dynamic> parseFullConversation(Map<String, dynamic> chatData) {
     'lastReadAt': lastReadAt?.toIso8601String(),
     'model': model,
     'systemPrompt': systemPrompt,
+    'chatParams': _chatParams(chatObject),
     'messages': messages,
     'metadata': {
       ..._coerceJsonMap(chatData['metadata']),
       if (chatData['tasks'] is List) 'openwebui_tasks': chatData['tasks'],
+      // The full saved `chat.models` list; `model` above projects only its
+      // first entry. A multi-model chat keeps one id per slot, in order.
+      if (savedModels.length > 1) kConversationModelsMetadataKey: savedModels,
     },
     'pinned': pinned,
     'archived': archived,
@@ -257,6 +271,34 @@ void _addVersionsFromSiblings(
       ...versions,
     ];
   }
+
+  // Siblings fold into versions, which keep no `done`; partial text must not
+  // pass for a finished answer, so the group's unfinished ids ride along.
+  final unfinished = <String>[
+    for (final answer in [
+      msgData,
+      ...siblings.whereType<Map<String, dynamic>>(),
+    ])
+      if (_answerReportedUnfinished(
+        answer,
+        historyMessagesMap?[answer['id']?.toString()],
+      ))
+        answer['id'].toString(),
+  ];
+  if (unfinished.isNotEmpty) {
+    parsed['metadata'] = <String, dynamic>{
+      ..._coerceJsonMap(parsed['metadata']),
+      kMessageUnfinishedAnswersMetadataKey: unfinished,
+    };
+  }
+}
+
+/// Whether the server says this answer is not done: an explicit `done: false`,
+/// never one that merely has no marker, and never once either copy says done.
+bool _answerReportedUnfinished(Map<String, dynamic> msgData, Object? history) {
+  final historyMsg = history is Map ? history : null;
+  final done = [msgData['done'], historyMsg?['done']].map(_safeBool);
+  return !done.contains(true) && done.contains(false);
 }
 
 ({List<String>? attachmentIds, List<Map<String, dynamic>>? files})
@@ -421,6 +463,8 @@ Map<String, dynamic>? _parseSiblingAsVersion(
     if (rawUsage.isNotEmpty) 'usage': rawUsage,
     if (outputItems.isNotEmpty) 'output': outputItems,
     'error': ?errorData,
+    'modelIdx': ?_extractModelIdx(msgData, historyMsg),
+    'merged': ?_extractMergedResponse(msgData, historyMsg),
   };
 }
 
@@ -494,6 +538,11 @@ Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
     metadata.remove('transport');
   }
 
+  // Derived from this snapshot's `done` flags by _addVersionsFromSiblings. A
+  // copy that came back round-trip through the server is stale, and would keep
+  // answers live that the server has since finished.
+  metadata.remove(kMessageUnfinishedAnswersMetadataKey);
+
   if (role == 'assistant' &&
       _extractErrorData(msgData, historyMsg) != null &&
       !_isDirectTransport(metadata)) {
@@ -533,6 +582,16 @@ Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
     metadata['modelName'] = modelName;
   }
 
+  if (role == 'assistant') {
+    // Which slot of a multi-model turn this answer belongs to, and the merge
+    // Open WebUI saved on it. Both live beside the content, never in place of
+    // it; the raw message row keeps every other key as it was.
+    final modelIdx = _extractModelIdx(msgData, historyMsg);
+    if (modelIdx != null) metadata[kMessageModelIdxMetadataKey] = modelIdx;
+    final merged = _extractMergedResponse(msgData, historyMsg);
+    if (merged != null) metadata[kMessageMergedMetadataKey] = merged;
+  }
+
   // The user's thumbs up (1) or down (-1), and the evaluation record it was
   // filed under. Open WebUI keeps both on the message, so a rating made in
   // its web client shows here, and one made here updates the same record.
@@ -564,6 +623,32 @@ List<String> _chatTags(Map<String, dynamic> chatData) {
     if (tags.isNotEmpty) return tags;
   }
   return const <String>[];
+}
+
+int? _extractModelIdx(
+  Map<String, dynamic> msgData,
+  Map<String, dynamic>? historyMsg,
+) {
+  for (final candidate in [historyMsg?['modelIdx'], msgData['modelIdx']]) {
+    final value = switch (candidate) {
+      final int number => number,
+      final double number when number == number.truncateToDouble() =>
+        number.toInt(),
+      final String text => int.tryParse(text.trim()),
+      _ => null,
+    };
+    if (value != null && value >= 0) return value;
+  }
+  return null;
+}
+
+Map<String, dynamic>? _extractMergedResponse(
+  Map<String, dynamic> msgData,
+  Map<String, dynamic>? historyMsg,
+) {
+  final raw = historyMsg?['merged'] ?? msgData['merged'];
+  if (raw is! Map || raw.isEmpty) return null;
+  return _coerceJsonMap(raw);
 }
 
 /// Where a message's rating lives in its metadata: 1, -1, or absent.

@@ -5,6 +5,7 @@ import 'package:collection/collection.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/chats_dao.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
+import 'package:conduit_core/database/models/chat_transcript_window.dart';
 import 'package:drift/native.dart';
 import 'package:test/test.dart';
 
@@ -98,6 +99,74 @@ void main() {
         );
       },
     );
+  });
+
+  group('chat params from stored rows', () {
+    // A chat whose stored envelope carries params, hydrated from the database
+    // exactly as the app reopens it.
+    Future<(ChatRow, List<MessageRow>)> seedWithParams() async {
+      final fixture = loadChatBlobFixtures().singleWhere(
+        (f) => f.name == '02_linear_multi_turn',
+      );
+      final rows = rowsFromFixture(fixture);
+      await db.chatsDao.upsertServerChat(rows: rows);
+      await db.chatsDao.patchChatParamsWithOutbox(
+        fixture.chatId,
+        set: {
+          'system': '',
+          'temperature': 0.4,
+          'custom_params': {'k': 'v'},
+        },
+        updatedAt: 9,
+      );
+      return (
+        (await db.chatsDao.getChat(fixture.chatId))!,
+        await db.messagesDao.getForChat(fixture.chatId),
+      );
+    }
+
+    test('a full conversation carries them, with branches untouched', () async {
+      final (chat, messages) = await seedWithParams();
+      final fixture = loadChatBlobFixtures().singleWhere(
+        (f) => f.name == '02_linear_multi_turn',
+      );
+      final withParams = assembleConversation(chat, messages);
+
+      // What the fixture already stored survives next to the edit.
+      check(withParams.chatParams).deepEquals({
+        ...(fixture.blob['params'] as Map<String, dynamic>? ??
+            const <String, dynamic>{}),
+        'system': '',
+        'temperature': 0.4,
+        'custom_params': {'k': 'v'},
+      });
+      // The transcript is the same one the params-free chat produced.
+      final plain = assembleConversation(
+        (await db.chatsDao.getChat(chat.id))!.copyWith(rawExtra: '{}'),
+        messages,
+      );
+      check(withParams.messages.map((m) => m.id).toList())
+          .deepEquals(plain.messages.map((m) => m.id).toList());
+    });
+
+    test('a bounded window carries them too', () async {
+      final (chat, messages) = await seedWithParams();
+      final window = MessageRowWindow(
+        primaryRows: messages,
+        rows: messages,
+        hasOlder: false,
+        olderCursor: null,
+      );
+
+      final conversation = await assembleConversationWindowGuarded(
+        chat,
+        window,
+        offload: null,
+      );
+
+      check(conversation.chatParams['temperature']).equals(0.4);
+      check(conversation.chatParams['system']).equals('');
+    });
   });
 
   group('conversationFromListEntry', () {

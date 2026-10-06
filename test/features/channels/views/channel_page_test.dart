@@ -2,11 +2,13 @@ import 'dart:async';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/channel_message.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 import 'package:conduit/features/channels/views/channel_page.dart';
@@ -443,6 +445,122 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(milliseconds: 1));
   });
+  testWidgets('the members button opens the searchable, pageable list with '
+      'the opener\'s credentials', (tester) async {
+    final api = _MemberChannelApi();
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(api),
+        activeServerProvider.overrideWith((ref) => api.serverConfig),
+        authTokenProvider3.overrideWithValue('token-a'),
+        socketServiceProvider.overrideWithValue(null),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(activeServerProvider.future);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const ChannelPage(channelId: 'channel-1'),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1));
+
+    await tester.tap(find.byIcon(Icons.people_outline));
+    await tester.pumpAndSettle();
+
+    // The interactive sheet, not a first-page-only static one: it has search
+    // and a way to reach the next page.
+    expect(find.byKey(const Key('channel-members-list')), findsOneWidget);
+    expect(find.byType(TextField), findsWidgets);
+    expect(find.text('Members (65)'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('channel-members-load-more')),
+      200,
+      scrollable: find.descendant(
+        of: find.byKey(const Key('channel-members-list')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('channel-members-load-more')));
+    await tester.pumpAndSettle();
+    check(api.memberReads.map((read) => read.page)).deepEquals([1, 2]);
+
+    await tester.enterText(find.byType(TextField).last, 'Person 004');
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+    check(api.memberReads.last.query).equals('Person 004');
+    check(api.memberReads.last.page).equals(1);
+
+    // Every read was bound to the credentials captured when the sheet opened.
+    check(api.memberReads.map((read) => read.snapshot))
+        .every((it) => it.isNotNull());
+  });
+
+  testWidgets('the count refresh after removing a member is bound to the '
+      'opener\'s credentials', (tester) async {
+    final api = _MemberChannelApi();
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(api),
+        activeServerProvider.overrideWith((ref) => api.serverConfig),
+        authTokenProvider3.overrideWithValue('token-a'),
+        currentUserProvider2.overrideWithValue(
+          const User(
+            id: 'user-1',
+            username: 'user-1',
+            email: 'user-1@example.test',
+            role: 'user',
+          ),
+        ),
+        appSettingsProvider.overrideWith(() => _AdvancedSettings()),
+        socketServiceProvider.overrideWithValue(null),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(activeServerProvider.future);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const ChannelPage(channelId: 'channel-1'),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1));
+    // The page's own load is an ordinary read.
+    check(api.channelReadSnapshots).deepEquals([null]);
+
+    await tester.tap(find.byIcon(Icons.people_outline));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('channel-member-remove-user-3')));
+    await tester.pumpAndSettle();
+
+    check(api.removals.map((r) => r.userIds)).deepEquals([
+      ['user-3'],
+    ]);
+    // The refresh that follows is the second channel read, and it carries the
+    // snapshot captured when the sheet opened.
+    check(api.channelReadSnapshots).length.equals(2);
+    check(api.channelReadSnapshots.last).isNotNull();
+    check(api.removals.single.snapshot).isNotNull();
+  });
+}
+
+class _AdvancedSettings extends AppSettingsNotifier {
+  @override
+  AppSettings build() => const AppSettings(advancedFeaturesEnabled: true);
 }
 
 Map<String, dynamic> _channelJson(String name) => {
@@ -501,7 +619,10 @@ class _ChannelApi extends ApiService {
   int addMessageReactionCalls = 0;
 
   @override
-  Future<Map<String, dynamic>> getChannel(String channelId) {
+  Future<Map<String, dynamic>> getChannel(
+    String channelId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) {
     getChannelCalls += 1;
     return firstResponse?.future ??
         Future<Map<String, dynamic>>.value(_channelJson(channelName));
@@ -553,7 +674,9 @@ class _ChannelApi extends ApiService {
       (const <Map<String, dynamic>>[], true);
 
   @override
-  Future<Map<String, dynamic>> getUserPermissions() async => const {};
+  Future<Map<String, dynamic>> getUserPermissions({
+    ApiAuthSnapshot? authSnapshot,
+  }) async => const {};
 
   @override
   Future<Map<String, dynamic>> getUserSettings({
@@ -567,7 +690,10 @@ class _RouteChangeChannelApi extends _ChannelApi {
   final Completer<Map<String, dynamic>> secondResponse;
 
   @override
-  Future<Map<String, dynamic>> getChannel(String channelId) {
+  Future<Map<String, dynamic>> getChannel(
+    String channelId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) {
     if (channelId == 'channel-2') return secondResponse.future;
     return Future<Map<String, dynamic>>.value({
       'id': channelId,
@@ -575,3 +701,67 @@ class _RouteChangeChannelApi extends _ChannelApi {
     });
   }
 }
+
+class _MemberChannelApi extends _ChannelApi {
+  _MemberChannelApi();
+
+  final List<({int page, String? query, ApiAuthSnapshot? snapshot})>
+  memberReads = [];
+
+  final List<ApiAuthSnapshot?> channelReadSnapshots = [];
+  final List<({List<String> userIds, ApiAuthSnapshot? snapshot})> removals = [];
+
+  @override
+  Future<Map<String, dynamic>> getChannel(
+    String channelId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    channelReadSnapshots.add(authSnapshot);
+    return {
+      'id': channelId,
+      'name': 'Team',
+      'type': 'group',
+      'user_id': 'user-1',
+      'is_manager': true,
+      'user_count': 65,
+    };
+  }
+
+  @override
+  Future<void> removeChannelMembers(
+    String channelId, {
+    required List<String> userIds,
+    ApiAuthSnapshot? authSnapshot,
+  }) async => removals.add((userIds: userIds, snapshot: authSnapshot));
+
+  @override
+  Future<Map<String, dynamic>> getChannelMembers(
+    String channelId, {
+    String? query,
+    String? orderBy,
+    String? direction,
+    int page = 1,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    memberReads.add((page: page, query: query, snapshot: authSnapshot));
+    if (query != null) {
+      return {
+        'users': [_memberJson(4)],
+        'total': 1,
+      };
+    }
+    final first = (page - 1) * 30 + 1;
+    return {
+      'users': [
+        for (var n = first; n < first + 30 && n <= 65; n++) _memberJson(n),
+      ],
+      'total': 65,
+    };
+  }
+}
+
+Map<String, dynamic> _memberJson(int n) => {
+  'id': 'user-$n',
+  'name': 'Person ${n.toString().padLeft(3, '0')}',
+  'role': 'user',
+};

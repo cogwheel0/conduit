@@ -3,8 +3,14 @@ part of 'api_service.dart';
 mixin _ModelsApi on _ApiServiceBase {
   // Models
   @override
-  Future<List<Model>> getModels({bool includeHidden = false}) async {
-    final response = await _dio.get('/api/models');
+  Future<List<Model>> getModels({
+    bool includeHidden = false,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    final response = await _dio.get(
+      '/api/models',
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
 
     // Normalize common response formats:
     // - {"data": [...]} (OpenAI)

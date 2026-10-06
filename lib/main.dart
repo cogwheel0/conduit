@@ -72,9 +72,21 @@ import 'core/services/native_symbol_image_service.dart';
 
 import 'package:conduit_core/services/readiness_gated_secure_storage.dart';
 import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/features/automations/providers/automation_providers.dart'
+    show scheduledTasksEntryVisibleProvider;
+import 'package:conduit_core/features/calendar/providers/calendar_providers.dart'
+    show calendarEntryVisibleProvider;
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show chatDataControlsEntryVisibleProvider;
+import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 
 import 'package:conduit_core/sync/request_completion_runner_provider.dart';
 
+import 'core/utils/native_sheet_utils.dart'
+    show
+        nativeMemoryEditorActionPrefix,
+        nativeMemoryEditorNewActionId,
+        nativeNotificationTargetsActionId;
 import 'core/utils/tts_voice_utils.dart';
 import 'core/utils/current_localizations.dart';
 
@@ -98,6 +110,10 @@ import 'shared/widgets/legacy_design_compatibility.dart';
 
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 
+import 'package:conduit_core/features/notifications/providers/notification_target_providers.dart'
+    show notificationTargetsAvailableProvider;
+
+import 'features/profile/views/personalization_page.dart' show showMemoryEditor;
 import 'features/workspace/providers/workspace_capabilities_provider.dart';
 import 'features/workspace/workspace_navigation.dart';
 
@@ -105,6 +121,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'core/utils/system_ui_style.dart';
 
+import 'package:conduit_core/models/server_memory.dart';
 import 'package:conduit_core/models/tool.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -614,6 +631,67 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         return;
       }
 
+      if (event.id == NativeSheetRoutes.personalConnections) {
+        // The sheet was built before this arrived, and Advanced or the
+        // account's access can change while it is open. The page enforces the
+        // same rule, but a stale row should not even navigate.
+        if (!ref.read(personalConnectionsEntryVisibleProvider)) return;
+        final request = personalConnectionsNativeSheetNavigationRequest;
+        unawaited(
+          NavigationService.router.pushNamed<void>(
+            request.routeName,
+            extra: request.extra,
+          ),
+        );
+        return;
+      }
+
+      if (event.id == NativeSheetRoutes.scheduledTasks) {
+        // As for Personal connections: the sheet was built before this
+        // arrived, so a row that went stale (Advanced turned off, the account
+        // or its permission changed) must not navigate.
+        if (!ref.read(scheduledTasksEntryVisibleProvider)) return;
+        final request = scheduledTasksNativeSheetNavigationRequest;
+        unawaited(
+          NavigationService.router.pushNamed<void>(
+            request.routeName,
+            extra: request.extra,
+          ),
+        );
+        return;
+      }
+
+      if (event.id == NativeSheetRoutes.calendar) {
+        // As for Scheduled tasks: the sheet was built before this arrived, so
+        // a row that went stale (Advanced turned off, the account or its
+        // permission changed) must not navigate.
+        if (!ref.read(calendarEntryVisibleProvider)) return;
+        final request = calendarNativeSheetNavigationRequest;
+        unawaited(
+          NavigationService.router.pushNamed<void>(
+            request.routeName,
+            extra: request.extra,
+          ),
+        );
+        return;
+      }
+
+      if (event.id == NativeSheetRoutes.chatDataControls) {
+        // As for Scheduled tasks: the sheet was built before this arrived, so
+        // a row that went stale (Advanced turned off, the account signed out)
+        // must not navigate. The page itself opens its file picker only after
+        // the user acts on it, never while this sheet is still up.
+        if (!ref.read(chatDataControlsEntryVisibleProvider)) return;
+        final request = chatDataControlsNativeSheetNavigationRequest;
+        unawaited(
+          NavigationService.router.pushNamed<void>(
+            request.routeName,
+            extra: request.extra,
+          ),
+        );
+        return;
+      }
+
       if (event.id == NativeSheetRoutes.releaseNotesManual) {
         await _dismissNativeSheetBeforeFollowUp();
         final context = NavigationService.context;
@@ -642,22 +720,35 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         return;
       }
 
+      if (event.id == nativeNotificationTargetsActionId) {
+        _openNativeNotificationTargets();
+        return;
+      }
+
+      if (event.id == nativeMemoryEditorNewActionId ||
+          event.id.startsWith(nativeMemoryEditorActionPrefix)) {
+        await _openNativeMemoryEditor(event.id);
+        return;
+      }
+
       if (event.id.startsWith('memory-save:')) {
         final encoded = event.id.substring('memory-save:'.length);
         final memoryId = Uri.decodeComponent(encoded);
         if (value is String) {
-          await ref
-              .read(userMemoriesProvider.notifier)
-              .updateItem(memoryId, value);
+          await _runNativeMemoryAction(
+            (memories, owner) =>
+                memories.updateItem(memoryId, value, owner: owner),
+          );
         }
         return;
       }
 
       if (event.id.startsWith('memory-delete:')) {
         final encoded = event.id.substring('memory-delete:'.length);
-        await ref
-            .read(userMemoriesProvider.notifier)
-            .deleteItem(Uri.decodeComponent(encoded));
+        await _runNativeMemoryAction(
+          (memories, owner) =>
+              memories.deleteItem(Uri.decodeComponent(encoded), owner: owner),
+        );
         return;
       }
 
@@ -775,10 +866,14 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
           }
         case 'memory-add-content':
           if (value is String && value.trim().isNotEmpty) {
-            await ref.read(userMemoriesProvider.notifier).add(value.trim());
+            await _runNativeMemoryAction(
+              (memories, owner) => memories.add(value.trim(), owner: owner),
+            );
           }
         case 'memory-clear-all':
-          await ref.read(userMemoriesProvider.notifier).clearAll();
+          await _runNativeMemoryAction(
+            (memories, owner) => memories.clearAll(owner: owner),
+          );
         case 'memory-enabled':
           if (value is bool) {
             await ref
@@ -865,6 +960,15 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             await ref
                 .read(appSettingsProvider.notifier)
                 .setTemporaryChatByDefault(value);
+          }
+        case 'advanced-features':
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setAdvancedFeaturesEnabled(value);
+            await ref
+                .read(nativeSheetHydrationServiceProvider)
+                .hydrateDetail(NativeSheetRoutes.chats);
           }
         case 'disable-haptics-streaming':
           if (value is bool) {
@@ -1012,6 +1116,68 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
       context: context,
       currentVersion: packageInfo.version,
       notes: notes,
+    );
+  }
+
+  /// Runs a memory action from the native Memory list for the account that
+  /// list was built for. With no list on record, or once the account has
+  /// changed, nothing is sent.
+  Future<void> _runNativeMemoryAction(
+    Future<void> Function(UserMemories memories, MemoryOwner owner) action,
+  ) async {
+    final owner = ref.read(nativeSheetHydrationServiceProvider).memoryOwner;
+    if (owner == null) return;
+    await action(ref.read(userMemoriesProvider.notifier), owner);
+  }
+
+  /// Opens the Flutter Notifications page, where webhook destinations live, once
+  /// the native sheet has closed. It is entered with the native-sheet origin so
+  /// the page does not slide over the sheet that just left. Nothing is sent from
+  /// here: the page captures the account when an action in it opens, so this
+  /// only has to keep a stale or denied row from navigating.
+  void _openNativeNotificationTargets() {
+    final advanced = ref.read(appSettingsProvider).advancedFeaturesEnabled;
+    if (!advanced || !ref.read(notificationTargetsAvailableProvider)) return;
+    unawaited(
+      NavigationService.router.pushNamed<void>(
+        RouteNames.notificationSettings,
+        extra: const NativeSheetNavigationOrigin(),
+      ),
+    );
+  }
+
+  /// Opens the Flutter memory editor, which the native sheet cannot match with
+  /// its type and path fields, over the app once the native sheet has closed.
+  Future<void> _openNativeMemoryEditor(String actionId) async {
+    final memories = ref.read(userMemoriesProvider.notifier);
+    final owner = ref.read(nativeSheetHydrationServiceProvider).memoryOwner;
+    final permitted = ref
+        .read(memoriesPermittedProvider)
+        .maybeWhen(data: (permitted) => permitted, orElse: () => true);
+    if (owner == null || !permitted) return;
+
+    ServerMemory? memory;
+    if (actionId != nativeMemoryEditorNewActionId) {
+      final id = Uri.decodeComponent(
+        actionId.substring(nativeMemoryEditorActionPrefix.length),
+      );
+      memory = ref
+          .read(userMemoriesProvider)
+          .asData
+          ?.value
+          .where((candidate) => candidate.id == id)
+          .firstOrNull;
+      if (memory == null) return;
+    }
+
+    final context = NavigationService.context;
+    if (context == null || !context.mounted) return;
+    await showMemoryEditor(
+      context,
+      notifier: memories,
+      owner: owner,
+      advanced: ref.read(appSettingsProvider).advancedFeaturesEnabled,
+      memory: memory,
     );
   }
 

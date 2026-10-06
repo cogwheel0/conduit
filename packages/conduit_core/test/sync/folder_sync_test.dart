@@ -470,4 +470,53 @@ void main() {
       },
     );
   });
+
+  group('a project edit drains as a key-by-key patch (§7.6)', () {
+    test('keys another client changed meanwhile survive the push', () async {
+      const files = [
+        {'type': 'collection', 'id': 'kb-1', 'name': 'Docs'},
+      ];
+      server.seedFolderRaw(<String, dynamic>{
+        'id': 'p',
+        'name': 'Project',
+        'created_at': 50,
+        'updated_at': 100,
+        'data': {
+          'system_prompt': 'Be brief',
+          'files': files,
+          'custom': {'k': 1},
+        },
+      });
+      await db.foldersDao.replaceServerFolders(server.getFolders());
+
+      // Another client edits the prompt after this device last synced, then
+      // this device saves the default models offline and later drains.
+      server.updateFolder(
+        'p',
+        data: {'system_prompt': 'Changed on the other client'},
+      );
+      await folderLocks.runExclusive('p', () async {
+        await db.foldersDao.patchFolderDataWithOutbox(
+          id: 'p',
+          dataPatch: {
+            'model_ids': ['m-a', 'm-b'],
+          },
+        );
+      });
+      final op = (await db.outboxDao.pendingForChat('p')).single;
+      await push.pushFolderUpsert(
+        jsonDecode(op.payload) as Map<String, dynamic>,
+      );
+
+      check(server.getFolders().single['data'])
+          .isA<Map<String, dynamic>>()
+          .deepEquals({
+            'system_prompt': 'Changed on the other client',
+            'files': files,
+            'custom': {'k': 1},
+            'model_ids': ['m-a', 'm-b'],
+          });
+      check((await db.foldersDao.getFolder('p'))!.dirty).isFalse();
+    });
+  });
 }

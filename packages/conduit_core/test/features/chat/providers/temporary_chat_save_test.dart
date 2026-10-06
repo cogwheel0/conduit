@@ -60,6 +60,7 @@ void main() {
       String id, {
       String? folderId,
       List<ChatMessage>? messages,
+      Map<String, dynamic> chatParams = const {},
     }) => Conversation(
       id: id,
       title: 'Temporary',
@@ -67,6 +68,7 @@ void main() {
       updatedAt: DateTime(2026),
       messages: messages ?? transcript,
       folderId: folderId,
+      chatParams: chatParams,
     );
 
     late _CreatingApi api;
@@ -76,6 +78,7 @@ void main() {
       String? folderId,
       bool empty = false,
       _CreatingApi? withApi,
+      Map<String, dynamic> chatParams = const {},
     }) {
       api = withApi ?? _CreatingApi();
       final container = ProviderContainer(
@@ -90,6 +93,7 @@ void main() {
                 id,
                 folderId: folderId,
                 messages: empty ? const <ChatMessage>[] : null,
+                chatParams: chatParams,
               ),
             ),
           ),
@@ -119,6 +123,33 @@ void main() {
       check(active.messages).length.equals(2);
       check(ref.read(temporaryChatEnabledProvider)).isFalse();
     });
+
+    test('the settings a temporary chat was sent with follow it to the server chat', () async {
+      final ref = container(
+        chatParams: {'system': 'Be terse.', 'temperature': 0.2},
+      );
+
+      final outcome = await saveTemporaryChat(ref);
+
+      check(outcome).equals(TemporaryChatSaveOutcome.saved);
+      check(api.createdChatParams.single)
+          .isNotNull()
+          .deepEquals({'system': 'Be terse.', 'temperature': 0.2});
+      check(ref.read(activeConversationProvider)!.chatParams)
+          .deepEquals({'system': 'Be terse.', 'temperature': 0.2});
+    });
+
+    test(
+      'a temporary chat with no settings creates a chat with none',
+      () async {
+        final ref = container();
+
+        await saveTemporaryChat(ref);
+
+        check(api.createdChatParams.single).isNull();
+        check(ref.read(activeConversationProvider)!.chatParams).isEmpty();
+      },
+    );
 
     test('an empty transcript is skipped without a server call', () async {
       final ref = container(empty: true);
@@ -217,6 +248,7 @@ class _CreatingApi extends ApiService {
   final requested = Completer<void>();
   final created =
       <({String title, List<ChatMessage> messages, String? folderId})>[];
+  final createdChatParams = <Map<String, dynamic>?>[];
 
   @override
   Future<Conversation> createConversation({
@@ -225,8 +257,10 @@ class _CreatingApi extends ApiService {
     String? model,
     String? systemPrompt,
     String? folderId,
+    Map<String, dynamic>? chatParams,
   }) async {
     created.add((title: title, messages: messages, folderId: folderId));
+    createdChatParams.add(chatParams);
     if (!requested.isCompleted) requested.complete();
     await gate;
     if (fails) throw StateError('server refused');

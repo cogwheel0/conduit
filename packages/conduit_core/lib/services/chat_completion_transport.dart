@@ -3,6 +3,28 @@ import 'dart:async';
 /// The transport mode chosen by the server for a chat completion request.
 enum ChatCompletionTransport { httpStream, taskSocket, jsonCompletion }
 
+/// One answer a single completion request asks the server to generate: the
+/// model, the assistant message that will hold it, and the column (`modelIdx`)
+/// it occupies. Equal model ids in different columns are different answers.
+final class ChatCompletionTarget {
+  const ChatCompletionTarget({
+    required this.modelId,
+    required this.messageId,
+    required this.modelIdx,
+  });
+
+  final String modelId;
+  final String messageId;
+  final int modelIdx;
+
+  /// The `message_ids` entry Open WebUI's backend reads.
+  Map<String, dynamic> toJson() => <String, dynamic>{
+    'model_id': modelId,
+    'message_id': messageId,
+    'modelIdx': modelIdx,
+  };
+}
+
 /// A typed session describing how the server resolved a chat completion
 /// request.
 ///
@@ -16,6 +38,7 @@ final class ChatCompletionSession {
     this.sessionId,
     this.conversationId,
     this.taskId,
+    this.taskIds = const <String>[],
     this.byteStream,
     this.jsonPayload,
     this.abort,
@@ -43,6 +66,10 @@ final class ChatCompletionSession {
     String? sessionId,
     String? conversationId,
     required String taskId,
+
+    /// Every task the server created for this one request, in the order of the
+    /// request's `message_ids`. Defaults to just [taskId].
+    List<String>? taskIds,
     Future<void> Function()? abort,
   }) => ChatCompletionSession._(
     transport: ChatCompletionTransport.taskSocket,
@@ -50,6 +77,7 @@ final class ChatCompletionSession {
     sessionId: sessionId,
     conversationId: conversationId,
     taskId: taskId,
+    taskIds: List<String>.unmodifiable(taskIds ?? <String>[taskId]),
     abort: abort,
   );
 
@@ -77,6 +105,7 @@ final class ChatCompletionSession {
     sessionId: null,
     conversationId: conversationId,
     taskId: taskId,
+    taskIds: taskId == null ? const <String>[] : <String>[taskId],
   );
 
   /// Direct JSON completion (non-streamed).
@@ -106,8 +135,13 @@ final class ChatCompletionSession {
   /// The conversation (chat) ID, if available.
   final String? conversationId;
 
-  /// Task ID returned by the server for task/socket mode.
+  /// Task ID returned by the server for task/socket mode. For a multi-answer
+  /// request this is the first of [taskIds].
   final String? taskId;
+
+  /// Every task ID the server returned, in request order. One per answer of a
+  /// multi-model request; empty outside task/socket mode.
+  final List<String> taskIds;
 
   /// The raw byte stream for direct HTTP streaming.
   final Stream<List<int>>? byteStream;

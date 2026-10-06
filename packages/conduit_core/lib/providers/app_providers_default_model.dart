@@ -57,6 +57,7 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
   final reviewerMode = ref.read(reviewerModeProvider);
   final selectedAtResolutionStart = ref.read(selectedModelProvider);
   final manualAtResolutionStart = ref.read(isManualModelSelectionProvider);
+  final restoreOwnerIsCurrent = ref.read(defaultModelRestoreGuardProvider);
 
   bool isGenuinelyNewManualSelection(
     Model? latestSelected,
@@ -279,6 +280,7 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
               );
     return latestAuth.authenticated &&
         ownershipIsCurrent &&
+        (restoreOwnerIsCurrent?.call() ?? true) &&
         ref.read(authTokenProvider3) == authenticatedTokenSnapshot &&
         identical(ref.read(apiServiceProvider), apiSnapshot) &&
         ref.read(preferredBackendProvider) == preferredBackend &&

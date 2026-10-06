@@ -309,6 +309,24 @@ void main() {
       check(json['name']).equals('Search');
       check(json['user_id']).equals('u1');
     });
+
+    test(
+      'has_user_valves survives the tools cache and absence stays unknown',
+      () {
+        final tool = Tool.fromJson({
+          'id': 'tool3',
+          'name': 'Valved',
+          'has_user_valves': true,
+        });
+        final cached = Tool.fromJson(tool.toJson());
+        // A row cached before the flag was projected never said either way.
+        final legacy = Tool.fromJson({'id': 'tool4', 'name': 'Legacy'});
+
+        check(cached.hasUserValves).equals(true);
+        check(legacy.hasUserValves).isNull();
+        check(legacy.toJson().containsKey('has_user_valves')).isFalse();
+      },
+    );
   });
 
   group('Folder', () {

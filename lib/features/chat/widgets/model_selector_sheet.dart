@@ -34,12 +34,19 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
 import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show captureOpenWebUiReasoningPickTarget, selectReasoningEffortForModel;
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart';
 
 class ModelSelectorSheet extends ConsumerStatefulWidget {
-  const ModelSelectorSheet({super.key, required this.models});
+  const ModelSelectorSheet({super.key, required this.models, this.onPick});
 
   final List<Model> models;
+
+  /// When set, tapping a model hands it to the caller instead of making it the
+  /// chat's model. The same list and search serve a comparison's slots; the
+  /// ordinary picker passes nothing and keeps its one-tap selection.
+  final ValueChanged<Model>? onPick;
 
   @override
   ConsumerState<ModelSelectorSheet> createState() => ModelSelectorSheetState();
@@ -65,6 +72,9 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
     final current = ref.read(reasoningEffortProvider);
     final policy = ref.read(reasoningEffortPolicyProvider);
     if (!policy.visible) return;
+    // The chat and account this pick is for, fixed now: the sheet and the
+    // preference write both outlive a chat or account switch.
+    final pickTarget = captureOpenWebUiReasoningPickTarget(ref);
     final allowsCustom = policy.allowsCustom;
     final options = policy.options;
     final customMarker = '__custom__';
@@ -108,7 +118,14 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
       effort = trimmed;
     }
     try {
-      await setReasoningEffort(ref.read, normalizeReasoningEffort(effort));
+      final model = ref.read(selectedModelProvider);
+      if (model == null) return;
+      await selectReasoningEffortForModel(
+        ref,
+        model,
+        normalizeReasoningEffort(effort),
+        target: pickTarget,
+      );
     } on FormatException catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -209,6 +226,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                         models: moreModels,
                         onTogglePinnedModel: _togglePinnedModel,
                         scrollController: scrollController,
+                        onPick: widget.onPick,
                       )
                     : ListView(
                         controller: scrollController,
@@ -216,9 +234,10 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                           _ModelGroup(
                             models: layout.featured,
                             onTogglePinnedModel: _togglePinnedModel,
+                            onPick: widget.onPick,
                           ),
                           const SizedBox(height: Spacing.md),
-                          if (effortPolicy.visible) ...[
+                          if (widget.onPick == null && effortPolicy.visible) ...[
                             _ActionCard(
                               icon: Platform.isIOS
                                   ? CupertinoIcons.timer
@@ -231,7 +250,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                               onTap: _showEffortSelector,
                             ),
                           ],
-                          if (supportsHermesFast) ...[
+                          if (widget.onPick == null && supportsHermesFast) ...[
                             const SizedBox(height: Spacing.md),
                             _ActionCard(
                               icon: Platform.isIOS
@@ -356,11 +375,13 @@ class _ModelGroup extends ConsumerWidget {
     required this.models,
     required this.onTogglePinnedModel,
     this.scrollController,
+    this.onPick,
   });
 
   final List<Model> models;
   final Future<void> Function(String modelId) onTogglePinnedModel;
   final ScrollController? scrollController;
+  final ValueChanged<Model>? onPick;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -395,6 +416,7 @@ class _ModelGroup extends ConsumerWidget {
       selectedModelId: selectedModelId,
       pinnedModelIds: pinnedModelIds,
       canToggle: canToggle,
+      onPick: onPick,
       api: api,
       directRegistry: directRegistry,
       profiles: profiles,
@@ -426,6 +448,7 @@ class _ModelGroup extends ConsumerWidget {
     required String? selectedModelId,
     required List<String> pinnedModelIds,
     required bool canToggle,
+    required ValueChanged<Model>? onPick,
     required ApiService? api,
     required DirectModelRegistry directRegistry,
     required List<DirectConnectionProfile> profiles,
@@ -487,7 +510,11 @@ class _ModelGroup extends ConsumerWidget {
                   )
                 : null,
             onTap: () {
-              ref.read(selectedModelProvider.notifier).set(model);
+              if (onPick != null) {
+                onPick(model);
+              } else {
+                ref.read(selectedModelProvider.notifier).set(model);
+              }
               Navigator.of(context).pop();
             },
           ),

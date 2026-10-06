@@ -28,6 +28,74 @@ class ChatLocks {
   final Map<String, String> _aliases = <String, String>{};
   final Map<String, String> _bridgedSources = <String, String>{};
 
+  /// Completes when the account-wide barrier now pending or running ends; null
+  /// while there is none. See [runBarrier].
+  Future<void>? _barrier;
+  int _generation = 0;
+
+  /// Marks the zone of an action that was admitted before a barrier started, so
+  /// the locks it takes inside (a create's server-id lock, a crash-heal's local
+  /// id lock) are not held back by the barrier that waits for it.
+  final Object _holdKey = Object();
+
+  /// Counts the account-wide barriers that have ended.
+  ///
+  /// A read that started before a barrier (a pull's list page or chat fetch)
+  /// proves nothing about the account once the barrier has run: it may describe
+  /// chats the barrier deleted. Capture this before the read and compare it
+  /// inside the lock that stores the result; a difference means drop the read.
+  int get generation => _generation;
+
+  /// Whether a barrier is pending or running.
+  bool get barrierActive => _barrier != null;
+
+  bool get _isHolding {
+    final hold = Zone.current[_holdKey];
+    return hold is _Hold && hold.active;
+  }
+
+  /// Runs [action] with no per-chat action running or admitted, for work that
+  /// has to treat the whole account as one unit (a server-wide delete).
+  ///
+  /// The barrier takes effect at once: any [runExclusive] that is not already
+  /// running or queued waits until it ends, so no pull merge, push, send or
+  /// drain write can enter between the check [action] makes and the change it
+  /// commits. It then waits for every action already admitted to finish, runs
+  /// [action], and releases the waiters in submission order. [generation] is
+  /// bumped when it ends, whether or not [action] succeeded, because a request
+  /// that failed in flight may still have changed the server.
+  ///
+  /// An action admitted before the barrier may take further locks while it
+  /// runs; those are let through. Calling this from inside a lock would wait on
+  /// itself, so it throws instead. [action] may take locks of its own.
+  Future<T> runBarrier<T>(Future<T> Function() action) async {
+    if (_isHolding) {
+      throw StateError('runBarrier cannot be called while holding a chat lock');
+    }
+    while (_barrier != null) {
+      await _barrier;
+    }
+    final release = Completer<void>();
+    _barrier = release.future;
+    try {
+      while (_tails.isNotEmpty) {
+        await Future.wait<void>(_tails.values.toList());
+      }
+      final hold = _Hold();
+      try {
+        return await Zone.current
+            .fork(zoneValues: <Object?, Object?>{_holdKey: hold})
+            .run(action);
+      } finally {
+        hold.active = false;
+      }
+    } finally {
+      _generation++;
+      _barrier = null;
+      release.complete();
+    }
+  }
+
   /// Redirects future waiters for [fromId] to [toId]. If a waiter was already
   /// queued behind [fromId], it re-checks the alias after reaching the head of
   /// that queue and reroutes before running [action].
@@ -59,7 +127,14 @@ class ChatLocks {
   }
 
   /// Runs [action] while holding the exclusive lock for [chatId].
+  ///
+  /// While a [runBarrier] is pending or running, a new call waits for it to end
+  /// first, unless the caller is itself inside an action admitted before it.
   Future<T> runExclusive<T>(String chatId, Future<T> Function() action) {
+    final barrier = _barrier;
+    if (barrier != null && !_isHolding) {
+      return barrier.then((_) => runExclusive(chatId, action));
+    }
     return _runExclusive(chatId, _canonicalKey(chatId), action);
   }
 
@@ -98,11 +173,15 @@ class ChatLocks {
         finish();
         return _runExclusive(requestedId, latestLockId, action);
       }
+      final hold = _Hold();
       try {
-        return await action();
+        return await Zone.current
+            .fork(zoneValues: <Object?, Object?>{_holdKey: hold})
+            .run(action);
       } finally {
         // Errors propagate through the returned future only; the tail
         // completes normally so queued waiters never see them.
+        hold.active = false;
         finish();
       }
     }
@@ -123,6 +202,12 @@ class ChatLocks {
 
   /// Whether no lock is currently held or queued (for tests).
   bool get isIdle => _tails.isEmpty;
+}
+
+/// Zone marker for an action that holds a lock. Work the action leaves running
+/// after it returns sees [active] false and is held back like any new caller.
+class _Hold {
+  bool active = true;
 }
 
 /// Lock domain for chat/conversation rows.

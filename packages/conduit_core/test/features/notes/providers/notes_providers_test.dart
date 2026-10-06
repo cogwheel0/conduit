@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/database_provider.dart';
@@ -16,7 +18,11 @@ import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/notes/providers/notes_providers.dart';
+import 'package:conduit_core/features/notes/utils/note_access.dart';
+import 'package:conduit_core/features/notes/utils/note_persistence.dart';
+import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:dio/dio.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -177,6 +183,157 @@ void main() {
       check(searchResults.map((note) => note.id).toList())
           .deepEquals(['own-note']);
       check(otherNote).isNull();
+    });
+
+    group('shared notes', () {
+      Map<String, dynamic> sharedDetail() => {
+        ..._buildNoteJson(
+          id: 'shared-note',
+          title: 'Shared needle',
+          markdown: 'shared body needle',
+          updatedAt: 1713786305000000000,
+        ),
+        'user_id': 'creator-9',
+        'write_access': false,
+        'access_grants': [
+          {
+            'principal_type': 'group',
+            'principal_id': 'g1',
+            'permission': 'read',
+          },
+        ],
+      };
+
+      ProviderContainer open({
+        required String userId,
+        ApiService? api,
+        bool online = false,
+      }) {
+        final container = ProviderContainer(
+          overrides: [
+            appDatabaseProvider.overrideWith((ref) => db),
+            apiServiceProvider.overrideWithValue(api),
+            isAuthenticatedProvider2.overrideWithValue(true),
+            currentUserProvider2.overrideWithValue(
+              User(
+                id: userId,
+                username: userId,
+                email: '$userId@example.com',
+                role: 'user',
+              ),
+            ),
+            isOnlineProvider.overrideWithValue(online),
+          ],
+        );
+        addTearDown(container.dispose);
+        return container;
+      }
+
+      Future<Map<String, List<String>>> offlineView(String userId) async {
+        final container = open(userId: userId);
+        final list = await container.read(notesListProvider.future);
+        final search = await container.read(
+          filteredNotesProvider('needle').future,
+        );
+        final detail = await container.read(
+          noteByIdProvider('shared-note').future,
+        );
+        return {
+          'list': [for (final n in list) n.id],
+          'search': [for (final n in search) n.id],
+          'detail': [?detail?.id],
+        };
+      }
+
+      test('a note the server served to the account is listed, searched and '
+          'reopened offline, and no other account sees it', () async {
+        // A foreign row that was never served to the account.
+        await db
+            .into(db.notes)
+            .insertOnConflictUpdate(
+              serverToNoteRow({
+                'id': 'foreign-note',
+                'user_id': 'user-2',
+                'title': 'Foreign needle',
+                'data': {
+                  'content': {'md': 'foreign needle', 'html': ''},
+                },
+                'created_at': 1713786305000000000,
+                'updated_at': 1713786305000000000,
+              }),
+            );
+        final online = open(
+          userId: 'user-1',
+          api: _FakeNotesApiService(fetchedRaw: sharedDetail()),
+          online: true,
+        );
+        check(await online.read(noteByIdProvider('shared-note').future))
+            .isNotNull();
+
+        check(await offlineView('user-1')).deepEquals({
+          'list': ['shared-note'],
+          'search': ['shared-note'],
+          'detail': ['shared-note'],
+        });
+        // The creator id stays what the server said it is.
+        check((await db.notesDao.getNote('shared-note'))!.rawExtra)
+            .contains('creator-9');
+        check(await offlineView('user-3')).deepEquals({
+          'list': <String>[],
+          'search': <String>[],
+          'detail': <String>[],
+        });
+      });
+
+      test('a 403 on the detail retires the account\'s read eligibility and '
+          'keeps its draft and refused operation', () async {
+        await db.notesDao.mergeServerNote(
+          serverRaw: sharedDetail(),
+          readerId: 'user-1',
+        );
+        await db.notesDao.updateNoteWithOutbox(
+          'shared-note',
+          title: const Value('My draft'),
+          localUpdatedAtNs: 1713786306000000000,
+          enqueue: true,
+        );
+        check(await offlineView('user-1'))
+            .has((v) => v['list'], 'list')
+            .isNotNull()
+            .deepEquals(['shared-note']);
+
+        final revoked = open(
+          userId: 'user-1',
+          api: _FakeNotesApiService(
+            fetchError: _noteDioException(
+              type: DioExceptionType.badResponse,
+              statusCode: 403,
+            ),
+          ),
+          online: true,
+        );
+        final provider = noteByIdProvider('shared-note');
+        final subscription = revoked.listen<AsyncValue<Note?>>(
+          provider,
+          (_, _) {},
+          fireImmediately: true,
+        );
+        addTearDown(subscription.close);
+        await _waitFor(() => revoked.read(provider).hasError);
+        check(revoked.read(provider).error).isA<DioException>();
+
+        check(await offlineView('user-1')).deepEquals({
+          'list': <String>[],
+          'search': <String>[],
+          'detail': <String>[],
+        });
+        final row = (await db.notesDao.getNote('shared-note'))!;
+        check(row.title).equals('My draft');
+        check(row.dirtyTitle).isTrue();
+        check(
+          (await db.outboxDao.pendingForChat('shared-note')).map((o) => o.kind),
+        ).deepEquals([OutboxKind.noteUpdate.name]);
+      });
     });
 
     test('uses bounded cached previews for the offline list', () async {
@@ -900,6 +1057,501 @@ void main() {
         check((data['files'] as List).length).equals(1);
       },
     );
+
+    group('shared note access', () {
+      Future<void> seedShared({bool? writeAccess, String owner = 'creator-9'}) {
+        return db
+            .into(db.notes)
+            .insertOnConflictUpdate(
+              serverToNoteRow({
+                'id': 'shared-1',
+                'user_id': owner,
+                'title': 'Original',
+                'data': {
+                  'content': {'md': 'original body', 'html': ''},
+                },
+                'meta': {},
+                'is_pinned': false,
+                'created_at': 1713786305000000000,
+                'updated_at': 1713786305000000000,
+                'write_access': ?writeAccess,
+              }),
+            );
+      }
+
+      ProviderContainer open({_FakeNotesApiService? api}) {
+        final container = ProviderContainer(
+          overrides: [
+            appDatabaseProvider.overrideWith((ref) => db),
+            apiServiceProvider.overrideWithValue(api ?? _FakeNotesApiService()),
+            isAuthenticatedProvider2.overrideWithValue(true),
+            currentUserProvider2.overrideWithValue(_testUser),
+            syncEngineProvider.overrideWith(_NoDrainSyncEngine.new),
+          ],
+        );
+        addTearDown(container.dispose);
+        return container;
+      }
+
+      Future<void> expectUntouched() async {
+        final row = (await db.notesDao.getNote('shared-1'))!;
+        check(row.title).equals('Original');
+        check(row.dirtyTitle).isFalse();
+        check(row.dirtyData).isFalse();
+        check(row.deleted).isFalse();
+        check(await db.outboxDao.pendingForChat('shared-1')).isEmpty();
+      }
+
+      test(
+        'a read-only note is refused before the row or outbox change',
+        () async {
+          await seedShared(writeAccess: false);
+          final container = open();
+
+          final note = await container
+              .read(noteUpdaterProvider.notifier)
+              .updateNote('shared-1', title: 'Mine', markdownContent: 'mine');
+
+          check(note).isNull();
+          check(container.read(noteUpdaterProvider).error)
+              .isA<NoteWriteDeniedException>()
+              .has((e) => e.unverified, 'unverified')
+              .isFalse();
+          await expectUntouched();
+        },
+      );
+
+      test(
+        'a write recipient is admitted although the creator owns the note',
+        () async {
+          await seedShared(writeAccess: true);
+          final container = open();
+
+          final note = await container
+              .read(noteUpdaterProvider.notifier)
+              .updateNote('shared-1', title: 'Mine', markdownContent: 'mine');
+
+          check(note).isNotNull();
+          check(
+            (await db.outboxDao.pendingForChat('shared-1'))
+                .map((op) => op.kind),
+          ).deepEquals([OutboxKind.noteUpdate.name]);
+        },
+      );
+
+      test(
+        'unknown access is settled by the authoritative detail before a write',
+        () async {
+          await seedShared();
+          final container = open(
+            api: _FakeNotesApiService(
+              rawDetail: {
+                ..._buildNoteJson(
+                  id: 'shared-1',
+                  title: 'Original',
+                  updatedAt: 1713786305000000000,
+                ),
+                'user_id': 'creator-9',
+                'write_access': true,
+              },
+            ),
+          );
+
+          final note = await container
+              .read(noteUpdaterProvider.notifier)
+              .updateNote('shared-1', markdownContent: 'mine');
+
+          check(note).isNotNull();
+          check(
+            decodeJsonMap((await db.notesDao.getNote('shared-1'))!.rawExtra),
+          ).containsKey('write_access');
+        },
+      );
+
+      test(
+        'unknown access with no detail available refuses as unverified',
+        () async {
+          await seedShared();
+          final container = open();
+
+          final note = await container
+              .read(noteUpdaterProvider.notifier)
+              .updateNote('shared-1', markdownContent: 'mine');
+
+          check(note).isNull();
+          check(container.read(noteUpdaterProvider).error)
+              .isA<NoteWriteDeniedException>()
+              .has((e) => e.unverified, 'unverified')
+              .isTrue();
+          await expectUntouched();
+        },
+      );
+
+      test('a read-only note is not tombstoned by delete', () async {
+        await seedShared(writeAccess: false);
+        final container = open();
+
+        final deleted = await container
+            .read(noteDeleterProvider.notifier)
+            .deleteNote('shared-1');
+
+        check(deleted).isFalse();
+        await expectUntouched();
+      });
+
+      test('pinning stays available on a read-only note', () async {
+        await seedShared(writeAccess: false);
+        final container = open();
+
+        final pinned = await container
+            .read(notePinTogglerProvider.notifier)
+            .togglePin(
+              Note.fromJson(
+                noteRowToServer((await db.notesDao.getNote('shared-1'))!),
+              ),
+            );
+
+        check(pinned).isNotNull().has((n) => n.isPinned, 'isPinned').isTrue();
+      });
+    });
+  });
+
+  group('a note mutation opened under one account', () {
+    const userB = User(
+      id: 'user-2',
+      username: 'b',
+      email: 'b@example.com',
+      role: 'user',
+    );
+
+    late AppDatabase db;
+    late ApiService api;
+    late _RecordingAdapter wire;
+    late ProviderContainer container;
+    late Object opening;
+    var epoch = Object();
+    var user = _testUser;
+
+    Future<void> seed({bool? writeAccess}) => db
+        .into(db.notes)
+        .insertOnConflictUpdate(
+          serverToNoteRow({
+            'id': 'shared-1',
+            'user_id': 'creator-9',
+            'title': 'Original',
+            'data': {
+              'content': {'md': 'original body', 'html': ''},
+            },
+            'created_at': 1713786305000000000,
+            'updated_at': 1713786305000000000,
+            'write_access': ?writeAccess,
+          }),
+        );
+
+    /// What the editor does when the user changes account on the same API.
+    void switchToB() {
+      user = userB;
+      epoch = Object();
+      api.updateAuthToken('token-b');
+      container.invalidate(currentUserProvider2);
+      container.invalidate(openWebUiAuthSessionEpochProvider);
+    }
+
+    Future<void> expectUntouched() async {
+      final row = (await db.notesDao.getNote('shared-1'))!;
+      check(row.title).equals('Original');
+      check(row.deleted).isFalse();
+      check(row.dirtyTitle).isFalse();
+      check(await db.outboxDao.pendingForChat('shared-1')).isEmpty();
+    }
+
+    Future<Note?> save() => persistNoteUpdate(
+      container,
+      noteId: 'shared-1',
+      api: api,
+      db: db,
+      authEpoch: opening,
+      title: 'A draft',
+      data: {
+        'content': {'md': 'a draft'},
+      },
+    );
+
+    setUp(() {
+      db = AppDatabase(NativeDatabase.memory());
+      wire = _RecordingAdapter();
+      api = ApiService(
+        serverConfig: const ServerConfig(
+          id: 'test',
+          name: 'Test',
+          url: 'https://example.com',
+        ),
+        workerManager: WorkerManager(),
+        authToken: 'token-a',
+      );
+      api.dio.httpClientAdapter = wire;
+      epoch = Object();
+      opening = epoch;
+      user = _testUser;
+      container = ProviderContainer(
+        overrides: [
+          appDatabaseProvider.overrideWith((ref) => db),
+          apiServiceProvider.overrideWithValue(api),
+          isAuthenticatedProvider2.overrideWithValue(true),
+          currentUserProvider2.overrideWith((ref) => user),
+          openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+          syncEngineProvider.overrideWith(_NoDrainSyncEngine.new),
+        ],
+      );
+    });
+
+    tearDown(() async {
+      container.dispose();
+      api.dispose();
+      await db.close();
+    });
+
+    test('a save does not read permission as the account that replaced it '
+        'while the remap lookup was pending', () async {
+      await seed();
+
+      final saving = save();
+      switchToB();
+      final saved = await saving;
+
+      check(saved).isNull();
+      check(wire.authorizations).not((it) => it.contains('Bearer token-b'));
+      await expectUntouched();
+    });
+
+    test('a permission answer that arrives after the account changed is not '
+        'stored and the save does not proceed', () async {
+      await seed();
+      final answer = Completer<void>();
+      wire.hold = answer.future;
+
+      final saving = save();
+      await _waitFor(() => wire.authorizations.isNotEmpty);
+      check(wire.authorizations).deepEquals(['Bearer token-a']);
+      switchToB();
+      answer.complete();
+      final saved = await saving;
+
+      check(saved).isNull();
+      check(decodeJsonMap((await db.notesDao.getNote('shared-1'))!.rawExtra))
+          .not((it) => it.containsKey('write_access'));
+      await expectUntouched();
+    });
+
+    test('an account change while the note lock is held keeps the edit out of '
+        'the replacement session', () async {
+      await seed(writeAccess: true);
+      final held = Completer<void>();
+      final holding = Completer<void>();
+      final lockHolder = container.read(noteLocksProvider).runExclusive(
+        'shared-1',
+        () async {
+          holding.complete();
+          await held.future;
+        },
+      );
+      await holding.future;
+
+      final saving = save();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      switchToB();
+      held.complete();
+      await lockHolder;
+
+      check(await saving).isNull();
+      await expectUntouched();
+    });
+
+    test('a delete does not tombstone the note for the replacement '
+        'account', () async {
+      await seed();
+
+      final deleting = container
+          .read(noteDeleterProvider.notifier)
+          .deleteNote('shared-1');
+      switchToB();
+
+      check(await deleting).isFalse();
+      check(wire.authorizations).not((it) => it.contains('Bearer token-b'));
+      await expectUntouched();
+    });
+  });
+
+  group('reopening a note after a durable edit', () {
+    const userB = User(
+      id: 'user-2',
+      username: 'b',
+      email: 'b@example.com',
+      role: 'user',
+    );
+    const readGroup = {
+      'principal_type': 'group',
+      'principal_id': 'g1',
+      'permission': 'read',
+    };
+
+    late AppDatabase db;
+    late ApiService api;
+    late _RecordingAdapter wire;
+    late ProviderContainer container;
+    var epoch = Object();
+    var user = _testUser;
+    var online = true;
+
+    Map<String, dynamic> serverNote({
+      required String creator,
+      required bool? writeAccess,
+      List<Map<String, dynamic>> grants = const [],
+    }) => {
+      'id': 'note-1',
+      'user_id': creator,
+      'title': 'Disposable note',
+      'data': {
+        'content': {'md': 'Original content', 'html': ''},
+      },
+      'created_at': 1713786305000000000,
+      'updated_at': 1713786305000000000,
+      'write_access': ?writeAccess,
+      'access_grants': grants,
+    };
+
+    Future<Note?> reopen() => container.read(noteByIdProvider('note-1').future);
+
+    Future<Note?> saveEdit() => persistNoteUpdate(
+      container,
+      noteId: 'note-1',
+      api: api,
+      db: db,
+      authEpoch: epoch,
+      title: 'Disposable note',
+      data: {
+        'content': {'md': 'Saved edit', 'html': ''},
+      },
+    );
+
+    setUp(() {
+      db = AppDatabase(NativeDatabase.memory());
+      wire = _RecordingAdapter();
+      api = ApiService(
+        serverConfig: const ServerConfig(
+          id: 'test',
+          name: 'Test',
+          url: 'https://example.com',
+        ),
+        workerManager: WorkerManager(),
+        authToken: 'token-a',
+      );
+      api.dio.httpClientAdapter = wire;
+      epoch = Object();
+      user = _testUser;
+      online = true;
+      container = ProviderContainer(
+        overrides: [
+          appDatabaseProvider.overrideWith((ref) => db),
+          apiServiceProvider.overrideWithValue(api),
+          isAuthenticatedProvider2.overrideWithValue(true),
+          currentUserProvider2.overrideWith((ref) => user),
+          openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+          isOnlineProvider.overrideWith((ref) => online),
+          syncEngineProvider.overrideWith(_NoDrainSyncEngine.new),
+        ],
+      );
+    });
+
+    tearDown(() async {
+      container.dispose();
+      api.dispose();
+      await db.close();
+    });
+
+    // The push waits in the outbox, so the server still has the older text
+    // when the note is opened again.
+    for (final scenario in [
+      (
+        name: 'own note',
+        creator: 'user-1',
+        stored: null as bool?,
+        reopened: null as bool?,
+      ),
+      (
+        name: 'writable recipient',
+        creator: 'creator-9',
+        stored: true as bool?,
+        reopened: true as bool?,
+      ),
+      (
+        name: 'recipient whose write grant was revoked meanwhile',
+        creator: 'creator-9',
+        stored: true as bool?,
+        reopened: false as bool?,
+      ),
+    ]) {
+      test('${scenario.name}: shows the saved edit and the access the server '
+          'just sent', () async {
+        wire.body = serverNote(
+          creator: scenario.creator,
+          writeAccess: scenario.stored,
+        );
+        await db.notesDao.mergeServerNote(
+          serverRaw: wire.body!,
+          readerId: _testUser.id,
+        );
+        check((await reopen())!.markdownContent).equals('Original content');
+
+        check((await saveEdit())!.markdownContent).equals('Saved edit');
+
+        wire.body = serverNote(
+          creator: scenario.creator,
+          writeAccess: scenario.reopened,
+          grants: [readGroup],
+        );
+        final reopened = (await reopen())!;
+
+        check(reopened.markdownContent).equals('Saved edit');
+        check(reopened.writeAccess).equals(scenario.reopened);
+        check(reopened.accessGrants).isNotNull().deepEquals([readGroup]);
+        final row = (await db.notesDao.getNote('note-1'))!;
+        check(row.dirtyData).isTrue();
+        check((await db.outboxDao.pendingForChat('note-1')).map((o) => o.kind))
+            .deepEquals([OutboxKind.noteUpdate.name]);
+      });
+    }
+
+    test('an answer for the previous account does not expose the saved edit '
+        'to the account that replaced it', () async {
+      wire.body = serverNote(creator: 'creator-9', writeAccess: true);
+      await db.notesDao.mergeServerNote(
+        serverRaw: wire.body!,
+        readerId: _testUser.id,
+      );
+      await saveEdit();
+
+      final answer = Completer<void>();
+      wire.hold = answer.future;
+      final reading = reopen();
+      await _waitFor(() => wire.authorizations.isNotEmpty);
+      user = userB;
+      epoch = Object();
+      online = false;
+      api.updateAuthToken('token-b');
+      container
+        ..invalidate(currentUserProvider2)
+        ..invalidate(openWebUiAuthSessionEpochProvider)
+        ..invalidate(isOnlineProvider);
+      answer.complete();
+      await reading.then<void>((_) {}, onError: (_) {});
+
+      check(await reopen()).isNull();
+      final row = (await db.notesDao.getNote('note-1'))!;
+      check(row.dirtyData).isTrue();
+      check(noteReadAccounts(decodeJsonMap(row.rawExtra)))
+          .deepEquals([_testUser.id]);
+    });
   });
 
   group('NotePinToggler', () {
@@ -1055,6 +1707,7 @@ class _FakeNotesApiService extends ApiService {
     this.fetchedRaw,
     this.fetchGate,
     this.fetchError,
+    this.rawDetail,
   }) : super(
          serverConfig: const ServerConfig(
            id: 'test',
@@ -1071,6 +1724,10 @@ class _FakeNotesApiService extends ApiService {
   final Map<String, dynamic>? fetchedRaw;
   final Future<void>? fetchGate;
   final Object? fetchError;
+
+  /// What the sync-facing detail read (`getNoteRaw`) answers; null reads as a
+  /// transport failure.
+  final Map<String, dynamic>? rawDetail;
   final toggledIds = <String>[];
   var notesListRequests = 0;
   final fetchedIds = <String>[];
@@ -1096,6 +1753,14 @@ class _FakeNotesApiService extends ApiService {
     final error = fetchError;
     if (error != null) throw error;
     return fetchedRaw ?? (throw StateError('fetchedRaw not set'));
+  }
+
+  @override
+  Future<Map<String, dynamic>?> getNoteRaw(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    return rawDetail ?? (throw StateError('detail unavailable'));
   }
 
   @override
@@ -1191,4 +1856,47 @@ Note _buildNote({
       isPinned: isPinned,
     ),
   );
+}
+
+/// Answers every request with a note the account may edit, recording which
+/// bearer token each one carried.
+class _RecordingAdapter implements HttpClientAdapter {
+  final authorizations = <String>[];
+
+  /// What the server currently says about the note; defaults to a writable
+  /// one for [shared-1].
+  Map<String, dynamic>? body;
+
+  /// When set, a response waits for it, so a test can change account while a
+  /// request is in flight.
+  Future<void>? hold;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<List<int>>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    authorizations.add('${options.headers['Authorization']}');
+    final gate = hold;
+    if (gate != null) await gate;
+    return ResponseBody.fromString(
+      jsonEncode(
+        body ??
+            {
+              'id': 'shared-1',
+              'user_id': 'creator-9',
+              'write_access': true,
+              'access_grants': <Map<String, dynamic>>[],
+            },
+      ),
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }

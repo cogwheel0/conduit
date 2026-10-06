@@ -179,7 +179,7 @@ final class _GatedBackendConfigApi extends ApiService {
   int requestCount = 0;
 
   @override
-  Future<BackendConfig?> getBackendConfig() {
+  Future<BackendConfig?> getBackendConfig({ApiAuthSnapshot? authSnapshot}) {
     requestCount += 1;
     if (!requestStarted.isCompleted) requestStarted.complete();
     return response.future;

@@ -1,4 +1,6 @@
 import 'package:checks/checks.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/server_memory.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -169,6 +171,9 @@ ProviderContainer _container(_FakeUserMemoriesApiService api) {
   return ProviderContainer(
     overrides: [
       apiServiceProvider.overrideWithValue(api),
+      isAuthenticatedProvider2.overrideWithValue(true),
+      authTokenProvider3.overrideWithValue('token'),
+      currentUserProvider2.overrideWithValue(null),
       optimizedStorageServiceProvider.overrideWithValue(
         _FakeOptimizedStorageService(),
       ),
@@ -216,13 +221,25 @@ class _FakeUserMemoriesApiService extends ApiService {
   int getMemoriesCalls = 0;
 
   @override
-  Future<List<ServerMemory>> getMemories() async {
+  Future<Map<String, dynamic>> getUserPermissions({
+    ApiAuthSnapshot? authSnapshot,
+  }) async => const {};
+
+  @override
+  Future<List<ServerMemory>> getMemories({
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     getMemoriesCalls += 1;
     return initialMemories;
   }
 
   @override
-  Future<ServerMemory> createMemory({required String content}) async {
+  Future<ServerMemory> createMemory({
+    required String content,
+    String type = ServerMemory.userType,
+    String? path,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     createdContents.add(content);
     final created = createdMemory;
     if (created == null) {
@@ -235,6 +252,9 @@ class _FakeUserMemoriesApiService extends ApiService {
   Future<ServerMemory> updateMemory({
     required String memoryId,
     required String content,
+    String? type,
+    String? path,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
     updatedRequests.add((memoryId: memoryId, content: content));
     final updated = updatedMemories[memoryId];
@@ -245,12 +265,15 @@ class _FakeUserMemoriesApiService extends ApiService {
   }
 
   @override
-  Future<void> deleteMemory(String memoryId) async {
+  Future<void> deleteMemory(
+    String memoryId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     deletedIds.add(memoryId);
   }
 
   @override
-  Future<void> clearAllMemories() async {
+  Future<void> clearAllMemories({ApiAuthSnapshot? authSnapshot}) async {
     clearAllCalls += 1;
   }
 }

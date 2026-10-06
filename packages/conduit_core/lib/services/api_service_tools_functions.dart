@@ -108,15 +108,29 @@ mixin _ToolsFunctionsApi on _ApiServiceBase {
     return response.data as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> getUserToolValves(String toolId) async {
+  // The personal valve methods take an [ApiAuthSnapshot] so a request queued
+  // for one account is rejected, not re-signed, if the shared client rotates to
+  // another account before dispatch.
+
+  Future<Map<String, dynamic>> getUserToolValves(
+    String toolId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     _traceApi('Fetching user tool valves: $toolId');
-    final response = await _dio.get('/api/v1/tools/id/$toolId/valves/user');
-    return response.data as Map<String, dynamic>;
+    final response = await _dio.get(
+      '/api/v1/tools/id/$toolId/valves/user',
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
+    return _nullableJsonMap(response.data) ?? <String, dynamic>{};
   }
 
-  Future<WorkspaceValveSpec?> getUserToolValvesSpec(String toolId) async {
+  Future<WorkspaceValveSpec?> getUserToolValvesSpec(
+    String toolId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     final response = await _dio.get(
       '/api/v1/tools/id/$toolId/valves/user/spec',
+      options: _withAuthSnapshot(Options(), authSnapshot),
     );
     return response.data is Map
         ? WorkspaceValveSpec.fromJson(
@@ -127,15 +141,60 @@ mixin _ToolsFunctionsApi on _ApiServiceBase {
 
   Future<Map<String, dynamic>> updateUserToolValves(
     String toolId,
-    Map<String, dynamic> valves,
-  ) async {
+    Map<String, dynamic> valves, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     _traceApi('Updating user tool valves: $toolId');
     final response = await _dio.post(
       '/api/v1/tools/id/$toolId/valves/user/update',
       data: valves,
+      options: _withAuthSnapshot(Options(), authSnapshot),
     );
-    return response.data as Map<String, dynamic>;
+    return _nullableJsonMap(response.data) ?? <String, dynamic>{};
   }
+
+  // Personal (per-user) function valves. These routes need only a verified
+  // user; the function is addressed by its real id, never a pipe model id.
+
+  Future<Map<String, dynamic>?> getUserFunctionValves(
+    String functionId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    final response = await _dio.get(
+      '/api/v1/functions/id/$functionId/valves/user',
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
+    return _nullableJsonMap(response.data);
+  }
+
+  /// Null when the function is inactive or declares no `UserValves`.
+  Future<WorkspaceValveSpec?> getUserFunctionValvesSpec(
+    String functionId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    final response = await _dio.get(
+      '/api/v1/functions/id/$functionId/valves/user/spec',
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
+    final spec = _nullableJsonMap(response.data);
+    return spec == null ? null : WorkspaceValveSpec.fromJson(spec);
+  }
+
+  Future<Map<String, dynamic>?> updateUserFunctionValves(
+    String functionId,
+    Map<String, dynamic> valves, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    final response = await _dio.post(
+      '/api/v1/functions/id/$functionId/valves/user/update',
+      data: valves,
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
+    return _nullableJsonMap(response.data);
+  }
+
+  static Map<String, dynamic>? _nullableJsonMap(Object? data) =>
+      data is Map ? Map<String, dynamic>.from(data) : null;
 
   Future<List<Map<String, dynamic>>> exportTools() async {
     _traceApi('Exporting tools configuration');

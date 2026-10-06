@@ -5,6 +5,9 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
+import 'package:conduit_core/models/chat_comparison.dart';
+import 'package:conduit_core/sync/sync_api_client.dart'
+    show SyncTerminalException;
 
 import 'package:conduit_core/providers/app_providers.dart';
 
@@ -120,22 +123,30 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
     requireCurrentConversationOwner();
 
     // Streaming-conflict guard (R5): if a LIVE interactive stream owns this
-    // exact chat, unsent work defers so it can never clobber that stream.
-    void deferIfTargetIsBusy() {
+    // exact chat, unsent work defers so it can never clobber that stream. The
+    // answers of one comparison own their turn together, so a stream that is
+    // any of them is not a conflict.
+    void deferIfTargetIsBusy({Set<String>? ownedAssistantIds}) {
       requireCurrentConversationOwner();
       if (activeOpenWebUiChatIdForMutation(_ref, owner) == null ||
           !_ref.read(isChatStreamingProvider)) {
         return;
       }
       final activeMessages = _ref.read(chatMessagesProvider);
-      final activeLastMessage = activeMessages.isNotEmpty
-          ? activeMessages.last
-          : null;
+      final ownIds = ownedAssistantIds ?? <String>{assistantMessageId};
+      final activeStreamingAssistantIds = <String>{};
+      for (var i = activeMessages.length - 1; i >= 0; i -= 1) {
+        final candidate = activeMessages[i];
+        if (candidate.role != 'assistant') break;
+        if (candidate.isStreaming) {
+          activeStreamingAssistantIds.add(candidate.id);
+        }
+      }
       final activeStreamingAssistantId =
-          activeLastMessage?.role == 'assistant' &&
-              activeLastMessage?.isStreaming == true
-          ? activeLastMessage?.id
-          : null;
+          activeStreamingAssistantIds.isNotEmpty &&
+              ownIds.containsAll(activeStreamingAssistantIds)
+          ? assistantMessageId
+          : activeStreamingAssistantIds.firstOrNull;
       if (activeStreamingAssistantId != assistantMessageId) {
         DebugLogger.log(
           'completion-deferred-busy',
@@ -148,6 +159,20 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
         );
         throw CompletionBusyException(chatId);
       }
+    }
+
+    final comparison = decoded.comparison;
+    if (comparison != null) {
+      await _runComparison(
+        decoded,
+        comparison,
+        chatId: chatId,
+        db: db,
+        owner: owner,
+        requireCurrentConversationOwner: requireCurrentConversationOwner,
+        deferIfTargetIsBusy: deferIfTargetIsBusy,
+      );
+      return;
     }
 
     // 2. Idempotency / already-completed guard (R3): a completed turn leaves a
@@ -244,9 +269,11 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
         terminalId: decoded.terminalId,
         enableWebSearch: decoded.enableWebSearch,
         enableImageGeneration: decoded.enableImageGeneration,
+        enableCodeInterpreter: decoded.enableCodeInterpreter,
         isVoiceMode: decoded.isVoiceMode,
         sessionIdOverride: decoded.sessionIdOverride,
         completionOwner: owner,
+        chatSettings: decoded.chatSettings,
       );
       return;
     }
@@ -279,9 +306,178 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       terminalId: decoded.terminalId,
       enableWebSearch: decoded.enableWebSearch,
       enableImageGeneration: decoded.enableImageGeneration,
+      enableCodeInterpreter: decoded.enableCodeInterpreter,
       isVoiceMode: decoded.isVoiceMode,
       sessionIdOverride: decoded.sessionIdOverride,
       completionOwner: owner,
+      chatSettings: decoded.chatSettings,
+    );
+  }
+}
+
+extension on ChatRequestCompletionRunner {
+  /// Replays a comparison turn: ONE request for the whole group, or pull-only
+  /// recovery once any answer shows the request was accepted.
+  ///
+  /// The decision is made for the group, never for the first answer alone: an
+  /// answer that landed first must not mark its siblings complete, and an op
+  /// that finds any sign of acceptance (a submitted marker, or a finished
+  /// answer) must not send again.
+  Future<void> _runComparison(
+    RequestCompletionPayload decoded,
+    ComparisonGroupSnapshot group, {
+    required String chatId,
+    required AppDatabase db,
+    required OpenWebUiCompletionOwner owner,
+    required void Function() requireCurrentConversationOwner,
+    required void Function({Set<String>? ownedAssistantIds})
+    deferIfTargetIsBusy,
+  }) async {
+    final slotIds = [for (final slot in group.slots) slot.assistantMessageId];
+    final ownIds = slotIds.toSet();
+
+    if (!group.isUsable) {
+      // A damaged snapshot is never sent as a lone answer: that would quietly
+      // turn a comparison into a different request.
+      DebugLogger.log(
+        'completion-comparison-snapshot-unusable',
+        scope: 'chat/completion',
+        data: {'chatId': chatId, 'slots': slotIds.length},
+      );
+      throw const SyncTerminalException(
+        message:
+            'This comparison could not be sent because its saved details are '
+            'incomplete.',
+      );
+    }
+
+    final rows = <String, MessageRow>{};
+    for (final id in slotIds) {
+      final row = await db.messagesDao.getMessage(chatId, id);
+      requireCurrentConversationOwner();
+      if (row != null) rows[id] = row;
+    }
+    if (rows.isEmpty) {
+      DebugLogger.log(
+        'completion-placeholder-absent',
+        scope: 'chat/completion',
+        data: {'chatId': chatId, 'assistantMessageId': slotIds.first},
+      );
+      return;
+    }
+    final unfinished = [
+      for (final id in slotIds)
+        if (rows[id] != null && !_placeholderMarkedComplete(rows[id]!)) id,
+    ];
+    if (unfinished.isEmpty) {
+      DebugLogger.log(
+        'completion-already-done',
+        scope: 'chat/completion',
+        data: {'chatId': chatId, 'assistantMessageId': slotIds.first},
+      );
+      return;
+    }
+    final accepted = rows.values.any(
+      (row) =>
+          _placeholderMarkedSubmitted(row) || _placeholderMarkedComplete(row),
+    );
+    // Once the POST crossed the server boundary this op is pull-only recovery;
+    // another live stream must not prevent collecting the accepted answers.
+    if (!accepted) deferIfTargetIsBusy(ownedAssistantIds: ownIds);
+
+    final chatRow = await db.chatsDao.getChat(chatId);
+    requireCurrentConversationOwner();
+    if (chatRow == null) {
+      DebugLogger.log(
+        'completion-chat-absent',
+        scope: 'chat/completion',
+        data: {'chatId': chatId},
+      );
+      return;
+    }
+
+    if (accepted) {
+      owner.chatId = await resolveOpenWebUiCompletionChatId(
+        _ref,
+        owner: owner,
+        assistantMessageId: slotIds.first,
+      );
+      requireCurrentConversationOwner();
+      await recoverSubmittedOpenWebUiComparison(
+        _ref,
+        owner: owner,
+        assistantMessageIds: unfinished,
+        recoveryAttempts: _recoveryAttempts,
+        recoveryDelay: _recoveryDelay,
+      );
+      requireCurrentConversationOwner();
+      return;
+    }
+
+    deferIfTargetIsBusy(ownedAssistantIds: ownIds);
+    final activeMessages = _ref.read(chatMessagesProvider);
+    final live =
+        activeOpenWebUiChatIdForMutation(_ref, owner) != null &&
+        slotIds.every(
+          (id) => activeMessages.any((message) => message.id == id),
+        );
+    if (live) {
+      await runComparisonCompletion(
+        _ref,
+        chatId: chatId,
+        group: group,
+        messages: activeMessages,
+        conversation: _ref.read(activeConversationProvider),
+        live: true,
+        toolIds: decoded.toolIds,
+        filterIds: decoded.filterIds,
+        terminalId: decoded.terminalId,
+        enableWebSearch: decoded.enableWebSearch,
+        enableImageGeneration: decoded.enableImageGeneration,
+        enableCodeInterpreter: decoded.enableCodeInterpreter,
+        isVoiceMode: decoded.isVoiceMode,
+        sessionIdOverride: decoded.sessionIdOverride,
+        completionOwner: owner,
+        chatSettings: decoded.chatSettings,
+        recoveryAttempts: _recoveryAttempts,
+        recoveryDelay: _recoveryDelay,
+      );
+      return;
+    }
+
+    final messageRows = await db.messagesDao.getForChat(chatId);
+    requireCurrentConversationOwner();
+    final conversation = await assembleConversationGuarded(
+      chatRow,
+      messageRows,
+      offload: (envelope) => _ref
+          .read(workerManagerProvider)
+          .schedule(
+            parseFullConversationModelWorker,
+            envelope,
+            debugLabel: 'headless.assembleConversation',
+          ),
+    );
+    requireCurrentConversationOwner();
+    await runComparisonCompletion(
+      _ref,
+      chatId: chatId,
+      group: group,
+      messages: conversation.messages,
+      conversation: conversation,
+      live: false,
+      toolIds: decoded.toolIds,
+      filterIds: decoded.filterIds,
+      terminalId: decoded.terminalId,
+      enableWebSearch: decoded.enableWebSearch,
+      enableImageGeneration: decoded.enableImageGeneration,
+      enableCodeInterpreter: decoded.enableCodeInterpreter,
+      isVoiceMode: decoded.isVoiceMode,
+      sessionIdOverride: decoded.sessionIdOverride,
+      completionOwner: owner,
+      chatSettings: decoded.chatSettings,
+      recoveryAttempts: _recoveryAttempts,
+      recoveryDelay: _recoveryDelay,
     );
   }
 }
@@ -289,6 +485,13 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
 bool _placeholderMarkedComplete(MessageRow placeholder) {
   final payload = _decodeMessagePayload(placeholder.payload);
   final metadata = _asJsonMap(payload['metadata']);
+  // A turn refused before it was sent is settled for display, not completed:
+  // the retry must reach the eligibility recheck. A response, or a submission
+  // (which recovers by pull, never by a second POST), fences it as before.
+  if (metadata['completionRefused'] == true &&
+      metadata['responseDone'] != true) {
+    return false;
+  }
   return metadata['responseDone'] == true ||
       payload['done'] == true ||
       payload['isStreaming'] == false;

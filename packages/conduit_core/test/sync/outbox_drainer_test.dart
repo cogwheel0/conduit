@@ -1,7 +1,12 @@
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/features/chat/services/chat_data_controls.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:conduit_core/sync/backoff.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/clock.dart';
@@ -785,6 +790,102 @@ void main() {
       check(await dao.pendingForChat('cB')).isEmpty();
     });
   });
+
+  group('an account-wide delete', () {
+    ChatDataControlsService deleteAllService(_DeleteAllApi api) =>
+        ChatDataControlsService(
+          database: db,
+          locks: chatLocks,
+          api: api,
+          accountId: 'me',
+          ownerIsCurrent: () => true,
+          activeChatIds: () => const <String>{},
+          nowEpochSeconds: () => clock.nowEpochSeconds(),
+        );
+
+    test('stops an admitted update from being pushed, keeps device-only work '
+        'and lets the next drain recreate nothing', () async {
+      await seedServerChat('c1');
+      await db.chatsDao.updateEnvelopeWithOutbox(
+        'c1',
+        title: const Value('edited offline'),
+        enqueue: true,
+      );
+      final rows = _serverChatRows('local:abc');
+      await db.chatsDao.insertLocalChatWithCreateOp(
+        chat: rows.chat,
+        messages: rows.messages,
+        blobRows: rows,
+        contentHash: 'hash',
+      );
+      final api = _DeleteAllApi();
+      final deleting = deleteAllService(api).deleteAll(
+        discardUnsyncedWork: true,
+        knownLocalOnlyChatIds: {'local:abc'},
+      );
+      await api.requestSent.future;
+
+      // The drain starts while the server is deleting: its workers claim the
+      // queued update and the queued create, then have to wait.
+      final draining = buildDrainer().drain();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      check(client.calls).isEmpty();
+
+      api.reply.complete(true);
+      await Future.wait([deleting, draining]);
+
+      // The update for the deleted chat never reached the server, and the chat
+      // is not back. The chat that existed only on the device was created
+      // afterwards: it is new work, not something the delete covered.
+      check(client.calls).not((it) => it.contains('updateChat:c1'));
+      check(client.calls).contains('createChat');
+      check(await db.chatsDao.getChat('c1')).isNull();
+      check(server.getChatById('c1')).isNull();
+      final remaining = (await db.select(db.chats).get()).map((c) => c.id);
+      check(remaining).length.equals(1);
+      check(remaining.single).not((it) => it.startsWith('local:'));
+      check(await db.select(db.outboxOps).get()).isEmpty();
+
+      // A later drain and a later pull find nothing to bring c1 back.
+      client.calls.clear();
+      await buildDrainer().drain();
+      check(client.calls).isEmpty();
+      check(await db.chatsDao.getChat('c1')).isNull();
+    });
+  });
+}
+
+/// Answers only delete all, and holds the answer until the test releases it.
+final class _DeleteAllApi implements ChatDataControlsApi {
+  final requestSent = Completer<void>();
+  final reply = Completer<bool>();
+
+  @override
+  Future<bool> deleteAllChats() {
+    requestSent.complete();
+    return reply.future;
+  }
+
+  @override
+  Future<Stream<List<int>>> openLibraryExport({CancelToken? cancelToken}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<Map<String, dynamic>?> getChatRaw(String chatId) =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<Map<String, dynamic>>> importChats(Uint8List body) =>
+      throw UnimplementedError();
+
+  @override
+  Future<bool> archiveAllChats() => throw UnimplementedError();
+
+  @override
+  Future<bool> unarchiveAllChats() => throw UnimplementedError();
+
+  @override
+  Future<bool> unshareAllChats() => throw UnimplementedError();
 }
 
 /// A one-message server chat whose blob round-trips cleanly so

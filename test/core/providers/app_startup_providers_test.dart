@@ -10,6 +10,7 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit/core/providers/app_startup_providers.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart' show ApiAuthSnapshot;
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit/core/services/media_upload_controller.dart';
@@ -954,7 +955,7 @@ class _StubApiService extends ApiService {
   final List<String> requestedConversationIds = <String>[];
 
   @override
-  Future<Conversation> getConversation(String id) async {
+  Future<Conversation> getConversation(String id, {ApiAuthSnapshot? authSnapshot}) async {
     requestedConversationIds.add(id);
     final gate = getConversationGate;
     if (gate != null) {

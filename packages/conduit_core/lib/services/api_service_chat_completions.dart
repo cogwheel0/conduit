@@ -113,11 +113,17 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     Map<String, dynamic>? backgroundTasks,
     String? responseMessageId,
     Map<String, dynamic>? userSettings,
+    Map<String, dynamic>? globalParams,
+    Map<String, dynamic>? chatParams,
     String? reasoningEffort,
     String? parentId,
     Map<String, dynamic>? userMessage,
     Map<String, dynamic>? variables,
     List<Map<String, dynamic>>? files,
+
+    /// Ask the server for several answers in this one request. The first entry
+    /// is the primary answer ([responseMessageId] and [model]).
+    List<ChatCompletionTarget>? messageIds,
   }) async {
     // Generate unique IDs
     final messageId =
@@ -186,11 +192,14 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
         toolServers: toolServers,
         backgroundTasks: backgroundTasks,
         userSettings: userSettings,
+        globalParams: globalParams,
+        chatParams: chatParams,
         reasoningEffort: reasoningEffort,
         parentId: parentId,
         userMessage: userMessage,
         variables: variables,
         files: files,
+        messageIds: messageIds,
         metadataFormat: metadataFormat,
       );
 
@@ -452,10 +461,80 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     _streamCancelActions[messageId] = action;
   }
 
+  // -----------------------------------------------------------------------
+  // Merged responses
+  // -----------------------------------------------------------------------
+
+  /// Merges several answers to one prompt into a single response.
+  ///
+  /// `POST /api/v1/tasks/moa/completions` with exactly
+  /// `{model, prompt, responses, stream: true}`, as Open WebUI's own client
+  /// sends it, answered as an SSE text stream that the chat parser reads. It is
+  /// never a chat completion: a server without the endpoint says so with
+  /// [MoaCompletionUnavailable] and nothing is generated in its place.
+  Future<MoaCompletion> generateMoaCompletion({
+    required String model,
+    required String prompt,
+    required List<String> responses,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    final cancelToken = CancelToken();
+    final resp = await _dio.post<ResponseBody>(
+      '/api/v1/tasks/moa/completions',
+      data: <String, dynamic>{
+        'model': model,
+        'prompt': prompt,
+        'responses': responses,
+        'stream': true,
+      },
+      options: _withAuthSnapshot(
+        Options(
+          responseType: ResponseType.stream,
+          // Inspect error bodies ourselves.
+          validateStatus: (status) => status != null && status < 600,
+        ),
+        authSnapshot,
+      ),
+      cancelToken: cancelToken,
+    );
+    final status = resp.statusCode ?? 0;
+    if (status < 200 || status >= 300) {
+      final detail = (await _decodeChatCompletionError(resp)).trim();
+      // FastAPI answers an unknown route with exactly "Not Found". A 404 that
+      // names a model is the merge failing, not the endpoint being absent.
+      final missingRoute =
+          (status == 404 || status == 405 || status == 501) &&
+          (detail.isEmpty || detail.toLowerCase().contains('not found') &&
+              !detail.toLowerCase().contains('model'));
+      if (missingRoute) throw MoaCompletionUnavailable(status);
+      throw MoaCompletionFailed(status, detail);
+    }
+    final body = resp.data;
+    if (body == null) {
+      throw MoaCompletionFailed(status, 'Empty merge response body');
+    }
+    return MoaCompletion(
+      // The parser decodes `Stream<List<int>>`; Dio's body is a `Stream<Uint8List>`
+      // whose runtime type would not accept that decoder.
+      updates: parseOpenWebUIStream(body.stream.cast<List<int>>()),
+      cancel: () async {
+        if (!cancelToken.isCancelled) cancelToken.cancel('User cancelled');
+      },
+    );
+  }
+
   // === Tasks control (parity with Web client) ===
   Future<void> stopTask(String taskId) async {
     try {
-      await _dio.post('/api/tasks/stop/$taskId');
+      final response = await _dio.post('/api/tasks/stop/$taskId');
+      // A task the server does not hold is answered with HTTP 200 and
+      // `status: false`: the route succeeded, the stop did not.
+      final data = response.data;
+      if (data is Map && data['status'] == false) {
+        throw TaskStopNotAcknowledged(
+          data['message']?.toString() ?? 'Task $taskId was not stopped.',
+        );
+      }
     } catch (e) {
       rethrow;
     }
@@ -568,4 +647,14 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
   void clearStreamCancelToken(String messageId) {
     _streamCancelActions.remove(messageId);
   }
+}
+
+/// The server answered a task stop successfully but did not stop the task.
+final class TaskStopNotAcknowledged implements Exception {
+  const TaskStopNotAcknowledged(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'TaskStopNotAcknowledged: $message';
 }

@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart';
 
+import 'package:conduit_core/models/chat_comparison.dart';
+import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../sync/id_remapper.dart' show createChatContentHash;
@@ -66,8 +68,11 @@ class RequestCompletionPayload {
     this.terminalId,
     this.enableWebSearch = false,
     this.enableImageGeneration = false,
+    this.enableCodeInterpreter = false,
     this.isVoiceMode = false,
     this.sessionIdOverride,
+    this.chatSettings,
+    this.comparison,
   });
 
   /// The placeholder assistant message id — the SAME id used for the in-memory
@@ -82,8 +87,27 @@ class RequestCompletionPayload {
   final String? terminalId;
   final bool enableWebSearch;
   final bool enableImageGeneration;
+
+  /// Whether the turn was admitted with the code interpreter. False for an op
+  /// queued before this field existed, which never ran it. Replay rechecks that
+  /// the server still allows it rather than reading the composer.
+  final bool enableCodeInterpreter;
   final bool isVoiceMode;
   final String? sessionIdOverride;
+
+  /// The chat-level generation settings the turn was admitted with. Null for
+  /// an op queued before this field existed: replay then reads the chat's
+  /// stored params at drain time, as it always did. A non-null snapshot with
+  /// empty params is a deliberate "no overrides" and is replayed as such even
+  /// if the chat gains params afterwards.
+  final OpenWebUiChatSettingsSnapshot? chatSettings;
+
+  /// The answers a multi-model turn was admitted with. Null for an ordinary
+  /// single-answer turn and for every op queued before comparisons existed; a
+  /// non-null value is a group that replays as ONE request. [assistantMessageId]
+  /// and [model] stay the first slot's, so a reader that does not know about
+  /// groups still finds the primary answer.
+  final ComparisonGroupSnapshot? comparison;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
     'assistantMessageId': assistantMessageId,
@@ -93,8 +117,11 @@ class RequestCompletionPayload {
     if (terminalId != null) 'terminalId': terminalId,
     'enableWebSearch': enableWebSearch,
     'enableImageGeneration': enableImageGeneration,
+    if (enableCodeInterpreter) 'enableCodeInterpreter': true,
     'isVoiceMode': isVoiceMode,
     if (sessionIdOverride != null) 'sessionIdOverride': sessionIdOverride,
+    if (chatSettings != null) 'chatSettings': chatSettings!.toJson(),
+    if (comparison != null) 'comparison': comparison!.toJson(),
   };
 
   static RequestCompletionPayload fromJson(Map<String, dynamic> json) {
@@ -108,9 +135,18 @@ class RequestCompletionPayload {
           : null,
       enableWebSearch: json['enableWebSearch'] == true,
       enableImageGeneration: json['enableImageGeneration'] == true,
+      enableCodeInterpreter: json['enableCodeInterpreter'] == true,
       isVoiceMode: json['isVoiceMode'] == true,
       sessionIdOverride: json['sessionIdOverride'] is String
           ? json['sessionIdOverride'] as String
+          : null,
+      chatSettings: OpenWebUiChatSettingsSnapshot.tryFromJson(
+        json['chatSettings'],
+      ),
+      // Only an absent key is a single-answer turn; a present value of any
+      // shape is a group, and a damaged one is refused at replay.
+      comparison: json.containsKey('comparison')
+          ? ComparisonGroupSnapshot.fromJson(json['comparison'])
           : null,
     );
   }
@@ -127,6 +163,20 @@ class RequestCompletionPayload {
 }
 
 /// Outbox op statuses (A2).
+/// Payload key of an `updateChat` op that records a local edit of the chat's
+/// own generation `params` (see [OutboxDao.hasPendingParamsEdit]).
+const String kUpdateChatParamsEditKey = 'paramsEdit';
+
+/// Payload key of an `updateChat` op that records an explicit local choice of
+/// the chat's active branch (see [OutboxDao.hasPendingBranchEdit]).
+const String kUpdateChatBranchEditKey = 'branchEdit';
+
+/// Every flag an `updateChat` payload may carry.
+const Set<String> kUpdateChatEditFlagKeys = <String>{
+  kUpdateChatParamsEditKey,
+  kUpdateChatBranchEditKey,
+};
+
 class OutboxStatus {
   OutboxStatus._();
 
@@ -602,6 +652,35 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
     return (query..orderBy([(t) => OrderingTerm.asc(t.seq)])).get();
   }
 
+  /// Whether an `updateChat` op that has not yet been confirmed by the server
+  /// (pending, in flight, or parked as failed) records a local edit of the
+  /// chat's own `params`. This is the evidence a pull needs before it keeps the
+  /// local `params` over the server's: a dirty envelope alone only says
+  /// something changed locally (a title, a folder), not that the generation
+  /// settings did.
+  Future<bool> hasPendingParamsEdit(String chatId) =>
+      _hasPendingUpdateFlag(chatId, kUpdateChatParamsEditKey);
+
+  /// Whether an `updateChat` op that has not yet been confirmed by the server
+  /// (pending, in flight, or parked as failed) records an explicit local choice
+  /// of the chat's active branch. A pull needs this before it keeps the local
+  /// `currentId` over the server's: a dirty envelope alone only says something
+  /// changed locally (a title, a folder), and an unchanged message row says
+  /// nothing about which leaf the user picked.
+  Future<bool> hasPendingBranchEdit(String chatId) =>
+      _hasPendingUpdateFlag(chatId, kUpdateChatBranchEditKey);
+
+  Future<bool> _hasPendingUpdateFlag(String chatId, String flag) async {
+    final ops =
+        await (select(outboxOps)..where(
+              (t) =>
+                  t.chatId.equals(chatId) &
+                  t.kind.equals(OutboxKind.updateChat.name),
+            ))
+            .get();
+    return ops.any((op) => _decodePayload(op.payload)[flag] == true);
+  }
+
   /// All still-owned ops for [chatId] (pending|inFlight, seq ASC).
   /// Used by merge paths that must not enqueue a duplicate while a drain
   /// worker already owns the covering op.
@@ -681,7 +760,15 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         }
         final update = newestOfKind(OutboxKind.updateChat);
         if (update != null) {
-          return _CoalesceDecision(insert: false, survivorSeq: update.seq);
+          // The survivor keeps any params-edit evidence it already carries; a
+          // later title-only update must not erase it.
+          return _CoalesceDecision(
+            insert: false,
+            survivorSeq: update.seq,
+            mergedPayload: payload.isEmpty
+                ? null
+                : <String, dynamic>{..._decodePayload(update.payload), ...payload},
+          );
         }
         return const _CoalesceDecision(insert: true);
 
@@ -725,6 +812,16 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         if (upsert != null) {
           final priorPayload = _decodePayload(upsert.payload);
           final merged = <String, dynamic>{...priorPayload, ...payload};
+          // The server merges `data` and `meta` key by key, so two pending
+          // patches to different keys must both reach it. A newer map that
+          // replaced the older one would drop the earlier patch.
+          for (final key in const ['data', 'meta']) {
+            final older = priorPayload[key];
+            final newer = payload[key];
+            if (older is Map && newer is Map) {
+              merged[key] = <String, dynamic>{...older, ...newer};
+            }
+          }
           if (priorPayload['createIfAbsent'] == true) {
             merged['createIfAbsent'] = true;
           }
@@ -927,6 +1024,20 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         );
         break;
       case OutboxKind.updateChat:
+        // Rows are rebuilt at push time, so the payload carries no data. The
+        // optional flags only record that the chat's own `params` were edited
+        // or its active branch was chosen locally, which a pull needs to know
+        // to keep them.
+        _require(
+          payload.entries.every(
+            (entry) =>
+                kUpdateChatEditFlagKeys.contains(entry.key) &&
+                entry.value == true,
+          ),
+          'updateChat payload must be empty or only flag a params or '
+          'branch edit',
+        );
+        break;
       case OutboxKind.deleteChat:
         _require(payload.isEmpty, '${kind.name} payload must be empty');
         break;

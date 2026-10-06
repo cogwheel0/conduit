@@ -315,9 +315,17 @@ mixin _HealthApi on _ApiServiceBase {
     }
   }
 
-  Future<BackendConfig?> getBackendConfig() async {
+  /// Reads `/api/config`. With [authSnapshot], every request here (the audio
+  /// enrichment included) is refused if the session changed since it was
+  /// captured, rather than being read under a later account's token.
+  Future<BackendConfig?> getBackendConfig({
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     try {
-      final response = await _dio.get('/api/config');
+      final response = await _dio.get(
+        '/api/config',
+        options: _withAuthSnapshot(Options(), authSnapshot),
+      );
       final data = response.data;
       Map<String, dynamic>? jsonMap;
       if (data is Map<String, dynamic>) {
@@ -334,6 +342,7 @@ mixin _HealthApi on _ApiServiceBase {
       _setChatRequestMetadataFormatFromVersion(jsonMap['version']);
       return await _enrichBackendConfigWithAudioConfig(
         BackendConfig.fromJson(jsonMap),
+        authSnapshot: authSnapshot,
       );
     } on DioException catch (e, stackTrace) {
       _traceApi('Backend config request failed: $e');

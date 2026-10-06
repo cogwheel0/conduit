@@ -1,14 +1,18 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/socket_transport_availability.dart';
 import 'package:conduit_core/models/tool.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/features/profile/views/app_customization_page.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -76,6 +80,34 @@ void main() {
     expect(find.text('Advanced prompt overrides'), findsOneWidget);
   });
 
+  testWidgets('Chat toggles the persisted Advanced preference', (tester) async {
+    addTearDown(PreferencesStore.debugReset);
+    await tester.runAsync(() async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    });
+    await tester.pumpWidget(
+      _sectionHarness(AppCustomizationSection.chat, persistSettings: true),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Send with Enter'), findsOneWidget);
+    expect(find.text('Show additional chat tools and settings.'), findsOne);
+    expect(
+      PreferencesStore.get<bool>(PreferenceKeys.advancedFeaturesEnabled),
+      isNot(true),
+    );
+
+    await tester.scrollUntilVisible(find.text('Advanced'), 300);
+    await tester.tap(find.text('Advanced'));
+    await tester.pumpAndSettle();
+
+    expect(
+      PreferencesStore.get<bool>(PreferenceKeys.advancedFeaturesEnabled),
+      isTrue,
+    );
+  });
+
   testWidgets('Data and Connection owns transport and streaming diagnostics', (
     tester,
   ) async {
@@ -95,10 +127,12 @@ void main() {
 Widget _sectionHarness(
   AppCustomizationSection section, {
   bool hasOpenWebUiAccount = false,
+  bool persistSettings = false,
 }) {
   return ProviderScope(
     overrides: [
-      appSettingsProvider.overrideWithValue(const AppSettings()),
+      if (!persistSettings)
+        appSettingsProvider.overrideWithValue(const AppSettings()),
       openWebUiAccountAvailableProvider.overrideWithValue(hasOpenWebUiAccount),
       apiServiceProvider.overrideWithValue(null),
       modelsProvider.overrideWith(_TestModels.new),

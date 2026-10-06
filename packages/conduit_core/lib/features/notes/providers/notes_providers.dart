@@ -6,14 +6,18 @@ import 'package:drift/drift.dart' show Value;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/notes_dao.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/note_mapper.dart';
+import 'package:conduit_core/features/notes/utils/note_access.dart';
 import 'package:conduit_core/models/note.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
+import 'package:conduit_core/sync/sync_api_client.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
@@ -75,9 +79,10 @@ Future<void> _persistServerNoteRow(
   AppDatabase db,
   Map<String, dynamic> raw, {
   required String noteId,
+  String? readerId,
 }) async {
   try {
-    await db.notesDao.mergeServerNote(serverRaw: raw);
+    await db.notesDao.mergeServerNote(serverRaw: raw, readerId: readerId);
   } catch (error, stackTrace) {
     DebugLogger.error(
       'row-upsert-failed',
@@ -97,6 +102,37 @@ bool _canUseCachedNoteAfterDetailError(Object error) {
   if (statusCode != null) return statusCode >= 500;
 
   return error.type != DioExceptionType.badResponse;
+}
+
+/// A 403 on the note detail is the server withdrawing this account's read
+/// access, not a missing note, so the cached read eligibility is retired. The
+/// row, any draft in it and any refused operation stay. A refusal that reached
+/// a replaced session says nothing about the account that asked, so it is
+/// ignored.
+Future<void> _retireRefusedRead(
+  Ref ref,
+  Object error, {
+  required AppDatabase? db,
+  required ApiService api,
+  required String noteId,
+  required String? userId,
+  required Object authEpoch,
+}) async {
+  if (db == null || userId == null || userId.isEmpty) return;
+  if (error is! DioException || error.response?.statusCode != 403) return;
+  if (!ref.mounted ||
+      !_isCurrentNoteSession(ref, api: api, db: db) ||
+      !identical(ref.read(openWebUiAuthSessionEpochProvider), authEpoch) ||
+      ref.read(currentUserProvider2)?.id != userId) {
+    return;
+  }
+  await ref.read(noteLocksProvider).runExclusive(noteId, () async {
+    if (!ref.mounted ||
+        !identical(ref.read(openWebUiAuthSessionEpochProvider), authEpoch)) {
+      return;
+    }
+    await db.notesDao.retireNoteReadEvidence(noteId, accountId: userId);
+  });
 }
 
 bool _isCurrentDatabase(Ref ref, AppDatabase? db) {
@@ -124,6 +160,54 @@ bool _isCurrentNoteSession(
 // typed `ref` so both the keep-alive providers (`Ref`) and the note editor
 // (`WidgetRef`) can drive them. Callers without a database keep the legacy
 // API-first path (reviewer mode / no active server).
+
+/// The session a durable note mutation runs under: its API, the auth snapshot
+/// that pins each of its requests to that account, the database, the auth
+/// epoch and the account id.
+///
+/// A mutation awaits (remap lookup, permission read, note lock) before it
+/// writes, and the provider scope can rebuild for another account in between
+/// while the same [ApiService] and database stay alive. Capture the owner
+/// synchronously, before the mutation's first await, send every request with
+/// [authSnapshot], and check [isCurrent] after each await and again inside the
+/// note lock, immediately before the write.
+final class NoteMutationOwner {
+  const NoteMutationOwner({
+    required this.api,
+    required this.authSnapshot,
+    required this.db,
+    required this.authEpoch,
+    required this.accountId,
+  });
+
+  /// Captures the active session. [ref] is a `Ref`, `WidgetRef` or
+  /// `ProviderContainer`.
+  factory NoteMutationOwner.capture(dynamic ref) {
+    final ApiService? api = ref.read(apiServiceProvider) as ApiService?;
+    return NoteMutationOwner(
+      api: api,
+      authSnapshot: api?.captureAuthSnapshot(),
+      db: ref.read(appDatabaseProvider) as AppDatabase?,
+      authEpoch: ref.read(openWebUiAuthSessionEpochProvider) as Object,
+      accountId: ref.read(currentUserProvider2)?.id as String?,
+    );
+  }
+
+  final ApiService? api;
+  final ApiAuthSnapshot? authSnapshot;
+  final AppDatabase? db;
+  final Object authEpoch;
+  final String? accountId;
+
+  /// Whether this is still the active session, account included.
+  bool isCurrent(dynamic ref) {
+    if (!(ref.read(isAuthenticatedProvider2) as bool)) return false;
+    return identical(ref.read(apiServiceProvider), api) &&
+        identical(ref.read(openWebUiAuthSessionEpochProvider), authEpoch) &&
+        identical(ref.read(appDatabaseProvider), db) &&
+        (ref.read(currentUserProvider2)?.id as String?) == accountId;
+  }
+}
 
 /// PROVISIONAL local nanosecond stamp for list ordering; the server overwrites
 /// `updated_at` on push (see [NotesDao.updateNoteWithOutbox]).
@@ -159,8 +243,100 @@ Future<Note?> _readBackThenDrainNote(
   return row == null ? null : _noteFromRow(row);
 }
 
+/// Throws [NoteWriteDeniedException] unless the stored note may be edited by
+/// the signed-in account. Runs under the note lock, immediately before the
+/// write, so a pull cannot change the answer in between. A missing row passes:
+/// the writers already treat that as a deleted note, which is a different
+/// outcome from a refusal.
+void requireNoteWriteAccess(
+  NoteRow? row, {
+  required String noteId,
+  required String? accountId,
+}) {
+  if (row == null) return;
+  switch (noteRowWriteAccess(row, accountId: accountId)) {
+    case NoteWriteAccess.allowed:
+      return;
+    case NoteWriteAccess.denied:
+      throw NoteWriteDeniedException(noteId);
+    case NoteWriteAccess.unknown:
+      throw NoteWriteDeniedException(noteId, unverified: true);
+  }
+}
+
+/// Reads the authoritative note detail for a stored note whose access is not
+/// known yet, so the write that follows is judged on what the server says
+/// rather than on a guess from the creator id. Offline, or on any failure, the
+/// note stays unknown and the write is refused as unverified.
+///
+/// The read is sent with [owner]'s auth snapshot, so it is cancelled rather
+/// than made as an account the user has since switched to, and the answer is
+/// stored only if [owner] is still current once the note lock is held.
+Future<void> _refreshUnknownNoteAccess(
+  dynamic ref,
+  AppDatabase db,
+  String noteId,
+  NoteMutationOwner owner,
+) async {
+  final api = owner.api;
+  final accountId = owner.accountId;
+  if (api == null || !owner.isCurrent(ref)) return;
+  final row = await db.notesDao.getNote(noteId);
+  if (row == null ||
+      noteRowWriteAccess(row, accountId: accountId) !=
+          NoteWriteAccess.unknown ||
+      !owner.isCurrent(ref)) {
+    return;
+  }
+  Object? writeAccess;
+  Object? accessGrants;
+  var refused = false;
+  try {
+    final detail = await api.getNoteRaw(
+      noteId,
+      authSnapshot: owner.authSnapshot,
+    );
+    if (detail == null) return;
+    writeAccess = detail['write_access'];
+    accessGrants = detail['access_grants'];
+  } on SyncTerminalException catch (error) {
+    // 403 on the detail read is a revoked grant; 401 is an expired session,
+    // which says nothing about this note.
+    if (error.statusCode != 403) return;
+    writeAccess = false;
+    refused = true;
+  } catch (_) {
+    return;
+  }
+  await (ref.read(noteLocksProvider) as NoteLocks).runExclusive(
+    noteId,
+    () async {
+      // The answer belongs to the account that asked.
+      if (!owner.isCurrent(ref)) return;
+      await db.notesDao.storeNoteAccessProjection(
+        noteId,
+        writeAccess: writeAccess,
+        accessGrants: accessGrants,
+        readerId: refused ? null : accountId,
+      );
+      if (refused && accountId != null && accountId.isNotEmpty) {
+        await db.notesDao.retireNoteReadEvidence(noteId, accountId: accountId);
+      }
+    },
+  );
+}
+
 /// Durable note title/data edit. Returns the stored note (from the just-written
-/// row) or `null` if the row no longer exists (e.g. concurrently deleted).
+/// row), or `null` if the row no longer exists (e.g. concurrently deleted) or
+/// the session changed before the write, in which case nothing was written.
+///
+/// Throws [NoteWriteDeniedException] when the account may not edit the note;
+/// the row and any draft already in it are left as they were.
+///
+/// [owner] is the session the caller opened the note under; without one the
+/// session active at the call is used. Either way it is held for the whole
+/// mutation, so a replacement account never supplies the permission read or
+/// receives the write.
 Future<Note?> durableUpdateNote(
   dynamic ref,
   AppDatabase db, {
@@ -168,13 +344,25 @@ Future<Note?> durableUpdateNote(
   String? title,
   Map<String, dynamic>? data,
   Map<String, dynamic> Function(Map<String, dynamic> existing)? dataFrom,
+  NoteMutationOwner? owner,
 }) async {
+  final session = owner ?? NoteMutationOwner.capture(ref);
   // Resolve a stale `local:` id to the server id BEFORE locking so the lock,
   // write, and read-back all key on the row the DAO actually mutates.
   final resolvedId = await db.notesDao.resolveNoteRemapTarget(id);
+  if (!session.isCurrent(ref)) return null;
+  await _refreshUnknownNoteAccess(ref, db, resolvedId, session);
+  if (!session.isCurrent(ref)) return null;
 
   final noteLocks = ref.read(noteLocksProvider);
+  var written = false;
   await noteLocks.runExclusive(resolvedId, () async {
+    if (!session.isCurrent(ref)) return;
+    requireNoteWriteAccess(
+      await db.notesDao.getNote(resolvedId),
+      noteId: resolvedId,
+      accountId: session.accountId,
+    );
     // Merge a partial `data` patch onto the existing note data so an update that
     // only carries `content` doesn't silently drop `versions`/`files` (the patch
     // becomes the note's whole data, locally and on the next server push). The
@@ -198,6 +386,10 @@ Future<Note?> durableUpdateNote(
       };
     }
 
+    // The awaits above can span an account switch: look once more, with no
+    // await between this check and the write.
+    if (!session.isCurrent(ref)) return;
+    written = true;
     await db.notesDao.updateNoteWithOutbox(
       resolvedId,
       title: title == null ? const Value<String>.absent() : Value(title),
@@ -208,40 +400,68 @@ Future<Note?> durableUpdateNote(
       enqueue: true,
     );
   });
+  if (!written) return null;
   return _readBackThenDrainNote(ref, db, resolvedId);
 }
 
 /// Durable pin toggle. Returns the stored note (from the just-written row) or
-/// `null` if the row no longer exists.
+/// `null` if the row no longer exists or the session changed before the write.
+/// A pin is the account's own preference, so it is not gated on write access,
+/// but it is still written only for the account that asked.
 Future<Note?> durablePinNote(
   dynamic ref,
   AppDatabase db, {
   required String id,
   required bool desiredPinned,
 }) async {
+  final session = NoteMutationOwner.capture(ref);
   final resolvedId = await db.notesDao.resolveNoteRemapTarget(id);
+  if (!session.isCurrent(ref)) return null;
   final noteLocks = ref.read(noteLocksProvider);
+  var written = false;
   await noteLocks.runExclusive(resolvedId, () async {
+    if (!session.isCurrent(ref)) return;
+    written = true;
     await db.notesDao.pinNoteWithOutbox(
       resolvedId,
       desiredPinned: desiredPinned,
     );
   });
+  if (!written) return null;
   return _readBackThenDrainNote(ref, db, resolvedId);
 }
 
-/// Durable delete (tombstone + `noteDelete` op).
-Future<void> durableDeleteNote(
+/// Durable delete (tombstone + `noteDelete` op). The endpoint accepts the
+/// owner, an admin or a write recipient, so it asks the same question as an
+/// edit; a read-only note is never tombstoned locally. Returns false, with the
+/// row untouched, when the session changed before the tombstone was written.
+Future<bool> durableDeleteNote(
   dynamic ref,
   AppDatabase db, {
   required String id,
+  NoteMutationOwner? owner,
 }) async {
+  final session = owner ?? NoteMutationOwner.capture(ref);
   final resolvedId = await db.notesDao.resolveNoteRemapTarget(id);
+  if (!session.isCurrent(ref)) return false;
+  await _refreshUnknownNoteAccess(ref, db, resolvedId, session);
+  if (!session.isCurrent(ref)) return false;
   final noteLocks = ref.read(noteLocksProvider);
+  var written = false;
   await noteLocks.runExclusive(resolvedId, () async {
+    if (!session.isCurrent(ref)) return;
+    requireNoteWriteAccess(
+      await db.notesDao.getNote(resolvedId),
+      noteId: resolvedId,
+      accountId: session.accountId,
+    );
+    if (!session.isCurrent(ref)) return;
+    written = true;
     await db.notesDao.tombstoneWithOutbox(resolvedId);
   });
+  if (!written) return false;
   unawaited(_drainNotes(ref));
+  return true;
 }
 
 /// Durable offline create: inserts a `local:<uuid>` row + `noteCreate` op. The
@@ -449,7 +669,14 @@ class NotesList extends _$NotesList {
     final db = sourceDb;
     if (db == null) return;
     if (!_isCurrentDatabase(ref, db)) return;
-    unawaited(_persistServerNoteRow(db, note.toJson(), noteId: note.id));
+    unawaited(
+      _persistServerNoteRow(
+        db,
+        note.toJson(),
+        noteId: note.id,
+        readerId: ref.read(currentUserProvider2)?.id,
+      ),
+    );
   }
 }
 
@@ -467,6 +694,7 @@ Future<Note?> noteById(Ref ref, String id) async {
   final userId = ref.watch(currentUserProvider2)?.id;
   final api = ref.watch(apiServiceProvider);
   final isOnline = ref.watch(isOnlineProvider);
+  final authEpoch = ref.read(openWebUiAuthSessionEpochProvider);
 
   Note? cachedNote;
   if (db != null) {
@@ -488,11 +716,41 @@ Future<Note?> noteById(Ref ref, String id) async {
       return null;
     }
     final note = Note.fromJson(json);
-    if (db != null) {
-      await _persistServerNoteRow(db, json, noteId: id);
-    }
-    return note;
+    if (db == null) return note;
+
+    bool isOpeningAccount() =>
+        ref.mounted &&
+        _isCurrentNoteSession(ref, api: api, db: db) &&
+        identical(ref.read(openWebUiAuthSessionEpochProvider), authEpoch) &&
+        ref.read(currentUserProvider2)?.id == userId;
+
+    // The server just answered this account, which is the evidence that it may
+    // read the note; a response for a replaced session is not.
+    await _persistServerNoteRow(
+      db,
+      json,
+      noteId: id,
+      readerId: isOpeningAccount() ? userId : null,
+    );
+    if (!isOpeningAccount()) return null;
+    if (userId == null || userId.isEmpty) return note;
+
+    // The merge keeps a draft that is still waiting to sync, so the stored row,
+    // not the older server copy, is what the note currently says. Its access
+    // projection is the one the server just sent.
+    final stored = await db.notesDao.getNoteForUser(id, userId: userId);
+    if (!isOpeningAccount()) return null;
+    return stored == null || stored.deleted ? note : _noteFromRow(stored);
   } catch (error) {
+    await _retireRefusedRead(
+      ref,
+      error,
+      db: db,
+      api: api,
+      noteId: id,
+      userId: userId,
+      authEpoch: authEpoch,
+    );
     if (cachedNote != null && _canUseCachedNoteAfterDetailError(error)) {
       // `cachedNote` was read before the await; if the session switched during
       // the failed detail fetch, don't leak a note from the previous account
@@ -916,8 +1174,12 @@ class NoteDeleter extends _$NoteDeleter {
     // note from the watch stream (WHERE deleted = 0).
     if (db != null) {
       try {
-        await durableDeleteNote(ref, db, id: id);
+        final deleted = await durableDeleteNote(ref, db, id: id);
         if (!ref.mounted) return false;
+        if (!deleted) {
+          state = const AsyncValue.data(false);
+          return false;
+        }
         // The session may have switched during the durable await; don't report
         // success into the new session (the editor caller navigates away on it).
         if (!_isCurrentNoteSession(ref, api: api, db: db)) {

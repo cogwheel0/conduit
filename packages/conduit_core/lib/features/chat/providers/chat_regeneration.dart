@@ -583,6 +583,32 @@ Future<void> regenerateEditedHermesUserMessage(
 // Regenerate a message without duplicating its user prompt. Image replay uses
 // a request-scoped force flag so it never mutates the persisted composer
 // preference while provider preflight is in flight.
+/// The model and column a regeneration belongs to when the answer being
+/// regenerated is one of several models' answers to one prompt.
+///
+/// Open WebUI regenerates such an answer with ITS model and keeps its column
+/// (`modelIdx`), whatever the picker holds now; a duplicate-model chat is
+/// told apart by the column alone. A single-model turn returns null and
+/// regenerates with the picker's model as before.
+({String modelId, int slot})? _comparisonRegenerationTarget(
+  List<ChatMessage> messages,
+) {
+  if (messages.isEmpty || messages.last.role != 'assistant') return null;
+  final tail = messages.last;
+  final modelId = tail.model?.trim() ?? '';
+  if (modelId.isEmpty) return null;
+  for (var index = messages.length - 2; index >= 0; index--) {
+    final candidate = messages[index];
+    if (candidate.role != 'user') continue;
+    final models = candidate.metadata?['models'];
+    if (models is List && models.length > 1) {
+      return (modelId: modelId, slot: tail.modelSlot);
+    }
+    return null;
+  }
+  return null;
+}
+
 Future<void> regenerateMessage(
   dynamic ref,
   String userMessageContent,
@@ -607,6 +633,9 @@ Future<void> regenerateMessage(
   final reviewerMode = ref.read(reviewerModeProvider);
   final api = ref.read(apiServiceProvider);
   final selectedModelCandidate = ref.read(selectedModelProvider) as Model?;
+  // Admitted with the account and model this regeneration started under. The
+  // request below drops it if a terminal turns out to be part of it.
+  final codeInterpreterAtRegenerationStart = _admitCodeInterpreter(ref);
   final usesHermesAtRegenerationStart =
       !reviewerMode &&
       selectedModelCandidate != null &&
@@ -666,8 +695,8 @@ Future<void> regenerateMessage(
   if (!reviewerMode && openWebUiDirectRoute != null && api == null) {
     throw Exception('Open WebUI direct connections require a server session.');
   }
-  final Model selectedModel = selectedModelCandidate!;
-  final serverModelId = openWebUiDirectRoute == null
+  Model selectedModel = selectedModelCandidate!;
+  var serverModelId = openWebUiDirectRoute == null
       ? selectedModel.id
       : _openWebUiDirectWireModelId(openWebUiDirectRoute);
 
@@ -701,6 +730,25 @@ Future<void> regenerateMessage(
   if (!reviewerMode && directRoute != null) {
     await _regenerateDirectMessage(ref, route: directRoute);
     return;
+  }
+  // Regenerating one answer of a multi-model turn keeps that answer's model and
+  // column whatever the picker holds now. Read only once the turn is known to be
+  // an Open WebUI one, so the other transports never touch the transcript here.
+  final comparisonTarget = reviewerMode || openWebUiDirectRoute != null
+      ? null
+      : _comparisonRegenerationTarget(
+          ref.read(chatMessagesProvider) as List<ChatMessage>,
+        );
+  if (comparisonTarget != null) {
+    final listed =
+        (ref.read(modelsProvider) as AsyncValue<List<Model>>).asData?.value ??
+        const <Model>[];
+    selectedModel =
+        listed
+            .where((model) => model.id == comparisonTarget.modelId)
+            .firstOrNull ??
+        Model(id: comparisonTarget.modelId, name: comparisonTarget.modelId);
+    serverModelId = selectedModel.id;
   }
   final regenerationOwner = captureOpenWebUiCompletionOwner(
     ref,
@@ -765,6 +813,16 @@ Future<void> regenerateMessage(
       userSettingsData = await api!.getUserSettings();
       userSystemPrompt = _extractSystemPromptFromSettings(userSettingsData);
     } catch (_) {}
+    if (!ownsCurrentPreparationState()) return;
+    requireRegenerationOwner();
+
+    // The chat's own settings, read through the owner captured above so a
+    // regenerated (or historical) turn is sent like the original was.
+    final turnSettings = await _resolveOpenWebUiTurnSettings(
+      regenerationOwner,
+      conversation: activeConversation,
+      pickerReasoningEffort: reasoningEffortForModel(ref.read, selectedModel),
+    );
     if (!ownsCurrentPreparationState()) return;
     requireRegenerationOwner();
 
@@ -836,23 +894,12 @@ Future<void> regenerateMessage(
       }
     }
 
-    final conversationSystemPrompt = activeConversation.systemPrompt?.trim();
-    final effectiveSystemPrompt =
-        (conversationSystemPrompt != null &&
-            conversationSystemPrompt.isNotEmpty)
-        ? conversationSystemPrompt
-        : userSystemPrompt;
-    if (effectiveSystemPrompt != null && effectiveSystemPrompt.isNotEmpty) {
-      final hasSystemMessage = conversationMessages.any(
-        (m) => (m['role']?.toString().toLowerCase() ?? '') == 'system',
-      );
-      if (!hasSystemMessage) {
-        conversationMessages.insert(0, {
-          'role': 'system',
-          'content': effectiveSystemPrompt,
-        });
-      }
-    }
+    _insertOpenWebUiSystemMessage(
+      conversationMessages,
+      chatParams: turnSettings.chatParams,
+      legacyChatSystem: activeConversation.systemPrompt,
+      globalSystem: userSystemPrompt,
+    );
     final isTemporary =
         isTemporaryChat(activeConversation.id) ||
         ref.read(temporaryChatEnabledProvider);
@@ -900,6 +947,8 @@ Future<void> regenerateMessage(
       modelName: selectedModel.name,
       placeholderMetadata: <String, dynamic>{
         _openWebUiRegenerationAttemptMetadataKey: regenerationAttemptId,
+        if (comparisonTarget != null)
+          kMessageModelIdxMetadataKey: comparisonTarget.slot,
       },
     );
     regenerationPlaceholderWasEstablished = true;
@@ -961,11 +1010,15 @@ Future<void> regenerateMessage(
     }
 
     List<Map<String, dynamic>>? toolServers;
+    final admittedToolServers = <PersonalToolAdmission>[];
     try {
       toolServers = await _resolveToolServersForRequest(
         api: api,
         userSettings: userSettingsData,
         selectedToolIds: selectedToolIds,
+        onUnresolvedSelections: (ids) =>
+            _clearUnresolvedPersonalToolSelections(ref, ids),
+        admitted: admittedToolServers,
       );
     } catch (_) {}
     if (!ownsLiveRegenerationPlaceholder()) {
@@ -978,6 +1031,8 @@ Future<void> regenerateMessage(
     final terminalIdForApi = modelSupportsTerminal(selectedModel)
         ? _resolveTerminalIdForRequest(selectedTerminalId: selectedTerminalId)
         : null;
+    final codeInterpreterEnabled =
+        codeInterpreterAtRegenerationStart && terminalIdForApi == null;
 
     // Background tasks should follow backend-synced user settings instead of
     // forcing local defaults.
@@ -1064,6 +1119,13 @@ Future<void> regenerateMessage(
         );
         return;
       }
+      _admitPersonalToolServers(
+        regenSocketService,
+        sessionId: socketSessionId,
+        chatId: regenerationOwner.chatId,
+        messageId: assistantMessageId,
+        admitted: admittedToolServers,
+      );
       // Use transport-aware session dispatch
       final session = await api!.sendMessageSession(
         messages: requestMessages,
@@ -1074,17 +1136,29 @@ Future<void> regenerateMessage(
         filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
         enableWebSearch: webSearchEnabled,
         enableImageGeneration: imageGenerationEnabled,
+        enableCodeInterpreter: codeInterpreterEnabled,
         modelItem: modelItem,
         sessionIdOverride: socketSessionId,
         toolServers: toolServers,
         backgroundTasks: bgTasks,
         responseMessageId: assistantMessageId,
         userSettings: userSettingsData,
-        reasoningEffort: reasoningEffortForModel(ref.read, selectedModel),
+        chatParams: turnSettings.chatParams,
+        reasoningEffort: turnSettings.reasoningEffort,
         parentId: parentMsgMap?['parentId']?.toString(),
         userMessage: parentMsgMap,
         variables: promptVars2,
         files: _extractTopLevelRequestFiles(parentMsgMap),
+        // Only this one answer is asked for again, in its own column.
+        messageIds: comparisonTarget == null
+            ? null
+            : [
+                ChatCompletionTarget(
+                  modelId: serverModelId,
+                  messageId: assistantMessageId,
+                  modelIdx: comparisonTarget.slot,
+                ),
+              ],
       );
       submittedSession = session;
 
@@ -1154,6 +1228,7 @@ Future<void> regenerateMessage(
           isBackgroundToolsFlowPre ||
           isBackgroundWebSearchPre ||
           imageGenerationEnabled ||
+          codeInterpreterEnabled ||
           bgTasks.isNotEmpty;
 
       final attached = await dispatchChatTransport(
@@ -1174,7 +1249,8 @@ Future<void> regenerateMessage(
             toolIdsForApi.isNotEmpty ||
             terminalIdForApi != null ||
             (toolServers != null && toolServers.isNotEmpty) ||
-            imageGenerationEnabled,
+            imageGenerationEnabled ||
+            codeInterpreterEnabled,
         isTemporary: isTemporary,
         filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
         ownsActiveConversation: () =>

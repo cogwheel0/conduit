@@ -747,6 +747,96 @@
   "saveChat": "채팅 저장",
   "temporaryChatByDefault": "기본적으로 임시 채팅",
   "temporaryChatByDefaultDescription": "새 채팅은 저장하지 않으면 기록에 남지 않습니다",
+  "advancedFeatures": "고급",
+  "advancedFeaturesDescription": "추가 채팅 도구와 설정을 표시합니다.",
+  "chatSettingsTitle": "채팅 설정",
+  "chatSettingsApplied": "채팅 설정 적용됨",
+  "chatSettingsAppliedDescription": "이 채팅에는 저장된 설정이 있으며 모든 답변에 사용됩니다.",
+  "chatSettingsTurnOnAdvanced": "변경하려면 고급을 켜세요",
+  "chatSettingsDescription": "이 설정은 이 채팅에만 적용됩니다. 상속으로 둔 항목은 기본값을 사용합니다.",
+  "chatSettingsSystemPrompt": "시스템 프롬프트",
+  "chatSettingsSystemPromptEmptyNote": "비어 있는 프롬프트는 기본 프롬프트가 있어도 시스템 프롬프트를 전혀 보내지 않습니다. 기본값을 사용하려면 상속을 선택하세요.",
+  "chatSettingsParameters": "매개변수",
+  "chatSettingsInherit": "상속",
+  "chatSettingsModelDefault": "모델 기본값",
+  "chatSettingsCustom": "사용자 지정",
+  "chatSettingsResetAll": "모두 초기화",
+  "chatSettingsOtherKept": "그 밖의 저장된 설정은 그대로 유지됩니다.",
+  "chatSettingsSystemPromptLocked": "이 계정은 시스템 프롬프트를 변경할 수 없습니다.",
+  "chatSettingsParametersLocked": "이 계정은 매개변수를 변경할 수 없습니다.",
+  "chatSettingsOwnerChanged": "계정 또는 채팅이 변경되었습니다. 설정을 다시 열고 다시 시도하세요.",
+  "chatSettingTemperature": "온도",
+  "chatSettingTopP": "Top P",
+  "chatSettingTopK": "Top K",
+  "chatSettingMinP": "Min P",
+  "chatSettingFrequencyPenalty": "빈도 페널티",
+  "chatSettingPresencePenalty": "존재 페널티",
+  "chatSettingMaxTokens": "최대 토큰 수",
+  "chatSettingSeed": "시드",
+  "chatSettingStop": "중지 시퀀스",
+  "chatSettingFunctionCalling": "도구 호출",
+  "chatSettingFunctionCallingNative": "네이티브",
+  "chatSettingFunctionCallingLegacy": "레거시",
+  "chatSettingResponseFormat": "응답 형식",
+  "chatSettingErrorRequired": "값을 입력하세요.",
+  "chatSettingErrorNotANumber": "숫자를 입력하세요.",
+  "chatSettingErrorNotAWholeNumber": "정수를 입력하세요.",
+  "chatSettingErrorRange": "{min}에서 {max} 사이의 값을 입력하세요.",
+  "@chatSettingErrorRange": {"placeholders": {"min": {"type": "String"}, "max": {"type": "String"}}},
+  "chatSettingErrorMinimum": "{min} 이상을 입력하세요.",
+  "@chatSettingErrorMinimum": {"placeholders": {"min": {"type": "String"}}},
+  "chatSettingErrorNotJson": "json 같은 단어 또는 올바른 JSON 스키마를 입력하세요.",
+  "chatSettingErrorNotAChoice": "지원되는 값을 선택하세요.",
+  "personalConnectionsTitle": "개인 연결",
+  "personalConnectionsStoredOn": "{server}의 {account}에 저장됨",
+  "personalConnectionsKeyStorageNote": "키는 서버의 Open WebUI 계정 설정과 함께 저장됩니다.",
+  "personalConnectionsTerminals": "터미널",
+  "personalConnectionsEmptyToolServers": "저장된 도구 서버가 없습니다.",
+  "personalConnectionsEmptyTerminals": "저장된 터미널이 없습니다.",
+  "personalConnectionsAddToolServer": "도구 서버 추가",
+  "personalConnectionsAddTerminal": "터미널 추가",
+  "personalConnectionsEditToolServer": "도구 서버 편집",
+  "personalConnectionsEditTerminal": "터미널 편집",
+  "personalConnectionsUnavailableServer": "Open WebUI 서버에서 개인 도구 서버와 터미널을 사용하도록 설정하지 않았습니다.",
+  "personalConnectionsUnavailablePermission": "이 계정은 개인 도구 서버와 터미널을 관리할 수 없습니다.",
+  "personalConnectionsLoadFailed": "개인 연결을 불러오지 못했습니다.",
+  "personalConnectionsSaveFailed": "저장하지 못했습니다. 연결은 변경되지 않았습니다.",
+  "personalConnectionsSaveRejected": "서버가 이 변경 사항을 유지하지 않았습니다. 이 계정은 개인 연결을 저장할 수 없을 수 있습니다.",
+  "personalConnectionsOwnerChanged": "화면을 연 이후 계정 또는 접근 권한이 바뀌었습니다. 저장하거나 전송된 내용은 없으며 입력한 내용은 여기에 그대로 있습니다. 계속하려면 이 연결을 다시 여세요.",
+  "personalConnectionsSavedForPreviousAccount": "이 양식을 연 계정에 저장했습니다. 지금 로그인한 계정은 변경되지 않았습니다.",
+  "personalConnectionsDuplicate": "다른 연결이 이미 이 식별자를 사용하고 있습니다.",
+  "personalConnectionsNotFound": "이 연결이 다른 곳에서 변경되었거나 삭제되었습니다. 새로고침 후 다시 시도하세요.",
+  "personalConnectionsUrl": "URL",
+  "personalConnectionsPath": "경로",
+  "personalConnectionsSpecSource": "OpenAPI 사양",
+  "personalConnectionsSpecFromUrl": "URL에서 가져오기",
+  "personalConnectionsSpecInline": "JSON 붙여넣기",
+  "personalConnectionsSpecJson": "OpenAPI JSON",
+  "personalConnectionsDescriptionField": "설명",
+  "personalConnectionsAuth": "인증",
+  "personalConnectionsKeyKept": "저장된 키를 유지합니다. 입력하면 교체됩니다.",
+  "personalConnectionsKeyRemove": "저장된 키 제거",
+  "personalConnectionsKeyWillRemove": "저장된 키가 제거됩니다.",
+  "personalConnectionsKeyKeep": "저장된 키 유지",
+  "personalConnectionsTestConnection": "연결 테스트",
+  "personalConnectionsTestOk": "연결되었습니다. 작업 {count}개를 찾았습니다.",
+  "personalConnectionsTestOkTerminal": "터미널이 응답했습니다.",
+  "personalConnectionsTestUnauthorized": "호스트가 키를 거부했습니다.",
+  "personalConnectionsTestUnreachable": "호스트에 연결할 수 없습니다.",
+  "personalConnectionsTestInvalidSpec": "호스트가 올바른 OpenAPI 문서를 반환하지 않았습니다.",
+  "personalConnectionsTestInvalidTarget": "먼저 올바른 URL과 경로를 입력하세요.",
+  "personalConnectionsTestUnsupportedAuth": "이 인증 방식은 여기서 테스트할 수 없습니다.",
+  "personalConnectionsUnsupported": "이 연결은 앱에서 편집할 수 없는 설정을 사용합니다. 켜기, 끄기, 삭제는 할 수 있습니다.",
+  "personalConnectionsDeleteTitle": "연결을 삭제할까요?",
+  "personalConnectionsDeleteMessage": "{name}이(가) Open WebUI 계정에서 제거됩니다.",
+  "personalConnectionsUrlRequired": "URL을 입력하세요.",
+  "personalConnectionsUrlInvalid": "http 또는 https로 시작하는 전체 URL을 입력하세요.",
+  "personalConnectionsPathRequired": "경로를 입력하세요.",
+  "personalConnectionsSpecInvalid": "올바른 OpenAPI JSON 문서를 입력하세요.",
+  "personalConnectionsSelectionCleared": "연결이 변경되어 이 채팅에서 제거되었습니다: {names}",
+  "personalConnectionsTerminalOneActive": "터미널 하나를 켜면 나머지는 꺼집니다.",
+  "personalConnectionsNeedsAdvanced": "개인 연결을 관리하려면 채팅 설정에서 고급을 켜세요.",
+  "personalConnectionsNoAccount": "개인 연결을 관리하려면 Open WebUI 계정에 로그인하세요.",
   "chatSaved": "채팅이 기록에 저장되었습니다",
   "chatSaveFailed": "채팅 저장에 실패했습니다",
   "sidebarChatsTab": "채팅",
@@ -981,6 +1071,11 @@
   "savedMemoriesCount": "저장된 메모리 {count}개",
   "memoryEditorDescription": "서버가 일관되게 적용할 수 있도록 메모리는 짧고 구체적으로 작성하세요.",
   "memoryHint": "예: 코드 예제가 포함된 간결한 답변을 선호합니다.",
+  "memoryTypeLabel": "Type",
+  "memoryTypeUser": "User",
+  "memoryTypeContext": "Context",
+  "memoryPathLabel": "Path (optional)",
+  "memoryPathHint": "e.g. projects/conduit",
   "addMemory": "메모리 추가",
   "editMemory": "메모리 편집",
   "deleteMemory": "메모리 삭제",
@@ -1653,6 +1748,9 @@
   "workspaceAccessEmpty": "Not shared with anyone yet.",
   "workspaceAccessAddPeople": "Add people or groups",
   "workspaceAccessAddGroups": "Add groups",
+  "workspaceAccessAddUsers": "Add people",
+  "workspaceAccessGroupsDisabled": "Sharing with groups is disabled; you can share with individual people only.",
+  "workspaceAccessGrantsDisabled": "You do not have permission to share with people or groups. Existing access is kept.",
   "workspaceAccessVisibilityLabel": "Public",
   "workspaceAccessVisibilityDescription": "Anyone on this server can view this resource.",
   "workspaceAccessGroupBadge": "Group",
@@ -3076,6 +3174,38 @@
   "@directContextLimit": {"description": "Provider-neutral model context limit label.", "placeholders": {"tokens": {"type": "String"}}},
   "notificationSystemSettingsDescription": "Conduit의 권한, 소리, 배너 옵션을 변경합니다.",
   "notificationSystemSettingsOpenFailed": "시스템 알림 설정을 열 수 없습니다.",
+  "notificationTargetsTitle": "Webhook destinations",
+  "notificationTargetsDescription": "Your Open WebUI server sends events to these URLs, even while this app is closed.",
+  "notificationTargetsAdd": "Add destination",
+  "notificationTargetsEmpty": "No webhook destinations yet.",
+  "notificationTargetsLoadFailed": "Couldn't load webhook destinations.",
+  "notificationTargetsStale": "Saved, but the list couldn't be refreshed.",
+  "notificationTargetsNativeDescription": "Add and manage webhook destinations",
+  "notificationTargetsUnavailable": "Webhook destinations aren't available for this account.",
+  "notificationTargetsAccountChanged": "The account changed. Close this and open the destination again.",
+  "notificationTargetNewTitle": "New destination",
+  "notificationTargetEditTitle": "Edit destination",
+  "notificationTargetNameLabel": "Name (optional)",
+  "notificationTargetNameHint": "e.g. team-chat",
+  "notificationTargetUrlLabel": "Webhook URL",
+  "notificationTargetUrlHint": "https://example.com/webhook",
+  "notificationTargetUrlKeepHint": "Leave blank to keep the current URL",
+  "notificationTargetUrlRequired": "Enter the webhook URL.",
+  "notificationTargetEnabledTitle": "Enabled",
+  "notificationTargetDeliveryLabel": "Delivery",
+  "notificationTargetDeliveryAway": "When away",
+  "notificationTargetDeliveryAlways": "Always",
+  "notificationTargetEventsLabel": "Events",
+  "notificationTargetEventsUnavailable": "The server's event list couldn't be loaded.",
+  "notificationTargetUnknownEvent": "Not in this server's event list. It stays subscribed until you turn it off.",
+  "notificationTargetDefaultBadge": "Default",
+  "notificationTargetMakeDefault": "Make default",
+  "notificationTargetTest": "Send test notification",
+  "notificationTargetTestSent": "Test notification sent.",
+  "notificationTargetTestFailed": "The test notification couldn't be delivered.",
+  "notificationTargetDelete": "Delete destination",
+  "notificationTargetDeleteConfirm": "Delete {name}? Your server will stop sending notifications to it.",
+  "@notificationTargetDeleteConfirm": {"placeholders":{"name":{"type":"String"}}},
   "notificationSystemSettingsTitle": "시스템 알림 설정",
   "proxyAuthSignInAgain": "프록시를 통해 다시 로그인",
   "readOnly": "읽기 전용",
@@ -3134,5 +3264,556 @@
   "voiceCallNoSpeech": "음성이 감지되지 않았습니다.",
   "@voiceCallNoSpeech": {"description": "Message shown when the voice call heard no speech for several tries."},
   "voiceCallFailed": "음성 통화를 계속할 수 없습니다.",
-  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."}
+  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."},
+  "personalToolSettings": "도구 설정",
+  "personalToolSettingsDescription": "선택한 도구와 모델에 대한 개인 옵션입니다.",
+  "personalToolSettingsYours": "내 설정",
+  "personalToolSettingsUnavailable": "이 항목에는 내 설정을 사용할 수 없습니다.",
+  "personalToolSettingsOwnerChanged": "로그인한 계정이 변경되어 아무것도 저장되지 않았습니다. 설정을 다시 열어 계속하세요.",
+  "personalToolSettingsInvalid": "서버가 이 값을 받아들이지 않았습니다.",
+  "noteReadOnlyNotice": "This note is read-only. You can read it, but not change it.",
+  "noteAccessUnverifiedNotice": "Reconnect to confirm you can edit this note.",
+  "noteAccessRevokedNotice": "You can no longer edit this note. Your unsaved changes are kept here.",
+  "noteSaveAsOwnNote": "Save as my own note",
+  "noteDiscardChanges": "Discard changes",
+  "noteSessionChangedNotice": "The signed-in account changed, so this note was not saved.",
+  "noteNoAccess": "You no longer have access to this note.",
+  "noteShare": "Share note",
+  "folderShareSettings": "Share settings",
+  "chatShareAudience": "Audience",
+  "chatShareAudienceDescription": "Choose who can open the shared chat",
+  "resourceSharingSaved": "Sharing updated",
+  "resourceSharingFiltered": "Saved. The server kept only part of the access you chose.",
+  "resourceSharingSessionChanged": "The signed-in account changed, so nothing was saved. Close this and open it again.",
+  "resourceSharingDenied": "You can no longer change who has access to this.",
+  "resourceSharingMissing": "This item no longer exists.",
+  "resourceSharingLoadFailed": "Couldn't load who has access.",
+  "resourceSharingSaveFailed": "Couldn't save access. Try again.",
+  "resourceAudienceLabel": "Audience",
+  "resourceAudiencePrivate": "Private",
+  "resourceAudiencePublic": "Public",
+  "resourceAudienceOpen": "Open",
+  "resourceAudiencePrivateHint": "Only the people and groups below can open it.",
+  "resourceAudiencePublicHint": "Every user on this server can open it.",
+  "resourceAudienceOpenHint": "Anyone with the link can view it.",
+  "channelMembersSearchHint": "Search members",
+  "channelMembersEmpty": "No members found.",
+  "channelMembersLoadFailed": "Couldn't load members.",
+  "channelMembersLoadMore": "Load more",
+  "channelMembersLoadMoreFailed": "Couldn't load more members. Tap to try again.",
+  "channelMembersAdd": "Add members",
+  "channelMembersAddConfirm": "Add",
+  "channelMembersRemoveMember": "Remove {name}",
+  "@channelMembersRemoveMember": {"description": "Accessibility label for the button that removes one person from the channel.", "placeholders": {"name": {"type": "String", "example": "Alex"}}},
+  "channelMembersChangeFailed": "Couldn't update the members. Try again.",
+  "channelMembersChangeDenied": "The server didn't allow this change.",
+  "channelMembersChangeNotPermitted": "You can't manage this channel's members.",
+  "chatBranchContinueFromResponse": "이 응답에서 계속하기",
+  "chatBranchForkChat": "여기서 채팅 분기",
+  "chatBranchSwitcherSemantics": "수정된 메시지, 버전 {position}/{total}. 모든 버전 보기.",
+  "@chatBranchSwitcherSemantics": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatBranchSheetTitle": "메시지 버전",
+  "chatBranchSheetDescription": "이어갈 버전을 선택하세요. 각 버전은 자체 답변을 유지합니다.",
+  "chatBranchVersionTitle": "버전 {position}",
+  "@chatBranchVersionTitle": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      }
+    }
+  },
+  "chatBranchVersionCurrent": "현재 분기",
+  "chatBranchSelectedNotice": "버전 {position}/{total}에서 이어가는 중",
+  "@chatBranchSelectedNotice": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatBranchWaitForResponse": "이 응답이 끝날 때까지 기다려 주세요",
+  "chatBranchUnavailable": "이 채팅의 분기는 여기서 변경할 수 없습니다.",
+  "chatBranchOwnerChanged": "로그인한 계정이 변경되어 아무것도 변경되지 않았습니다.",
+  "chatBranchMessageMissing": "해당 버전은 더 이상 사용할 수 없습니다.",
+  "chatForkOffline": "이 채팅을 분기하려면 온라인 상태여야 합니다.",
+  "chatForkForbidden": "이 계정은 채팅을 분기할 수 없습니다.",
+  "chatForkSourceMissing": "서버에 더 이상 이 채팅이 없습니다.",
+  "chatForkUnsupported": "이 서버는 채팅 분기를 지원하지 않습니다.",
+  "chatForkFailed": "이 채팅을 분기하지 못했습니다. 다시 시도하세요.",
+  "codeInterpreter": "코드 인터프리터",
+  "codeInterpreterDescription": "서버에서 코드를 실행해 데이터를 분석하고 파일을 만듭니다.",
+  "codeInterpreterBrowserEngine": "이 서버는 브라우저에서 코드를 실행하는데, Conduit은 이를 지원하지 않습니다.",
+  "codeInterpreterUnavailable": "이 서버, 계정 또는 모델에서는 코드 인터프리터를 사용할 수 없습니다.",
+  "folderProjectSettings": "프로젝트 설정",
+  "folderProjectSettingsDescription": "이 폴더의 새 채팅에 적용되는 기본값입니다. 서버가 폴더 안의 모든 채팅에 지식과 시스템 프롬프트를 적용합니다.",
+  "folderProjectModels": "기본 모델",
+  "folderProjectModelsHint": "새 채팅은 이 중 사용할 수 있는 첫 번째 모델로 시작합니다.",
+  "folderProjectNoKnowledge": "연결된 지식이 없습니다.",
+  "folderProjectNoModels": "기본 모델이 없습니다. 새 채팅은 내 기본 모델을 사용합니다.",
+  "folderProjectAddKnowledge": "지식 추가",
+  "folderProjectAddModel": "모델 추가",
+  "folderProjectAddSelected": "추가",
+  "folderProjectNothingToAdd": "더 추가할 항목이 없습니다.",
+  "folderProjectNotAvailable": "사용할 수 없음",
+  "folderProjectMoveUp": "{name} 위로 이동",
+  "folderProjectRemove": "{name} 제거",
+  "folderProjectKindCollection": "지식 베이스",
+  "folderProjectKindFile": "파일",
+  "folderProjectKindNote": "노트",
+  "folderProjectOwnerChanged": "로그인된 계정이 바뀌어 아무것도 저장되지 않았습니다. 프로젝트 설정을 다시 열어 계속하세요.",
+  "folderProjectReadOnly": "이 공유 폴더는 읽기 전용이라 프로젝트 설정을 변경할 수 없습니다.",
+  "folderProjectGone": "이 폴더를 더 이상 사용할 수 없습니다.",
+  "folderProjectModelFallbackNotice": "이 폴더의 기본 모델을 사용할 수 없어 내 기본 모델을 사용합니다.",
+  "@folderProjectMoveUp": {"placeholders": {"name": {"type": "String"}}},
+  "@folderProjectRemove": {"placeholders": {"name": {"type": "String"}}},
+  "scheduledTasksTitle": "Scheduled tasks",
+  "scheduledTasksDescription": "Your Open WebUI server runs these tasks on its own schedule, even while this phone is offline.",
+  "scheduledTasksNeedsAdvanced": "Turn on Advanced in Settings to manage scheduled tasks. Tasks already on the server keep running.",
+  "scheduledTasksUnavailable": "Scheduled tasks are not available for this account on this server.",
+  "scheduledTasksSearchHint": "Search tasks",
+  "scheduledTasksFilterAll": "All",
+  "scheduledTasksFilterActive": "Active",
+  "scheduledTasksFilterPaused": "Paused",
+  "scheduledTasksEmpty": "No scheduled tasks yet.",
+  "scheduledTasksEmptyFiltered": "No tasks match.",
+  "scheduledTasksLoadFailed": "Could not load scheduled tasks.",
+  "scheduledTasksStale": "This list may be out of date. Tap to refresh.",
+  "scheduledTasksLoadMore": "Load more",
+  "scheduledTasksAdd": "New scheduled task",
+  "scheduledTasksAccountChanged": "The account changed. Reopen scheduled tasks to continue.",
+  "scheduledTasksNotFound": "This task no longer exists.",
+  "scheduledTaskStatusActive": "Active",
+  "scheduledTaskStatusPaused": "Paused",
+  "scheduledTaskNextRun": "Next run {time}",
+  "@scheduledTaskNextRun": {"placeholders": {"time": {"type": "String"}}},
+  "scheduledTaskNoNextRun": "No upcoming run",
+  "scheduledTaskLastRun": "Last run {time}",
+  "@scheduledTaskLastRun": {"placeholders": {"time": {"type": "String"}}},
+  "scheduledTaskNeverRun": "Never run",
+  "scheduledTaskScheduleOnce": "Once",
+  "scheduledTaskScheduleDaily": "Daily",
+  "scheduledTaskScheduleWeekly": "Weekly",
+  "scheduledTaskScheduleOnceSummary": "Once, {date}",
+  "@scheduledTaskScheduleOnceSummary": {"placeholders": {"date": {"type": "String"}}},
+  "scheduledTaskScheduleDailySummary": "Daily at {time}",
+  "@scheduledTaskScheduleDailySummary": {"placeholders": {"time": {"type": "String"}}},
+  "scheduledTaskScheduleWeeklySummary": "{days} at {time}",
+  "@scheduledTaskScheduleWeeklySummary": {"placeholders": {"days": {"type": "String"}, "time": {"type": "String"}}},
+  "scheduledTaskScheduleCustom": "Custom schedule",
+  "scheduledTaskNewTitle": "New scheduled task",
+  "scheduledTaskEditTitle": "Edit scheduled task",
+  "scheduledTaskNameLabel": "Name",
+  "scheduledTaskPromptLabel": "Instructions",
+  "scheduledTaskPromptHint": "What should the model do each time?",
+  "scheduledTaskModelLabel": "Model",
+  "scheduledTaskModelChoose": "Choose a model",
+  "scheduledTaskModelUnavailable": "{id} (no longer available)",
+  "@scheduledTaskModelUnavailable": {"placeholders": {"id": {"type": "String"}}},
+  "scheduledTaskScheduleLabel": "Schedule",
+  "scheduledTaskTimeLabel": "Time",
+  "scheduledTaskDateLabel": "Date",
+  "scheduledTaskDaysLabel": "Days",
+  "scheduledTaskAdvancedSchedule": "Advanced schedule",
+  "scheduledTaskRruleLabel": "Recurrence rule",
+  "scheduledTaskRruleKept": "This schedule uses a rule the controls cannot edit. It stays as it is unless you change it.",
+  "scheduledTaskTimezoneNote": "Times follow your Open WebUI account time zone, which the web app sets, not necessarily this device. The server decides when each run happens.",
+  "scheduledTaskActiveLabel": "Active",
+  "scheduledTaskDestinationLabel": "Result goes to",
+  "scheduledTaskDestinationChat": "New chat",
+  "scheduledTaskDestinationChannel": "Channel",
+  "scheduledTaskFolderLabel": "Folder",
+  "scheduledTaskFolderNone": "None",
+  "scheduledTaskFolderUnavailable": "Saved folder (no longer available)",
+  "scheduledTaskChannelChoose": "Choose a channel",
+  "scheduledTaskChannelUnavailable": "Saved channel (no longer available)",
+  "scheduledTaskChannelNoWrite": "You cannot post to this channel.",
+  "scheduledTaskNameRequired": "Enter a name.",
+  "scheduledTaskPromptRequired": "Enter instructions.",
+  "scheduledTaskModelRequired": "Choose a model.",
+  "scheduledTaskModelUnavailableIssue": "Choose a model that is available now.",
+  "scheduledTaskChannelRequired": "Choose a channel.",
+  "scheduledTaskChannelUnavailableIssue": "Choose a channel that is available now.",
+  "scheduledTaskFolderUnavailableIssue": "Choose a folder that is available now, or none.",
+  "scheduledTaskScheduleIncomplete": "Complete the schedule.",
+  "scheduledTaskSaveFailed": "Could not save this task.",
+  "scheduledTaskRunNow": "Run now",
+  "scheduledTaskRunRequested": "Run requested. The server runs it in the background, and the result appears in History when it finishes.",
+  "scheduledTaskRunRequestFailed": "Could not request a run.",
+  "scheduledTaskNextRunsLabel": "Upcoming runs, from the server",
+  "scheduledTaskHistoryTitle": "History",
+  "scheduledTaskHistoryEmpty": "No runs yet.",
+  "scheduledTaskHistoryLoadFailed": "Could not load history.",
+  "scheduledTaskRunSucceeded": "Succeeded",
+  "scheduledTaskRunFailedStatus": "Failed",
+  "scheduledTaskViewChat": "View chat",
+  "scheduledTaskViewChannel": "View channel",
+  "scheduledTaskOpenResultFailed": "Could not open that result.",
+  "scheduledTaskDelete": "Delete task",
+  "scheduledTaskDeleteConfirm": "Delete {name}? The server will stop running it and its history is removed.",
+  "@scheduledTaskDeleteConfirm": {"placeholders": {"name": {"type": "String"}}},
+  "scheduledTaskChangeFailed": "Could not change this task.",
+  "scheduledTaskTerminalKept": "A terminal is attached to this task. It is kept when you edit.",
+  "scheduledTaskPromptSection": "Instructions",
+  "queueDraftAction": "대기열에 추가",
+  "queuedDraftsTitle": "대기 중인 메시지",
+  "queuedDraftsCount": "대기 중인 메시지 {count}개",
+  "queuedDraftsSessionNote": "대기 중인 메시지는 Conduit이 열려 있는 동안에만 유지됩니다. 응답이 끝나면 하나의 메시지로 함께 전송됩니다.",
+  "queuedDraftSendNow": "지금 보내기",
+  "queuedDraftUploading": "파일 업로드가 끝나기를 기다리는 중",
+  "queuedDraftFileFailed": "업로드하지 못한 파일이 있습니다. 이 메시지를 보내려면 파일을 제거하세요.",
+  "queuedDraftsSendFailed": "대기 중인 메시지를 보내지 못했습니다. 대기열에 그대로 남아 있습니다.",
+  "queuedDraftsSending": "대기 중인 메시지를 보내는 중…",
+  "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
+  "calendarTitle": "Calendar",
+  "calendarDescription": "Your Open WebUI calendar. Events live on the server and are shown in this device's time zone.",
+  "calendarNeedsAdvanced": "Turn on Advanced in Settings to use the calendar. Events already on the server are not affected.",
+  "calendarUnavailable": "The calendar is not available for this account on this server.",
+  "calendarTimezoneNote": "Times are shown in this device's time zone. Repeating events are expanded by the server in your account's time zone.",
+  "calendarRangeLabel": "{start} – {end}",
+  "@calendarRangeLabel": {"placeholders": {"start": {"type": "String"}, "end": {"type": "String"}}},
+  "calendarEarlier": "Earlier",
+  "calendarLater": "Later",
+  "calendarToday": "Today",
+  "calendarAllCalendars": "All calendars",
+  "calendarEmpty": "No events in this period.",
+  "calendarLoadFailed": "Could not load the calendar.",
+  "calendarStale": "The calendar may be out of date.",
+  "calendarAddEvent": "New event",
+  "calendarManageCalendars": "Calendars",
+  "calendarAllDay": "All day",
+  "calendarRepeatsMarker": "Repeats",
+  "calendarUntitledEvent": "Untitled event",
+  "calendarScheduledUpcoming": "Scheduled task",
+  "calendarScheduledRunFinished": "Task run finished",
+  "calendarScheduledRunFailed": "Task run failed",
+  "calendarScheduledEntryReadOnly": "Scheduled tasks are managed from the Scheduled tasks page, not as events.",
+  "calendarEventDetailTitle": "Event",
+  "calendarEventCalendar": "Calendar: {name}",
+  "@calendarEventCalendar": {"placeholders": {"name": {"type": "String"}}},
+  "calendarEventOrganizer": "Organized by {name}",
+  "@calendarEventOrganizer": {"placeholders": {"name": {"type": "String"}}},
+  "calendarEventSeriesNote": "This event repeats. Changes and deleting apply to the whole series.",
+  "calendarEventInvitedCount": "Invited: {count}",
+  "@calendarEventInvitedCount": {"placeholders": {"count": {"type": "int"}}},
+  "calendarRsvpPrompt": "Your response",
+  "calendarRsvpAccepted": "Going",
+  "calendarRsvpTentative": "Maybe",
+  "calendarRsvpDeclined": "Can't go",
+  "calendarRsvpPending": "No response yet",
+  "calendarRsvpFailed": "Could not send your response.",
+  "calendarEventEdit": "Edit",
+  "calendarEventEditSeries": "Edit series",
+  "calendarEventDelete": "Delete",
+  "calendarEventDeleteSeries": "Delete series",
+  "calendarEventDeleteConfirm": "Delete {title}? This cannot be undone.",
+  "@calendarEventDeleteConfirm": {"placeholders": {"title": {"type": "String"}}},
+  "calendarEventDeleteSeriesConfirm": "Delete {title} and every repeat of it? This cannot be undone.",
+  "@calendarEventDeleteSeriesConfirm": {"placeholders": {"title": {"type": "String"}}},
+  "calendarEventDeleteFailed": "Could not delete this event.",
+  "calendarEventLoadFailed": "Could not open this event for editing.",
+  "calendarEventReadOnly": "You can't change this event. You can still answer an invitation.",
+  "calendarEventGone": "This event no longer exists. The agenda is refreshing.",
+  "calendarNewEventTitle": "New event",
+  "calendarEditEventTitle": "Edit event",
+  "calendarEditSeriesTitle": "Edit series",
+  "calendarFieldTitle": "Title",
+  "calendarFieldDescription": "Description",
+  "calendarFieldLocation": "Location",
+  "calendarFieldAllDay": "All day",
+  "calendarFieldStarts": "Starts",
+  "calendarFieldStartTime": "Start time",
+  "calendarFieldEnds": "Ends",
+  "calendarFieldEndTime": "End time",
+  "calendarAddEnd": "Add an end",
+  "calendarFieldRepeat": "Repeat",
+  "calendarRepeatNone": "Does not repeat",
+  "calendarRepeatDaily": "Daily",
+  "calendarRepeatWeekdays": "Weekdays",
+  "calendarRepeatWeekly": "Weekly",
+  "calendarRepeatMonthly": "Monthly",
+  "calendarRepeatYearly": "Yearly",
+  "calendarRepeatCustom": "Custom repeat",
+  "calendarRepeatKept": "This event repeats on a rule that cannot be edited here. It is kept unless you choose another repeat.",
+  "calendarRecurrenceTimezoneNote": "Repeats follow your account's time zone, which can differ from this device's.",
+  "calendarFieldCalendar": "Calendar",
+  "calendarChooseCalendar": "Choose a calendar",
+  "calendarFieldAttendees": "People",
+  "calendarAddPeople": "Add people",
+  "calendarInvitedPerson": "Invited person",
+  "calendarRemovePerson": "Remove {name}",
+  "@calendarRemovePerson": {"placeholders": {"name": {"type": "String"}}},
+  "calendarAttendeesNote": "Invited people answer for themselves. Their answers are kept when you change the list.",
+  "calendarNoWritableCalendar": "You have no calendar you can add events to. Create a calendar to continue.",
+  "calendarTitleRequired": "Enter a title.",
+  "calendarCalendarRequired": "Choose a calendar.",
+  "calendarEndBeforeStart": "The end can't be before the start.",
+  "calendarSaveFailed": "Could not save this event.",
+  "calendarCalendarsTitle": "Calendars",
+  "calendarPickTitle": "Choose a calendar",
+  "calendarEmptyCalendars": "No calendars yet.",
+  "calendarDefaultBadge": "Default",
+  "calendarSharedBadge": "Shared",
+  "calendarReadOnlyBadge": "Read only",
+  "calendarMakeDefault": "Make default",
+  "calendarMakeDefaultFailed": "Could not change the default calendar.",
+  "calendarNewCalendar": "New calendar",
+  "calendarNewCalendarHint": "Calendar name",
+  "calendarCreateCalendar": "Create calendar",
+  "calendarNameRequired": "Enter a name for the calendar.",
+  "calendarCreateFailed": "Could not create the calendar.",
+  "calendarWriteDenied": "Your account can't change this in that calendar.",
+  "calendarNotInvited": "You aren't invited to this event.",
+  "calendarNotFound": "That calendar or event could not be found.",
+  "calendarAccountChanged": "The account changed while this was open. Close it and try again.",
+  "chatDataControlsTitle": "Data controls",
+  "chatDataControlsStoredOn": "Chats of {account} on {server}",
+  "@chatDataControlsStoredOn": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsUnavailable": "Data controls need Advanced turned on and a signed-in Open WebUI account.",
+  "chatDataControlsMediaNote": "A backup holds the chat history, settings and attachment references saved on the server. The attached files and images themselves are not included.",
+  "chatDataControlsLocalOnly": "Only on this device: {count}",
+  "@chatDataControlsLocalOnly": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsUnsent": "With changes the server has not received: {count}",
+  "@chatDataControlsUnsent": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsUnsyncedNote": "A server backup leaves these out until they are sent.",
+  "chatDataControlsSyncNow": "Sync now",
+  "chatDataControlsSyncing": "Syncing…",
+  "chatDataControlsBackupSection": "Backup and restore",
+  "chatDataControlsManageSection": "All chats",
+  "chatDataControlsExportLibrary": "Export all chats",
+  "chatDataControlsImport": "Import chats",
+  "chatDataControlsArchiveAll": "Archive all chats",
+  "chatDataControlsUnarchiveAll": "Unarchive all chats",
+  "chatDataControlsUnshareAll": "Remove all share links",
+  "chatDataControlsDeleteAll": "Delete all chats",
+  "chatDataControlsExporting": "Exporting… chats read: {count}",
+  "@chatDataControlsExporting": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsExportReady": "Backup ready. Chats saved: {count}",
+  "@chatDataControlsExportReady": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsExportEmpty": "The server has no chats to back up.",
+  "chatDataControlsExportFailed": "The backup was not saved. The export was interrupted or incomplete.",
+  "chatDataControlsExportStopped": "Export stopped. Nothing was saved.",
+  "chatDataControlsExportConfirmTitle": "Back up the server's copy?",
+  "chatDataControlsExportConfirmMessage": "This saves the chats of {account} stored on {server}. Chats that exist only on this device, and changes the server has not received, are not included.",
+  "@chatDataControlsExportConfirmMessage": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsExportAction": "Back up",
+  "chatDataControlsImportConfirmTitle": "Import these chats?",
+  "chatDataControlsImportConfirmMessage": "Add the chats in the file to {account} on {server}? Chats: {chats}. Messages: {messages}. Chats already there are not replaced; importing adds copies.",
+  "@chatDataControlsImportConfirmMessage": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      },
+      "chats": {
+        "type": "int"
+      },
+      "messages": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsImportAction": "Import",
+  "chatDataControlsImportInvalid": "That file is not an Open WebUI chat export.",
+  "chatDataControlsImportEmpty": "That file has no chats.",
+  "chatDataControlsImportTooLarge": "That file is too large to import in one step.",
+  "chatDataControlsImportBadEntry": "Chat number {position} in the file cannot be imported.",
+  "@chatDataControlsImportBadEntry": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsImportChooseAnother": "Choose another file",
+  "chatDataControlsImportFile": "File: {name}",
+  "@chatDataControlsImportFile": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsImported": "Import finished. Chats imported: {count}",
+  "@chatDataControlsImported": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsImportedSyncNote": "Some appear here after the next sync.",
+  "chatDataControlsImportUnknown": "The server did not answer, so it is not known whether the chats were imported. Check your chats before importing again; importing twice adds copies.",
+  "chatDataControlsForbidden": "This account is not allowed to do that.",
+  "chatDataControlsArchiveAllMessage": "Archive all your chats on the server? You can unarchive them later.",
+  "chatDataControlsUnarchiveAllMessage": "Unarchive all your archived chats on the server?",
+  "chatDataControlsUnshareAllMessage": "Remove every share link you made? People with a link lose access. The chats stay.",
+  "chatDataControlsDeleteAllMessage": "Delete all chats of {account} on {server}? This cannot be undone. Chats that exist only on this device are kept.",
+  "@chatDataControlsDeleteAllMessage": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsDeleteUnsentMessage": "Not yet sent to the server — chats with changes: {edits}; chats with queued replies: {replies}. Deleting discards them.",
+  "@chatDataControlsDeleteUnsentMessage": {
+    "placeholders": {
+      "edits": {
+        "type": "int"
+      },
+      "replies": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsDiscardAndDelete": "Discard and delete",
+  "chatDataControlsResponseRunning": "A reply is still running. Stop it, then try again.",
+  "chatDataControlsLocalChanged": "A chat that was only on this device reached the server while this waited. Nothing was changed. Review and try again.",
+  "chatDataControlsDone": "Done.",
+  "chatDataControlsRefused": "The server could not do that. Nothing changed.",
+  "chatDataControlsUnknown": "The server did not answer, so the result is not known. Check your chats; doing it again is safe.",
+  "chatDataControlsOwnerChanged": "The signed-in account changed. Nothing was done.",
+  "chatDataControlsAccountUnknown": "This account could not be identified yet. Sync and try again.",
+  "chatDataControlsWaiting": "Waiting for sync to settle…",
+  "chatExportAction": "Export chat",
+  "chatExportJson": "Backup (JSON)",
+  "chatExportJsonDescription": "The whole chat with every branch and its settings. Open WebUI can import it.",
+  "chatExportMarkdown": "Transcript (Markdown)",
+  "chatExportMarkdownDescription": "The conversation you are on, as readable text. Not a backup.",
+  "chatExportUnsentNote": "This includes changes the server has not received yet.",
+  "chatExportFailed": "The chat could not be exported.",
+  "chatDataControlsWorkChanged": "Unsent changes appeared on this device while this waited. Nothing was deleted. Review and try again.",
+  "chatComparisonTabsLabel": "모델 답변",
+  "chatComparisonSlotLabel": "{model} · {number}",
+  "@chatComparisonSlotLabel": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      },
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "chatComparisonUnnamedModel": "모델",
+  "chatComparisonSlotResponding": "응답 중",
+  "chatComparisonSlotFailed": "실패",
+  "chatMergedResponseTitle": "병합된 응답",
+  "chatCompareModelsAction": "모델 비교",
+  "chatCompareModelsDescription": "이 메시지를 두 모델에 보내 답변을 비교합니다.",
+  "chatCompareNeedsMessage": "먼저 메시지를 입력한 다음 모델을 비교하세요.",
+  "chatCompareFirstModel": "첫 번째 모델",
+  "chatCompareSecondModel": "두 번째 모델",
+  "chatCompareChooseModel": "모델 선택",
+  "chatCompareStart": "비교",
+  "chatCompareErrorUnavailable": "Comparing models isn't available in this chat.",
+  "chatCompareErrorModelUnavailable": "{models} isn't available on this server.",
+  "@chatCompareErrorModelUnavailable": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorVision": "{models} can't read images. Remove the image or choose other models.",
+  "@chatCompareErrorVision": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorTerminal": "{models} can't use the selected terminal. Turn the terminal off or choose other models.",
+  "@chatCompareErrorTerminal": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorInterpreter": "{models} can't run the code interpreter. Turn it off or choose other models.",
+  "@chatCompareErrorInterpreter": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorEffortOverride": "This chat saves a reasoning effort that {models} can't use. Remove it in chat settings or choose other models.",
+  "@chatCompareErrorEffortOverride": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorEffortPicker": "The chosen models need different reasoning efforts. Set the same effort for both or choose other models.",
+  "chatMergeResponsesAction": "응답 병합",
+  "chatMergeStopAction": "병합 중지",
+  "chatMergeErrorUnavailable": "This server can't merge responses.",
+  "chatMergeErrorFailed": "Merging the responses failed. The original answers are unchanged.",
+  "chatMergeErrorNotMergeable": "Every answer needs to finish with some text before they can be merged.",
+  "chatMergeErrorOwnerChanged": "The account or chat changed, so the merge was stopped.",
+  "chatComparisonStopAnswerAction": "이 답변 중지",
+  "chatMergeChooseDescription": "Choose the answers to merge. Pick at least two; the original answers stay as they are.",
+  "folderProjectComparisonFallbackNotice": "This project's saved models can't all be used, so the chat starts with fewer of them. A comparison uses exactly two."
 }

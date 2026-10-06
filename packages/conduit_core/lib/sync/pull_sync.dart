@@ -162,6 +162,17 @@ class PullFetchMemo {
   }
 }
 
+/// Thrown instead of storing a server read that began before an account-wide
+/// barrier ([ChatLocks.runBarrier]) ended. The read may describe chats the
+/// barrier deleted, so storing it could bring them back. It counts as a failed
+/// fetch: the watermark stays put and the next cycle reads the account again.
+class StaleServerReadException implements Exception {
+  const StaleServerReadException();
+
+  @override
+  String toString() => 'StaleServerReadException: read predates a bulk change';
+}
+
 /// Outcome of one pull cycle.
 class PullResult {
   const PullResult({
@@ -245,6 +256,10 @@ class PullSync {
   final PullFetchMemo? _fetchMemo;
   final _taskVersionsAtFetch = Expando<int>();
 
+  /// [ChatLocks.generation] when each raw response was requested, so the merge
+  /// can tell a read that a bulk barrier has since outdated.
+  final _generationsAtFetch = Expando<int>();
+
   /// Whether the overlap-window fetch of [item] can be skipped this cycle:
   /// the same `(id, updatedAt)` was already fetched in two earlier cycles
   /// AND the local row is present, clean, body-synced, and stamped at that
@@ -276,6 +291,9 @@ class PullSync {
   /// and the idempotent merge makes the next run safe.
   Future<PullResult> run() async {
     _fetchMemo?.beginCycle();
+    // The list pages below describe the account as of now; a bulk barrier that
+    // ends before a stub is stored invalidates them.
+    final cycleGeneration = _locks.generation;
     final watermark = await _db.syncMetaDao.getPullWatermark();
     final threshold = watermark - kPullOverlapSeconds;
     var maxSeen = watermark;
@@ -374,6 +392,9 @@ class PullSync {
           foldedArchivedCount++;
         } else {
           await _locks.runExclusive(item.id, () {
+            if (_locks.generation != cycleGeneration) {
+              throw const StaleServerReadException();
+            }
             return _db.chatsDao.upsertEnvelopeStub(
               id: item.id,
               title: item.title ?? '',
@@ -520,8 +541,12 @@ class PullSync {
   /// Full `ChatResponse` fetch; null on 404. Adapter seam.
   Future<Map<String, dynamic>?> fetchChatRaw(String id) async {
     final taskVersion = _db.chatsDao.taskEventVersion(id);
+    final generation = _locks.generation;
     final response = await _client.getChatRaw(id);
-    if (response != null) _taskVersionsAtFetch[response] = taskVersion;
+    if (response != null) {
+      _taskVersionsAtFetch[response] = taskVersion;
+      _generationsAtFetch[response] = generation;
+    }
     return response;
   }
 
@@ -540,23 +565,29 @@ class PullSync {
     final resp = await fetchChatRaw(chatId);
     if (resp == null) return null;
     final id = resp['id'] is String ? resp['id'] as String : chatId;
-    return _locks.runExclusive(id, () async {
-      // Asked for by name, so what the server says now wins over a same-
-      // second copy stored a moment ago (see `refreshWhenClean`).
-      await _upsertServerChatUnlockedReturningPush(
-        resp,
-        listLastReadAt: null,
-        refreshWhenClean: true,
-      );
-      final chat = await _db.chatsDao.getChat(id);
-      if (chat == null) return null;
-      final messages = await _db.messagesDao.getForChat(id);
-      return assembleConversationGuarded(
-        chat,
-        messages,
-        offload: _parseOffload,
-      );
-    });
+    try {
+      return await _locks.runExclusive(id, () async {
+        // Asked for by name, so what the server says now wins over a same-
+        // second copy stored a moment ago (see `refreshWhenClean`).
+        await _upsertServerChatUnlockedReturningPush(
+          resp,
+          listLastReadAt: null,
+          refreshWhenClean: true,
+        );
+        final chat = await _db.chatsDao.getChat(id);
+        if (chat == null) return null;
+        final messages = await _db.messagesDao.getForChat(id);
+        return assembleConversationGuarded(
+          chat,
+          messages,
+          offload: _parseOffload,
+        );
+      });
+    } on StaleServerReadException {
+      // A bulk change ended while this was in flight: nothing is stored, as
+      // for a chat the server no longer has.
+      return null;
+    }
   }
 
   /// Lock + one-transaction merge of a raw `ChatResponse` map (REQ 1/3).
@@ -589,6 +620,10 @@ class PullSync {
     bool? hasPendingCreateHashes,
     bool refreshWhenClean = false,
   }) async {
+    final fetchedGeneration = _generationsAtFetch[resp];
+    if (fetchedGeneration != null && fetchedGeneration != _locks.generation) {
+      throw const StaleServerReadException();
+    }
     final id = resp['id'] as String;
     final createdAt = _asEpochSeconds(resp['created_at']) ?? 0;
     final updatedAt = _asEpochSeconds(resp['updated_at']) ?? 0;

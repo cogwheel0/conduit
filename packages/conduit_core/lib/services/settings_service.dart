@@ -283,6 +283,7 @@ class SettingsService {
       _androidAssistantTriggerKey:
           settings.androidAssistantTrigger.storageValue,
       PreferenceKeys.temporaryChatByDefault: settings.temporaryChatByDefault,
+      PreferenceKeys.advancedFeaturesEnabled: settings.advancedFeaturesEnabled,
       _pinnedModelsKey: settings.pinnedModels.toList(),
       _notificationsEnabledKey: settings.notificationsEnabled,
       _notificationSoundKey: settings.notificationSound,
@@ -570,6 +571,15 @@ class SettingsService {
     return _putPreference(PreferenceKeys.temporaryChatByDefault, value);
   }
 
+  static Future<bool> getAdvancedFeaturesEnabled() {
+    final value = _getPreference<bool>(PreferenceKeys.advancedFeaturesEnabled);
+    return Future.value(value ?? false);
+  }
+
+  static Future<void> setAdvancedFeaturesEnabled(bool value) {
+    return _putPreference(PreferenceKeys.advancedFeaturesEnabled, value);
+  }
+
   static List<String> sanitizePinnedModels(Iterable<String> modelIds) {
     final sanitized = <String>[];
     final seen = <String>{};
@@ -692,6 +702,9 @@ class SettingsService {
       temporaryChatByDefault:
           PreferencesStore.get<bool>(PreferenceKeys.temporaryChatByDefault) ??
           false,
+      advancedFeaturesEnabled:
+          PreferencesStore.get<bool>(PreferenceKeys.advancedFeaturesEnabled) ??
+          false,
       pinnedModels: sanitizePinnedModels(
         PreferencesStore.getStringList(_pinnedModelsKey) ?? const <String>[],
       ),
@@ -759,6 +772,7 @@ class AppSettings {
   final AndroidAssistantTrigger androidAssistantTrigger;
   final int voiceSilenceDuration;
   final bool temporaryChatByDefault;
+  final bool advancedFeaturesEnabled;
   final List<String> pinnedModels;
   // Notifications (see PreferenceKeys for which are server-synced).
   final bool notificationsEnabled;
@@ -805,6 +819,7 @@ class AppSettings {
     this.androidAssistantTrigger = AndroidAssistantTrigger.overlay,
     this.voiceSilenceDuration = SettingsService.defaultVoiceSilenceDurationMs,
     this.temporaryChatByDefault = false,
+    this.advancedFeaturesEnabled = false,
     this.pinnedModels = const [],
     this.notificationsEnabled = false,
     this.notificationSound = true,
@@ -849,6 +864,7 @@ class AppSettings {
     int? voiceSilenceDuration,
     AndroidAssistantTrigger? androidAssistantTrigger,
     bool? temporaryChatByDefault,
+    bool? advancedFeaturesEnabled,
     List<String>? pinnedModels,
     bool? notificationsEnabled,
     bool? notificationSound,
@@ -911,6 +927,8 @@ class AppSettings {
       voiceSilenceDuration: voiceSilenceDuration ?? this.voiceSilenceDuration,
       temporaryChatByDefault:
           temporaryChatByDefault ?? this.temporaryChatByDefault,
+      advancedFeaturesEnabled:
+          advancedFeaturesEnabled ?? this.advancedFeaturesEnabled,
       pinnedModels: pinnedModels ?? this.pinnedModels,
       notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
       notificationSound: notificationSound ?? this.notificationSound,
@@ -964,6 +982,7 @@ class AppSettings {
         other.androidAssistantTrigger == androidAssistantTrigger &&
         other.voiceSilenceDuration == voiceSilenceDuration &&
         other.temporaryChatByDefault == temporaryChatByDefault &&
+        other.advancedFeaturesEnabled == advancedFeaturesEnabled &&
         other.notificationsEnabled == notificationsEnabled &&
         other.notificationSound == notificationSound &&
         other.notificationSoundAlways == notificationSoundAlways &&
@@ -1010,6 +1029,7 @@ class AppSettings {
       androidAssistantTrigger,
       voiceSilenceDuration,
       temporaryChatByDefault,
+      advancedFeaturesEnabled,
       notificationsEnabled,
       notificationSound,
       notificationSoundAlways,
@@ -1267,6 +1287,16 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> setTemporaryChatByDefault(bool value) async {
     state = state.copyWith(temporaryChatByDefault: value);
     await SettingsService.setTemporaryChatByDefault(value);
+  }
+
+  Future<void> setAdvancedFeaturesEnabled(bool value) async {
+    final pendingLoad = _pendingLoad;
+    if (pendingLoad != null) {
+      await pendingLoad;
+      if (!ref.mounted) return;
+    }
+    state = state.copyWith(advancedFeaturesEnabled: value);
+    await SettingsService.setAdvancedFeaturesEnabled(value);
   }
 
   Future<void> setPinnedModels(List<String> modelIds) async {

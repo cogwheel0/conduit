@@ -207,6 +207,103 @@ void main() {
     );
   });
 
+  group('deepestLastChildId', () {
+    String? leaf(Map<String, Map<String, dynamic>> messages, String from) =>
+        deepestLastChildId<Map<String, dynamic>>(
+          from,
+          messagesById: messages,
+          childrenIdsOf: rawMessageChildrenIds,
+        );
+
+    test('follows the last listed child, not the newest', () {
+      final messages = {
+        'u': {
+          'childrenIds': ['older-listed-first', 'listed-last'],
+        },
+        // The first-listed child is the newest by timestamp.
+        'older-listed-first': {'timestamp': 99, 'childrenIds': <String>[]},
+        'listed-last': {
+          'timestamp': 1,
+          'childrenIds': ['deep'],
+        },
+        'deep': {'timestamp': 2, 'childrenIds': <String>[]},
+      };
+
+      expect(leaf(messages, 'u'), 'deep');
+      expect(leaf(messages, 'older-listed-first'), 'older-listed-first');
+    });
+
+    test('stops at a cycle without modifying the graph', () {
+      final messages = {
+        'a': {
+          'childrenIds': ['b'],
+        },
+        'b': {
+          'childrenIds': ['a'],
+        },
+      };
+
+      expect(leaf(messages, 'a'), 'b');
+      expect(messages['b']!['childrenIds'], ['a']);
+    });
+
+    test('skips a child with no message so the result always exists', () {
+      final messages = {
+        'u': {
+          'childrenIds': ['real', 'ghost'],
+        },
+        'real': {'childrenIds': <String>[]},
+      };
+
+      expect(leaf(messages, 'u'), 'real');
+      expect(leaf({'u': <String, dynamic>{}}, 'u'), 'u');
+    });
+
+    test('an unknown or blank start has no leaf', () {
+      expect(leaf({'u': <String, dynamic>{}}, 'ghost'), isNull);
+      expect(leaf({'u': <String, dynamic>{}}, '  '), isNull);
+    });
+  });
+
+  group('orderedSiblingIds', () {
+    List<String> siblings(
+      Map<String, Map<String, dynamic>> messages,
+      String id,
+    ) => orderedSiblingIds<Map<String, dynamic>>(
+      id,
+      messagesById: messages,
+      parentIdOf: rawMessageParentId,
+      childrenIdsOf: rawMessageChildrenIds,
+    );
+
+    test('uses the parent\'s child order, then unlisted children', () {
+      final messages = {
+        'p': {
+          'childrenIds': ['b', 'ghost', 'a'],
+        },
+        'a': {'parentId': 'p'},
+        'b': {'parentId': 'p'},
+        'late': {'parentId': 'p'},
+      };
+
+      expect(siblings(messages, 'a'), ['b', 'a', 'late']);
+    });
+
+    test('roots are every parentless message in map order', () {
+      final messages = {
+        'r1': <String, dynamic>{},
+        'child': {'parentId': 'r1'},
+        'r2': <String, dynamic>{},
+      };
+
+      expect(siblings(messages, 'r2'), ['r1', 'r2']);
+    });
+
+    test('an unknown message has no siblings', () {
+      expect(siblings({'a': <String, dynamic>{}}, 'ghost'), isEmpty);
+    });
+  });
+
   test('falls back to the last message when all timestamps are missing', () {
     final messages = {
       'first': <String, dynamic>{},

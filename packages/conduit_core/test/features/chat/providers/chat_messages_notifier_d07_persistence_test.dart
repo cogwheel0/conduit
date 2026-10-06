@@ -11,9 +11,11 @@ import 'dart:convert';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/conversation_parsing.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
@@ -213,6 +215,103 @@ void main() {
         ]);
       },
     );
+
+    test('finishStreaming keeps a parsed comparison turn\'s model list and '
+        'identities in the rebuilt server chat', () async {
+      // Open WebUI only draws a turn's answers as a comparison (and its saved
+      // merge) while the parent user message still carries `models`.
+      const models = ['model-b', 'model-a', 'model-b'];
+      final raw = <String, dynamic>{
+        'id': 'd07-comparison',
+        'title': 'Test chat',
+        'created_at': 1704067200,
+        'updated_at': 1704067200,
+        'chat': {
+          'history': {
+            'currentId': 'a-1',
+            'messages': {
+              'u-cmp': {
+                'id': 'u-cmp',
+                'parentId': null,
+                'childrenIds': ['a-0', 'a-1', 'a-2'],
+                'role': 'user',
+                'content': 'Compare',
+                'models': models,
+                'timestamp': 1704067200,
+              },
+              for (var slot = 0; slot < 3; slot += 1)
+                'a-$slot': {
+                  'id': 'a-$slot',
+                  'parentId': 'u-cmp',
+                  'childrenIds': <String>[],
+                  'role': 'assistant',
+                  'content': 'Answer $slot',
+                  'model': models[slot],
+                  'modelIdx': slot,
+                  'done': true,
+                  'timestamp': 1704067201,
+                  if (slot == 1)
+                    'merged': {'status': true, 'content': 'Merged answer'},
+                },
+            },
+          },
+        },
+      };
+      // The chat as the server holds it, with the user's saved model list.
+      await db.chatsDao.upsertServerChat(
+        rows: ChatBlobMapper.blobToRows(
+          chatId: 'd07-comparison',
+          blob: raw['chat'] as Map<String, dynamic>,
+          title: 'Test chat',
+          createdAt: 1704067200,
+          updatedAt: 1704067200,
+        ),
+      );
+      final parsed = Conversation.fromJson(parseFullConversation(raw));
+      final container = buildContainer();
+      container.read(activeConversationProvider.notifier).set(parsed);
+
+      final notifier = container.read(chatMessagesProvider.notifier);
+      final shown = parsed.messages.last;
+      check(shown.id).equals('a-1');
+      notifier.setMessages([
+        ...parsed.messages.take(parsed.messages.length - 1),
+        shown.copyWith(isStreaming: true),
+      ]);
+
+      notifier.finishStreaming();
+      // Only the echo writes `isStreaming`; the server copy above has none.
+      await settleUntil(() async {
+        final rows = await db.messagesDao.getForChat('d07-comparison');
+        return rows.any(
+          (row) =>
+              row.id == 'a-1' &&
+              (jsonDecode(row.payload) as Map<String, dynamic>).containsKey(
+                'isStreaming',
+              ),
+        );
+      });
+
+      final chat = await db.chatsDao.getChat('d07-comparison');
+      final rebuilt = buildChatResponseEnvelope(
+        chat!,
+        await db.messagesDao.getForChat('d07-comparison'),
+      );
+      final messages =
+          ((rebuilt['chat'] as Map<String, dynamic>)['history']
+                  as Map<String, dynamic>)['messages']
+              as Map<String, dynamic>;
+      final user = messages['u-cmp'] as Map<String, dynamic>;
+      final answer = messages['a-1'] as Map<String, dynamic>;
+      check(user['models']).isA<List<Object?>>().deepEquals(models);
+      check(user['parentId']).isNull();
+      check(user['childrenIds']).isA<List<Object?>>().contains('a-1');
+      check(answer['parentId']).equals('u-cmp');
+      check(answer['modelIdx']).equals(1);
+      check(answer['merged'])
+          .isA<Map<Object?, Object?>>()
+          .deepEquals({'status': true, 'content': 'Merged answer'});
+    });
 
     test('temporary (local:) chats persist nothing', () async {
       await seedChatRow('local:draft');

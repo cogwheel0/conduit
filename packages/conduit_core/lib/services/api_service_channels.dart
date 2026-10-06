@@ -77,9 +77,19 @@ mixin _ChannelsApi on _ApiServiceBase {
     return response.data as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> getChannel(String channelId) async {
+  /// Reads one channel.
+  ///
+  /// Pass [authSnapshot] when the read belongs to the account that opened a
+  /// screen: it is refused rather than sent with a token that replaced it.
+  Future<Map<String, dynamic>> getChannel(
+    String channelId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     _traceApi('Fetching channel details: $channelId');
-    final response = await _dio.get('/api/v1/channels/$channelId');
+    final response = await _dio.get(
+      '/api/v1/channels/$channelId',
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
     return response.data as Map<String, dynamic>;
   }
 
@@ -112,12 +122,18 @@ mixin _ChannelsApi on _ApiServiceBase {
     await _dio.delete('/api/v1/channels/$channelId/delete');
   }
 
+  /// Reads one page of a channel's members.
+  ///
+  /// Pass [authSnapshot] when a caller must stay bound to the account that
+  /// opened the list: the request is refused rather than sent with a token
+  /// that replaced it on this shared client.
   Future<Map<String, dynamic>> getChannelMembers(
     String channelId, {
     String? query,
     String? orderBy,
     String? direction,
     int page = 1,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
     _traceApi('Fetching channel members: $channelId');
     final params = <String, dynamic>{'page': page};
@@ -129,8 +145,40 @@ mixin _ChannelsApi on _ApiServiceBase {
     final response = await _dio.get(
       '/api/v1/channels/$channelId/members',
       queryParameters: params,
+      options: _withAuthSnapshot(Options(), authSnapshot),
     );
     return response.data as Map<String, dynamic>;
+  }
+
+  /// Adds users and groups to a channel. The server allows this for the
+  /// channel owner or an admin; any other caller gets a 403.
+  Future<void> addChannelMembers(
+    String channelId, {
+    List<String> userIds = const [],
+    List<String> groupIds = const [],
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    _traceApi('Adding channel members: $channelId');
+    await _dio.post(
+      '/api/v1/channels/$channelId/update/members/add',
+      data: {'user_ids': userIds, 'group_ids': groupIds},
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
+  }
+
+  /// Removes users from a channel. The server has no group form of this
+  /// route, so only user ids are accepted.
+  Future<void> removeChannelMembers(
+    String channelId, {
+    required List<String> userIds,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    _traceApi('Removing channel members: $channelId');
+    await _dio.post(
+      '/api/v1/channels/$channelId/update/members/remove',
+      data: {'user_ids': userIds},
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
   }
 
   Future<List<Map<String, dynamic>>> getChannelMessages(

@@ -2182,6 +2182,275 @@
   "@temporaryChatByDefaultDescription": {
     "description": "Description for the temporary chat by default setting."
   },
+  "advancedFeatures": "Pokročilé",
+  "@advancedFeatures": {
+    "description": "Label for the setting that reveals additional chat tools and settings."
+  },
+  "advancedFeaturesDescription": "Zobrazit další nástroje a nastavení chatu.",
+  "@advancedFeaturesDescription": {
+    "description": "Description for the Advanced setting that reveals additional chat tools and settings."
+  },
+  "chatSettingsTitle": "Nastavení chatu",
+  "chatSettingsApplied": "Nastavení chatu použito",
+  "chatSettingsAppliedDescription": "Tento chat má uložená nastavení a používají se pro každou odpověď.",
+  "chatSettingsTurnOnAdvanced": "Pro změnu zapněte Pokročilé",
+  "chatSettingsDescription": "Tato nastavení platí jen pro tento chat. Vše nastavené na Převzít používá vaše výchozí hodnoty.",
+  "chatSettingsSystemPrompt": "Systémový prompt",
+  "chatSettingsSystemPromptEmptyNote": "Prázdný prompt neodešle žádný systémový prompt, ani když máte výchozí. Zvolte Převzít, aby se použil váš výchozí.",
+  "chatSettingsParameters": "Parametry",
+  "chatSettingsInherit": "Převzít",
+  "chatSettingsModelDefault": "Výchozí modelu",
+  "chatSettingsCustom": "Vlastní",
+  "chatSettingsResetAll": "Obnovit vše",
+  "chatSettingsOtherKept": "Ostatní uložená nastavení zůstanou beze změny.",
+  "chatSettingsSystemPromptLocked": "Váš účet nemůže měnit systémový prompt.",
+  "chatSettingsParametersLocked": "Váš účet nemůže měnit parametry.",
+  "chatSettingsOwnerChanged": "Účet nebo chat se změnil. Otevřete nastavení znovu a zkuste to znovu.",
+  "chatSettingTemperature": "Teplota",
+  "chatSettingTopP": "Top P",
+  "chatSettingTopK": "Top K",
+  "chatSettingMinP": "Min P",
+  "chatSettingFrequencyPenalty": "Penalizace frekvence",
+  "chatSettingPresencePenalty": "Penalizace přítomnosti",
+  "chatSettingMaxTokens": "Max. počet tokenů",
+  "chatSettingSeed": "Seed",
+  "chatSettingStop": "Zastavovací sekvence",
+  "chatSettingFunctionCalling": "Volání nástrojů",
+  "chatSettingFunctionCallingNative": "Nativní",
+  "chatSettingFunctionCallingLegacy": "Starší",
+  "chatSettingResponseFormat": "Formát odpovědi",
+  "chatSettingErrorRequired": "Zadejte hodnotu.",
+  "chatSettingErrorNotANumber": "Zadejte číslo.",
+  "chatSettingErrorNotAWholeNumber": "Zadejte celé číslo.",
+  "chatSettingErrorRange": "Zadejte hodnotu od {min} do {max}.",
+  "@chatSettingErrorRange": {"placeholders": {"min": {"type": "String"}, "max": {"type": "String"}}},
+  "chatSettingErrorMinimum": "Zadejte {min} nebo více.",
+  "@chatSettingErrorMinimum": {"placeholders": {"min": {"type": "String"}}},
+  "chatSettingErrorNotJson": "Zadejte slovo, např. json, nebo platné schéma JSON.",
+  "chatSettingErrorNotAChoice": "Vyberte podporovanou hodnotu.",
+  "personalConnectionsTitle": "Osobní připojení",
+  "@personalConnectionsTitle": {
+    "description": "Title of the screen and Profile entry for managing personal tool servers and terminals stored in the Open WebUI account."
+  },
+  "personalConnectionsStoredOn": "Uloženo pro {account} na {server}",
+  "@personalConnectionsStoredOn": {
+    "description": "Line naming the Open WebUI account {account} on the server {server} that stores the personal connections.",
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "personalConnectionsKeyStorageNote": "Klíče se ukládají na serveru spolu s nastavením vašeho účtu Open WebUI.",
+  "@personalConnectionsKeyStorageNote": {
+    "description": "Note that connection keys are saved in the Open WebUI account settings on the server."
+  },
+  "personalConnectionsTerminals": "Terminály",
+  "@personalConnectionsTerminals": {
+    "description": "Section heading for personal terminal connections."
+  },
+  "personalConnectionsEmptyToolServers": "Nejsou uloženy žádné servery nástrojů.",
+  "@personalConnectionsEmptyToolServers": {
+    "description": "Empty state when the account has no personal tool servers."
+  },
+  "personalConnectionsEmptyTerminals": "Nejsou uloženy žádné terminály.",
+  "@personalConnectionsEmptyTerminals": {
+    "description": "Empty state when the account has no personal terminals."
+  },
+  "personalConnectionsAddToolServer": "Přidat server nástrojů",
+  "@personalConnectionsAddToolServer": {
+    "description": "Button that opens the form for a new personal tool server."
+  },
+  "personalConnectionsAddTerminal": "Přidat terminál",
+  "@personalConnectionsAddTerminal": {
+    "description": "Button that opens the form for a new personal terminal."
+  },
+  "personalConnectionsEditToolServer": "Upravit server nástrojů",
+  "@personalConnectionsEditToolServer": {
+    "description": "Title of the form for changing a personal tool server."
+  },
+  "personalConnectionsEditTerminal": "Upravit terminál",
+  "@personalConnectionsEditTerminal": {
+    "description": "Title of the form for changing a personal terminal."
+  },
+  "personalConnectionsUnavailableServer": "Váš server Open WebUI nepovolil osobní servery nástrojů a terminály.",
+  "@personalConnectionsUnavailableServer": {
+    "description": "Message shown when the Open WebUI server has not enabled personal tool servers and terminals."
+  },
+  "personalConnectionsUnavailablePermission": "Váš účet nesmí spravovat osobní servery nástrojů a terminály.",
+  "@personalConnectionsUnavailablePermission": {
+    "description": "Message shown when the account is not allowed to manage personal tool servers and terminals."
+  },
+  "personalConnectionsLoadFailed": "Osobní připojení se nepodařilo načíst.",
+  "@personalConnectionsLoadFailed": {
+    "description": "Error shown when the personal connections could not be loaded."
+  },
+  "personalConnectionsSaveFailed": "Uložení se nezdařilo. Vaše připojení nebyla změněna.",
+  "@personalConnectionsSaveFailed": {
+    "description": "Error shown when saving a personal connection failed and nothing changed."
+  },
+  "personalConnectionsSaveRejected": "Server tuto změnu neuložil. Váš účet možná nesmí ukládat osobní připojení.",
+  "@personalConnectionsSaveRejected": {
+    "description": "Error shown when the server accepted the request but did not keep the personal connection change."
+  },
+  "personalConnectionsOwnerChanged": "Váš účet nebo přístup se od otevření změnil. Nic nebylo uloženo ani odesláno a vaše zadání zůstávají zde. Pro pokračování otevřete toto připojení znovu.",
+  "@personalConnectionsOwnerChanged": {
+    "description": "Shown on a personal connection form when the signed-in account or its access changed after the form opened; the form's actions are refused and its entries are kept."
+  },
+  "personalConnectionsSavedForPreviousAccount": "Uloženo do účtu, pod kterým byl tento formulář otevřen. Právě přihlášený účet se nezměnil.",
+  "@personalConnectionsSavedForPreviousAccount": {
+    "description": "Shown on a personal connection form after a save finished for the account the form was opened under, while another account is now signed in."
+  },
+  "personalConnectionsDuplicate": "Jiné připojení už tento identifikátor používá.",
+  "@personalConnectionsDuplicate": {
+    "description": "Error shown when another personal connection already has the same identity."
+  },
+  "personalConnectionsNotFound": "Toto připojení bylo jinde změněno nebo odstraněno. Načtěte znovu a zkuste to znovu.",
+  "@personalConnectionsNotFound": {
+    "description": "Error shown when the connection being edited was changed or removed elsewhere."
+  },
+  "personalConnectionsUrl": "URL",
+  "@personalConnectionsUrl": {
+    "description": "Label of the server address field."
+  },
+  "personalConnectionsPath": "Cesta",
+  "@personalConnectionsPath": {
+    "description": "Label of the field holding the path of the OpenAPI document or terminal specification."
+  },
+  "personalConnectionsSpecSource": "Specifikace OpenAPI",
+  "@personalConnectionsSpecSource": {
+    "description": "Label of the choice between fetching the OpenAPI document and pasting it."
+  },
+  "personalConnectionsSpecFromUrl": "Načíst z URL",
+  "@personalConnectionsSpecFromUrl": {
+    "description": "Option that fetches the OpenAPI document from a URL."
+  },
+  "personalConnectionsSpecInline": "Vložit JSON",
+  "@personalConnectionsSpecInline": {
+    "description": "Option that stores a pasted OpenAPI JSON document."
+  },
+  "personalConnectionsSpecJson": "JSON OpenAPI",
+  "@personalConnectionsSpecJson": {
+    "description": "Label of the field holding a pasted OpenAPI JSON document."
+  },
+  "personalConnectionsDescriptionField": "Popis",
+  "@personalConnectionsDescriptionField": {
+    "description": "Label of the optional description field."
+  },
+  "personalConnectionsAuth": "Ověřování",
+  "@personalConnectionsAuth": {
+    "description": "Label of the authentication mode choice."
+  },
+  "personalConnectionsKeyKept": "Uložený klíč zůstává. Zadáním ho nahradíte.",
+  "@personalConnectionsKeyKept": {
+    "description": "Hint shown instead of a stored key: the saved key is kept unless the user types a new one."
+  },
+  "personalConnectionsKeyRemove": "Odebrat uložený klíč",
+  "@personalConnectionsKeyRemove": {
+    "description": "Button that removes the saved key when the connection is saved."
+  },
+  "personalConnectionsKeyWillRemove": "Uložený klíč bude odebrán.",
+  "@personalConnectionsKeyWillRemove": {
+    "description": "Notice that the saved key will be removed when the connection is saved."
+  },
+  "personalConnectionsKeyKeep": "Ponechat uložený klíč",
+  "@personalConnectionsKeyKeep": {
+    "description": "Button that cancels removing the saved key."
+  },
+  "personalConnectionsTestConnection": "Otestovat připojení",
+  "@personalConnectionsTestConnection": {
+    "description": "Button that checks that a personal connection answers, without saving it."
+  },
+  "personalConnectionsTestOk": "Připojení funguje. Nalezeno operací: {count}.",
+  "@personalConnectionsTestOk": {
+    "description": "Result of a successful tool server check with the number {count} of operations it exposes.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "personalConnectionsTestOkTerminal": "Terminál odpověděl.",
+  "@personalConnectionsTestOkTerminal": {
+    "description": "Result of a successful terminal check."
+  },
+  "personalConnectionsTestUnauthorized": "Hostitel klíč odmítl.",
+  "@personalConnectionsTestUnauthorized": {
+    "description": "Result when the host rejected the key."
+  },
+  "personalConnectionsTestUnreachable": "Hostitele se nepodařilo kontaktovat.",
+  "@personalConnectionsTestUnreachable": {
+    "description": "Result when the host could not be reached."
+  },
+  "personalConnectionsTestInvalidSpec": "Hostitel nevrátil platný dokument OpenAPI.",
+  "@personalConnectionsTestInvalidSpec": {
+    "description": "Result when the host did not return a valid OpenAPI document."
+  },
+  "personalConnectionsTestInvalidTarget": "Nejdřív zadejte platnou URL a cestu.",
+  "@personalConnectionsTestInvalidTarget": {
+    "description": "Result when the URL or path is missing or invalid."
+  },
+  "personalConnectionsTestUnsupportedAuth": "Tento způsob ověřování zde nelze otestovat.",
+  "@personalConnectionsTestUnsupportedAuth": {
+    "description": "Result when the connection uses an authentication mode that cannot be tested here."
+  },
+  "personalConnectionsUnsupported": "Toto připojení používá nastavení, která aplikace nemůže upravit. Stále ho můžete zapnout, vypnout nebo smazat.",
+  "@personalConnectionsUnsupported": {
+    "description": "Explains that a connection uses settings the app cannot edit, so it can only be switched or deleted."
+  },
+  "personalConnectionsDeleteTitle": "Smazat připojení?",
+  "@personalConnectionsDeleteTitle": {
+    "description": "Title of the confirmation for deleting a personal connection."
+  },
+  "personalConnectionsDeleteMessage": "{name} bude odebráno z vašeho účtu Open WebUI.",
+  "@personalConnectionsDeleteMessage": {
+    "description": "Confirmation text naming the personal connection {name} that will be deleted.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "personalConnectionsUrlRequired": "Zadejte URL.",
+  "@personalConnectionsUrlRequired": {
+    "description": "Validation error for an empty URL."
+  },
+  "personalConnectionsUrlInvalid": "Zadejte úplnou URL s http nebo https.",
+  "@personalConnectionsUrlInvalid": {
+    "description": "Validation error for a URL that is not a full http or https address."
+  },
+  "personalConnectionsPathRequired": "Zadejte cestu.",
+  "@personalConnectionsPathRequired": {
+    "description": "Validation error for an empty path."
+  },
+  "personalConnectionsSpecInvalid": "Zadejte platný dokument JSON OpenAPI.",
+  "@personalConnectionsSpecInvalid": {
+    "description": "Validation error for pasted text that is not a valid OpenAPI JSON document."
+  },
+  "personalConnectionsSelectionCleared": "Odebráno z tohoto chatu, protože se připojení změnilo: {names}",
+  "@personalConnectionsSelectionCleared": {
+    "description": "Notice that chat selections were removed because the connections named in {names} changed.",
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "personalConnectionsTerminalOneActive": "Zapnutím jednoho terminálu se ostatní vypnou.",
+  "@personalConnectionsTerminalOneActive": {
+    "description": "Hint that switching one terminal on switches the others off."
+  },
+  "personalConnectionsNeedsAdvanced": "Chcete-li spravovat osobní připojení, zapněte v nastavení chatu možnost Pokročilé.",
+  "@personalConnectionsNeedsAdvanced": {
+    "description": "Message shown when Advanced is off, with the steps to turn it on before managing personal connections."
+  },
+  "personalConnectionsNoAccount": "Chcete-li spravovat osobní připojení, přihlaste se k účtu Open WebUI.",
+  "@personalConnectionsNoAccount": {
+    "description": "Message shown when no Open WebUI account is signed in, so personal connections cannot be managed."
+  },
   "chatSaved": "Chat uložen do historie",
   "@chatSaved": {
     "description": "Snackbar message shown after saving a temporary chat."
@@ -2663,6 +2932,11 @@
   "@memoryHint": {
     "description": "Hint text for the memory editor."
   },
+  "memoryTypeLabel": "Type",
+  "memoryTypeUser": "User",
+  "memoryTypeContext": "Context",
+  "memoryPathLabel": "Path (optional)",
+  "memoryPathHint": "e.g. projects/conduit",
   "addMemory": "Přidat paměť",
   "@addMemory": {
     "description": "Button label for creating a memory."
@@ -3530,6 +3804,9 @@
   "workspaceAccessEmpty": "Not shared with anyone yet.",
   "workspaceAccessAddPeople": "Add people or groups",
   "workspaceAccessAddGroups": "Add groups",
+  "workspaceAccessAddUsers": "Add people",
+  "workspaceAccessGroupsDisabled": "Sharing with groups is disabled; you can share with individual people only.",
+  "workspaceAccessGrantsDisabled": "You do not have permission to share with people or groups. Existing access is kept.",
   "workspaceAccessVisibilityLabel": "Public",
   "workspaceAccessVisibilityDescription": "Anyone on this server can view this resource.",
   "workspaceAccessGroupBadge": "Group",
@@ -4953,6 +5230,38 @@
   "@directContextLimit": {"description": "Provider-neutral model context limit label.", "placeholders": {"tokens": {"type": "String"}}},
   "notificationSystemSettingsDescription": "Změňte oprávnění, zvuk a možnosti bannerů pro Conduit.",
   "notificationSystemSettingsOpenFailed": "Systémové nastavení oznámení se nepodařilo otevřít.",
+  "notificationTargetsTitle": "Webhook destinations",
+  "notificationTargetsDescription": "Your Open WebUI server sends events to these URLs, even while this app is closed.",
+  "notificationTargetsAdd": "Add destination",
+  "notificationTargetsEmpty": "No webhook destinations yet.",
+  "notificationTargetsLoadFailed": "Couldn't load webhook destinations.",
+  "notificationTargetsStale": "Saved, but the list couldn't be refreshed.",
+  "notificationTargetsNativeDescription": "Add and manage webhook destinations",
+  "notificationTargetsUnavailable": "Webhook destinations aren't available for this account.",
+  "notificationTargetsAccountChanged": "The account changed. Close this and open the destination again.",
+  "notificationTargetNewTitle": "New destination",
+  "notificationTargetEditTitle": "Edit destination",
+  "notificationTargetNameLabel": "Name (optional)",
+  "notificationTargetNameHint": "e.g. team-chat",
+  "notificationTargetUrlLabel": "Webhook URL",
+  "notificationTargetUrlHint": "https://example.com/webhook",
+  "notificationTargetUrlKeepHint": "Leave blank to keep the current URL",
+  "notificationTargetUrlRequired": "Enter the webhook URL.",
+  "notificationTargetEnabledTitle": "Enabled",
+  "notificationTargetDeliveryLabel": "Delivery",
+  "notificationTargetDeliveryAway": "When away",
+  "notificationTargetDeliveryAlways": "Always",
+  "notificationTargetEventsLabel": "Events",
+  "notificationTargetEventsUnavailable": "The server's event list couldn't be loaded.",
+  "notificationTargetUnknownEvent": "Not in this server's event list. It stays subscribed until you turn it off.",
+  "notificationTargetDefaultBadge": "Default",
+  "notificationTargetMakeDefault": "Make default",
+  "notificationTargetTest": "Send test notification",
+  "notificationTargetTestSent": "Test notification sent.",
+  "notificationTargetTestFailed": "The test notification couldn't be delivered.",
+  "notificationTargetDelete": "Delete destination",
+  "notificationTargetDeleteConfirm": "Delete {name}? Your server will stop sending notifications to it.",
+  "@notificationTargetDeleteConfirm": {"placeholders":{"name":{"type":"String"}}},
   "notificationSystemSettingsTitle": "Systémové nastavení oznámení",
   "proxyAuthSignInAgain": "Znovu se přihlásit přes proxy",
   "readOnly": "Jen pro čtení",
@@ -5017,5 +5326,556 @@
   "voiceCallNoSpeech": "Nebyla zjištěna žádná řeč.",
   "@voiceCallNoSpeech": {"description": "Message shown when the voice call heard no speech for several tries."},
   "voiceCallFailed": "Hlasový hovor nemohl pokračovat.",
-  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."}
+  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."},
+  "personalToolSettings": "Nastavení nástrojů",
+  "personalToolSettingsDescription": "Vaše osobní možnosti pro vybrané nástroje a model.",
+  "personalToolSettingsYours": "Vaše nastavení",
+  "personalToolSettingsUnavailable": "Vaše nastavení není pro tuto položku k dispozici.",
+  "personalToolSettingsOwnerChanged": "Přihlášený účet se změnil, proto se nic neuložilo. Znovu otevřete nastavení a pokračujte.",
+  "personalToolSettingsInvalid": "Server tyto hodnoty nepřijal.",
+  "noteReadOnlyNotice": "This note is read-only. You can read it, but not change it.",
+  "noteAccessUnverifiedNotice": "Reconnect to confirm you can edit this note.",
+  "noteAccessRevokedNotice": "You can no longer edit this note. Your unsaved changes are kept here.",
+  "noteSaveAsOwnNote": "Save as my own note",
+  "noteDiscardChanges": "Discard changes",
+  "noteSessionChangedNotice": "The signed-in account changed, so this note was not saved.",
+  "noteNoAccess": "You no longer have access to this note.",
+  "noteShare": "Share note",
+  "folderShareSettings": "Share settings",
+  "chatShareAudience": "Audience",
+  "chatShareAudienceDescription": "Choose who can open the shared chat",
+  "resourceSharingSaved": "Sharing updated",
+  "resourceSharingFiltered": "Saved. The server kept only part of the access you chose.",
+  "resourceSharingSessionChanged": "The signed-in account changed, so nothing was saved. Close this and open it again.",
+  "resourceSharingDenied": "You can no longer change who has access to this.",
+  "resourceSharingMissing": "This item no longer exists.",
+  "resourceSharingLoadFailed": "Couldn't load who has access.",
+  "resourceSharingSaveFailed": "Couldn't save access. Try again.",
+  "resourceAudienceLabel": "Audience",
+  "resourceAudiencePrivate": "Private",
+  "resourceAudiencePublic": "Public",
+  "resourceAudienceOpen": "Open",
+  "resourceAudiencePrivateHint": "Only the people and groups below can open it.",
+  "resourceAudiencePublicHint": "Every user on this server can open it.",
+  "resourceAudienceOpenHint": "Anyone with the link can view it.",
+  "channelMembersSearchHint": "Search members",
+  "channelMembersEmpty": "No members found.",
+  "channelMembersLoadFailed": "Couldn't load members.",
+  "channelMembersLoadMore": "Load more",
+  "channelMembersLoadMoreFailed": "Couldn't load more members. Tap to try again.",
+  "channelMembersAdd": "Add members",
+  "channelMembersAddConfirm": "Add",
+  "channelMembersRemoveMember": "Remove {name}",
+  "@channelMembersRemoveMember": {"description": "Accessibility label for the button that removes one person from the channel.", "placeholders": {"name": {"type": "String", "example": "Alex"}}},
+  "channelMembersChangeFailed": "Couldn't update the members. Try again.",
+  "channelMembersChangeDenied": "The server didn't allow this change.",
+  "channelMembersChangeNotPermitted": "You can't manage this channel's members.",
+  "chatBranchContinueFromResponse": "Pokračovat od této odpovědi",
+  "chatBranchForkChat": "Rozvětvit chat odtud",
+  "chatBranchSwitcherSemantics": "Upravená zpráva, verze {position} z {total}. Zobrazit všechny verze.",
+  "@chatBranchSwitcherSemantics": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatBranchSheetTitle": "Verze zprávy",
+  "chatBranchSheetDescription": "Vyberte verzi, od které chcete pokračovat. Každá verze si ponechává vlastní odpovědi.",
+  "chatBranchVersionTitle": "Verze {position}",
+  "@chatBranchVersionTitle": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      }
+    }
+  },
+  "chatBranchVersionCurrent": "Aktuální větev",
+  "chatBranchSelectedNotice": "Pokračování od verze {position} z {total}",
+  "@chatBranchSelectedNotice": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatBranchWaitForResponse": "Počkejte, až tato odpověď skončí",
+  "chatBranchUnavailable": "Větve tohoto chatu zde nelze měnit.",
+  "chatBranchOwnerChanged": "Přihlášený účet se změnil, takže nebylo nic změněno.",
+  "chatBranchMessageMissing": "Tato verze už není dostupná.",
+  "chatForkOffline": "Pro rozvětvení tohoto chatu se připojte k internetu.",
+  "chatForkForbidden": "Váš účet nemůže rozvětvovat chaty.",
+  "chatForkSourceMissing": "Server už tento chat nemá.",
+  "chatForkUnsupported": "Tento server nepodporuje rozvětvování chatů.",
+  "chatForkFailed": "Chat se nepodařilo rozvětvit. Zkuste to znovu.",
+  "codeInterpreter": "Interpret kódu",
+  "codeInterpreterDescription": "Spouštějte kód na serveru pro analýzu dat a vytváření souborů.",
+  "codeInterpreterBrowserEngine": "Tento server spouští kód v prohlížeči, což Conduit neumí.",
+  "codeInterpreterUnavailable": "Interpret kódu není pro tento server, účet nebo model dostupný.",
+  "folderProjectSettings": "Nastavení projektu",
+  "folderProjectSettingsDescription": "Výchozí hodnoty pro nové chaty v této složce. Server na každý chat v ní použije její znalosti a systémový prompt.",
+  "folderProjectModels": "Výchozí modely",
+  "folderProjectModelsHint": "Nový chat začne prvním dostupným z těchto modelů.",
+  "folderProjectNoKnowledge": "Žádné připojené znalosti.",
+  "folderProjectNoModels": "Žádný výchozí model. Nové chaty používají tvůj výchozí model.",
+  "folderProjectAddKnowledge": "Přidat znalosti",
+  "folderProjectAddModel": "Přidat model",
+  "folderProjectAddSelected": "Přidat",
+  "folderProjectNothingToAdd": "Není co dalšího přidat.",
+  "folderProjectNotAvailable": "Nedostupné",
+  "folderProjectMoveUp": "Posunout {name} nahoru",
+  "folderProjectRemove": "Odebrat {name}",
+  "folderProjectKindCollection": "Znalostní báze",
+  "folderProjectKindFile": "Soubor",
+  "folderProjectKindNote": "Poznámka",
+  "folderProjectOwnerChanged": "Přihlášený účet se změnil, takže se nic neuložilo. Znovu otevři nastavení projektu a pokračuj.",
+  "folderProjectReadOnly": "Tato sdílená složka je jen pro čtení, takže její nastavení projektu nelze změnit.",
+  "folderProjectGone": "Tato složka už není dostupná.",
+  "folderProjectModelFallbackNotice": "Výchozí model této složky není dostupný, proto se použije tvůj výchozí model.",
+  "@folderProjectMoveUp": {"placeholders": {"name": {"type": "String"}}},
+  "@folderProjectRemove": {"placeholders": {"name": {"type": "String"}}},
+  "scheduledTasksTitle": "Scheduled tasks",
+  "scheduledTasksDescription": "Your Open WebUI server runs these tasks on its own schedule, even while this phone is offline.",
+  "scheduledTasksNeedsAdvanced": "Turn on Advanced in Settings to manage scheduled tasks. Tasks already on the server keep running.",
+  "scheduledTasksUnavailable": "Scheduled tasks are not available for this account on this server.",
+  "scheduledTasksSearchHint": "Search tasks",
+  "scheduledTasksFilterAll": "All",
+  "scheduledTasksFilterActive": "Active",
+  "scheduledTasksFilterPaused": "Paused",
+  "scheduledTasksEmpty": "No scheduled tasks yet.",
+  "scheduledTasksEmptyFiltered": "No tasks match.",
+  "scheduledTasksLoadFailed": "Could not load scheduled tasks.",
+  "scheduledTasksStale": "This list may be out of date. Tap to refresh.",
+  "scheduledTasksLoadMore": "Load more",
+  "scheduledTasksAdd": "New scheduled task",
+  "scheduledTasksAccountChanged": "The account changed. Reopen scheduled tasks to continue.",
+  "scheduledTasksNotFound": "This task no longer exists.",
+  "scheduledTaskStatusActive": "Active",
+  "scheduledTaskStatusPaused": "Paused",
+  "scheduledTaskNextRun": "Next run {time}",
+  "@scheduledTaskNextRun": {"placeholders": {"time": {"type": "String"}}},
+  "scheduledTaskNoNextRun": "No upcoming run",
+  "scheduledTaskLastRun": "Last run {time}",
+  "@scheduledTaskLastRun": {"placeholders": {"time": {"type": "String"}}},
+  "scheduledTaskNeverRun": "Never run",
+  "scheduledTaskScheduleOnce": "Once",
+  "scheduledTaskScheduleDaily": "Daily",
+  "scheduledTaskScheduleWeekly": "Weekly",
+  "scheduledTaskScheduleOnceSummary": "Once, {date}",
+  "@scheduledTaskScheduleOnceSummary": {"placeholders": {"date": {"type": "String"}}},
+  "scheduledTaskScheduleDailySummary": "Daily at {time}",
+  "@scheduledTaskScheduleDailySummary": {"placeholders": {"time": {"type": "String"}}},
+  "scheduledTaskScheduleWeeklySummary": "{days} at {time}",
+  "@scheduledTaskScheduleWeeklySummary": {"placeholders": {"days": {"type": "String"}, "time": {"type": "String"}}},
+  "scheduledTaskScheduleCustom": "Custom schedule",
+  "scheduledTaskNewTitle": "New scheduled task",
+  "scheduledTaskEditTitle": "Edit scheduled task",
+  "scheduledTaskNameLabel": "Name",
+  "scheduledTaskPromptLabel": "Instructions",
+  "scheduledTaskPromptHint": "What should the model do each time?",
+  "scheduledTaskModelLabel": "Model",
+  "scheduledTaskModelChoose": "Choose a model",
+  "scheduledTaskModelUnavailable": "{id} (no longer available)",
+  "@scheduledTaskModelUnavailable": {"placeholders": {"id": {"type": "String"}}},
+  "scheduledTaskScheduleLabel": "Schedule",
+  "scheduledTaskTimeLabel": "Time",
+  "scheduledTaskDateLabel": "Date",
+  "scheduledTaskDaysLabel": "Days",
+  "scheduledTaskAdvancedSchedule": "Advanced schedule",
+  "scheduledTaskRruleLabel": "Recurrence rule",
+  "scheduledTaskRruleKept": "This schedule uses a rule the controls cannot edit. It stays as it is unless you change it.",
+  "scheduledTaskTimezoneNote": "Times follow your Open WebUI account time zone, which the web app sets, not necessarily this device. The server decides when each run happens.",
+  "scheduledTaskActiveLabel": "Active",
+  "scheduledTaskDestinationLabel": "Result goes to",
+  "scheduledTaskDestinationChat": "New chat",
+  "scheduledTaskDestinationChannel": "Channel",
+  "scheduledTaskFolderLabel": "Folder",
+  "scheduledTaskFolderNone": "None",
+  "scheduledTaskFolderUnavailable": "Saved folder (no longer available)",
+  "scheduledTaskChannelChoose": "Choose a channel",
+  "scheduledTaskChannelUnavailable": "Saved channel (no longer available)",
+  "scheduledTaskChannelNoWrite": "You cannot post to this channel.",
+  "scheduledTaskNameRequired": "Enter a name.",
+  "scheduledTaskPromptRequired": "Enter instructions.",
+  "scheduledTaskModelRequired": "Choose a model.",
+  "scheduledTaskModelUnavailableIssue": "Choose a model that is available now.",
+  "scheduledTaskChannelRequired": "Choose a channel.",
+  "scheduledTaskChannelUnavailableIssue": "Choose a channel that is available now.",
+  "scheduledTaskFolderUnavailableIssue": "Choose a folder that is available now, or none.",
+  "scheduledTaskScheduleIncomplete": "Complete the schedule.",
+  "scheduledTaskSaveFailed": "Could not save this task.",
+  "scheduledTaskRunNow": "Run now",
+  "scheduledTaskRunRequested": "Run requested. The server runs it in the background, and the result appears in History when it finishes.",
+  "scheduledTaskRunRequestFailed": "Could not request a run.",
+  "scheduledTaskNextRunsLabel": "Upcoming runs, from the server",
+  "scheduledTaskHistoryTitle": "History",
+  "scheduledTaskHistoryEmpty": "No runs yet.",
+  "scheduledTaskHistoryLoadFailed": "Could not load history.",
+  "scheduledTaskRunSucceeded": "Succeeded",
+  "scheduledTaskRunFailedStatus": "Failed",
+  "scheduledTaskViewChat": "View chat",
+  "scheduledTaskViewChannel": "View channel",
+  "scheduledTaskOpenResultFailed": "Could not open that result.",
+  "scheduledTaskDelete": "Delete task",
+  "scheduledTaskDeleteConfirm": "Delete {name}? The server will stop running it and its history is removed.",
+  "@scheduledTaskDeleteConfirm": {"placeholders": {"name": {"type": "String"}}},
+  "scheduledTaskChangeFailed": "Could not change this task.",
+  "scheduledTaskTerminalKept": "A terminal is attached to this task. It is kept when you edit.",
+  "scheduledTaskPromptSection": "Instructions",
+  "queueDraftAction": "Do fronty",
+  "queuedDraftsTitle": "Zprávy ve frontě",
+  "queuedDraftsCount": "{count, plural, one{{count} zpráva ve frontě} few{{count} zprávy ve frontě} many{{count} zprávy ve frontě} other{{count} zpráv ve frontě}}",
+  "queuedDraftsSessionNote": "Zprávy ve frontě se uchovávají jen po dobu, kdy je Conduit otevřený. Po dokončení odpovědi se odešlou společně jako jedna zpráva.",
+  "queuedDraftSendNow": "Odeslat hned",
+  "queuedDraftUploading": "Čekání na dokončení nahrávání souboru",
+  "queuedDraftFileFailed": "Soubor se nenahrál. Odeberte jej, aby se zpráva mohla odeslat.",
+  "queuedDraftsSendFailed": "Zprávy ve frontě se nepodařilo odeslat. Zůstávají ve frontě.",
+  "queuedDraftsSending": "Odesílání zpráv z fronty…",
+  "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
+  "calendarTitle": "Calendar",
+  "calendarDescription": "Your Open WebUI calendar. Events live on the server and are shown in this device's time zone.",
+  "calendarNeedsAdvanced": "Turn on Advanced in Settings to use the calendar. Events already on the server are not affected.",
+  "calendarUnavailable": "The calendar is not available for this account on this server.",
+  "calendarTimezoneNote": "Times are shown in this device's time zone. Repeating events are expanded by the server in your account's time zone.",
+  "calendarRangeLabel": "{start} – {end}",
+  "@calendarRangeLabel": {"placeholders": {"start": {"type": "String"}, "end": {"type": "String"}}},
+  "calendarEarlier": "Earlier",
+  "calendarLater": "Later",
+  "calendarToday": "Today",
+  "calendarAllCalendars": "All calendars",
+  "calendarEmpty": "No events in this period.",
+  "calendarLoadFailed": "Could not load the calendar.",
+  "calendarStale": "The calendar may be out of date.",
+  "calendarAddEvent": "New event",
+  "calendarManageCalendars": "Calendars",
+  "calendarAllDay": "All day",
+  "calendarRepeatsMarker": "Repeats",
+  "calendarUntitledEvent": "Untitled event",
+  "calendarScheduledUpcoming": "Scheduled task",
+  "calendarScheduledRunFinished": "Task run finished",
+  "calendarScheduledRunFailed": "Task run failed",
+  "calendarScheduledEntryReadOnly": "Scheduled tasks are managed from the Scheduled tasks page, not as events.",
+  "calendarEventDetailTitle": "Event",
+  "calendarEventCalendar": "Calendar: {name}",
+  "@calendarEventCalendar": {"placeholders": {"name": {"type": "String"}}},
+  "calendarEventOrganizer": "Organized by {name}",
+  "@calendarEventOrganizer": {"placeholders": {"name": {"type": "String"}}},
+  "calendarEventSeriesNote": "This event repeats. Changes and deleting apply to the whole series.",
+  "calendarEventInvitedCount": "Invited: {count}",
+  "@calendarEventInvitedCount": {"placeholders": {"count": {"type": "int"}}},
+  "calendarRsvpPrompt": "Your response",
+  "calendarRsvpAccepted": "Going",
+  "calendarRsvpTentative": "Maybe",
+  "calendarRsvpDeclined": "Can't go",
+  "calendarRsvpPending": "No response yet",
+  "calendarRsvpFailed": "Could not send your response.",
+  "calendarEventEdit": "Edit",
+  "calendarEventEditSeries": "Edit series",
+  "calendarEventDelete": "Delete",
+  "calendarEventDeleteSeries": "Delete series",
+  "calendarEventDeleteConfirm": "Delete {title}? This cannot be undone.",
+  "@calendarEventDeleteConfirm": {"placeholders": {"title": {"type": "String"}}},
+  "calendarEventDeleteSeriesConfirm": "Delete {title} and every repeat of it? This cannot be undone.",
+  "@calendarEventDeleteSeriesConfirm": {"placeholders": {"title": {"type": "String"}}},
+  "calendarEventDeleteFailed": "Could not delete this event.",
+  "calendarEventLoadFailed": "Could not open this event for editing.",
+  "calendarEventReadOnly": "You can't change this event. You can still answer an invitation.",
+  "calendarEventGone": "This event no longer exists. The agenda is refreshing.",
+  "calendarNewEventTitle": "New event",
+  "calendarEditEventTitle": "Edit event",
+  "calendarEditSeriesTitle": "Edit series",
+  "calendarFieldTitle": "Title",
+  "calendarFieldDescription": "Description",
+  "calendarFieldLocation": "Location",
+  "calendarFieldAllDay": "All day",
+  "calendarFieldStarts": "Starts",
+  "calendarFieldStartTime": "Start time",
+  "calendarFieldEnds": "Ends",
+  "calendarFieldEndTime": "End time",
+  "calendarAddEnd": "Add an end",
+  "calendarFieldRepeat": "Repeat",
+  "calendarRepeatNone": "Does not repeat",
+  "calendarRepeatDaily": "Daily",
+  "calendarRepeatWeekdays": "Weekdays",
+  "calendarRepeatWeekly": "Weekly",
+  "calendarRepeatMonthly": "Monthly",
+  "calendarRepeatYearly": "Yearly",
+  "calendarRepeatCustom": "Custom repeat",
+  "calendarRepeatKept": "This event repeats on a rule that cannot be edited here. It is kept unless you choose another repeat.",
+  "calendarRecurrenceTimezoneNote": "Repeats follow your account's time zone, which can differ from this device's.",
+  "calendarFieldCalendar": "Calendar",
+  "calendarChooseCalendar": "Choose a calendar",
+  "calendarFieldAttendees": "People",
+  "calendarAddPeople": "Add people",
+  "calendarInvitedPerson": "Invited person",
+  "calendarRemovePerson": "Remove {name}",
+  "@calendarRemovePerson": {"placeholders": {"name": {"type": "String"}}},
+  "calendarAttendeesNote": "Invited people answer for themselves. Their answers are kept when you change the list.",
+  "calendarNoWritableCalendar": "You have no calendar you can add events to. Create a calendar to continue.",
+  "calendarTitleRequired": "Enter a title.",
+  "calendarCalendarRequired": "Choose a calendar.",
+  "calendarEndBeforeStart": "The end can't be before the start.",
+  "calendarSaveFailed": "Could not save this event.",
+  "calendarCalendarsTitle": "Calendars",
+  "calendarPickTitle": "Choose a calendar",
+  "calendarEmptyCalendars": "No calendars yet.",
+  "calendarDefaultBadge": "Default",
+  "calendarSharedBadge": "Shared",
+  "calendarReadOnlyBadge": "Read only",
+  "calendarMakeDefault": "Make default",
+  "calendarMakeDefaultFailed": "Could not change the default calendar.",
+  "calendarNewCalendar": "New calendar",
+  "calendarNewCalendarHint": "Calendar name",
+  "calendarCreateCalendar": "Create calendar",
+  "calendarNameRequired": "Enter a name for the calendar.",
+  "calendarCreateFailed": "Could not create the calendar.",
+  "calendarWriteDenied": "Your account can't change this in that calendar.",
+  "calendarNotInvited": "You aren't invited to this event.",
+  "calendarNotFound": "That calendar or event could not be found.",
+  "calendarAccountChanged": "The account changed while this was open. Close it and try again.",
+  "chatDataControlsTitle": "Data controls",
+  "chatDataControlsStoredOn": "Chats of {account} on {server}",
+  "@chatDataControlsStoredOn": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsUnavailable": "Data controls need Advanced turned on and a signed-in Open WebUI account.",
+  "chatDataControlsMediaNote": "A backup holds the chat history, settings and attachment references saved on the server. The attached files and images themselves are not included.",
+  "chatDataControlsLocalOnly": "Only on this device: {count}",
+  "@chatDataControlsLocalOnly": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsUnsent": "With changes the server has not received: {count}",
+  "@chatDataControlsUnsent": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsUnsyncedNote": "A server backup leaves these out until they are sent.",
+  "chatDataControlsSyncNow": "Sync now",
+  "chatDataControlsSyncing": "Syncing…",
+  "chatDataControlsBackupSection": "Backup and restore",
+  "chatDataControlsManageSection": "All chats",
+  "chatDataControlsExportLibrary": "Export all chats",
+  "chatDataControlsImport": "Import chats",
+  "chatDataControlsArchiveAll": "Archive all chats",
+  "chatDataControlsUnarchiveAll": "Unarchive all chats",
+  "chatDataControlsUnshareAll": "Remove all share links",
+  "chatDataControlsDeleteAll": "Delete all chats",
+  "chatDataControlsExporting": "Exporting… chats read: {count}",
+  "@chatDataControlsExporting": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsExportReady": "Backup ready. Chats saved: {count}",
+  "@chatDataControlsExportReady": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsExportEmpty": "The server has no chats to back up.",
+  "chatDataControlsExportFailed": "The backup was not saved. The export was interrupted or incomplete.",
+  "chatDataControlsExportStopped": "Export stopped. Nothing was saved.",
+  "chatDataControlsExportConfirmTitle": "Back up the server's copy?",
+  "chatDataControlsExportConfirmMessage": "This saves the chats of {account} stored on {server}. Chats that exist only on this device, and changes the server has not received, are not included.",
+  "@chatDataControlsExportConfirmMessage": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsExportAction": "Back up",
+  "chatDataControlsImportConfirmTitle": "Import these chats?",
+  "chatDataControlsImportConfirmMessage": "Add the chats in the file to {account} on {server}? Chats: {chats}. Messages: {messages}. Chats already there are not replaced; importing adds copies.",
+  "@chatDataControlsImportConfirmMessage": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      },
+      "chats": {
+        "type": "int"
+      },
+      "messages": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsImportAction": "Import",
+  "chatDataControlsImportInvalid": "That file is not an Open WebUI chat export.",
+  "chatDataControlsImportEmpty": "That file has no chats.",
+  "chatDataControlsImportTooLarge": "That file is too large to import in one step.",
+  "chatDataControlsImportBadEntry": "Chat number {position} in the file cannot be imported.",
+  "@chatDataControlsImportBadEntry": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsImportChooseAnother": "Choose another file",
+  "chatDataControlsImportFile": "File: {name}",
+  "@chatDataControlsImportFile": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsImported": "Import finished. Chats imported: {count}",
+  "@chatDataControlsImported": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsImportedSyncNote": "Some appear here after the next sync.",
+  "chatDataControlsImportUnknown": "The server did not answer, so it is not known whether the chats were imported. Check your chats before importing again; importing twice adds copies.",
+  "chatDataControlsForbidden": "This account is not allowed to do that.",
+  "chatDataControlsArchiveAllMessage": "Archive all your chats on the server? You can unarchive them later.",
+  "chatDataControlsUnarchiveAllMessage": "Unarchive all your archived chats on the server?",
+  "chatDataControlsUnshareAllMessage": "Remove every share link you made? People with a link lose access. The chats stay.",
+  "chatDataControlsDeleteAllMessage": "Delete all chats of {account} on {server}? This cannot be undone. Chats that exist only on this device are kept.",
+  "@chatDataControlsDeleteAllMessage": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsDeleteUnsentMessage": "Not yet sent to the server — chats with changes: {edits}; chats with queued replies: {replies}. Deleting discards them.",
+  "@chatDataControlsDeleteUnsentMessage": {
+    "placeholders": {
+      "edits": {
+        "type": "int"
+      },
+      "replies": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsDiscardAndDelete": "Discard and delete",
+  "chatDataControlsResponseRunning": "A reply is still running. Stop it, then try again.",
+  "chatDataControlsLocalChanged": "A chat that was only on this device reached the server while this waited. Nothing was changed. Review and try again.",
+  "chatDataControlsDone": "Done.",
+  "chatDataControlsRefused": "The server could not do that. Nothing changed.",
+  "chatDataControlsUnknown": "The server did not answer, so the result is not known. Check your chats; doing it again is safe.",
+  "chatDataControlsOwnerChanged": "The signed-in account changed. Nothing was done.",
+  "chatDataControlsAccountUnknown": "This account could not be identified yet. Sync and try again.",
+  "chatDataControlsWaiting": "Waiting for sync to settle…",
+  "chatExportAction": "Export chat",
+  "chatExportJson": "Backup (JSON)",
+  "chatExportJsonDescription": "The whole chat with every branch and its settings. Open WebUI can import it.",
+  "chatExportMarkdown": "Transcript (Markdown)",
+  "chatExportMarkdownDescription": "The conversation you are on, as readable text. Not a backup.",
+  "chatExportUnsentNote": "This includes changes the server has not received yet.",
+  "chatExportFailed": "The chat could not be exported.",
+  "chatDataControlsWorkChanged": "Unsent changes appeared on this device while this waited. Nothing was deleted. Review and try again.",
+  "chatComparisonTabsLabel": "Odpovědi modelů",
+  "chatComparisonSlotLabel": "{model} · {number}",
+  "@chatComparisonSlotLabel": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      },
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "chatComparisonUnnamedModel": "Model",
+  "chatComparisonSlotResponding": "Odpovídá",
+  "chatComparisonSlotFailed": "Selhalo",
+  "chatMergedResponseTitle": "Sloučená odpověď",
+  "chatCompareModelsAction": "Porovnat modely",
+  "chatCompareModelsDescription": "Odeslat tuto zprávu dvěma modelům a porovnat jejich odpovědi.",
+  "chatCompareNeedsMessage": "Nejprve napište zprávu a pak porovnejte modely.",
+  "chatCompareFirstModel": "První model",
+  "chatCompareSecondModel": "Druhý model",
+  "chatCompareChooseModel": "Vyberte model",
+  "chatCompareStart": "Porovnat",
+  "chatCompareErrorUnavailable": "Comparing models isn't available in this chat.",
+  "chatCompareErrorModelUnavailable": "{models} isn't available on this server.",
+  "@chatCompareErrorModelUnavailable": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorVision": "{models} can't read images. Remove the image or choose other models.",
+  "@chatCompareErrorVision": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorTerminal": "{models} can't use the selected terminal. Turn the terminal off or choose other models.",
+  "@chatCompareErrorTerminal": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorInterpreter": "{models} can't run the code interpreter. Turn it off or choose other models.",
+  "@chatCompareErrorInterpreter": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorEffortOverride": "This chat saves a reasoning effort that {models} can't use. Remove it in chat settings or choose other models.",
+  "@chatCompareErrorEffortOverride": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorEffortPicker": "The chosen models need different reasoning efforts. Set the same effort for both or choose other models.",
+  "chatMergeResponsesAction": "Sloučit odpovědi",
+  "chatMergeStopAction": "Zastavit sloučení",
+  "chatMergeErrorUnavailable": "This server can't merge responses.",
+  "chatMergeErrorFailed": "Merging the responses failed. The original answers are unchanged.",
+  "chatMergeErrorNotMergeable": "Every answer needs to finish with some text before they can be merged.",
+  "chatMergeErrorOwnerChanged": "The account or chat changed, so the merge was stopped.",
+  "chatComparisonStopAnswerAction": "Zastavit tuto odpověď",
+  "chatMergeChooseDescription": "Choose the answers to merge. Pick at least two; the original answers stay as they are.",
+  "folderProjectComparisonFallbackNotice": "This project's saved models can't all be used, so the chat starts with fewer of them. A comparison uses exactly two."
 }

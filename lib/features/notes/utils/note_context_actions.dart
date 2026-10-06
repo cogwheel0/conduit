@@ -1,5 +1,11 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
+import 'package:conduit/features/workspace/widgets/resource_sharing_sheet.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/notes/utils/note_access.dart';
+import 'package:conduit_core/features/sharing/models/resource_access.dart';
 import 'package:conduit_core/models/note.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/features/notes/providers/notes_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -10,6 +16,35 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+/// Whether the note's access sheet is offered: an Advanced control for a
+/// server note the account may edit, when the server lets it share notes.
+/// Reading and read-only enforcement do not depend on this.
+bool canShareNote(WidgetRef ref, Note note) {
+  if (!ref.read(appSettingsProvider).advancedFeaturesEnabled) return false;
+  // A `local:` note is not on the server yet, so it has no access to edit.
+  if (note.id.startsWith('local:')) return false;
+  final access = noteWriteAccess(
+    note,
+    accountId: ref.read(currentUserProvider2)?.id,
+  );
+  if (access != NoteWriteAccess.allowed) return false;
+  return ref.read(workspaceCapabilitiesProvider).value?.notes.section.share ==
+      true;
+}
+
+/// Opens the access sheet for [note]. The session is captured here, when the
+/// user asks, and the sheet fixes the note id with it.
+Future<ResourceAccessSnapshot?> shareNote(
+  BuildContext context,
+  WidgetRef ref,
+  Note note,
+) => ResourceSharingSheet.show(
+  context,
+  ref,
+  kind: ResourceKind.note,
+  resourceId: note.id,
+);
 
 /// Builds the shared note context-menu actions.
 List<ConduitContextMenuAction> buildNoteContextMenuActions({
@@ -46,6 +81,16 @@ List<ConduitContextMenuAction> buildNoteContextMenuActions({
       onBeforeClose: () => ConduitHaptics.selectionClick(),
       onSelected: () async => onTogglePin(note),
     ),
+    if (canShareNote(ref, note))
+      ConduitContextMenuAction(
+        cupertinoIcon: CupertinoIcons.person_2,
+        materialIcon: Icons.group_outlined,
+        label: l10n.noteShare,
+        onBeforeClose: () => ConduitHaptics.selectionClick(),
+        onSelected: () async {
+          await shareNote(context, ref, note);
+        },
+      ),
     ConduitContextMenuAction(
       cupertinoIcon: CupertinoIcons.delete,
       materialIcon: Icons.delete_rounded,

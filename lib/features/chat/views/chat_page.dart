@@ -78,7 +78,11 @@ import '../../../shared/widgets/markdown/markdown_compile_service.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 
 import '../../../platform/android_assistant_handler.dart';
+import '../widgets/chat_branch_actions.dart';
+import '../widgets/chat_export_sheet.dart';
+import '../widgets/chat_comparison_widgets.dart';
 import '../widgets/model_selector_sheet.dart';
+import '../widgets/openwebui_chat_settings_sheet.dart';
 import '../widgets/modern_chat_input.dart';
 import '../widgets/user_message_bubble.dart';
 import '../widgets/assistant_message_widget.dart' as assistant;
@@ -684,6 +688,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Clear any pending folder selection
     ref.read(pendingFolderIdProvider.notifier).clear();
 
+    // A new chat starts without settings picked for the previous draft.
+    ref.read(pendingOpenWebUiChatSettingsProvider.notifier).replace(const {});
+
     // Reset to default model for new conversations (fixes #296)
     restoreDefaultModel(ref);
 
@@ -975,6 +982,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     await _sendMessage(text, includeComposerContext: true);
   }
 
+  /// Sends the composer's message to the chosen models as one comparison turn.
+  /// The result names the committed turn, so the composer can tell whether it
+  /// still shows that chat. It is null when the turn was refused or not
+  /// written, so the composer keeps the draft.
+  Future<ChatSendPlaceholderHandle?> _handleCompareSend(
+    String text,
+    List<Model> models,
+  ) async {
+    ChatSendPlaceholderHandle? committed;
+    final result = await _sendMessage(
+      text,
+      includeComposerContext: true,
+      compareModels: models,
+      onComparisonCommitted: (handle) => committed = handle,
+    );
+    return result.dispatched ? committed : null;
+  }
+
   Future<void> _refreshDesktopHermesTranscript(String storedId) async {
     final active = ref.read(activeConversationProvider);
     if (active == null ||
@@ -1217,6 +1242,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Future<({bool admitted, bool dispatched})> _sendMessage(
     String text, {
     required bool includeComposerContext,
+    List<Model>? compareModels,
+    void Function(ChatSendPlaceholderHandle committed)? onComparisonCommitted,
   }) async {
     if (!debugCanSubmitChatMessageForTesting(
       isLoadingConversation: ref.read(isLoadingConversationProvider),
@@ -1234,6 +1261,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         text,
         includeComposerContext: includeComposerContext,
         sendOwner: sendOwner,
+        compareModels: compareModels,
+        onComparisonCommitted: onComparisonCommitted,
       );
     } finally {
       _releaseMessageSendAdmission(sendOwner);
@@ -1245,6 +1274,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     String text, {
     required bool includeComposerContext,
     required Object sendOwner,
+    List<Model>? compareModels,
+    void Function(ChatSendPlaceholderHandle committed)? onComparisonCommitted,
   }) async {
     final settlePinImmediately = debugShouldSettlePinImmediatelyForTesting(
       transcriptWasEmpty: ref.read(chatMessagesProvider).isEmpty,
@@ -1274,6 +1305,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     ChatSendPlaceholderHandle? pendingSend;
+    var pendingSends = const <ChatSendPlaceholderHandle>[];
     var didDispatch = false;
     try {
       // Get attached files and collect uploaded file IDs (including data URLs for images)
@@ -1305,21 +1337,40 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
       // Durable send: persists rows + outbox op in one tx (survives a
       // force-quit) and drives streaming via the requestCompletion op.
-      await durableSend(
-        ref,
-        text,
-        uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
-        toolIds: toolIds.isNotEmpty ? toolIds : null,
-        onAssistantPlaceholderCreated: (handle) {
-          didDispatch = true;
-          _releaseMessageSendAdmission(sendOwner);
-          pendingSend = handle;
-          _activatePinToTopAnchor(
-            handle,
-            settleImmediately: settlePinImmediately,
-          );
-        },
-      );
+      if (compareModels != null) {
+        // One admission for every model: the answers are siblings of the same
+        // user message, so the first one anchors the turn's position.
+        final handles = await durableCompareSend(
+          ref,
+          text,
+          uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
+          models: compareModels,
+          toolIds: toolIds.isNotEmpty ? toolIds : null,
+        );
+        pendingSends = handles;
+        onComparisonCommitted?.call(handles.first);
+        _releaseMessageSendAdmission(sendOwner);
+        _activatePinToTopAnchor(
+          handles.first,
+          settleImmediately: settlePinImmediately,
+        );
+      } else {
+        await durableSend(
+          ref,
+          text,
+          uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
+          toolIds: toolIds.isNotEmpty ? toolIds : null,
+          onAssistantPlaceholderCreated: (handle) {
+            didDispatch = true;
+            _releaseMessageSendAdmission(sendOwner);
+            pendingSend = handle;
+            _activatePinToTopAnchor(
+              handle,
+              settleImmediately: settlePinImmediately,
+            );
+          },
+        );
+      }
       didDispatch = true;
 
       // Clear only after durableSend has transferred every attachment needed
@@ -1349,6 +1400,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           duration: const Duration(seconds: 3),
         );
       }
+    } on ComparisonAdmissionException catch (error) {
+      // Refused before anything was written; the composer text is still there
+      // for the user to adjust and try again.
+      if (mounted) {
+        AdaptiveSnackBar.show(
+          context,
+          message: comparisonAdmissionMessage(
+            AppLocalizations.of(context)!,
+            error,
+          ),
+          type: AdaptiveSnackBarType.error,
+        );
+      }
+      return false;
     } catch (e, stackTrace) {
       // durableSend persists rows + drains synchronously; on failure (DB error,
       // lock failure, …) recover the UI by finishing the streaming placeholder
@@ -1360,6 +1425,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         stackTrace: stackTrace,
       );
       recoverFailedChatSend(ref, e, pendingSend);
+      for (final handle in pendingSends) {
+        recoverFailedChatSend(ref, e, handle);
+      }
     }
     return didDispatch;
   }
@@ -3243,7 +3311,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             chatMessageByIdProvider(messageId),
           );
           if (latestMessage == null) return const SizedBox.shrink();
-          return UserMessageBubble(
+          final bubble = UserMessageBubble(
             message: latestMessage,
             isUser: true,
             readOnly: rowRef.watch(activeConversationReadOnlyProvider),
@@ -3262,6 +3330,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             },
             onDelete: () => _deleteMessageGroup(<String>[messageId]),
             onRegenerate: () => _regenerateMessage(messageId),
+          );
+          // An edited message keeps each version as a sibling in the stored
+          // graph. Advanced offers a way to continue from another one; the row
+          // is left exactly as it was when there is nothing to choose between.
+          if (!userMessageMayHaveVersions(latestMessage) ||
+              !rowRef.watch(chatBranchControlsProvider)) {
+            return bubble;
+          }
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [bubble, ChatBranchSwitcher(messageId: messageId)],
           );
         },
       );
@@ -3837,6 +3917,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   }
                   return ModernChatInput(
                     onSendMessage: _handleMessageSend,
+                    onCompareSend: _handleCompareSend,
                     enabled: debugCanSubmitChatMessageForTesting(
                       isLoadingConversation: isLoadingConversation,
                       isSavingTemporary: _isSavingTemporary,
@@ -4429,6 +4510,45 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         onSelected: () async {
           action.onBeforeClose?.call();
           await action.onSelected();
+        },
+      );
+    }
+
+    // Per-chat Open WebUI settings: the editor behind Advanced, or a read-only
+    // note when saved settings apply but cannot be edited from here.
+    final settingsEntry = ref.watch(openWebUiChatSettingsMenuEntryProvider);
+    if (settingsEntry != OpenWebUiChatSettingsMenuEntry.none) {
+      final l10n = AppLocalizations.of(context)!;
+      addItem(
+        label: settingsEntry == OpenWebUiChatSettingsMenuEntry.editor
+            ? l10n.chatSettingsTitle
+            : l10n.chatSettingsApplied,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: 'slider.horizontal.3',
+          materialIcon: Icons.tune,
+        ),
+        iosSymbol: 'slider.horizontal.3',
+        onSelected: () async {
+          if (!mounted) return;
+          await showOpenWebUiChatSettings(context, ref);
+        },
+      );
+    }
+
+    // Export is an everyday action on the chat being read, so it does not
+    // wait for Advanced; the account's own `chat.export` permission decides.
+    final exportConversation = activeConversation;
+    if (exportConversation != null && ref.watch(chatExportAvailableProvider)) {
+      addItem(
+        label: AppLocalizations.of(context)!.chatExportAction,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: 'square.and.arrow.up',
+          materialIcon: Icons.ios_share,
+        ),
+        iosSymbol: 'square.and.arrow.up',
+        onSelected: () async {
+          if (!mounted) return;
+          await showChatExportSheet(context, ref, exportConversation);
         },
       );
     }

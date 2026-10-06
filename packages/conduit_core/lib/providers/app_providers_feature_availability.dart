@@ -14,18 +14,116 @@ Future<List<String>> conversationSuggestions(Ref ref) async {
   }
 }
 
+/// Thrown for a permission answer that no longer belongs to the signed-in
+/// account, so it is never mistaken for that account's policy.
+final class StaleUserPermissionsException implements Exception {
+  const StaleUserPermissionsException();
+
+  @override
+  String toString() =>
+      'The permissions answered for an earlier account or session.';
+}
+
 // Server features and permissions
-@Riverpod(keepAlive: true)
+//
+// The answer belongs to one server, API, account and sign-in session. The API
+// object survives an account switch or a re-login on the same server, so the
+// auth-session epoch and the user are watched (a change rebuilds this) and the
+// request carries the auth snapshot taken before it was sent: it is refused
+// rather than dispatched with a later account's token. The answer is compared
+// again after the await, because a rebuild does not stop an old request.
+//
+// A request that fails (including a stale one) surfaces as an error instead of
+// an empty map: new controllers that gate writes on a permission fail closed on
+// it, while a successful response that merely omits a flag still means "allowed"
+// per the web client. Feature availability keeps treating an error like an empty
+// answer (`orElse: true`), so its behavior is unchanged.
+//
+// Riverpod would otherwise retry a throwing provider with backoff while keeping
+// it in the loading state, so an awaiting controller would hang rather than
+// fail closed; the answer for a session is read once, and a new session
+// rebuilds it.
+Duration? _doNotRetryUserPermissionsRead(int retryCount, Object error) => null;
+
+@Riverpod(keepAlive: true, retry: _doNotRetryUserPermissionsRead)
 Future<Map<String, dynamic>> userPermissions(Ref ref) async {
   final api = ref.watch(apiServiceProvider);
   if (api == null) return {};
+  final epoch = ref.watch(openWebUiAuthSessionEpochProvider);
+  final userId = ref.watch(currentUserProvider2.select((user) => user?.id));
+  final authSnapshot = api.captureAuthSnapshot();
 
   try {
-    return await api.getUserPermissions();
+    final permissions = await api.getUserPermissions(
+      authSnapshot: authSnapshot,
+    );
+    if (!ref.mounted ||
+        !identical(api, ref.read(apiServiceProvider)) ||
+        !identical(epoch, ref.read(openWebUiAuthSessionEpochProvider)) ||
+        userId != ref.read(currentUserProvider2)?.id) {
+      throw const StaleUserPermissionsException();
+    }
+    return permissions;
   } catch (e) {
     DebugLogger.error('permissions-failed', scope: 'permissions', error: e);
-    return {};
+    rethrow;
   }
+}
+
+/// Whether the signed-in account may use server memories.
+///
+/// Mirrors the web client, which offers Personalization to admins and to users
+/// whose `features.memories` permission is not explicitly off (missing means
+/// allowed). The result is scoped to the current API and auth session, so a
+/// permission fetched for one account is never reused for the next. An
+/// unreadable permission document is treated as allowed and left to the server,
+/// which rejects disallowed requests itself.
+final memoriesPermittedProvider = FutureProvider<bool>((ref) async {
+  final api = ref.watch(apiServiceProvider);
+  ref.watch(openWebUiAuthSessionEpochProvider);
+  final user = ref.watch(currentUserProvider2);
+  if (api == null) return false;
+
+  final ownership = captureOpenWebUiCacheOwnership(
+    ref,
+    api: api,
+    requireAuthenticated: false,
+  );
+  if (ownership == null) return false;
+  return _fetchMemoriesPermitted(ref, api, user, ownership);
+});
+
+/// Resolves the memories permission for the account [ownership] was captured
+/// for. False when that account is no longer current by the time the answer
+/// arrives, so a result is never applied to a different account.
+Future<bool> _fetchMemoriesPermitted(
+  Ref ref,
+  ApiService api,
+  User? user,
+  OpenWebUiCacheOwnershipSnapshot ownership,
+) async {
+  if (user?.role == 'admin') {
+    return openWebUiCacheOwnershipIsCurrent(ref, ownership);
+  }
+
+  final Map<String, dynamic> permissions;
+  try {
+    permissions = await api.getUserPermissions();
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'memory-permission-fetch-failed',
+      scope: 'memories',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    return openWebUiCacheOwnershipIsCurrent(ref, ownership);
+  }
+  if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return false;
+  return _userCanUseFeature(
+    user: user,
+    permissions: permissions,
+    featureKey: 'memories',
+  );
 }
 
 bool _coerceFeatureFlag(dynamic value, {required bool fallback}) {

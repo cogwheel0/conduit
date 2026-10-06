@@ -2,11 +2,17 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/sync/chat_locks.dart';
+import 'package:conduit_core/sync/clock.dart';
+import 'package:conduit_core/sync/id_remapper.dart';
+import 'package:conduit_core/sync/push_sync.dart';
 import 'package:conduit_core/sync/sync_api_client.dart';
 import 'package:dio/dio.dart';
+import 'package:drift/native.dart';
 import 'package:test/test.dart';
 
 /// Regression guard: the folder-update seam must NOT collapse a healthy 2xx
@@ -47,6 +53,131 @@ void main() {
       check(result).isNotNull().deepEquals(folder);
     });
   });
+
+  group('a project edit made offline', () {
+    late AppDatabase db;
+    late IdRemapper remapper;
+    late _RecordingAdapter adapter;
+    late PushSync push;
+
+    setUp(() async {
+      db = AppDatabase(NativeDatabase.memory());
+      remapper = IdRemapper(db);
+      adapter = _RecordingAdapter();
+      push = PushSync(
+        client: _buildClient(adapter),
+        db: db,
+        chatLocks: ConversationLocks(),
+        folderLocks: FolderLocks(),
+        clock: _FixedClock(),
+        remapper: remapper,
+      );
+      await db.foldersDao.replaceServerFolders([
+        {
+          'id': 'p',
+          'name': 'Project',
+          'created_at': 1,
+          'updated_at': 2,
+          'meta': {'icon': 'briefcase'},
+          'data': {
+            'system_prompt': 'Be brief',
+            'files': [
+              {'type': 'collection', 'id': 'kb-1', 'name': 'Docs'},
+            ],
+          },
+        },
+      ]);
+    });
+
+    tearDown(() async {
+      await remapper.dispose();
+      await db.close();
+    });
+
+    test('drains as a request that carries only the edited key', () async {
+      await db.foldersDao.patchFolderDataWithOutbox(
+        id: 'p',
+        dataPatch: {
+          'model_ids': ['m-a', 'm-b'],
+        },
+      );
+
+      final op = (await db.outboxDao.pendingForChat('p')).single;
+      await push.pushFolderUpsert(
+        jsonDecode(op.payload) as Map<String, dynamic>,
+      );
+
+      final request = adapter.requests.single;
+      check(request.method).equals('POST');
+      check(request.path).equals('/api/v1/folders/p/update');
+      check(request.data).isA<Map<String, dynamic>>().deepEquals({
+        'data': {
+          'model_ids': ['m-a', 'm-b'],
+        },
+      });
+      check((await db.foldersDao.getFolder('p'))!.dirty).isFalse();
+    });
+  });
+
+  group('getFolderById', () {
+    test('reads as the account that captured the snapshot', () async {
+      final adapter = _RecordingAdapter();
+      final api = ApiService(
+        serverConfig: const ServerConfig(
+          id: 'server',
+          name: 'Server',
+          url: 'https://server.example',
+        ),
+        workerManager: WorkerManager(),
+        authToken: 'session-a',
+      );
+      addTearDown(api.dispose);
+      api.dio.httpClientAdapter = adapter;
+
+      final accountA = api.captureAuthSnapshot();
+      await api.getFolderById('p', authSnapshot: accountA);
+      check(adapter.requests.single.headers['Authorization'])
+          .equals('Bearer session-a');
+
+      // Another account signs in; the editor's snapshot must not follow it.
+      api.updateAuthToken('session-b');
+      await check(
+        api.getFolderById('p', authSnapshot: accountA),
+      ).throws<DioException>(
+        (error) =>
+            error.has((e) => e.type, 'type').equals(DioExceptionType.cancel),
+      );
+      check(adapter.requests).length.equals(1);
+    });
+  });
+}
+
+class _FixedClock implements SyncClock {
+  @override
+  int nowEpochSeconds() => 1000;
+}
+
+class _RecordingAdapter implements HttpClientAdapter {
+  final requests = <RequestOptions>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    requests.add(options);
+    return ResponseBody.fromString(
+      jsonEncode({'id': 'p', 'name': 'Project', 'updated_at': 3}),
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 class _FixedAdapter implements HttpClientAdapter {

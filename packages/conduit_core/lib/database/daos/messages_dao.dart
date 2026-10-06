@@ -196,6 +196,35 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     );
   }
 
+  /// Settles a placeholder whose request was refused before it was sent, so it
+  /// shows the reason and stops streaming like any failed turn.
+  ///
+  /// Unlike [markAssistantCompletionRecoveryFailed] this claims no submission:
+  /// nothing reached the server, so a retry of the same operation may still
+  /// send it. The refusal marker lets the outbox runner tell this row from a
+  /// completed one.
+  Future<bool> markAssistantCompletionRefused({
+    required String chatId,
+    required String messageId,
+    required String error,
+  }) {
+    return _updateAssistantPayload(
+      chatId: chatId,
+      messageId: messageId,
+      mutate: (payload) {
+        final metadata = _asJsonMap(payload['metadata']);
+        payload
+          ..['isStreaming'] = false
+          ..['done'] = true
+          ..['error'] = <String, dynamic>{'content': error}
+          ..['metadata'] = <String, dynamic>{
+            ...metadata,
+            'completionRefused': true,
+          };
+      },
+    );
+  }
+
   Future<bool> _updateAssistantPayload({
     required String chatId,
     required String messageId,

@@ -37,16 +37,39 @@ const Set<String> _typedNoteKeys = <String>{
   'updated_at',
 };
 
+/// `rawExtra` key naming the accounts the server has confirmed may read a note.
+///
+/// A shared note's creator is another account, so the cached list, search and
+/// detail queries cannot tell a note the server served to this account from a
+/// foreign row left in the database. The account that fetched the note is
+/// written here when the response is admitted and removed when the server
+/// refuses it with a 403. The key is Conduit's own: the server never sends it.
+const String kNoteReadAccountsKey = 'conduit_read_accounts';
+
+/// The account ids recorded under [kNoteReadAccountsKey] in [raw] (a decoded
+/// `rawExtra`, or a server-shaped map built from one).
+List<String> noteReadAccounts(Map<String, dynamic> raw) {
+  final value = raw[kNoteReadAccountsKey];
+  if (value is! List) return const <String>[];
+  return <String>[
+    for (final id in value)
+      if (id is String && id.isNotEmpty) id,
+  ];
+}
+
 /// Builds a [NotesCompanion] for a SERVER-origin note (all dirty flags false,
 /// `serverUpdatedAt = updated_at`). EVERY key not in [_typedNoteKeys] is folded
 /// into `rawExtra`. `data`/`meta` are stored as the raw JSON sub-objects.
 ///
 /// [overrideId] lets the caller key the row under a different id (e.g. a
 /// `local:<uuid>` conflict copy) while still pulling typed fields from
-/// [server].
+/// [server]. [readAccounts] are the accounts the server confirmed may read the
+/// note (see [kNoteReadAccountsKey]); with none given, whatever [server]
+/// already carries is kept.
 NotesCompanion serverToNoteRow(
   Map<String, dynamic> server, {
   String? overrideId,
+  Iterable<String> readAccounts = const <String>[],
 }) {
   final rawId = overrideId ?? server['id'];
   if (rawId is! String || rawId.isEmpty) {
@@ -60,6 +83,8 @@ NotesCompanion serverToNoteRow(
     for (final entry in server.entries)
       if (!_typedNoteKeys.contains(entry.key)) entry.key: entry.value,
   };
+  final accounts = <String>{...noteReadAccounts(rawExtra), ...readAccounts};
+  if (accounts.isNotEmpty) rawExtra[kNoteReadAccountsKey] = accounts.toList();
   final data = _asMap(server['data']);
   final meta = _asMap(server['meta']);
   return NotesCompanion.insert(

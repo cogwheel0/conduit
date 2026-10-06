@@ -103,12 +103,29 @@ class SocketServiceManager extends _$SocketServiceManager {
         _service!.allowWebsocketUpgrade != allowWebsocketUpgrade;
     if (requiresNewService) {
       _disposeService();
-      _service = ref.read(socketServiceFactoryProvider)(
+      final service = _service = ref.read(socketServiceFactoryProvider)(
         serverConfig: server,
         authToken: token,
         websocketOnly: websocketOnly,
         allowWebsocketUpgrade: allowWebsocketUpgrade,
       );
+      // Open WebUI asks the session that sent a chat request to run its direct
+      // tools. Each call is performed for the account that owns this service.
+      service.toolExecutionHandler =
+          (call, {required admitted, required isActive}) {
+            if (!ref.mounted || !identical(_service, service)) {
+              return Future<Object?>.value(const <String, dynamic>{
+                'error': 'Tool Server Not Found',
+              });
+            }
+            return _executeDirectToolCall(
+              ref,
+              service,
+              call,
+              admitted: admitted,
+              isActive: isActive,
+            );
+          };
       _serviceToken = token;
       _scheduleConnect(_service!);
     }
@@ -198,10 +215,89 @@ class SocketServiceManager extends _$SocketServiceManager {
     _connectToken++;
     _serviceToken = null;
     if (_service == null) return;
+    _service!.toolExecutionHandler = null;
     try {
       _service!.dispose();
     } catch (_) {}
     _service = null;
+  }
+}
+
+/// Performs the `execute:tool` call [raw] for the account that owns [socket].
+///
+/// The call is [admitted] to the connections the chat request it belongs to
+/// sent, nothing else. The account is fixed when the call arrives: its API,
+/// auth snapshot and ownership claim are captured before anything is awaited,
+/// the connection's own settings are read under that snapshot, and the call is
+/// dropped for an error if anything that allowed it has changed by the time it
+/// would act: the account, the call itself ([isActive] turns false when it
+/// timed out or lost its connection) or the account's right to use personal
+/// connections, which is read from the server's current policy each time, not
+/// from the Advanced preference. Always completes with a reply for the server
+/// to be answered with; never throws.
+Future<Object?> _executeDirectToolCall(
+  Ref ref,
+  SocketService socket,
+  Map<String, dynamic> raw, {
+  required List<PersonalToolAdmission> admitted,
+  required bool Function() isActive,
+}) async {
+  const notFound = <String, dynamic>{'error': 'Tool Server Not Found'};
+  try {
+    final api = ref.read(apiServiceProvider);
+    if (api == null || api.serverConfig.id != socket.serverConfig.id) {
+      return notFound;
+    }
+    final ownership = captureOpenWebUiCacheOwnership(ref, api: api);
+    if (ownership == null) return notFound;
+    final authSnapshot = api.captureAuthSnapshot();
+
+    // Why the call may no longer run, or null. Asked before each step that
+    // reads or sends something, including after every await.
+    String? blockedReason() {
+      if (!isActive() ||
+          !ref.mounted ||
+          !openWebUiCacheOwnershipIsCurrent(ref, ownership)) {
+        return 'The account changed before the tool ran.';
+      }
+      if (!ref.read(personalConnectionsAccessProvider).available) {
+        return 'This account cannot use personal tool servers.';
+      }
+      return null;
+    }
+
+    List<Object?> refused(String reason) => <Object?>[
+      <String, dynamic>{'error': reason},
+      null,
+    ];
+
+    final call = PersonalToolCall.fromEvent(raw);
+    if (call == null) return notFound;
+
+    var blocked = blockedReason();
+    if (blocked != null) return refused(blocked);
+    final settings = await api.getUserSettings(authSnapshot: authSnapshot);
+    blocked = blockedReason();
+    if (blocked != null) return refused(blocked);
+
+    final reply = await executePersonalToolCall(
+      call,
+      settings: settings,
+      admitted: admitted,
+      blockedReason: blockedReason,
+    );
+    blocked = blockedReason();
+    return blocked == null ? reply : refused(blocked);
+  } catch (error) {
+    DebugLogger.error(
+      'direct-tool-call-failed',
+      scope: 'integrations',
+      error: error,
+    );
+    return const <Object?>[
+      <String, dynamic>{'error': 'The tool call failed.'},
+      null,
+    ];
   }
 }
 

@@ -18,6 +18,11 @@ sealed class Tool with _$Tool {
     Map<String, dynamic>? meta,
     @Default(<Map<String, dynamic>>[]) List<Map<String, dynamic>> accessGrants,
     @Default(false) bool writeAccess,
+
+    /// The server's authoritative `has_user_valves` projection. Null means the
+    /// source (an older cache row or a server that omits it) never said, so a
+    /// refresh may still answer it; it is not a denial.
+    bool? hasUserValves,
     int? createdAt,
     int? updatedAt,
   }) = _Tool;
@@ -55,6 +60,9 @@ sealed class Tool with _$Tool {
           ? rawGrants.whereType<Map>().map(Map<String, dynamic>.from).toList()
           : const [],
       writeAccess: json['write_access'] == true,
+      hasUserValves: json['has_user_valves'] is bool
+          ? json['has_user_valves'] as bool
+          : null,
       createdAt: parseInt(json['created_at']),
       updatedAt: parseInt(json['updated_at']),
     );
@@ -70,6 +78,7 @@ sealed class Tool with _$Tool {
     if (meta != null) 'meta': meta,
     if (accessGrants.isNotEmpty) 'access_grants': accessGrants,
     'write_access': writeAccess,
+    if (hasUserValves != null) 'has_user_valves': hasUserValves,
     if (createdAt != null) 'created_at': createdAt,
     if (updatedAt != null) 'updated_at': updatedAt,
   };

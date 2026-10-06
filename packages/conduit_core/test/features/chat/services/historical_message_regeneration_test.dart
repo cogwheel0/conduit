@@ -187,6 +187,8 @@ class _RecordingCompletionApi extends ApiService {
   bool? lastEnableImageGeneration;
   String? lastResponseMessageId;
   String? lastConversationId;
+  Map<String, dynamic>? lastChatParams;
+  String? lastReasoningEffort;
   int broadStopCalls = 0;
   int targetedStopCalls = 0;
   int abortCalls = 0;
@@ -229,16 +231,23 @@ class _RecordingCompletionApi extends ApiService {
     Map<String, dynamic>? backgroundTasks,
     String? responseMessageId,
     Map<String, dynamic>? userSettings,
+    Map<String, dynamic>? globalParams,
+    Map<String, dynamic>? chatParams,
     String? parentId,
     String? reasoningEffort,
     Map<String, dynamic>? userMessage,
     Map<String, dynamic>? variables,
     List<Map<String, dynamic>>? files,
+    List<ChatCompletionTarget>? messageIds,
   }) async {
     completionCalls += 1;
     lastEnableImageGeneration = enableImageGeneration;
     lastResponseMessageId = responseMessageId;
     lastConversationId = conversationId;
+    lastChatParams = chatParams == null
+        ? null
+        : Map<String, dynamic>.of(chatParams);
+    lastReasoningEffort = reasoningEffort;
     lastMessages = messages
         .map((message) => Map<String, dynamic>.from(message))
         .toList(growable: false);
@@ -904,6 +913,36 @@ void main() {
         check(api.lastConversationId).equals('remote-conv-remap');
         check(container.read(activeConversationProvider)?.id)
             .equals('remote-conv-remap');
+      },
+    );
+
+    test(
+      'a historical replay is sent with the chat\'s saved settings',
+      () async {
+        final api = _RecordingCompletionApi();
+        final initialMessages = [
+          _userMessage(id: 'u1', content: 'First prompt'),
+          _assistantMessage(id: 'a1', content: 'First answer'),
+          _userMessage(id: 'u2', content: 'Second prompt'),
+          _assistantMessage(id: 'a2', content: 'Second answer'),
+        ];
+        final container = _container(
+          initialMessages: initialMessages,
+          activeConversation: _conversation(
+            id: 'conv-historical-params',
+            messages: initialMessages,
+          ).copyWith(chatParams: const {'system': '', 'seed': 11}),
+          apiService: api,
+        );
+        addTearDown(container.dispose);
+
+        await regenerateHistoricalMessageById(container, 'a1');
+        await _flushAsyncWork();
+
+        check(api.completionCalls).equals(1);
+        check(api.lastChatParams)
+            .isNotNull()
+            .deepEquals(const {'system': '', 'seed': 11});
       },
     );
 

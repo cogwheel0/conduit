@@ -234,11 +234,7 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
       );
     }
 
-    final inputSpec = spec['input'];
-    final isPassword =
-        type == 'string' &&
-        inputSpec is Map &&
-        inputSpec['type']?.toString() == 'password';
+    final isPassword = WorkspaceValveValues.isPasswordProperty(spec);
     final isNumber = type == 'integer' || type == 'number';
 
     return ConduitInput(

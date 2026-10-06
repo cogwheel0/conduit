@@ -372,6 +372,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       initialGrants: _grants,
       capabilities: capabilities.prompts,
       allowUserGrants: capabilities.allowUserGrants,
+      allowGroupGrants: capabilities.allowGroupGrants,
       readOnly: !_writeAccess,
     );
     if (grants == null || !mounted) return;

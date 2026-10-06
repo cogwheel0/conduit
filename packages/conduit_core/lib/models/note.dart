@@ -130,6 +130,17 @@ sealed class Note with _$Note {
 
     /// User who created the note (optional, from extended response)
     NoteUser? user,
+
+    /// Whether the signed-in account may edit this note. Only the detail
+    /// endpoint reports it, so list rows leave it null; null means unknown,
+    /// not read-only.
+    @JsonKey(name: 'write_access', includeIfNull: false) bool? writeAccess,
+
+    /// The note's current resource grants, as the server returned them. Kept
+    /// as raw maps so principal kinds this client does not model survive.
+    @JsonKey(name: 'access_grants', includeIfNull: false)
+    @_GrantListConverter()
+    List<Map<String, dynamic>>? accessGrants,
   }) = _Note;
 
   factory Note.fromJson(Map<String, dynamic> json) => _$NoteFromJson(json);
@@ -170,6 +181,25 @@ sealed class Note with _$Note {
   /// Check if the note has content
   bool get hasContent =>
       data.content.md.isNotEmpty || data.content.html.isNotEmpty;
+}
+
+/// Converter for a list of grant maps; anything that is not a list of maps is
+/// treated as absent so a malformed field cannot hide the rest of the note.
+class _GrantListConverter
+    implements JsonConverter<List<Map<String, dynamic>>?, Object?> {
+  const _GrantListConverter();
+
+  @override
+  List<Map<String, dynamic>>? fromJson(Object? json) {
+    if (json is! List) return null;
+    return [
+      for (final entry in json)
+        if (entry is Map) Map<String, dynamic>.from(entry),
+    ];
+  }
+
+  @override
+  Object? toJson(List<Map<String, dynamic>>? object) => object;
 }
 
 /// Converter for NoteData that handles both object and null cases.

@@ -1,9 +1,21 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart'
+    show ApiAuthSnapshot;
 import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart';
+import 'package:conduit_core/features/workspace/providers/workspace_providers.dart';
+import 'package:conduit_core/models/file_info.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/sync/sync_engine.dart';
+import 'package:dio/dio.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/models/chat_message.dart';
@@ -14,16 +26,22 @@ import 'package:conduit_core/models/toggle_filter.dart';
 import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/connectivity_service.dart' show isOnlineProvider;
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/chat/providers/attached_files_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit/features/chat/services/file_attachment_service.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
+import 'package:conduit/features/chat/widgets/model_selector_sheet.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/navigation/views/folder_page.dart';
+import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
+import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
+import 'package:conduit/features/navigation/widgets/folder_project_settings_sheet.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -36,6 +54,7 @@ import 'package:drift/native.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -298,6 +317,95 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     ErrorWidget.builder = originalErrorWidgetBuilder;
     FlutterError.onError = originalFlutterErrorOnError;
+  });
+
+  group('folder Share settings', () {
+    Future<void> openFolderMenu(
+      WidgetTester tester, {
+      required Folder folder,
+      bool advanced = true,
+    }) async {
+      final container = _createContainer(
+        folders: [folder],
+        settings: AppSettings(advancedFeaturesEnabled: advanced),
+        extraOverrides: [
+          workspaceCapabilitiesProvider.overrideWith(
+            (ref) async => WorkspaceCapabilities.all,
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      await tester.pumpWidget(_buildHarnessFromContainer(container));
+      await tester.pumpAndSettle();
+      final overflow = find.byKey(
+        const ValueKey<String>('folder-page-overflow-button'),
+      );
+      if (overflow.evaluate().isNotEmpty) {
+        await tester.tap(overflow);
+        await tester.pumpAndSettle();
+      }
+    }
+
+    testWidgets('is in the owner menu with Advanced on, beside Edit Folder', (
+      tester,
+    ) async {
+      await openFolderMenu(
+        tester,
+        folder: const Folder(id: 'work', name: 'Work'),
+      );
+
+      expect(find.text('Share settings'), findsOneWidget);
+      expect(find.text('Edit Folder'), findsOneWidget);
+    });
+
+    testWidgets('is hidden with Advanced off and the owner menu is unchanged', (
+      tester,
+    ) async {
+      await openFolderMenu(
+        tester,
+        folder: const Folder(id: 'work', name: 'Work'),
+        advanced: false,
+      );
+
+      expect(find.text('Share settings'), findsNothing);
+      expect(find.text('Edit Folder'), findsOneWidget);
+    });
+
+    testWidgets('a write recipient gets Share settings and no owner actions', (
+      tester,
+    ) async {
+      await openFolderMenu(
+        tester,
+        folder: const Folder(
+          id: 'work',
+          name: 'Work',
+          shared: true,
+          permission: 'write',
+        ),
+      );
+
+      expect(find.text('Share settings'), findsOneWidget);
+      expect(find.text('Edit Folder'), findsNothing);
+      expect(find.text('System Prompt'), findsNothing);
+    });
+
+    testWidgets('a read recipient has no menu at all', (tester) async {
+      await openFolderMenu(
+        tester,
+        folder: const Folder(
+          id: 'work',
+          name: 'Work',
+          shared: true,
+          permission: 'read',
+        ),
+      );
+
+      expect(
+        find.byKey(const ValueKey<String>('folder-page-overflow-button')),
+        findsNothing,
+      );
+      expect(find.text('Share settings'), findsNothing);
+    });
   });
 
   testWidgets('system prompt menu action loads and saves prompt updates', (
@@ -880,6 +988,1045 @@ void main() {
     ErrorWidget.builder = originalErrorWidgetBuilder;
     FlutterError.onError = originalFlutterErrorOnError;
   });
+
+  group('project settings', () {
+    const modelA = Model(id: 'm-a', name: 'Model A');
+    const modelB = Model(id: 'm-b', name: 'Model B');
+    const readOnlyMessage =
+        "This shared folder is read-only, so its project settings can't be changed.";
+    const ownerChangedMessage =
+        'The signed-in account changed, so nothing was saved. Reopen project '
+        'settings to continue.';
+
+    late AppDatabase db;
+    late _ProjectApi api;
+    late ProviderContainer container;
+
+    Map<String, dynamic> project({
+      String? permission,
+      Map<String, dynamic>? data,
+    }) => {
+      'id': 'work',
+      'name': 'Work',
+      'created_at': 1,
+      'updated_at': 2,
+      'meta': {'icon': 'briefcase'},
+      'data':
+          data ??
+          {
+            'system_prompt': 'Be brief',
+            'files': [
+              {'type': 'collection', 'id': 'kb-1', 'name': 'Docs'},
+            ],
+            'model_ids': ['retired', 'm-a'],
+            'custom': {'k': 1},
+          },
+      if (permission != null) ...{
+        'shared': true,
+        'owner_name': 'Alex',
+        'permission': permission,
+      },
+    };
+
+    /// Real database work completes outside the test's fake clock.
+    Future<void> settle(WidgetTester tester) async {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 30)),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    /// Shows the folder page for [raw], with [raw] also in the database the
+    /// editor writes to.
+    Future<void> open(
+      WidgetTester tester,
+      Map<String, dynamic> raw, {
+      bool advanced = true,
+      bool native = false,
+      bool liveFolders = false,
+      String role = 'admin',
+      Map<String, dynamic>? detail,
+      Map<String, int> fileStatus = const <String, int>{},
+      List<FileInfo> files = const <FileInfo>[],
+      List<Override> overrides = const <Override>[],
+    }) async {
+      final originalErrorWidgetBuilder = ErrorWidget.builder;
+      final originalFlutterErrorOnError = FlutterError.onError;
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        ErrorWidget.builder = originalErrorWidgetBuilder;
+        FlutterError.onError = originalFlutterErrorOnError;
+      });
+      if (native) {
+        // The presenter iOS 26 devices use: CNBottomSheet supplies Flutter's
+        // own Material, not the material_ui one these controls look up.
+        PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+        PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+        PlatformUiCapabilities.debugNativeIOS26Override = true;
+        addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        tester.view.padding = const FakeViewPadding(top: 62, bottom: 34);
+        tester.view.viewPadding = const FakeViewPadding(top: 62, bottom: 34);
+      } else {
+        // Tall enough that the sheet's lazy list builds every row, so a test
+        // does not depend on where it happens to be scrolled.
+        tester.view.physicalSize = const Size(800, 4000);
+        tester.view.devicePixelRatio = 1;
+      }
+      addTearDown(tester.view.reset);
+      db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      api = _ProjectApi(detail, fileStatus);
+      addTearDown(api.dispose);
+      await tester.runAsync(() => db.foldersDao.replaceServerFolders([raw]));
+      container = _createContainer(
+        api: api,
+        isAuthenticated: true,
+        database: db,
+        folders: [Folder.fromJson(raw)],
+        settings: AppSettings(advancedFeaturesEnabled: advanced),
+        selectedModel: modelA,
+        availableModels: const [modelA, modelB],
+        extraOverrides: [
+          currentUserProvider2.overrideWithValue(
+            User(
+              id: 'me',
+              username: 'me',
+              email: 'me@example.test',
+              role: role,
+            ),
+          ),
+          activeServerProvider.overrideWith((ref) async => api.serverConfig),
+          openWebUiAuthSessionEpochProvider.overrideWith(
+            (ref) => ref.watch(_epochProvider),
+          ),
+          syncEngineProvider.overrideWith(_NoDrainEngine.new),
+          workspaceKnowledgeProvider.overrideWith(_TestKnowledge.new),
+          userFilesProvider.overrideWith(() => _TestUserFiles(files)),
+          ...overrides,
+        ],
+        liveFolders: liveFolders,
+      );
+      addTearDown(container.dispose);
+      // The app has resolved its active server long before a menu can be
+      // opened; an account is only captured against a resolved server.
+      container.listen(activeServerProvider, (_, _) {});
+      await tester.runAsync(() => container.read(activeServerProvider.future));
+      if (native) {
+        // The sheet alone runs on the native presenter. A plain page hosts it,
+        // as the platform views of the folder page's own native toolbar do not
+        // exist under test.
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              theme: AppTheme.light(TweakcnThemes.t3Chat),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: Scaffold(
+                body: Consumer(
+                  builder: (context, ref, _) => Center(
+                    child: TextButton(
+                      onPressed: () => showFolderProjectSettings(
+                        context,
+                        ref,
+                        Folder.fromJson(raw),
+                      ),
+                      child: const Text('open'),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      } else {
+        await tester.pumpWidget(_buildHarnessFromContainer(container));
+      }
+      await tester.pumpAndSettle();
+      if (liveFolders) await settle(tester);
+    }
+
+    Finder overflow() =>
+        find.byKey(const ValueKey<String>('folder-page-overflow-button'));
+    Finder key(String id) => find.byKey(ValueKey<String>(id));
+
+    Future<void> openSheet(WidgetTester tester, {bool native = false}) async {
+      if (native) {
+        await tester.tap(find.text('open'));
+      } else {
+        await tester.tap(overflow());
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Project settings'));
+      }
+      await settle(tester);
+    }
+
+    Future<Map<String, dynamic>> storedData(WidgetTester tester) async {
+      final row = await tester.runAsync(() => db.foldersDao.getFolder('work'));
+      return (jsonDecode(row!.rawExtra) as Map<String, dynamic>)['data']
+          as Map<String, dynamic>;
+    }
+
+    Future<List<Map<String, dynamic>>> queued(WidgetTester tester) async {
+      final ops = await tester.runAsync(
+        () => db.outboxDao.pendingForChat('work'),
+      );
+      return [
+        for (final op in ops!) jsonDecode(op.payload) as Map<String, dynamic>,
+      ];
+    }
+
+    Future<void> chooseOption(
+      WidgetTester tester, {
+      required String opener,
+      required String option,
+    }) async {
+      await tester.ensureVisible(key(opener));
+      await tester.tap(key(opener));
+      await settle(tester);
+      expect(key('folder-project-option-$option'), findsOneWidget);
+      await tester.tap(key('folder-project-option-$option'));
+      await tester.pump();
+      expect(
+        tester
+            .widget<CheckboxListTile>(key('folder-project-option-$option'))
+            .value,
+        isTrue,
+      );
+      await tester.tap(key('folder-project-picker-add'));
+      await tester.pumpAndSettle();
+    }
+
+    // What the folder menu offers: the owner's own actions stay owner-only, and
+    // the project editor goes to anyone who can write once Advanced is on.
+    final menuCases =
+        <
+          ({String name, String? permission, bool advanced, List<String> items})
+        >[
+          (
+            name: 'an owner with Advanced off',
+            permission: null,
+            advanced: false,
+            items: ['Edit Folder', 'System Prompt'],
+          ),
+          (
+            name: 'an owner with Advanced on',
+            permission: null,
+            advanced: true,
+            items: ['Edit Folder', 'System Prompt', 'Project settings'],
+          ),
+          (
+            name: 'a write grant with Advanced on',
+            permission: 'write',
+            advanced: true,
+            items: ['Project settings'],
+          ),
+          (
+            name: 'a write grant with Advanced off',
+            permission: 'write',
+            advanced: false,
+            items: [],
+          ),
+          (
+            name: 'a read grant with Advanced on',
+            permission: 'read',
+            advanced: true,
+            items: [],
+          ),
+        ];
+    for (final menuCase in menuCases) {
+      testWidgets('the folder menu for ${menuCase.name}', (tester) async {
+        await open(
+          tester,
+          project(permission: menuCase.permission),
+          advanced: menuCase.advanced,
+        );
+
+        if (menuCase.items.isEmpty) {
+          expect(overflow(), findsNothing);
+          return;
+        }
+        await tester.tap(overflow());
+        await tester.pumpAndSettle();
+        expect([
+          for (final label in [
+            'Edit Folder',
+            'System Prompt',
+            'Project settings',
+          ])
+            if (find.text(label).evaluate().isNotEmpty) label,
+        ], menuCase.items);
+      });
+    }
+
+    testWidgets(
+      'a recipient with a write grant edits the default models and saves only them',
+      (tester) async {
+        await open(tester, project(permission: 'write'));
+        await openSheet(tester);
+
+        // A saved model the server no longer offers is shown, not dropped.
+        expect(
+          find.descendant(
+            of: key('folder-project-model-0'),
+            matching: find.text('retired'),
+          ),
+          findsOneWidget,
+        );
+        expect(key('folder-project-model-0-unavailable'), findsOneWidget);
+        expect(
+          find.descendant(
+            of: key('folder-project-model-1'),
+            matching: find.text('Model A'),
+          ),
+          findsOneWidget,
+        );
+        expect(key('folder-project-model-1-unavailable'), findsNothing);
+
+        await chooseOption(
+          tester,
+          opener: 'folder-project-add-model',
+          option: 'm-b',
+        );
+        await tester.tap(key('folder-project-model-2-up'));
+        await tester.pump();
+        await tester.ensureVisible(key('folder-project-save'));
+        await tester.tap(key('folder-project-save'));
+        await settle(tester);
+
+        final data = await storedData(tester);
+        expect(data['model_ids'], ['retired', 'm-b', 'm-a']);
+        expect(data['system_prompt'], 'Be brief');
+        expect(data['files'], [
+          {'type': 'collection', 'id': 'kb-1', 'name': 'Docs'},
+        ]);
+        expect(data['custom'], {'k': 1});
+        // The queued request carries the one edited key, nothing else.
+        expect((await queued(tester)).single['data'], {
+          'model_ids': ['retired', 'm-b', 'm-a'],
+        });
+        expect(api.updateCalls, 0);
+        expect(key('folder-project-save'), findsNothing);
+      },
+    );
+
+    testWidgets('editing knowledge and the prompt saves exactly those keys', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        project(),
+        files: [
+          FileInfo(
+            id: 'file-9',
+            filename: 'notes.pdf',
+            originalFilename: 'notes.pdf',
+            size: 10,
+            mimeType: 'application/pdf',
+            createdAt: DateTime.utc(2026, 7, 13),
+            updatedAt: DateTime.utc(2026, 7, 13),
+          ),
+        ],
+      );
+      await openSheet(tester);
+
+      await tester.enterText(
+        find.descendant(
+          of: key('folder-project-system-prompt'),
+          matching: find.byType(EditableText),
+        ),
+        'Answer in French',
+      );
+      await tester.tap(key('folder-project-knowledge-0-remove'));
+      await tester.pump();
+      await chooseOption(
+        tester,
+        opener: 'folder-project-add-knowledge',
+        option: 'file-9',
+      );
+      await tester.ensureVisible(key('folder-project-save'));
+      await tester.tap(key('folder-project-save'));
+      await settle(tester);
+
+      final data = await storedData(tester);
+      expect(data['model_ids'], ['retired', 'm-a']);
+      expect(data['custom'], {'k': 1});
+      expect((await queued(tester)).single['data'], {
+        'files': [
+          {'type': 'file', 'id': 'file-9', 'name': 'notes.pdf'},
+        ],
+        'system_prompt': 'Answer in French',
+      });
+    });
+
+    testWidgets('entering the folder starts the draft on its saved model, '
+        'with Advanced off', (tester) async {
+      await open(
+        tester,
+        project(
+          data: {
+            'model_ids': ['retired', 'm-b'],
+          },
+        ),
+        advanced: false,
+        liveFolders: true,
+      );
+      await settle(tester);
+      await settle(tester);
+
+      expect(container.read(selectedModelProvider)?.id, 'm-b');
+      expect(container.read(pendingFolderIdProvider), 'work');
+      expect(find.text('Model B'), findsOneWidget);
+    });
+
+    testWidgets('a folder whose saved models are all gone says so once', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        project(
+          data: {
+            'model_ids': ['retired'],
+          },
+        ),
+        advanced: false,
+        liveFolders: true,
+        overrides: [
+          // The user's own default, which the draft falls back to.
+          defaultModelProvider.overrideWith((ref) async {
+            ref.read(selectedModelProvider.notifier).set(modelA);
+            return modelA;
+          }),
+        ],
+      );
+      await settle(tester);
+      await settle(tester);
+
+      expect(container.read(selectedModelProvider)?.id, 'm-a');
+      expect(
+        find.text(
+          "This folder's default model isn't available, so your default "
+          'model is used.',
+        ),
+        findsOneWidget,
+      );
+      expect(container.read(folderDraftModelNoticeProvider), isNull);
+    });
+
+    group('a folder that saves two models', () {
+      Finder sendButton() => find.byKey(const ValueKey('primary-btn-send'));
+
+      Future<void> enterDraft(WidgetTester tester, String text) async {
+        await tester.enterText(find.byType(TextField).first, text);
+        await tester.pump();
+      }
+
+      Future<void> openComparing(
+        WidgetTester tester, {
+        List<Override> overrides = const <Override>[],
+      }) async {
+        overrides = [isOnlineProvider.overrideWithValue(true), ...overrides];
+        await open(
+          tester,
+          project(
+            data: {
+              'model_ids': ['m-a', 'm-b'],
+            },
+          ),
+          advanced: false,
+          liveFolders: true,
+          overrides: overrides,
+        );
+        await settle(tester);
+        await settle(tester);
+      }
+
+      Future<List<String>> chatIds(WidgetTester tester) async {
+        final chats = await tester.runAsync(
+          () => db.chatsDao.watchChatList().first,
+        );
+        return [
+          for (final chat in chats!)
+            if (chat.id.startsWith('local:')) chat.id,
+        ];
+      }
+
+      testWidgets('starts the draft comparing both and names them, with '
+          'Advanced off', (tester) async {
+        await openComparing(tester);
+
+        expect(
+          container
+              .read(folderDraftComparisonModelsProvider)
+              ?.map((model) => model.id),
+          ['m-a', 'm-b'],
+        );
+        expect(find.text('Model A + Model B'), findsOneWidget);
+        expect(container.read(selectedModelProvider)?.id, 'm-a');
+        expect(container.read(pendingFolderIdProvider), 'work');
+        expect(container.read(folderDraftComparisonNoticeProvider), isNull);
+      });
+
+      testWidgets('three saved models cannot be one comparison, so the draft '
+          'starts on the first and says so once', (tester) async {
+        await open(
+          tester,
+          project(
+            data: {
+              'model_ids': ['m-a', 'm-b', 'm-a'],
+            },
+          ),
+          advanced: false,
+          liveFolders: true,
+          overrides: [isOnlineProvider.overrideWithValue(true)],
+        );
+        await settle(tester);
+        await settle(tester);
+
+        expect(container.read(folderDraftComparisonModelsProvider), isNull);
+        expect(container.read(selectedModelProvider)?.id, 'm-a');
+        expect(find.text('Model A'), findsOneWidget);
+        expect(
+          find.text(
+            "This project's saved models can't all be used, so the chat "
+            'starts with fewer of them. A comparison uses exactly two.',
+          ),
+          findsOneWidget,
+        );
+        expect(container.read(folderDraftComparisonNoticeProvider), isNull);
+      });
+
+      testWidgets('Send admits one comparison in the folder and opens the '
+          'chat', (tester) async {
+        await openComparing(tester);
+
+        await enterDraft(tester, 'Compare these two');
+        await tester.tap(sendButton());
+        await settle(tester);
+
+        final ids = await chatIds(tester);
+        expect(ids, hasLength(1));
+        final rows = await tester.runAsync(
+          () => db.messagesDao.getForChat(ids.single),
+        );
+        expect(rows!.where((row) => row.role == 'user'), hasLength(1));
+        expect(
+          rows
+              .where((row) => row.role == 'assistant')
+              .map((row) => row.model)
+              .toList(),
+          ['m-a', 'm-b'],
+        );
+        final ops = await tester.runAsync(
+          () => db.outboxDao.pendingForChat(ids.single),
+        );
+        final completions = [
+          for (final op in ops!)
+            if (op.kind == OutboxKind.requestCompletion.name) op,
+        ];
+        expect(completions, hasLength(1));
+        final payload = RequestCompletionPayload.fromJson(
+          jsonDecode(completions.single.payload) as Map<String, dynamic>,
+        );
+        expect(payload.comparison?.slots.map((slot) => slot.model), [
+          'm-a',
+          'm-b',
+        ]);
+        final chat = await tester.runAsync(() => db.chatsDao.getChat(ids.single));
+        expect(chat?.folderId, 'work');
+        expect(
+          NavigationService.router.routerDelegate.currentConfiguration.uri.path,
+          '/chat',
+        );
+      });
+
+      group('while the account settings hold the admission', () {
+        Future<void> sendHeld(WidgetTester tester) async {
+          await openComparing(tester);
+          api.holdSettings = Completer<void>();
+          await enterDraft(tester, 'Compare these two');
+          await tester.tap(sendButton());
+          await tester.pump();
+          await tester.runAsync(
+            () => api.settingsEntered.future.timeout(
+              const Duration(seconds: 10),
+            ),
+          );
+          // Nothing is written and the page has not moved while it waits.
+          expect(await chatIds(tester), isEmpty);
+          expect(NavigationService.currentRoute, '/folder/work');
+        }
+
+        Future<void> release(WidgetTester tester) async {
+          api.holdSettings!.complete();
+          await settle(tester);
+        }
+
+        Future<void> expectTurnAdmittedInWorkOnce(WidgetTester tester) async {
+          final ids = await chatIds(tester);
+          expect(ids, hasLength(1));
+          final chat = await tester.runAsync(
+            () => db.chatsDao.getChat(ids.single),
+          );
+          expect(chat?.folderId, 'work');
+          final rows = await tester.runAsync(
+            () => db.messagesDao.getForChat(ids.single),
+          );
+          expect(rows!.where((row) => row.role == 'user'), hasLength(1));
+          expect(rows.where((row) => row.role == 'assistant'), hasLength(2));
+          final ops = await tester.runAsync(
+            () => db.outboxDao.pendingForChat(ids.single),
+          );
+          expect(
+            ops!.where((op) => op.kind == OutboxKind.requestCompletion.name),
+            hasLength(1),
+          );
+        }
+
+        testWidgets('open the chat once, only after the turn is committed', (
+          tester,
+        ) async {
+          await sendHeld(tester);
+          final revision = NavigationService.currentRouteRevision;
+
+          await release(tester);
+
+          await expectTurnAdmittedInWorkOnce(tester);
+          expect(NavigationService.currentRoute, '/chat');
+          expect(NavigationService.currentRouteRevision, revision + 1);
+        });
+
+        testWidgets('a project started meanwhile keeps its own draft while '
+            'this turn stays in the project that sent it', (tester) async {
+          await sendHeld(tester);
+          container.read(pendingFolderIdProvider.notifier).set('other');
+
+          await release(tester);
+
+          await expectTurnAdmittedInWorkOnce(tester);
+          expect(container.read(pendingFolderIdProvider), 'other');
+          expect(container.read(activeConversationProvider), isNull);
+          expect(NavigationService.currentRoute, '/folder/work');
+        });
+
+        testWidgets('a page left for another destination does not pull the '
+            'user back to the chat', (tester) async {
+          await sendHeld(tester);
+          NavigationService.router.go('/elsewhere');
+          await tester.pumpAndSettle();
+
+          await release(tester);
+
+          await expectTurnAdmittedInWorkOnce(tester);
+          expect(NavigationService.currentRoute, '/elsewhere');
+        });
+
+        testWidgets('a page kept behind another route does not take the user '
+            'to the chat either', (tester) async {
+          await sendHeld(tester);
+          unawaited(NavigationService.router.push<void>('/elsewhere'));
+          await tester.pumpAndSettle();
+          // Still mounted, only no longer the route on top.
+          expect(find.byType(FolderPage, skipOffstage: false), findsOneWidget);
+
+          await release(tester);
+
+          await expectTurnAdmittedInWorkOnce(tester);
+          expect(NavigationService.currentRoute, isNot('/chat'));
+        });
+      });
+
+      testWidgets('a comparison the server settings refuse keeps the draft '
+          'and the page', (tester) async {
+        // An image the chosen models cannot read refuses the whole comparison.
+        await openComparing(
+          tester,
+          overrides: [attachedFilesProvider.overrideWith(_Tray.new)],
+        );
+        (container.read(attachedFilesProvider.notifier) as _Tray).put(
+          FileUploadState(
+            file: File('/tmp/picture.png'),
+            fileName: 'picture.png',
+            fileSize: 1,
+            progress: 1,
+            status: FileUploadStatus.completed,
+            fileId: 'data:image/png;base64,AAAA',
+            isImage: false,
+          ),
+        );
+        await tester.pump();
+
+        await enterDraft(tester, 'Compare this picture');
+        await tester.tap(sendButton());
+        await settle(tester);
+
+        expect(await chatIds(tester), isEmpty);
+        expect(
+          NavigationService.router.routerDelegate.currentConfiguration.uri.path,
+          '/folder/work',
+        );
+        expect(
+          tester
+              .widget<TextField>(find.byType(TextField).first)
+              .controller!
+              .text,
+          'Compare this picture',
+        );
+        // Still a comparison draft: nothing was changed by the refusal.
+        expect(container.read(folderDraftComparisonModelsProvider), isNotNull);
+      });
+
+      testWidgets('picking a model in the picker, even the first one, sends to '
+          'that one model', (tester) async {
+        // The picker's model icons use the image cache's temporary directory.
+        const pathProvider = MethodChannel('plugins.flutter.io/path_provider');
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        messenger.setMockMethodCallHandler(
+          pathProvider,
+          (call) async => Directory.systemTemp.path,
+        );
+        addTearDown(() => messenger.setMockMethodCallHandler(pathProvider, null));
+        await openComparing(tester);
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('folder-page-model-selector')),
+        );
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 30)),
+        );
+        // The sheet slides in; pumpAndSettle never settles under it.
+        for (var i = 0; i < 8; i++) {
+          await tester.pump(const Duration(milliseconds: 150));
+        }
+        await tester.tap(
+          find.descendant(
+            of: find.byType(ModelSelectorSheet),
+            matching: find.text('Model A'),
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        expect(container.read(folderDraftComparisonModelsProvider), isNull);
+        expect(find.text('Model A'), findsOneWidget);
+
+        await enterDraft(tester, 'Just this one');
+        await tester.tap(sendButton());
+        await settle(tester);
+
+        final ids = await chatIds(tester);
+        final rows = await tester.runAsync(
+          () => db.messagesDao.getForChat(ids.single),
+        );
+        expect(rows!.where((row) => row.role == 'assistant'), hasLength(1));
+      });
+    });
+
+    testWidgets('Cancel sends nothing', (tester) async {
+      await open(tester, project(permission: 'write'));
+      await openSheet(tester);
+
+      await tester.tap(key('folder-project-model-1-remove'));
+      await tester.pump();
+      await tester.ensureVisible(key('folder-project-cancel'));
+      await tester.tap(key('folder-project-cancel'));
+      await settle(tester);
+
+      expect(key('folder-project-save'), findsNothing);
+      expect(await queued(tester), isEmpty);
+      final row = await tester.runAsync(() => db.foldersDao.getFolder('work'));
+      expect(row!.dirty, isFalse);
+      expect((await storedData(tester))['model_ids'], ['retired', 'm-a']);
+      expect(api.updateCalls, 0);
+    });
+
+    testWidgets(
+      'the form follows the server unless this device has unsent edits',
+      (tester) async {
+        await open(
+          tester,
+          project(),
+          liveFolders: true,
+          detail: project(
+            data: {
+              'model_ids': ['m-from-server'],
+            },
+          ),
+        );
+        await openSheet(tester);
+        expect(
+          find.descendant(
+            of: key('folder-project-model-0'),
+            matching: find.text('m-from-server'),
+          ),
+          findsOneWidget,
+        );
+
+        // An edit made offline and not pushed yet is what the form shows.
+        await tester.tap(key('folder-project-cancel'));
+        await settle(tester);
+        await tester.runAsync(
+          () => db.foldersDao.patchFolderDataWithOutbox(
+            id: 'work',
+            dataPatch: {
+              'model_ids': ['m-offline'],
+            },
+          ),
+        );
+        // The page lists the folder from the database, so it shows the edit.
+        await settle(tester);
+        await openSheet(tester);
+        expect(
+          find.descendant(
+            of: key('folder-project-model-0'),
+            matching: find.text('m-offline'),
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('m-from-server'), findsNothing);
+      },
+    );
+
+    testWidgets('a collection the server no longer lists is shown and kept', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        project(
+          data: {
+            'files': [
+              {'type': 'collection', 'id': 'kb-gone', 'name': 'Old docs'},
+            ],
+          },
+        ),
+      );
+      await openSheet(tester);
+
+      expect(key('folder-project-knowledge-0-unavailable'), findsOneWidget);
+      await chooseOption(
+        tester,
+        opener: 'folder-project-add-model',
+        option: 'm-a',
+      );
+      await tester.ensureVisible(key('folder-project-save'));
+      await tester.tap(key('folder-project-save'));
+      await settle(tester);
+
+      final data = await storedData(tester);
+      expect(data['files'], [
+        {'type': 'collection', 'id': 'kb-gone', 'name': 'Old docs'},
+      ]);
+      expect(data['model_ids'], ['m-a']);
+    });
+
+    testWidgets('a deleted individual file is shown and kept; one the server '
+        'cannot vouch for either way is not called deleted', (tester) async {
+      await open(
+        tester,
+        project(
+          data: {
+            'files': [
+              {'type': 'file', 'id': 'file-gone', 'name': 'Old notes.txt'},
+              {'type': 'file', 'id': 'file-shared', 'name': 'Shared.pdf'},
+              {'type': 'file', 'id': 'file-flaky', 'name': 'Flaky.pdf'},
+              {'type': 'file', 'id': 'file-gone', 'name': 'Old notes.txt'},
+            ],
+          },
+        ),
+        fileStatus: {'file-gone': 404, 'file-flaky': 500},
+      );
+      await openSheet(tester);
+
+      expect(key('folder-project-knowledge-0-unavailable'), findsOneWidget);
+      // The shared file is in nobody's first page of files, and is valid.
+      expect(key('folder-project-knowledge-1-unavailable'), findsNothing);
+      // A failed lookup is unknown, not deletion.
+      expect(key('folder-project-knowledge-2-unavailable'), findsNothing);
+      expect(key('folder-project-knowledge-3-unavailable'), findsOneWidget);
+      // Each file is asked about once.
+      expect(api.fileLookups.toSet(), {
+        'file-gone',
+        'file-shared',
+        'file-flaky',
+      });
+      expect(api.fileLookups, hasLength(3));
+
+      await chooseOption(
+        tester,
+        opener: 'folder-project-add-model',
+        option: 'm-a',
+      );
+      await tester.ensureVisible(key('folder-project-save'));
+      await tester.tap(key('folder-project-save'));
+      await settle(tester);
+
+      final data = await storedData(tester);
+      expect(data['files'], [
+        {'type': 'file', 'id': 'file-gone', 'name': 'Old notes.txt'},
+        {'type': 'file', 'id': 'file-shared', 'name': 'Shared.pdf'},
+        {'type': 'file', 'id': 'file-flaky', 'name': 'Flaky.pdf'},
+        {'type': 'file', 'id': 'file-gone', 'name': 'Old notes.txt'},
+      ]);
+      expect(data['model_ids'], ['m-a']);
+    });
+
+    testWidgets('a recipient the server says cannot write is refused even '
+        'though the cached grant was write', (tester) async {
+      // GET /folders/{id}: write_access and access_grants, none of the shared
+      // listing's own shared / permission.
+      final fresh = project()
+        ..['write_access'] = false
+        ..['user_id'] = 'someone-else'
+        ..['access_grants'] = [
+          {
+            'principal_type': 'user',
+            'principal_id': 'me',
+            'permission': 'read',
+          },
+        ];
+      await open(
+        tester,
+        project(permission: 'write'),
+        role: 'user',
+        detail: fresh,
+      );
+      await openSheet(tester);
+      await tester.tap(key('folder-project-model-1-remove'));
+      await tester.pump();
+      await tester.ensureVisible(key('folder-project-save'));
+      await tester.tap(key('folder-project-save'));
+      await settle(tester);
+
+      expect(find.text(readOnlyMessage), findsOneWidget);
+      expect(await queued(tester), isEmpty);
+      expect((await storedData(tester))['model_ids'], ['retired', 'm-a']);
+      // The edit is still in the open form.
+      expect(key('folder-project-model-1'), findsNothing);
+      expect(key('folder-project-save'), findsOneWidget);
+    });
+
+    testWidgets('a grant lowered while the editor was open is not written', (
+      tester,
+    ) async {
+      await open(tester, project(permission: 'write'));
+      await openSheet(tester);
+      await tester.tap(key('folder-project-model-1-remove'));
+      await tester.pump();
+
+      // A pull lowers the grant to read before Save.
+      await tester.runAsync(
+        () => db.foldersDao.replaceServerFolders([project(permission: 'read')]),
+      );
+      await tester.ensureVisible(key('folder-project-save'));
+      await tester.tap(key('folder-project-save'));
+      await settle(tester);
+
+      expect(find.text(readOnlyMessage), findsOneWidget);
+      expect(await queued(tester), isEmpty);
+      // The sheet stays open with the edit still in it.
+      expect(key('folder-project-model-1'), findsNothing);
+      expect(key('folder-project-save'), findsOneWidget);
+    });
+
+    testWidgets('another account signing in while it is open writes nothing', (
+      tester,
+    ) async {
+      await open(tester, project(permission: 'write'));
+      await openSheet(tester);
+      await tester.tap(key('folder-project-model-1-remove'));
+      await tester.pump();
+
+      container.read(_epochProvider.notifier).rotate();
+      await tester.ensureVisible(key('folder-project-save'));
+      await tester.tap(key('folder-project-save'));
+      await settle(tester);
+
+      expect(find.text(ownerChangedMessage), findsOneWidget);
+      expect(await queued(tester), isEmpty);
+      expect((await storedData(tester))['model_ids'], ['retired', 'm-a']);
+    });
+
+    testWidgets(
+      'on the native iOS 26 sheet it edits and saves from a phone with the keyboard up',
+      (tester) async {
+        await open(tester, project(permission: 'write'), native: true);
+        await openSheet(tester, native: true);
+
+        // Entering text, scrolling to Save and saving all happen with the
+        // software keyboard covering the bottom of the view.
+        tester.view.viewInsets = const FakeViewPadding(bottom: 336);
+        tester.view.padding = const FakeViewPadding(top: 62);
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.descendant(
+            of: key('folder-project-system-prompt'),
+            matching: find.byType(EditableText),
+          ),
+          'Answer in French',
+        );
+        await tester.pump();
+        await tester.scrollUntilVisible(
+          key('folder-project-add-model'),
+          120,
+          scrollable: find
+              .descendant(
+                of: key('folder-project-form'),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+        await chooseOption(
+          tester,
+          opener: 'folder-project-add-model',
+          option: 'm-b',
+        );
+        // The form list is lazy and the picker shared its scroll position.
+        await tester.scrollUntilVisible(
+          key('folder-project-model-2'),
+          120,
+          scrollable: find
+              .descendant(
+                of: key('folder-project-form'),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+        expect(key('folder-project-model-2'), findsOneWidget);
+        await tester.ensureVisible(key('folder-project-save'));
+        await tester.pumpAndSettle();
+        expect(
+          tester.getBottomLeft(key('folder-project-save')).dy,
+          lessThanOrEqualTo(844 - 336),
+        );
+        expect(
+          tester.getBottomLeft(key('folder-project-cancel')).dy,
+          lessThanOrEqualTo(844 - 336),
+        );
+
+        tester.view.viewInsets = FakeViewPadding.zero;
+        tester.view.padding = const FakeViewPadding(top: 62, bottom: 34);
+        await tester.pumpAndSettle();
+        await tester.tap(key('folder-project-save'));
+        await settle(tester);
+
+        expect(tester.takeException(), isNull);
+        expect(
+          key('folder-project-failure').evaluate().isEmpty
+              ? null
+              : tester.widget<Text>(key('folder-project-failure')).data,
+          isNull,
+        );
+        expect(key('folder-project-save'), findsNothing);
+        final data = await storedData(tester);
+        expect(data['model_ids'], ['retired', 'm-a', 'm-b']);
+        expect(data['system_prompt'], 'Answer in French');
+        expect(data['custom'], {'k': 1});
+      },
+    );
+  });
 }
 
 Widget _buildHarness({
@@ -910,6 +2057,9 @@ ProviderContainer _createContainer({
   Conversation? activeConversation,
   List<ChatMessage> initialMessages = const <ChatMessage>[],
   AppDatabase? database,
+  // Read the folder list from [database], as the app does, instead of the
+  // fixed [folders].
+  bool liveFolders = false,
   List<Override> extraOverrides = const <Override>[],
 }) {
   final resolvedSelectedModel =
@@ -940,7 +2090,8 @@ ProviderContainer _createContainer({
         () => _TestConversations(conversations),
       ),
       modelsProvider.overrideWith(() => _TestModels(resolvedModels)),
-      foldersProvider.overrideWith(() => _TestFolders(folders)),
+      if (!liveFolders)
+        foldersProvider.overrideWith(() => _TestFolders(folders)),
       toolsListProvider.overrideWith(_TestToolsList.new),
       ...extraOverrides,
     ],
@@ -966,6 +2117,10 @@ Widget _buildHarnessFromContainer(
       GoRoute(
         path: '/chat',
         name: RouteNames.chat,
+        builder: (context, state) => const Scaffold(body: SizedBox.shrink()),
+      ),
+      GoRoute(
+        path: '/elsewhere',
         builder: (context, state) => const Scaffold(body: SizedBox.shrink()),
       ),
     ],
@@ -1048,6 +2203,144 @@ class _FakeOptimizedStorageService extends Fake
   Future<void> saveLocalDefaultModel(Model? model) async {}
 }
 
+/// The composer's tray, holding a file that was picked and uploaded elsewhere.
+class _Tray extends AttachedFilesNotifier {
+  void put(FileUploadState file) => state = [...state, file];
+}
+
+class _Epoch extends Notifier<Object> {
+  @override
+  Object build() => Object();
+
+  /// A new sign-in session: another account, or a sign-out and back in.
+  void rotate() => state = Object();
+}
+
+final _epochProvider = NotifierProvider<_Epoch, Object>(_Epoch.new);
+
+class _NoDrainEngine extends SyncEngine {
+  @override
+  SyncStatus build() => const SyncStatus();
+
+  @override
+  Future<void> drainNowForDatabase(AppDatabase expectedDatabase) async {}
+}
+
+class _TestKnowledge extends WorkspaceKnowledge {
+  @override
+  Future<WorkspaceCollectionState<WorkspaceKnowledgeSummary>> build() async =>
+      const WorkspaceCollectionState(
+        items: [
+          WorkspaceKnowledgeSummary(id: 'kb-1', name: 'Docs', userId: 'owner'),
+        ],
+        total: 1,
+      );
+}
+
+class _TestUserFiles extends UserFiles {
+  _TestUserFiles(this.files);
+
+  final List<FileInfo> files;
+
+  @override
+  Future<List<FileInfo>> build() async => files;
+}
+
+class _QuietAdapter implements HttpClientAdapter {
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async => ResponseBody.fromString(
+    '{}',
+    200,
+    headers: {
+      Headers.contentTypeHeader: [Headers.jsonContentType],
+    },
+  );
+
+  @override
+  void close({bool force = false}) {}
+}
+
+/// A real [ApiService], so the account the editor captures is a real one, with
+/// the folder read answered locally and nothing else leaving the test.
+class _ProjectApi extends ApiService {
+  _ProjectApi(this.detail, this.fileStatus)
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'srv',
+          name: 'Server',
+          url: 'https://srv.example.test',
+        ),
+        workerManager: WorkerManager(),
+        authToken: 'test-token',
+      ) {
+    dio.httpClientAdapter = _QuietAdapter();
+  }
+
+  final Map<String, dynamic>? detail;
+
+  /// The status the server answers a file lookup with; 200 unless listed.
+  final Map<String, int> fileStatus;
+  final fileLookups = <String>[];
+  int updateCalls = 0;
+
+  @override
+  Future<Map<String, dynamic>> getFileInfo(
+    String fileId, {
+    ApiAuthSnapshot? authSnapshot,
+    CancelToken? cancelToken,
+  }) async {
+    fileLookups.add(fileId);
+    final status = fileStatus[fileId] ?? 200;
+    if (status == 200) return <String, dynamic>{'id': fileId};
+    final request = RequestOptions(path: '/api/v1/files/$fileId');
+    throw DioException(
+      requestOptions: request,
+      response: Response<Object?>(
+        requestOptions: request,
+        statusCode: status,
+        data: <String, dynamic>{'detail': 'File not found'},
+      ),
+    );
+  }
+
+  @override
+  Future<Map<String, dynamic>?> getFolderById(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async => detail;
+
+  /// When set, the settings are answered only once this completes, and
+  /// [settingsEntered] marks the wait: an admission suspended mid-flight.
+  Completer<void>? holdSettings;
+  final settingsEntered = Completer<void>();
+
+  /// Admitting a turn reads the account's settings from the server.
+  @override
+  Future<Map<String, dynamic>> getUserSettings({Object? authSnapshot}) async {
+    final hold = holdSettings;
+    if (hold != null) {
+      if (!settingsEntered.isCompleted) settingsEntered.complete();
+      await hold.future;
+    }
+    return const <String, dynamic>{};
+  }
+
+  @override
+  Future<Map<String, dynamic>?> updateFolder(
+    String id, {
+    String? name,
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? meta,
+  }) async {
+    updateCalls++;
+    return null;
+  }
+}
+
 class _FakeFolderApiService extends Fake implements ApiService {
   String? lastUpdatedName;
   Map<String, dynamic>? lastUpdatedMeta;
@@ -1062,7 +2355,10 @@ class _FakeFolderApiService extends Fake implements ApiService {
   };
 
   @override
-  Future<Map<String, dynamic>?> getFolderById(String id) async {
+  Future<Map<String, dynamic>?> getFolderById(
+    String id, {
+    Object? authSnapshot,
+  }) async {
     if (id != 'work') {
       return null;
     }
@@ -1074,8 +2370,9 @@ class _FakeFolderApiService extends Fake implements ApiService {
       <String, dynamic>{};
 
   @override
-  Future<Map<String, dynamic>> getUserPermissions() async =>
-      <String, dynamic>{};
+  Future<Map<String, dynamic>> getUserPermissions({
+    Object? authSnapshot,
+  }) async => <String, dynamic>{};
 
   @override
   Future<Map<String, dynamic>?> updateFolder(

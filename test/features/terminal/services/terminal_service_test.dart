@@ -1,5 +1,8 @@
 import 'package:conduit/features/terminal/models/terminal_models.dart';
 import 'package:conduit/features/terminal/services/terminal_service.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -50,6 +53,76 @@ void main() {
           .cast<Map<String, dynamic>>();
       expect(originalServers[0].containsKey('enabled'), isFalse);
       expect(originalServers[1]['enabled'], isTrue);
+    });
+
+    test('direct terminals come from the ui list when it is present', () {
+      final service = TerminalService(
+        ApiService(
+          serverConfig: const ServerConfig(
+            id: 'terminal-precedence',
+            name: 'Terminal precedence',
+            url: 'https://example.test',
+          ),
+          workerManager: WorkerManager(),
+        ),
+      );
+      Map<String, dynamic> terminal(String url) => <String, dynamic>{
+        'url': url,
+        'enabled': true,
+      };
+
+      List<String> urls(Map<String, dynamic> settings) => service
+          .parseDirectTerminalServers(settings)
+          .map((server) => server.selectionId)
+          .toList();
+
+      // A newer ui list wins over the root list an older client left behind.
+      expect(
+        urls(<String, dynamic>{
+          'terminalServers': [terminal('https://stale.example')],
+          'ui': {
+            'terminalServers': [terminal('https://fresh.example')],
+          },
+        }),
+        ['https://fresh.example'],
+      );
+      // An explicitly empty ui list means no terminals, not the stale ones.
+      expect(
+        urls(<String, dynamic>{
+          'terminalServers': [terminal('https://stale.example')],
+          'ui': {'terminalServers': <Object>[]},
+        }),
+        isEmpty,
+      );
+      // Without a ui list the root list is still honoured.
+      expect(
+        urls(<String, dynamic>{
+          'terminalServers': [terminal('https://legacy.example')],
+        }),
+        ['https://legacy.example'],
+      );
+    });
+
+    test('selecting a terminal edits the list consumers read', () {
+      final updated = applyDirectTerminalSelectionForTest(<String, dynamic>{
+        'terminalServers': [
+          {'url': 'https://stale.example', 'enabled': true},
+        ],
+        'ui': {
+          'terminalServers': [
+            {'url': 'https://a.example'},
+            {'url': 'https://b.example'},
+          ],
+        },
+      }, 'https://b.example');
+
+      final ui = (updated['ui']! as Map)['terminalServers']! as List;
+      expect(ui.map((s) => (s as Map)['enabled']), [false, true]);
+      // The stale root list is left exactly as it was.
+      expect((updated['terminalServers']! as List).single, {
+        'url': 'https://stale.example',
+        'enabled': true,
+      });
     });
 
     test('resolves explicit and enabled direct selections', () {

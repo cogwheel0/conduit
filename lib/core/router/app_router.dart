@@ -44,6 +44,16 @@ import 'package:conduit_core/features/direct_connections/controllers/direct_conn
 
 import '../../features/direct_connections/views/direct_connection_editor_page.dart';
 import '../../features/direct_connections/views/direct_connections_page.dart';
+import '../../features/integrations/views/personal_connection_editor_page.dart';
+import '../../features/integrations/views/personal_connections_page.dart';
+import '../../features/automations/views/scheduled_task_detail_page.dart';
+import '../../features/automations/views/scheduled_task_editor_page.dart';
+import '../../features/automations/views/scheduled_tasks_page.dart';
+import '../../features/calendar/views/calendar_page.dart';
+import '../../features/profile/views/chat_data_controls_page.dart';
+
+import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
+
 import '../../features/direct_connections/views/direct_mcp_server_editor_page.dart';
 import '../../l10n/app_localizations.dart';
 
@@ -308,6 +318,75 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         state: state,
         child: const NotificationSettingsPage(),
       ),
+    ),
+    GoRoute(
+      path: Routes.personalConnections,
+      name: RouteNames.personalConnections,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const PersonalConnectionsPage(),
+      ),
+    ),
+    GoRoute(
+      path: Routes.personalConnectionEditor,
+      name: RouteNames.personalConnectionEditor,
+      pageBuilder: (context, state) {
+        final kind = personalConnectionKindFromRouteValue(
+          state.pathParameters['kind'] ?? '',
+        );
+        return _buildPlatformPage(
+          state: state,
+          child: kind == null
+              ? const PersonalConnectionsPage()
+              : PersonalConnectionEditorPage(
+                  kind: kind,
+                  identity: state.pathParameters['identity']!,
+                ),
+        );
+      },
+    ),
+    GoRoute(
+      path: Routes.chatDataControls,
+      name: RouteNames.chatDataControls,
+      pageBuilder: (context, state) =>
+          _buildPlatformPage(state: state, child: const ChatDataControlsPage()),
+    ),
+    GoRoute(
+      path: Routes.scheduledTasks,
+      name: RouteNames.scheduledTasks,
+      pageBuilder: (context, state) =>
+          _buildPlatformPage(state: state, child: const ScheduledTasksPage()),
+    ),
+    // `new` is declared before `:id` so it is never read as a task id.
+    GoRoute(
+      path: Routes.scheduledTaskNew,
+      name: RouteNames.scheduledTaskNew,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const ScheduledTaskEditorPage(),
+      ),
+    ),
+    GoRoute(
+      path: Routes.scheduledTaskDetail,
+      name: RouteNames.scheduledTaskDetail,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: ScheduledTaskDetailPage(taskId: state.pathParameters['id']!),
+      ),
+    ),
+    GoRoute(
+      path: Routes.scheduledTaskEdit,
+      name: RouteNames.scheduledTaskEdit,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: ScheduledTaskEditorPage(taskId: state.pathParameters['id']!),
+      ),
+    ),
+    GoRoute(
+      path: Routes.calendar,
+      name: RouteNames.calendar,
+      pageBuilder: (context, state) =>
+          _buildPlatformPage(state: state, child: const CalendarPage()),
     ),
     GoRoute(
       path: Routes.directConnections,

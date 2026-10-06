@@ -62,6 +62,9 @@ final class PreferenceKeys {
   static const String voiceSilenceDuration = 'voice_silence_duration';
   static const String androidAssistantTrigger = 'android_assistant_trigger';
   static const String temporaryChatByDefault = 'temporary_chat_by_default';
+
+  /// Device-local disclosure switch for additional chat tools and settings.
+  static const String advancedFeaturesEnabled = 'advanced_features_enabled_v1';
   static const String pinnedModels = 'pinned_models';
 
   // Notifications. The first three mirror Open WebUI's user-settings fields and

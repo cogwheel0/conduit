@@ -1,7 +1,11 @@
 import 'dart:io' show Platform;
 
+import 'package:conduit_core/features/sharing/models/resource_access.dart';
+import 'package:conduit_core/features/sharing/providers/resource_access_controller.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit/features/workspace/widgets/resource_sharing_sheet.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
@@ -17,6 +21,23 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
+
+/// Opens the Audience session for [conversation] when the Advanced control is
+/// on, or returns null. The key is the chat's own id: the link's `share_id`
+/// names a snapshot, and the grants hang off the chat.
+ResourceAccessController? _openAudience(
+  dynamic ref,
+  Conversation conversation,
+) {
+  if (!(ref.read(appSettingsProvider).advancedFeaturesEnabled as bool)) {
+    return null;
+  }
+  return ResourceAccessController.open(
+    ref,
+    kind: ResourceKind.chat,
+    resourceId: conversation.id,
+  );
+}
 
 Future<void> showChatShareSheet({
   required BuildContext context,
@@ -113,6 +134,10 @@ Future<void> _showNativeChatShareSheet({
   }
 
   final hasExistingShare = conversation.shareId?.isNotEmpty == true;
+  // Captured now, when the share flow opens, not when Audience is chosen.
+  final audience = hasExistingShare
+      ? _openAudience(container, conversation)
+      : null;
   final result = await NativeSheetBridge.instance.presentSheet(
     root: NativeSheetDetailConfig(
       id: 'chat-share',
@@ -131,6 +156,13 @@ Future<void> _showNativeChatShareSheet({
           title: l10n.shareSystemSheet,
           sfSymbol: 'square.and.arrow.up',
         ),
+        if (audience != null)
+          NativeSheetItemConfig(
+            id: 'audience',
+            title: l10n.chatShareAudience,
+            subtitle: l10n.chatShareAudienceDescription,
+            sfSymbol: 'person.2',
+          ),
         if (hasExistingShare)
           NativeSheetItemConfig(
             id: 'delete-link',
@@ -154,6 +186,11 @@ Future<void> _showNativeChatShareSheet({
     case 'delete-link':
       await deleteLink();
       break;
+    case 'audience':
+      if (audience != null && context.mounted) {
+        await ResourceSharingSheet.showWith(context, audience);
+      }
+      break;
   }
 }
 
@@ -173,6 +210,7 @@ class ChatShareSheet extends ConsumerStatefulWidget {
 
 class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
   late final String _conversationSelectionId;
+  ResourceAccessController? _audience;
   String? _shareId;
   bool _isSharing = false;
   bool _isDeleting = false;
@@ -182,6 +220,8 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
     super.initState();
     _conversationSelectionId = conversationScopedId(widget.conversation);
     _shareId = widget.conversation.shareId;
+    // Captured as the share flow opens, before any request or confirmation.
+    _audience = _openAudience(ref, widget.conversation);
   }
 
   Future<String> _ensureShareUrl() async {
@@ -331,6 +371,18 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
                     '${l10n.shareChatDeleteLink} '
                     '${l10n.shareChatDeleteAndCreate}',
                 isDestructive: true,
+              ),
+            ],
+            if (hasExistingShare && _audience != null) ...[
+              const SizedBox(height: Spacing.md),
+              ConduitButton(
+                key: const Key('chat-share-audience'),
+                text: l10n.chatShareAudience,
+                onPressed: () =>
+                    ResourceSharingSheet.showWith(context, _audience!),
+                isSecondary: true,
+                icon: CupertinoIcons.person_2,
+                isFullWidth: true,
               ),
             ],
             const SizedBox(height: Spacing.lg),

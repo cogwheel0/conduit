@@ -421,6 +421,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       initialGrants: _draft.normalizedAccessGrants,
       capabilities: capabilities.models,
       allowUserGrants: capabilities.allowUserGrants,
+      allowGroupGrants: capabilities.allowGroupGrants,
       readOnly: _readOnly,
     );
     if (grants == null || !mounted) return;

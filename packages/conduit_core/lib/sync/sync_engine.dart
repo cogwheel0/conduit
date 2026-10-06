@@ -639,11 +639,16 @@ class SyncEngine extends _$SyncEngine {
     final remapper = _ensureRemapper();
     if (remapper == null) return null;
     final boundSessionEpoch = sessionEpoch ?? _sessionEpoch;
+    // The server answers the account this pull was built for; once the session
+    // moves on, a late response is no evidence about the new account.
+    final readerId = ref.read(currentUserProvider2)?.id;
     return NotePullSync(
       client: client,
       db: db,
       locks: noteLocks,
       remapper: remapper,
+      readerAccountId: () =>
+          boundSessionEpoch == _sessionEpoch ? readerId : null,
       onFeatureEnabled: (enabled) {
         if (!ref.mounted) return;
         if (boundSessionEpoch != _sessionEpoch) return;
@@ -666,6 +671,7 @@ class SyncEngine extends _$SyncEngine {
       db: db,
       noteLocks: noteLocks,
       remapper: remapper,
+      currentAccountId: () => ref.read(currentUserProvider2)?.id,
     );
   }
 

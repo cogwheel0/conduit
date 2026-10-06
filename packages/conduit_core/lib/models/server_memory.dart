@@ -9,13 +9,29 @@ class ServerMemory {
     required this.content,
     required this.updatedAtEpoch,
     required this.createdAtEpoch,
+    this.type,
+    this.path,
   });
+
+  /// Open WebUI classification for memories entered by the user.
+  static const String userType = 'user';
+
+  /// Open WebUI classification for durable context memories.
+  static const String contextType = 'context';
 
   final String id;
   final String userId;
   final String content;
   final int updatedAtEpoch;
   final int createdAtEpoch;
+
+  /// Server classification, kept verbatim so a value this client does not
+  /// know survives a read. Null when the server predates classification;
+  /// callers must treat that as unknown rather than reclassifying it.
+  final String? type;
+
+  /// Optional slash-separated path assigned by the server, or null.
+  final String? path;
 
   DateTime get updatedAt => _epochToDateTime(updatedAtEpoch);
   DateTime get createdAt => _epochToDateTime(createdAtEpoch);
@@ -27,8 +43,18 @@ class ServerMemory {
       content: (json['content'] ?? '').toString(),
       updatedAtEpoch: _coerceEpoch(json['updated_at']),
       createdAtEpoch: _coerceEpoch(json['created_at']),
+      type: _optionalString(json['type']),
+      path: _optionalString(json['path']),
     );
   }
+}
+
+String? _optionalString(dynamic value) {
+  if (value == null) {
+    return null;
+  }
+  final text = value.toString();
+  return text.isEmpty ? null : text;
 }
 
 int _coerceEpoch(dynamic value) {

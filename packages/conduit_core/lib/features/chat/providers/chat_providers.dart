@@ -29,19 +29,24 @@ import 'package:conduit_core/ports/wakelock_port.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
-import 'package:yaml/yaml.dart' as yaml;
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
 
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
 
+import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
+import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/file_info.dart';
+import 'package:conduit_core/models/folder.dart'
+    show Folder, FolderProjectDefaults;
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/user.dart' show User;
 
 import 'package:conduit_core/database/account_storage_isolation.dart';
 // Re-exported because it used to live in this library and a dozen callers
@@ -74,6 +79,7 @@ import 'package:conduit_core/sync/id_remapper.dart';
 
 import 'package:conduit_core/sync/outbox_drainer.dart'
     show OutboxDeferralException;
+import 'package:conduit_core/sync/pull_sync.dart' show parseChatRowsWorker;
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/sync/sync_api_client.dart'
     show SyncTerminalException;
@@ -81,7 +87,11 @@ import 'package:conduit_core/sync/sync_api_client.dart'
 import 'package:conduit_core/services/chat_completion_transport.dart';
 
 import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/moa_completion.dart';
+import 'package:conduit_core/services/openwebui_stream_parser.dart';
 
+import 'package:conduit_core/services/connectivity_service.dart'
+    show isOnlineProvider;
 import 'package:conduit_core/services/location_service.dart';
 
 import 'package:conduit_core/services/settings_service.dart';
@@ -137,21 +147,34 @@ import 'package:conduit_core/features/chat/providers/context_attachments_provide
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart';
 
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/features/integrations/personal_tool_execution.dart';
+import 'package:conduit_core/features/integrations/personal_connection_client.dart';
+import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
+import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart'
+    show personalSelectionNoticeProvider;
 import 'package:conduit_core/utils/system_prompt.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_chat_storage.dart';
 import 'package:conduit_core/features/web_search/web_search.dart';
 
 import '../services/chat_transport_dispatch.dart';
 
+import 'package:conduit_core/features/chat/services/chat_backup.dart'
+    show ChatImportPreview, prepareChatImport;
+import 'package:conduit_core/features/chat/services/chat_branch_service.dart';
+import 'package:conduit_core/features/chat/services/chat_data_controls.dart';
+import 'package:conduit_core/features/chat/services/chat_comparison_service.dart';
 import 'package:conduit_core/features/chat/services/chat_history_reader.dart';
 import 'package:conduit_core/features/chat/providers/attached_files_provider.dart';
 import 'package:conduit_core/features/chat/services/reviewer_mode_service.dart';
 
 part 'chat_attachments.dart';
+part 'chat_branch_controller.dart';
 part 'chat_capability_providers.dart';
+part 'chat_comparison_controller.dart';
 part 'chat_composer_providers.dart';
 part 'chat_context_readers.dart';
 part 'chat_conversation_mutations.dart';
+part 'chat_data_controls_controller.dart';
 part 'chat_direct_routing.dart';
 part 'chat_direct_turns.dart';
 part 'chat_feature_defaults.dart';
@@ -165,6 +188,7 @@ part 'chat_messages_notifier.dart';
 part 'chat_mutation_ownership.dart';
 part 'chat_openapi_tools.dart';
 part 'chat_openwebui_requests.dart';
+part 'chat_openwebui_settings.dart';
 part 'chat_regeneration.dart';
 part 'chat_send_message.dart';
 part 'chat_send_placeholder.dart';

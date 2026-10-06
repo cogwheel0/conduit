@@ -66,39 +66,90 @@ mixin _ChatsRawApi on _ApiServiceBase {
   /// explicitly. Large payloads are decoded off the UI isolate, mirroring
   /// the bytes->worker path of [_parseConversationPayload], but stop at the
   /// decoded map — no `Conversation` parsing.
-  Future<Map<String, dynamic>?> getChatRaw(String id) async {
+  ///
+  /// A caller that already authorized this read for one account passes the
+  /// [authSnapshot] it captured, so a token change that lands before the
+  /// request is sent cannot read another account's chat with the new bearer.
+  Future<Map<String, dynamic>?> getChatRaw(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     DebugLogger.log('fetch-raw', scope: 'api/chat', data: {'id': id});
     try {
       final response = await _dio.get(
         '/api/v1/chats/$id',
-        options: Options(responseType: ResponseType.bytes),
+        options: _withAuthSnapshot(
+          Options(responseType: ResponseType.bytes),
+          authSnapshot,
+        ),
       );
-      final data = response.data;
-      final bytes = data is Uint8List
-          ? data
-          : (data is List<int> ? Uint8List.fromList(data) : null);
-      if (bytes == null) {
-        // Defensive: some adapters may have decoded already.
-        return _requireResponseMap(data, 'getChatRaw $id');
-      }
-      final Map<String, dynamic>? map =
-          bytes.lengthInBytes >= _conversationWorkerByteThreshold
-          ? await _workerManager.schedule<Uint8List, Map<String, dynamic>?>(
-              decodeChatResponseEnvelopeWorker,
-              bytes,
-              debugLabel: 'decode_chat_raw',
-            )
-          : decodeChatResponseEnvelopeWorker(bytes);
-      if (map == null) {
-        throw FormatException('getChatRaw $id: expected JSON object response');
-      }
-      return map;
+      return await _decodeChatEnvelopeResponse(response.data, 'getChatRaw $id');
     } on DioException catch (e) {
       if (e.response?.statusCode == 404) {
         return null;
       }
       rethrow;
     }
+  }
+
+  /// POST `/api/v1/chats/{id}/fork` body `{message_id: messageId}` — the raw
+  /// `ChatResponse` of the new chat, which stops at [messageId] while the source
+  /// chat stays as it was.
+  ///
+  /// Sent exactly once, with the [authSnapshot] the caller captured, and with no
+  /// fallback to a whole-chat clone. Every HTTP failure is rethrown for the
+  /// caller to classify (403 no `chat.import`, 401 not the owner or gone, 404
+  /// no such message, 409 a response is still running). A 2xx without a chat
+  /// body throws, since the route may answer `null`.
+  Future<Map<String, dynamic>> forkChatRaw(
+    String id,
+    String messageId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    DebugLogger.log('fork-raw', scope: 'api/chat', data: {'id': id});
+    final response = await _dio.post(
+      '/api/v1/chats/$id/fork',
+      data: <String, dynamic>{'message_id': messageId},
+      options: _withAuthSnapshot(
+        Options(responseType: ResponseType.bytes),
+        authSnapshot,
+      ),
+    );
+    final map = await _decodeChatEnvelopeResponse(
+      response.data,
+      'forkChatRaw $id',
+    );
+    if (map['id'] is! String || (map['id'] as String).isEmpty) {
+      throw FormatException('forkChatRaw $id: response without a chat id');
+    }
+    return map;
+  }
+
+  /// Decodes a `ChatResponse` body, off the UI isolate when it is large. Throws
+  /// [FormatException] unless the body is a JSON object.
+  Future<Map<String, dynamic>> _decodeChatEnvelopeResponse(
+    Object? data,
+    String label,
+  ) async {
+    final bytes = data is Uint8List
+        ? data
+        : (data is List<int> ? Uint8List.fromList(data) : null);
+    if (bytes == null) {
+      // Defensive: some adapters may have decoded already.
+      return _requireResponseMap(data, label);
+    }
+    final Map<String, dynamic>? map =
+        bytes.lengthInBytes >= _conversationWorkerByteThreshold
+        ? await _workerManager.schedule<Uint8List, Map<String, dynamic>?>(
+            decodeChatResponseEnvelopeWorker,
+            bytes,
+            debugLabel: 'decode_chat_raw',
+          )
+        : decodeChatResponseEnvelopeWorker(bytes);
+    if (map == null) {
+      throw FormatException('$label: expected JSON object response');
+    }
+    return map;
   }
   // ===== Phase 2 sync write seams (CDT-RFC-001 §7.2/§7.4) =====
   //

@@ -79,12 +79,26 @@ class ChatMergeWriteResult {
 /// merge target (the only null-base rows are pre-remap `local:` chats, which
 /// the pull crash-heal intercepts before this is reached); passing a value
 /// where `server.chat.updatedAt < base` is a programming error.
+///
+/// [localParamsEdited] is explicit evidence (a not-yet-confirmed `updateChat`
+/// op flagged as a params edit) that the local copy of the chat's own `params`
+/// is an unpushed edit. Only then do the local `params` win a three-way merge;
+/// a dirty envelope from an unrelated change (a title, a folder) keeps the
+/// server's `params`, so it cannot overwrite another client's newer settings.
+///
+/// [localBranchChosen] is the same kind of evidence for the active branch: a
+/// not-yet-confirmed `updateChat` op flagged as an explicit branch choice. Only
+/// then does the local `currentId` win a three-way merge without a dirty
+/// message. Without it the server's leaf wins, so a dirty envelope from a title
+/// or folder change accepts another client's newer branch.
 ChatMergeResult mergeChat({
   required ChatRows server,
   required ChatRows local,
   required int base,
   required bool chatEnvelopeDirty,
   required Set<String> dirtyMessageIds,
+  bool localParamsEdited = false,
+  bool localBranchChosen = false,
 }) {
   final serverUpdatedAt = server.chat.updatedAt;
   final dirty = chatEnvelopeDirty || dirtyMessageIds.isNotEmpty;
@@ -141,6 +155,8 @@ ChatMergeResult mergeChat({
     base: base,
     chatEnvelopeDirty: chatEnvelopeDirty,
     dirtyMessageIds: dirtyMessageIds,
+    localParamsEdited: localParamsEdited,
+    localBranchChosen: localBranchChosen,
   );
 }
 
@@ -150,6 +166,8 @@ ChatMergeResult _threeWay({
   required int base,
   required bool chatEnvelopeDirty,
   required Set<String> dirtyMessageIds,
+  required bool localParamsEdited,
+  required bool localBranchChosen,
 }) {
   final serverById = <String, MessageRowData>{
     for (final m in server.messages) m.id: m,
@@ -223,10 +241,11 @@ ChatMergeResult _threeWay({
     for (final m in reindexed) _withDerivedChildren(m, reindexed),
   ];
 
-  // (c) currentMessageId — local if any local message is dirty, else server.
+  // (c) currentMessageId — local if any local message is dirty or the user
+  // explicitly chose a branch (evidence, not a dirty envelope), else server.
   // Then clamp to a surviving id (defensive; keeps treeIsConsistent).
   final survivorIds = {for (final m in merged) m.id};
-  final preferLocalCurrent = dirtyMessageIds.isNotEmpty;
+  final preferLocalCurrent = dirtyMessageIds.isNotEmpty || localBranchChosen;
   var currentId = preferLocalCurrent
       ? local.chat.currentMessageId
       : server.chat.currentMessageId;
@@ -267,8 +286,19 @@ ChatMergeResult _threeWay({
     // sends the freshest local envelope clock.
     createdAt: server.chat.createdAt,
     updatedAt: local.chat.updatedAt,
-    // (e) rawExtra — server wholesale (server newer by definition).
-    rawExtra: server.chat.rawExtra,
+    // (e) rawExtra — server wholesale (server newer by definition), EXCEPT the
+    // chat's own `params` when there is evidence of an unpushed local edit of
+    // them. Otherwise a completion that bumps the server clock before the edit
+    // is pushed would silently discard the edit and push the old params back.
+    // A dirty envelope alone is not that evidence: a title-only change must not
+    // push this client's stale params over another client's newer ones.
+    rawExtra: <String, dynamic>{
+      ...server.chat.rawExtra,
+      if (envelopeFromLocal &&
+          localParamsEdited &&
+          local.chat.rawExtra.containsKey('params'))
+        'params': local.chat.rawExtra['params'],
+    },
   );
 
   return ChatMergeResult(

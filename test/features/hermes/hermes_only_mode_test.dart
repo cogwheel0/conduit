@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
@@ -10,6 +11,7 @@ import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart' show ApiAuthSnapshot;
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
@@ -289,9 +291,10 @@ class _RetainedOpenWebUiApi extends ApiService {
       _CachedOpenWebUiStorage.staleModel.id;
 
   @override
-  Future<List<Model>> getModels({bool includeHidden = false}) async => const [
-    _CachedOpenWebUiStorage.staleModel,
-  ];
+  Future<List<Model>> getModels({
+    bool includeHidden = false,
+    ApiAuthSnapshot? authSnapshot,
+  }) async => const [_CachedOpenWebUiStorage.staleModel];
 }
 
 class _CountingOpenWebUiApi extends _RetainedOpenWebUiApi {
@@ -300,9 +303,15 @@ class _CountingOpenWebUiApi extends _RetainedOpenWebUiApi {
   var modelFetches = 0;
 
   @override
-  Future<List<Model>> getModels({bool includeHidden = false}) async {
+  Future<List<Model>> getModels({
+    bool includeHidden = false,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     modelFetches += 1;
-    return super.getModels(includeHidden: includeHidden);
+    return super.getModels(
+      includeHidden: includeHidden,
+      authSnapshot: authSnapshot,
+    );
   }
 }
 
@@ -312,7 +321,7 @@ class _ConversationFallbackApi extends _RetainedOpenWebUiApi {
   var conversationFetches = 0;
 
   @override
-  Future<Conversation> getConversation(String id) async {
+  Future<Conversation> getConversation(String id, {ApiAuthSnapshot? authSnapshot}) async {
     conversationFetches += 1;
     return Conversation(
       id: id,

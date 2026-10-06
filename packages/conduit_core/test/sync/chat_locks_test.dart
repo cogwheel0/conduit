@@ -189,4 +189,159 @@ void main() {
       },
     );
   });
+
+  group('ChatLocks.runBarrier', () {
+    late ChatLocks locks;
+
+    setUp(() {
+      locks = ChatLocks();
+    });
+
+    test('waits for admitted work, holds back new work, then releases it in '
+        'submission order', () async {
+      final events = <String>[];
+      final admittedRelease = Completer<void>();
+      final admittedStarted = Completer<void>();
+
+      final admitted = locks.runExclusive('chat-a', () async {
+        events.add('admitted-start');
+        admittedStarted.complete();
+        await admittedRelease.future;
+        events.add('admitted-end');
+      });
+      await admittedStarted.future;
+
+      final barrier = locks.runBarrier(() async {
+        events.add('barrier');
+      });
+      // New callers on a busy key, an idle key and a key that is queued.
+      final late1 = locks.runExclusive('chat-a', () async {
+        events.add('late-a');
+      });
+      final late2 = locks.runExclusive('chat-b', () async {
+        events.add('late-b');
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      // Nothing entered, and the barrier has not run: it waits for the one
+      // action that was admitted first.
+      check(events).deepEquals(['admitted-start']);
+      check(locks.barrierActive).isTrue();
+
+      admittedRelease.complete();
+      await Future.wait([admitted, barrier, late1, late2]);
+
+      check(events).deepEquals([
+        'admitted-start',
+        'admitted-end',
+        'barrier',
+        'late-a',
+        'late-b',
+      ]);
+      check(locks.barrierActive).isFalse();
+      check(locks.isIdle).isTrue();
+    });
+
+    test(
+      'bumps the generation when it ends, even if its action failed',
+      () async {
+        final before = locks.generation;
+
+        await check(
+          locks.runBarrier<void>(
+            () async => throw StateError('server hung up'),
+          ),
+        ).throws<StateError>();
+
+        check(locks.generation).equals(before + 1);
+        // The barrier is gone: new work is admitted again.
+        check(await locks.runExclusive('chat-a', () async => 'ran'))
+            .equals('ran');
+      },
+    );
+
+    test(
+      'does not hold back the locks an admitted action takes itself',
+      () async {
+        // A create holds the local id and then takes the server id; a barrier
+        // waiting on it must not block that second acquisition.
+        final firstHeld = Completer<void>();
+        final proceed = Completer<void>();
+        final order = <String>[];
+
+        final create = locks.runExclusive('local:1', () async {
+          firstHeld.complete();
+          await proceed.future;
+          await locks.runExclusive('server-1', () async => order.add('nested'));
+          order.add('create-done');
+        });
+        await firstHeld.future;
+        final barrier = locks.runBarrier(() async => order.add('barrier'));
+        await Future<void>.delayed(Duration.zero);
+
+        proceed.complete();
+        await Future.wait([create, barrier])
+            .timeout(const Duration(seconds: 2));
+
+        check(order).deepEquals(['nested', 'create-done', 'barrier']);
+      },
+    );
+
+    test(
+      'holds back work an admitted action left running after it returned',
+      () async {
+        final order = <String>[];
+        final lateStarted = Completer<void>();
+        final releaseLate = Completer<void>();
+        Future<void>? leftRunning;
+
+        await locks.runExclusive('chat-a', () async {
+          // Started inside the lock, finishes after the action has returned.
+          leftRunning = () async {
+            await releaseLate.future;
+            await locks.runExclusive('chat-a', () async => order.add('late'));
+          }();
+          lateStarted.complete();
+        });
+        await lateStarted.future;
+
+        final barrier = locks.runBarrier(() async {
+          order.add('barrier');
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          order.add('barrier-end');
+        });
+        await Future<void>.delayed(Duration.zero);
+        releaseLate.complete();
+        await Future.wait([barrier, leftRunning!]);
+
+        check(order).deepEquals(['barrier', 'barrier-end', 'late']);
+      },
+    );
+
+    test('barriers run one at a time', () async {
+      final order = <String>[];
+      final first = locks.runBarrier(() async {
+        order.add('first-start');
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        order.add('first-end');
+      });
+      final second = locks.runBarrier(() async {
+        order.add('second-start');
+      });
+
+      await Future.wait([first, second]);
+
+      check(order).deepEquals(['first-start', 'first-end', 'second-start']);
+      check(locks.generation).equals(2);
+    });
+
+    test(
+      'cannot be started from inside a lock, where it would wait on itself',
+      () async {
+        await check(
+          locks.runExclusive('chat-a', () => locks.runBarrier(() async {})),
+        ).throws<StateError>();
+        check(locks.isIdle).isTrue();
+      },
+    );
+  });
 }

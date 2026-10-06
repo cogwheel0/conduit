@@ -2472,6 +2472,397 @@
   "@temporaryChatByDefaultDescription": {
     "description": "Description for the temporary chat by default setting."
   },
+  "advancedFeatures": "Advanced",
+  "@advancedFeatures": {
+    "description": "Label for the setting that reveals additional chat tools and settings."
+  },
+  "advancedFeaturesDescription": "Show additional chat tools and settings.",
+  "@advancedFeaturesDescription": {
+    "description": "Description for the Advanced setting that reveals additional chat tools and settings."
+  },
+  "chatSettingsTitle": "Chat settings",
+  "@chatSettingsTitle": {
+    "description": "Title of the per-chat settings sheet and its chat overflow menu item."
+  },
+  "chatSettingsApplied": "Chat settings applied",
+  "@chatSettingsApplied": {
+    "description": "Chat overflow menu item shown when a chat has saved settings but the editor is not available."
+  },
+  "chatSettingsAppliedDescription": "This chat has saved settings and they are used for every reply.",
+  "@chatSettingsAppliedDescription": {
+    "description": "Explains in the read-only chat settings sheet that the chat has saved settings which are used for every reply."
+  },
+  "chatSettingsTurnOnAdvanced": "Turn on Advanced to change them",
+  "@chatSettingsTurnOnAdvanced": {
+    "description": "Button in the read-only chat settings sheet that turns on the Advanced preference so the settings can be edited."
+  },
+  "chatSettingsDescription": "These settings apply to this chat only. Anything set to Inherit uses your defaults.",
+  "@chatSettingsDescription": {
+    "description": "Explains in the chat settings sheet that settings apply to this chat only and that Inherit uses the user defaults."
+  },
+  "chatSettingsSystemPrompt": "System prompt",
+  "@chatSettingsSystemPrompt": {
+    "description": "Heading of the system prompt field in the chat settings sheet."
+  },
+  "chatSettingsSystemPromptEmptyNote": "Empty sends no system prompt at all, even if you have a default one. Choose Inherit to use your default.",
+  "@chatSettingsSystemPromptEmptyNote": {
+    "description": "Warns that an empty chat system prompt sends no system prompt at all, even when the user has a default one."
+  },
+  "chatSettingsParameters": "Parameters",
+  "@chatSettingsParameters": {
+    "description": "Heading of the model parameters group in the chat settings sheet."
+  },
+  "chatSettingsInherit": "Inherit",
+  "@chatSettingsInherit": {
+    "description": "Choice meaning the chat follows the user default for a setting instead of overriding it."
+  },
+  "chatSettingsModelDefault": "Model default",
+  "@chatSettingsModelDefault": {
+    "description": "Choice meaning the chat uses the model own default for a setting, ignoring the user default."
+  },
+  "chatSettingsCustom": "Custom",
+  "@chatSettingsCustom": {
+    "description": "Choice meaning the chat uses its own value for a setting."
+  },
+  "chatSettingsResetAll": "Reset all",
+  "@chatSettingsResetAll": {
+    "description": "Button that makes every setting in the chat settings sheet inherit the user default again."
+  },
+  "chatSettingsOtherKept": "Other saved settings are kept as they are.",
+  "@chatSettingsOtherKept": {
+    "description": "Note that saved chat settings this sheet does not show are kept unchanged."
+  },
+  "chatSettingsSystemPromptLocked": "Your account can't change the system prompt.",
+  "@chatSettingsSystemPromptLocked": {
+    "description": "Shown when the signed-in account is not allowed to change the chat system prompt."
+  },
+  "chatSettingsParametersLocked": "Your account can't change parameters.",
+  "@chatSettingsParametersLocked": {
+    "description": "Shown when the signed-in account is not allowed to change chat model parameters."
+  },
+  "chatSettingsOwnerChanged": "The account or chat changed. Reopen the settings and try again.",
+  "@chatSettingsOwnerChanged": {
+    "description": "Error shown when the account, server or chat changed while saving chat settings, so nothing was saved."
+  },
+  "chatSettingTemperature": "Temperature",
+  "@chatSettingTemperature": {
+    "description": "Label of the temperature model parameter."
+  },
+  "chatSettingTopP": "Top P",
+  "@chatSettingTopP": {
+    "description": "Label of the top P model parameter."
+  },
+  "chatSettingTopK": "Top K",
+  "@chatSettingTopK": {
+    "description": "Label of the top K model parameter."
+  },
+  "chatSettingMinP": "Min P",
+  "@chatSettingMinP": {
+    "description": "Label of the min P model parameter."
+  },
+  "chatSettingFrequencyPenalty": "Frequency penalty",
+  "@chatSettingFrequencyPenalty": {
+    "description": "Label of the frequency penalty model parameter."
+  },
+  "chatSettingPresencePenalty": "Presence penalty",
+  "@chatSettingPresencePenalty": {
+    "description": "Label of the presence penalty model parameter."
+  },
+  "chatSettingMaxTokens": "Max tokens",
+  "@chatSettingMaxTokens": {
+    "description": "Label of the maximum tokens model parameter."
+  },
+  "chatSettingSeed": "Seed",
+  "@chatSettingSeed": {
+    "description": "Label of the random seed model parameter."
+  },
+  "chatSettingStop": "Stop sequences",
+  "@chatSettingStop": {
+    "description": "Label of the stop sequences model parameter, entered as a comma separated list."
+  },
+  "chatSettingFunctionCalling": "Tool calling",
+  "@chatSettingFunctionCalling": {
+    "description": "Label of the setting that chooses how the model calls tools."
+  },
+  "chatSettingFunctionCallingNative": "Native",
+  "@chatSettingFunctionCallingNative": {
+    "description": "Tool calling mode where the model calls tools natively."
+  },
+  "chatSettingFunctionCallingLegacy": "Legacy",
+  "@chatSettingFunctionCallingLegacy": {
+    "description": "Tool calling mode where tools are used through the older prompt based method."
+  },
+  "chatSettingResponseFormat": "Response format",
+  "@chatSettingResponseFormat": {
+    "description": "Label of the response format parameter, a word such as json or a JSON schema."
+  },
+  "chatSettingErrorRequired": "Enter a value.",
+  "@chatSettingErrorRequired": {
+    "description": "Validation error when a chat setting is chosen but no value was entered."
+  },
+  "chatSettingErrorNotANumber": "Enter a number.",
+  "@chatSettingErrorNotANumber": {
+    "description": "Validation error when a chat setting needs a number."
+  },
+  "chatSettingErrorNotAWholeNumber": "Enter a whole number.",
+  "@chatSettingErrorNotAWholeNumber": {
+    "description": "Validation error when a chat setting needs a whole number."
+  },
+  "chatSettingErrorRange": "Enter a value from {min} to {max}.",
+  "@chatSettingErrorRange": {
+    "description": "Validation error naming the allowed range of a chat setting.",
+    "placeholders": {
+      "min": {
+        "type": "String",
+        "example": "0"
+      },
+      "max": {
+        "type": "String",
+        "example": "2"
+      }
+    }
+  },
+  "chatSettingErrorMinimum": "Enter {min} or more.",
+  "@chatSettingErrorMinimum": {
+    "description": "Validation error naming the minimum allowed value of a chat setting.",
+    "placeholders": {
+      "min": {
+        "type": "String",
+        "example": "1"
+      }
+    }
+  },
+  "chatSettingErrorNotJson": "Enter a word such as json, or a valid JSON schema.",
+  "@chatSettingErrorNotJson": {
+    "description": "Validation error when the response format is neither a word nor valid JSON."
+  },
+  "chatSettingErrorNotAChoice": "Choose a supported value.",
+  "@chatSettingErrorNotAChoice": {
+    "description": "Validation error when a choice setting holds a value the model or server does not support."
+  },
+  "personalConnectionsTitle": "Personal connections",
+  "@personalConnectionsTitle": {
+    "description": "Title of the screen and Profile entry for managing personal tool servers and terminals stored in the Open WebUI account."
+  },
+  "personalConnectionsStoredOn": "Saved to {account} on {server}",
+  "@personalConnectionsStoredOn": {
+    "description": "Line naming the Open WebUI account {account} on the server {server} that stores the personal connections.",
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "personalConnectionsKeyStorageNote": "Keys are stored with your Open WebUI account settings on the server.",
+  "@personalConnectionsKeyStorageNote": {
+    "description": "Note that connection keys are saved in the Open WebUI account settings on the server."
+  },
+  "personalConnectionsTerminals": "Terminals",
+  "@personalConnectionsTerminals": {
+    "description": "Section heading for personal terminal connections."
+  },
+  "personalConnectionsEmptyToolServers": "No tool servers saved.",
+  "@personalConnectionsEmptyToolServers": {
+    "description": "Empty state when the account has no personal tool servers."
+  },
+  "personalConnectionsEmptyTerminals": "No terminals saved.",
+  "@personalConnectionsEmptyTerminals": {
+    "description": "Empty state when the account has no personal terminals."
+  },
+  "personalConnectionsAddToolServer": "Add tool server",
+  "@personalConnectionsAddToolServer": {
+    "description": "Button that opens the form for a new personal tool server."
+  },
+  "personalConnectionsAddTerminal": "Add terminal",
+  "@personalConnectionsAddTerminal": {
+    "description": "Button that opens the form for a new personal terminal."
+  },
+  "personalConnectionsEditToolServer": "Edit tool server",
+  "@personalConnectionsEditToolServer": {
+    "description": "Title of the form for changing a personal tool server."
+  },
+  "personalConnectionsEditTerminal": "Edit terminal",
+  "@personalConnectionsEditTerminal": {
+    "description": "Title of the form for changing a personal terminal."
+  },
+  "personalConnectionsUnavailableServer": "Your Open WebUI server has not enabled personal tool servers and terminals.",
+  "@personalConnectionsUnavailableServer": {
+    "description": "Message shown when the Open WebUI server has not enabled personal tool servers and terminals."
+  },
+  "personalConnectionsUnavailablePermission": "Your account is not allowed to manage personal tool servers and terminals.",
+  "@personalConnectionsUnavailablePermission": {
+    "description": "Message shown when the account is not allowed to manage personal tool servers and terminals."
+  },
+  "personalConnectionsLoadFailed": "Could not load your personal connections.",
+  "@personalConnectionsLoadFailed": {
+    "description": "Error shown when the personal connections could not be loaded."
+  },
+  "personalConnectionsSaveFailed": "Could not save. Your connections were not changed.",
+  "@personalConnectionsSaveFailed": {
+    "description": "Error shown when saving a personal connection failed and nothing changed."
+  },
+  "personalConnectionsSaveRejected": "The server did not keep this change. Your account may not be allowed to save personal connections.",
+  "@personalConnectionsSaveRejected": {
+    "description": "Error shown when the server accepted the request but did not keep the personal connection change."
+  },
+  "personalConnectionsOwnerChanged": "Your account or access changed since you opened this. Nothing was saved or sent, and your entries are kept here. Reopen this connection to continue.",
+  "@personalConnectionsOwnerChanged": {
+    "description": "Shown on a personal connection form when the signed-in account or its access changed after the form opened; the form's actions are refused and its entries are kept."
+  },
+  "personalConnectionsSavedForPreviousAccount": "Saved to the account this form was opened under. The account signed in now was not changed.",
+  "@personalConnectionsSavedForPreviousAccount": {
+    "description": "Shown on a personal connection form after a save finished for the account the form was opened under, while another account is now signed in."
+  },
+  "personalConnectionsDuplicate": "Another connection already uses this identity.",
+  "@personalConnectionsDuplicate": {
+    "description": "Error shown when another personal connection already has the same identity."
+  },
+  "personalConnectionsNotFound": "This connection was changed or removed elsewhere. Reload and try again.",
+  "@personalConnectionsNotFound": {
+    "description": "Error shown when the connection being edited was changed or removed elsewhere."
+  },
+  "personalConnectionsUrl": "URL",
+  "@personalConnectionsUrl": {
+    "description": "Label of the server address field."
+  },
+  "personalConnectionsPath": "Path",
+  "@personalConnectionsPath": {
+    "description": "Label of the field holding the path of the OpenAPI document or terminal specification."
+  },
+  "personalConnectionsSpecSource": "OpenAPI specification",
+  "@personalConnectionsSpecSource": {
+    "description": "Label of the choice between fetching the OpenAPI document and pasting it."
+  },
+  "personalConnectionsSpecFromUrl": "Fetch from URL",
+  "@personalConnectionsSpecFromUrl": {
+    "description": "Option that fetches the OpenAPI document from a URL."
+  },
+  "personalConnectionsSpecInline": "Paste JSON",
+  "@personalConnectionsSpecInline": {
+    "description": "Option that stores a pasted OpenAPI JSON document."
+  },
+  "personalConnectionsSpecJson": "OpenAPI JSON",
+  "@personalConnectionsSpecJson": {
+    "description": "Label of the field holding a pasted OpenAPI JSON document."
+  },
+  "personalConnectionsDescriptionField": "Description",
+  "@personalConnectionsDescriptionField": {
+    "description": "Label of the optional description field."
+  },
+  "personalConnectionsAuth": "Authentication",
+  "@personalConnectionsAuth": {
+    "description": "Label of the authentication mode choice."
+  },
+  "personalConnectionsKeyKept": "Saved key kept. Type to replace it.",
+  "@personalConnectionsKeyKept": {
+    "description": "Hint shown instead of a stored key: the saved key is kept unless the user types a new one."
+  },
+  "personalConnectionsKeyRemove": "Remove saved key",
+  "@personalConnectionsKeyRemove": {
+    "description": "Button that removes the saved key when the connection is saved."
+  },
+  "personalConnectionsKeyWillRemove": "The saved key will be removed.",
+  "@personalConnectionsKeyWillRemove": {
+    "description": "Notice that the saved key will be removed when the connection is saved."
+  },
+  "personalConnectionsKeyKeep": "Keep saved key",
+  "@personalConnectionsKeyKeep": {
+    "description": "Button that cancels removing the saved key."
+  },
+  "personalConnectionsTestConnection": "Test connection",
+  "@personalConnectionsTestConnection": {
+    "description": "Button that checks that a personal connection answers, without saving it."
+  },
+  "personalConnectionsTestOk": "Connection works. {count} operations found.",
+  "@personalConnectionsTestOk": {
+    "description": "Result of a successful tool server check with the number {count} of operations it exposes.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "personalConnectionsTestOkTerminal": "The terminal responded.",
+  "@personalConnectionsTestOkTerminal": {
+    "description": "Result of a successful terminal check."
+  },
+  "personalConnectionsTestUnauthorized": "The host rejected the key.",
+  "@personalConnectionsTestUnauthorized": {
+    "description": "Result when the host rejected the key."
+  },
+  "personalConnectionsTestUnreachable": "Could not reach the host.",
+  "@personalConnectionsTestUnreachable": {
+    "description": "Result when the host could not be reached."
+  },
+  "personalConnectionsTestInvalidSpec": "The host did not return a valid OpenAPI document.",
+  "@personalConnectionsTestInvalidSpec": {
+    "description": "Result when the host did not return a valid OpenAPI document."
+  },
+  "personalConnectionsTestInvalidTarget": "Enter a valid URL and path first.",
+  "@personalConnectionsTestInvalidTarget": {
+    "description": "Result when the URL or path is missing or invalid."
+  },
+  "personalConnectionsTestUnsupportedAuth": "This authentication mode cannot be tested here.",
+  "@personalConnectionsTestUnsupportedAuth": {
+    "description": "Result when the connection uses an authentication mode that cannot be tested here."
+  },
+  "personalConnectionsUnsupported": "This connection uses settings the app cannot edit. You can still switch it on or off or delete it.",
+  "@personalConnectionsUnsupported": {
+    "description": "Explains that a connection uses settings the app cannot edit, so it can only be switched or deleted."
+  },
+  "personalConnectionsDeleteTitle": "Delete connection?",
+  "@personalConnectionsDeleteTitle": {
+    "description": "Title of the confirmation for deleting a personal connection."
+  },
+  "personalConnectionsDeleteMessage": "{name} will be removed from your Open WebUI account.",
+  "@personalConnectionsDeleteMessage": {
+    "description": "Confirmation text naming the personal connection {name} that will be deleted.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "personalConnectionsUrlRequired": "Enter a URL.",
+  "@personalConnectionsUrlRequired": {
+    "description": "Validation error for an empty URL."
+  },
+  "personalConnectionsUrlInvalid": "Enter a full http or https URL.",
+  "@personalConnectionsUrlInvalid": {
+    "description": "Validation error for a URL that is not a full http or https address."
+  },
+  "personalConnectionsPathRequired": "Enter a path.",
+  "@personalConnectionsPathRequired": {
+    "description": "Validation error for an empty path."
+  },
+  "personalConnectionsSpecInvalid": "Enter a valid OpenAPI JSON document.",
+  "@personalConnectionsSpecInvalid": {
+    "description": "Validation error for pasted text that is not a valid OpenAPI JSON document."
+  },
+  "personalConnectionsSelectionCleared": "Removed from this chat because the connection changed: {names}",
+  "@personalConnectionsSelectionCleared": {
+    "description": "Notice that chat selections were removed because the connections named in {names} changed.",
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "personalConnectionsTerminalOneActive": "Switching one terminal on switches the others off.",
+  "@personalConnectionsTerminalOneActive": {
+    "description": "Hint that switching one terminal on switches the others off."
+  },
+  "personalConnectionsNeedsAdvanced": "Turn on Advanced in Chat settings to manage personal connections.",
+  "@personalConnectionsNeedsAdvanced": {
+    "description": "Message shown when Advanced is off, with the steps to turn it on before managing personal connections."
+  },
+  "personalConnectionsNoAccount": "Sign in to an Open WebUI account to manage personal connections.",
+  "@personalConnectionsNoAccount": {
+    "description": "Message shown when no Open WebUI account is signed in, so personal connections cannot be managed."
+  },
   "chatSaved": "Chat saved to history",
   "@chatSaved": {
     "description": "Snackbar message shown after saving a temporary chat."
@@ -3030,6 +3421,16 @@
   "@memoryHint": {
     "description": "Hint text for the memory editor."
   },
+  "memoryTypeLabel": "Type",
+  "@memoryTypeLabel": {"description": "Label above the choice between a user memory and a context memory in the Advanced memory editor."},
+  "memoryTypeUser": "User",
+  "@memoryTypeUser": {"description": "Option marking a memory as a personal preference, fact or instruction about the user."},
+  "memoryTypeContext": "Context",
+  "@memoryTypeContext": {"description": "Option marking a memory as durable context for future chats."},
+  "memoryPathLabel": "Path (optional)",
+  "@memoryPathLabel": {"description": "Label of the optional slash-separated path field in the Advanced memory editor."},
+  "memoryPathHint": "e.g. projects/conduit",
+  "@memoryPathHint": {"description": "Hint text for the optional memory path field."},
   "addMemory": "Add memory",
   "@addMemory": {
     "description": "Button label for creating a memory."
@@ -3989,6 +4390,135 @@
   "@notificationSystemSettingsOpenFailed": {
     "description": "Shown when the OS notification settings screen could not be launched."
   },
+  "notificationTargetsTitle": "Webhook destinations",
+  "@notificationTargetsTitle": {
+    "description": "Title of the Advanced section on the Notifications page that lists the account's webhook destinations."
+  },
+  "notificationTargetsDescription": "Your Open WebUI server sends events to these URLs, even while this app is closed.",
+  "@notificationTargetsDescription": {
+    "description": "Explains that webhook destinations are stored and delivered by the server, not by this device."
+  },
+  "notificationTargetsAdd": "Add destination",
+  "@notificationTargetsAdd": {
+    "description": "Button that opens the editor for a new webhook destination."
+  },
+  "notificationTargetsEmpty": "No webhook destinations yet.",
+  "@notificationTargetsEmpty": {
+    "description": "Shown in the webhook destinations list when the account has none."
+  },
+  "notificationTargetsLoadFailed": "Couldn't load webhook destinations.",
+  "@notificationTargetsLoadFailed": {
+    "description": "Shown when the list of webhook destinations could not be loaded from the server."
+  },
+  "notificationTargetsStale": "Saved, but the list couldn't be refreshed.",
+  "@notificationTargetsStale": {
+    "description": "Shown when a change to a webhook destination was saved but the updated list could not be read back from the server."
+  },
+  "notificationTargetsNativeDescription": "Add and manage webhook destinations",
+  "@notificationTargetsNativeDescription": {
+    "description": "Subtitle of the Webhook destinations row in the native Notifications settings; it opens the full editor."
+  },
+  "notificationTargetsUnavailable": "Webhook destinations aren't available for this account.",
+  "@notificationTargetsUnavailable": {
+    "description": "Shown when the server has webhook destinations turned off or this account lacks permission to use them."
+  },
+  "notificationTargetsAccountChanged": "The account changed. Close this and open the destination again.",
+  "@notificationTargetsAccountChanged": {
+    "description": "Shown when the signed-in account changed after a webhook destination editor was opened, so nothing was sent."
+  },
+  "notificationTargetNewTitle": "New destination",
+  "@notificationTargetNewTitle": {
+    "description": "Title of the editor sheet for a new webhook destination."
+  },
+  "notificationTargetEditTitle": "Edit destination",
+  "@notificationTargetEditTitle": {
+    "description": "Title of the editor sheet for an existing webhook destination."
+  },
+  "notificationTargetNameLabel": "Name (optional)",
+  "@notificationTargetNameLabel": {
+    "description": "Label of the optional name field when creating a webhook destination. The server derives one when it is blank."
+  },
+  "notificationTargetNameHint": "e.g. team-chat",
+  "@notificationTargetNameHint": {
+    "description": "Example shown inside the empty name field of a new webhook destination."
+  },
+  "notificationTargetUrlLabel": "Webhook URL",
+  "@notificationTargetUrlLabel": {
+    "description": "Label of the field for the URL that receives webhook notifications."
+  },
+  "notificationTargetUrlHint": "https://example.com/webhook",
+  "@notificationTargetUrlHint": {
+    "description": "Example shown inside the empty webhook URL field."
+  },
+  "notificationTargetUrlKeepHint": "Leave blank to keep the current URL",
+  "@notificationTargetUrlKeepHint": {
+    "description": "Hint shown in the webhook URL field when editing, because the server never returns the saved URL and a blank field leaves it unchanged."
+  },
+  "notificationTargetUrlRequired": "Enter the webhook URL.",
+  "@notificationTargetUrlRequired": {
+    "description": "Shown when a new webhook destination is saved without a URL."
+  },
+  "notificationTargetEnabledTitle": "Enabled",
+  "@notificationTargetEnabledTitle": {
+    "description": "Label of the switch that turns a webhook destination on or off."
+  },
+  "notificationTargetDeliveryLabel": "Delivery",
+  "@notificationTargetDeliveryLabel": {
+    "description": "Label above the choice of when a webhook destination receives notifications."
+  },
+  "notificationTargetDeliveryAway": "When away",
+  "@notificationTargetDeliveryAway": {
+    "description": "Delivery option: send to the webhook only when the account has no active session."
+  },
+  "notificationTargetDeliveryAlways": "Always",
+  "@notificationTargetDeliveryAlways": {
+    "description": "Delivery option: send to the webhook even while the account is active."
+  },
+  "notificationTargetEventsLabel": "Events",
+  "@notificationTargetEventsLabel": {
+    "description": "Label above the list of event kinds a webhook destination can subscribe to."
+  },
+  "notificationTargetEventsUnavailable": "The server's event list couldn't be loaded.",
+  "@notificationTargetEventsUnavailable": {
+    "description": "Shown in the webhook editor when the server's catalog of subscribable events could not be loaded."
+  },
+  "notificationTargetUnknownEvent": "Not in this server's event list. It stays subscribed until you turn it off.",
+  "@notificationTargetUnknownEvent": {
+    "description": "Shown under an event a webhook destination is subscribed to that the server's current event list does not include."
+  },
+  "notificationTargetDefaultBadge": "Default",
+  "@notificationTargetDefaultBadge": {
+    "description": "Badge on the webhook destination the server uses by default."
+  },
+  "notificationTargetMakeDefault": "Make default",
+  "@notificationTargetMakeDefault": {
+    "description": "Button that makes a webhook destination the account's default."
+  },
+  "notificationTargetTest": "Send test notification",
+  "@notificationTargetTest": {
+    "description": "Button that asks the server to deliver one real test notification to the webhook destination."
+  },
+  "notificationTargetTestSent": "Test notification sent.",
+  "@notificationTargetTestSent": {
+    "description": "Shown after the server confirms it delivered a test notification to a webhook destination."
+  },
+  "notificationTargetTestFailed": "The test notification couldn't be delivered.",
+  "@notificationTargetTestFailed": {
+    "description": "Shown when the server could not deliver a test notification to a webhook destination."
+  },
+  "notificationTargetDelete": "Delete destination",
+  "@notificationTargetDelete": {
+    "description": "Button and confirmation action that deletes a webhook destination."
+  },
+  "notificationTargetDeleteConfirm": "Delete {name}? Your server will stop sending notifications to it.",
+  "@notificationTargetDeleteConfirm": {
+    "description": "Confirmation shown before deleting a webhook destination. The placeholder is the destination's name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "workspaceTitle": "Workspace",
   "workspaceSubtitle": "Manage server resources and access",
   "workspaceModels": "Models",
@@ -4039,6 +4569,12 @@
   "@workspaceAccessAddPeople": {"description": "Button that opens the picker to add a user or group access grant."},
   "workspaceAccessAddGroups": "Add groups",
   "@workspaceAccessAddGroups": {"description": "Button that opens the picker to add a group grant when user grants are disabled."},
+  "workspaceAccessAddUsers": "Add people",
+  "@workspaceAccessAddUsers": {"description": "Button that opens the picker to add an individual user grant when group grants are disabled."},
+  "workspaceAccessGroupsDisabled": "Sharing with groups is disabled; you can share with individual people only.",
+  "@workspaceAccessGroupsDisabled": {"description": "Notice shown when group access grants are disabled by the server."},
+  "workspaceAccessGrantsDisabled": "You do not have permission to share with people or groups. Existing access is kept.",
+  "@workspaceAccessGrantsDisabled": {"description": "Notice shown when neither user nor group access grants may be added."},
   "workspaceAccessVisibilityLabel": "Public",
   "@workspaceAccessVisibilityLabel": {"description": "Label of the toggle that makes a workspace resource publicly visible."},
   "workspaceAccessVisibilityDescription": "Anyone on this server can view this resource.",
@@ -6168,5 +6704,1138 @@
   "voiceCallNoSpeech": "No speech detected.",
   "@voiceCallNoSpeech": {"description": "Message shown when the voice call heard no speech for several tries."},
   "voiceCallFailed": "The voice call couldn't continue.",
-  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."}
+  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."},
+  "personalToolSettings": "Tool settings",
+  "@personalToolSettings": {"description": "Label for the advanced composer action that opens the user's personal settings for selected tools, filters, and the selected pipe."},
+  "personalToolSettingsDescription": "Your personal options for the selected tools and model.",
+  "@personalToolSettingsDescription": {"description": "Subtitle for the Tool settings composer action explaining that it edits the user's own values."},
+  "personalToolSettingsYours": "Your settings",
+  "@personalToolSettingsYours": {"description": "Heading above the form fields in the personal tool settings sheet, indicating the values belong to the signed-in user and not the server."},
+  "personalToolSettingsUnavailable": "Your settings aren't available for this item.",
+  "@personalToolSettingsUnavailable": {"description": "Message shown when the selected tool or function has no personal settings available for this account."},
+  "personalToolSettingsOwnerChanged": "The signed-in account changed, so nothing was saved. Reopen settings to continue.",
+  "@personalToolSettingsOwnerChanged": {"description": "Message shown when the signed-in account changed while personal tool settings were open, so nothing was saved."},
+  "personalToolSettingsInvalid": "The server didn't accept these values.",
+  "@personalToolSettingsInvalid": {"description": "Fallback error shown when the server rejects the personal tool setting values without giving a reason."},
+  "noteReadOnlyNotice": "This note is read-only. You can read it, but not change it.",
+  "@noteReadOnlyNotice": {"description": "Banner shown in the note editor when the server says the signed-in account cannot edit the note."},
+  "noteAccessUnverifiedNotice": "Reconnect to confirm you can edit this note.",
+  "@noteAccessUnverifiedNotice": {"description": "Banner shown in the note editor for a shared note whose edit access could not be confirmed with the server."},
+  "noteAccessRevokedNotice": "You can no longer edit this note. Your unsaved changes are kept here.",
+  "@noteAccessRevokedNotice": {"description": "Banner shown when a save is refused because edit access was removed; the typed text stays in the editor."},
+  "noteSaveAsOwnNote": "Save as my own note",
+  "@noteSaveAsOwnNote": {"description": "Button that saves the unsaved text of a note the user can no longer edit as a new note owned by them."},
+  "noteDiscardChanges": "Discard changes",
+  "@noteDiscardChanges": {"description": "Button that drops the unsaved text of a note the user can no longer edit."},
+  "noteSessionChangedNotice": "The signed-in account changed, so this note was not saved.",
+  "@noteSessionChangedNotice": {"description": "Message shown when a note edit is refused because the account changed after the note was opened."},
+  "noteNoAccess": "You no longer have access to this note.",
+  "@noteNoAccess": {"description": "Message shown instead of the note when the server refuses to show it, as opposed to the note being deleted."},
+  "noteShare": "Share note",
+  "@noteShare": {"description": "Menu item in the note editor and notes list that opens the access sheet for a note."},
+  "folderShareSettings": "Share settings",
+  "@folderShareSettings": {"description": "Menu item on a folder page that opens the access sheet for the folder."},
+  "chatShareAudience": "Audience",
+  "@chatShareAudience": {"description": "Button in the chat share flow that opens the sheet choosing who can open the shared chat."},
+  "chatShareAudienceDescription": "Choose who can open the shared chat",
+  "@chatShareAudienceDescription": {"description": "Subtitle of the Audience item in the native chat share sheet."},
+  "resourceSharingSaved": "Sharing updated",
+  "@resourceSharingSaved": {"description": "Message shown after access to a chat, folder or note was saved."},
+  "resourceSharingFiltered": "Saved. The server kept only part of the access you chose.",
+  "@resourceSharingFiltered": {"description": "Message shown when the server dropped some of the access the user chose, for example because they may not share it."},
+  "resourceSharingSessionChanged": "The signed-in account changed, so nothing was saved. Close this and open it again.",
+  "@resourceSharingSessionChanged": {"description": "Message in the access sheet when the account changed after the sheet was opened; the edits were not sent."},
+  "resourceSharingDenied": "You can no longer change who has access to this.",
+  "@resourceSharingDenied": {"description": "Message in the access sheet when the server refuses to show or change access."},
+  "resourceSharingMissing": "This item no longer exists.",
+  "@resourceSharingMissing": {"description": "Message in the access sheet when the chat, folder or note was deleted."},
+  "resourceSharingLoadFailed": "Couldn't load who has access.",
+  "@resourceSharingLoadFailed": {"description": "Message in the access sheet when loading the current access failed."},
+  "resourceSharingSaveFailed": "Couldn't save access. Try again.",
+  "@resourceSharingSaveFailed": {"description": "Message in the access sheet when saving failed for a reason other than a refusal."},
+  "resourceAudienceLabel": "Audience",
+  "@resourceAudienceLabel": {"description": "Heading of the control that picks who can open a chat besides the people and groups listed."},
+  "resourceAudiencePrivate": "Private",
+  "@resourceAudiencePrivate": {"description": "Audience option: only the listed people and groups can open the chat."},
+  "resourceAudiencePublic": "Public",
+  "@resourceAudiencePublic": {"description": "Audience option: every user on the server can open the chat."},
+  "resourceAudienceOpen": "Open",
+  "@resourceAudienceOpen": {"description": "Audience option: anyone with the link can open the chat."},
+  "resourceAudiencePrivateHint": "Only the people and groups below can open it.",
+  "@resourceAudiencePrivateHint": {"description": "Explanation shown under the audience control while the audience is Private."},
+  "resourceAudiencePublicHint": "Every user on this server can open it.",
+  "@resourceAudiencePublicHint": {"description": "Explanation shown under the audience control while the audience is Public."},
+  "resourceAudienceOpenHint": "Anyone with the link can view it.",
+  "@resourceAudienceOpenHint": {"description": "Explanation shown under the audience control while the audience is Open."},
+  "channelMembersSearchHint": "Search members",
+  "@channelMembersSearchHint": {"description": "Hint text for the search field in the channel members sheet."},
+  "channelMembersEmpty": "No members found.",
+  "@channelMembersEmpty": {"description": "Shown in the channel members sheet when a search matches nobody."},
+  "channelMembersLoadFailed": "Couldn't load members.",
+  "@channelMembersLoadFailed": {"description": "Shown in the channel members sheet when the member list could not be read."},
+  "channelMembersLoadMore": "Load more",
+  "@channelMembersLoadMore": {"description": "Button at the end of the channel member list that reads the next page of members."},
+  "channelMembersLoadMoreFailed": "Couldn't load more members. Tap to try again.",
+  "@channelMembersLoadMoreFailed": {"description": "Button at the end of the channel member list after reading the next page failed."},
+  "channelMembersAdd": "Add members",
+  "@channelMembersAdd": {"description": "Title of the sheet, and the button that opens it, for adding people or groups to a channel."},
+  "channelMembersAddConfirm": "Add",
+  "@channelMembersAddConfirm": {"description": "Button that adds the chosen people and groups to the channel."},
+  "channelMembersRemoveMember": "Remove {name}",
+  "@channelMembersRemoveMember": {"description": "Accessibility label for the button that removes one person from the channel.", "placeholders": {"name": {"type": "String", "example": "Alex"}}},
+  "channelMembersChangeFailed": "Couldn't update the members. Try again.",
+  "@channelMembersChangeFailed": {"description": "Shown when adding or removing channel members did not complete."},
+  "channelMembersChangeDenied": "The server didn't allow this change.",
+  "@channelMembersChangeDenied": {"description": "Shown when the server refuses to add or remove channel members."},
+  "channelMembersChangeNotPermitted": "You can't manage this channel's members.",
+  "@channelMembersChangeNotPermitted": {"description": "Shown when the account no longer has permission to add or remove channel members."},
+  "chatBranchContinueFromResponse": "Continue from this response",
+  "@chatBranchContinueFromResponse": {
+    "description": "Action on a response version the user is previewing: makes that version (and its replies) the chat's active branch so the conversation continues from it."
+  },
+  "chatBranchForkChat": "Fork chat from here",
+  "@chatBranchForkChat": {
+    "description": "Action on a response: creates a new chat on the server that contains the conversation only up to this message."
+  },
+  "chatBranchSwitcherSemantics": "Edited message, version {position} of {total}. Show all versions.",
+  "@chatBranchSwitcherSemantics": {
+    "description": "Accessibility label of the control under an edited user message that opens the list of its versions. The placeholders are the 1-based position of the shown version and the number of versions.",
+    "placeholders": {
+      "position": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatBranchSheetTitle": "Message versions",
+  "@chatBranchSheetTitle": {
+    "description": "Title of the sheet listing the versions (edits) of one message."
+  },
+  "chatBranchSheetDescription": "Choose the version to continue from. Each version keeps its own replies.",
+  "@chatBranchSheetDescription": {
+    "description": "Explains the version list: picking one continues the chat from it."
+  },
+  "chatBranchVersionTitle": "Version {position}",
+  "@chatBranchVersionTitle": {
+    "description": "Row title for one version of a message in the version list. The placeholder is its 1-based position.",
+    "placeholders": {
+      "position": {
+        "type": "int"
+      }
+    }
+  },
+  "chatBranchVersionCurrent": "Current branch",
+  "@chatBranchVersionCurrent": {
+    "description": "Row subtitle marking the version the chat currently follows."
+  },
+  "chatBranchSelectedNotice": "Continuing from version {position} of {total}",
+  "@chatBranchSelectedNotice": {
+    "description": "Confirmation after the user continues from another version. The placeholders are the 1-based position of the chosen version and the number of versions.",
+    "placeholders": {
+      "position": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatBranchWaitForResponse": "Wait for this response to finish",
+  "@chatBranchWaitForResponse": {
+    "description": "Shown instead of changing branches or forking while a response is still being generated."
+  },
+  "chatBranchUnavailable": "This chat's branches can't be changed here.",
+  "@chatBranchUnavailable": {
+    "description": "Shown when a chat's branches cannot be changed from the app, such as a temporary chat or another user's chat."
+  },
+  "chatBranchOwnerChanged": "The signed-in account changed, so nothing was changed.",
+  "@chatBranchOwnerChanged": {
+    "description": "Shown when the signed-in account or server changed while a branch operation was running, so nothing was changed."
+  },
+  "chatBranchMessageMissing": "That version is no longer available.",
+  "@chatBranchMessageMissing": {
+    "description": "Shown when the chosen message version no longer exists in the chat."
+  },
+  "chatForkOffline": "Go online to fork this chat.",
+  "@chatForkOffline": {
+    "description": "Shown when the user tries to fork a chat without a connection; forking needs the server."
+  },
+  "chatForkForbidden": "Your account isn't allowed to fork chats.",
+  "@chatForkForbidden": {
+    "description": "Shown when the server refuses to fork a chat because the account may not import chats."
+  },
+  "chatForkSourceMissing": "The server no longer has this chat.",
+  "@chatForkSourceMissing": {
+    "description": "Shown when the server no longer has the chat that was to be forked."
+  },
+  "chatForkUnsupported": "This server doesn't support forking chats.",
+  "@chatForkUnsupported": {
+    "description": "Shown when the connected server does not offer the fork-a-chat feature."
+  },
+  "chatForkFailed": "Couldn't fork this chat. Try again.",
+  "@chatForkFailed": {
+    "description": "Generic failure shown when forking a chat did not work."
+  },
+  "codeInterpreter": "Code interpreter",
+  "@codeInterpreter": {"description": "Label for the composer action that lets the server run code to answer the next messages."},
+  "codeInterpreterDescription": "Run code on the server to analyze data and make files.",
+  "@codeInterpreterDescription": {"description": "Subtitle for the Code interpreter composer action explaining that code runs on the server."},
+  "codeInterpreterBrowserEngine": "This server runs code in the browser, which Conduit can't do.",
+  "@codeInterpreterBrowserEngine": {"description": "Shown on the disabled Code interpreter composer action when the server asks the client to run code in a browser, which the app cannot do."},
+  "codeInterpreterUnavailable": "The code interpreter isn't available for this server, account, or model.",
+  "@codeInterpreterUnavailable": {"description": "Shown on the Code interpreter composer action when the server, the signed-in account, or the selected model does not allow it."},
+  "folderProjectSettings": "Project settings",
+  "@folderProjectSettings": {
+    "description": "Menu item and title of the folder project settings sheet, where a folder's default knowledge, system prompt and models are edited."
+  },
+  "folderProjectSettingsDescription": "Defaults for new chats in this folder. The server applies its knowledge and system prompt to every chat in it.",
+  "@folderProjectSettingsDescription": {
+    "description": "Subtitle of the folder project settings sheet. Explains that the server applies the folder's knowledge and system prompt to its chats."
+  },
+  "folderProjectModels": "Default models",
+  "@folderProjectModels": {
+    "description": "Section heading for the ordered list of default models saved on a folder."
+  },
+  "folderProjectModelsHint": "A new chat starts with the first of these that is available.",
+  "@folderProjectModelsHint": {
+    "description": "Explains how a folder's default models are used when a new chat starts in it."
+  },
+  "folderProjectNoKnowledge": "No knowledge attached.",
+  "@folderProjectNoKnowledge": {
+    "description": "Shown in the folder project settings when no knowledge is attached to the folder."
+  },
+  "folderProjectNoModels": "No default model. New chats use your default.",
+  "@folderProjectNoModels": {
+    "description": "Shown in the folder project settings when the folder has no default models."
+  },
+  "folderProjectAddKnowledge": "Add knowledge",
+  "@folderProjectAddKnowledge": {
+    "description": "Button in the folder project settings that opens a list of knowledge bases and files to attach to the folder."
+  },
+  "folderProjectAddModel": "Add model",
+  "@folderProjectAddModel": {
+    "description": "Button in the folder project settings that opens a list of models to add as folder defaults."
+  },
+  "folderProjectAddSelected": "Add",
+  "@folderProjectAddSelected": {
+    "description": "Button that adds the knowledge or models picked in the folder project settings list."
+  },
+  "folderProjectNothingToAdd": "Nothing left to add.",
+  "@folderProjectNothingToAdd": {
+    "description": "Shown in the folder project settings list when every available item is already attached."
+  },
+  "folderProjectNotAvailable": "Not available",
+  "@folderProjectNotAvailable": {
+    "description": "Label on a saved folder knowledge item or default model that the server no longer provides. The saved entry is kept until the user removes it."
+  },
+  "folderProjectMoveUp": "Move {name} up",
+  "@folderProjectMoveUp": {
+    "description": "Accessibility label for the button that moves a default model one position earlier in the folder's list.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "GPT-5"
+      }
+    }
+  },
+  "folderProjectRemove": "Remove {name}",
+  "@folderProjectRemove": {
+    "description": "Accessibility label for the button that removes a knowledge item or default model from the folder's list.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "GPT-5"
+      }
+    }
+  },
+  "folderProjectKindCollection": "Knowledge base",
+  "@folderProjectKindCollection": {
+    "description": "Label for a knowledge base entry attached to a folder."
+  },
+  "folderProjectKindFile": "File",
+  "@folderProjectKindFile": {
+    "description": "Label for a file entry attached to a folder."
+  },
+  "folderProjectKindNote": "Note",
+  "@folderProjectKindNote": {
+    "description": "Label for a note entry attached to a folder."
+  },
+  "folderProjectOwnerChanged": "The signed-in account changed, so nothing was saved. Reopen project settings to continue.",
+  "@folderProjectOwnerChanged": {
+    "description": "Message shown when the signed-in account changed while the folder project settings were open, so nothing was saved."
+  },
+  "folderProjectReadOnly": "This shared folder is read-only, so its project settings can't be changed.",
+  "@folderProjectReadOnly": {
+    "description": "Message shown when the folder is shared with read-only access and its project settings cannot be saved."
+  },
+  "folderProjectGone": "This folder is no longer available.",
+  "@folderProjectGone": {
+    "description": "Message shown when the folder was removed while its project settings were open."
+  },
+  "folderProjectModelFallbackNotice": "This folder's default model isn't available, so your default model is used.",
+  "@folderProjectModelFallbackNotice": {
+    "description": "Short notice on a folder page when none of the folder's saved default models is available and the user's own default model is used instead."
+  },
+  "scheduledTasksTitle": "Scheduled tasks",
+  "@scheduledTasksTitle": {"description": "Title of the Settings page that lists the account's Open WebUI scheduled tasks."},
+  "scheduledTasksDescription": "Your Open WebUI server runs these tasks on its own schedule, even while this phone is offline.",
+  "@scheduledTasksDescription": {"description": "Explains on the scheduled tasks page that the server, not the phone, runs each task."},
+  "scheduledTasksNeedsAdvanced": "Turn on Advanced in Settings to manage scheduled tasks. Tasks already on the server keep running.",
+  "@scheduledTasksNeedsAdvanced": {"description": "Shown on the scheduled tasks page when the Advanced setting is off."},
+  "scheduledTasksUnavailable": "Scheduled tasks are not available for this account on this server.",
+  "@scheduledTasksUnavailable": {"description": "Shown when the server has scheduled tasks off or the account lacks permission for them."},
+  "scheduledTasksSearchHint": "Search tasks",
+  "@scheduledTasksSearchHint": {"description": "Placeholder of the search field above the scheduled task list."},
+  "scheduledTasksFilterAll": "All",
+  "@scheduledTasksFilterAll": {"description": "Filter chip that lists both active and paused scheduled tasks."},
+  "scheduledTasksFilterActive": "Active",
+  "@scheduledTasksFilterActive": {"description": "Filter chip that lists only active scheduled tasks."},
+  "scheduledTasksFilterPaused": "Paused",
+  "@scheduledTasksFilterPaused": {"description": "Filter chip that lists only paused scheduled tasks."},
+  "scheduledTasksEmpty": "No scheduled tasks yet.",
+  "@scheduledTasksEmpty": {"description": "Shown when the account has no scheduled tasks."},
+  "scheduledTasksEmptyFiltered": "No tasks match.",
+  "@scheduledTasksEmptyFiltered": {"description": "Shown when a search or filter matches no scheduled task."},
+  "scheduledTasksLoadFailed": "Could not load scheduled tasks.",
+  "@scheduledTasksLoadFailed": {"description": "Shown when the scheduled task list cannot be loaded."},
+  "scheduledTasksStale": "This list may be out of date. Tap to refresh.",
+  "@scheduledTasksStale": {"description": "Shown when a change went through but the list could not be read back."},
+  "scheduledTasksLoadMore": "Load more",
+  "@scheduledTasksLoadMore": {"description": "Row that loads the next page of scheduled tasks or run history."},
+  "scheduledTasksAdd": "New scheduled task",
+  "@scheduledTasksAdd": {"description": "Row that opens the editor for a new scheduled task."},
+  "scheduledTasksAccountChanged": "The account changed. Reopen scheduled tasks to continue.",
+  "@scheduledTasksAccountChanged": {"description": "Shown when the signed-in account changed after a scheduled task screen opened, so nothing was sent."},
+  "scheduledTasksNotFound": "This task no longer exists.",
+  "@scheduledTasksNotFound": {"description": "Shown when the server reports that a scheduled task cannot be found."},
+  "scheduledTaskStatusActive": "Active",
+  "@scheduledTaskStatusActive": {"description": "Status of a scheduled task that the server will run on schedule."},
+  "scheduledTaskStatusPaused": "Paused",
+  "@scheduledTaskStatusPaused": {"description": "Status of a scheduled task that the server will not run on schedule."},
+  "scheduledTaskNextRun": "Next run {time}",
+  "@scheduledTaskNextRun": {"description": "Row detail with the time the server will next run a task.", "placeholders": {"time": {"type": "String"}}},
+  "scheduledTaskNoNextRun": "No upcoming run",
+  "@scheduledTaskNoNextRun": {"description": "Shown when an active scheduled task has no future run."},
+  "scheduledTaskLastRun": "Last run {time}",
+  "@scheduledTaskLastRun": {"description": "Row detail with the time of the most recent recorded run.", "placeholders": {"time": {"type": "String"}}},
+  "scheduledTaskNeverRun": "Never run",
+  "@scheduledTaskNeverRun": {"description": "Shown when a scheduled task has no recorded run."},
+  "scheduledTaskScheduleOnce": "Once",
+  "@scheduledTaskScheduleOnce": {"description": "Schedule type for a task that runs a single time."},
+  "scheduledTaskScheduleDaily": "Daily",
+  "@scheduledTaskScheduleDaily": {"description": "Schedule type for a task that runs every day."},
+  "scheduledTaskScheduleWeekly": "Weekly",
+  "@scheduledTaskScheduleWeekly": {"description": "Schedule type for a task that runs on chosen weekdays."},
+  "scheduledTaskScheduleOnceSummary": "Once, {date}",
+  "@scheduledTaskScheduleOnceSummary": {"description": "Summary of a one-time schedule. The placeholder is the date and time.", "placeholders": {"date": {"type": "String"}}},
+  "scheduledTaskScheduleDailySummary": "Daily at {time}",
+  "@scheduledTaskScheduleDailySummary": {"description": "Summary of a daily schedule. The placeholder is the time of day.", "placeholders": {"time": {"type": "String"}}},
+  "scheduledTaskScheduleWeeklySummary": "{days} at {time}",
+  "@scheduledTaskScheduleWeeklySummary": {"description": "Summary of a weekly schedule. The placeholders are the weekdays and the time of day.", "placeholders": {"days": {"type": "String"}, "time": {"type": "String"}}},
+  "scheduledTaskScheduleCustom": "Custom schedule",
+  "@scheduledTaskScheduleCustom": {"description": "Summary label for a recurrence rule the controls cannot edit."},
+  "scheduledTaskNewTitle": "New scheduled task",
+  "@scheduledTaskNewTitle": {"description": "Title of the editor when creating a scheduled task."},
+  "scheduledTaskEditTitle": "Edit scheduled task",
+  "@scheduledTaskEditTitle": {"description": "Title of the editor when changing a scheduled task."},
+  "scheduledTaskNameLabel": "Name",
+  "@scheduledTaskNameLabel": {"description": "Label of the scheduled task name field."},
+  "scheduledTaskPromptLabel": "Instructions",
+  "@scheduledTaskPromptLabel": {"description": "Label of the field holding what the model should do on each run."},
+  "scheduledTaskPromptHint": "What should the model do each time?",
+  "@scheduledTaskPromptHint": {"description": "Hint of the scheduled task instructions field."},
+  "scheduledTaskModelLabel": "Model",
+  "@scheduledTaskModelLabel": {"description": "Label of the row that picks the model a scheduled task uses."},
+  "scheduledTaskModelChoose": "Choose a model",
+  "@scheduledTaskModelChoose": {"description": "Shown on the model row when no model is chosen."},
+  "scheduledTaskModelUnavailable": "{id} (no longer available)",
+  "@scheduledTaskModelUnavailable": {"description": "Shown on the model row when the saved model is not available now. The placeholder is the saved model id.", "placeholders": {"id": {"type": "String"}}},
+  "scheduledTaskScheduleLabel": "Schedule",
+  "@scheduledTaskScheduleLabel": {"description": "Label of the schedule section of the editor."},
+  "scheduledTaskTimeLabel": "Time",
+  "@scheduledTaskTimeLabel": {"description": "Label of the row that picks the time of day."},
+  "scheduledTaskDateLabel": "Date",
+  "@scheduledTaskDateLabel": {"description": "Label of the row that picks the date of a one-time schedule."},
+  "scheduledTaskDaysLabel": "Days",
+  "@scheduledTaskDaysLabel": {"description": "Label of the weekday choices of a weekly schedule."},
+  "scheduledTaskAdvancedSchedule": "Advanced schedule",
+  "@scheduledTaskAdvancedSchedule": {"description": "Row that shows or hides the raw recurrence rule field."},
+  "scheduledTaskRruleLabel": "Recurrence rule",
+  "@scheduledTaskRruleLabel": {"description": "Label of the raw recurrence rule (RRULE) field."},
+  "scheduledTaskRruleKept": "This schedule uses a rule the controls cannot edit. It stays as it is unless you change it.",
+  "@scheduledTaskRruleKept": {"description": "Explains that an unsupported recurrence rule is kept unchanged unless the user edits it."},
+  "scheduledTaskTimezoneNote": "Times follow your Open WebUI account time zone, which the web app sets, not necessarily this device. The server decides when each run happens.",
+  "@scheduledTaskTimezoneNote": {"description": "Explains which time zone a schedule is read in."},
+  "scheduledTaskActiveLabel": "Active",
+  "@scheduledTaskActiveLabel": {"description": "Switch that sets whether the server runs the task on schedule."},
+  "scheduledTaskDestinationLabel": "Result goes to",
+  "@scheduledTaskDestinationLabel": {"description": "Label of the choice between a new chat and a channel for a task result."},
+  "scheduledTaskDestinationChat": "New chat",
+  "@scheduledTaskDestinationChat": {"description": "Destination that files each run result in a new chat."},
+  "scheduledTaskDestinationChannel": "Channel",
+  "@scheduledTaskDestinationChannel": {"description": "Destination that posts each run result to a channel."},
+  "scheduledTaskFolderLabel": "Folder",
+  "@scheduledTaskFolderLabel": {"description": "Label of the row that picks the folder new result chats go in."},
+  "scheduledTaskFolderNone": "None",
+  "@scheduledTaskFolderNone": {"description": "Shown on the folder row when no folder is chosen."},
+  "scheduledTaskFolderUnavailable": "Saved folder (no longer available)",
+  "@scheduledTaskFolderUnavailable": {"description": "Shown on the folder row when the saved folder is not available now."},
+  "scheduledTaskChannelChoose": "Choose a channel",
+  "@scheduledTaskChannelChoose": {"description": "Shown on the channel row when no channel is chosen."},
+  "scheduledTaskChannelUnavailable": "Saved channel (no longer available)",
+  "@scheduledTaskChannelUnavailable": {"description": "Shown on the channel row when the saved channel is not available now."},
+  "scheduledTaskChannelNoWrite": "You cannot post to this channel.",
+  "@scheduledTaskChannelNoWrite": {"description": "Shown when the account has no write access to a channel it tried to choose."},
+  "scheduledTaskNameRequired": "Enter a name.",
+  "@scheduledTaskNameRequired": {"description": "Shown when the task name is empty."},
+  "scheduledTaskPromptRequired": "Enter instructions.",
+  "@scheduledTaskPromptRequired": {"description": "Shown when the task instructions are empty."},
+  "scheduledTaskModelRequired": "Choose a model.",
+  "@scheduledTaskModelRequired": {"description": "Shown when no model is chosen."},
+  "scheduledTaskModelUnavailableIssue": "Choose a model that is available now.",
+  "@scheduledTaskModelUnavailableIssue": {"description": "Shown when the saved model is no longer available and the task was changed."},
+  "scheduledTaskChannelRequired": "Choose a channel.",
+  "@scheduledTaskChannelRequired": {"description": "Shown when the channel destination has no channel."},
+  "scheduledTaskChannelUnavailableIssue": "Choose a channel that is available now.",
+  "@scheduledTaskChannelUnavailableIssue": {"description": "Shown when the saved channel is no longer available and the task was changed."},
+  "scheduledTaskFolderUnavailableIssue": "Choose a folder that is available now, or none.",
+  "@scheduledTaskFolderUnavailableIssue": {"description": "Shown when the saved folder is no longer available and the task was changed."},
+  "scheduledTaskScheduleIncomplete": "Complete the schedule.",
+  "@scheduledTaskScheduleIncomplete": {"description": "Shown when a weekly schedule has no day or the rule is empty."},
+  "scheduledTaskSaveFailed": "Could not save this task.",
+  "@scheduledTaskSaveFailed": {"description": "Shown when saving a scheduled task fails and the server gave no reason."},
+  "scheduledTaskRunNow": "Run now",
+  "@scheduledTaskRunNow": {"description": "Button that asks the server to run a scheduled task immediately."},
+  "scheduledTaskRunRequested": "Run requested. The server runs it in the background, and the result appears in History when it finishes.",
+  "@scheduledTaskRunRequested": {"description": "Shown when the server accepted a run request. It does not mean the run finished."},
+  "scheduledTaskRunRequestFailed": "Could not request a run.",
+  "@scheduledTaskRunRequestFailed": {"description": "Shown when the server refuses or fails a run request."},
+  "scheduledTaskNextRunsLabel": "Upcoming runs, from the server",
+  "@scheduledTaskNextRunsLabel": {"description": "Heading of the list of upcoming run times that the server computed."},
+  "scheduledTaskHistoryTitle": "History",
+  "@scheduledTaskHistoryTitle": {"description": "Heading of a scheduled task run history."},
+  "scheduledTaskHistoryEmpty": "No runs yet.",
+  "@scheduledTaskHistoryEmpty": {"description": "Shown when a scheduled task has no recorded run."},
+  "scheduledTaskHistoryLoadFailed": "Could not load history.",
+  "@scheduledTaskHistoryLoadFailed": {"description": "Shown when run history cannot be loaded."},
+  "scheduledTaskRunSucceeded": "Succeeded",
+  "@scheduledTaskRunSucceeded": {"description": "Status of a recorded run that succeeded."},
+  "scheduledTaskRunFailedStatus": "Failed",
+  "@scheduledTaskRunFailedStatus": {"description": "Status of a recorded run that did not succeed."},
+  "scheduledTaskViewChat": "View chat",
+  "@scheduledTaskViewChat": {"description": "Opens the chat a run produced."},
+  "scheduledTaskViewChannel": "View channel",
+  "@scheduledTaskViewChannel": {"description": "Opens the channel a run posted to."},
+  "scheduledTaskOpenResultFailed": "Could not open that result.",
+  "@scheduledTaskOpenResultFailed": {"description": "Shown when a run result chat cannot be opened."},
+  "scheduledTaskDelete": "Delete task",
+  "@scheduledTaskDelete": {"description": "Button and dialog title that deletes a scheduled task."},
+  "scheduledTaskDeleteConfirm": "Delete {name}? The server will stop running it and its history is removed.",
+  "@scheduledTaskDeleteConfirm": {"description": "Confirmation before deleting a scheduled task. The placeholder is the task name.", "placeholders": {"name": {"type": "String"}}},
+  "scheduledTaskChangeFailed": "Could not change this task.",
+  "@scheduledTaskChangeFailed": {"description": "Shown when pausing or resuming a task fails."},
+  "scheduledTaskTerminalKept": "A terminal is attached to this task. It is kept when you edit.",
+  "@scheduledTaskTerminalKept": {"description": "Explains that a terminal setting on a task is preserved by edits."},
+  "scheduledTaskPromptSection": "Instructions",
+  "@scheduledTaskPromptSection": {"description": "Heading above a task instructions on the detail page."},
+  "queueDraftAction": "Queue",
+  "@queueDraftAction": {
+    "description": "Composer action that queues the typed message behind the running response, to be sent after it finishes. Also the send label of the expanded editor while a response is running."
+  },
+  "queuedDraftsTitle": "Queued messages",
+  "@queuedDraftsTitle": {
+    "description": "Title of the sheet that lists messages queued behind the running response."
+  },
+  "queuedDraftsCount": "{count, plural, one{{count} queued message} other{{count} queued messages}}",
+  "@queuedDraftsCount": {
+    "description": "Summary row above the composer for the messages queued behind the running response.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "queuedDraftsSessionNote": "Queued messages stay only while Conduit is open. When the response finishes they're sent together as one message.",
+  "@queuedDraftsSessionNote": {
+    "description": "Explains how long queued messages are kept and how they are sent. Shown in the queue sheet and once after the first message is queued."
+  },
+  "queuedDraftSendNow": "Send now",
+  "@queuedDraftSendNow": {
+    "description": "Queue sheet action that stops the running response and sends one queued message next."
+  },
+  "queuedDraftUploading": "Waiting for a file to finish uploading",
+  "@queuedDraftUploading": {
+    "description": "Shown on a queued message that has a file still uploading. The whole queue waits until it is done."
+  },
+  "queuedDraftFileFailed": "A file didn't upload. Remove it to send this message.",
+  "@queuedDraftFileFailed": {
+    "description": "Shown on a queued message with a file that failed to upload. The queue does not send until the file is removed."
+  },
+  "queuedDraftsSendFailed": "The queued messages couldn't be sent. They're still queued.",
+  "@queuedDraftsSendFailed": {
+    "description": "Shown when queued messages were refused or the running response could not be stopped. The messages are kept and the user can retry."
+  },
+  "queuedDraftsSending": "Sending queued messages…",
+  "@queuedDraftsSending": {
+    "description": "Shown on the queue summary while the queued messages are being committed as one message."
+  },
+  "calendarTitle": "Calendar",
+  "@calendarTitle": {"description": "Title of the Settings page and entry for the account's Open WebUI calendar."},
+  "calendarDescription": "Your Open WebUI calendar. Events live on the server and are shown in this device's time zone.",
+  "@calendarDescription": {"description": "Explains on the calendar page where events are kept and which time zone they are shown in."},
+  "calendarNeedsAdvanced": "Turn on Advanced in Settings to use the calendar. Events already on the server are not affected.",
+  "@calendarNeedsAdvanced": {"description": "Shown on the calendar page when the Advanced setting is off."},
+  "calendarUnavailable": "The calendar is not available for this account on this server.",
+  "@calendarUnavailable": {"description": "Shown when the server has the calendar off or the account may not use it."},
+  "calendarTimezoneNote": "Times are shown in this device's time zone. Repeating events are expanded by the server in your account's time zone.",
+  "@calendarTimezoneNote": {"description": "Footnote on the calendar page about which time zone is used for display and for repeating events."},
+  "calendarRangeLabel": "{start} – {end}",
+  "@calendarRangeLabel": {"description": "Heading with the first and last day of the agenda page. Placeholders are formatted dates.", "placeholders": {"start": {"type": "String"}, "end": {"type": "String"}}},
+  "calendarEarlier": "Earlier",
+  "@calendarEarlier": {"description": "Button that shows the agenda period before the current one."},
+  "calendarLater": "Later",
+  "@calendarLater": {"description": "Button that shows the agenda period after the current one."},
+  "calendarToday": "Today",
+  "@calendarToday": {"description": "Button that jumps the agenda back to the period starting today."},
+  "calendarAllCalendars": "All calendars",
+  "@calendarAllCalendars": {"description": "Filter chip that shows events from every calendar."},
+  "calendarEmpty": "No events in this period.",
+  "@calendarEmpty": {"description": "Shown in the agenda when the period has no events."},
+  "calendarLoadFailed": "Could not load the calendar.",
+  "@calendarLoadFailed": {"description": "Shown when the agenda could not be loaded."},
+  "calendarStale": "The calendar may be out of date.",
+  "@calendarStale": {"description": "Shown when a change went through but reading the agenda back failed."},
+  "calendarAddEvent": "New event",
+  "@calendarAddEvent": {"description": "Row on the calendar page that opens the new event form."},
+  "calendarManageCalendars": "Calendars",
+  "@calendarManageCalendars": {"description": "Row on the calendar page that opens the list of calendars."},
+  "calendarAllDay": "All day",
+  "@calendarAllDay": {"description": "Label for an event that lasts whole days, and the switch that makes an event all day."},
+  "calendarRepeatsMarker": "Repeats",
+  "@calendarRepeatsMarker": {"description": "Marker on an agenda row for an event that repeats."},
+  "calendarUntitledEvent": "Untitled event",
+  "@calendarUntitledEvent": {"description": "Name shown for an event that has no title."},
+  "calendarScheduledUpcoming": "Scheduled task",
+  "@calendarScheduledUpcoming": {"description": "Agenda label for a future occurrence of a scheduled task."},
+  "calendarScheduledRunFinished": "Task run finished",
+  "@calendarScheduledRunFinished": {"description": "Agenda label for a scheduled task run that completed."},
+  "calendarScheduledRunFailed": "Task run failed",
+  "@calendarScheduledRunFailed": {"description": "Agenda label for a scheduled task run that failed."},
+  "calendarScheduledEntryReadOnly": "Scheduled tasks are managed from the Scheduled tasks page, not as events.",
+  "@calendarScheduledEntryReadOnly": {"description": "Shown if a scheduled task entry is treated as a calendar event, which is not allowed."},
+  "calendarEventDetailTitle": "Event",
+  "@calendarEventDetailTitle": {"description": "Title of the sheet that shows one event."},
+  "calendarEventCalendar": "Calendar: {name}",
+  "@calendarEventCalendar": {"description": "Detail line with the calendar an event belongs to.", "placeholders": {"name": {"type": "String"}}},
+  "calendarEventOrganizer": "Organized by {name}",
+  "@calendarEventOrganizer": {"description": "Detail line with the person who created an event.", "placeholders": {"name": {"type": "String"}}},
+  "calendarEventSeriesNote": "This event repeats. Changes and deleting apply to the whole series.",
+  "@calendarEventSeriesNote": {"description": "Explains that edits and deletion affect every occurrence of a repeating event."},
+  "calendarEventInvitedCount": "Invited: {count}",
+  "@calendarEventInvitedCount": {"description": "Detail line with how many people are invited to an event.", "placeholders": {"count": {"type": "int"}}},
+  "calendarRsvpPrompt": "Your response",
+  "@calendarRsvpPrompt": {"description": "Heading above the buttons an invited person uses to answer an invitation."},
+  "calendarRsvpAccepted": "Going",
+  "@calendarRsvpAccepted": {"description": "Answer to an invitation: the person will attend."},
+  "calendarRsvpTentative": "Maybe",
+  "@calendarRsvpTentative": {"description": "Answer to an invitation: the person might attend."},
+  "calendarRsvpDeclined": "Can't go",
+  "@calendarRsvpDeclined": {"description": "Answer to an invitation: the person will not attend."},
+  "calendarRsvpPending": "No response yet",
+  "@calendarRsvpPending": {"description": "Shown when an invited person has not answered yet."},
+  "calendarRsvpFailed": "Could not send your response.",
+  "@calendarRsvpFailed": {"description": "Shown when answering an invitation fails."},
+  "calendarEventEdit": "Edit",
+  "@calendarEventEdit": {"description": "Button that edits an event."},
+  "calendarEventEditSeries": "Edit series",
+  "@calendarEventEditSeries": {"description": "Button that edits every occurrence of a repeating event."},
+  "calendarEventDelete": "Delete",
+  "@calendarEventDelete": {"description": "Button that deletes an event."},
+  "calendarEventDeleteSeries": "Delete series",
+  "@calendarEventDeleteSeries": {"description": "Button that deletes every occurrence of a repeating event."},
+  "calendarEventDeleteConfirm": "Delete {title}? This cannot be undone.",
+  "@calendarEventDeleteConfirm": {"description": "Confirmation before deleting an event. The placeholder is the event title.", "placeholders": {"title": {"type": "String"}}},
+  "calendarEventDeleteSeriesConfirm": "Delete {title} and every repeat of it? This cannot be undone.",
+  "@calendarEventDeleteSeriesConfirm": {"description": "Confirmation before deleting a repeating event. The placeholder is the event title.", "placeholders": {"title": {"type": "String"}}},
+  "calendarEventDeleteFailed": "Could not delete this event.",
+  "@calendarEventDeleteFailed": {"description": "Shown when deleting an event fails."},
+  "calendarEventLoadFailed": "Could not open this event for editing.",
+  "@calendarEventLoadFailed": {"description": "Shown when the stored event could not be read before editing."},
+  "calendarEventReadOnly": "You can't change this event. You can still answer an invitation.",
+  "@calendarEventReadOnly": {"description": "Shown on an event the account may not edit."},
+  "calendarEventGone": "This event no longer exists. The agenda is refreshing.",
+  "@calendarEventGone": {"description": "Shown when an open event was deleted elsewhere."},
+  "calendarNewEventTitle": "New event",
+  "@calendarNewEventTitle": {"description": "Title of the form that creates an event."},
+  "calendarEditEventTitle": "Edit event",
+  "@calendarEditEventTitle": {"description": "Title of the form that edits an event."},
+  "calendarEditSeriesTitle": "Edit series",
+  "@calendarEditSeriesTitle": {"description": "Title of the form that edits a repeating event as a whole."},
+  "calendarFieldTitle": "Title",
+  "@calendarFieldTitle": {"description": "Label of the event title field."},
+  "calendarFieldDescription": "Description",
+  "@calendarFieldDescription": {"description": "Label of the event description field."},
+  "calendarFieldLocation": "Location",
+  "@calendarFieldLocation": {"description": "Label of the event location field."},
+  "calendarFieldAllDay": "All day",
+  "@calendarFieldAllDay": {"description": "Label of the switch that makes an event last whole days."},
+  "calendarFieldStarts": "Starts",
+  "@calendarFieldStarts": {"description": "Label of the row that sets the day an event starts."},
+  "calendarFieldStartTime": "Start time",
+  "@calendarFieldStartTime": {"description": "Label of the row that sets the time an event starts."},
+  "calendarFieldEnds": "Ends",
+  "@calendarFieldEnds": {"description": "Label of the row that sets the day an event ends."},
+  "calendarFieldEndTime": "End time",
+  "@calendarFieldEndTime": {"description": "Label of the row that sets the time an event ends."},
+  "calendarAddEnd": "Add an end",
+  "@calendarAddEnd": {"description": "Row that gives an event without an end an end."},
+  "calendarFieldRepeat": "Repeat",
+  "@calendarFieldRepeat": {"description": "Heading above the repeat choices."},
+  "calendarRepeatNone": "Does not repeat",
+  "@calendarRepeatNone": {"description": "Repeat choice: the event happens once."},
+  "calendarRepeatDaily": "Daily",
+  "@calendarRepeatDaily": {"description": "Repeat choice: every day."},
+  "calendarRepeatWeekdays": "Weekdays",
+  "@calendarRepeatWeekdays": {"description": "Repeat choice: Monday to Friday."},
+  "calendarRepeatWeekly": "Weekly",
+  "@calendarRepeatWeekly": {"description": "Repeat choice: every week."},
+  "calendarRepeatMonthly": "Monthly",
+  "@calendarRepeatMonthly": {"description": "Repeat choice: every month."},
+  "calendarRepeatYearly": "Yearly",
+  "@calendarRepeatYearly": {"description": "Repeat choice: every year."},
+  "calendarRepeatCustom": "Custom repeat",
+  "@calendarRepeatCustom": {"description": "Label for a repeat rule that was set elsewhere and cannot be edited here."},
+  "calendarRepeatKept": "This event repeats on a rule that cannot be edited here. It is kept unless you choose another repeat.",
+  "@calendarRepeatKept": {"description": "Explains that an unrecognised repeat rule is preserved when the event is saved."},
+  "calendarRecurrenceTimezoneNote": "Repeats follow your account's time zone, which can differ from this device's.",
+  "@calendarRecurrenceTimezoneNote": {"description": "Explains that the server expands repeating events in the account time zone, not the device time zone."},
+  "calendarFieldCalendar": "Calendar",
+  "@calendarFieldCalendar": {"description": "Label of the row that chooses which calendar an event is in."},
+  "calendarChooseCalendar": "Choose a calendar",
+  "@calendarChooseCalendar": {"description": "Shown when no calendar is chosen for an event yet."},
+  "calendarFieldAttendees": "People",
+  "@calendarFieldAttendees": {"description": "Heading above the people invited to an event."},
+  "calendarAddPeople": "Add people",
+  "@calendarAddPeople": {"description": "Button that opens the picker to invite people to an event."},
+  "calendarInvitedPerson": "Invited person",
+  "@calendarInvitedPerson": {"description": "Name shown for an invited person whose name is not known on this device."},
+  "calendarRemovePerson": "Remove {name}",
+  "@calendarRemovePerson": {"description": "Accessibility label of the button that removes an invited person. The placeholder is their name.", "placeholders": {"name": {"type": "String"}}},
+  "calendarAttendeesNote": "Invited people answer for themselves. Their answers are kept when you change the list.",
+  "@calendarAttendeesNote": {"description": "Explains that organizers cannot set responses and that existing responses survive list changes."},
+  "calendarNoWritableCalendar": "You have no calendar you can add events to. Create a calendar to continue.",
+  "@calendarNoWritableCalendar": {"description": "Shown when the account has no calendar it may add events to."},
+  "calendarTitleRequired": "Enter a title.",
+  "@calendarTitleRequired": {"description": "Validation message when an event has no title."},
+  "calendarCalendarRequired": "Choose a calendar.",
+  "@calendarCalendarRequired": {"description": "Validation message when an event has no calendar."},
+  "calendarEndBeforeStart": "The end can't be before the start.",
+  "@calendarEndBeforeStart": {"description": "Validation message when an event ends before it starts."},
+  "calendarSaveFailed": "Could not save this event.",
+  "@calendarSaveFailed": {"description": "Shown when saving an event fails."},
+  "calendarCalendarsTitle": "Calendars",
+  "@calendarCalendarsTitle": {"description": "Title of the sheet that lists calendars."},
+  "calendarPickTitle": "Choose a calendar",
+  "@calendarPickTitle": {"description": "Title of the sheet that picks a calendar for an event."},
+  "calendarEmptyCalendars": "No calendars yet.",
+  "@calendarEmptyCalendars": {"description": "Shown when the account has no calendars."},
+  "calendarDefaultBadge": "Default",
+  "@calendarDefaultBadge": {"description": "Badge on the account default calendar."},
+  "calendarSharedBadge": "Shared",
+  "@calendarSharedBadge": {"description": "Badge on a calendar owned by someone else."},
+  "calendarReadOnlyBadge": "Read only",
+  "@calendarReadOnlyBadge": {"description": "Badge on a calendar the account cannot add events to."},
+  "calendarMakeDefault": "Make default",
+  "@calendarMakeDefault": {"description": "Button that makes a calendar the default for new events."},
+  "calendarMakeDefaultFailed": "Could not change the default calendar.",
+  "@calendarMakeDefaultFailed": {"description": "Shown when choosing the default calendar fails or is not allowed."},
+  "calendarNewCalendar": "New calendar",
+  "@calendarNewCalendar": {"description": "Heading above the form that creates a calendar."},
+  "calendarNewCalendarHint": "Calendar name",
+  "@calendarNewCalendarHint": {"description": "Hint text of the new calendar name field."},
+  "calendarCreateCalendar": "Create calendar",
+  "@calendarCreateCalendar": {"description": "Button that creates a calendar."},
+  "calendarNameRequired": "Enter a name for the calendar.",
+  "@calendarNameRequired": {"description": "Validation message when a new calendar has no name."},
+  "calendarCreateFailed": "Could not create the calendar.",
+  "@calendarCreateFailed": {"description": "Shown when creating a calendar fails."},
+  "calendarWriteDenied": "Your account can't change this in that calendar.",
+  "@calendarWriteDenied": {"description": "Shown when the server or client refuses a calendar or event change for lack of access."},
+  "calendarNotInvited": "You aren't invited to this event.",
+  "@calendarNotInvited": {"description": "Shown when answering an event the account is not invited to."},
+  "calendarNotFound": "That calendar or event could not be found.",
+  "@calendarNotFound": {"description": "Shown when the server no longer has the calendar or event."},
+  "calendarAccountChanged": "The account changed while this was open. Close it and try again.",
+  "@calendarAccountChanged": {"description": "Shown when the signed-in account changed after a calendar screen opened."},
+  "chatDataControlsTitle": "Data controls",
+  "@chatDataControlsTitle": {
+    "description": "Title of the Settings page, and of its native Settings row, for backing up, restoring and changing all chats of the Open WebUI account."
+  },
+  "chatDataControlsStoredOn": "Chats of {account} on {server}",
+  "@chatDataControlsStoredOn": {
+    "description": "Line naming the Open WebUI account {account} and the server {server} whose chats the data controls act on.",
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsUnavailable": "Data controls need Advanced turned on and a signed-in Open WebUI account.",
+  "@chatDataControlsUnavailable": {
+    "description": "Shown instead of the data controls when Advanced is off or no Open WebUI account is signed in."
+  },
+  "chatDataControlsMediaNote": "A backup holds the chat history, settings and attachment references saved on the server. The attached files and images themselves are not included.",
+  "@chatDataControlsMediaNote": {
+    "description": "Explains what a chat backup contains and that attachment files and images are not part of it."
+  },
+  "chatDataControlsLocalOnly": "Only on this device: {count}",
+  "@chatDataControlsLocalOnly": {
+    "description": "Count of chats that exist only on this device and so are not on the server. {count} is a number.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsUnsent": "With changes the server has not received: {count}",
+  "@chatDataControlsUnsent": {
+    "description": "Count of chats that have edits or replies not yet sent to the server. {count} is a number.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsUnsyncedNote": "A server backup leaves these out until they are sent.",
+  "@chatDataControlsUnsyncedNote": {
+    "description": "Warns that chats and changes not yet on the server are not part of a server backup."
+  },
+  "chatDataControlsSyncNow": "Sync now",
+  "@chatDataControlsSyncNow": {
+    "description": "Button that sends the changes still waiting on this device and reads the server again."
+  },
+  "chatDataControlsSyncing": "Syncing…",
+  "@chatDataControlsSyncing": {
+    "description": "Shown on the sync button while it is running."
+  },
+  "chatDataControlsBackupSection": "Backup and restore",
+  "@chatDataControlsBackupSection": {
+    "description": "Heading of the group with the export and import actions."
+  },
+  "chatDataControlsManageSection": "All chats",
+  "@chatDataControlsManageSection": {
+    "description": "Heading of the group of actions that change every chat of the account at once."
+  },
+  "chatDataControlsExportLibrary": "Export all chats",
+  "@chatDataControlsExportLibrary": {
+    "description": "Row that saves a backup file of every chat on the server."
+  },
+  "chatDataControlsImport": "Import chats",
+  "@chatDataControlsImport": {
+    "description": "Row that restores chats from a backup file chosen by the user."
+  },
+  "chatDataControlsArchiveAll": "Archive all chats",
+  "@chatDataControlsArchiveAll": {
+    "description": "Row that archives every chat of the account on the server; also the title of its confirmation."
+  },
+  "chatDataControlsUnarchiveAll": "Unarchive all chats",
+  "@chatDataControlsUnarchiveAll": {
+    "description": "Row that unarchives every archived chat of the account on the server; also the title of its confirmation."
+  },
+  "chatDataControlsUnshareAll": "Remove all share links",
+  "@chatDataControlsUnshareAll": {
+    "description": "Row that removes every share link the account made; also the title of its confirmation."
+  },
+  "chatDataControlsDeleteAll": "Delete all chats",
+  "@chatDataControlsDeleteAll": {
+    "description": "Row that deletes every chat of the account on the server; also the title of its confirmation."
+  },
+  "chatDataControlsExporting": "Exporting… chats read: {count}",
+  "@chatDataControlsExporting": {
+    "description": "Progress while the library export downloads. {count} is the number of chats read so far.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsExportReady": "Backup ready. Chats saved: {count}",
+  "@chatDataControlsExportReady": {
+    "description": "Shown when the library backup finished and can be saved or shared. {count} is the number of chats in it.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsExportEmpty": "The server has no chats to back up.",
+  "@chatDataControlsExportEmpty": {
+    "description": "Shown when the library export finished and the account has no chats."
+  },
+  "chatDataControlsExportFailed": "The backup was not saved. The export was interrupted or incomplete.",
+  "@chatDataControlsExportFailed": {
+    "description": "Shown when the library export failed or arrived incomplete, so no file was produced."
+  },
+  "chatDataControlsExportStopped": "Export stopped. Nothing was saved.",
+  "@chatDataControlsExportStopped": {
+    "description": "Shown after the user stopped the library export."
+  },
+  "chatDataControlsExportConfirmTitle": "Back up the server's copy?",
+  "@chatDataControlsExportConfirmTitle": {
+    "description": "Title of the confirmation shown before a library backup when some chats or changes are not on the server."
+  },
+  "chatDataControlsExportConfirmMessage": "This saves the chats of {account} stored on {server}. Chats that exist only on this device, and changes the server has not received, are not included.",
+  "@chatDataControlsExportConfirmMessage": {
+    "description": "Body of the confirmation shown before a library backup that would leave unsent work out.",
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsExportAction": "Back up",
+  "@chatDataControlsExportAction": {
+    "description": "Confirm button of the library backup confirmation."
+  },
+  "chatDataControlsImportConfirmTitle": "Import these chats?",
+  "@chatDataControlsImportConfirmTitle": {
+    "description": "Title of the confirmation shown before a chat file is imported."
+  },
+  "chatDataControlsImportConfirmMessage": "Add the chats in the file to {account} on {server}? Chats: {chats}. Messages: {messages}. Chats already there are not replaced; importing adds copies.",
+  "@chatDataControlsImportConfirmMessage": {
+    "description": "Body of the import confirmation. {chats} and {messages} are numbers; {account} and {server} name the target.",
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      },
+      "chats": {
+        "type": "int"
+      },
+      "messages": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsImportAction": "Import",
+  "@chatDataControlsImportAction": {
+    "description": "Confirm button of the import confirmation."
+  },
+  "chatDataControlsImportInvalid": "That file is not an Open WebUI chat export.",
+  "@chatDataControlsImportInvalid": {
+    "description": "Shown when the chosen file is not valid JSON or not a list of chats."
+  },
+  "chatDataControlsImportEmpty": "That file has no chats.",
+  "@chatDataControlsImportEmpty": {
+    "description": "Shown when the chosen file holds no chats."
+  },
+  "chatDataControlsImportTooLarge": "That file is too large to import in one step.",
+  "@chatDataControlsImportTooLarge": {
+    "description": "Shown when the chosen file is larger than one import request may be."
+  },
+  "chatDataControlsImportBadEntry": "Chat number {position} in the file cannot be imported.",
+  "@chatDataControlsImportBadEntry": {
+    "description": "Shown when one chat in the file has a field the server would refuse. {position} is its 1-based position.",
+    "placeholders": {
+      "position": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsImportChooseAnother": "Choose another file",
+  "@chatDataControlsImportChooseAnother": {
+    "description": "Button shown after a chosen file was refused, to pick a different one."
+  },
+  "chatDataControlsImportFile": "File: {name}",
+  "@chatDataControlsImportFile": {
+    "description": "Names the file the user chose to import. {name} is the file name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsImported": "Import finished. Chats imported: {count}",
+  "@chatDataControlsImported": {
+    "description": "Shown when the server accepted the import. {count} is the number of chats created.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsImportedSyncNote": "Some appear here after the next sync.",
+  "@chatDataControlsImportedSyncNote": {
+    "description": "Added to the import result when some imported chats could not be stored on this device yet."
+  },
+  "chatDataControlsImportUnknown": "The server did not answer, so it is not known whether the chats were imported. Check your chats before importing again; importing twice adds copies.",
+  "@chatDataControlsImportUnknown": {
+    "description": "Shown when the import request got no answer, so it may or may not have happened."
+  },
+  "chatDataControlsForbidden": "This account is not allowed to do that.",
+  "@chatDataControlsForbidden": {
+    "description": "Shown when the server refuses an import or an all-chats action because of the account's permissions."
+  },
+  "chatDataControlsArchiveAllMessage": "Archive all your chats on the server? You can unarchive them later.",
+  "@chatDataControlsArchiveAllMessage": {
+    "description": "Body of the confirmation before archiving every chat."
+  },
+  "chatDataControlsUnarchiveAllMessage": "Unarchive all your archived chats on the server?",
+  "@chatDataControlsUnarchiveAllMessage": {
+    "description": "Body of the confirmation before unarchiving every archived chat."
+  },
+  "chatDataControlsUnshareAllMessage": "Remove every share link you made? People with a link lose access. The chats stay.",
+  "@chatDataControlsUnshareAllMessage": {
+    "description": "Body of the confirmation before removing all share links."
+  },
+  "chatDataControlsDeleteAllMessage": "Delete all chats of {account} on {server}? This cannot be undone. Chats that exist only on this device are kept.",
+  "@chatDataControlsDeleteAllMessage": {
+    "description": "Body of the confirmation before deleting every chat. {account} and {server} name the target.",
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsDeleteUnsentMessage": "Not yet sent to the server — chats with changes: {edits}; chats with queued replies: {replies}. Deleting discards them.",
+  "@chatDataControlsDeleteUnsentMessage": {
+    "description": "Added to the delete-all confirmation when there is unsent work that deleting would discard. {edits} and {replies} are numbers.",
+    "placeholders": {
+      "edits": {
+        "type": "int"
+      },
+      "replies": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsDiscardAndDelete": "Discard and delete",
+  "@chatDataControlsDiscardAndDelete": {
+    "description": "Confirm button of delete all when unsent work will be discarded."
+  },
+  "chatDataControlsResponseRunning": "A reply is still running. Stop it, then try again.",
+  "@chatDataControlsResponseRunning": {
+    "description": "Shown when delete all is refused because a response is running."
+  },
+  "chatDataControlsLocalChanged": "A chat that was only on this device reached the server while this waited. Nothing was changed. Review and try again.",
+  "@chatDataControlsLocalChanged": {
+    "description": "Shown when delete all is refused because a device-only chat was sent to the server in the meantime."
+  },
+  "chatDataControlsDone": "Done.",
+  "@chatDataControlsDone": {
+    "description": "Shown when an all-chats action finished."
+  },
+  "chatDataControlsRefused": "The server could not do that. Nothing changed.",
+  "@chatDataControlsRefused": {
+    "description": "Shown when the server answered that it could not carry out an all-chats action."
+  },
+  "chatDataControlsUnknown": "The server did not answer, so the result is not known. Check your chats; doing it again is safe.",
+  "@chatDataControlsUnknown": {
+    "description": "Shown when an all-chats action got no answer, so it may or may not have happened."
+  },
+  "chatDataControlsOwnerChanged": "The signed-in account changed. Nothing was done.",
+  "@chatDataControlsOwnerChanged": {
+    "description": "Shown when the account or server changed while the action was running."
+  },
+  "chatDataControlsAccountUnknown": "This account could not be identified yet. Sync and try again.",
+  "@chatDataControlsAccountUnknown": {
+    "description": "Shown when an all-chats action is refused because the account's id is not known."
+  },
+  "chatDataControlsWaiting": "Waiting for sync to settle…",
+  "@chatDataControlsWaiting": {
+    "description": "Shown while an all-chats action waits for chat writes already in progress to finish."
+  },
+  "chatExportAction": "Export chat",
+  "@chatExportAction": {
+    "description": "Entry in the chat menu, and title of the sheet, for exporting the open chat."
+  },
+  "chatExportJson": "Backup (JSON)",
+  "@chatExportJson": {
+    "description": "Option that exports the whole chat with every branch as a JSON file."
+  },
+  "chatExportJsonDescription": "The whole chat with every branch and its settings. Open WebUI can import it.",
+  "@chatExportJsonDescription": {
+    "description": "Explains the JSON export option."
+  },
+  "chatExportMarkdown": "Transcript (Markdown)",
+  "@chatExportMarkdown": {
+    "description": "Option that exports the conversation as readable Markdown text."
+  },
+  "chatExportMarkdownDescription": "The conversation you are on, as readable text. Not a backup.",
+  "@chatExportMarkdownDescription": {
+    "description": "Explains the Markdown option: it covers only the active branch and cannot restore the chat."
+  },
+  "chatExportUnsentNote": "This includes changes the server has not received yet.",
+  "@chatExportUnsentNote": {
+    "description": "Shown with an exported chat when it holds edits that are not on the server yet."
+  },
+  "chatExportFailed": "The chat could not be exported.",
+  "@chatExportFailed": {
+    "description": "Shown when exporting a single chat failed."
+  },
+  "chatDataControlsWorkChanged": "Unsent changes appeared on this device while this waited. Nothing was deleted. Review and try again.",
+  "@chatDataControlsWorkChanged": {"description": "Shown when delete all is refused because chats gained unsent edits or queued replies after the user confirmed."},
+  "chatComparisonTabsLabel": "Model answers",
+  "@chatComparisonTabsLabel": {
+    "description": "Accessibility label of the row of tabs that switch between the answers different models gave to the same message."
+  },
+  "chatComparisonSlotLabel": "{model} · {number}",
+  "@chatComparisonSlotLabel": {
+    "description": "Tab label for one model answer when several answers come from the same model. The placeholders are the model's name and its 1-based position among the answers.",
+    "placeholders": {
+      "model": {
+        "type": "String"
+      },
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "chatComparisonUnnamedModel": "Model",
+  "@chatComparisonUnnamedModel": {
+    "description": "Fallback name for a model answer whose model is not known."
+  },
+  "chatComparisonSlotResponding": "Responding",
+  "@chatComparisonSlotResponding": {
+    "description": "Short status on a model answer tab while that model is still writing its answer."
+  },
+  "chatComparisonSlotFailed": "Failed",
+  "@chatComparisonSlotFailed": {
+    "description": "Short status on a model answer tab when that model's answer failed."
+  },
+  "chatMergedResponseTitle": "Merged response",
+  "@chatMergedResponseTitle": {
+    "description": "Heading of the single response that was merged from several model answers and saved with the chat."
+  },
+  "chatCompareModelsAction": "Compare models",
+  "@chatCompareModelsAction": {
+    "description": "Advanced composer command that sends the typed message to two models at once so their answers can be compared."
+  },
+  "chatCompareModelsDescription": "Send this message to two models and compare their answers.",
+  "@chatCompareModelsDescription": {
+    "description": "Subtitle of the Compare models command and sheet: explains that the message goes to two models."
+  },
+  "chatCompareNeedsMessage": "Type a message first, then compare models.",
+  "@chatCompareNeedsMessage": {
+    "description": "Shown when Compare models is chosen while the composer is empty."
+  },
+  "chatCompareFirstModel": "First model",
+  "@chatCompareFirstModel": {
+    "description": "Label of the first model slot in the Compare models sheet."
+  },
+  "chatCompareSecondModel": "Second model",
+  "@chatCompareSecondModel": {
+    "description": "Label of the second model slot in the Compare models sheet."
+  },
+  "chatCompareChooseModel": "Choose a model",
+  "@chatCompareChooseModel": {
+    "description": "Placeholder shown in a model slot of the Compare models sheet until a model is chosen."
+  },
+  "chatCompareStart": "Compare",
+  "@chatCompareStart": {
+    "description": "Button of the Compare models sheet that sends the message to both chosen models."
+  },
+  "chatCompareErrorUnavailable": "Comparing models isn't available in this chat.",
+  "@chatCompareErrorUnavailable": {
+    "description": "Shown when a model comparison cannot be started in this chat (for example a temporary chat or a Direct or Hermes chat)."
+  },
+  "chatCompareErrorModelUnavailable": "{models} isn't available on this server.",
+  "@chatCompareErrorModelUnavailable": {
+    "description": "Shown when a chosen model is not on the server's model list. The placeholder is the model name or names.",
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorVision": "{models} can't read images. Remove the image or choose other models.",
+  "@chatCompareErrorVision": {
+    "description": "Shown when the message has an image and a chosen model cannot read images. The placeholder is the model name or names.",
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorTerminal": "{models} can't use the selected terminal. Turn the terminal off or choose other models.",
+  "@chatCompareErrorTerminal": {
+    "description": "Shown when a terminal is selected and a chosen model cannot use it. The placeholder is the model name or names.",
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorInterpreter": "{models} can't run the code interpreter. Turn it off or choose other models.",
+  "@chatCompareErrorInterpreter": {
+    "description": "Shown when the code interpreter is on and a chosen model cannot run it. The placeholder is the model name or names.",
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorEffortOverride": "This chat saves a reasoning effort that {models} can't use. Remove it in chat settings or choose other models.",
+  "@chatCompareErrorEffortOverride": {
+    "description": "Shown when the chat saves a reasoning effort that a chosen model cannot use, since one request sends the same setting to every model. The placeholder is the model name or names.",
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorEffortPicker": "The chosen models need different reasoning efforts. Set the same effort for both or choose other models.",
+  "@chatCompareErrorEffortPicker": {
+    "description": "Shown when the chosen models hold different reasoning effort picks, since one request sends the same effort to both."
+  },
+  "chatMergeResponsesAction": "Merge responses",
+  "@chatMergeResponsesAction": {
+    "description": "Advanced action on a model comparison that merges the models' answers into one response."
+  },
+  "chatMergeStopAction": "Stop merging",
+  "@chatMergeStopAction": {
+    "description": "Action that stops a merge of model answers that is still being written. The text written so far is kept."
+  },
+  "chatMergeErrorUnavailable": "This server can't merge responses.",
+  "@chatMergeErrorUnavailable": {
+    "description": "Shown when the server has no endpoint for merging model answers."
+  },
+  "chatMergeErrorFailed": "Merging the responses failed. The original answers are unchanged.",
+  "@chatMergeErrorFailed": {
+    "description": "Shown when merging model answers failed. The original answers are not changed."
+  },
+  "chatMergeErrorNotMergeable": "Every answer needs to finish with some text before they can be merged.",
+  "@chatMergeErrorNotMergeable": {
+    "description": "Shown when answers cannot be merged yet, for example because one is still being written or has no text."
+  },
+  "chatMergeErrorOwnerChanged": "The account or chat changed, so the merge was stopped.",
+  "@chatMergeErrorOwnerChanged": {
+    "description": "Shown when the account, server or chat changed while a merge was running, so the merge was stopped without saving."
+  },
+  "chatComparisonStopAnswerAction": "Stop this answer",
+  "@chatComparisonStopAnswerAction": {
+    "description": "Compact action on one model answer that is still being written. It stops only that answer; the other answers of the comparison keep going."
+  },
+  "chatMergeChooseDescription": "Choose the answers to merge. Pick at least two; the original answers stay as they are.",
+  "@chatMergeChooseDescription": {
+    "description": "Explains the sheet that lists the finished answers of a model comparison to merge: at least two must be chosen and the originals are kept."
+  },
+  "folderProjectComparisonFallbackNotice": "This project's saved models can't all be used, so the chat starts with fewer of them. A comparison uses exactly two.",
+  "@folderProjectComparisonFallbackNotice": {
+    "description": "Short notice on a folder page when the folder's saved default models cannot all be used, so a new chat starts with fewer of them. It also covers a folder that saves more or fewer than the two models a comparison uses."
+  }
 }

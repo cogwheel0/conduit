@@ -6,7 +6,10 @@ abstract class _ApiServiceBase {
   // reached from private helpers that live in this class, so the base has to
   // name them. Getting this list wrong is a compile error, not a silent
   // change in behaviour.
-  Future<List<Model>> getModels({bool includeHidden = false});
+  Future<List<Model>> getModels({
+    bool includeHidden = false,
+    ApiAuthSnapshot? authSnapshot,
+  });
   Future<Map<String, dynamic>?> getMessageData(
     String channelId,
     String messageId,
@@ -404,9 +407,12 @@ abstract class _ApiServiceBase {
   }
 
   Future<BackendConfig> _enrichBackendConfigWithAudioConfig(
-    BackendConfig config,
-  ) async {
-    final audioConfig = await _loadServerAudioConfig();
+    BackendConfig config, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    final audioConfig = await _loadServerAudioConfig(
+      authSnapshot: authSnapshot,
+    );
     return config.copyWith(
       ttsVoice: audioConfig.voice ?? config.ttsVoice,
       ttsSplitOn: audioConfig.splitOn ?? config.ttsSplitOn ?? 'punctuation',
@@ -1152,13 +1158,16 @@ abstract class _ApiServiceBase {
 
   // Audio
   Future<({String? voice, String? splitOn, List<BackendTtsVoice> voices})>
-  _loadServerAudioConfig() async {
+  _loadServerAudioConfig({ApiAuthSnapshot? authSnapshot}) async {
     String? voice;
     String? splitOn;
 
     try {
       _traceApi('Fetching server TTS defaults');
-      final response = await _dio.get('/api/v1/audio/config');
+      final response = await _dio.get(
+        '/api/v1/audio/config',
+        options: _withAuthSnapshot(Options(), authSnapshot),
+      );
       final data = response.data;
       final config = _coerceJsonMap(data);
       final ttsConfig = _coerceJsonMap(config?['tts']);
@@ -1175,13 +1184,19 @@ abstract class _ApiServiceBase {
       );
     }
 
-    final voices = await _loadServerTtsVoicesOrEmpty();
+    final voices = await _loadServerTtsVoicesOrEmpty(
+      authSnapshot: authSnapshot,
+    );
     return (voice: voice, splitOn: splitOn, voices: voices);
   }
 
-  Future<List<BackendTtsVoice>> _loadServerTtsVoicesOrEmpty() async {
+  Future<List<BackendTtsVoice>> _loadServerTtsVoicesOrEmpty({
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     try {
-      return await _loadServerTtsVoicesFromAudioEndpoint();
+      return await _loadServerTtsVoicesFromAudioEndpoint(
+        authSnapshot: authSnapshot,
+      );
     } catch (e, stackTrace) {
       DebugLogger.error(
         'backend-config-audio-voices',
@@ -1193,9 +1208,14 @@ abstract class _ApiServiceBase {
     }
   }
 
-  Future<List<BackendTtsVoice>> _loadServerTtsVoicesFromAudioEndpoint() async {
+  Future<List<BackendTtsVoice>> _loadServerTtsVoicesFromAudioEndpoint({
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     _traceApi('Fetching server TTS voices');
-    final response = await _dio.get('/api/v1/audio/voices');
+    final response = await _dio.get(
+      '/api/v1/audio/voices',
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
     final data = response.data;
     if (data is Map<String, dynamic>) {
       final voices = data['voices'];
@@ -1410,11 +1430,14 @@ abstract class _ApiServiceBase {
     List<Map<String, dynamic>>? toolServers,
     Map<String, dynamic>? backgroundTasks,
     Map<String, dynamic>? userSettings,
+    Map<String, dynamic>? globalParams,
+    Map<String, dynamic>? chatParams,
     String? reasoningEffort,
     String? parentId,
     Map<String, dynamic>? userMessage,
     Map<String, dynamic>? variables,
     List<Map<String, dynamic>>? files,
+    List<ChatCompletionTarget>? messageIds,
     _ChatRequestMetadataFormat metadataFormat =
         _ChatRequestMetadataFormat.modernV09,
   }) {
@@ -1526,39 +1549,33 @@ abstract class _ApiServiceBase {
       data['stream_options'] = {'include_usage': true};
     }
 
-    // Forward user model params (temperature, top_p, top_k, seed, etc.)
-    // Mirrors OpenWebUI's: { ...$settings?.params, ...params, stop: getStopTokens() }
-    final params = <String, dynamic>{};
-    try {
-      final raw = userSettings?['params'];
-      final userParams = raw is Map ? Map<String, dynamic>.from(raw) : null;
-      if (userParams != null && userParams.isNotEmpty) {
-        params.addAll(userParams);
-        // Normalize stop tokens: split comma-separated string into list
-        final rawStop = params['stop'];
-        if (rawStop is String && rawStop.isNotEmpty) {
-          params['stop'] = rawStop
-              .split(',')
-              .map((s) => s.trim())
-              .where((s) => s.isNotEmpty)
-              .toList();
-        }
-        // Remove empty/null stop so the backend uses its own defaults
-        if (params['stop'] is List && (params['stop'] as List).isEmpty) {
-          params.remove('stop');
-        }
+    // Forward the user's global model params (temperature, top_p, top_k, seed,
+    // etc.) with the chat's own `chat.params` over them. Mirrors OpenWebUI's:
+    // { ...$settings?.params, ...params, stop: getStopTokens() }
+    // A replayed turn passes the baseline it was admitted with; otherwise the
+    // settings document supplies it (`ui.params`, then legacy root `params`).
+    Map<String, dynamic>? baselineParams = globalParams;
+    if (baselineParams == null) {
+      try {
+        baselineParams = openWebUiGlobalParamsFromSettings(userSettings);
+      } catch (_) {
+        // Non-critical: proceed without user params
       }
-    } catch (_) {
-      // Non-critical: proceed without user params
     }
+    final params = resolveOpenWebUiRequestParams(
+      globalParams: baselineParams,
+      chatParams: chatParams,
+    );
 
-    // The user's per-model pick is the chat-level `params` the web client
-    // spreads after `$settings.params`. Sent explicitly, it reaches the
-    // server as a top-level form field, so the model's configured
-    // `reasoning_effort` default is skipped (apply_model_params_to_body only
-    // fills keys absent from the body).
-    if (reasoningEffort != null) {
-      params['reasoning_effort'] = reasoningEffort;
+    // The picker's per-model pick fills `reasoning_effort` when the chat has
+    // not saved its own. Sent explicitly, it reaches the server as a top-level
+    // form field, so the model's configured default is skipped
+    // (apply_model_params_to_body only fills keys absent from the body). A
+    // value saved on the chat is a deliberate override and is never replaced
+    // by whatever the picker last held for the model.
+    if (reasoningEffort != null &&
+        !(chatParams?.containsKey(kChatParamReasoningEffort) ?? false)) {
+      params[kChatParamReasoningEffort] = reasoningEffort;
     }
 
     final modelInfo = modelItem?['info'];
@@ -1636,28 +1653,9 @@ abstract class _ApiServiceBase {
     if (toolIds != null && toolIds.isNotEmpty) {
       data['tool_ids'] = toolIds;
       _traceApi('Including tool_ids in streaming request: $toolIds');
-
-      try {
-        final userParams = userSettings?['params'] as Map<String, dynamic>?;
-        final functionCallingMode = userParams?['function_calling'] as String?;
-        if (functionCallingMode != null) {
-          final params =
-              (data['params'] as Map<String, dynamic>?) ?? <String, dynamic>{};
-          params['function_calling'] = functionCallingMode;
-          data['params'] = params;
-          _traceApi(
-            'Set params.function_calling = $functionCallingMode '
-            '(from user settings)',
-          );
-        } else {
-          _traceApi(
-            'No function_calling preference in user settings, '
-            'backend will use default mode',
-          );
-        }
-      } catch (_) {
-        // Non-fatal; continue without setting function_calling mode
-      }
+      // `function_calling` already rode in with the merged params above, chat
+      // value over global. Re-reading the global here would overwrite a chat's
+      // own tool-calling mode, so it is deliberately not applied a second time.
     }
 
     data['tool_servers'] = toolServers ?? <Map<String, dynamic>>[];
@@ -1677,6 +1675,11 @@ abstract class _ApiServiceBase {
       data['session_id'] = sessionId;
     }
     data['id'] = messageId;
+    // One request for several answers: the server creates a task per entry, in
+    // this order, and reads each answer's column from `modelIdx`.
+    if (messageIds != null && messageIds.isNotEmpty) {
+      data['message_ids'] = [for (final target in messageIds) target.toJson()];
+    }
     if (conversationId != null) {
       data['chat_id'] = conversationId;
     }
@@ -1780,32 +1783,34 @@ abstract class _ApiServiceBase {
     String? conversationId,
     required Future<void> Function() abort,
   }) {
-    String? taskId;
+    // A multi-model request returns one task per answer, in request order.
+    final taskIds = <String>[];
+    final rawTaskIds = json['task_ids'];
+    if (rawTaskIds is List) {
+      for (final raw in rawTaskIds) {
+        final id = raw?.toString().trim() ?? '';
+        if (id.isNotEmpty) taskIds.add(id);
+      }
+    }
+    final String? taskId;
     if (json['task_id'] != null) {
       taskId = json['task_id'].toString();
+      if (taskIds.isEmpty) taskIds.add(taskId);
     } else {
-      final rawTaskIds = json['task_ids'];
-      if (rawTaskIds is List) {
-        final taskIds = rawTaskIds
-            .map((taskId) => taskId?.toString().trim() ?? '')
-            .where((taskId) => taskId.isNotEmpty)
-            .toList(growable: false);
-        if (taskIds.isNotEmpty) {
-          taskId = taskIds.first;
-        }
-      }
+      taskId = taskIds.isEmpty ? null : taskIds.first;
     }
 
     if (taskId != null) {
       _traceApi(
         'classifyChatCompletionResponse → taskSocket '
-        '(task_id=$taskId)',
+        '(task_ids=$taskIds)',
       );
       return ChatCompletionSession.taskSocket(
         messageId: messageId,
         sessionId: sessionId,
         conversationId: conversationId,
         taskId: taskId,
+        taskIds: taskIds,
         abort: abort,
       );
     }

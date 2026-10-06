@@ -4,54 +4,58 @@ part of 'chat_providers.dart';
 
 // ========== Tool Servers (OpenAPI) Helpers ==========
 
+/// Reads each enabled server's OpenAPI document and builds the `tool_servers`
+/// entries for a completion request.
+///
+/// A direct terminal ([terminal]) also carries its key and `is_terminal`: the
+/// server calls the terminal itself and has no other source for that key.
+///
+/// Each entry that is resolved is also added to [admitted], exactly as it goes
+/// into the request, so what may be called back is what was sent.
 Future<List<Map<String, dynamic>>> _resolveToolServers(
   List rawServers,
-  dynamic api,
-) async {
+  dynamic api, {
+  bool terminal = false,
+  List<PersonalToolAdmission>? admitted,
+}) async {
   final List<Map<String, dynamic>> resolved = [];
   for (final s in rawServers) {
     try {
-      if (s is! Map) continue;
-      final cfg = s['config'];
-      if (cfg is Map && cfg['enable'] != true) continue;
+      if (s is! Map || !_isConfiguredServerEnabled(s)) continue;
 
       final url = (s['url'] ?? '').toString();
-      final path = (s['path'] ?? '').toString();
-      if (url.isEmpty || path.isEmpty) continue;
-      final fullUrl = path.contains('://')
-          ? path
-          : '$url${path.startsWith('/') ? '' : '/'}$path';
 
-      // Fetch OpenAPI spec (supports YAML/JSON)
-      Map<String, dynamic>? openapi;
+      // Read the OpenAPI document (JSON or YAML, inline or fetched) with the
+      // connection's own credentials. The Open WebUI client is not used: its
+      // interceptor drops credentials for other origins, which would leave
+      // every key-protected personal server unreadable.
+      final Map<String, dynamic> openapi;
       try {
-        final resp = await api.dio.get(fullUrl);
-        final ct = resp.headers.map['content-type']?.join(',') ?? '';
-        if (fullUrl.toLowerCase().endsWith('.yaml') ||
-            fullUrl.toLowerCase().endsWith('.yml') ||
-            ct.contains('yaml')) {
-          final doc = yaml.loadYaml(resp.data);
-          openapi = normalizeJsonLikeMap(doc);
-        } else {
-          final data = resp.data;
-          if (data is Map<String, dynamic>) {
-            openapi = data;
-          } else if (data is String) {
-            openapi = json.decode(data) as Map<String, dynamic>;
-          }
-        }
-      } catch (_) {
+        openapi = (await probePersonalToolServer(normalizeJsonLikeMap(s))).spec;
+      } on PersonalConnectionProbeException {
         continue;
       }
-      if (openapi == null) continue;
 
       // Convert OpenAPI to tool specs
       final specs = _convertOpenApiToToolPayload(openapi);
+      admitted?.add(
+        PersonalToolAdmission.forRequestEntry(
+          terminal
+              ? PersonalConnectionKind.terminal
+              : PersonalConnectionKind.toolServer,
+          normalizeJsonLikeMap(s),
+          specs,
+        ),
+      );
       resolved.add({
         'url': url,
         'openapi': openapi,
         'info': openapi['info'],
         'specs': specs,
+        if (terminal) ...{
+          'key': (s['key'] ?? '').toString(),
+          'is_terminal': true,
+        },
       });
     } catch (_) {
       continue;
@@ -253,3 +257,26 @@ Map<String, dynamic> _buildLocalModelItem(
 @visibleForTesting
 Map<String, dynamic> buildLocalModelItemForTest(Model selectedModel) =>
     _buildLocalModelItem(selectedModel);
+
+/// Lets Open WebUI's `execute:tool` callbacks for the completion of
+/// [messageId] in [chatId] reach the connections that request sent.
+///
+/// Called where the request leaves, after the connections were resolved, so the
+/// admission is exactly the `tool_servers` of that request and exists before
+/// the server can call back. A request that sent no connection, or that goes
+/// over HTTP without a socket session, admits nothing.
+void _admitPersonalToolServers(
+  SocketService? socket, {
+  required String? sessionId,
+  required String? chatId,
+  required String messageId,
+  required List<PersonalToolAdmission> admitted,
+}) {
+  if (socket == null || admitted.isEmpty) return;
+  socket.admitPersonalToolServers(
+    chatId: chatId,
+    messageId: messageId,
+    sessionId: sessionId,
+    connections: admitted,
+  );
+}

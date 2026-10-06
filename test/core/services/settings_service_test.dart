@@ -492,6 +492,40 @@ void main() {
     });
   });
 
+  group('AppSettingsNotifier advanced features preference', () {
+    setUp(() {
+      PreferencesStore.debugReset();
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+    });
+
+    tearDown(PreferencesStore.debugReset);
+
+    test('starts off, survives a restart even when enabled before hydration, '
+        'and reset turns it off', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      check(container.read(appSettingsProvider).advancedFeaturesEnabled)
+          .isFalse();
+
+      await container
+          .read(appSettingsProvider.notifier)
+          .setAdvancedFeaturesEnabled(true);
+      check(container.read(appSettingsProvider).advancedFeaturesEnabled)
+          .isTrue();
+
+      final restarted = ProviderContainer();
+      addTearDown(restarted.dispose);
+      check(restarted.read(appSettingsProvider).advancedFeaturesEnabled)
+          .isTrue();
+
+      await restarted.read(appSettingsProvider.notifier).resetToDefaults();
+      final afterReset = ProviderContainer();
+      addTearDown(afterReset.dispose);
+      check(afterReset.read(appSettingsProvider).advancedFeaturesEnabled)
+          .isFalse();
+    });
+  });
+
   group('SettingsService.normalizeSttLanguageCode', () {
     test('normalizes two-letter language codes', () {
       check(SettingsService.normalizeSttLanguageCode('PL')).equals('pl');

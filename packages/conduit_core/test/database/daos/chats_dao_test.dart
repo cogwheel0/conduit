@@ -26,6 +26,109 @@ void main() {
     await db.close();
   });
 
+  group('saving a merged response', () {
+    const answerId = 'b1b1b1b1-0000-4000-8000-000000000002';
+
+    Future<Map<String, dynamic>> storedBlob(String chatId) async {
+      final chatRow = await db.chatsDao.getChat(chatId);
+      final messageRows = await db.messagesDao.getForChat(chatId);
+      return ChatBlobMapper.rowsToBlob(chatRowsFromDb(chatRow!, messageRows));
+    }
+
+    test('changes only that answer\'s merged key, and the blob carries it '
+        'exactly as Open WebUI stores it', () async {
+      final fixture = loadChatBlobFixtures().singleWhere(
+        (f) => f.name == '13_duplicate_model_comparison',
+      );
+      await db.chatsDao.upsertServerChat(rows: rowsFromFixture(fixture));
+      final before = await storedBlob(fixture.chatId);
+
+      final wrote = await db.chatsDao.patchMessageMergedWithOutbox(
+        fixture.chatId,
+        answerId,
+        merged: {'status': true, 'content': 'Both runs agree.'},
+        updatedAt: 99,
+      );
+
+      check(wrote).isTrue();
+      final after = await storedBlob(fixture.chatId);
+      final afterMessages =
+          (after['history'] as Map<String, dynamic>)['messages']
+              as Map<String, dynamic>;
+      final beforeMessages =
+          (before['history'] as Map<String, dynamic>)['messages']
+              as Map<String, dynamic>;
+      check(
+        (afterMessages[answerId] as Map<String, dynamic>)['merged'],
+      ).isA<Map<String, dynamic>>().deepEquals({
+        'status': true,
+        'content': 'Both runs agree.',
+      });
+      // Every other message is exactly as it was, and so is the answer itself
+      // apart from the one key.
+      for (final entry in beforeMessages.entries) {
+        if (entry.key == answerId) {
+          check(
+            {...(afterMessages[entry.key] as Map<String, dynamic>)}
+              ..remove('merged'),
+          ).deepEquals(entry.value as Map<String, dynamic>);
+        } else {
+          check(_deepEq.equals(afterMessages[entry.key], entry.value)).isTrue();
+        }
+      }
+      // The chat is marked for push, once.
+      final chat = (await db.chatsDao.getChat(fixture.chatId))!;
+      check(chat.dirty).isTrue();
+      check(chat.updatedAt).equals(99);
+      final ops = await db.outboxDao.pendingForChat(fixture.chatId);
+      check(ops.where((op) => op.kind == 'updateChat')).length.equals(1);
+
+      // Removing it restores the stored answer.
+      await db.chatsDao.patchMessageMergedWithOutbox(
+        fixture.chatId,
+        answerId,
+        merged: null,
+        updatedAt: 100,
+      );
+      check(
+        _deepEq.equals(
+          ((await storedBlob(fixture.chatId))['history']
+              as Map<String, dynamic>)['messages'],
+          beforeMessages,
+        ),
+      ).isTrue();
+    });
+
+    test('writes nothing for a user message, a missing message or a missing '
+        'chat', () async {
+      final fixture = loadChatBlobFixtures().singleWhere(
+        (f) => f.name == '13_duplicate_model_comparison',
+      );
+      await db.chatsDao.upsertServerChat(rows: rowsFromFixture(fixture));
+
+      for (final id in ['c0c0c0c0-0000-4000-8000-000000000001', 'absent']) {
+        check(
+          await db.chatsDao.patchMessageMergedWithOutbox(
+            fixture.chatId,
+            id,
+            merged: {'status': true, 'content': 'x'},
+            updatedAt: 5,
+          ),
+        ).isFalse();
+      }
+      check(
+        await db.chatsDao.patchMessageMergedWithOutbox(
+          'no-such-chat',
+          answerId,
+          merged: {'status': true, 'content': 'x'},
+          updatedAt: 5,
+        ),
+      ).isFalse();
+      check(await db.outboxDao.pendingForChat(fixture.chatId)).isEmpty();
+      check((await db.chatsDao.getChat(fixture.chatId))!.dirty).isFalse();
+    });
+  });
+
   group('DB round-trip (RFC §6.1) for every golden fixture', () {
     for (final fixture in loadChatBlobFixtures()) {
       test(fixture.name, () async {

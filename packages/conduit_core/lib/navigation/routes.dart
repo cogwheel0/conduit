@@ -22,6 +22,15 @@ class Routes {
   static const String appearanceSettings = '/profile/appearance';
   static const String chatSettings = '/profile/chat';
   static const String dataConnectionSettings = '/profile/data-connection';
+  static const String personalConnections = '/profile/personal-connections';
+  static const String personalConnectionEditor =
+      '/profile/personal-connections/:kind/:identity';
+  static const String chatDataControls = '/profile/chat-data-controls';
+  static const String scheduledTasks = '/profile/scheduled-tasks';
+  static const String scheduledTaskNew = '/profile/scheduled-tasks/new';
+  static const String scheduledTaskDetail = '/profile/scheduled-tasks/:id';
+  static const String scheduledTaskEdit = '/profile/scheduled-tasks/:id/edit';
+  static const String calendar = '/profile/calendar';
   static const String directConnections = '/profile/direct-connections';
   static const String directConnectionEditor =
       '/profile/direct-connections/:id';
@@ -63,6 +72,14 @@ class RouteNames {
   static const String appearanceSettings = 'appearance-settings';
   static const String chatSettings = 'chat-settings';
   static const String dataConnectionSettings = 'data-connection-settings';
+  static const String personalConnections = 'personal-connections';
+  static const String chatDataControls = 'chat-data-controls';
+  static const String scheduledTasks = 'scheduled-tasks';
+  static const String scheduledTaskNew = 'scheduled-task-new';
+  static const String scheduledTaskDetail = 'scheduled-task-detail';
+  static const String scheduledTaskEdit = 'scheduled-task-edit';
+  static const String calendar = 'calendar';
+  static const String personalConnectionEditor = 'personal-connection-editor';
   static const String directConnections = 'direct-connections';
   static const String directConnectionEditor = 'direct-connection-editor';
   static const String directMcpServerEditor = 'direct-mcp-server-editor';

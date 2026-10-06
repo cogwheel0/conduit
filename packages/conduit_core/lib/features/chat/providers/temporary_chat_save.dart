@@ -77,10 +77,18 @@ Future<TemporaryChatSaveOutcome> saveTemporaryChat(
       model: selectedModel?.id ?? '',
       systemPrompt: source.systemPrompt,
       folderId: source.folderId,
+      chatParams: source.chatParams.isEmpty ? null : source.chatParams,
     );
     if (!owns()) return TemporaryChatSaveOutcome.skipped;
 
-    final Conversation saved = created.copyWith(messages: messages);
+    // The created chat carries what it was created with, which is what the
+    // temporary chat had been sent with.
+    final Conversation saved = created.copyWith(
+      messages: messages,
+      chatParams: created.chatParams.isEmpty
+          ? source.chatParams
+          : created.chatParams,
+    );
     ref.read(activeConversationProvider.notifier).set(saved);
     ref
         .read(conversationsProvider.notifier)

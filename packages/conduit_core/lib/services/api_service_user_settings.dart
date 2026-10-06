@@ -158,6 +158,55 @@ mixin _UserSettingsApi on _ApiServiceBase {
     });
   }
 
+  /// Applies [edit] to the personal connection list [kind] and saves it under
+  /// `ui`, where Open WebUI's own settings screen keeps it.
+  ///
+  /// The edit runs against the latest server copy inside the shared mutation
+  /// queue, so it cannot overwrite a concurrent change to any other setting.
+  /// [authSnapshot] is taken before queueing when the caller passes none: a
+  /// write that waits behind other mutations still belongs to the account that
+  /// asked for it, and is refused if that account has since changed. The
+  /// returned lists come from the server's response, and a response that does
+  /// not hold the written list throws [PersonalConnectionsWriteRejected].
+  Future<PersonalConnectionsWrite> editPersonalConnections(
+    PersonalConnectionKind kind,
+    PersonalConnectionEdit edit, {
+    ApiAuthSnapshot? authSnapshot,
+  }) {
+    final snapshot = authSnapshot ?? captureAuthSnapshot();
+    return serializeUserSettingsMutation(() async {
+      final settings = _deepCloneJsonMap(
+        await getUserSettings(authSnapshot: snapshot),
+      );
+      final before = effectivePersonalServerList(settings, kind.settingsKey);
+      final result = edit.apply(kind, before);
+
+      final ui = _coerceJsonMap(settings['ui']) ?? <String, dynamic>{};
+      ui[kind.settingsKey] = result.list;
+      settings['ui'] = ui;
+      _traceApi('Updating personal ${kind.name} connections');
+      final response = await _postUserSettings(
+        settings,
+        authSnapshot: snapshot,
+      );
+      final canonical =
+          _coerceResponseMap(response.data) ??
+          await getUserSettings(authSnapshot: snapshot);
+      final after = effectivePersonalServerList(canonical, kind.settingsKey);
+      if (!const DeepCollectionEquality().equals(after, result.list)) {
+        throw PersonalConnectionsWriteRejected(kind);
+      }
+      return PersonalConnectionsWrite(
+        kind: kind,
+        before: before,
+        after: after,
+        indexMap: result.indexMap,
+        entryIndex: result.entryIndex,
+        settings: canonical,
+      );
+    });
+  }
+
   Future<ServerUserSettings> updateUserPinnedModels(List<String> modelIds) {
     final authSnapshot = captureAuthSnapshot();
     return serializeUserSettingsMutation(() async {
@@ -178,9 +227,14 @@ mixin _UserSettingsApi on _ApiServiceBase {
   }
 
   // Memory & Notes
-  Future<List<ServerMemory>> getMemories() async {
+  Future<List<ServerMemory>> getMemories({
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     _traceApi('Fetching memories');
-    final response = await _dio.get('/api/v1/memories/');
+    final response = await _dio.get(
+      '/api/v1/memories/',
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
     final data = response.data;
     if (data is List) {
       return data
@@ -191,11 +245,25 @@ mixin _UserSettingsApi on _ApiServiceBase {
     return const <ServerMemory>[];
   }
 
-  Future<ServerMemory> createMemory({required String content}) async {
+  /// Creates a memory. Open WebUI defaults an omitted type to `context`, so a
+  /// personal entry states [type] explicitly (`user`, as the web client does).
+  /// [path] is sent only when non-empty.
+  Future<ServerMemory> createMemory({
+    required String content,
+    String type = ServerMemory.userType,
+    String? path,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     _traceApi('Creating memory');
+    final trimmedPath = path?.trim();
     final response = await _dio.post(
       '/api/v1/memories/add',
-      data: {'content': content},
+      data: {
+        'content': content,
+        'type': type,
+        if (trimmedPath != null && trimmedPath.isNotEmpty) 'path': trimmedPath,
+      },
+      options: _withAuthSnapshot(Options(), authSnapshot),
     );
     final data = _coerceResponseMap(response.data);
     if (data == null) {
@@ -204,14 +272,22 @@ mixin _UserSettingsApi on _ApiServiceBase {
     return ServerMemory.fromJson(data);
   }
 
+  /// Updates a memory. The server keeps whatever it already stores for a field
+  /// that is omitted, so a content-only edit leaves the original type and path
+  /// untouched. Pass [type] or [path] only to change them; an empty [path]
+  /// clears it.
   Future<ServerMemory> updateMemory({
     required String memoryId,
     required String content,
+    String? type,
+    String? path,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
     _traceApi('Updating memory');
     final response = await _dio.post(
       '/api/v1/memories/$memoryId/update',
-      data: {'content': content},
+      data: {'content': content, 'type': ?type, 'path': ?path?.trim()},
+      options: _withAuthSnapshot(Options(), authSnapshot),
     );
     final data = _coerceResponseMap(response.data);
     if (data == null) {
@@ -220,13 +296,22 @@ mixin _UserSettingsApi on _ApiServiceBase {
     return ServerMemory.fromJson(data);
   }
 
-  Future<void> deleteMemory(String memoryId) async {
+  Future<void> deleteMemory(
+    String memoryId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     _traceApi('Deleting memory');
-    await _dio.delete('/api/v1/memories/$memoryId');
+    await _dio.delete(
+      '/api/v1/memories/$memoryId',
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
   }
 
-  Future<void> clearAllMemories() async {
+  Future<void> clearAllMemories({ApiAuthSnapshot? authSnapshot}) async {
     _traceApi('Clearing all memories');
-    await _dio.delete('/api/v1/memories/delete/user');
+    await _dio.delete(
+      '/api/v1/memories/delete/user',
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
   }
 }
