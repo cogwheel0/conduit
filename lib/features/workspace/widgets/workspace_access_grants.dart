@@ -393,14 +393,18 @@ class _WorkspaceAccessGrantSheetState
       return;
     }
     if (_saving) return;
+    // What is submitted is what closes the sheet, whatever the form shows by
+    // the time the owner answers.
+    final submitted = _grants;
+    final audience = _pickedAudience;
     setState(() {
       _saving = true;
       _saveError = null;
     });
-    final failure = await onSave(_grants, _pickedAudience);
+    final failure = await onSave(submitted, audience);
     if (!mounted) return;
     if (failure == null) {
-      Navigator.of(context).pop(_grants);
+      Navigator.of(context).pop(submitted);
       return;
     }
     setState(() {
@@ -422,7 +426,9 @@ class _WorkspaceAccessGrantSheetState
       allowUsers: widget.allowUserGrants,
       allowGroups: widget.allowGroupGrants,
     );
-    if (picked == null || !mounted) return;
+    // A picker opened before Save can still answer while the save is in
+    // flight, when the form no longer takes changes.
+    if (picked == null || !mounted || _saving) return;
     _names['${picked.type.name}:${picked.id}'] = picked.name;
     _update(upsertWorkspacePrincipalGrant(_grants, picked.type, picked.id));
     DebugLogger.log(
@@ -520,7 +526,7 @@ class _WorkspaceAccessGrantSheetState
                 icon: Icons.person_add_alt_1_outlined,
                 isSecondary: true,
                 isFullWidth: true,
-                onPressed: _addPrincipal,
+                onPressed: _saving ? null : _addPrincipal,
               ),
             ),
           const SizedBox(height: Spacing.sm),
@@ -627,8 +633,11 @@ class _WorkspaceAccessGrantSheetState
     final canChooseOpen = widget.audience!.canChooseOpen;
     // An audience the chat already has stays selectable, as in the web editor,
     // so a read-only or restricted account still sees where the chat stands.
+    // While a save is in flight only that choice stays, so it stays shown as
+    // selected and nothing else can be picked.
     bool enabled(ResourceAudience option) =>
         !_isReadOnly &&
+        (!_saving || option == current) &&
         switch (option) {
           ResourceAudience.private => true,
           ResourceAudience.public =>
@@ -710,7 +719,7 @@ class _WorkspaceAccessGrantSheetState
       subtitle: l10n.workspaceAccessVisibilityDescription,
       trailing: AdaptiveSwitch(
         value: isPublic,
-        onChanged: canToggle
+        onChanged: canToggle && !_saving
             ? (value) => _update(setWorkspacePublicGrant(_grants, value))
             : null,
       ),
@@ -757,7 +766,7 @@ class _WorkspaceAccessGrantSheetState
                         'workspace-access-write-${principal.type.name}-${principal.id}',
                       ),
                       value: principal.canWrite,
-                      onChanged: canEdit
+                      onChanged: canEdit && !_saving
                           ? (value) => _update(
                               setWorkspacePrincipalWrite(
                                 _grants,
@@ -778,13 +787,15 @@ class _WorkspaceAccessGrantSheetState
                 ),
                 tooltip: l10n.workspaceAccessRemoveGrant,
                 icon: Icons.close,
-                onPressed: () => _update(
-                  removeWorkspacePrincipal(
-                    _grants,
-                    principal.type,
-                    principal.id,
-                  ),
-                ),
+                onPressed: _saving
+                    ? null
+                    : () => _update(
+                        removeWorkspacePrincipal(
+                          _grants,
+                          principal.type,
+                          principal.id,
+                        ),
+                      ),
                 isCompact: true,
               ),
           ],

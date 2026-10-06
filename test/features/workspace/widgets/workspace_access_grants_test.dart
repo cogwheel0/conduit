@@ -5,10 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
+import 'package:conduit_core/features/sharing/models/resource_access.dart';
 import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 WorkspaceAccessGrantInput _user(
   String id, {
@@ -471,6 +474,204 @@ void main() {
         ),
         unorderedEquals(['group:g-legacy:write', 'user:u1:read']),
       );
+    });
+  });
+
+  // Save waits for the owner's answer, which can take a while. What the user
+  // sees and what the sheet returns must stay what was submitted until then.
+  group('while a save is in flight', () {
+    late Completer<String?> answer;
+    late AppLocalizations l10n;
+    List<WorkspaceAccessGrantInput>? submitted;
+    ResourceAudience? submittedAudience;
+    List<WorkspaceAccessGrantInput>? closedWith;
+
+    Future<void> frames(WidgetTester tester) async {
+      // A saving button spins for as long as it waits, so settling would not
+      // end.
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+    }
+
+    Future<void> openSheet(
+      WidgetTester tester, {
+      WorkspaceAudienceChoice? audience,
+    }) async {
+      l10n = await _loadL10n(tester);
+      answer = Completer<String?>();
+      submitted = null;
+      submittedAudience = null;
+      closedWith = null;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            workspacePrincipalDirectoryProvider.overrideWithValue(
+              _RecordingDirectory().directory,
+            ),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () async {
+                    closedWith = await Navigator.of(context)
+                        .push<List<WorkspaceAccessGrantInput>>(
+                          MaterialPageRoute(
+                            builder: (_) => Scaffold(
+                              body: WorkspaceAccessGrantSheet(
+                                initialGrants: [_user('u-bob')],
+                                capabilities: WorkspaceSectionCapabilities.all,
+                                allowUserGrants: true,
+                                allowGroupGrants: true,
+                                audience: audience,
+                                onSave: (grants, picked) {
+                                  submitted = grants;
+                                  submittedAudience = picked;
+                                  return answer.future;
+                                },
+                              ),
+                            ),
+                          ),
+                        );
+                  },
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> startSave(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('workspace-access-save')));
+      await frames(tester);
+      expect(submitted, isNotNull);
+    }
+
+    List<String> keys(Iterable<WorkspaceAccessGrantInput>? grants) => [
+      for (final g in grants ?? const <WorkspaceAccessGrantInput>[])
+        '${g.principalType.name}:${g.principalId}:${g.permission.name}',
+    ];
+
+    Finder bobWrite() =>
+        find.byKey(const Key('workspace-access-write-user-u-bob'));
+
+    testWidgets('the audience, a write switch, removing and adding are all '
+        'locked', (tester) async {
+      await openSheet(
+        tester,
+        audience: const WorkspaceAudienceChoice(
+          initial: ResourceAudience.private,
+          canChooseOpen: true,
+        ),
+      );
+      await startSave(tester);
+
+      await tester.tap(find.text(l10n.resourceAudiencePublic));
+      await tester.tap(find.text(l10n.resourceAudienceOpen));
+      await tester.tap(bobWrite());
+      await tester.tap(
+        find.byKey(const Key('workspace-access-remove-user-u-bob')),
+      );
+      await tester.tap(find.byKey(const Key('workspace-access-add')));
+      await frames(tester);
+
+      expect(
+        find.text(l10n.resourceAudiencePrivateHint),
+        findsOneWidget,
+        reason: 'the audience stayed private',
+      );
+      expect(tester.widget<AdaptiveSwitch>(bobWrite()).value, isFalse);
+      expect(
+        find.byKey(const Key('workspace-access-principal-user-u-bob')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('workspace-principal-tab-users')),
+        findsNothing,
+        reason: 'no picker opened',
+      );
+
+      answer.complete(null);
+      await tester.pumpAndSettle();
+      expect(keys(submitted), ['user:u-bob:read']);
+      // No pick was made, so none is sent.
+      expect(submittedAudience, isNull);
+      expect(keys(closedWith), keys(submitted));
+    });
+
+    testWidgets('the public switch is locked', (tester) async {
+      await openSheet(tester);
+      await startSave(tester);
+
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const Key('workspace-access-public')),
+          matching: find.byType(Switch),
+        ),
+      );
+      await frames(tester);
+      expect(
+        _switchIn(tester, const Key('workspace-access-public')).value,
+        isFalse,
+      );
+
+      answer.complete(null);
+      await tester.pumpAndSettle();
+      expect(keys(closedWith), ['user:u-bob:read']);
+    });
+
+    testWidgets('a person chosen in a picker that was already open is not '
+        'added, and the sheet closes with what was submitted', (tester) async {
+      await openSheet(
+        tester,
+        audience: const WorkspaceAudienceChoice(
+          initial: ResourceAudience.private,
+          canChooseOpen: true,
+        ),
+      );
+      await tester.tap(find.text(l10n.resourceAudiencePublic));
+      await tester.tap(bobWrite());
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('workspace-access-add')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(EditableText), 'ali');
+      await tester.pump(const Duration(milliseconds: 301));
+      await tester.pumpAndSettle();
+
+      // The picker covers Save, so a touch cannot reach it; the save is
+      // started the way a keyboard or an assistive tool still can.
+      tester
+          .widget<ConduitButton>(find.byKey(const Key('workspace-access-save')))
+          .onPressed!();
+      await tester.pump();
+      expect(submitted, isNotNull);
+      await tester.tap(
+        find.byKey(const Key('workspace-principal-user-u-alice')),
+      );
+      await frames(tester);
+
+      expect(
+        find.byKey(const Key('workspace-access-principal-user-u-alice')),
+        findsNothing,
+      );
+
+      answer.complete(null);
+      await tester.pumpAndSettle();
+      final expected = [
+        'user:u-bob:read',
+        'user:u-bob:write',
+        'user:*:read',
+      ];
+      expect(keys(submitted), unorderedEquals(expected));
+      expect(submittedAudience, ResourceAudience.public);
+      expect(keys(closedWith), unorderedEquals(expected));
     });
   });
 
