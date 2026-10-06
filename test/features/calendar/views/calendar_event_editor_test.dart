@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -86,6 +88,61 @@ void main() {
         'title': 'Holiday',
         'start_at': 1791259200000000000,
         'end_at': 1791345540000000000,
+        'all_day': true,
+      });
+    });
+
+    testWidgets('an end that was removed is not sent, and adding one again '
+        'ends where the event starts', (tester) async {
+      final session = await pumpCalendar(tester);
+
+      await openAdd(tester);
+      await typeInto(tester, 'calendar-editor-title', 'Reminder');
+      await tester.tap(find.byKey(const Key('calendar-editor-remove-end')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('calendar-editor-end-date')), findsNothing);
+      expect(find.byKey(const Key('calendar-editor-end-time')), findsNothing);
+      await tapSave(tester);
+
+      // Written as it is for a timed event with no end: the key is absent.
+      expect(session.wire.writes.single.data, {
+        'calendar_id': 'cal-mine',
+        'title': 'Reminder',
+        'start_at': 1791284400000000000,
+        'all_day': false,
+      });
+
+      await openAdd(tester);
+      await typeInto(tester, 'calendar-editor-title', 'Again');
+      await tester.tap(find.byKey(const Key('calendar-editor-remove-end')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('calendar-editor-add-end')));
+      await tester.pumpAndSettle();
+      await tapSave(tester);
+
+      expect(
+        (session.wire.writes.last.data as Map<String, dynamic>)['end_at'],
+        1791284400000000000,
+      );
+    });
+
+    testWidgets('an all-day event whose end was removed is sent without one', (
+      tester,
+    ) async {
+      final session = await pumpCalendar(tester);
+
+      await openAdd(tester);
+      await typeInto(tester, 'calendar-editor-title', 'Holiday');
+      await tester.tap(find.byKey(const Key('calendar-editor-all-day')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('calendar-editor-remove-end')));
+      await tester.pumpAndSettle();
+      await tapSave(tester);
+
+      expect(session.wire.writes.single.data, {
+        'calendar_id': 'cal-mine',
+        'title': 'Holiday',
+        'start_at': 1791259200000000000,
         'all_day': true,
       });
     });
@@ -210,6 +267,86 @@ void main() {
       expect(stored['title'], 'Renamed');
       expect(stored['start_at'], 1791320967123456789);
       expect(stored['end_at'], 1791324567987654321);
+    });
+
+    testWidgets('removing the end of a saved event clears it and nothing '
+        'else', (tester) async {
+      final session = await pumpCalendar(tester);
+
+      await openEdit(tester);
+      await tester.tap(find.byKey(const Key('calendar-editor-remove-end')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('calendar-editor-add-end')), findsOneWidget);
+      expect(saveEnabled(tester), isTrue);
+      await tapSave(tester);
+
+      final write = session.wire.writes.single;
+      expect(write.uri.path, '/api/v1/calendars/events/ev-mine/update');
+      expect(write.data, {'end_at': null});
+      final stored = session.wire.stored('ev-mine')!;
+      expect(stored['end_at'], isNull);
+      expect(stored['start_at'], 1791320967123456789);
+    });
+
+    testWidgets('removing the end of an all-day or repeating event leaves '
+        'its day and repeat alone', (tester) async {
+      final session = await pumpCalendar(
+        tester,
+        configureWire: (wire) => wire.events = [
+          eventJson('ev-day', 'cal-mine', title: 'Offsite', allDay: true),
+          eventJson('ev-weekly', 'cal-mine', title: 'Sync', rrule: 'FREQ=WEEKLY'),
+        ],
+      );
+
+      await openEdit(tester, event: 'ev-day|');
+      await tester.tap(find.byKey(const Key('calendar-editor-remove-end')));
+      await tester.pumpAndSettle();
+      await tapSave(tester);
+      expect(session.wire.writes.single.data, {'end_at': null});
+      session.wire.requests.clear();
+
+      await openEdit(tester, event: 'ev-weekly|');
+      expect(
+        tester
+            .widget<ConduitChip>(
+              find.byKey(const Key('calendar-editor-repeat-weekly')),
+            )
+            .isSelected,
+        isTrue,
+      );
+      await tester.tap(find.byKey(const Key('calendar-editor-remove-end')));
+      await tester.pumpAndSettle();
+      await tapSave(tester);
+
+      final write = session.wire.writes.single;
+      expect(write.uri.path, '/api/v1/calendars/events/ev-weekly/update');
+      expect(write.data, {'end_at': null});
+      expect(session.wire.stored('ev-weekly')!['rrule'], 'FREQ=WEEKLY');
+    });
+
+    testWidgets('the end cannot be removed while the save is in flight', (
+      tester,
+    ) async {
+      final session = await pumpCalendar(tester);
+      await openEdit(tester);
+      await typeInto(tester, 'calendar-editor-title', 'Renamed');
+      final gate = Completer<void>();
+      session.wire.holdWrites = gate;
+
+      await tester.tap(find.byKey(_save));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(session.wire.writes, hasLength(1));
+      await tester.tap(
+        find.byKey(const Key('calendar-editor-remove-end')),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+      expect(find.byKey(const Key('calendar-editor-end-date')), findsOneWidget);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(session.wire.writes.single.data, {'title': 'Renamed'});
+      expect(session.wire.stored('ev-mine')!['end_at'], 1791324567987654321);
     });
 
     testWidgets('a date picker opened and cancelled, or confirmed unchanged, '

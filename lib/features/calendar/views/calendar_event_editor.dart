@@ -404,6 +404,19 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
                     showChevron: true,
                     onTap: _saving ? null : () => _pickTime(end: true),
                   ),
+                UtilityRow(
+                  key: const Key('calendar-editor-remove-end'),
+                  title: l10n.clear,
+                  leading: Icon(
+                    UiUtils.platformIcon(
+                      ios: CupertinoIcons.minus_circled,
+                      android: Icons.remove_circle_outline,
+                    ),
+                  ),
+                  onTap: _saving
+                      ? null
+                      : () => _update(draft.copyWith(clearEnd: true)),
+                ),
               ],
             ],
           ),
