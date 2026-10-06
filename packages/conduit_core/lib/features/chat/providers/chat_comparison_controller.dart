@@ -1566,7 +1566,7 @@ class ComparisonMergeController extends Notifier<String?> {
 
     // Another account's chat is read-only whichever surface asked. The stored
     // row names its owner, which a cached copy on screen may not carry.
-    final currentUserId = (ref.read(currentUserProvider2) as User?)?.id;
+    final currentUserId = ref.read(currentUserProvider2)?.id;
     final storedOwner = (await database.chatsDao.getChat(active.id))?.userId;
     if (isReadOnlySharedConversation(active, currentUserId) ||
         (storedOwner != null && storedOwner != currentUserId)) {
