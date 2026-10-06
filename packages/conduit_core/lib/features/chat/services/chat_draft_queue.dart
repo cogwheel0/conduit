@@ -623,6 +623,22 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
       final refused = await _settleOwedWork(queueId, draftIds, owed);
       if (refused != null) return refused;
     }
+    // Waiting on the server leaves the composer free, so another answer may have
+    // started meanwhile. A turn is not sent over it: the drafts stay whole, and
+    // the queue drains when that answer is done, as it does after any other.
+    if (!ref.mounted) return ChatDraftSendNowOutcome.changed;
+    if (ref.read(chatMainAnswerActiveProvider)) {
+      _replace(
+        queueId,
+        (queue) => queue.phase == ChatDraftQueuePhase.admitting
+            ? queue._copyWith(
+                phase: ChatDraftQueuePhase.idle,
+                frozenDraftIds: const <String>[],
+              )
+            : queue,
+      );
+      return ChatDraftSendNowOutcome.changed;
+    }
     final queue = state.where((queue) => queue.id == queueId).firstOrNull;
     if (queue == null) return ChatDraftSendNowOutcome.unavailable;
     final batch = [

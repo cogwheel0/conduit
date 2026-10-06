@@ -261,6 +261,12 @@ FileUploadState _file(
   isImage: false,
 );
 
+/// An ordinary message sent from the composer, which a Stop leaves free.
+final _sendOrdinaryMessage = Provider<Future<void> Function(String)>(
+  (ref) =>
+      (text) => durableSend(ref, text, null),
+);
+
 Future<void> _seedChat(AppDatabase db, String chatId) => db
     .into(db.chats)
     .insert(
@@ -1361,6 +1367,77 @@ void main() {
       check(await s.completions()).length.equals(1);
       check(s.api.stoppedChats).deepEquals([_Session.chatId]);
     });
+
+    for (final selected in const [false, true]) {
+      test('a reply sent while ${selected ? 'send now' : 'the compact Stop'} '
+          'waits on the server keeps the queue behind it until it finishes',
+          () async {
+        final s = await _Session.start();
+        s.api.stopGate = Completer<void>();
+        addTearDown(() {
+          if (!s.api.stopGate!.isCompleted) s.api.stopGate!.complete();
+        });
+        s.attach([_file('kept.csv')]);
+        final first = s.queue.enqueue('queued first')!;
+        final second = s.queue.enqueue('queued second')!;
+        final sendNow = selected ? s.queue.sendNow(first.id) : null;
+        if (!selected) s.container.read(stopGenerationProvider)();
+        await s.until(
+          () =>
+              s.api.stoppedChats.isNotEmpty &&
+              s.active?.phase ==
+                  (selected
+                      ? ChatDraftQueuePhase.stopping
+                      : ChatDraftQueuePhase.admitting),
+        );
+        // The Stop settled the answer on screen, so the composer is free and
+        // the user sends another message while the server is still answering.
+        check(s.container.read(chatMainAnswerActiveProvider)).isFalse();
+        await s.container.read(_sendOrdinaryMessage)('newer reply');
+        final live = s.container.read(chatMessagesProvider).last;
+        s.container
+            .read(chatMessagesProvider.notifier)
+            .updateMessageById(
+              live.id,
+              (message) => message.copyWith(content: 'newer partial'),
+            );
+        check(s.container.read(chatMainAnswerActiveProvider)).isTrue();
+
+        s.api.stopGate!.complete();
+        if (sendNow != null) {
+          check(await sendNow).equals(ChatDraftSendNowOutcome.changed);
+        }
+        await s.settle();
+
+        // The newer answer is still the one running: nothing was sent over it,
+        // and the drafts wait whole, editable, and without a Retry.
+        check((await s.sentUserRows()).map((row) => row.content))
+            .deepEquals(['newer reply']);
+        check(await s.completions()).length.equals(1);
+        final shown = s.container.read(chatMessagesProvider).last;
+        check(shown.id).equals(live.id);
+        check(shown.content).equals('newer partial');
+        check(shown.isStreaming).isTrue();
+        check(s.active!.drafts.map((d) => d.id))
+            .deepEquals([first.id, second.id]);
+        check(s.active!.phase).equals(ChatDraftQueuePhase.idle);
+        check(s.active!.frozenDraftIds).isEmpty();
+        check(s.active!.admissionFailed).isFalse();
+        check(s.parked).length.equals(1);
+
+        s.finishResponse();
+        await s.until(() => s.active == null);
+        await s.settle();
+
+        final rows = await s.sentUserRows();
+        check(rows.map((row) => row.content))
+            .deepEquals(['newer reply', 'queued first\n\nqueued second']);
+        check(s.userFileIds(rows.last)).deepEquals(['id-kept.csv']);
+        check(s.parked).isEmpty();
+        check(await s.completions()).length.equals(2);
+        check(s.api.stoppedChats).deepEquals([_Session.chatId]);
+      });
+    }
 
     test('a refused Stop keeps the drafts until the user retries, and the '
         'retry asks the server again', () async {
