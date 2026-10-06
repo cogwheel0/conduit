@@ -78,6 +78,7 @@ ChatMessage _displayedAnswer(
 Widget _harness(
   ChatMessage message, {
   Set<String>? continuableIds,
+  bool readOnly = false,
   List<Override> overrides = const <Override>[],
 }) {
   return ProviderScope(
@@ -122,6 +123,7 @@ Widget _harness(
           child: AssistantMessageWidget(
             message: message,
             isStreaming: false,
+            readOnly: readOnly,
             animateOnMount: false,
             modelName: message.model,
             onCopy: () {},
@@ -612,6 +614,40 @@ void main() {
       expect(find.text('13 is a prime number.'), findsOneWidget);
       expect(find.text(l10n.chatMergedResponseTitle), findsOneWidget);
       expect(find.textContaining('Both runs agree'), findsOneWidget);
+    });
+
+    testWidgets('is not offered to a reader of another account\'s comparison, '
+        'whose saved merge stays readable', (tester) async {
+      final merge = _RecordingMerge();
+      await tester.pumpWidget(
+        _harness(
+          _displayedAnswer('13_duplicate_model_comparison'),
+          readOnly: true,
+          overrides: [
+            comparisonMergeCommandAvailableProvider.overrideWithValue(true),
+            comparisonMergeProvider.overrideWith(() => merge),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // A reader's footer is shorter, so merge would sit inline (a tooltip
+      // button) rather than in the overflow menu; it is in neither.
+      expect(find.byTooltip(l10n.chatMergeResponsesAction), findsNothing);
+      final overflow = find.byIcon(Icons.more_horiz_rounded);
+      if (overflow.evaluate().isNotEmpty) {
+        await tester.tap(overflow);
+        await tester.pumpAndSettle();
+      }
+      expect(find.text(l10n.chatMergeResponsesAction), findsNothing);
+      await tester.tapAt(const Offset(1, 1));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.bySemanticsLabel('GPT-4o · 1'));
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.chatMergedResponseTitle), findsOneWidget);
+      expect(find.textContaining('Both runs agree'), findsOneWidget);
+      expect(merge.calls, isEmpty);
     });
 
     testWidgets('a merge in progress can be stopped from the answer it is '

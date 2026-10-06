@@ -2252,6 +2252,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         ? null
         : _shownAnswer(comparisonGroup);
     final canMerge =
+        !widget.readOnly &&
         comparisonGroup != null &&
         comparisonGroup.isComparison &&
         ref.watch(comparisonMergeCommandAvailableProvider) &&

@@ -1564,24 +1564,66 @@ class ComparisonMergeController extends Notifier<String?> {
     final authSnapshot = api.captureAuthSnapshot();
     bool ownsContext() => openWebUiCompletionContextIsCurrent(ref, owner);
 
+    // Another account's chat is read-only whichever surface asked. The stored
+    // row names its owner, which a cached copy on screen may not carry.
+    final currentUserId = (ref.read(currentUserProvider2) as User?)?.id;
+    final storedOwner = (await database.chatsDao.getChat(active.id))?.userId;
+    if (isReadOnlySharedConversation(active, currentUserId) ||
+        (storedOwner != null && storedOwner != currentUserId)) {
+      throw const ComparisonMergeException(ComparisonMergeFailure.notMergeable);
+    }
+
     final prompt = await _mergePrompt(owner, parentMessageId);
     if (!ownsContext()) {
       throw const ComparisonMergeException(ComparisonMergeFailure.ownerChanged);
     }
+
+    // The merge the target shows, wherever the transcript keeps it: on the
+    // displayed message itself or on one of its stored alternatives.
+    Map<String, dynamic>? mergedOf(ChatMessage message) {
+      Object? raw;
+      if (message.id == targetMessageId) {
+        raw = message.metadata?[kMessageMergedMetadataKey];
+      } else {
+        for (final version in message.versions) {
+          if (version.id == targetMessageId) raw = version.merged;
+        }
+      }
+      return raw is Map
+          ? <String, dynamic>{
+              for (final entry in raw.entries) entry.key.toString(): entry.value,
+            }
+          : null;
+    }
+
+    // What the target showed before this merge, so a merge that produces no
+    // text puts it back rather than erasing it.
+    final shownBefore = ref
+        .read(chatMessagesProvider)
+        .where((message) => message.id == displayedMessageId)
+        .firstOrNull;
+    final previousMerged = shownBefore == null ? null : mergedOf(shownBefore);
 
     state = targetMessageId;
     _cancelled = false;
     var content = '';
     ComparisonMergeException? failure;
 
-    void show(String? text) {
+    // [restoring] replaces only the empty placeholder this merge put on screen:
+    // a result that landed in its place meanwhile is newer and stays.
+    void show(Map<String, dynamic>? merged, {bool restoring = false}) {
       // The transcript only changes while it is still this chat's.
       if (activeOpenWebUiChatIdForMutation(ref, owner) == null) return;
       final notifier = ref.read(chatMessagesProvider.notifier);
-      final merged = text == null
-          ? null
-          : <String, dynamic>{'status': true, 'content': text};
       notifier.updateMessageById(displayedMessageId, (message) {
+        if (restoring) {
+          final current = mergedOf(message);
+          if (current == null ||
+              current['status'] != true ||
+              current['content'] != '') {
+            return message;
+          }
+        }
         if (message.id == targetMessageId) {
           final metadata = Map<String, dynamic>.of(
             message.metadata ?? const <String, dynamic>{},
@@ -1604,8 +1646,13 @@ class ComparisonMergeController extends Notifier<String?> {
       });
     }
 
+    Map<String, dynamic> mergedText(String text) => <String, dynamic>{
+      'status': true,
+      'content': text,
+    };
+
     try {
-      show('');
+      show(mergedText(''));
       final MoaCompletion completion;
       try {
         completion = await api.generateMoaCompletion(
@@ -1627,6 +1674,20 @@ class ComparisonMergeController extends Notifier<String?> {
         throw failure;
       }
       _cancelRequest = completion.cancel;
+      // The account or chat may have changed, or the user pressed Stop, while
+      // the server was still answering with its headers: that response is
+      // stopped before any text of it is read.
+      if (!ownsContext()) {
+        await completion.cancel();
+        failure = const ComparisonMergeException(
+          ComparisonMergeFailure.ownerChanged,
+        );
+        throw failure;
+      }
+      if (_cancelled) {
+        await completion.cancel();
+        return;
+      }
       try {
         await for (final update in completion.updates) {
           if (!ownsContext()) {
@@ -1641,10 +1702,10 @@ class ComparisonMergeController extends Notifier<String?> {
               // Open WebUI drops a leading newline before the first text.
               if (content.isEmpty && delta == '\n') continue;
               content += delta;
-              show(content);
+              show(mergedText(content));
             case OpenWebUIContentSnapshot(content: final snapshot):
               content = snapshot;
-              show(content);
+              show(mergedText(content));
             case OpenWebUIErrorUpdate(:final error):
               failure = ComparisonMergeException(
                 ComparisonMergeFailure.failed,
@@ -1675,14 +1736,14 @@ class ComparisonMergeController extends Notifier<String?> {
       _cancelRequest = null;
       state = null;
       // The merge is saved as far as it got, like Open WebUI saves what it has
-      // when its stream ends or is stopped. Failing before any text leaves no
-      // merge at all rather than an empty one.
+      // when its stream ends or is stopped. Failing before any text leaves what
+      // the answer showed before, not an empty merge and not nothing.
       if (failure?.reason != ComparisonMergeFailure.ownerChanged &&
           ownsContext()) {
         if (content.isNotEmpty) {
           await _saveMerged(owner, database, targetMessageId, content);
         } else {
-          show(null);
+          show(previousMerged, restoring: true);
         }
       }
     }

@@ -4245,8 +4245,16 @@ void main() {
       ...extra,
     };
 
-    Future<void> seedTurn() async {
+    Future<void> seedTurn({
+      Map<String, dynamic>? firstMerged,
+      Map<String, dynamic>? shownMerged,
+      String? storedOwner,
+    }) async {
       await _seedChat(db, chatId);
+      if (storedOwner != null) {
+        await (db.update(db.chats)..where((chat) => chat.id.equals(chatId)))
+            .write(ChatsCompanion(userId: Value(storedOwner)));
+      }
       Future<void> insert(
         String id,
         String role,
@@ -4285,7 +4293,10 @@ void main() {
           firstId,
           0,
           '13 is prime.',
-          extra: {'x_future_key': {'keep': true}},
+          extra: {
+            'x_future_key': {'keep': true},
+            'merged': ?firstMerged,
+          },
         ),
         parent: userId,
       );
@@ -4293,15 +4304,30 @@ void main() {
         secondId,
         'assistant',
         '17 is prime.',
-        answerPayload(secondId, 1, '17 is prime.'),
+        answerPayload(
+          secondId,
+          1,
+          '17 is prime.',
+          extra: {'merged': ?shownMerged},
+        ),
         parent: userId,
       );
     }
 
     /// The transcript as a saved comparison opens: the second answer shown,
     /// the first held beside it as a stored alternative.
-    Future<({_FanOutApi api, ProviderContainer container})> open() async {
-      await seedTurn();
+    Future<({_FanOutApi api, ProviderContainer container})> open({
+      Map<String, dynamic>? firstMerged,
+      Map<String, dynamic>? shownMerged,
+      User? signedInAs,
+      String? cachedOwner,
+      String? storedOwner,
+    }) async {
+      await seedTurn(
+        firstMerged: firstMerged,
+        shownMerged: shownMerged,
+        storedOwner: storedOwner,
+      );
       final api = _FanOutApi();
       final shown = ChatMessage(
         id: secondId,
@@ -4309,7 +4335,11 @@ void main() {
         content: '17 is prime.',
         timestamp: DateTime.utc(2026, 7, 13),
         model: 'model-1',
-        metadata: const {'parentId': userId, 'modelIdx': 1},
+        metadata: {
+          'parentId': userId,
+          'modelIdx': 1,
+          'merged': ?shownMerged,
+        },
         versions: [
           ChatMessageVersion(
             id: firstId,
@@ -4317,6 +4347,7 @@ void main() {
             timestamp: DateTime.utc(2026, 7, 13),
             model: 'model-1',
             modelIdx: 0,
+            merged: firstMerged,
           ),
         ],
       );
@@ -4331,7 +4362,11 @@ void main() {
       ];
       final container = _container(
         db: db,
-        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        active: _conversation(
+          chatId,
+          messages,
+          ChatStorageKind.openWebUi,
+        ).copyWith(userId: cachedOwner),
         messages: messages,
         api: api,
         syncEngine: _QuietSyncEngine(db, api),
@@ -4339,6 +4374,7 @@ void main() {
           openWebUiAuthSessionEpochProvider.overrideWith(
             (ref) => ref.watch(_signInEpochProvider),
           ),
+          if (signedInAs != null) ..._signedInAs(signedInAs),
         ],
       );
       addTearDown(container.dispose);
@@ -4352,11 +4388,12 @@ void main() {
     Future<void> startMerge(
       ProviderContainer container, {
       required Completer<Object?> outcome,
+      String target = secondId,
     }) {
       return container
           .read(comparisonMergeProvider.notifier)
           .merge(
-            targetMessageId: secondId,
+            targetMessageId: target,
             displayedMessageId: secondId,
             parentMessageId: userId,
             model: 'model-1',
@@ -4506,6 +4543,186 @@ void main() {
             ),
       ).throws<ComparisonMergeException>();
       check(api.merges).isEmpty();
+    });
+
+    const shownMerge = {'status': true, 'content': 'Old merge of the shown'};
+    const firstMerge = {'status': true, 'content': 'Old merge of the first'};
+
+    Future<Iterable<OutboxOp>> queuedUpdates() async => (await db.outboxDao
+            .pendingForChat(chatId))
+        .where((op) => op.kind == 'updateChat');
+
+    test('stopping while the server is still answering stops that response '
+        'unread and keeps what the answer showed before', () async {
+      final (:api, :container) = await open(shownMerged: shownMerge);
+      final before = await storedPayload(secondId);
+      api.holdMergeHeaders = Completer<void>();
+      final outcome = Completer<Object?>();
+      unawaited(startMerge(container, outcome: outcome));
+      await api.mergeEntered.future;
+
+      await container.read(comparisonMergeProvider.notifier).cancel();
+      api.holdMergeHeaders!.complete();
+      await Future<void>.delayed(Duration.zero);
+
+      // The response that arrived after Stop is stopped without being read.
+      check(api.mergeCancels).equals(1);
+      check(await outcome.future).isNull();
+      check(shownAnswer(container).mergedResponse?.content)
+          .equals('Old merge of the shown');
+      check(await storedPayload(secondId)).deepEquals(before);
+      check(await queuedUpdates()).isEmpty();
+      check(container.read(comparisonMergeProvider)).isNull();
+    });
+
+    test('a sign-in change while the server is still answering stops that '
+        'response unread', () async {
+      final (:api, :container) = await open();
+      final before = await storedPayload(secondId);
+      api.holdMergeHeaders = Completer<void>();
+      final outcome = Completer<Object?>();
+      unawaited(startMerge(container, outcome: outcome));
+      await api.mergeEntered.future;
+
+      container.read(_signInEpochProvider.notifier).rotate();
+      api.holdMergeHeaders!.complete();
+      await Future<void>.delayed(Duration.zero);
+
+      check(api.mergeCancels).equals(1);
+      check(await outcome.future).isA<ComparisonMergeException>().has(
+        (e) => e.reason,
+        'reason',
+      ).equals(ComparisonMergeFailure.ownerChanged);
+      check(await storedPayload(secondId)).deepEquals(before);
+      check(await queuedUpdates()).isEmpty();
+    });
+
+    for (final (name, target) in [
+      ('the answer being shown', secondId),
+      ('a stored alternative of it', firstId),
+    ]) {
+      test('a replacement that fails before any text leaves the merge it '
+          'replaced: $name', () async {
+        final (:api, :container) = await open(
+          firstMerged: firstMerge,
+          shownMerged: shownMerge,
+        );
+        final storedBefore = [
+          await storedPayload(firstId),
+          await storedPayload(secondId),
+        ];
+        api.mergeFailure = const MoaCompletionFailed(500, 'boom');
+        final outcome = Completer<Object?>();
+        await startMerge(container, outcome: outcome, target: target);
+
+        check(await outcome.future).isA<ComparisonMergeException>().has(
+          (e) => e.reason,
+          'reason',
+        ).equals(ComparisonMergeFailure.failed);
+        // Both merges are back on screen exactly as they were, and untouched
+        // in the database; no source answer failed.
+        check(shownAnswer(container).mergedResponse?.content)
+            .equals('Old merge of the shown');
+        check(shownAnswer(container).versions.single.merged)
+            .isNotNull()
+            .deepEquals(firstMerge);
+        check(shownAnswer(container).error).isNull();
+        check(await storedPayload(firstId)).deepEquals(storedBefore[0]);
+        check(await storedPayload(secondId)).deepEquals(storedBefore[1]);
+        check(await queuedUpdates()).isEmpty();
+      });
+    }
+
+    test('a merge with no earlier merge leaves none when it fails before any '
+        'text', () async {
+      final (:api, :container) = await open();
+      api.mergeFailure = const MoaCompletionFailed(500, 'boom');
+      final outcome = Completer<Object?>();
+      await startMerge(container, outcome: outcome);
+
+      check(await outcome.future).isA<ComparisonMergeException>();
+      check(shownAnswer(container).mergedResponse).isNull();
+      check(shownAnswer(container).metadata!.containsKey('merged')).isFalse();
+    });
+
+    test('a newer merge that landed while a replacement failed is not erased',
+        () async {
+      final (:api, :container) = await open(shownMerged: shownMerge);
+      api.holdMergeHeaders = Completer<void>();
+      final outcome = Completer<Object?>();
+      unawaited(startMerge(container, outcome: outcome));
+      await api.mergeEntered.future;
+
+      // A pull stores another device's merge for the same answer meanwhile.
+      container.read(chatMessagesProvider.notifier).updateMessageById(
+        secondId,
+        (message) => message.copyWith(
+          metadata: {
+            ...?message.metadata,
+            'merged': {'status': true, 'content': 'Newer merge'},
+          },
+        ),
+      );
+      api.mergeFailure = const MoaCompletionFailed(500, 'boom');
+      api.holdMergeHeaders!.complete();
+
+      check(await outcome.future).isA<ComparisonMergeException>();
+      check(shownAnswer(container).mergedResponse?.content)
+          .equals('Newer merge');
+    });
+
+    for (final (name, cachedOwner, storedOwner) in [
+      ('the stored chat names another owner', null, 'account-b'),
+      ('the cached copy names another owner', 'account-b', null),
+    ]) {
+      test('another account\'s comparison is never merged: $name', () async {
+        final (:api, :container) = await open(
+          signedInAs: _accountA,
+          cachedOwner: cachedOwner,
+          storedOwner: storedOwner,
+        );
+        final storedBefore = [
+          await storedPayload(firstId),
+          await storedPayload(secondId),
+        ];
+        final outcome = Completer<Object?>();
+        unawaited(startMerge(container, outcome: outcome));
+        // A merge that was allowed to start would sit waiting for text.
+        final error = await outcome.future.timeout(
+          const Duration(seconds: 1),
+          onTimeout: () => 'the merge went on to wait for text',
+        );
+
+        check(error).isA<ComparisonMergeException>().has(
+          (e) => e.reason,
+          'reason',
+        ).equals(ComparisonMergeFailure.notMergeable);
+        check(api.merges).isEmpty();
+        check(shownAnswer(container).mergedResponse).isNull();
+        check(await storedPayload(firstId)).deepEquals(storedBefore[0]);
+        check(await storedPayload(secondId)).deepEquals(storedBefore[1]);
+        check(await queuedUpdates()).isEmpty();
+        check(container.read(comparisonMergeProvider)).isNull();
+      });
+    }
+
+    test('the signed-in owner of a comparison can merge it', () async {
+      final (:api, :container) = await open(
+        signedInAs: _accountA,
+        cachedOwner: _accountA.id,
+        storedOwner: _accountA.id,
+      );
+      final outcome = Completer<Object?>();
+      unawaited(startMerge(container, outcome: outcome));
+      await api.mergeEntered.future;
+      await Future<void>.delayed(Duration.zero);
+      api.mergeUpdates!.add(const OpenWebUIContentDelta('Both agree.'));
+      api.mergeUpdates!.add(const OpenWebUIStreamDone());
+      await api.mergeUpdates!.close();
+
+      check(await outcome.future).isNull();
+      check((await storedPayload(secondId))['merged']).isA<Map<String, dynamic>>()
+          .deepEquals({'status': true, 'content': 'Both agree.'});
     });
   });
 
@@ -7301,6 +7518,15 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
   StreamController<OpenWebUIStreamUpdate>? mergeUpdates;
   bool mergeEndpointMissing = false;
 
+  /// When set, the merge endpoint answers with its headers only once this
+  /// completes, and [mergeEntered] marks the wait.
+  Completer<void>? holdMergeHeaders;
+  final mergeEntered = Completer<void>();
+
+  /// When set, the merge endpoint refuses once its headers would have arrived.
+  MoaCompletionFailed? mergeFailure;
+  int mergeCancels = 0;
+
   @override
   String? get assistantMessageId => requests.lastOrNull?.responseMessageId;
 
@@ -7364,11 +7590,16 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
   }) async {
     merges.add((model: model, prompt: prompt, responses: responses));
     if (mergeEndpointMissing) throw const MoaCompletionUnavailable(404);
+    if (!mergeEntered.isCompleted) mergeEntered.complete();
+    await holdMergeHeaders?.future;
+    final failure = mergeFailure;
+    if (failure != null) throw failure;
     final updates = StreamController<OpenWebUIStreamUpdate>();
     mergeUpdates = updates;
     return MoaCompletion(
       updates: updates.stream,
       cancel: () async {
+        mergeCancels++;
         if (!updates.isClosed) {
           unawaited(updates.close());
         }
