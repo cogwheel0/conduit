@@ -249,25 +249,29 @@ class _EditorState extends ConsumerState<_Editor> {
     }
   }
 
+  // A choice lands on the draft as it is when the choice is made, not as it was
+  // when the picker opened: the form stays editable while a pick is pending.
   Future<void> _pickModel(List<Model> models) async {
-    final draft = _draft;
-    if (draft == null) return;
+    if (_draft == null) return;
     final picked = await _pick(
       AppLocalizations.of(context)!.scheduledTaskModelLabel,
       [for (final m in models) (id: m.id, label: m.name, subtitle: m.id)],
     );
-    if (picked != null) _update(draft.copyWith(modelId: picked));
+    final draft = _draft;
+    if (picked != null && draft != null) {
+      _update(draft.copyWith(modelId: picked));
+    }
   }
 
   Future<void> _pickFolder(List<({String id, String name})> folders) async {
-    final draft = _draft;
-    if (draft == null) return;
+    if (_draft == null) return;
     final l10n = AppLocalizations.of(context)!;
     final picked = await _pick(l10n.scheduledTaskFolderLabel, [
       (id: '', label: l10n.scheduledTaskFolderNone, subtitle: null),
       for (final f in folders) (id: f.id, label: f.name, subtitle: null),
     ]);
-    if (picked == null) return;
+    final draft = _draft;
+    if (picked == null || draft == null) return;
     _update(
       picked.isEmpty
           ? draft.copyWith(clearFolder: true)
@@ -279,9 +283,8 @@ class _EditorState extends ConsumerState<_Editor> {
     List<Channel> channels,
     Map<String, AutomationChannelAccess> access,
   ) async {
-    final draft = _draft;
     final owner = _owner;
-    if (draft == null) return;
+    if (_draft == null) return;
     final l10n = AppLocalizations.of(context)!;
     final picked = await _pick(l10n.scheduledTaskDestinationChannel, [
       for (final c in channels)
@@ -312,7 +315,11 @@ class _EditorState extends ConsumerState<_Editor> {
         return;
       }
     }
-    if (!mounted) return;
+    // The write check took a round trip, during which the form stayed live, so
+    // the channel goes onto what is typed now. A user who switched the
+    // destination back to chat meanwhile is not sent to the channel anyway.
+    final draft = _draft;
+    if (!mounted || draft == null || !draft.target.isChannel) return;
     _update(draft.copyWith(target: AutomationTarget.channel(picked)));
   }
 

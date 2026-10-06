@@ -848,6 +848,81 @@ void main() {
       expect(find.text('Choose a channel'), findsOneWidget);
     });
 
+    // The write check is a network read, so the form stays live while it runs.
+    Future<AutomationHold> chooseWithWriteCheckPending(
+      WidgetTester tester,
+      AutomationSession session,
+    ) async {
+      await tester.tap(find.byKey(const Key('scheduled-task-target-channel')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('scheduled-task-channel')));
+      await tester.pumpAndSettle();
+      final hold = session.wire.hold('GET', '/api/v1/channels/c1');
+      await tester.tap(find.byKey(const Key('scheduled-task-option-c1')));
+      await reach(tester, hold);
+      await tester.pumpAndSettle();
+      return hold;
+    }
+
+    testWidgets('edits made while the write check is pending are kept when the '
+        'channel is chosen', (tester) async {
+      final session = await _edit(
+        tester,
+        channels: const [Channel(id: 'c1', name: 'general')],
+      );
+      final hold = await chooseWithWriteCheckPending(tester, session);
+
+      await tester.enterText(
+        find.byKey(const Key('scheduled-task-name')),
+        'Renamed',
+      );
+      await tester.enterText(
+        find.byKey(const Key('scheduled-task-prompt')),
+        'A new prompt',
+      );
+      await tester.tap(find.byKey(const Key('scheduled-task-kind-weekly')));
+      await tester.pumpAndSettle();
+      hold.release();
+      await tester.pumpAndSettle();
+      expect(find.text('#general'), findsOneWidget);
+      await _save(tester);
+
+      final body = _body(session.wire, '/update');
+      final data = body['data'] as Map;
+      expect(body['name'], 'Renamed');
+      expect(data['prompt'], 'A new prompt');
+      expect(
+        data['rrule'],
+        allOf(
+          startsWith('RRULE:FREQ=WEEKLY;BYDAY='),
+          endsWith(';BYHOUR=9;BYMINUTE=0'),
+        ),
+      );
+      expect(data['target'], {'type': 'channel', 'channel_id': 'c1'});
+    });
+
+    testWidgets('a channel chosen before the destination was switched back to '
+        'chat does not override that choice', (tester) async {
+      final session = await _edit(
+        tester,
+        channels: const [Channel(id: 'c1', name: 'general')],
+      );
+      final hold = await chooseWithWriteCheckPending(tester, session);
+
+      await tester.tap(find.byKey(const Key('scheduled-task-target-chat')));
+      await tester.enterText(
+        find.byKey(const Key('scheduled-task-name')),
+        'Renamed',
+      );
+      hold.release();
+      await tester.pumpAndSettle();
+      await _save(tester);
+
+      final body = _body(session.wire, '/update');
+      expect(body['name'], 'Renamed');
+      expect((body['data'] as Map)['target'], {'type': 'chat'});
+    });
+
     testWidgets('a channel task needs a channel before it saves', (
       tester,
     ) async {
