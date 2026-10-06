@@ -642,6 +642,9 @@ void main() {
       int shownSlot = 2,
       Set<int> failed = const {3},
       Set<int> streaming = const {},
+      // Stored copies the server still reports not done: they hold text, but
+      // only what was written so far.
+      Set<int> partial = const {},
     }) {
       const names = ['Alpha', 'Beta', 'Gamma', 'Delta'];
       ChatMessageError? errorOf(int slot) => failed.contains(slot)
@@ -662,6 +665,8 @@ void main() {
           'modelName': names[shownSlot],
           'modelIdx': shownSlot,
           'responseDone': !streaming.contains(shownSlot),
+          if (partial.isNotEmpty)
+            'unfinishedAnswerIds': [for (final slot in partial) 'answer-$slot'],
         },
         versions: [
           for (var slot = 0; slot < names.length; slot++)
@@ -779,6 +784,22 @@ void main() {
       await openMergeCommand(tester);
 
       // Alpha and Gamma are the only finished answers: nothing to choose.
+      expect(find.byType(ChatMergeSourcesSheet), findsNothing);
+      expect(merge.calls.single['responses'], [
+        'text of Alpha',
+        'text of Gamma',
+      ]);
+    });
+
+    testWidgets('a stored sibling the server still reports unfinished is not a '
+        'source, though it holds partial text', (tester) async {
+      final merge = await pumpMerge(
+        tester,
+        turn(failed: const {3}, partial: const {1}),
+      );
+      await openMergeCommand(tester);
+
+      // Beta's partial text is left out, so Alpha and Gamma merge directly.
       expect(find.byType(ChatMergeSourcesSheet), findsNothing);
       expect(merge.calls.single['responses'], [
         'text of Alpha',

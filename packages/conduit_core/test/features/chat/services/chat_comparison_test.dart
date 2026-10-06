@@ -108,6 +108,63 @@ void main() {
       check(firstTurnAnswer.content).contains('footer appended by outlet');
     });
 
+    test('a saved sibling the server reports unfinished is still being '
+        'written, whichever copy of the turn is shown', () {
+      Conversation saved({required String currentId}) =>
+          parseFullConversationModel(<String, dynamic>{
+            'id': 'conv-1',
+            'chat': {
+              'history': {
+                'currentId': currentId,
+                'messages': {
+                  'user-1': {
+                    'role': 'user',
+                    'content': 'Compare',
+                    'childrenIds': ['a-0', 'a-1'],
+                    'timestamp': 1700000000,
+                  },
+                  'a-0': {
+                    'role': 'assistant',
+                    'content': 'First',
+                    'parentId': 'user-1',
+                    'model': 'm',
+                    'modelIdx': 0,
+                    'done': true,
+                    'timestamp': 1700000001,
+                  },
+                  'a-1': {
+                    'role': 'assistant',
+                    'content': 'Second, so far',
+                    'parentId': 'user-1',
+                    'model': 'm',
+                    'modelIdx': 1,
+                    'done': false,
+                    'timestamp': 1700000002,
+                  },
+                },
+              },
+            },
+          });
+
+      // The partial answer is a stored alternative of the finished one.
+      final fromFinished = ChatComparisonGroup.fromMessage(
+        _lastAssistant(saved(currentId: 'a-0')),
+      );
+      check(fromFinished.isComparison).isTrue();
+      check(fromFinished.slotAt(1)!.current.messageId).equals('a-1');
+      check(fromFinished.slotAt(1)!.current.content).equals('Second, so far');
+      check(fromFinished.slotAt(1)!.current.isStreaming).isTrue();
+      check(fromFinished.slotAt(0)!.current.isStreaming).isFalse();
+
+      // And as the shown message the same answer is not finished either.
+      final fromPartial = ChatComparisonGroup.fromMessage(
+        _lastAssistant(saved(currentId: 'a-1')),
+      );
+      check(fromPartial.slotAt(1)!.current.isStreaming).isTrue();
+      check(fromPartial.slotAt(0)!.current.isStreaming).isFalse();
+      check(fromPartial.slotAt(0)!.current.content).equals('First');
+    });
+
     test('a stored merge needs status true to count', () {
       check(
         ChatMergedResponse.tryFrom(<String, Object?>{

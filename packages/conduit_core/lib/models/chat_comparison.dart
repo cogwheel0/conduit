@@ -155,6 +155,13 @@ class ChatComparisonGroup {
   /// Groups [message] and its stored alternatives by slot. Always returns a
   /// group; [isComparison] says whether it spans more than one slot.
   factory ChatComparisonGroup.fromMessage(ChatMessage message) {
+    // A stored copy keeps no completion flag, so the answers the server still
+    // reports unfinished are projected as still being written: partial text is
+    // never a finished answer.
+    final unfinished = <String>{
+      ...?(message.metadata?[kMessageUnfinishedAnswersMetadataKey] as List?)
+          ?.whereType<String>(),
+    };
     final bySlot = <int, List<ChatComparisonAnswer>>{};
     for (var i = 0; i < message.versions.length; i++) {
       final version = message.versions[i];
@@ -169,6 +176,7 @@ class ChatComparisonGroup {
               model: version.model,
               modelName: version.modelName,
               versionIndex: i,
+              isStreaming: unfinished.contains(version.id),
               error: version.error,
               merged: ChatMergedResponse.tryFrom(version.merged),
               output: version.output,
@@ -185,7 +193,8 @@ class ChatComparisonGroup {
             content: message.content,
             model: message.model,
             modelName: message.metadata?['modelName']?.toString(),
-            isStreaming: message.isStreaming,
+            isStreaming:
+                message.isStreaming || unfinished.contains(message.id),
             error: message.error,
             merged: message.mergedResponse,
             output: message.output,
