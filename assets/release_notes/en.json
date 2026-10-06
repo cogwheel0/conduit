@@ -151,6 +151,33 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.1.9",
+      "title": "What's new",
+      "intro": "Hi! Direct chats can search the web from your device, and images open in a gallery you can swipe through. You can switch between regenerated answers right below the reply. I also fixed Hermes setup, Android speech recognition, and a batch of chat and settings bugs.",
+      "bullets": [
+        {
+          "text": "Web search: Direct models without their own search can search and read pages from your device, including Ollama and Apple models that support tools. Choose the search engine, safe search, and region in settings. Direct models also show their maker's logo.",
+          "icon": "direct"
+        },
+        {
+          "text": "Images: swipe through attachments in chat and channels, zoom, and share. iOS uses Quick Look for supported images; Android can save to Pictures/Conduit.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chat and channels: switch regenerated answers with the arrows below the reply. Direct chats keep earlier versions when reopened, and edited messages resend correctly. Markdown checkboxes render. Channel threads show replies, edits, deletions, and reactions live.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes and voice: Desktop Gateway sign-in and connection tests work during setup, and replies no longer end before the first text arrives. Android speech retries a supported variant of your chosen language. Note dictation follows your speech-to-text setting.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Settings and accounts: native iOS settings follow your language, workspace details refresh after saving, and notification taps open the right conversation. Sign-out clears Direct and Hermes connections; keeping server details works. iOS dialogs and note checklists work again.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

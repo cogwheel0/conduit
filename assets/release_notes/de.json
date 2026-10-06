@@ -151,6 +151,33 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.1.9",
+      "title": "Neuigkeiten",
+      "intro": "Hallo! Direct-Chats können vom Gerät aus das Web durchsuchen, und Bilder öffnen sich in einer Galerie zum Durchwischen. Zwischen neu generierten Antworten kannst du direkt unter der Antwort wechseln. Ich habe auch die Hermes-Einrichtung, die Android-Spracherkennung und einige Fehler in Chat und Einstellungen behoben.",
+      "bullets": [
+        {
+          "text": "Websuche: Direct-Modelle ohne eigene Suche können vom Gerät aus suchen und Seiten lesen, auch Ollama- und Apple-Modelle mit Werkzeugunterstützung. Suchmaschine, Suchfilter und Region wählst du in den Einstellungen. Direct-Modelle zeigen außerdem das Logo ihres Herstellers.",
+          "icon": "direct"
+        },
+        {
+          "text": "Bilder: Wische durch Anhänge in Chats und Kanälen, zoome und teile sie. iOS nutzt Quick Look für unterstützte Bilder; Android kann sie in Pictures/Conduit speichern.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chat und Kanäle: Mit den Pfeilen unter der Antwort wechselst du zwischen neu generierten Antworten. Direct-Chats behalten frühere Versionen beim erneuten Öffnen, und bearbeitete Nachrichten werden wieder korrekt gesendet. Markdown-Kontrollkästchen werden dargestellt. Kanal-Threads zeigen Antworten, Änderungen, Löschungen und Reaktionen live.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes und Sprache: Anmeldung und Verbindungstests für das Desktop Gateway funktionieren während der Einrichtung. Antworten enden nicht mehr, bevor der erste Text ankommt. Die Android-Spracherkennung versucht eine unterstützte Variante deiner gewählten Sprache. Beim Diktieren von Notizen gilt deine Einstellung für die Spracherkennung.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Einstellungen und Konten: Die nativen iOS-Einstellungen nutzen deine Sprache, Workspace-Details aktualisieren sich nach dem Speichern, und ein Tippen auf eine Benachrichtigung öffnet die richtige Unterhaltung. Abmelden entfernt Direct- und Hermes-Verbindungen; Serverdetails lassen sich behalten. iOS-Dialoge und Checklisten in Notizen funktionieren wieder.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

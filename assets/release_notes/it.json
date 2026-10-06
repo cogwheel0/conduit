@@ -151,6 +151,33 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.1.9",
+      "title": "Novità",
+      "intro": "Ciao! Le chat Direct possono cercare sul web dal tuo dispositivo e le immagini si aprono in una galleria da sfogliare con un gesto. Puoi passare tra le risposte rigenerate direttamente sotto la risposta. Ho anche corretto la configurazione di Hermes, il riconoscimento vocale di Android e diversi problemi di chat e impostazioni.",
+      "bullets": [
+        {
+          "text": "Ricerca web: i modelli Direct senza ricerca integrata possono cercare e leggere pagine dal tuo dispositivo, inclusi i modelli Ollama e Apple che supportano gli strumenti. Scegli il motore di ricerca, il filtro di ricerca sicura e la regione nelle impostazioni. I modelli Direct mostrano anche il logo del loro creatore.",
+          "icon": "direct"
+        },
+        {
+          "text": "Immagini: sfoglia gli allegati delle chat e dei canali con un gesto, ingrandiscili e condividili. iOS usa Quick Look per le immagini supportate; Android permette di salvarle in Pictures/Conduit.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chat e canali: passa tra le risposte rigenerate con le frecce sotto la risposta. Le chat Direct conservano le versioni precedenti quando le riapri e i messaggi modificati vengono reinviati correttamente. Le caselle di spunta Markdown vengono visualizzate. I thread dei canali mostrano risposte, modifiche, eliminazioni e reazioni in tempo reale.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes e voce: l’accesso e i test di connessione di Desktop Gateway funzionano durante la configurazione e le risposte non terminano più prima che arrivi il primo testo. Il riconoscimento vocale di Android riprova con una variante supportata della lingua scelta. La dettatura delle note segue la tua impostazione di conversione da voce a testo.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Impostazioni e account: le impostazioni native di iOS usano la tua lingua, i dettagli dell’area di lavoro si aggiornano dopo il salvataggio e toccare una notifica apre la conversazione giusta. Uscire dall’account cancella le connessioni Direct e Hermes; conservare i dati del server funziona. Le finestre di dialogo e le liste di controllo nelle note tornano a funzionare su iOS.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

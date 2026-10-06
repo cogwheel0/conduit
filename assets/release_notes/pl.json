@@ -151,6 +151,33 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.1.9",
+      "title": "Co nowego",
+      "intro": "Cześć! Czaty Direct mogą przeszukiwać internet z Twojego urządzenia, a obrazy otwierają się w galerii, którą można przeglądać gestem przesunięcia. Między ponownie wygenerowanymi odpowiedziami przełączysz się tuż pod odpowiedzią. Poprawiłem też konfigurację Hermes, rozpoznawanie mowy w Androidzie oraz kilka błędów czatu i ustawień.",
+      "bullets": [
+        {
+          "text": "Wyszukiwanie w sieci: modele Direct bez własnej wyszukiwarki mogą wyszukiwać i czytać strony z Twojego urządzenia, w tym modele Ollama i Apple obsługujące narzędzia. W ustawieniach wybierzesz wyszukiwarkę, filtr bezpiecznego wyszukiwania i region. Modele Direct pokazują też logo swojego twórcy.",
+          "icon": "direct"
+        },
+        {
+          "text": "Obrazy: przeglądaj załączniki w czatach i kanałach gestem przesunięcia, powiększaj je i udostępniaj. iOS używa Quick Look dla obsługiwanych obrazów; Android pozwala zapisywać je w Pictures/Conduit.",
+          "icon": "polish"
+        },
+        {
+          "text": "Czat i kanały: przełączaj ponownie wygenerowane odpowiedzi strzałkami pod odpowiedzią. Czaty Direct zachowują wcześniejsze wersje po ponownym otwarciu, a edytowane wiadomości są poprawnie wysyłane ponownie. Pola wyboru w Markdown są wyświetlane. Wątki kanałów pokazują odpowiedzi, edycje, usunięcia i reakcje na żywo.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes i głos: logowanie i testy połączenia Desktop Gateway działają podczas konfiguracji, a odpowiedzi nie kończą się już przed nadejściem pierwszego tekstu. Rozpoznawanie mowy w Androidzie próbuje obsługiwanego wariantu wybranego języka. Dyktowanie notatek korzysta z Twojego ustawienia zamiany mowy na tekst.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Ustawienia i konta: natywne ustawienia iOS używają wybranego języka, szczegóły obszaru roboczego odświeżają się po zapisaniu, a stuknięcie powiadomienia otwiera właściwą rozmowę. Wylogowanie usuwa połączenia Direct i Hermes; zachowanie danych serwera działa. Okna dialogowe i listy zadań w notatkach znów działają na iOS.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

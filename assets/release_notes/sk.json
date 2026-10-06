@@ -151,6 +151,33 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.1.9",
+      "title": "Novinky",
+      "intro": "Ahoj! Chaty Direct môžu prehľadávať web z tvojho zariadenia a obrázky sa otvárajú v galérii, ktorú môžeš prechádzať potiahnutím. Medzi znova vygenerovanými odpoveďami môžeš prepínať priamo pod odpoveďou. Opravil som aj nastavenie Hermes, rozpoznávanie reči v Androide a niekoľko chýb v chate a nastaveniach.",
+      "bullets": [
+        {
+          "text": "Vyhľadávanie na webe: modely Direct bez vlastného vyhľadávania môžu z tvojho zariadenia vyhľadávať a čítať stránky, vrátane modelov Ollama a Apple s podporou nástrojov. V nastaveniach si vyberieš vyhľadávač, filter bezpečného vyhľadávania a oblasť. Modely Direct zobrazujú aj logo svojho tvorcu.",
+          "icon": "direct"
+        },
+        {
+          "text": "Obrázky: prílohy v chatoch a kanáloch môžeš prechádzať potiahnutím, približovať a zdieľať. iOS používa pre podporované obrázky Quick Look; v Androide ich môžeš uložiť do Pictures/Conduit.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chat a kanály: šípkami pod odpoveďou prepínaš medzi znova vygenerovanými odpoveďami. Chaty Direct si po opätovnom otvorení pamätajú predchádzajúce verzie a upravené správy sa správne odošlú znova. Zaškrtávacie políčka v Markdowne sa zobrazujú. Vlákna kanálov ukazujú odpovede, úpravy, vymazania aj reakcie priebežne.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes a hlas: prihlásenie k Desktop Gateway a testy pripojenia fungujú už pri nastavovaní a odpovede sa nekončia skôr, než príde prvý text. Rozpoznávanie reči v Androide skúsi podporovaný variant zvoleného jazyka. Diktovanie poznámok sa riadi tvojím nastavením prevodu reči na text.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Nastavenia a účty: natívne nastavenia iOS používajú tvoj jazyk, podrobnosti pracovného priestoru sa po uložení obnovia a ťuknutie na oznámenie otvorí správnu konverzáciu. Odhlásenie odstráni pripojenia Direct a Hermes; zachovanie údajov servera funguje. Dialógy a zoznamy úloh v poznámkach na iOS zasa fungujú.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

@@ -151,6 +151,33 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.1.9",
+      "title": "Nouveautés",
+      "intro": "Bonjour ! Les discussions Direct peuvent chercher sur le web depuis ton appareil, et les images s’ouvrent dans une galerie à parcourir d’un glissement. Tu peux passer d’une réponse régénérée à l’autre juste sous la réponse. J’ai aussi corrigé la configuration d’Hermes, la reconnaissance vocale d’Android et plusieurs bugs du chat et des réglages.",
+      "bullets": [
+        {
+          "text": "Recherche web : les modèles Direct sans recherche intégrée peuvent chercher et lire des pages depuis ton appareil, y compris les modèles Ollama et Apple qui prennent en charge les outils. Choisis le moteur de recherche, le filtre de recherche sécurisée et la région dans les réglages. Les modèles Direct affichent aussi le logo de leur créateur.",
+          "icon": "direct"
+        },
+        {
+          "text": "Images : parcours les pièces jointes des discussions et des canaux d’un glissement, zoome et partage-les. iOS utilise Quick Look pour les images compatibles ; Android permet de les enregistrer dans Pictures/Conduit.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chat et canaux : passe d’une réponse régénérée à l’autre avec les flèches sous la réponse. Les discussions Direct conservent les anciennes versions à la réouverture, et les messages modifiés sont renvoyés correctement. Les cases à cocher Markdown s’affichent. Les fils des canaux affichent les réponses, modifications, suppressions et réactions en direct.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes et voix : la connexion et les tests du Desktop Gateway fonctionnent pendant la configuration, et les réponses ne se terminent plus avant l’arrivée du premier texte. La reconnaissance vocale d’Android réessaie avec une variante compatible de la langue choisie. La dictée des notes suit ton réglage de reconnaissance vocale.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Réglages et comptes : les réglages natifs d’iOS utilisent ta langue, les détails de l’espace de travail s’actualisent après l’enregistrement, et toucher une notification ouvre la bonne discussion. La déconnexion efface les connexions Direct et Hermes ; conserver les détails du serveur fonctionne. Les boîtes de dialogue et les listes de tâches des notes fonctionnent à nouveau sur iOS.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

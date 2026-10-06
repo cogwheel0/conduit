@@ -151,6 +151,33 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.1.9",
+      "title": "Novedades",
+      "intro": "¡Hola! Los chats Direct pueden buscar en la web desde tu dispositivo y las imágenes se abren en una galería que puedes recorrer deslizando. Puedes cambiar entre respuestas regeneradas justo debajo de la respuesta. También he corregido la configuración de Hermes, el reconocimiento de voz de Android y varios errores del chat y los ajustes.",
+      "bullets": [
+        {
+          "text": "Búsqueda web: los modelos Direct sin búsqueda propia pueden buscar y leer páginas desde tu dispositivo, incluidos los modelos de Ollama y Apple que admiten herramientas. Elige el buscador, el filtro de búsqueda segura y la región en los ajustes. Los modelos Direct también muestran el logotipo de su creador.",
+          "icon": "direct"
+        },
+        {
+          "text": "Imágenes: desliza para recorrer los adjuntos del chat y los canales, amplíalos y compártelos. iOS usa Quick Look para las imágenes compatibles; Android permite guardarlas en Pictures/Conduit.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chat y canales: cambia entre respuestas regeneradas con las flechas bajo la respuesta. Los chats Direct conservan las versiones anteriores al volver a abrirlos y los mensajes editados se reenvían correctamente. Las casillas de Markdown se muestran. Los hilos de los canales muestran respuestas, ediciones, eliminaciones y reacciones en tiempo real.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes y voz: el inicio de sesión y las pruebas de conexión de Desktop Gateway funcionan durante la configuración, y las respuestas ya no terminan antes de que llegue el primer texto. El reconocimiento de voz de Android prueba una variante compatible del idioma elegido. El dictado de notas usa tu ajuste de voz a texto.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Ajustes y cuentas: los ajustes nativos de iOS usan tu idioma, los detalles del espacio de trabajo se actualizan tras guardar y tocar una notificación abre la conversación correcta. Cerrar sesión borra las conexiones Direct y Hermes; conservar los datos del servidor funciona. Los diálogos y las listas de tareas de las notas vuelven a funcionar en iOS.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

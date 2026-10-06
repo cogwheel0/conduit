@@ -151,6 +151,33 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.1.9",
+      "title": "Nieuw",
+      "intro": "Hoi! Direct-chats kunnen vanaf je apparaat op het web zoeken, en afbeeldingen openen in een galerij waar je doorheen kunt vegen. Je kunt direct onder het antwoord tussen opnieuw gegenereerde antwoorden wisselen. Ik heb ook de Hermes-configuratie, Android-spraakherkenning en een aantal fouten in chat en instellingen verholpen.",
+      "bullets": [
+        {
+          "text": "Webzoeken: Direct-modellen zonder eigen zoekfunctie kunnen vanaf je apparaat zoeken en pagina’s lezen, ook Ollama- en Apple-modellen die tools ondersteunen. Kies de zoekmachine, het filter voor veilig zoeken en de regio in de instellingen. Direct-modellen tonen ook het logo van hun maker.",
+          "icon": "direct"
+        },
+        {
+          "text": "Afbeeldingen: veeg door bijlagen in chats en kanalen, zoom in en deel ze. iOS gebruikt Quick Look voor ondersteunde afbeeldingen; Android kan ze opslaan in Pictures/Conduit.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chat en kanalen: wissel tussen opnieuw gegenereerde antwoorden met de pijlen onder het antwoord. Direct-chats bewaren eerdere versies als je ze opnieuw opent, en bewerkte berichten worden correct opnieuw verzonden. Markdown-selectievakjes worden weergegeven. Kanaalthreads tonen antwoorden, bewerkingen, verwijderingen en reacties direct.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes en spraak: aanmelden en verbindingstests voor de Desktop Gateway werken tijdens het instellen, en antwoorden stoppen niet meer voordat de eerste tekst verschijnt. Android-spraakherkenning probeert een ondersteunde variant van je gekozen taal. Notities dicteren volgt je instelling voor spraak naar tekst.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Instellingen en accounts: de native iOS-instellingen gebruiken je taal, werkruimtedetails worden na het opslaan bijgewerkt, en tikken op een melding opent het juiste gesprek. Afmelden wist Direct- en Hermes-verbindingen; servergegevens bewaren werkt. iOS-dialogen en takenlijsten in notities werken weer.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

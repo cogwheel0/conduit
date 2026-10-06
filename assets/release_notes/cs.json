@@ -151,6 +151,33 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.1.9",
+      "title": "Novinky",
+      "intro": "Ahoj! Chaty Direct můžou prohledávat web z tvého zařízení a obrázky se otevírají v galerii, kterou můžeš procházet přejetím. Mezi znovu vygenerovanými odpověďmi můžeš přepínat přímo pod odpovědí. Opravil jsem také nastavení Hermes, rozpoznávání řeči v Androidu a několik chyb v chatu a nastavení.",
+      "bullets": [
+        {
+          "text": "Vyhledávání na webu: modely Direct bez vlastního vyhledávání můžou z tvého zařízení vyhledávat a číst stránky, včetně modelů Ollama a Apple s podporou nástrojů. V nastavení si vybereš vyhledávač, filtr bezpečného vyhledávání a oblast. Modely Direct také zobrazují logo svého tvůrce.",
+          "icon": "direct"
+        },
+        {
+          "text": "Obrázky: přílohy v chatu a kanálech můžeš procházet přejetím, přibližovat a sdílet. iOS používá pro podporované obrázky Quick Look; v Androidu je můžeš uložit do Pictures/Conduit.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chat a kanály: šipkami pod odpovědí přepínáš mezi znovu vygenerovanými odpověďmi. Chaty Direct si po opětovném otevření pamatují dřívější verze a upravené zprávy se správně odešlou znovu. Zaškrtávací políčka v Markdownu se zobrazují. Vlákna kanálů ukazují nové odpovědi, úpravy, smazání i reakce průběžně.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes a hlas: přihlášení k Desktop Gateway a testy připojení fungují už při nastavování a odpovědi nekončí dřív, než přijde první text. Rozpoznávání řeči v Androidu zkusí podporovanou variantu zvoleného jazyka. Diktování poznámek se řídí tvým nastavením převodu řeči na text.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Nastavení a účty: nativní nastavení iOS používá tvůj jazyk, podrobnosti pracovního prostoru se po uložení obnoví a klepnutí na oznámení otevře správnou konverzaci. Odhlášení odstraní připojení Direct a Hermes; zachování údajů serveru funguje. Dialogy a seznamy úkolů v poznámkách na iOS zase fungují.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }
