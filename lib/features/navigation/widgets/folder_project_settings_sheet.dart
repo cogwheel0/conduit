@@ -69,13 +69,49 @@ class _Option {
 }
 
 class _Picker {
-  _Picker(this.kind);
+  _Picker(this.kind, this.taken);
 
   final _PickerKind kind;
-  List<_Option>? options;
-  bool failed = false;
-  String query = '';
+
+  /// What the folder already has, which is not offered again.
+  final Set<String> taken;
+
+  /// Every option shown so far. A choice resolves against this, so it keeps its
+  /// name and type after a search has replaced the list it was made in.
+  final Map<String, _Option> known = <String, _Option>{};
   final List<String> selected = <String>[];
+  String query = '';
+
+  /// The models, or the person's own files: read once and narrowed here.
+  List<_Option>? fixed;
+  bool fixedLoading = true;
+  bool fixedFailed = false;
+
+  /// The knowledge bases, asked of the server a page at a time for
+  /// [collectionQuery] (null until the first page arrives).
+  List<_Option> collections = const <_Option>[];
+  String? collectionQuery;
+  int collectionPage = 0;
+  bool collectionsMore = false;
+  bool collectionsLoading = false;
+  bool collectionsFailed = false;
+
+  /// The failed knowledge request was for a later page, not the first.
+  bool failedOnMore = false;
+
+  /// The sign-in changed, so nothing further is asked or shown.
+  bool ownerChanged = false;
+
+  /// Names the latest knowledge request; an older answer is dropped.
+  int generation = 0;
+
+  bool get failed => fixedFailed || collectionsFailed;
+
+  void remember(Iterable<_Option> options) {
+    for (final option in options) {
+      known[option.id] = option;
+    }
+  }
 }
 
 class _FolderProjectSettingsSheetState
@@ -90,6 +126,7 @@ class _FolderProjectSettingsSheetState
   final _prompt = TextEditingController();
   final _search = TextEditingController();
   _Picker? _picker;
+  Timer? _searchTimer;
   bool _saving = false;
   String? _failure;
 
@@ -111,6 +148,7 @@ class _FolderProjectSettingsSheetState
 
   @override
   void dispose() {
+    _searchTimer?.cancel();
     _prompt.dispose();
     _search.dispose();
     super.dispose();
@@ -241,14 +279,10 @@ class _FolderProjectSettingsSheetState
 
   // ---- pickers --------------------------------------------------------
 
+  /// How long typing pauses before a knowledge search is asked of the server.
+  static const _searchDelay = Duration(milliseconds: 300);
+
   Future<void> _openPicker(_PickerKind kind) async {
-    final picker = _Picker(kind);
-    _search.clear();
-    setState(() {
-      _failure = null;
-      _picker = picker;
-    });
-    // What the folder already has is not offered again.
     final taken = <String>{};
     if (kind == _PickerKind.models) {
       for (final entry in _models) {
@@ -260,43 +294,190 @@ class _FolderProjectSettingsSheetState
         if (id != null) taken.add(id);
       }
     }
-    final options = <_Option>[];
-    var loaded = false;
-    try {
-      if (kind == _PickerKind.models) {
-        final models = await ref.read(modelsProvider.future);
-        for (final model in folderDefaultModelCandidates(models)) {
-          options.add(_Option(model.id, model.name, 'model'));
-        }
-        loaded = true;
-      } else {
-        try {
-          final knowledge = await ref.read(workspaceKnowledgeProvider.future);
-          for (final item in knowledge.items) {
-            options.add(_Option(item.id, item.name, 'collection'));
-          }
-          loaded = true;
-        } catch (_) {}
-        try {
-          final files = await ref.read(userFilesProvider.future);
-          for (final file in files) {
-            options.add(_Option(file.id, file.displayName, 'file'));
-          }
-          loaded = true;
-        } catch (_) {}
-      }
-    } catch (_) {}
-    if (!mounted || !identical(_picker, picker)) return;
+    final picker = _Picker(kind, taken);
+    _searchTimer?.cancel();
+    _search.clear();
     setState(() {
-      picker.failed = !loaded;
-      picker.options = [
-        for (final option in options)
-          if (!taken.contains(option.id)) option,
-      ];
+      _failure = null;
+      _picker = picker;
+    });
+    if (kind == _PickerKind.models) {
+      await _loadModels(picker);
+    } else {
+      await Future.wait([
+        _loadCollections(picker, more: false),
+        _loadFiles(picker),
+      ]);
+    }
+  }
+
+  bool _pickerIsCurrent(_Picker picker) =>
+      mounted && identical(_picker, picker);
+
+  bool get _ownerIsCurrent =>
+      ref.read(foldersProvider.notifier).isCurrentProjectOwner(widget.owner);
+
+  /// The sign-in the editor opened under is gone: whatever was asked for it is
+  /// dropped unseen, and nothing here can be added or saved any more.
+  void _pickerOwnerChanged(_Picker picker) {
+    final message = AppLocalizations.of(context)!.folderProjectOwnerChanged;
+    setState(() {
+      picker.ownerChanged = true;
+      picker.fixedLoading = false;
+      picker.collectionsLoading = false;
+      picker.collectionsFailed = true;
+      picker.fixed = null;
+      picker.collections = const <_Option>[];
+      picker.selected.clear();
+      _failure = message;
     });
   }
 
+  Future<void> _loadModels(_Picker picker) async {
+    List<_Option>? options;
+    try {
+      final models = await ref.read(modelsProvider.future);
+      options = [
+        for (final model in folderDefaultModelCandidates(models))
+          _Option(model.id, model.name, 'model'),
+      ];
+    } catch (_) {}
+    if (!_pickerIsCurrent(picker)) return;
+    setState(() {
+      picker.fixedLoading = false;
+      if (options == null) {
+        picker.fixedFailed = true;
+      } else {
+        picker.fixed = options;
+        picker.remember(options);
+      }
+    });
+  }
+
+  Future<void> _loadFiles(_Picker picker) async {
+    List<_Option>? options;
+    try {
+      final files = await ref.read(userFilesProvider.future);
+      options = [
+        for (final file in files) _Option(file.id, file.displayName, 'file'),
+      ];
+    } catch (_) {}
+    if (!_pickerIsCurrent(picker)) return;
+    if (!_ownerIsCurrent) {
+      _pickerOwnerChanged(picker);
+      return;
+    }
+    setState(() {
+      picker.fixedLoading = false;
+      if (options == null) {
+        picker.fixedFailed = true;
+      } else {
+        picker.fixed = options;
+        picker.remember(options);
+      }
+    });
+  }
+
+  /// Asks the server, as the account that opened the sheet, for a page of the
+  /// knowledge bases it may read: the first page of what is typed in the search
+  /// field, or with [more] the next page of what is listed. The query and view
+  /// are this picker's own; Workspace's list and its filters are not touched.
+  /// An answer is shown only while this is still the latest request of the open
+  /// picker and the same account is still signed in.
+  Future<void> _loadCollections(_Picker picker, {required bool more}) async {
+    if (more && picker.collectionsLoading) return;
+    final query = more ? picker.collectionQuery ?? '' : picker.query.trim();
+    final page = more ? picker.collectionPage + 1 : 1;
+    final generation = ++picker.generation;
+    setState(() {
+      picker.collectionsLoading = true;
+      picker.collectionsFailed = false;
+    });
+    final api = _ownerIsCurrent ? ref.read(apiServiceProvider) : null;
+    var asked = false;
+    List<_Option> fetched = const <_Option>[];
+    var total = 0;
+    if (api != null) {
+      try {
+        final response = await api.getWorkspaceKnowledge(
+          query: query,
+          page: page,
+        );
+        fetched = [
+          for (final item in response.items)
+            _Option(item.id, item.name, 'collection'),
+        ];
+        total = response.total;
+        asked = true;
+      } catch (_) {}
+    }
+    if (!_pickerIsCurrent(picker) || generation != picker.generation) return;
+    if (!_ownerIsCurrent) {
+      _pickerOwnerChanged(picker);
+      return;
+    }
+    setState(() {
+      picker.collectionsLoading = false;
+      if (!asked) {
+        picker.collectionsFailed = true;
+        picker.failedOnMore = more;
+        return;
+      }
+      picker.remember(fetched);
+      final seen = <String>{};
+      final listed = [
+        for (final option in [if (more) ...picker.collections, ...fetched])
+          if (seen.add(option.id)) option,
+      ];
+      picker.collections = listed;
+      picker.collectionQuery = query;
+      picker.collectionPage = page;
+      // An empty page ends the list however many the server says there are.
+      picker.collectionsMore = fetched.isNotEmpty && listed.length < total;
+    });
+  }
+
+  Future<void> _retryPicker(_Picker picker) async {
+    if (picker.ownerChanged) return;
+    if (picker.fixedFailed && picker.kind == _PickerKind.knowledge) {
+      setState(() {
+        picker.fixedFailed = false;
+        picker.fixedLoading = true;
+      });
+      ref.invalidate(userFilesProvider);
+      unawaited(_loadFiles(picker));
+    }
+    if (picker.collectionsFailed) {
+      await _loadCollections(picker, more: picker.failedOnMore);
+    }
+  }
+
+  /// Asks the server for knowledge matching the search field, once typing
+  /// pauses (or [immediate]ly), unless that is what is already listed.
+  void _searchCollections(_Picker picker, {required bool immediate}) {
+    _searchTimer?.cancel();
+    void run() {
+      if (!_pickerIsCurrent(picker) || picker.ownerChanged) return;
+      if (picker.query.trim() == picker.collectionQuery) {
+        // Back to what is listed: anything asked since is stale.
+        setState(() {
+          picker.generation++;
+          picker.collectionsLoading = false;
+        });
+        return;
+      }
+      unawaited(_loadCollections(picker, more: false));
+    }
+
+    if (immediate) {
+      run();
+    } else {
+      _searchTimer = Timer(_searchDelay, run);
+    }
+  }
+
   void _closePicker() {
+    _searchTimer?.cancel();
     _search.clear();
     setState(() => _picker = null);
   }
@@ -304,10 +485,7 @@ class _FolderProjectSettingsSheetState
   void _applyPicker() {
     final picker = _picker;
     if (picker == null) return;
-    final byId = {
-      for (final option in picker.options ?? const <_Option>[])
-        option.id: option,
-    };
+    _searchTimer?.cancel();
     _edit(() {
       if (picker.kind == _PickerKind.models) {
         _models = [..._models, ...picker.selected];
@@ -315,7 +493,7 @@ class _FolderProjectSettingsSheetState
         _files = [
           ..._files,
           for (final id in picker.selected)
-            if (byId[id] case final option?)
+            if (picker.known[id] case final option?)
               FolderProjectFile.reference(
                 type: option.type,
                 id: id,
@@ -514,8 +692,16 @@ class _FolderProjectSettingsSheetState
             for (final model in folderDefaultModelCandidates(offered))
               model.id: model,
           };
+    // Workspace's list vouches for a saved collection only when it is the
+    // whole list: a page of it, or a searched or filtered one, leaves out
+    // collections that exist.
     final knowledge = ref.watch(workspaceKnowledgeProvider).asData?.value;
-    final knownCollections = knowledge == null || knowledge.hasMore
+    final knownCollections =
+        knowledge == null ||
+            knowledge.hasMore ||
+            knowledge.query.trim().isNotEmpty ||
+            knowledge.source.isNotEmpty ||
+            (knowledge.view.isNotEmpty && knowledge.view != 'all')
         ? null
         : {for (final item in knowledge.items) item.id};
 
@@ -619,14 +805,56 @@ class _FolderProjectSettingsSheetState
     ScrollController controller,
     _Picker picker,
   ) {
-    final options = picker.options;
-    final query = picker.query.trim().toLowerCase();
+    final query = picker.query.trim();
+    final needle = query.toLowerCase();
+    bool matches(_Option option) =>
+        needle.isEmpty ||
+        option.label.toLowerCase().contains(needle) ||
+        option.id.toLowerCase().contains(needle);
+    // Knowledge for the text in the field is asked of the server; until that
+    // answer arrives, the list for the previous text is narrowed here.
+    final answered = picker.collectionQuery == query;
     final visible = [
-      for (final option in options ?? const <_Option>[])
-        if (query.isEmpty ||
-            option.label.toLowerCase().contains(query) ||
-            option.id.toLowerCase().contains(query))
+      for (final option in picker.collections)
+        if (!picker.taken.contains(option.id) && (answered || matches(option)))
           option,
+      for (final option in picker.fixed ?? const <_Option>[])
+        if (!picker.taken.contains(option.id) && matches(option)) option,
+    ];
+    final loading = picker.collectionsLoading || picker.fixedLoading;
+    final knowledgePicker = picker.kind == _PickerKind.knowledge;
+    // What follows the options says what is still unknown: a request in
+    // flight, a failure to retry, or more pages to ask for. An empty list with
+    // none of these is the only time nothing is left to add.
+    final footer = <Widget>[
+      if (loading)
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: Spacing.md),
+          child: Center(
+            child: CircularProgressIndicator(
+              key: ValueKey('folder-project-picker-loading'),
+            ),
+          ),
+        ),
+      if (!loading && picker.failed)
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _hint(l10n.workspaceLoadFailed, theme),
+            if (knowledgePicker && !picker.ownerChanged)
+              _footerButton(
+                'folder-project-picker-retry',
+                l10n.workspaceRetry,
+                () => _retryPicker(picker),
+              ),
+          ],
+        ),
+      if (!loading && !picker.collectionsFailed && picker.collectionsMore)
+        _footerButton(
+          'folder-project-picker-more',
+          l10n.workspaceLoadMore,
+          () => _loadCollections(picker, more: true),
+        ),
     ];
     String kindLabel(String type) => switch (type) {
       'collection' => l10n.folderProjectKindCollection,
@@ -641,25 +869,28 @@ class _FolderProjectSettingsSheetState
           controller: _search,
           hintText: l10n.workspaceSearchHint,
           query: picker.query,
-          onChanged: (value) => setState(() => picker.query = value),
+          onChanged: (value) {
+            setState(() => picker.query = value);
+            if (knowledgePicker) _searchCollections(picker, immediate: false);
+          },
           onClear: () {
             _search.clear();
             setState(() => picker.query = '');
+            if (knowledgePicker) _searchCollections(picker, immediate: true);
           },
         ),
         const SizedBox(height: Spacing.sm),
         Expanded(
-          child: options == null
-              ? const Center(child: CircularProgressIndicator())
-              : picker.failed
-              ? _hint(l10n.workspaceLoadFailed, theme)
-              : visible.isEmpty
+          child: visible.isEmpty && footer.isEmpty
               ? _hint(l10n.folderProjectNothingToAdd, theme)
               : ListView.builder(
                   key: const ValueKey('folder-project-picker-list'),
                   controller: controller,
-                  itemCount: visible.length,
+                  itemCount: visible.length + footer.length,
                   itemBuilder: (context, index) {
+                    if (index >= visible.length) {
+                      return footer[index - visible.length];
+                    }
                     final option = visible[index];
                     final subtitle = kindLabel(option.type);
                     return CheckboxListTile(
@@ -715,6 +946,21 @@ class _FolderProjectSettingsSheetState
       onPressed: _saving ? null : onPressed,
     ),
   );
+
+  Widget _footerButton(String key, String text, VoidCallback onPressed) =>
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
+        child: Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: ConduitButton(
+            key: ValueKey(key),
+            text: text,
+            isSecondary: true,
+            isCompact: true,
+            onPressed: onPressed,
+          ),
+        ),
+      );
 
   Widget _row(
     ConduitThemeExtension theme,

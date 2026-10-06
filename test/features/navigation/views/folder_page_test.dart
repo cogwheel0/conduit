@@ -8,6 +8,8 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart'
     show ApiAuthSnapshot;
 import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart'
+    show WorkspacePagedResponse;
 import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit_core/models/file_info.dart';
@@ -49,6 +51,7 @@ import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:material_ui/material_ui.dart';
@@ -1048,6 +1051,7 @@ void main() {
       Map<String, dynamic>? detail,
       Map<String, int> fileStatus = const <String, int>{},
       List<FileInfo> files = const <FileInfo>[],
+      WorkspaceKnowledge Function()? knowledge,
       List<Override> overrides = const <Override>[],
     }) async {
       final originalErrorWidgetBuilder = ErrorWidget.builder;
@@ -1102,7 +1106,9 @@ void main() {
             (ref) => ref.watch(_epochProvider),
           ),
           syncEngineProvider.overrideWith(_NoDrainEngine.new),
-          workspaceKnowledgeProvider.overrideWith(_TestKnowledge.new),
+          workspaceKnowledgeProvider.overrideWith(
+            knowledge ?? _TestKnowledge.new,
+          ),
           userFilesProvider.overrideWith(() => _TestUserFiles(files)),
           ...overrides,
         ],
@@ -1358,6 +1364,310 @@ void main() {
           {'type': 'file', 'id': 'file-9', 'name': 'notes.pdf'},
         ],
         'system_prompt': 'Answer in French',
+      });
+    });
+
+    group('the knowledge picker', () {
+      const docs = WorkspaceKnowledgeSummary(
+        id: 'kb-1',
+        name: 'Docs',
+        userId: 'owner',
+      );
+      const alpha = WorkspaceKnowledgeSummary(
+        id: 'kb-2',
+        name: 'Alpha',
+        userId: 'owner',
+      );
+      const bravo = WorkspaceKnowledgeSummary(
+        id: 'kb-3',
+        name: 'Bravo',
+        userId: 'owner',
+      );
+      const charlie = WorkspaceKnowledgeSummary(
+        id: 'kb-4',
+        name: 'Charlie',
+        userId: 'owner',
+      );
+      const delta = WorkspaceKnowledgeSummary(
+        id: 'kb-5',
+        name: 'Delta',
+        userId: 'owner',
+      );
+      const notesFile = 'file-9';
+      const addKnowledge = 'folder-project-add-knowledge';
+
+      // The folder already holds Docs, so the server's first page of two
+      // offers one more, and Workspace's own list is left filtered to Alpha.
+      Future<void> openWithServerKnowledge(WidgetTester tester) async {
+        await open(
+          tester,
+          project(),
+          files: [
+            FileInfo(
+              id: notesFile,
+              filename: 'notes.pdf',
+              originalFilename: 'notes.pdf',
+              size: 10,
+              mimeType: 'application/pdf',
+              createdAt: DateTime.utc(2026, 7, 13),
+              updatedAt: DateTime.utc(2026, 7, 13),
+            ),
+          ],
+          knowledge: _FilteredKnowledge.new,
+        );
+        api.knowledge = const [docs, alpha, bravo, charlie, delta];
+        await openSheet(tester);
+      }
+
+      /// A held request never settles, and its spinner never stops animating.
+      Future<void> pumpHeld(WidgetTester tester) async {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+
+      Future<void> openPicker(WidgetTester tester) async {
+        await tester.ensureVisible(key(addKnowledge));
+        await tester.tap(key(addKnowledge));
+        await settle(tester);
+      }
+
+      Future<void> search(WidgetTester tester, String text) async {
+        await tester.enterText(
+          find.descendant(
+            of: find.byType(ConduitGlassSearchField),
+            matching: find.byType(EditableText),
+          ),
+          text,
+        );
+        await tester.pump(const Duration(milliseconds: 400));
+        await settle(tester);
+      }
+
+      Future<void> pick(WidgetTester tester, String id) async {
+        await tester.ensureVisible(key('folder-project-option-$id'));
+        await tester.tap(key('folder-project-option-$id'));
+        await tester.pump();
+      }
+
+      Future<void> tapAndSettle(WidgetTester tester, String id) async {
+        await tester.ensureVisible(key(id));
+        await tester.tap(key(id));
+        await settle(tester);
+      }
+
+      List<(String, int)> asked() => [
+        for (final request in api.knowledgeRequests)
+          (request.query ?? '', request.page),
+      ];
+
+      testWidgets("offers knowledge beyond the first page that Workspace's "
+          'filtered list never held, and saves what is picked from any page', (
+        tester,
+      ) async {
+        await openWithServerKnowledge(tester);
+
+        await openPicker(tester);
+        expect(key('folder-project-option-kb-2'), findsOneWidget);
+        // Docs is already the folder's; Bravo and the rest are further on.
+        expect(key('folder-project-option-kb-1'), findsNothing);
+        expect(key('folder-project-option-kb-3'), findsNothing);
+        expect(key('folder-project-option-$notesFile'), findsOneWidget);
+        expect(asked(), [('', 1)]);
+
+        await tapAndSettle(tester, 'folder-project-picker-more');
+        expect(key('folder-project-option-kb-3'), findsOneWidget);
+        expect(key('folder-project-option-kb-4'), findsOneWidget);
+        await tapAndSettle(tester, 'folder-project-picker-more');
+        expect(key('folder-project-option-kb-5'), findsOneWidget);
+        expect(key('folder-project-picker-more'), findsNothing);
+        expect(asked(), [('', 1), ('', 2), ('', 3)]);
+
+        await pick(tester, 'kb-5');
+        await pick(tester, 'kb-2');
+        await tester.tap(key('folder-project-picker-add'));
+        await tester.pumpAndSettle();
+
+        // What the server lists is not called unavailable because Workspace's
+        // own list, filtered, does not carry it.
+        expect(key('folder-project-knowledge-1'), findsOneWidget);
+        expect(key('folder-project-knowledge-1-unavailable'), findsNothing);
+        expect(key('folder-project-knowledge-2-unavailable'), findsNothing);
+        await tester.ensureVisible(key('folder-project-save'));
+        await tester.tap(key('folder-project-save'));
+        await settle(tester);
+
+        expect((await storedData(tester))['files'], [
+          {'type': 'collection', 'id': 'kb-1', 'name': 'Docs'},
+          {'type': 'collection', 'id': 'kb-5', 'name': 'Delta'},
+          {'type': 'collection', 'id': 'kb-2', 'name': 'Alpha'},
+        ]);
+        // The picker asked on its own terms and left Workspace's list alone.
+        expect(
+          api.knowledgeRequests.every(
+            (r) => (r.view ?? '').isEmpty && (r.source ?? '').isEmpty,
+          ),
+          isTrue,
+        );
+        final workspace = container.read(workspaceKnowledgeProvider).value!;
+        expect(workspace.query, 'alpha');
+        expect(workspace.view, 'created');
+        expect(workspace.items.map((item) => item.id), ['kb-2']);
+      });
+
+      testWidgets('searches the server, and a choice survives the list it '
+          'was made in being replaced', (tester) async {
+        await openWithServerKnowledge(tester);
+        await openPicker(tester);
+
+        await search(tester, 'charl');
+        expect(asked(), [('', 1), ('charl', 1)]);
+        expect(key('folder-project-option-kb-4'), findsOneWidget);
+        expect(key('folder-project-option-kb-2'), findsNothing);
+        await pick(tester, 'kb-4');
+
+        await search(tester, '');
+        expect(asked().last, ('', 1));
+        expect(key('folder-project-option-kb-2'), findsOneWidget);
+        expect(key('folder-project-option-kb-4'), findsNothing);
+        await pick(tester, 'kb-2');
+        await tester.tap(key('folder-project-picker-add'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(key('folder-project-save'));
+        await tester.tap(key('folder-project-save'));
+        await settle(tester);
+
+        expect((await storedData(tester))['files'], [
+          {'type': 'collection', 'id': 'kb-1', 'name': 'Docs'},
+          {'type': 'collection', 'id': 'kb-4', 'name': 'Charlie'},
+          {'type': 'collection', 'id': 'kb-2', 'name': 'Alpha'},
+        ]);
+        expect(
+          api.knowledgeRequests.every(
+            (r) => (r.view ?? '').isEmpty && (r.source ?? '').isEmpty,
+          ),
+          isTrue,
+        );
+      });
+
+      testWidgets('a page that fails is said so and retried, never read as '
+          'the end of the list', (tester) async {
+        await openWithServerKnowledge(tester);
+        api.knowledgeFailures.add('|1');
+
+        await openPicker(tester);
+        expect(find.text('Workspace could not be loaded.'), findsOneWidget);
+        expect(find.text('Nothing left to add.'), findsNothing);
+        // The files that did load are still offered beside the failure.
+        expect(key('folder-project-option-$notesFile'), findsOneWidget);
+        await tapAndSettle(tester, 'folder-project-picker-retry');
+        expect(find.text('Workspace could not be loaded.'), findsNothing);
+        expect(key('folder-project-option-kb-2'), findsOneWidget);
+
+        api.knowledgeFailures.add('|2');
+        await tapAndSettle(tester, 'folder-project-picker-more');
+        expect(find.text('Workspace could not be loaded.'), findsOneWidget);
+        expect(find.text('Nothing left to add.'), findsNothing);
+        expect(key('folder-project-option-kb-2'), findsOneWidget);
+        expect(key('folder-project-option-kb-3'), findsNothing);
+        await tapAndSettle(tester, 'folder-project-picker-retry');
+        expect(find.text('Workspace could not be loaded.'), findsNothing);
+        expect(key('folder-project-option-kb-3'), findsOneWidget);
+        expect(asked(), [('', 1), ('', 1), ('', 2), ('', 2)]);
+      });
+
+      testWidgets('a sign-in change while a page is held publishes nothing '
+          'from it', (tester) async {
+        await openWithServerKnowledge(tester);
+        api.knowledgeHolds['|1'] = Completer<void>();
+
+        await tester.ensureVisible(key(addKnowledge));
+        await tester.tap(key(addKnowledge));
+        await pumpHeld(tester);
+        expect(asked(), [('', 1)]);
+        container.read(_epochProvider.notifier).rotate();
+        api.knowledgeHolds['|1']!.complete();
+        await settle(tester);
+
+        expect(key('folder-project-option-kb-2'), findsNothing);
+        expect(find.text(ownerChangedMessage), findsOneWidget);
+        expect(
+          tester
+              .widget<ConduitButton>(key('folder-project-picker-add'))
+              .onPressed,
+          isNull,
+        );
+        expect(key('folder-project-picker-retry'), findsNothing);
+        expect(await queued(tester), isEmpty);
+      });
+
+      testWidgets('a page held past closing the picker, or the sheet, is '
+          'dropped', (tester) async {
+        await openWithServerKnowledge(tester);
+        api.knowledgeHolds['|1'] = Completer<void>();
+
+        await tester.ensureVisible(key(addKnowledge));
+        await tester.tap(key(addKnowledge));
+        await pumpHeld(tester);
+        final stale = api.knowledgeHolds['|1']!;
+        await tester.tap(key('folder-project-picker-cancel'));
+        await tester.pump();
+
+        // The next picker is answered at once; the old page lands after it,
+        // carrying knowledge the new list never held.
+        api.knowledgeHolds.remove('|1');
+        await openPicker(tester);
+        expect(key('folder-project-option-kb-2'), findsOneWidget);
+        api.knowledge = const [
+          WorkspaceKnowledgeSummary(id: 'kb-9', name: 'Stale', userId: 'owner'),
+        ];
+        stale.complete();
+        await settle(tester);
+        expect(key('folder-project-option-kb-9'), findsNothing);
+        expect(key('folder-project-option-kb-2'), findsOneWidget);
+
+        // Held again, then the whole sheet is dismissed with the picker open.
+        api.knowledgeHolds['|1'] = Completer<void>();
+        await tester.tap(key('folder-project-picker-cancel'));
+        await tester.pump();
+        await tester.ensureVisible(key(addKnowledge));
+        await tester.tap(key(addKnowledge));
+        await pumpHeld(tester);
+        await tester.tapAt(const Offset(10, 10));
+        await settle(tester);
+        expect(key('folder-project-picker-list'), findsNothing);
+        api.knowledgeHolds['|1']!.complete();
+        await settle(tester);
+
+        expect(tester.takeException(), isNull);
+        expect(key('folder-project-form'), findsNothing);
+      });
+
+      testWidgets('an older search answered after a newer one is dropped', (
+        tester,
+      ) async {
+        await openWithServerKnowledge(tester);
+        await openPicker(tester);
+        api.knowledgeHolds['charl|1'] = Completer<void>();
+
+        await tester.enterText(
+          find.descendant(
+            of: find.byType(ConduitGlassSearchField),
+            matching: find.byType(EditableText),
+          ),
+          'charl',
+        );
+        await tester.pump(const Duration(milliseconds: 400));
+        await pumpHeld(tester);
+        await search(tester, 'brav');
+        expect(key('folder-project-option-kb-3'), findsOneWidget);
+
+        api.knowledgeHolds['charl|1']!.complete();
+        await settle(tester);
+        expect(asked(), [('', 1), ('charl', 1), ('brav', 1)]);
+        expect(key('folder-project-option-kb-3'), findsOneWidget);
+        expect(key('folder-project-option-kb-4'), findsNothing);
       });
     });
 
@@ -2237,6 +2547,21 @@ class _TestKnowledge extends WorkspaceKnowledge {
       );
 }
 
+/// The Workspace screen's list as someone left it: searched and filtered, so
+/// it holds one match and says there is nothing more.
+class _FilteredKnowledge extends WorkspaceKnowledge {
+  @override
+  Future<WorkspaceCollectionState<WorkspaceKnowledgeSummary>> build() async =>
+      const WorkspaceCollectionState(
+        query: 'alpha',
+        view: 'created',
+        items: [
+          WorkspaceKnowledgeSummary(id: 'kb-2', name: 'Alpha', userId: 'owner'),
+        ],
+        total: 1,
+      );
+}
+
 class _TestUserFiles extends UserFiles {
   _TestUserFiles(this.files);
 
@@ -2286,6 +2611,52 @@ class _ProjectApi extends ApiService {
   final Map<String, int> fileStatus;
   final fileLookups = <String>[];
   int updateCalls = 0;
+
+  /// Every knowledge base the server lists, in its order. A query keeps those
+  /// whose name contains it, and pages are [knowledgePageSize] long.
+  List<WorkspaceKnowledgeSummary> knowledge = const [];
+  int knowledgePageSize = 2;
+  final knowledgeRequests =
+      <({String? query, String? view, String? source, int page})>[];
+
+  /// Requests, keyed `query|page`, answered only once their completer
+  /// completes; the answer is computed then, from [knowledge] as it is by
+  /// that time.
+  final knowledgeHolds = <String, Completer<void>>{};
+
+  /// Requests, keyed `query|page`, that fail once.
+  final knowledgeFailures = <String>{};
+
+  @override
+  Future<WorkspacePagedResponse<WorkspaceKnowledgeSummary>>
+  getWorkspaceKnowledge({
+    String? query,
+    String? viewOption,
+    String? source,
+    int page = 1,
+  }) async {
+    knowledgeRequests.add((
+      query: query,
+      view: viewOption,
+      source: source,
+      page: page,
+    ));
+    final key = '${query ?? ''}|$page';
+    await knowledgeHolds[key]?.future;
+    if (knowledgeFailures.remove(key)) throw StateError('knowledge $key');
+    final needle = (query ?? '').trim().toLowerCase();
+    final matching = [
+      for (final item in knowledge)
+        if (needle.isEmpty || item.name.toLowerCase().contains(needle)) item,
+    ];
+    return WorkspacePagedResponse(
+      items: matching
+          .skip((page - 1) * knowledgePageSize)
+          .take(knowledgePageSize)
+          .toList(),
+      total: matching.length,
+    );
+  }
 
   @override
   Future<Map<String, dynamic>> getFileInfo(
