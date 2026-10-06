@@ -808,6 +808,17 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
     final database = ref.read(appDatabaseProvider);
     final api = ref.read(apiServiceProvider);
     final epoch = ref.read(openWebUiAuthSessionEpochProvider);
+    // The Stop the chat still owes the server follows it before any queue is
+    // evaluated again under its new id.
+    ref
+        .read(chatMessagesProvider.notifier)
+        .followChatRemap(
+          fromId: event.fromId,
+          toId: event.toId,
+          database: database,
+          api: api,
+          authSessionEpoch: epoch,
+        );
     var moved = false;
     final next = [
       for (final queue in state)

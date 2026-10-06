@@ -116,6 +116,9 @@ class _Api extends ApiService {
   final List<String> stoppedChats = [];
   final List<String> stoppedTasks = [];
   Object? stopError;
+
+  /// Refusals for one chat's stop only, whatever [stopError] says.
+  final Map<String, Object> stopErrorsByChat = {};
   Completer<void>? stopGate;
   Completer<void>? settingsGate;
 
@@ -133,7 +136,7 @@ class _Api extends ApiService {
   Future<void> stopTasksByChat(String chatId) async {
     stoppedChats.add(chatId);
     await stopGate?.future;
-    final error = stopError;
+    final error = stopErrorsByChat[chatId] ?? stopError;
     if (error != null) throw error;
   }
 
@@ -1138,6 +1141,203 @@ void main() {
   });
 
   group('a Stop the server has not accepted', () {
+    /// The chat the Stop was asked on becomes its server chat, as the sync
+    /// engine announces it and the screen then shows it.
+    void remapStoppedChat(_Session s) {
+      s.engine.remaps.add(
+        const RemapEvent(
+          fromId: 'local:a',
+          toId: 'server-a',
+          entityKind: 'chat',
+        ),
+      );
+      s.container
+          .read(activeConversationProvider.notifier)
+          .remapIdInPlace(fromId: 'local:a', toId: 'server-a');
+    }
+
+    test('follows its chat through a remap and is asked again for the server '
+        'chat before anything is sent', () async {
+      final s = await _Session.start();
+      await _seedChat(s.db, 'local:a');
+      await _seedChat(s.db, 'server-a');
+      s.switchTo('local:a');
+      s.api.stopGate = Completer<void>();
+      addTearDown(() {
+        if (!s.api.stopGate!.isCompleted) s.api.stopGate!.complete();
+      });
+      s.queue.enqueue('after the stopped turn');
+      s.container.read(stopGenerationProvider)();
+      await s.until(() => s.api.stoppedChats.isNotEmpty);
+
+      remapStoppedChat(s);
+      await s.settle();
+
+      // The server has not answered the Stop, so the chat's new id is not
+      // sent to either.
+      check(await s.sentUserRows('server-a')).isEmpty();
+      check(await s.completions('server-a')).isEmpty();
+      check(s.active!.drafts.single.text).equals('after the stopped turn');
+
+      s.api.stopGate!.complete();
+      await s.until(() => s.active == null);
+      await s.settle();
+
+      // What the server accepted was the Stop for the old id, so the server's
+      // chat is asked for itself, once, and the turn goes out once.
+      check(s.api.stoppedChats).deepEquals(['local:a', 'server-a']);
+      check((await s.sentUserRows('server-a')).single.content)
+          .equals('after the stopped turn');
+      check(await s.completions('server-a')).length.equals(1);
+      check(await s.sentUserRows('local:a')).isEmpty();
+    });
+
+    test('an answer for the old id does not release a queue that nothing is '
+        'sending yet', () async {
+      final s = await _Session.start();
+      await _seedChat(s.db, 'local:a');
+      await _seedChat(s.db, 'server-a');
+      s.switchTo('local:a');
+      s.api.stopGate = Completer<void>();
+      addTearDown(() {
+        if (!s.api.stopGate!.isCompleted) s.api.stopGate!.complete();
+      });
+      // The draft's file is still uploading, so nothing drains the queue.
+      s.attach([_file('slow.txt', status: FileUploadStatus.uploading)]);
+      s.queue.enqueue('with a file');
+      s.container.read(stopGenerationProvider)();
+      await s.until(() => s.api.stoppedChats.isNotEmpty);
+
+      remapStoppedChat(s);
+      s.api.stopGate!.complete();
+      // Nobody is waiting on the Stop, yet it is asked again for the server
+      // chat rather than counted as done.
+      await s.until(() => s.api.stoppedChats.length == 2);
+      check(s.api.stoppedChats).deepEquals(['local:a', 'server-a']);
+
+      s.container
+          .read(queuedDraftAttachmentsProvider.notifier)
+          .replaceUpload(s.parked.single.upload, _file('slow.txt'));
+      await s.until(() => s.active == null);
+      await s.settle();
+
+      check(s.api.stoppedChats).deepEquals(['local:a', 'server-a']);
+      check((await s.sentUserRows('server-a')).single.content)
+          .equals('with a file');
+      check(await s.completions('server-a')).length.equals(1);
+    });
+
+    test('a Stop refused before a remap is retried for the server chat',
+        () async {
+      final s = await _Session.start();
+      await _seedChat(s.db, 'local:a');
+      await _seedChat(s.db, 'server-a');
+      s.switchTo('local:a');
+      s.api.stopError = StateError('stop refused');
+      s.queue.enqueue('after the stopped turn');
+      s.container.read(stopGenerationProvider)();
+      await s.until(() => s.api.stoppedChats.isNotEmpty);
+
+      remapStoppedChat(s);
+      await s.until(() => s.active?.admissionFailed == true);
+      await s.settle();
+      check(s.api.stoppedChats).deepEquals(['local:a', 'server-a']);
+      check(await s.sentUserRows('server-a')).isEmpty();
+
+      s.api.stopError = null;
+      s.queue.retryAdmission();
+      await s.until(() => s.active == null);
+      await s.settle();
+
+      check(s.api.stoppedChats)
+          .deepEquals(['local:a', 'server-a', 'server-a']);
+      check((await s.sentUserRows('server-a')).single.content)
+          .equals('after the stopped turn');
+      check(await s.completions('server-a')).length.equals(1);
+    });
+
+    test('a remap announced under another sign-in leaves the Stop where it '
+        'was', () async {
+      final s = await _Session.start();
+      await _seedChat(s.db, 'local:a');
+      await _seedChat(s.db, 'server-a');
+      s.switchTo('local:a');
+      s.api.stopGate = Completer<void>();
+      addTearDown(() {
+        if (!s.api.stopGate!.isCompleted) s.api.stopGate!.complete();
+      });
+      s.queue.enqueue('mine');
+      s.container.read(stopGenerationProvider)();
+      await s.until(() => s.api.stoppedChats.isNotEmpty);
+      final accountA = s.container.read(apiServiceProvider)!;
+      final epochA = s.container.read(openWebUiAuthSessionEpochProvider);
+
+      s.signInElsewhere(_Api('server-b'));
+      s.engine.remaps.add(
+        const RemapEvent(
+          fromId: 'local:a',
+          toId: 'server-a',
+          entityKind: 'chat',
+        ),
+      );
+      s.container.read(s._wires.api.notifier).use(accountA);
+      s.container.read(s._wires.epoch.notifier).use(epochA);
+      await s.settle();
+
+      // The queue did not move, and nothing was sent for either id.
+      check(s.active!.chatId).equals('local:a');
+      check(await s.sentUserRows('server-a')).isEmpty();
+      check(await s.sentUserRows('local:a')).isEmpty();
+
+      // The server answers while the chat still has only its old id: the
+      // foreign remap did not ask it about the server chat.
+      s.api.stopGate!.complete();
+      await s.settle();
+      check(s.api.stoppedChats).deepEquals(['local:a']);
+
+      // Under its own account the remap moves the queue, and it goes out once.
+      remapStoppedChat(s);
+      await s.until(() => s.active == null);
+      await s.settle();
+      check(s.active).isNull();
+      check((await s.sentUserRows('server-a')).single.content).equals('mine');
+      check(await s.completions('server-a')).length.equals(1);
+    });
+
+    test('an answer for the old id and a refusal for the server chat sends '
+        'nothing until the server chat is accepted', () async {
+      final s = await _Session.start();
+      await _seedChat(s.db, 'local:a');
+      await _seedChat(s.db, 'server-a');
+      s.switchTo('local:a');
+      s.api.stopGate = Completer<void>();
+      addTearDown(() {
+        if (!s.api.stopGate!.isCompleted) s.api.stopGate!.complete();
+      });
+      s.queue.enqueue('after the stopped turn');
+      s.container.read(stopGenerationProvider)();
+      await s.until(() => s.api.stoppedChats.isNotEmpty);
+
+      remapStoppedChat(s);
+      s.api.stopErrorsByChat['server-a'] = StateError('stop refused');
+      s.api.stopGate!.complete();
+      await s.until(() => s.active?.admissionFailed == true);
+      await s.settle();
+
+      check(await s.sentUserRows('server-a')).isEmpty();
+      check(await s.completions('server-a')).isEmpty();
+      check(s.active!.drafts.single.text).equals('after the stopped turn');
+
+      s.api.stopErrorsByChat.clear();
+      s.queue.retryAdmission();
+      await s.until(() => s.active == null);
+      await s.settle();
+
+      check((await s.sentUserRows('server-a')).single.content)
+          .equals('after the stopped turn');
+      check(await s.completions('server-a')).length.equals(1);
+    });
+
     test('holds the queue until the server accepts it, then sends once',
         () async {
       final s = await _Session.start();

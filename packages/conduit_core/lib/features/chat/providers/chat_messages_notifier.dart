@@ -4056,6 +4056,26 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     unawaited(_settleCancellation(owed));
   }
 
+  /// A local chat became its server chat. The cancellations owed to it under the
+  /// same store, account session and server follow it, so a retry asks for the
+  /// server's chat and the gate on its queue does not lapse with the old id.
+  void followChatRemap({
+    required String fromId,
+    required String toId,
+    required Object? database,
+    required Object? api,
+    required Object? authSessionEpoch,
+  }) {
+    for (final entry in _owedCancellations) {
+      if (entry.chatId == fromId &&
+          identical(entry.owner.openWebUiDatabase, database) &&
+          identical(entry.owner.openWebUiApi, api) &&
+          identical(entry.owner.openWebUiAuthSessionEpoch, authSessionEpoch)) {
+        entry.chatId = toId;
+      }
+    }
+  }
+
   /// Waits for the cancellations still owed to [chatId] under the store, account
   /// session and server that stopped it, asking the server again for each one it
   /// has not accepted. Null when nothing is owed to that owner; false when the
@@ -5608,21 +5628,39 @@ final class _OwedStoppedAnswers {
 /// One server-side effect of a Stop (aborting the transport, stopping the
 /// chat's tasks) that can be asked again. Attempts do not overlap: one that is
 /// still running is joined rather than repeated.
+///
+/// A [chatScoped] step is asked for the chat's id as it is now: an ask made
+/// under an id the chat has since been remapped from does not count as accepted.
 final class _CancellationStep {
-  _CancellationStep(this._run);
+  _CancellationStep(this._run, {this.chatScoped = false});
 
-  final Future<bool> Function() _run;
-  bool accepted = false;
+  final Future<bool> Function(String chatId) _run;
+  final bool chatScoped;
+  bool _accepted = false;
+  String? _askedChatId;
   Future<bool>? _attempt;
 
+  /// Whether the server accepted the ask for [chatId].
+  bool acceptedFor(String chatId) =>
+      _accepted && (!chatScoped || _askedChatId == chatId);
+
   /// Asks the server now. Any failure is a refusal.
-  Future<bool> attempt() => _attempt ??= Future<bool>.sync(_run)
-      .then((ok) => ok, onError: (Object _) => false)
-      .then((ok) {
-        accepted = ok;
-        _attempt = null;
-        return ok;
-      });
+  Future<bool> attempt(String chatId) {
+    final running = _attempt;
+    if (running != null) {
+      if (!chatScoped || _askedChatId == chatId) return running;
+      // Asked for an id the chat no longer has: let that end, then ask again.
+      return running.then((_) => attempt(chatId));
+    }
+    _askedChatId = chatId;
+    return _attempt = Future<bool>.sync(() => _run(chatId))
+        .then((ok) => ok, onError: (Object _) => false)
+        .then((ok) {
+          _accepted = ok;
+          _attempt = null;
+          return ok;
+        });
+  }
 }
 
 /// The server-side cancellation of one stopped response, and the chat, store,
@@ -5636,16 +5674,26 @@ final class _OwedCancellation {
   });
 
   final ChatMutationOwnerToken owner;
-  final String chatId;
+
+  /// The chat's id, following a local-to-server remap.
+  String chatId;
   final List<_CancellationStep> steps;
 
-  /// True once the server has accepted every step; asks again for each that it
-  /// has not.
+  /// True once the server has accepted every step for the chat's current id;
+  /// asks again for each that it has not.
   Future<bool> settle() async {
-    final results = await Future.wait([
-      for (final step in steps)
-        if (step.accepted) Future<bool>.value(true) else step.attempt(),
-    ]);
-    return results.every((ok) => ok);
+    while (true) {
+      final asked = chatId;
+      final results = await Future.wait([
+        for (final step in steps)
+          if (step.acceptedFor(asked))
+            Future<bool>.value(true)
+          else
+            step.attempt(asked),
+      ]);
+      if (!results.every((ok) => ok)) return false;
+      // A remap that landed while the server answered asks again for the new id.
+      if (asked == chatId) return true;
+    }
   }
 }

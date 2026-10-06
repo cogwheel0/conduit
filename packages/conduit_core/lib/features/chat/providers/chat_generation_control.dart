@@ -137,10 +137,14 @@ Future<bool> _stopGeneration(Ref ref) {
   // The server-side effects of this stop, kept so that a refusal can be asked
   // again after the visible answers have settled (see [_oweCancellation]).
   final cancellation = <_CancellationStep>[];
-  Future<bool> cancelOnServer(Future<bool> Function() run) {
-    final step = _CancellationStep(run);
+  final stoppedChatId = ref.read(activeConversationProvider)?.id ?? '';
+  Future<bool> cancelOnServer(
+    Future<bool> Function(String chatId) run, {
+    bool chatScoped = false,
+  }) {
+    final step = _CancellationStep(run, chatScoped: chatScoped);
     cancellation.add(step);
-    return step.attempt();
+    return step.attempt(stoppedChatId);
   }
 
   try {
@@ -241,7 +245,7 @@ Future<bool> _stopGeneration(Ref ref) {
         // choose the right cancellation path (abort handle, task stop, or
         // both).
         stoppedOpenWebUiRun = true;
-        settled.add(cancelOnServer(() => stopActiveTransport(last, api)));
+        settled.add(cancelOnServer((_) => stopActiveTransport(last, api)));
         final regenerationAttemptId =
             last.metadata?[_openWebUiRegenerationAttemptMetadataKey];
         if (regenerationAttemptId is String &&
@@ -292,10 +296,10 @@ Future<bool> _stopGeneration(Ref ref) {
     final activeConv = ref.read(activeConversationProvider);
     if (api != null && activeConv != null) {
       settled.add(
-        cancelOnServer(() async {
-          await api.stopTasksByChat(activeConv.id);
+        cancelOnServer((chatId) async {
+          await api.stopTasksByChat(chatId);
           return true;
-        }),
+        }, chatScoped: true),
       );
       // The stop is owed to the chat, store, sign-in and server it was asked
       // under until the server has accepted all of it. Everything above ran in
