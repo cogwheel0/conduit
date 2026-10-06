@@ -4549,7 +4549,115 @@ void main() {
       check(api.merges).isEmpty();
     });
 
-    const shownMerge = {'status': true, 'content': 'Old merge of the shown'};
+    test('a second merge started at once is refused as busy and makes no '
+        'second request', () async {
+      final (:api, :container) = await open();
+      final first = Completer<Object?>();
+      final second = Completer<Object?>();
+      unawaited(startMerge(container, outcome: first));
+      // Both calls begin before the owner has been read.
+      unawaited(startMerge(container, outcome: second));
+      await api.mergeEntered.future;
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      check(api.merges).length.equals(1);
+      check(await second.future).isA<ComparisonMergeException>().has(
+        (e) => e.reason,
+        'reason',
+      ).equals(ComparisonMergeFailure.busy);
+      check(container.read(comparisonMergeProvider)).equals(secondId);
+
+      await container.read(comparisonMergeProvider.notifier).cancel();
+      check(await first.future).isNull();
+      check(container.read(comparisonMergeProvider)).isNull();
+    });
+
+    test('Stop pressed while the owner is still being read sends no request',
+        () async {
+      final (:api, :container) = await open(
+        shownMerged: const {'status': true, 'content': 'Old merge of the shown'},
+      );
+      final before = await storedPayload(secondId);
+      final outcome = Completer<Object?>();
+      unawaited(startMerge(container, outcome: outcome));
+      // The merge has taken the answer but has not read its owner yet.
+      check(container.read(comparisonMergeProvider)).equals(secondId);
+      await container.read(comparisonMergeProvider.notifier).cancel();
+
+      check(
+        await outcome.future.timeout(
+          const Duration(seconds: 1),
+          onTimeout: () => 'the merge went on to wait for text',
+        ),
+      ).isNull();
+      check(api.merges).isEmpty();
+      check(shownAnswer(container).mergedResponse?.content)
+          .equals('Old merge of the shown');
+      check(await storedPayload(secondId)).deepEquals(before);
+      check(container.read(comparisonMergeProvider)).isNull();
+    });
+
+    test('a merge refused for its owner leaves the answer free for an allowed '
+        'caller', () async {
+      final (:api, :container) = await open(
+        signedInAs: _accountA,
+        storedOwner: 'account-b',
+      );
+      final refused = Completer<Object?>();
+      await startMerge(container, outcome: refused);
+      check(await refused.future).isA<ComparisonMergeException>().has(
+        (e) => e.reason,
+        'reason',
+      ).equals(ComparisonMergeFailure.notMergeable);
+      check(container.read(comparisonMergeProvider)).isNull();
+
+      // The chat is now the signed-in account's own.
+      await (db.update(db.chats)..where((chat) => chat.id.equals(chatId)))
+          .write(ChatsCompanion(userId: Value(_accountA.id)));
+      final outcome = Completer<Object?>();
+      unawaited(startMerge(container, outcome: outcome));
+      await api.mergeEntered.future;
+      await Future<void>.delayed(Duration.zero);
+      api.mergeUpdates!.add(const OpenWebUIContentDelta('Both agree.'));
+      api.mergeUpdates!.add(const OpenWebUIStreamDone());
+      await api.mergeUpdates!.close();
+
+      check(await outcome.future).isNull();
+      check(api.merges).length.equals(1);
+      check((await storedPayload(secondId))['merged']).isA<Map<String, dynamic>>()
+          .deepEquals({'status': true, 'content': 'Both agree.'});
+    });
+
+    test('a sign-in change while the owner is still being read sends no '
+        'request and leaves the answer free', () async {
+      final (:api, :container) = await open();
+      final before = await storedPayload(secondId);
+      final changed = Completer<Object?>();
+      unawaited(startMerge(container, outcome: changed));
+      container.read(_signInEpochProvider.notifier).rotate();
+
+      check(await changed.future).isA<ComparisonMergeException>().has(
+        (e) => e.reason,
+        'reason',
+      ).equals(ComparisonMergeFailure.ownerChanged);
+      check(api.merges).isEmpty();
+      check(await storedPayload(secondId)).deepEquals(before);
+      check(container.read(comparisonMergeProvider)).isNull();
+
+      // Under the new sign-in the same answer can be merged.
+      final outcome = Completer<Object?>();
+      unawaited(startMerge(container, outcome: outcome));
+      await api.mergeEntered.future;
+      await Future<void>.delayed(Duration.zero);
+      api.mergeUpdates!.add(const OpenWebUIContentDelta('Both agree.'));
+      api.mergeUpdates!.add(const OpenWebUIStreamDone());
+      await api.mergeUpdates!.close();
+
+      check(await outcome.future).isNull();
+      check(api.merges).length.equals(1);
+    });
+
+    const shownMerge ={'status': true, 'content': 'Old merge of the shown'};
     const firstMerge = {'status': true, 'content': 'Old merge of the first'};
 
     Future<Iterable<OutboxOp>> queuedUpdates() async => (await db.outboxDao

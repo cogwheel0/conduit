@@ -1518,6 +1518,14 @@ final comparisonMergeCommandAvailableProvider = Provider<bool>((ref) {
       ref.watch(comparisonMergeProvider) == null;
 });
 
+typedef _MergeAdmission = ({
+  OpenWebUiCompletionOwner owner,
+  AppDatabase database,
+  ApiService api,
+  ApiAuthSnapshot authSnapshot,
+  String prompt,
+});
+
 /// The answer a merge is currently writing into, or null when none is running.
 final comparisonMergeProvider =
     NotifierProvider<ComparisonMergeController, String?>(
@@ -1552,43 +1560,28 @@ class ComparisonMergeController extends Notifier<String?> {
     if (state != null) {
       throw const ComparisonMergeException(ComparisonMergeFailure.busy);
     }
-    final texts = [for (final text in responses) text.trim()];
-    final active = ref.read(activeConversationProvider);
-    final database = _readAppDatabaseOrNull(ref);
-    final api = ref.read(apiServiceProvider);
-    if (texts.length < 2 ||
-        texts.any((text) => text.isEmpty) ||
-        model.trim().isEmpty ||
-        active == null ||
-        isTemporaryChat(active.id) ||
-        !conversationUsesOpenWebUiStorage(active) ||
-        database == null ||
-        api is! ApiService) {
-      throw const ComparisonMergeException(ComparisonMergeFailure.notMergeable);
+    // Reserved before anything awaits, so a second call cannot pass the busy
+    // check while this one reads the owner and the prompt. A Stop pressed
+    // meanwhile is remembered, and every refusal below gives the merge back.
+    state = targetMessageId;
+    _cancelled = false;
+    final _MergeAdmission admitted;
+    try {
+      admitted = await _admit(
+        parentMessageId: parentMessageId,
+        model: model,
+        responses: responses,
+      );
+    } catch (_) {
+      state = null;
+      rethrow;
     }
-    // The server, account and chat this merge belongs to, fixed now.
-    final owner = captureOpenWebUiCompletionOwner(
-      ref,
-      chatId: active.id,
-      database: database,
-      api: api,
-    );
-    final authSnapshot = api.captureAuthSnapshot();
+    if (_cancelled) {
+      state = null;
+      return;
+    }
+    final (:owner, :database, :api, :authSnapshot, :prompt) = admitted;
     bool ownsContext() => openWebUiCompletionContextIsCurrent(ref, owner);
-
-    // Another account's chat is read-only whichever surface asked. The stored
-    // row names its owner, which a cached copy on screen may not carry.
-    final currentUserId = ref.read(currentUserProvider2)?.id;
-    final storedOwner = (await database.chatsDao.getChat(active.id))?.userId;
-    if (isReadOnlySharedConversation(active, currentUserId) ||
-        (storedOwner != null && storedOwner != currentUserId)) {
-      throw const ComparisonMergeException(ComparisonMergeFailure.notMergeable);
-    }
-
-    final prompt = await _mergePrompt(owner, parentMessageId);
-    if (!ownsContext()) {
-      throw const ComparisonMergeException(ComparisonMergeFailure.ownerChanged);
-    }
 
     // The merge the target shows, wherever the transcript keeps it: on the
     // displayed message itself or on one of its stored alternatives.
@@ -1616,8 +1609,6 @@ class ComparisonMergeController extends Notifier<String?> {
         .firstOrNull;
     final previousMerged = shownBefore == null ? null : mergedOf(shownBefore);
 
-    state = targetMessageId;
-    _cancelled = false;
     var content = '';
     ComparisonMergeException? failure;
 
@@ -1670,7 +1661,7 @@ class ComparisonMergeController extends Notifier<String?> {
         completion = await api.generateMoaCompletion(
           model: model,
           prompt: prompt,
-          responses: texts,
+          responses: [for (final text in responses) text.trim()],
           authSnapshot: authSnapshot,
         );
       } on MoaCompletionUnavailable {
@@ -1760,6 +1751,58 @@ class ComparisonMergeController extends Notifier<String?> {
       }
     }
     if (failure != null) throw failure;
+  }
+
+  /// Checks that the chat may be merged and reads what the request needs: the
+  /// server, account and chat the merge belongs to, fixed now, and the prompt
+  /// the answers were given for.
+  Future<_MergeAdmission> _admit({
+    required String parentMessageId,
+    required String model,
+    required List<String> responses,
+  }) async {
+    final texts = [for (final text in responses) text.trim()];
+    final active = ref.read(activeConversationProvider);
+    final database = _readAppDatabaseOrNull(ref);
+    final api = ref.read(apiServiceProvider);
+    if (texts.length < 2 ||
+        texts.any((text) => text.isEmpty) ||
+        model.trim().isEmpty ||
+        active == null ||
+        isTemporaryChat(active.id) ||
+        !conversationUsesOpenWebUiStorage(active) ||
+        database == null ||
+        api is! ApiService) {
+      throw const ComparisonMergeException(ComparisonMergeFailure.notMergeable);
+    }
+    final owner = captureOpenWebUiCompletionOwner(
+      ref,
+      chatId: active.id,
+      database: database,
+      api: api,
+    );
+    final authSnapshot = api.captureAuthSnapshot();
+
+    // Another account's chat is read-only whichever surface asked. The stored
+    // row names its owner, which a cached copy on screen may not carry.
+    final currentUserId = ref.read(currentUserProvider2)?.id;
+    final storedOwner = (await database.chatsDao.getChat(active.id))?.userId;
+    if (isReadOnlySharedConversation(active, currentUserId) ||
+        (storedOwner != null && storedOwner != currentUserId)) {
+      throw const ComparisonMergeException(ComparisonMergeFailure.notMergeable);
+    }
+
+    final prompt = await _mergePrompt(owner, parentMessageId);
+    if (!openWebUiCompletionContextIsCurrent(ref, owner)) {
+      throw const ComparisonMergeException(ComparisonMergeFailure.ownerChanged);
+    }
+    return (
+      owner: owner,
+      database: database,
+      api: api,
+      authSnapshot: authSnapshot,
+      prompt: prompt,
+    );
   }
 
   Future<String> _mergePrompt(
