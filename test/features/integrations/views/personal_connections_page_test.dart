@@ -430,6 +430,212 @@ void main() {
     );
   });
 
+  // Another client can change the settings while a form is open. The form's
+  // fields stay the values it opened with plus what the user typed, and Save
+  // sends only what the user changed, so the other client's edit is not undone.
+  group('editor while another client changes the entry', () {
+    late ProviderContainer container;
+
+    Future<void> openAlpha(WidgetTester tester) async {
+      container = await pumpPage(
+        tester,
+        const PersonalConnectionEditorPage(
+          kind: PersonalConnectionKind.toolServer,
+          identity: 'alpha',
+        ),
+      );
+    }
+
+    /// The server's settings become [ui], and the form's list is read again.
+    Future<void> refreshFrom(
+      WidgetTester tester,
+      Map<String, dynamic> ui,
+    ) async {
+      server.settings = <String, dynamic>{'ui': ui};
+      container.invalidate(personalConnectionsProvider);
+      await settleIo(tester);
+    }
+
+    testWidgets('a name edit leaves the URL, path, description and key another '
+        'client saved, wherever the entry moved', (tester) async {
+      await openAlpha(tester);
+      await refreshFrom(tester, <String, dynamic>{
+        'toolServers': <dynamic>[
+          _tool('zeta', 'Zeta tools'),
+          <String, dynamic>{
+            ..._tool('alpha', 'Alpha tools'),
+            'url': 'https://alpha-moved.example',
+            'path': 'v2/openapi.json',
+            'key': 'rotated-elsewhere',
+            'info': <String, dynamic>{
+              'id': 'alpha',
+              'name': 'Alpha tools',
+              'description': 'Edited elsewhere',
+            },
+          },
+        ],
+      });
+
+      // The form is still the one that opened, keeping its stored key.
+      expect(find.text('Saved key kept. Type to replace it.'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const Key('personal-connection-name')),
+        'Alpha renamed',
+      );
+      await tapKey(tester, 'personal-connection-save');
+
+      final stored = _storedTools(server);
+      expect(stored.first['info']['name'], 'Zeta tools');
+      final alpha = stored.last;
+      expect(alpha['info']['name'], 'Alpha renamed');
+      expect(alpha['info']['description'], 'Edited elsewhere');
+      expect(alpha['url'], 'https://alpha-moved.example');
+      expect(alpha['path'], 'v2/openapi.json');
+      expect(alpha['key'], 'rotated-elsewhere');
+      expect(alpha['x_vendor'], <String, dynamic>{'tier': 2});
+    });
+
+    testWidgets('a field the user edited wins over the same field changed '
+        'elsewhere', (tester) async {
+      await openAlpha(tester);
+      await refreshFrom(tester, <String, dynamic>{
+        'toolServers': <dynamic>[
+          <String, dynamic>{
+            ..._tool('alpha', 'Alpha tools'),
+            'url': 'https://alpha-moved.example',
+            'path': 'v2/openapi.json',
+          },
+        ],
+      });
+
+      await tester.enterText(
+        find.byKey(const Key('personal-connection-url')),
+        'https://mine.example',
+      );
+      await tapKey(tester, 'personal-connection-save');
+
+      final alpha = _storedTools(server).single;
+      expect(alpha['url'], 'https://mine.example');
+      expect(alpha['path'], 'v2/openapi.json');
+    });
+
+    testWidgets('an auth change made elsewhere survives a name edit', (
+      tester,
+    ) async {
+      await openAlpha(tester);
+      await refreshFrom(tester, <String, dynamic>{
+        'toolServers': <dynamic>[
+          <String, dynamic>{
+            ..._tool('alpha', 'Alpha tools'),
+            'auth_type': 'none',
+            'key': '',
+          },
+        ],
+      });
+
+      await tester.enterText(
+        find.byKey(const Key('personal-connection-name')),
+        'Alpha renamed',
+      );
+      await tapKey(tester, 'personal-connection-save');
+
+      final alpha = _storedTools(server).single;
+      expect(alpha['info']['name'], 'Alpha renamed');
+      expect(alpha['auth_type'], 'none');
+      expect(alpha['key'], '');
+    });
+
+    testWidgets('a terminal keeps the switch and path another client saved', (
+      tester,
+    ) async {
+      container = await pumpPage(
+        tester,
+        const PersonalConnectionEditorPage(
+          kind: PersonalConnectionKind.terminal,
+          identity: 'https://box.example',
+        ),
+      );
+      await refreshFrom(tester, <String, dynamic>{
+        'terminalServers': <dynamic>[
+          <String, dynamic>{
+            ..._terminal('https://box.example', enabled: true),
+            'path': '/v2/openapi.json',
+          },
+        ],
+      });
+
+      await tester.enterText(
+        find.byKey(const Key('personal-connection-name')),
+        'Renamed box',
+      );
+      await tapKey(tester, 'personal-connection-save');
+
+      final terminal =
+          ((server.settings['ui'] as Map)['terminalServers'] as List).single
+              as Map;
+      expect(terminal['name'], 'Renamed box');
+      expect(terminal['enabled'], true);
+      expect(terminal['path'], '/v2/openapi.json');
+      expect(terminal['key'], 'terminal-secret');
+    });
+
+    testWidgets('an entry that is listed only after the form opened fills the '
+        'form instead of showing it empty', (tester) async {
+      server.settings = <String, dynamic>{
+        'ui': <String, dynamic>{'toolServers': <dynamic>[]},
+      };
+      await openAlpha(tester);
+      expect(find.byKey(const Key('personal-connection-name')), findsNothing);
+
+      await refreshFrom(tester, <String, dynamic>{
+        'toolServers': <dynamic>[_tool('alpha', 'Alpha tools')],
+      });
+
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('personal-connection-name')),
+          matching: find.text('Alpha tools'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('personal-connection-url')),
+          matching: find.text('https://alpha.example'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('an entry deleted and replaced elsewhere is not written to and '
+        'the form keeps what was typed', (tester) async {
+      await openAlpha(tester);
+      await refreshFrom(tester, <String, dynamic>{
+        'toolServers': <dynamic>[_tool('beta', 'Beta tools')],
+      });
+      final mark = server.log.length;
+
+      await tester.enterText(
+        find.byKey(const Key('personal-connection-name')),
+        'Alpha renamed',
+      );
+      await tapKey(tester, 'personal-connection-save');
+
+      expect(
+        server.log.skip(mark).where((r) => r.method == 'POST'),
+        isEmpty,
+      );
+      final stored = _storedTools(server).single;
+      expect(stored['info']['name'], 'Beta tools');
+      expect(stored['key'], 'secret-beta');
+      expect(
+        find.byKey(const Key('personal-connection-message')),
+        findsOneWidget,
+      );
+      expect(find.text('Alpha renamed'), findsOneWidget);
+    });
+  });
+
   group('account switch while a form is open', () {
     late FakeUserSettingsServer accounts;
     late HttpServer probeTarget;

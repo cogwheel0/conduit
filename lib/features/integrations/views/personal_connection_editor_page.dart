@@ -60,7 +60,16 @@ class _PersonalConnectionEditorPageState
   // list is loaded, so an account that signs in while the load is pending can
   // neither fill the form nor be mistaken for its owner.
   PersonalConnectionsSession? _owner;
+
+  // The entry as the server last listed it: its identity and whether the form
+  // can edit it follow later reads of the list.
   PersonalConnectionEntry? _existing;
+
+  // The entry as it was when the fields were filled from it. The fields are
+  // this plus what the user typed, so Save compares them to this and sends only
+  // what the user changed. Another client's later edit to a field the user left
+  // alone is then kept, not written back to its opening value.
+  Map<String, dynamic>? _opened;
   bool _initialized = false;
   bool _enabled = true;
   String _authType = 'bearer';
@@ -95,6 +104,7 @@ class _PersonalConnectionEditorPageState
         oldWidget.kind != widget.kind) {
       _initialized = false;
       _existing = null;
+      _opened = null;
       _owner = ref.read(personalConnectionsSessionProvider);
     }
   }
@@ -134,7 +144,13 @@ class _PersonalConnectionEditorPageState
     }
     _existing = snapshot.find(widget.kind, widget.identity);
     final entry = _existing;
-    if (entry == null) return;
+    if (entry == null) {
+      // Nothing to fill the fields from yet. Wait for the entry to be listed,
+      // rather than showing it later with empty fields that Save would write.
+      _initialized = false;
+      return;
+    }
+    _opened = entry.raw;
     _keyMode = PersonalConnectionSecretMode.keep;
     if (_isTool) {
       final draft = PersonalToolServerDraft.fromEntry(entry.raw);
@@ -204,10 +220,11 @@ class _PersonalConnectionEditorPageState
     }
     final PersonalConnectionEdit edit;
     final existing = _existing;
+    final opened = _opened;
     if (_isNew) {
       edit = AddPersonalConnection(_newEntry());
-    } else if (existing != null) {
-      final patch = _patch(existing.raw);
+    } else if (existing != null && opened != null) {
+      final patch = _patch(opened);
       if (patch.isEmpty) {
         context.pop();
         return;
@@ -255,9 +272,10 @@ class _PersonalConnectionEditorPageState
       return;
     }
     final existing = _existing;
-    final entry = existing == null
+    final opened = _opened;
+    final entry = existing == null || opened == null
         ? _newEntry()
-        : mergePersonalConnectionPatch(existing.raw, _patch(existing.raw));
+        : mergePersonalConnectionPatch(existing.raw, _patch(opened));
     setState(() {
       _busy = true;
       _message = null;
