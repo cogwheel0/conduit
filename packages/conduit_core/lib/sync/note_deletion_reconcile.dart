@@ -31,17 +31,26 @@ class NoteDeletionReconcile {
     required AppDatabase db,
     required NoteLocks locks,
     required SyncClock clock,
+    String? Function()? readerAccountId,
   }) : _client = client,
        _db = db,
        _locks = locks,
-       _clock = clock;
+       _clock = clock,
+       _readerAccountId = readerAccountId;
 
   final SyncApiClient _client;
   final AppDatabase _db;
   final NoteLocks _locks;
   final SyncClock _clock;
 
+  /// The signed-in account this reconcile was built for, or null once that
+  /// session has ended (or when it was built for no account). A refusal is
+  /// read evidence only against the account that was signed in when the run
+  /// began, and only while it still is.
+  final String? Function()? _readerAccountId;
+
   Future<ReconcileResult> run(ReconcileReason reason) async {
+    final reader = _readerAccountId?.call();
     final now = _clock.nowEpochSeconds();
     if (reason == ReconcileReason.background) {
       final last = await _db.syncMetaDao.getNotesLastFullReconcileAt();
@@ -131,11 +140,14 @@ class NoteDeletionReconcile {
     }
 
     // 4. Probe + purge under each note's lock. getNoteRaw returns null only
-    //    when the note is gone (404); auth/permission failures throw and abort
-    //    the run with no throttle advance. The list fetch above is the single
-    //    liveness/feature check for this run; unlike chats, note 404 is not
-    //    ambiguous with auth failure, so per-candidate full-list checks would
-    //    only add O(library * candidates) work.
+    //    when the note is gone (404). A 403 is the server refusing this account
+    //    the note, which neither ends the session nor deletes the note: the
+    //    account's cached read evidence is retired and the run carries on. Any
+    //    other terminal failure (401) aborts the run with no throttle advance.
+    //    The list fetch above is the single liveness/feature check for this
+    //    run; unlike chats, note 404 is not ambiguous with auth failure, so
+    //    per-candidate full-list checks would only add O(library * candidates)
+    //    work.
     var purged = 0;
     var skipped = 0;
     var sessionDead = false;
@@ -149,6 +161,16 @@ class NoteDeletionReconcile {
         try {
           gone = (await _client.getNoteRaw(id)) == null;
         } on SyncTerminalException catch (error, stackTrace) {
+          if (error.statusCode == 403) {
+            DebugLogger.log(
+              'note-reconcile-read-refused',
+              scope: 'sync/reconcile',
+              data: {'noteId': id},
+            );
+            await _retireRefusedReader(id, reader);
+            skipped++;
+            return;
+          }
           DebugLogger.warning(
             'note-reconcile-aborted-terminal-probe',
             scope: 'sync/reconcile',
@@ -210,5 +232,18 @@ class NoteDeletionReconcile {
       purged: purged,
       skipped: skipped,
     );
+  }
+
+  /// Retires [reader]'s cached read evidence for note [id] after the server
+  /// refused that account the note. Caller holds the note lock. Only the
+  /// evidence changes (see [NotesDao.retireNoteReadEvidence]): the row, its
+  /// draft, the queue and other accounts' evidence stay. The refusal speaks for
+  /// [reader] only while that account is still the signed-in one: once the
+  /// session has moved on, a held probe or lock wait may have been answered for
+  /// the next account, so nothing is retired.
+  Future<void> _retireRefusedReader(String id, String? reader) async {
+    if (reader == null || reader.isEmpty) return;
+    if (_readerAccountId?.call() != reader) return;
+    await _db.notesDao.retireNoteReadEvidence(id, accountId: reader);
   }
 }

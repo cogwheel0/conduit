@@ -4,13 +4,18 @@
 /// session-liveness guard. Mirrors the chat reconcile contract over notes.
 library;
 
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/mappers/note_mapper.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/clock.dart';
 import 'package:conduit_core/sync/deletion_reconcile.dart' show ReconcileReason;
 import 'package:conduit_core/sync/note_deletion_reconcile.dart';
 import 'package:conduit_core/sync/sync_api_client.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:test/test.dart';
 
@@ -54,6 +59,22 @@ class _TerminalNoteProbeClient extends FakeSyncApiClient {
 
   @override
   Future<Map<String, dynamic>?> getNoteRaw(String id) {
+    throw const SyncTerminalException(statusCode: 401, message: 'expired');
+  }
+}
+
+/// A client whose first note probe is held open and then answered with the
+/// server's refusal for a note the signed-in account may no longer read.
+class _HeldRefusalClient extends FakeSyncApiClient {
+  _HeldRefusalClient(super.server);
+
+  final probeStarted = Completer<void>();
+  final release = Completer<void>();
+
+  @override
+  Future<Map<String, dynamic>?> getNoteRaw(String id) async {
+    if (!probeStarted.isCompleted) probeStarted.complete();
+    await release.future;
     throw const SyncTerminalException(statusCode: 403, message: 'forbidden');
   }
 }
@@ -119,8 +140,16 @@ void main() {
     await db.notesDao.mergeServerNote(serverRaw: serverNote(id, ns));
   }
 
-  NoteDeletionReconcile reconcileWith(FakeSyncApiClient client) =>
-      NoteDeletionReconcile(client: client, db: db, locks: locks, clock: clock);
+  NoteDeletionReconcile reconcileWith(
+    FakeSyncApiClient client, {
+    String? Function()? reader,
+  }) => NoteDeletionReconcile(
+    client: client,
+    db: db,
+    locks: locks,
+    clock: clock,
+    readerAccountId: reader,
+  );
 
   test('a note still on the server is never purged (pagination/race gap)', () async {
     final client = FakeSyncApiClient(server);
@@ -255,7 +284,7 @@ void main() {
     },
   );
 
-  test('a terminal probe aborts without advancing the throttle', () async {
+  test('a terminal 401 probe aborts without advancing the throttle', () async {
     final client = _TerminalNoteProbeClient(server);
     await seedLocalOnly('forbidden');
 
@@ -297,6 +326,171 @@ void main() {
       check(await db.syncMetaDao.getNotesLastFullReconcileAt()).equals(0);
     },
   );
+
+  group('a shared note the server no longer lets the account read', () {
+    const ns = 1718000000000000000;
+    const creator = 'owner-1';
+    const sharedId = 'shared-1';
+
+    // The creator's note, cached with read evidence for each of [readers]; the
+    // server list no longer carries it, so it is a reconcile candidate.
+    Future<void> seedShared(List<String> readers) async {
+      for (final reader in readers) {
+        await db.notesDao.mergeServerNote(
+          serverRaw: {...serverNote(sharedId, ns), 'user_id': creator},
+          readerId: reader,
+        );
+      }
+    }
+
+    Future<List<String>> listedFor(String account) async => [
+      for (final n in await db.notesDao.watchNotes(userId: account).first) n.id,
+    ];
+
+    Future<List<String>> searchedBy(String account) async => [
+      for (final n in await db.notesDao.searchNotesByQuery(
+        sharedId,
+        userId: account,
+      ))
+        n.id,
+    ];
+
+    // Queues a local edit, parks it as the drainer does after a refusal, then
+    // queues a second one behind it.
+    Future<void> draftBehindRefusedEdit() async {
+      Future<void> edit(String md, int at) => locks.runExclusive(
+        sharedId,
+        () => db.notesDao.updateNoteWithOutbox(
+          sharedId,
+          data: Value(
+            jsonEncode({
+              'content': {'md': md},
+            }),
+          ),
+          localUpdatedAtNs: at,
+          enqueue: true,
+        ),
+      );
+      await edit('first draft', ns + 1);
+      for (final op in await db.outboxDao.pendingForChat(sharedId)) {
+        await db.outboxDao.markParked(op.seq, error: 'read-only');
+      }
+      await edit('my draft', ns + 2);
+    }
+
+    test('a 403 retires only the signed-in reader, keeping the note, its '
+        'draft and queue, and carries on with the other candidates', () async {
+      await seedShared(['reader-1', 'reader-2']);
+      await seedLocalOnly('gone-1');
+      await draftBehindRefusedEdit();
+      final client = FakeSyncApiClient(server)
+        ..forbiddenNoteReadIds.add(sharedId)
+        ..nullNoteIds.add('gone-1');
+      for (final account in ['reader-1', 'reader-2', creator]) {
+        check(await listedFor(account)).contains(sharedId);
+      }
+
+      final result = await reconcileWith(
+        client,
+        reader: () => 'reader-1',
+      ).run(ReconcileReason.manualRefresh);
+
+      check(await listedFor('reader-1')).isEmpty();
+      check(await searchedBy('reader-1')).isEmpty();
+      check(result.aborted).isFalse();
+      check(result.candidates).equals(2);
+      check(result.purged).equals(1);
+      check(result.skipped).equals(1);
+      check(await db.syncMetaDao.getNotesLastFullReconcileAt())
+          .equals(clock.now);
+      check(await listedFor('reader-2')).deepEquals([sharedId]);
+      check(await searchedBy('reader-2')).deepEquals([sharedId]);
+      check(await listedFor(creator)).deepEquals([sharedId]);
+      final row = (await db.notesDao.getNote(sharedId))!;
+      check(row.dirtyData).isTrue();
+      check(decodeNoteData(row.data)['content'])
+          .isA<Map>()
+          .deepEquals({'md': 'my draft'});
+      check(await db.outboxDao.pendingForChat(sharedId)).length.equals(1);
+      check(await db.outboxDao.watchParkedForChat(sharedId).first).length
+          .equals(1);
+      check(await db.notesDao.getNote('gone-1')).isNull();
+    });
+
+    test('a 401 is an expired session: nothing is retired', () async {
+      await seedShared(['reader-1']);
+      final client = _TerminalNoteProbeClient(server);
+
+      final result = await reconcileWith(
+        client,
+        reader: () => 'reader-1',
+      ).run(ReconcileReason.manualRefresh);
+
+      check(result.aborted).isTrue();
+      check(await listedFor('reader-1')).deepEquals([sharedId]);
+      check(await db.syncMetaDao.getNotesLastFullReconcileAt()).equals(0);
+    });
+
+    test('a reconcile built for no account retires nothing', () async {
+      await seedShared(['reader-1']);
+      final client = FakeSyncApiClient(server)
+        ..forbiddenNoteReadIds.add(sharedId);
+
+      final result = await reconcileWith(client)
+          .run(ReconcileReason.manualRefresh);
+
+      check(result.aborted).isFalse();
+      check(await listedFor('reader-1')).deepEquals([sharedId]);
+    });
+
+    test(
+      'a refusal answered after the account changed retires no one',
+      () async {
+        await seedShared(['reader-1', 'reader-2']);
+        final client = _HeldRefusalClient(server);
+        String? reader = 'reader-1';
+
+        final run = reconcileWith(
+          client,
+          reader: () => reader,
+        ).run(ReconcileReason.manualRefresh);
+        await client.probeStarted.future;
+        reader = 'reader-2';
+        client.release.complete();
+        await run;
+
+        check(await listedFor('reader-1')).deepEquals([sharedId]);
+        check(await listedFor('reader-2')).deepEquals([sharedId]);
+      },
+    );
+
+    test('an account that changed while the note lock was awaited retires '
+        'no one', () async {
+      await seedShared(['reader-1', 'reader-2']);
+      final client = FakeSyncApiClient(server)
+        ..forbiddenNoteReadIds.add(sharedId);
+      String? reader = 'reader-1';
+      final held = Completer<void>();
+      final holder = locks.runExclusive(sharedId, () => held.future);
+
+      final run = reconcileWith(
+        client,
+        reader: () => reader,
+      ).run(ReconcileReason.manualRefresh);
+      while (client.noteListRequests == 0) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      check(client.noteFetchStarts).isEmpty();
+      reader = null;
+      held.complete();
+      await holder;
+      await run;
+
+      check(await listedFor('reader-1')).deepEquals([sharedId]);
+      check(await listedFor('reader-2')).deepEquals([sharedId]);
+    });
+  });
 
   test('background reason honors the 24h throttle', () async {
     final client = FakeSyncApiClient(server);

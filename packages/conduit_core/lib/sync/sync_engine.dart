@@ -968,11 +968,28 @@ class SyncEngine extends _$SyncEngine {
     if (db == null || client == null || noteLocks == null || clock == null) {
       return null;
     }
+    // A refusal is evidence about the account signed in when the run is built.
+    // The API client and database outlive a sign-in change on the same server,
+    // so the epoch of the authentication session is fenced as well as the
+    // engine's own dependency epoch: a held probe or lock wait must not
+    // attribute its answer to whoever signed in meanwhile.
+    final boundSessionEpoch = _sessionEpoch;
+    final readerId = ref.read(currentUserProvider2)?.id;
+    final authSession = ref.read(openWebUiAuthSessionEpochProvider);
     return NoteDeletionReconcile(
       client: client,
       db: db,
       locks: noteLocks,
       clock: clock,
+      readerAccountId: () =>
+          ref.mounted &&
+              boundSessionEpoch == _sessionEpoch &&
+              identical(
+                ref.read(openWebUiAuthSessionEpochProvider),
+                authSession,
+              )
+          ? readerId
+          : null,
     );
   }
 
