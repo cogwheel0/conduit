@@ -161,6 +161,9 @@ class _FalseTemporaryChat extends TemporaryChatEnabled {
 class _FalseWebSearch extends WebSearchEnabledNotifier {
   @override
   bool build() => false;
+
+  /// The composer's toggle, without the settings write the real one makes.
+  void use(bool value) => state = value;
 }
 
 class _FalseImageGeneration extends ImageGenerationEnabledNotifier {
@@ -953,6 +956,7 @@ ProviderContainer _container({
   SocketService? socket,
   Model model = const Model(id: 'model-1', name: 'Model 1'),
   String? terminalId,
+  bool webSearchAvailable = false,
 }) {
   final container = ProviderContainer(
     overrides: [
@@ -967,7 +971,7 @@ ProviderContainer _container({
       temporaryChatEnabledProvider.overrideWith(_FalseTemporaryChat.new),
       webSearchEnabledProvider.overrideWith(_FalseWebSearch.new),
       imageGenerationEnabledProvider.overrideWith(_FalseImageGeneration.new),
-      webSearchAvailableProvider.overrideWithValue(false),
+      webSearchAvailableProvider.overrideWithValue(webSearchAvailable),
       imageGenerationAvailableProvider.overrideWithValue(false),
       selectedFilterIdsProvider.overrideWithValue(const <String>[]),
       selectedTerminalIdProvider.overrideWithValue(terminalId),
@@ -4747,6 +4751,7 @@ void main() {
       _QuietSyncEngine Function(AppDatabase, _FanOutApi)? engine,
       Map<String, dynamic>? storedBlob,
       User? account,
+      bool webSearchAvailable = false,
     }) async {
       if (storedBlob == null) {
         await _seedChat(db, chatId, storedParams: storedParams);
@@ -4773,6 +4778,7 @@ void main() {
         api: api,
         syncEngine: engine?.call(db, api) ?? _QuietSyncEngine(db, api),
         socket: socket,
+        webSearchAvailable: webSearchAvailable,
         extraOverrides: [
           modelsProvider.overrideWith(() => _ListedModels(available)),
           if (account != null) ..._signedInAs(account),
@@ -4995,6 +5001,127 @@ void main() {
       check(api.stoppedTasks).deepEquals(['task-0']);
       check(message(a).isStreaming).isFalse();
       check(message(a).content).equals('A partial');
+    });
+
+    group('a turn whose attached files are still being prepared', () {
+      Future<
+        ({
+          _FanOutApi api,
+          ProviderContainer container,
+          Future<List<ChatSendPlaceholderHandle>> admitted,
+          List<String> navigated,
+        })
+      >
+      begin() async {
+        final (:api, :socket, :container) = await open(webSearchAvailable: true);
+        (container.read(webSearchEnabledProvider.notifier) as _FalseWebSearch)
+            .use(true);
+        container
+            .read(contextAttachmentsProvider.notifier)
+            .addWeb(
+              displayName: 'Page',
+              content: 'page text',
+              url: 'https://example.test/page',
+            );
+        api.holdFileInfo = Completer<void>();
+        final navigated = <String>[];
+        final admitted = durableCompareSend(
+          container,
+          'compare these',
+          ['file-1'],
+          models: const [duplicate, duplicate],
+          onCommitted: () => navigated.add('chat'),
+        );
+        await api.fileInfoEntered.future.timeout(const Duration(seconds: 10));
+        return (
+          api: api,
+          container: container,
+          admitted: admitted,
+          navigated: navigated,
+        );
+      }
+
+      /// The composer as the user changes it while the files are prepared.
+      void changeComposer(ProviderContainer container) {
+        (container.read(webSearchEnabledProvider.notifier) as _FalseWebSearch)
+            .use(false);
+        container.read(contextAttachmentsProvider.notifier)
+          ..clear()
+          ..addWeb(
+            displayName: 'Newer',
+            content: 'newer text',
+            url: 'https://example.test/newer',
+          );
+      }
+
+      /// The turn as stored: after the chat's own last message, carrying only
+      /// the context and the toggles it was sent with.
+      Future<void> expectTurnAsSent() async {
+        final rows = await db.messagesDao.getForChat(chatId);
+        final user = jsonDecode(rows.singleWhere((r) => r.role == 'user').payload)
+            as Map<String, dynamic>;
+        check(user['parentId']).equals('u0');
+        final urls = [
+          for (final file in user['files'] as List<dynamic>)
+            if ((file as Map<String, dynamic>)['url'] != null) file['url'],
+        ];
+        // The attached file and the page that was in the composer when sent.
+        check(urls).deepEquals(['file-1', 'https://example.test/page']);
+        final ops = await db.outboxDao.pendingForChat(chatId);
+        check(ops.where((op) => op.kind == 'requestCompletion')).length.equals(1);
+        check(completionOf(ops).enableWebSearch).isTrue();
+      }
+
+      test('a chat opened meanwhile keeps its transcript and composer, and the '
+          'turn lands in the chat it was sent from', () async {
+        final (:api, :container, :admitted, :navigated) = await begin();
+        final opened = [_user('b0', 'Another chat')];
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-b', opened, ChatStorageKind.openWebUi));
+        container.read(chatMessagesProvider.notifier).setMessages(opened);
+        changeComposer(container);
+
+        api.holdFileInfo!.complete();
+        final handles = await admitted;
+
+        check(handles).length.equals(2);
+        // The chat on screen is not given the turn, nor navigated away from.
+        check(container.read(activeConversationProvider)!.id).equals('chat-b');
+        check(
+          container.read(chatMessagesProvider).map((m) => m.id),
+        ).deepEquals(['b0']);
+        check(navigated).isEmpty();
+        check(
+          container.read(contextAttachmentsProvider).map((a) => a.displayName),
+        ).deepEquals(['Newer']);
+        await expectTurnAsSent();
+      });
+
+      test('a toggle or context changed meanwhile does not reach the turn and '
+          'is not lost', () async {
+        final (:api, :container, :admitted, :navigated) = await begin();
+        changeComposer(container);
+
+        api.holdFileInfo!.complete();
+        final handles = await admitted;
+
+        // The turn is shown once, in the chat it was sent from.
+        check(
+          container.read(chatMessagesProvider).map((m) => m.id),
+        ).deepEquals([
+          'u0',
+          handles.first.userMessageId!,
+          for (final handle in handles) handle.assistantMessageId,
+        ]);
+        check(navigated).deepEquals(['chat']);
+        await expectTurnAsSent();
+        // What the user changed the composer to is theirs: not sent, not cleared.
+        check(
+          container.read(contextAttachmentsProvider).map((a) => a.displayName),
+        ).deepEquals(['Newer']);
+        check(container.read(webSearchEnabledProvider)).isFalse();
+      });
     });
 
     group('stopping one answer needs the server to accept it', () {
@@ -5889,6 +6016,52 @@ void main() {
         ).equals('original-project');
         check(container.read(chatMessagesProvider)).isEmpty();
       });
+    });
+
+    test('a project draft whose attached files are still being prepared is '
+        'admitted from its own empty start, not from a chat opened meanwhile',
+        () async {
+      final (:api, :container) = await projectDraftAwaitingSettings();
+      api.holdSettings!.complete();
+      api.holdFileInfo = Completer<void>();
+      final navigated = <String>[];
+      final admitted = durableCompareSend(
+        container,
+        'Original project draft',
+        ['file-1'],
+        models: const [duplicate, duplicate],
+        onCommitted: () => navigated.add('chat'),
+      );
+      await api.fileInfoEntered.future.timeout(const Duration(seconds: 10));
+      final opened = [_user('b0', 'Another chat')];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-b', opened, ChatStorageKind.openWebUi));
+      container.read(chatMessagesProvider.notifier).setMessages(opened);
+
+      api.holdFileInfo!.complete();
+      await admitted;
+
+      check(container.read(activeConversationProvider)!.id).equals('chat-b');
+      check(
+        container.read(chatMessagesProvider).map((m) => m.id),
+      ).deepEquals(['b0']);
+      check(navigated).isEmpty();
+      check(container.read(pendingFolderIdProvider)).equals('original-project');
+      // The turn is the first of a new chat in its project: it replies to
+      // nothing, not to the last message of the chat that was opened.
+      final chats = await db.chatsDao.watchChatList().first;
+      check(chats).length.equals(1);
+      check(chats.single.folderId).equals('original-project');
+      final rows = await db.messagesDao.getForChat(chats.single.id);
+      final user = rows.singleWhere((row) => row.role == 'user');
+      check(user.parentId).isNull();
+      check(rows.where((row) => row.role == 'assistant')).length.equals(2);
+      check(
+        (await db.outboxDao.pendingForChat(chats.single.id)).where(
+          (op) => op.kind == 'requestCompletion',
+        ),
+      ).length.equals(1);
     });
 
     group('an ordinary send whose admission waits on the account settings', () {
@@ -7529,6 +7702,25 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
 
   @override
   String? get assistantMessageId => requests.lastOrNull?.responseMessageId;
+
+  /// When set, an attached file's info is answered only once this completes,
+  /// and [fileInfoEntered] marks the wait: the window in which the chat and the
+  /// composer can change under a turn whose files are still being prepared.
+  Completer<void>? holdFileInfo;
+  final fileInfoEntered = Completer<void>();
+
+  @override
+  Future<Map<String, dynamic>> getFileInfo(
+    String fileId, {
+    ApiAuthSnapshot? authSnapshot,
+    CancelToken? cancelToken,
+  }) async {
+    if (!fileInfoEntered.isCompleted) fileInfoEntered.complete();
+    await holdFileInfo?.future;
+    return <String, dynamic>{
+      'meta': <String, dynamic>{'content_type': 'text/plain'},
+    };
+  }
 
   /// When set, the account's settings are answered only once this completes,
   /// and [settingsEntered] marks the wait: the window in which a draft can move

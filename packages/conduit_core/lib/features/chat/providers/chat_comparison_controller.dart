@@ -258,18 +258,42 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
     }
   }
 
-  final storedParamsBeforeWrite = activeAtSendStart == null
-      ? draftChatParams
-      : (await db.chatsDao.getChatParams(activeAtSendStart.id)) ??
-            activeAtSendStart.chatParams;
-  requireCompatibleSettings(storedParamsBeforeWrite);
-
+  // Everything the turn is composed from is read here, before the first await.
+  // Reading the transcript, the context or a toggle after the settings and the
+  // files were waited for would compose the turn from whatever chat and
+  // composer the user has moved on to since.
   final contextAttachments = ref.read(contextAttachmentsProvider);
   final contextFiles = _contextAttachmentsToFiles(contextAttachments);
   final attachmentList = attachments ?? const <String>[];
   final carriesImage =
       attachmentList.any((id) => id.startsWith('data:image/')) ||
       contextFiles.any((file) => file['type'] == 'image');
+  // The filters are the primary model's picks that every other model offers.
+  final primaryModel = models.first;
+  final filterIds = [
+    for (final id in selectedFilterIdsForModel(ref, primaryModel))
+      if (models.every(
+        (model) => model.filters?.any((filter) => filter.id == id) ?? false,
+      ))
+        id,
+  ];
+  final now = ref.read(syncClockProvider).nowEpochSeconds();
+  final webSearchEnabled =
+      ref.read(webSearchEnabledProvider) &&
+      ref.read(webSearchAvailableProvider);
+  final imageGenerationEnabled =
+      ref.read(imageGenerationEnabledProvider) &&
+      ref.read(imageGenerationAvailableProvider);
+  final pickerReasoningEffort = reasoningEffortForModel(ref.read, primaryModel);
+  final existingMessages = ref.read(chatMessagesProvider) as List<ChatMessage>;
+  final parentId = _resolveOpenWebUiParentIdForNewUserMessage(existingMessages);
+
+  final storedParamsBeforeWrite = activeAtSendStart == null
+      ? draftChatParams
+      : (await db.chatsDao.getChatParams(activeAtSendStart.id)) ??
+            activeAtSendStart.chatParams;
+  requireCompatibleSettings(storedParamsBeforeWrite);
+
   final durableAttachmentFiles = await _resolveDurableFilesFor(
     ref,
     attachmentList,
@@ -297,25 +321,6 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
     }
   }
 
-  // The filters are the primary model's picks that every other model offers.
-  final primaryModel = models.first;
-  final filterIds = [
-    for (final id in selectedFilterIdsForModel(ref, primaryModel))
-      if (models.every(
-        (model) => model.filters?.any((filter) => filter.id == id) ?? false,
-      ))
-        id,
-  ];
-  final now = ref.read(syncClockProvider).nowEpochSeconds();
-  final webSearchEnabled =
-      ref.read(webSearchEnabledProvider) &&
-      ref.read(webSearchAvailableProvider);
-  final imageGenerationEnabled =
-      ref.read(imageGenerationEnabledProvider) &&
-      ref.read(imageGenerationAvailableProvider);
-
-  final existingMessages = ref.read(chatMessagesProvider) as List<ChatMessage>;
-  final parentId = _resolveOpenWebUiParentIdForNewUserMessage(existingMessages);
   final userMessageId = const Uuid().v4();
   final slots = <ComparisonSlotSnapshot>[
     for (var index = 0; index < models.length; index++)
@@ -362,10 +367,21 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
   ];
   final messagesNotifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
-  messagesNotifier.addMessages([userMessage, ...placeholders]);
-  final durableOptimisticMessages = List<ChatMessage>.unmodifiable(
-    ref.read(chatMessagesProvider) as List<ChatMessage>,
-  );
+  // The turn is shown only where it was sent from: the chat (or the draft, in
+  // its project) that is still on screen under the same sign-in. Anywhere else
+  // the transcript is another chat's, and the durable write below is the whole
+  // of this turn. Its own transcript is what it was composed from, never what
+  // the screen holds now.
+  if (chatMutationTokenStillActive(ref, sendMutationOwner) &&
+      (activeAtSendStart != null ||
+          ref.read(pendingFolderIdProvider) == draftFolderId)) {
+    messagesNotifier.addMessages([userMessage, ...placeholders]);
+  }
+  final durableOptimisticMessages = List<ChatMessage>.unmodifiable([
+    ...existingMessages,
+    userMessage,
+    ...placeholders,
+  ]);
   final handles = [
     for (final id in assistantIds)
       ChatSendPlaceholderHandle._(
@@ -394,10 +410,6 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
   );
   var committed = false;
   try {
-    final pickerReasoningEffort = reasoningEffortForModel(
-      ref.read,
-      primaryModel,
-    );
     final admissionGlobals = await _captureAdmissionGlobalSettings(
       ref,
       owner: sendMutationOwner,
