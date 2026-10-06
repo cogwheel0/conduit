@@ -136,6 +136,25 @@ void main() {
       check(f.toPatch().set).deepEquals({'temperature': null});
     });
 
+    test('a stop "model default" outranks the global stop in the request', () {
+      final f = form({'stop': 'x'});
+      f.setMode('stop', ChatParamMode.modelDefault);
+      final saved = {'stop': 'x', ...f.toPatch().set};
+      final global = {'stop': 'a'};
+
+      check(
+        resolveOpenWebUiRequestParams(globalParams: global, chatParams: saved),
+      ).not((it) => it.containsKey('stop'));
+
+      // Inheriting (the key removed) is what lets the global stop apply.
+      final inherit = form({'stop': 'x'})
+        ..setMode('stop', ChatParamMode.inherit);
+      check(inherit.toPatch().remove).deepEquals(['stop']);
+      check(
+        resolveOpenWebUiRequestParams(globalParams: global, chatParams: {}),
+      )['stop'].isA<List<String>>().deepEquals(['a']);
+    });
+
     test(
       'an empty system prompt is an explicit empty override, not a reset',
       () {

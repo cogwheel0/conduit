@@ -248,17 +248,17 @@ Map<String, dynamic>? openWebUiGlobalParamsFromSettings(
 ///
 /// Mirrors the web client's request composition: the chat's keys win over the
 /// global ones (a saved null still wins, and the server skips null values),
-/// and `stop` is taken from the chat when it has one, otherwise the global
-/// value. Only the keys either side carries are present, so the backend can
-/// still supply a model's own defaults for everything else.
+/// and `stop` is taken from the merged map, so a chat that carries the key at
+/// all decides it (an explicit null or empty value means no stop, never the
+/// global one) and only a chat without the key inherits the global value. Only
+/// the keys either side carries are present, so the backend can still supply a
+/// model's own defaults for everything else.
 Map<String, dynamic> resolveOpenWebUiRequestParams({
   Map<String, dynamic>? globalParams,
   Map<String, dynamic>? chatParams,
 }) {
   final merged = <String, dynamic>{...?globalParams, ...?chatParams};
-  final stop = normalizeOpenWebUiStopTokens(
-    chatParams?[kChatParamStop] ?? globalParams?[kChatParamStop],
-  );
+  final stop = normalizeOpenWebUiStopTokens(merged[kChatParamStop]);
   if (stop == null) {
     merged.remove(kChatParamStop);
   } else {

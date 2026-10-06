@@ -177,6 +177,16 @@ void main() {
         check(stopOf(global: 'a', chat: '')).isNull();
       });
 
+      test('an explicit null chat stop is the model default, not the global', () {
+        final merged = resolveOpenWebUiRequestParams(
+          globalParams: {'stop': 'a', 'temperature': 0.2},
+          chatParams: {'stop': null, 'temperature': null, 'future': null},
+        );
+        check(merged.containsKey('stop')).isFalse();
+        // Every other explicit null still travels (the server skips it).
+        check(merged).deepEquals({'temperature': null, 'future': null});
+      });
+
       test('nothing left means no stop key at all', () {
         check(stopOf(chat: <String>[])).isNull();
         check(stopOf()).isNull();
