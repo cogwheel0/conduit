@@ -45,6 +45,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// Stopped answers whose finished state is not stored yet, with the owner
   /// that stopped them.
   final List<_OwedStoppedAnswers> _owedStoppedAnswers = [];
+
+  /// Stops of an Open WebUI response whose server-side cancellation has not
+  /// been accepted yet, with the owner that asked for them.
+  final List<_OwedCancellation> _owedCancellations = [];
   String? _dbWatchedConversationKey;
   AppDatabase? _dbWatchedDatabase;
   Object? _dbWatchedApi;
@@ -4037,6 +4041,51 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     return _settleOwedStoppedAnswers(owed);
   }
 
+  /// Keeps a Stop's server-side [steps], already started, owed to [chatId]
+  /// under [owner] until the server has accepted every one. The visible answers
+  /// settle at once, so this is what says the cancellation itself is still
+  /// pending or was refused.
+  void _oweCancellation({
+    required ChatMutationOwnerToken owner,
+    required String chatId,
+    required List<_CancellationStep> steps,
+  }) {
+    if (steps.isEmpty) return;
+    final owed = _OwedCancellation(owner: owner, chatId: chatId, steps: steps);
+    _owedCancellations.add(owed);
+    unawaited(_settleCancellation(owed));
+  }
+
+  /// Waits for the cancellations still owed to [chatId] under the store, account
+  /// session and server that stopped it, asking the server again for each one it
+  /// has not accepted. Null when nothing is owed to that owner; false when the
+  /// server refused again.
+  Future<bool>? settlePendingCancellation({
+    required String chatId,
+    required Object? database,
+    required Object? api,
+    required Object? authSessionEpoch,
+  }) {
+    final owed = [
+      for (final entry in _owedCancellations)
+        if (entry.chatId == chatId &&
+            identical(entry.owner.openWebUiDatabase, database) &&
+            identical(entry.owner.openWebUiApi, api) &&
+            identical(entry.owner.openWebUiAuthSessionEpoch, authSessionEpoch))
+          entry,
+    ];
+    if (owed.isEmpty) return null;
+    return Future.wait([
+      for (final entry in owed) _settleCancellation(entry),
+    ]).then((accepted) => accepted.every((ok) => ok));
+  }
+
+  Future<bool> _settleCancellation(_OwedCancellation owed) async {
+    final accepted = await owed.settle();
+    if (accepted) _owedCancellations.remove(owed);
+    return accepted;
+  }
+
   Future<bool> _settleOwedStoppedAnswers(List<_OwedStoppedAnswers> owed) async {
     var stored = true;
     for (final entry in owed) {
@@ -5554,4 +5603,49 @@ final class _OwedStoppedAnswers {
 
   /// The write in flight, if any.
   Future<bool>? writing;
+}
+
+/// One server-side effect of a Stop (aborting the transport, stopping the
+/// chat's tasks) that can be asked again. Attempts do not overlap: one that is
+/// still running is joined rather than repeated.
+final class _CancellationStep {
+  _CancellationStep(this._run);
+
+  final Future<bool> Function() _run;
+  bool accepted = false;
+  Future<bool>? _attempt;
+
+  /// Asks the server now. Any failure is a refusal.
+  Future<bool> attempt() => _attempt ??= Future<bool>.sync(_run)
+      .then((ok) => ok, onError: (Object _) => false)
+      .then((ok) {
+        accepted = ok;
+        _attempt = null;
+        return ok;
+      });
+}
+
+/// The server-side cancellation of one stopped response, and the chat, store,
+/// account session and server it was asked under. Only that owner waits for it
+/// or asks again.
+final class _OwedCancellation {
+  _OwedCancellation({
+    required this.owner,
+    required this.chatId,
+    required this.steps,
+  });
+
+  final ChatMutationOwnerToken owner;
+  final String chatId;
+  final List<_CancellationStep> steps;
+
+  /// True once the server has accepted every step; asks again for each that it
+  /// has not.
+  Future<bool> settle() async {
+    final results = await Future.wait([
+      for (final step in steps)
+        if (step.accepted) Future<bool>.value(true) else step.attempt(),
+    ]);
+    return results.every((ok) => ok);
+  }
 }

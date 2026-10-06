@@ -918,6 +918,110 @@ void main() {
     });
   });
 
+  group('a draft the queue refused', () {
+    /// A queue of two drafts, the first with a file, whose admission the
+    /// database refused; the cause is gone by the time this returns.
+    Future<(_Session, QueuedChatDraft)> refused() async {
+      final s = await _Session.start();
+      await s.db.customStatement(
+        "CREATE TRIGGER refuse_outbox BEFORE INSERT ON outbox_ops "
+        "BEGIN SELECT RAISE(ABORT, 'outbox unavailable'); END",
+      );
+      s.attach([_file('a.csv')]);
+      final first = s.queue.enqueue('first')!;
+      s.queue.enqueue('second');
+      s.finishResponse();
+      await s.until(() => s.active?.admissionFailed == true);
+      await s.db.customStatement('DROP TRIGGER refuse_outbox');
+      return (s, first);
+    }
+
+    test('is sent again after an edit, with its text and files kept',
+        () async {
+      final (s, first) = await refused();
+      check(await s.sentUserRows()).isEmpty();
+
+      check(s.queue.editDraft(first.id, 'first, edited')).isTrue();
+      await s.until(() => s.active == null);
+      await s.settle();
+
+      final rows = await s.sentUserRows();
+      check(rows.single.content).equals('first, edited\n\nsecond');
+      check(s.userFileIds(rows.single)).deepEquals(['id-a.csv']);
+      check(await s.completions()).length.equals(1);
+    });
+
+    test('is sent again, without the removed draft, after a removal',
+        () async {
+      final (s, first) = await refused();
+      // The second draft holds no file, so removing it releases nothing.
+      final second = s.active!.drafts.last;
+      check(second.attachmentIds).isEmpty();
+
+      check(s.queue.removeDraft(second.id)).isTrue();
+      await s.until(() => s.active == null);
+      await s.settle();
+
+      final rows = await s.sentUserRows();
+      check(rows.single.content).equals(first.text);
+      check(s.userFileIds(rows.single)).deepEquals(['id-a.csv']);
+      check(s.parked).isEmpty();
+      check(await s.completions()).length.equals(1);
+    });
+
+    test('is sent without a file the queue no longer holds once it is '
+        'removed', () async {
+      final s = await _Session.start();
+      s.attach([_file('gone.csv')]);
+      final first = s.queue.enqueue('first')!;
+      s.queue.enqueue('second');
+      // The file's upload is dropped elsewhere, so the draft can never be ready.
+      s.container
+          .read(queuedDraftAttachmentsProvider.notifier)
+          .release(s.active!.id, first.attachmentIds);
+      s.finishResponse();
+      await s.settle();
+      check(await s.sentUserRows()).isEmpty();
+
+      check(
+        s.queue.removeDraftAttachment(first.id, first.attachmentIds.single),
+      ).isTrue();
+      await s.until(() => s.active == null);
+      await s.settle();
+
+      final rows = await s.sentUserRows();
+      check(rows.single.content).equals('first\n\nsecond');
+      check(s.userFileIds(rows.single)).isEmpty();
+    });
+
+    test('an edit does not send over a Stop the server still refuses',
+        () async {
+      final s = await _Session.start();
+      s.api.stopError = StateError('stop refused');
+      final first = s.queue.enqueue('first')!;
+      check(await s.queue.sendNow(first.id))
+          .equals(ChatDraftSendNowOutcome.stopFailed);
+      check(s.active!.admissionFailed).isTrue();
+
+      check(s.queue.editDraft(first.id, 'first, edited')).isTrue();
+      await s.until(() => s.api.stoppedChats.length == 2);
+      await s.settle();
+
+      // The edit looked at the queue again, asked the server again, and was
+      // refused again: nothing was sent and the retry is offered once more.
+      check(await s.sentUserRows()).isEmpty();
+      check(s.active!.admissionFailed).isTrue();
+      check(s.active!.drafts.single.text).equals('first, edited');
+
+      s.api.stopError = null;
+      s.queue.retryAdmission();
+      await s.until(() => s.active == null);
+      await s.settle();
+      check((await s.sentUserRows()).single.content).equals('first, edited');
+      check(await s.completions()).length.equals(1);
+    });
+  });
+
   group('send now', () {
     test('sending one draft leaves the file a later draft holds at that path',
         () async {
@@ -1030,6 +1134,129 @@ void main() {
       check(await s.queue.sendNow(draft.id))
           .equals(ChatDraftSendNowOutcome.blockedByUpload);
       check(s.api.stoppedChats).isEmpty();
+    });
+  });
+
+  group('a Stop the server has not accepted', () {
+    test('holds the queue until the server accepts it, then sends once',
+        () async {
+      final s = await _Session.start();
+      s.api.stopGate = Completer<void>();
+      s.queue.enqueue('first');
+      s.queue.enqueue('second');
+
+      s.container.read(stopGenerationProvider)();
+      await s.until(() => s.api.stoppedChats.isNotEmpty);
+      // The answer is off the screen, yet the server has not answered the stop.
+      check(s.container.read(chatMainAnswerActiveProvider)).isFalse();
+      await s.settle();
+      check(await s.sentUserRows()).isEmpty();
+      check(s.active!.drafts).length.equals(2);
+
+      s.api.stopGate!.complete();
+      await s.until(() => s.active == null);
+      await s.settle();
+
+      check((await s.sentUserRows()).single.content).equals('first\n\nsecond');
+      check(await s.completions()).length.equals(1);
+      check(s.api.stoppedChats).deepEquals([_Session.chatId]);
+    });
+
+    test('a refused Stop keeps the drafts until the user retries, and the '
+        'retry asks the server again', () async {
+      final s = await _Session.start();
+      s.api.stopError = StateError('stop refused');
+      s.queue.enqueue('first');
+      s.queue.enqueue('second');
+
+      s.container.read(stopGenerationProvider)();
+      await s.until(() => s.active?.admissionFailed == true);
+      await s.settle();
+
+      check(await s.sentUserRows()).isEmpty();
+      check(s.active!.phase).equals(ChatDraftQueuePhase.idle);
+      check(s.active!.drafts).length.equals(2);
+
+      s.api.stopError = null;
+      s.queue.retryAdmission();
+      await s.until(() => s.active == null);
+      await s.settle();
+
+      check(s.api.stoppedChats).deepEquals([_Session.chatId, _Session.chatId]);
+      check((await s.sentUserRows()).single.content).equals('first\n\nsecond');
+      check(await s.completions()).length.equals(1);
+    });
+
+    test('send now retried after a refusal asks the server again instead of '
+        'finding nothing to stop', () async {
+      final s = await _Session.start();
+      s.api.stopError = StateError('stop refused');
+      final first = s.queue.enqueue('first')!;
+      final second = s.queue.enqueue('second')!;
+
+      check(await s.queue.sendNow(first.id))
+          .equals(ChatDraftSendNowOutcome.stopFailed);
+      // The answer is settled on screen now, but the server never accepted.
+      check(s.container.read(chatMainAnswerActiveProvider)).isFalse();
+      check(await s.queue.sendNow(first.id))
+          .equals(ChatDraftSendNowOutcome.stopFailed);
+      check(s.api.stoppedChats).length.equals(2);
+      check(await s.sentUserRows()).isEmpty();
+
+      s.api.stopError = null;
+      check(await s.queue.sendNow(first.id))
+          .equals(ChatDraftSendNowOutcome.admitted);
+
+      check(s.api.stoppedChats).length.equals(3);
+      check((await s.sentUserRows()).single.content).equals('first');
+      check(await s.completions()).length.equals(1);
+      check(s.active!.drafts.map((d) => d.id)).deepEquals([second.id]);
+    });
+
+    test('never holds another chat or another sign-in, and still holds its '
+        'own', () async {
+      final s = await _Session.start();
+      s.api.stopGate = Completer<void>();
+      s.queue.enqueue('mine');
+      s.container.read(stopGenerationProvider)();
+      await s.until(() => s.api.stoppedChats.isNotEmpty);
+      final accountA = s.container.read(apiServiceProvider)!;
+      final epochA = s.container.read(openWebUiAuthSessionEpochProvider);
+
+      // Another chat of the same account is not waiting on this stop.
+      await _seedChat(s.db, 'chat-2');
+      s.switchTo('chat-2');
+      s.queue.enqueue('elsewhere');
+      s.finishResponse();
+      await s.until(() => s.active == null);
+      await s.settle();
+      check((await s.sentUserRows('chat-2')).single.content)
+          .equals('elsewhere');
+      check(await s.sentUserRows()).isEmpty();
+
+      // Nor is another sign-in viewing this chat.
+      s.signInElsewhere(_Api('server-b'));
+      s.switchTo(_Session.chatId);
+      s.queue.enqueue('theirs');
+      s.finishResponse();
+      await s.until(() => s.active == null);
+      await s.settle();
+      check((await s.sentUserRows()).single.content).equals('theirs');
+
+      // Back under the account that stopped it, the draft still waits for it.
+      s.container.read(s._wires.api.notifier).use(accountA);
+      s.container.read(s._wires.epoch.notifier).use(epochA);
+      s.switchTo(_Session.chatId, messages: _comparisonTurn(running: const {}));
+      await s.settle();
+      check((await s.sentUserRows()).map((row) => row.content))
+          .deepEquals(['theirs']);
+      check(s.active!.drafts.map((d) => d.text)).deepEquals(['mine']);
+
+      s.api.stopGate!.complete();
+      await s.until(() => s.active == null);
+      await s.settle();
+      check((await s.sentUserRows()).map((row) => row.content))
+          .deepEquals(['theirs', 'mine']);
     });
   });
 

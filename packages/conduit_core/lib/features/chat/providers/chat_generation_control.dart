@@ -91,16 +91,32 @@ final stopGenerationProvider = Provider<void Function()>((ref) {
 /// told to stop, and a requestCompletion that has not started is removed. The
 /// result is whether all of that was accepted.
 ///
-/// A response that is not streaming has nothing to stop. A Direct or Hermes
-/// response belongs to another transport, which this does not stop, so it is
-/// reported as not stopped; neither is ever touched from here.
+/// A response that is not streaming has nothing new to stop. An earlier Stop
+/// settles the visible answers before the server answers, so when its
+/// cancellation is still pending or was refused for this chat and sign-in, that
+/// one is what is waited for and asked again. A Direct or Hermes response
+/// belongs to another transport, which this does not stop, so it is reported as
+/// not stopped; neither is ever touched from here.
 ///
 /// A model comparison has one response per model, and any of them may be the
 /// one still running, so the check covers every answer that ends the transcript
 /// and not only the last.
 Future<bool> stopOpenWebUiMainResponse(Ref ref) {
   final running = _trailingStreamingAssistant(ref.read(chatMessagesProvider));
-  if (running == null) return Future<bool>.value(true);
+  if (running == null) {
+    final active = ref.read(activeConversationProvider);
+    return active == null
+        ? Future<bool>.value(true)
+        : ref
+                  .read(chatMessagesProvider.notifier)
+                  .settlePendingCancellation(
+                    chatId: active.id,
+                    database: _readAppDatabaseOrNull(ref),
+                    api: _readApiServiceOrNull(ref),
+                    authSessionEpoch: _readOpenWebUiAuthSessionEpoch(ref),
+                  ) ??
+              Future<bool>.value(true);
+  }
   final transport = running.metadata?['transport'];
   if (transport == kDirectTransport || transport == kHermesTransport) {
     return Future<bool>.value(false);
@@ -118,6 +134,15 @@ Future<bool> _stopGeneration(Ref ref) {
   var stoppedClientOwnedRun = false;
   var stoppedOpenWebUiRun = false;
   var hadStreamingAssistant = false;
+  // The server-side effects of this stop, kept so that a refusal can be asked
+  // again after the visible answers have settled (see [_oweCancellation]).
+  final cancellation = <_CancellationStep>[];
+  Future<bool> cancelOnServer(Future<bool> Function() run) {
+    final step = _CancellationStep(run);
+    cancellation.add(step);
+    return step.attempt();
+  }
+
   try {
     final messages = ref.read(chatMessagesProvider);
     // The tail of a multi-model turn may have finished while a sibling is
@@ -216,7 +241,7 @@ Future<bool> _stopGeneration(Ref ref) {
         // choose the right cancellation path (abort handle, task stop, or
         // both).
         stoppedOpenWebUiRun = true;
-        settled.add(stopActiveTransport(last, api));
+        settled.add(cancelOnServer(() => stopActiveTransport(last, api)));
         final regenerationAttemptId =
             last.metadata?[_openWebUiRegenerationAttemptMetadataKey];
         if (regenerationAttemptId is String &&
@@ -266,14 +291,23 @@ Future<bool> _stopGeneration(Ref ref) {
     final api = ref.read(apiServiceProvider);
     final activeConv = ref.read(activeConversationProvider);
     if (api != null && activeConv != null) {
-      settled.add(() async {
-        try {
+      settled.add(
+        cancelOnServer(() async {
           await api.stopTasksByChat(activeConv.id);
           return true;
-        } catch (_) {
-          return false;
-        }
-      }());
+        }),
+      );
+      // The stop is owed to the chat, store, sign-in and server it was asked
+      // under until the server has accepted all of it. Everything above ran in
+      // this one synchronous turn, so nothing can read the settled answers
+      // before this is recorded.
+      ref
+          .read(chatMessagesProvider.notifier)
+          ._oweCancellation(
+            owner: captureChatMutationOwner(ref, activeConv),
+            chatId: activeConv.id,
+            steps: cancellation,
+          );
 
       // Drop any PENDING requestCompletion op for this chat so a stopped
       // turn is not re-driven by the next drain (W14). An inFlight op (the

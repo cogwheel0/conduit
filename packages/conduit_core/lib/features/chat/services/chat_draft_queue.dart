@@ -423,6 +423,10 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
         admissionFailed: false,
       ),
     );
+    // The failure that held the queue is cleared, so nothing else will look at
+    // it again: a ready queue must be reevaluated here. Admission itself still
+    // asks a refused Stop again before it sends anything.
+    _scheduleDrain();
     return true;
   }
 
@@ -444,6 +448,7 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
       ),
     );
     _releaseAttachments(queue.id, draft.attachmentIds);
+    _scheduleDrain();
     return true;
   }
 
@@ -476,6 +481,8 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
       ),
     );
     _releaseAttachments(queue.id, [attachmentId]);
+    // A file the queue no longer holds releases nothing, and so wakes nothing.
+    _scheduleDrain();
     return true;
   }
 
@@ -602,9 +609,18 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
     String queueId,
     List<String> draftIds,
   ) async {
+    // A Stop settles the visible answer before the server has answered, so the
+    // response being idle says nothing about its cancellation: a turn is not
+    // admitted over one the server has not accepted, and a refused one is asked
+    // again here.
+    final cancelling = _owedCancellation(queueId);
+    if (cancelling != null) {
+      final refused = await _settleOwedWork(queueId, draftIds, cancelling);
+      if (refused != null) return refused;
+    }
     final owed = _owedStoppedAnswers(queueId);
     if (owed != null) {
-      final refused = await _settleStoppedAnswers(queueId, draftIds, owed);
+      final refused = await _settleOwedWork(queueId, draftIds, owed);
       if (refused != null) return refused;
     }
     final queue = state.where((queue) => queue.id == queueId).firstOrNull;
@@ -704,11 +720,27 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
         );
   }
 
-  /// Waits for the owed write while the drafts of the batch are frozen. Null
-  /// when the batch may go on. The write belongs to the store it captured; if
-  /// the conversation or account changed meanwhile, nothing is admitted and the
-  /// queue is left for its own owner to drain.
-  Future<ChatDraftSendNowOutcome?> _settleStoppedAnswers(
+  /// The server-side cancellation of a Stop the queue's owner still owes its
+  /// chat, if any: one the server has not accepted yet, or refused.
+  Future<bool>? _owedCancellation(String queueId) {
+    final queue = state.where((queue) => queue.id == queueId).firstOrNull;
+    if (queue == null) return null;
+    return ref
+        .read(chatMessagesProvider.notifier)
+        .settlePendingCancellation(
+          chatId: queue.chatId,
+          database: queue.database,
+          api: queue.api,
+          authSessionEpoch: queue.authSessionEpoch,
+        );
+  }
+
+  /// Waits for [owed] (a cancellation or the write of stopped answers) while the
+  /// drafts of the batch are frozen. Null when the batch may go on. It belongs
+  /// to the store, chat and sign-in it was captured under; if the conversation
+  /// or account changed meanwhile, nothing is admitted and the queue is left for
+  /// its own owner to drain.
+  Future<ChatDraftSendNowOutcome?> _settleOwedWork(
     String queueId,
     List<String> draftIds,
     Future<bool> owed,
