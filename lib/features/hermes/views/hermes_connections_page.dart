@@ -68,9 +68,11 @@ class HermesConnectionsPage extends ConsumerWidget {
           footer: PlatformInfo.isIOS ? l10n.hermesEnableSubtitle : null,
           children: [
             UtilityRow(
+              key: const ValueKey<String>('hermes-enable-row'),
               title: l10n.hermesEnableTitle,
               subtitle: PlatformInfo.isIOS ? null : l10n.hermesEnableSubtitle,
               titleFontWeight: PlatformInfo.isIOS ? FontWeight.w400 : null,
+              toggled: config.enabled,
               trailing: AdaptiveSwitch(
                 value: config.enabled,
                 onChanged: (value) => _setEnabled(ref, value),

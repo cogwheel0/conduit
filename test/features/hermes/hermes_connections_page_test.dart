@@ -405,6 +405,29 @@ void main() {
     check(save().onPressed).isNotNull();
   });
 
+  testWidgets('the enable row announces whether Hermes is on', (tester) async {
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [secureStorageProvider.overrideWithValue(secrets)],
+        child: const MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: HermesConnectionsPage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSemantics(
+        find.byKey(const ValueKey<String>('hermes-enable-row')),
+      ),
+      isSemantics(hasToggledState: true, isToggled: true),
+    );
+    semantics.dispose();
+  });
+
   test('initials come from the first two words of a name', () {
     check(hermesConnectionInitials('Home Lab')).equals('HL');
     check(hermesConnectionInitials('research')).equals('RE');
