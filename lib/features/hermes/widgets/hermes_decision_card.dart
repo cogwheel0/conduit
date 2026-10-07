@@ -1,3 +1,5 @@
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+
 import 'dart:convert';
 
 import 'package:material_ui/material_ui.dart';
@@ -131,7 +133,7 @@ final class _HermesDecisionCardState extends State<HermesDecisionCard> {
                   runSpacing: Spacing.xs,
                   children: [
                     for (final choice in widget.choices)
-                      FilterChip(
+                      AdaptiveChip.filter(
                         label: Text(choice),
                         selected: _selectedChoices.contains(choice),
                         onSelected: _submitting

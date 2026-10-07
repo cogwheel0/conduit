@@ -320,18 +320,6 @@ exceptions:
     owner: channels
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
-  - path: lib/features/channels/widgets/channel_message_reactions.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: channels
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/channels/widgets/channel_message_reactions.dart
-    symbol: "ActionChip"
-    count: 1
-    owner: channels
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
   - path: lib/features/channels/widgets/thread_panel.dart
     package: "package:material_ui/material_ui.dart"
     count: 1
@@ -1082,12 +1070,6 @@ exceptions:
     owner: hermes
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
-  - path: lib/features/hermes/widgets/hermes_decision_card.dart
-    symbol: "FilterChip"
-    count: 1
-    owner: hermes
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
   - path: lib/features/hermes/widgets/hermes_job_editor.dart
     package: "package:material_ui/material_ui.dart"
     count: 1
@@ -1217,12 +1199,6 @@ exceptions:
   - path: lib/features/navigation/views/folder_page.dart
     package: "package:material_ui/material_ui.dart"
     count: 1
-    owner: navigation
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/navigation/views/folder_page.dart
-    symbol: "ChoiceChip"
-    count: 2
     owner: navigation
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
