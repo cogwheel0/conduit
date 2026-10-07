@@ -587,12 +587,13 @@ class HermesConfigController extends Notifier<HermesConfig> {
   /// Atomically commits connection edits. Secrets are retained only when the
   /// normalized origin (scheme + host + port) is unchanged.
   ///
-  /// [connectionId] defaults to the active connection. Without an active
-  /// connection the edits create a saved connection and activate it. Editing
-  /// an inactive connection never touches the runtime.
+  /// [connectionId] defaults to the connection active when this is called.
+  /// Without one the edits create a saved connection, activated unless
+  /// another became active first. Editing an inactive connection never
+  /// touches the runtime. Returns the id of the saved connection.
   ///
   /// A null [name] keeps the saved name; an empty one derives it from the URL.
-  Future<void> saveConnection({
+  Future<String> saveConnection({
     String? connectionId,
     required String baseUrl,
     String? name,
@@ -612,26 +613,32 @@ class HermesConfigController extends Notifier<HermesConfig> {
     final nextOrigin = connectionOrigin(trimmedUrl);
     if ((trimmedUrl.isNotEmpty && nextOrigin == null) ||
         trimmedUrl.length > kMaxHermesBaseUrlCharacters) {
-      return Future<void>.error(
+      return Future<String>.error(
         ArgumentError.value(baseUrl, 'baseUrl', 'Use a valid http(s) URL'),
       );
     }
+    // Chosen now, not when the queue reaches this save: a connection that an
+    // earlier queued save creates and activates meanwhile must not turn this
+    // new connection into an edit of that one.
+    final targetId = connectionId ?? state.connectionId;
+    String? saved;
     return _serializeMutation(() async {
       // Resolve the one cold-start read before applying edits. This prevents a
       // same-origin save from accidentally replacing not-yet-hydrated secrets
       // with null, while the serialized queue prevents write reordering.
       await _secretsHydration;
       _throwIfSecretsUnavailable();
-      final targetId = connectionId ?? state.connectionId;
       if (targetId != null && _profile(targetId) == null) {
         throw StateError('This Hermes connection no longer exists.');
       }
       if (targetId == null && _profiles.length >= kMaxHermesConnections) {
         throw StateError('Too many saved Hermes connections.');
       }
-      await _commitConnection(
+      saved = await _commitConnection(
         targetId == null
-            ? _HermesConnectionTarget.create(activate: true)
+            ? _HermesConnectionTarget.create(
+                activate: state.connectionId == null,
+              )
             : _HermesConnectionTarget.existing(
                 targetId,
                 active: targetId == state.connectionId,
@@ -651,7 +658,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
         desktopCredentialsChanged: desktopCredentialsChanged,
         desktopCredentials: desktopCredentials,
       );
-    });
+    }).then((_) => saved!);
   }
 
   /// Saves a new connection without activating it, and returns its id. Use

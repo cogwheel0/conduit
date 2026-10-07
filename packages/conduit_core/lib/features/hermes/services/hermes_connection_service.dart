@@ -158,7 +158,7 @@ final class _RiverpodHermesConnectionGateway
         desktopCredentials: config.desktopCredentials,
       );
     }
-    await notifier.saveConnection(
+    return notifier.saveConnection(
       connectionId: targetId,
       baseUrl: config.baseUrl,
       name: config.name,
@@ -174,7 +174,6 @@ final class _RiverpodHermesConnectionGateway
       desktopCredentialsChanged: draft.desktopCredentialsChanged,
       desktopCredentials: config.desktopCredentials,
     );
-    return targetId ?? _ref.read(hermesConfigProvider).connectionId;
   }
 
   @override

@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_connection_contract.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -790,6 +791,41 @@ void main() {
       check(config.name).equals('first.example');
       check(config.apiKey).equals('first-key');
       check(HermesConnectionStore.readActiveId()).equals(config.connectionId);
+    });
+
+    test('two new connections saved back to back are both kept', () async {
+      PreferencesStore.debugOverride(InMemoryKeyValueStore());
+      final secrets = _Secrets();
+      final container = await _ready(secrets);
+      addTearDown(container.dispose);
+      final gateway = container.read(hermesConnectionGatewayProvider);
+      HermesConnectionDraft draft(String host) => HermesConnectionDraft(
+        config: HermesConfig(
+          enabled: true,
+          baseUrl: 'https://$host.example',
+          apiKey: '$host-key',
+        ),
+        apiKeyChanged: true,
+        sessionKeyChanged: true,
+        desktopCredentialsChanged: true,
+      );
+
+      // Two editors save new connections before the first save has run, as
+      // with slow storage.
+      final [firstId, secondId] = await Future.wait([
+        gateway.persist(draft('first')),
+        gateway.persist(draft('second')),
+      ]);
+
+      check(
+        container.read(hermesConnectionsProvider).map((profile) => profile.id),
+      ).deepEquals([firstId, secondId]);
+      final config = container.read(hermesConfigProvider);
+      check(config.connectionId).equals(firstId);
+      check(config.baseUrl).equals('https://first.example');
+      check(config.apiKey).equals('first-key');
+      check(await secrets.read(key: 'hermes_api_key_v1:$secondId'))
+          .equals('second-key');
     });
 
     test('a save without an active connection respects the limit', () async {
