@@ -696,19 +696,25 @@ class OptimizedStorageService {
                   : config.copyWith(apiKey: null),
             )
             .toList(growable: false);
+        // Judge ownership by what the save will store, not by what was passed:
+        // accounts on one server share its endpoint, so an edit made through
+        // one account moves every other account on that server too.
+        final nextConfigs = (await _registryForWriteUnlocked())
+            .mergeServerConfigs(sanitizedConfigs)
+            .projectAll();
         final rawActiveServerId = _rawStoredActiveServerId();
         final currentActiveId = _effectiveActiveServerId(
           configs: currentConfigs,
           rawActiveServerId: rawActiveServerId,
         );
         final nextActiveId = _effectiveActiveServerId(
-          configs: sanitizedConfigs,
+          configs: nextConfigs,
           rawActiveServerId: rawActiveServerId,
         );
         final currentActive = currentConfigs
             .where((config) => config.id == currentActiveId)
             .firstOrNull;
-        final nextActive = sanitizedConfigs
+        final nextActive = nextConfigs
             .where((config) => config.id == nextActiveId)
             .firstOrNull;
         // Session ownership follows the server identity (id, origin URL, mTLS
@@ -735,7 +741,7 @@ class OptimizedStorageService {
           final currentCredentialConfig = currentConfigs
               .where((config) => config.id == credentialServerId)
               .firstOrNull;
-          final nextCredentialConfig = sanitizedConfigs
+          final nextCredentialConfig = nextConfigs
               .where((config) => config.id == credentialServerId)
               .firstOrNull;
           credentialOwnershipChanged =

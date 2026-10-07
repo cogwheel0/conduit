@@ -1613,6 +1613,35 @@ void main() {
     );
   });
 
+  test('an endpoint edit through another account on the server ends the '
+      'active session', () async {
+    // Two accounts on one server share its endpoint.
+    final a = ServerConfig(id: 'a', name: 'a', url: 'https://chat.example.com');
+    final b = ServerConfig(id: 'b', name: 'b', url: 'https://chat.example.com');
+    await storage.saveServerConfigs([a, b]);
+    await storage.setActiveServerId('a');
+    await storage.saveAuthToken('token-a');
+    await storage.saveCredentials(
+      serverId: 'a',
+      username: 'account-a',
+      password: 'account-a-secret',
+    );
+
+    // A's copy is unchanged; B's moves the shared endpoint elsewhere.
+    await storage.saveServerConfigs([
+      a,
+      b.copyWith(url: 'https://elsewhere.example.org'),
+    ]);
+
+    final active = (await storage.getServerConfigs()).firstWhere(
+      (config) => config.id == 'a',
+    );
+    expect(active.url, 'https://elsewhere.example.org');
+    // A's bearer and sign-in must not follow it to the new origin.
+    expect(await storage.getAuthToken(), isNull);
+    expect(await storage.getSavedCredentials(), isNull);
+  });
+
   test('logout preserves a standalone mTLS identity', () async {
     final config = _serverConfig('mtls-only').copyWith(
       allowSelfSignedCertificates: true,
