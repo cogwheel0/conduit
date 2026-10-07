@@ -137,6 +137,8 @@ void main() {
       ).equals('Research Bot');
       check(await connection.suggestDisplayName(draft('plain'))).equals('plain');
       check(await connection.suggestDisplayName(draft('missing'))).isNull();
+      // Hermes's unconfigured default profile says nothing about the server.
+      check(await connection.suggestDisplayName(draft('default'))).isNull();
       check(gateway.rpcMethods).contains('profiles.list');
     });
 

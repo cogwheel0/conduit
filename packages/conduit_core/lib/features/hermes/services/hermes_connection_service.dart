@@ -81,12 +81,21 @@ final class _RiverpodHermesConnectionGateway
     }
   }
 
+  /// Names Hermes reports when nothing was configured: the API server's
+  /// default model id and the Desktop default profile. They say nothing about
+  /// the connection, so they never replace a name.
+  static const Set<String> _placeholderNames = {'hermes-agent', 'default'};
+
   @override
   Future<String?> suggestDisplayName(HermesConfig draft) async {
     try {
-      return await _suggestDisplayName(
+      final suggestion = await _suggestDisplayName(
         draft,
       ).timeout(const Duration(seconds: 15));
+      return suggestion == null ||
+              _placeholderNames.contains(suggestion.toLowerCase())
+          ? null
+          : suggestion;
     } catch (error) {
       // A name is a convenience; the probe already reported reachability.
       DebugLogger.warning(
