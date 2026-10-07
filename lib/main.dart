@@ -577,7 +577,13 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         await showAddAccountSheet(context, ref);
         return true;
       case nativeAccountManageActionId:
-        unawaited(NavigationService.router.pushNamed<void>(RouteNames.accounts));
+        final request = accountsNativeSheetNavigationRequest;
+        unawaited(
+          NavigationService.router.pushNamed<void>(
+            request.routeName,
+            extra: request.extra,
+          ),
+        );
         return true;
       case nativeAccountSignOutActionId:
         if (context == null) return true;

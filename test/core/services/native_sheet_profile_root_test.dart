@@ -1,8 +1,12 @@
+import 'package:conduit/core/router/app_router.dart'
+    show usesNoTransitionForNativeSheet;
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/core/utils/native_sheet_utils.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart'
     show nativeProfileSheetFieldsDiffer;
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/services/navigation_service.dart'
+    show RouteNames, accountsNativeSheetNavigationRequest;
 import 'package:conduit_core/models/account_metadata.dart';
 import 'package:flutter/widgets.dart' show Locale;
 import 'package:flutter_test/flutter_test.dart';
@@ -156,6 +160,31 @@ void main() {
         _item(sections, nativeSignOutActionId).title,
         _l10n.accountsSignOutAll,
       );
+    });
+
+    // Pushed without the native-sheet origin, the page played its own
+    // transition under the sheet as that slid away.
+    test('Manage accounts opens without a second transition', () {
+      final sections = buildNativeProfileRootSections(
+        _l10n,
+        account: _account,
+        visibility: const NativeProfileRootVisibility(),
+        otherAccounts: const [
+          NativeProfileRootSavedAccount(
+            id: 'work',
+            displayName: 'Ada at work',
+            detail: 'ada@work.example · Work',
+          ),
+        ],
+      );
+      final request = accountsNativeSheetNavigationRequest;
+
+      expect(
+        _item(sections, nativeAccountManageActionId).dismissOnSelect,
+        isTrue,
+      );
+      expect(request.routeName, RouteNames.accounts);
+      expect(usesNoTransitionForNativeSheet(request.extra), isTrue);
     });
 
     test('with one account, signing out is what it always was', () {
