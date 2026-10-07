@@ -1006,9 +1006,17 @@ class HermesConfigController extends Notifier<HermesConfig> {
         final previousOrigin = connectionOrigin(previousBaseUrl);
         if (previousOrigin != null) {
           try {
+            // Records from before saved connections match by origin alone,
+            // so a connection still on the old origin keeps answering them.
             await HermesPendingDecisionStore.clearConnection(
               connectionId: connectionId,
-              origin: previousOrigin,
+              origin:
+                  _originSharedByAnotherConnection(
+                    previousBaseUrl,
+                    connectionId,
+                  )
+                  ? null
+                  : previousOrigin,
             );
           } catch (error) {
             DebugLogger.error(

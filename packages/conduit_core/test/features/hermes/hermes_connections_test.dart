@@ -485,6 +485,51 @@ void main() {
       },
     );
 
+    test(
+      'an edit moving off a shared origin keeps its pending decisions from '
+      'before the upgrade',
+      () async {
+        _seedConnections([
+          _profile(_a, 'Alpha', 'https://shared.example/one'),
+          _profile(_b, 'Beta', 'https://shared.example/two'),
+        ], active: _a);
+        final container = await _ready(
+          _Secrets({
+            'hermes_api_key_v1:$_a': 'alpha-key',
+            'hermes_api_key_v1:$_b': 'beta-key',
+          }),
+          cookies: _RecordingCookieJar(),
+        );
+        addTearDown(container.dispose);
+        final controller = container.read(hermesConfigProvider.notifier);
+        // Written before saved connections existed, so it has no id.
+        await HermesPendingDecisionStore.upsert(
+          origin: 'https://shared.example:443',
+          storedSessionId: 'stored-1',
+          runtimeId: 'runtime-1',
+          requestId: 'request-1',
+          kind: HermesPendingDesktopDecisionKind.approval,
+        );
+        Future<int> pending() async =>
+            (await HermesPendingDecisionStore.forSession(
+              origin: 'https://shared.example:443',
+              storedSessionId: 'stored-1',
+            )).length;
+
+        await controller.saveConnection(
+          connectionId: _b,
+          baseUrl: 'https://beta.example',
+        );
+        check(await pending()).equals(1);
+
+        await controller.saveConnection(
+          connectionId: _a,
+          baseUrl: 'https://alpha.example',
+        );
+        check(await pending()).equals(0);
+      },
+    );
+
     test('keeps a connection whose dashboard cookies stay set', () async {
       _seedConnections([
         _profile(_a, 'Alpha', 'https://alpha.example'),
