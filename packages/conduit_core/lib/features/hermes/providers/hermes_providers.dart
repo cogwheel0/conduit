@@ -1083,6 +1083,17 @@ class HermesConfigController extends Notifier<HermesConfig> {
         final wasActive = state.connectionId == connectionId;
 
         Future<void> commit() async {
+          // Cleared while the connection still exists, so a failure keeps it
+          // instead of leaving its dashboard session signed in behind a
+          // deletion that reported success. A connection sharing the origin
+          // still uses that session.
+          if (connectionOrigin(target.baseUrl) != null &&
+              !_originSharedByAnotherConnection(target.baseUrl, connectionId) &&
+              !await ref
+                  .read(cookieJarProvider)
+                  .clearForOrigin(target.baseUrl)) {
+            throw StateError('Hermes dashboard cookies could not be cleared.');
+          }
           HermesConnectionProfile? replacement;
           var replacementSecrets = const _HermesCredentialSnapshot();
           if (wasActive) {
@@ -1169,24 +1180,13 @@ class HermesConfigController extends Notifier<HermesConfig> {
             ),
       );
     }
-    final origin = connectionOrigin(profile.baseUrl);
     await attempt(
       'deleted-connection-decision-cleanup-failed',
       () => HermesPendingDecisionStore.clearConnection(
         connectionId: profile.id,
-        origin: origin,
+        origin: connectionOrigin(profile.baseUrl),
       ),
     );
-    if (origin != null &&
-        !_originSharedByAnotherConnection(profile.baseUrl, profile.id)) {
-      await attempt('deleted-connection-cookie-cleanup-failed', () async {
-        if (!await ref
-            .read(cookieJarProvider)
-            .clearForOrigin(profile.baseUrl)) {
-          throw StateError('Hermes dashboard cookies could not be cleared.');
-        }
-      });
-    }
   }
 
   /// Points the runtime at [profile]: replaces the state, releases the

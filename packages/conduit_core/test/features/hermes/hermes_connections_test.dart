@@ -450,6 +450,32 @@ void main() {
             .deepEquals(['https://shared.example/one']);
       },
     );
+
+    test('keeps a connection whose dashboard cookies stay set', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+        _profile(_b, 'Beta', 'https://beta.example'),
+      ], active: _a);
+      final secrets = _Secrets({
+        'hermes_api_key_v1:$_a': 'alpha-key',
+        'hermes_api_key_v1:$_b': 'beta-key',
+      });
+      final cookies = _RecordingCookieJar(clears: false);
+      final container = await _ready(secrets, cookies: cookies);
+      addTearDown(container.dispose);
+
+      await check(
+        container.read(hermesConfigProvider.notifier).deleteConnection(_b),
+      ).throws<StateError>();
+
+      check(cookies.clearedOrigins).deepEquals(['https://beta.example']);
+      check(
+        container.read(hermesConnectionsProvider).map((profile) => profile.id),
+      ).deepEquals([_a, _b]);
+      check(await secrets.read(key: 'hermes_api_key_v1:$_b'))
+          .equals('beta-key');
+      check(container.read(hermesConfigProvider).connectionId).equals(_a);
+    });
   });
 
   group('inactive connections', () {
@@ -757,13 +783,15 @@ final class _Secrets extends InMemorySecureKeyValueStore {
 }
 
 final class _RecordingCookieJar extends NullCookieJarPort {
-  _RecordingCookieJar();
+  _RecordingCookieJar({this.clears = true});
 
+  /// What [clearForOrigin] reports.
+  final bool clears;
   final List<String> clearedOrigins = <String>[];
 
   @override
   Future<bool> clearForOrigin(String origin) async {
     clearedOrigins.add(origin);
-    return true;
+    return clears;
   }
 }
