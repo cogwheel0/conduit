@@ -307,6 +307,51 @@ void main() {
     check(tester.takeException()).isNull();
   });
 
+  // The inactive connection's own read failing, and the active connection's
+  // failing, which blocks every read until secure storage is retried.
+  for (final (failure, failingKey) in [
+    ('its secrets', 'hermes_api_key_v1:$_work'),
+    ('secure storage', 'hermes_api_key_v1:$_home'),
+  ]) {
+    testWidgets('retries an inactive connection after $failure failed', (
+      tester,
+    ) async {
+      // Reads of Hermes secrets retry once, so two failures fail one load.
+      final flaky = _FailingSecrets(
+        {
+          'hermes_api_key_v1:$_home': 'home-key',
+          'hermes_api_key_v1:$_work': 'work-key',
+        },
+        failingKey: failingKey,
+        failures: 2,
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [secureStorageProvider.overrideWithValue(flaky)],
+          child: const MaterialApp(
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: HermesSettingsPage(connectionId: _work),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final nameField = find.byKey(
+        const ValueKey<String>('hermes-connection-name-field'),
+      );
+      final retry = find.byKey(
+        const ValueKey<String>('hermes-retry-load-connection'),
+      );
+      expect(nameField, findsNothing);
+      expect(retry, findsOneWidget);
+
+      await tester.tap(retry);
+      await tester.pumpAndSettle();
+      expect(nameField, findsOneWidget);
+      expect(retry, findsNothing);
+    });
+  }
+
   test('initials come from the first two words of a name', () {
     check(hermesConnectionInitials('Home Lab')).equals('HL');
     check(hermesConnectionInitials('research')).equals('RE');
@@ -352,4 +397,25 @@ final class _RecordingGateway implements HermesConnectionGateway {
 
   @override
   Future<String?> suggestDisplayName(HermesConfig draft) async => null;
+}
+
+/// Secure storage whose first [failures] reads of [failingKey] throw.
+final class _FailingSecrets extends InMemorySecureKeyValueStore {
+  _FailingSecrets(
+    super.seed, {
+    required this.failingKey,
+    required this.failures,
+  });
+
+  final String failingKey;
+  int failures;
+
+  @override
+  Future<String?> read({required String key}) {
+    if (key == failingKey && failures > 0) {
+      failures--;
+      throw StateError('secure storage unavailable');
+    }
+    return super.read(key: key);
+  }
 }

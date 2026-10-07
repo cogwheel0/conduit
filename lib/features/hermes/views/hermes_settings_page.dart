@@ -107,6 +107,19 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     }
   }
 
+  /// Loads an inactive connection again after reading it failed, retrying a
+  /// secure-storage outage first since it blocks every read.
+  Future<void> _retryLoad() async {
+    final id = widget.connectionId;
+    if (id == null) return;
+    setState(() => _loadFailed = false);
+    if (ref.read(hermesSecretsErrorProvider) != null) {
+      await ref.read(hermesConfigProvider.notifier).retrySecrets();
+      if (!mounted) return;
+    }
+    await _loadStored(id);
+  }
+
   void _handleConnectionChanged() {
     if (mounted) setState(() {});
   }
@@ -283,12 +296,19 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       return UtilityPageScaffold.settings(
         title: l10n.hermesAgentSettingsTitle,
         children: [
-          if (_loadFailed)
+          if (_loadFailed) ...[
             UtilityStatusBanner(
               message: l10n.hermesSecretsUnavailable,
               tone: UtilityStatusTone.warning,
-            )
-          else
+            ),
+            const SizedBox(height: Spacing.md),
+            ConduitButton(
+              key: const ValueKey<String>('hermes-retry-load-connection'),
+              text: l10n.retry,
+              isSecondary: true,
+              onPressed: _retryLoad,
+            ),
+          ] else
             const Padding(
               padding: EdgeInsets.all(Spacing.xl),
               child: Center(child: CircularProgressIndicator()),
