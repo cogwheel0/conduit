@@ -21,13 +21,17 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-          submodules: recursive
 
-      - name: Set Up Flutter
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
-        with:
-          channel: 'stable'
-          cache: true
+      # Only the third_party/ path dependencies; openwebui-src/ and
+      # hermes-src/ are reference sources no build step reads.
+      - parallel:
+          - name: Set Up Flutter
+            uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+            with:
+              channel: 'stable'
+              cache: true
+          - name: Fetch third_party submodules
+            run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
 
       - name: Install Dependencies
         run: flutter pub get
@@ -49,7 +53,6 @@ jobs:
         uses: actions/checkout@v6
         with:
           persist-credentials: false
-          submodules: recursive
 
       - name: Create Release with Notes
         uses: ncipollo/release-action@v1
@@ -72,26 +75,27 @@ jobs:
         uses: actions/checkout@v6
         with:
           persist-credentials: false
-          submodules: recursive
 
-        #2 Setup Java
-      - name: Set Up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '21'
-
-      - name: Setup Gradle and caching
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          cache-read-only: false
-
-        #3 Setup Flutter
-      - name: Set Up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-          cache: true
+        #2 Setup Java, Gradle and Flutter side by side
+      # Only the third_party/ path dependencies; openwebui-src/ and
+      # hermes-src/ are reference sources no build step reads.
+      - parallel:
+          - name: Set Up Java
+            uses: actions/setup-java@v4
+            with:
+              distribution: 'temurin'
+              java-version: '21'
+          - name: Setup Gradle and caching
+            uses: gradle/actions/setup-gradle@v3
+            with:
+              cache-read-only: false
+          - name: Set Up Flutter
+            uses: subosito/flutter-action@v2
+            with:
+              channel: 'stable'
+              cache: true
+          - name: Fetch third_party submodules
+            run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
 
         #4 Install Dependencies
       - name: Install Dependencies
@@ -167,14 +171,18 @@ jobs:
         uses: actions/checkout@v6
         with:
           persist-credentials: false
-          submodules: recursive
 
         #2 Setup Flutter
-      - name: Set Up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-          cache: true
+      # Only the third_party/ path dependencies; openwebui-src/ and
+      # hermes-src/ are reference sources no build step reads.
+      - parallel:
+          - name: Set Up Flutter
+            uses: subosito/flutter-action@v2
+            with:
+              channel: 'stable'
+              cache: true
+          - name: Fetch third_party submodules
+            run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
 
         #3 Install Dependencies
       - name: Install Dependencies
