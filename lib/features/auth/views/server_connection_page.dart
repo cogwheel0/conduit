@@ -384,7 +384,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         activeAccount != null &&
         activeAccount.serverId == server.id &&
         activeAccount.userId != null;
-    final check = await checkOpenWebUiAddress(
+    final (result: check, :provedBy) = await checkOpenWebUiAddress(
       registry: registry,
       serverId: server.id,
       address: verified.url,
@@ -461,11 +461,15 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
             : [...server.endpoints, route],
       ),
     );
-    // A proxy sign-in on this address belongs to the account that made it.
-    if (checksActiveAccount &&
+    // A proxy sign-in on this address belongs to the account whose session
+    // proved it, which need not be the active one; with nothing to prove, to
+    // the active account when it is on this server.
+    final cookieOwner =
+        provedBy ?? (checksActiveAccount ? activeAccount.id : null);
+    if (cookieOwner != null &&
         verified.customHeaders.keys.any(isCapturedSessionHeader)) {
       await storage.saveEndpointSessionHeaders(
-        accountId: activeAccount.id,
+        accountId: cookieOwner,
         endpointId: route.id,
         headers: verified.customHeaders,
       );

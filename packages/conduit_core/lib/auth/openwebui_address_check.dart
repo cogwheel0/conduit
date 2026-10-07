@@ -21,6 +21,13 @@ enum OpenWebUiAddressCheck {
   declined,
 }
 
+/// What [checkOpenWebUiAddress] found, and the account whose token proved
+/// the address when it is the same server.
+typedef OpenWebUiAddressCheckResult = ({
+  OpenWebUiAddressCheck result,
+  String? provedBy,
+});
+
 /// Checks that [serverId]'s new [address] reaches the same server before it
 /// is saved.
 ///
@@ -33,7 +40,7 @@ enum OpenWebUiAddressCheck {
 /// Answering a health check only shows that some Open WebUI server is there,
 /// and the token is a session. Before the first one goes to a host none of
 /// the server's routes already uses, [confirmSendingSession] asks the user.
-Future<OpenWebUiAddressCheck> checkOpenWebUiAddress({
+Future<OpenWebUiAddressCheckResult> checkOpenWebUiAddress({
   required OpenWebUiRegistry registry,
   required String serverId,
   required String address,
@@ -65,22 +72,29 @@ Future<OpenWebUiAddressCheck> checkOpenWebUiAddress({
     if (token == null || token.isEmpty) continue;
     if (!mayReceiveSession) {
       if (candidate == null || !await confirmSendingSession(candidate)) {
-        return OpenWebUiAddressCheck.declined;
+        return _found(OpenWebUiAddressCheck.declined);
       }
       mayReceiveSession = true;
     }
     try {
       return await userAt(token) == userId
-          ? OpenWebUiAddressCheck.sameServer
-          : OpenWebUiAddressCheck.differentServer;
+          ? _found(OpenWebUiAddressCheck.sameServer, provedBy: account.id)
+          : _found(OpenWebUiAddressCheck.differentServer);
     } catch (_) {
-      return OpenWebUiAddressCheck.differentServer;
+      return _found(OpenWebUiAddressCheck.differentServer);
     }
   }
-  return accounts.any((account) => accountsWithSession.contains(account.id))
-      ? OpenWebUiAddressCheck.needsSignIn
-      : OpenWebUiAddressCheck.nothingToProtect;
+  return _found(
+    accounts.any((account) => accountsWithSession.contains(account.id))
+        ? OpenWebUiAddressCheck.needsSignIn
+        : OpenWebUiAddressCheck.nothingToProtect,
+  );
 }
+
+OpenWebUiAddressCheckResult _found(
+  OpenWebUiAddressCheck result, {
+  String? provedBy,
+}) => (result: result, provedBy: provedBy);
 
 /// Whether [url] and [other] share a scheme, host and port: a session sent
 /// to one already goes to the other.

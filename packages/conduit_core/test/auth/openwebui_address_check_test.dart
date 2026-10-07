@@ -26,7 +26,7 @@ final _registry = OpenWebUiRegistry(
 /// A new address of a saved server must reach that server before it is
 /// saved: every account on it may later send its session there.
 void main() {
-  Future<OpenWebUiAddressCheck> check0({
+  Future<OpenWebUiAddressCheckResult> check0({
     required String? activeAccountId,
     String address = 'https://home.example.net',
     String? liveToken,
@@ -59,7 +59,7 @@ void main() {
   test('the active account checks it with its own token', () async {
     final asked = <String>[];
 
-    final result = await check0(
+    final found = await check0(
       activeAccountId: 'ada',
       liveToken: 'live-ada',
       kept: {'bob': 'kept-bob'},
@@ -67,40 +67,50 @@ void main() {
       asked: asked,
     );
 
-    check(result).equals(OpenWebUiAddressCheck.sameServer);
+    check(found.result).equals(OpenWebUiAddressCheck.sameServer);
+    check(found.provedBy).equals('ada');
     check(asked).deepEquals(['live-ada']);
   });
 
   test('a server whose accounts are all inactive is checked with a token '
       'kept for one of them', () async {
-    final result = await check0(
+    final found = await check0(
       activeAccountId: 'cy',
       liveToken: 'live-cy',
       kept: {'bob': 'kept-bob'},
       usersByToken: {'kept-bob': 'user-bob'},
     );
 
-    check(result).equals(OpenWebUiAddressCheck.sameServer);
+    check(found.result).equals(OpenWebUiAddressCheck.sameServer);
+    // Bob's token proved it, so a proxy cookie captured on the way is his.
+    check(found.provedBy).equals('bob');
   });
 
   test('an address that names someone else, or refuses the token, is '
       'another server', () async {
-    check(
-      await check0(
-        activeAccountId: 'cy',
-        kept: {'bob': 'kept-bob'},
-        usersByToken: {'kept-bob': 'user-somebody-else'},
-      ),
-    ).equals(OpenWebUiAddressCheck.differentServer);
-    check(await check0(activeAccountId: 'cy', kept: {'bob': 'kept-bob'}))
+    final namesSomeoneElse = await check0(
+      activeAccountId: 'cy',
+      kept: {'bob': 'kept-bob'},
+      usersByToken: {'kept-bob': 'user-somebody-else'},
+    );
+    check(namesSomeoneElse.result)
         .equals(OpenWebUiAddressCheck.differentServer);
+    check(namesSomeoneElse.provedBy).isNull();
+    final refuses = await check0(
+      activeAccountId: 'cy',
+      kept: {'bob': 'kept-bob'},
+    );
+    check(refuses.result).equals(OpenWebUiAddressCheck.differentServer);
   });
 
   test(
     'a saved sign-in with no token to check with asks to sign in first',
     () async {
-      check(await check0(activeAccountId: 'cy', sessions: {'bob', 'cy'}))
-          .equals(OpenWebUiAddressCheck.needsSignIn);
+      final found = await check0(
+        activeAccountId: 'cy',
+        sessions: {'bob', 'cy'},
+      );
+      check(found.result).equals(OpenWebUiAddressCheck.needsSignIn);
     },
   );
 
@@ -108,7 +118,7 @@ void main() {
     final asked = <String>[];
     final confirmations = <Uri>[];
 
-    final result = await check0(
+    final found = await check0(
       activeAccountId: 'ada',
       liveToken: 'live-ada',
       usersByToken: {'live-ada': 'user-ada'},
@@ -117,7 +127,7 @@ void main() {
       confirmations: confirmations,
     );
 
-    check(result).equals(OpenWebUiAddressCheck.declined);
+    check(found.result).equals(OpenWebUiAddressCheck.declined);
     check(asked).isEmpty();
     check(confirmations.single.host).equals('home.example.net');
   });
@@ -125,7 +135,7 @@ void main() {
   test('a host one of the routes already uses is not asked about', () async {
     final confirmations = <Uri>[];
 
-    final result = await check0(
+    final found = await check0(
       activeAccountId: 'ada',
       address: 'http://10.0.0.2:3000/owui',
       liveToken: 'live-ada',
@@ -134,15 +144,15 @@ void main() {
       confirmations: confirmations,
     );
 
-    check(result).equals(OpenWebUiAddressCheck.sameServer);
+    check(found.result).equals(OpenWebUiAddressCheck.sameServer);
     check(confirmations).isEmpty();
   });
 
   test(
     'a server with nothing kept for its accounts has nothing to protect',
     () async {
-      check(await check0(activeAccountId: 'cy', sessions: {'cy'}))
-          .equals(OpenWebUiAddressCheck.nothingToProtect);
+      final found = await check0(activeAccountId: 'cy', sessions: {'cy'});
+      check(found.result).equals(OpenWebUiAddressCheck.nothingToProtect);
     },
   );
 }
