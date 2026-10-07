@@ -1071,7 +1071,23 @@ class HermesConfigController extends Notifier<HermesConfig> {
             // deleted connection is simply no longer active.
             await HermesConnectionStore.writeActiveId(replacement?.id);
           }
-          await _writeProfiles(remaining);
+          try {
+            await _writeProfiles(remaining);
+          } catch (_) {
+            // The connection survives, so keep it the active one as well.
+            if (wasActive) {
+              try {
+                await HermesConnectionStore.writeActiveId(connectionId);
+              } catch (error) {
+                DebugLogger.warning(
+                  'active-connection-restore-failed',
+                  scope: 'hermes/connections',
+                  data: {'errorType': error.runtimeType.toString()},
+                );
+              }
+            }
+            rethrow;
+          }
           if (wasActive) {
             if (replacement == null) {
               state = HermesConfig(enabled: state.enabled);
