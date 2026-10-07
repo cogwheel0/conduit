@@ -4,6 +4,7 @@ import 'package:collection/collection.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -11,12 +12,17 @@ import '../../../core/services/haptic_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/widgets/adaptive_selection_sheet.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/conduit_loading.dart';
+import '../../../shared/widgets/discard_changes.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
+import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../shared/widgets/sheet_handle.dart';
+import '../../../shared/widgets/themed_sheets.dart';
 import '../../workspace/providers/workspace_providers.dart';
+import '../../workspace/widgets/workspace_editor_fields.dart';
+import '../../workspace/widgets/workspace_tiles.dart';
 
 /// Opens the project settings editor for [folder].
 ///
@@ -29,10 +35,15 @@ Future<void> showFolderProjectSettings(
 ) {
   final owner = ref.read(foldersProvider.notifier).captureProjectOwner();
   if (owner == null) {
-    UiUtils.showMessage(context, AppLocalizations.of(context)!.errorMessage);
+    UiUtils.showMessage(
+      context,
+      AppLocalizations.of(context)!.errorMessage,
+      isError: true,
+    );
     return Future<void>.value();
   }
-  return showAdaptiveSelectionSheet<void>(
+  // A form, not a pick-one list: the page behind is dimmed.
+  return ThemedSheets.showCustom<void>(
     context: context,
     builder: (_) => FolderProjectSettingsSheet(folder: folder, owner: owner),
   );
@@ -234,6 +245,24 @@ class _FolderProjectSettingsSheetState
     change();
   });
 
+  bool _dirty(bool editsPrompt) =>
+      _filesChanged || _modelsChanged || _promptChanged(editsPrompt);
+
+  /// Closes through the route, so unsaved edits are asked about first.
+  void _requestClose() => Navigator.of(context).maybePop();
+
+  bool _confirmingDiscard = false;
+
+  /// Asks before unsaved edits are thrown away, then closes the sheet.
+  Future<void> _confirmDiscardAndClose() async {
+    if (_saving || _confirmingDiscard) return;
+    _confirmingDiscard = true;
+    final navigator = Navigator.of(context);
+    final discard = await confirmDiscardChanges(context);
+    _confirmingDiscard = false;
+    if (discard && mounted) navigator.pop();
+  }
+
   Future<void> _save(AppLocalizations l10n, bool editsPrompt) async {
     final promptChanged = _promptChanged(editsPrompt);
     if (!_filesChanged && !_modelsChanged && !promptChanged) {
@@ -255,8 +284,13 @@ class _FolderProjectSettingsSheetState
             systemPrompt: promptChanged ? _prompt.text.trim() : null,
           );
       if (!mounted) return;
+      unawaited(ConduitHaptics.success());
+      AdaptiveSnackBar.show(
+        context,
+        message: l10n.saved,
+        type: AdaptiveSnackBarType.success,
+      );
       Navigator.of(context).pop();
-      UiUtils.showMessage(context, l10n.saved);
     } on FolderProjectWriteException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -519,160 +553,208 @@ class _FolderProjectSettingsSheetState
             ?.value
             .canEditSystemPrompt ??
         false;
-    final picker = _picker;
-    final dirty =
-        _filesChanged || _modelsChanged || _promptChanged(editsPrompt);
+    final dirty = _dirty(editsPrompt);
+    // While there is something to lose, every way out asks first: Cancel,
+    // the back gesture, a tap outside, and dragging the sheet down. The
+    // picker's own back chevron returns to the form.
+    final guarded = dirty || _saving;
 
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => Navigator.of(context).maybePop(),
-            child: const SizedBox.shrink(),
+    return PopScope<Object?>(
+      canPop: !guarded,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) unawaited(_confirmDiscardAndClose());
+      },
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _requestClose,
+              child: const SizedBox.shrink(),
+            ),
+          ),
+          // ThemedSheets.showCustom adds no view inset, so the sheet lifts
+          // itself above the software keyboard and the form scrolls in what is
+          // left. The system strips the home-indicator inset while the
+          // keyboard is up, so the safe area below does not pad twice.
+          AnimatedPadding(
+            duration: context.motionDuration(AnimationDuration.fast),
+            curve: Curves.easeOutCubic,
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.viewInsetsOf(context).bottom,
+            ),
+            child: NotificationListener<DraggableScrollableNotification>(
+              onNotification: (notification) {
+                // Dragged all the way down with edits: ask, rather than let
+                // the sheet close and drop them.
+                if (guarded &&
+                    notification.extent <= notification.minExtent + 0.01) {
+                  unawaited(_confirmDiscardAndClose());
+                }
+                return false;
+              },
+              child: SheetDismissGuard(
+                guarded: guarded,
+                child: DraggableScrollableSheet(
+                  expand: false,
+                  initialChildSize: 0.8,
+                  minChildSize: 0.4,
+                  maxChildSize: 0.95,
+                  shouldCloseOnMinExtent: !guarded,
+                  builder: (context, scrollController) => _surface(
+                    context,
+                    l10n,
+                    theme,
+                    scrollController,
+                    editsPrompt: editsPrompt,
+                    dirty: dirty,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _surface(
+    BuildContext context,
+    AppLocalizations l10n,
+    ConduitThemeExtension theme,
+    ScrollController scrollController, {
+    required bool editsPrompt,
+    required bool dirty,
+  }) {
+    final picker = _picker;
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.surfaceBackground,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppBorderRadius.bottomSheet),
+        ),
+        border: Border.all(
+          color: theme.dividerColor,
+          width: BorderWidth.regular,
+        ),
+        boxShadow: ConduitShadows.modal(context),
+      ),
+      // The native iOS 26 sheet route supplies Flutter's own Material, which
+      // material_ui's icon buttons, checkboxes and list tiles do not see. This
+      // one sits inside the decorated surface so their ink stays above it.
+      child: Material(
+        type: MaterialType.transparency,
+        child: ModalSheetSafeArea(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.modalPadding,
+            vertical: Spacing.modalPadding,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SheetHandle(),
+              if (picker == null) ...[
+                Semantics(
+                  header: true,
+                  child: Text(
+                    l10n.folderProjectSettings,
+                    style: theme.headingSmall?.copyWith(
+                      color: theme.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: Spacing.xs),
+                Text(
+                  l10n.folderProjectSettingsDescription,
+                  style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+                ),
+              ] else
+                _pickerHeader(l10n, theme, picker),
+              const SizedBox(height: Spacing.md),
+              Expanded(
+                child: picker == null
+                    ? _buildForm(l10n, theme, scrollController, editsPrompt)
+                    : _buildPicker(l10n, theme, scrollController, picker),
+              ),
+              if (_failure != null) ...[
+                const SizedBox(height: Spacing.sm),
+                Text(
+                  _failure!,
+                  key: const ValueKey('folder-project-failure'),
+                  style: theme.bodySmall?.copyWith(color: theme.error),
+                ),
+              ],
+              const SizedBox(height: Spacing.md),
+              if (picker == null)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    ConduitButton(
+                      key: const ValueKey('folder-project-cancel'),
+                      text: l10n.cancel,
+                      isSecondary: true,
+                      isCompact: true,
+                      onPressed: _saving ? null : _requestClose,
+                    ),
+                    const SizedBox(width: Spacing.sm),
+                    ConduitButton(
+                      key: const ValueKey('folder-project-save'),
+                      text: l10n.save,
+                      isCompact: true,
+                      isLoading: _saving,
+                      onPressed: dirty && !_saving
+                          ? () => _save(l10n, editsPrompt)
+                          : null,
+                    ),
+                  ],
+                )
+              else
+                ConduitButton(
+                  key: const ValueKey('folder-project-picker-add'),
+                  text: l10n.libraryPickerAddCount(picker.selected.length),
+                  isFullWidth: true,
+                  onPressed: picker.selected.isEmpty ? null : _applyPicker,
+                ),
+            ],
           ),
         ),
-        // ThemedSheets.showCustom adds no view inset, so the sheet lifts itself
-        // above the software keyboard and the form scrolls in what is left.
-        // The system strips the home-indicator inset while the keyboard is up,
-        // so the safe area below does not pad twice.
-        AnimatedPadding(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.viewInsetsOf(context).bottom,
+      ),
+    );
+  }
+
+  /// The picker's own header: a way back to the form and what is being added.
+  Widget _pickerHeader(
+    AppLocalizations l10n,
+    ConduitThemeExtension theme,
+    _Picker picker,
+  ) {
+    return Row(
+      children: [
+        ConduitIconButton(
+          key: const ValueKey('folder-project-picker-cancel'),
+          tooltip: l10n.back,
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.chevron_left,
+            android: Icons.arrow_back,
           ),
-          child: DraggableScrollableSheet(
-            expand: false,
-            initialChildSize: 0.8,
-            minChildSize: 0.4,
-            maxChildSize: 0.95,
-            builder: (context, scrollController) {
-              return Container(
-                decoration: BoxDecoration(
-                  color: theme.surfaceBackground,
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(AppBorderRadius.bottomSheet),
-                  ),
-                  border: Border.all(
-                    color: theme.dividerColor,
-                    width: BorderWidth.regular,
-                  ),
-                  boxShadow: ConduitShadows.modal(context),
-                ),
-                // The native iOS 26 sheet route supplies Flutter's own
-                // Material, which material_ui's icon buttons, checkboxes and
-                // list tiles do not see. This one sits inside the decorated
-                // surface so their ink stays above it.
-                child: Material(
-                  type: MaterialType.transparency,
-                  child: ModalSheetSafeArea(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: Spacing.modalPadding,
-                      vertical: Spacing.modalPadding,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const SheetHandle(),
-                        Text(
-                          l10n.folderProjectSettings,
-                          style: theme.headingSmall?.copyWith(
-                            color: theme.textPrimary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: Spacing.xs),
-                        Text(
-                          l10n.folderProjectSettingsDescription,
-                          style: theme.bodySmall?.copyWith(
-                            color: theme.textSecondary,
-                          ),
-                        ),
-                        const SizedBox(height: Spacing.md),
-                        Expanded(
-                          child: picker == null
-                              ? _buildForm(
-                                  l10n,
-                                  theme,
-                                  scrollController,
-                                  editsPrompt,
-                                )
-                              : _buildPicker(
-                                  l10n,
-                                  theme,
-                                  scrollController,
-                                  picker,
-                                ),
-                        ),
-                        if (_failure != null) ...[
-                          const SizedBox(height: Spacing.sm),
-                          Text(
-                            _failure!,
-                            key: const ValueKey('folder-project-failure'),
-                            style: theme.bodySmall?.copyWith(
-                              color: theme.error,
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: Spacing.md),
-                        if (picker == null)
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              ConduitButton(
-                                key: const ValueKey('folder-project-cancel'),
-                                text: l10n.cancel,
-                                isSecondary: true,
-                                isCompact: true,
-                                onPressed: _saving
-                                    ? null
-                                    : () => Navigator.of(context).pop(),
-                              ),
-                              const SizedBox(width: Spacing.sm),
-                              ConduitButton(
-                                key: const ValueKey('folder-project-save'),
-                                text: l10n.save,
-                                isCompact: true,
-                                isLoading: _saving,
-                                onPressed: dirty && !_saving
-                                    ? () => _save(l10n, editsPrompt)
-                                    : null,
-                              ),
-                            ],
-                          )
-                        else
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              ConduitButton(
-                                key: const ValueKey(
-                                  'folder-project-picker-cancel',
-                                ),
-                                text: l10n.cancel,
-                                isSecondary: true,
-                                isCompact: true,
-                                onPressed: _closePicker,
-                              ),
-                              const SizedBox(width: Spacing.sm),
-                              ConduitButton(
-                                key: const ValueKey(
-                                  'folder-project-picker-add',
-                                ),
-                                text: l10n.folderProjectAddSelected,
-                                isCompact: true,
-                                onPressed: picker.selected.isEmpty
-                                    ? null
-                                    : _applyPicker,
-                              ),
-                            ],
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            },
+          iconColor: theme.textPrimary,
+          isCompact: true,
+          onPressed: _closePicker,
+        ),
+        const SizedBox(width: Spacing.xs),
+        Expanded(
+          child: Semantics(
+            header: true,
+            child: Text(
+              picker.kind == _PickerKind.knowledge
+                  ? l10n.folderProjectAddKnowledge
+                  : l10n.folderProjectAddModel,
+              style: theme.headingSmall?.copyWith(
+                color: theme.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
         ),
       ],
@@ -711,90 +793,130 @@ class _FolderProjectSettingsSheetState
       _ => l10n.folderProjectKindFile,
     };
 
+    final gap = WorkspaceEditorMetrics.sectionGap(context);
     return ListView(
       key: const ValueKey('folder-project-form'),
       controller: controller,
       padding: EdgeInsets.zero,
       children: [
         if (editsPrompt) ...[
-          _sectionTitle(l10n.systemPrompt, theme),
-          ConduitInput(
-            key: const ValueKey('folder-project-system-prompt'),
-            controller: _prompt,
-            enabled: !_saving,
-            minLines: 3,
-            maxLines: 8,
-            keyboardType: TextInputType.multiline,
-            textInputAction: TextInputAction.newline,
-            hint: l10n.enterSystemPrompt,
-            onChanged: (_) => _edit(() {}),
+          _section(
+            title: l10n.systemPrompt,
+            children: [
+              WorkspaceEditorField(
+                fieldKey: 'folder-project-system-prompt',
+                controller: _prompt,
+                label: l10n.systemPrompt,
+                hint: l10n.enterSystemPrompt,
+                isDetail: false,
+                enabled: !_saving,
+                minLines: 3,
+                maxLines: 8,
+                textInputAction: TextInputAction.newline,
+                onChanged: (_) => _edit(() {}),
+              ),
+            ],
           ),
-          const SizedBox(height: Spacing.lg),
+          SizedBox(height: gap),
         ],
-        _sectionTitle(l10n.workspaceModelKnowledge, theme),
-        if (_files.isEmpty)
-          _hint(l10n.folderProjectNoKnowledge, theme)
-        else
-          for (final (index, entry) in _files.indexed)
-            Builder(
-              builder: (context) {
-                final file = FolderProjectFile.tryParse(entry);
-                final missing =
-                    file == null ||
-                    (file.type == 'collection' &&
-                        knownCollections != null &&
-                        !knownCollections.contains(file.id)) ||
-                    (file.type == 'file' && _missingFiles.contains(file.id));
-                return _row(
-                  theme,
-                  l10n,
-                  keyId: 'folder-project-knowledge-$index',
-                  title: file?.name ?? '$entry',
-                  subtitle: file == null ? null : kindLabel(file.type),
-                  unavailable: missing,
-                  onRemove: () => _edit(() => _files.removeAt(index)),
-                );
-              },
-            ),
+        _section(
+          title: l10n.workspaceModelKnowledge,
+          children: [
+            if (_files.isEmpty)
+              _hint(l10n.folderProjectNoKnowledge, theme)
+            else
+              for (final (index, entry) in _files.indexed)
+                Builder(
+                  builder: (context) {
+                    final file = FolderProjectFile.tryParse(entry);
+                    final missing =
+                        file == null ||
+                        (file.type == 'collection' &&
+                            knownCollections != null &&
+                            !knownCollections.contains(file.id)) ||
+                        (file.type == 'file' &&
+                            _missingFiles.contains(file.id));
+                    return _row(
+                      theme,
+                      l10n,
+                      keyId: 'folder-project-knowledge-$index',
+                      title: file?.name ?? '$entry',
+                      subtitle: file == null ? null : kindLabel(file.type),
+                      unavailable: missing,
+                      onRemove: () => _edit(() => _files.removeAt(index)),
+                    );
+                  },
+                ),
+          ],
+        ),
         _addButton(
           'folder-project-add-knowledge',
           l10n.folderProjectAddKnowledge,
           () => _openPicker(_PickerKind.knowledge),
         ),
-        const SizedBox(height: Spacing.lg),
-        _sectionTitle(l10n.folderProjectModels, theme),
-        _hint(l10n.folderProjectModelsHint, theme),
-        const SizedBox(height: Spacing.xs),
-        if (_models.isEmpty)
-          _hint(l10n.folderProjectNoModels, theme)
-        else
-          for (final (index, entry) in _models.indexed)
-            _row(
-              theme,
-              l10n,
-              keyId: 'folder-project-model-$index',
-              title: entry is String && available?[entry] != null
-                  ? available![entry]!.name
-                  : '$entry',
-              subtitle: entry is String && available?[entry] != null
-                  ? entry
-                  : null,
-              unavailable:
-                  entry is! String ||
-                  (available != null && available[entry] == null),
-              onUp: index == 0
-                  ? null
-                  : () => _edit(() {
-                      final moved = _models.removeAt(index);
-                      _models.insert(index - 1, moved);
-                    }),
-              onRemove: () => _edit(() => _models.removeAt(index)),
-            ),
+        SizedBox(height: gap),
+        _section(
+          title: l10n.folderProjectModels,
+          description: l10n.folderProjectModelsHint,
+          children: [
+            if (_models.isEmpty)
+              _hint(l10n.folderProjectNoModels, theme)
+            else
+              for (final (index, entry) in _models.indexed)
+                _row(
+                  theme,
+                  l10n,
+                  keyId: 'folder-project-model-$index',
+                  title: entry is String && available?[entry] != null
+                      ? available![entry]!.name
+                      : '$entry',
+                  subtitle: entry is String && available?[entry] != null
+                      ? entry
+                      : null,
+                  unavailable:
+                      entry is! String ||
+                      (available != null && available[entry] == null),
+                  onUp: index == 0
+                      ? null
+                      : () => _edit(() {
+                          final moved = _models.removeAt(index);
+                          _models.insert(index - 1, moved);
+                        }),
+                  onRemove: () => _edit(() => _models.removeAt(index)),
+                ),
+          ],
+        ),
         _addButton(
           'folder-project-add-model',
           l10n.folderProjectAddModel,
           () => _openPicker(_PickerKind.models),
         ),
+      ],
+    );
+  }
+
+  /// A titled group of rows: an inset grouped list on iOS, a section header
+  /// over padded rows on Android, as in the workspace editors.
+  Widget _section({
+    required String title,
+    String? description,
+    required List<Widget> children,
+  }) {
+    if (context.usesCupertinoChrome) {
+      return WorkspaceEditorFieldGroup(
+        title: title,
+        description: description,
+        children: children,
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Semantics(
+          header: true,
+          child: WorkspaceSectionHeader(title: title, description: description),
+        ),
+        WorkspaceEditorRows(androidGap: Spacing.xs, children: children),
       ],
     );
   }
@@ -828,13 +950,10 @@ class _FolderProjectSettingsSheetState
     // none of these is the only time nothing is left to add.
     final footer = <Widget>[
       if (loading)
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: Spacing.md),
-          child: Center(
-            child: CircularProgressIndicator(
-              key: ValueKey('folder-project-picker-loading'),
-            ),
-          ),
+        Padding(
+          key: const ValueKey('folder-project-picker-loading'),
+          padding: const EdgeInsets.symmetric(vertical: Spacing.md),
+          child: Center(child: ConduitLoading.inline(context: context)),
         ),
       if (!loading && picker.failed)
         Column(
@@ -893,21 +1012,28 @@ class _FolderProjectSettingsSheetState
                     }
                     final option = visible[index];
                     final subtitle = kindLabel(option.type);
-                    return CheckboxListTile(
+                    final checked = picker.selected.contains(option.id);
+                    void toggle() => setState(() {
+                      if (checked) {
+                        picker.selected.remove(option.id);
+                      } else {
+                        picker.selected.add(option.id);
+                      }
+                    });
+                    return AdaptiveListTile(
                       key: ValueKey('folder-project-option-${option.id}'),
-                      value: picker.selected.contains(option.id),
-                      contentPadding: EdgeInsets.zero,
+                      padding: EdgeInsets.zero,
+                      selected: checked,
                       title: MiddleEllipsisText(option.label),
                       subtitle: subtitle.isEmpty ? null : Text(subtitle),
-                      onChanged: (value) {
+                      trailing: AdaptiveCheckbox(
+                        key: ValueKey('folder-project-check-${option.id}'),
+                        value: checked,
+                        onChanged: (_) => toggle(),
+                      ),
+                      onTap: () {
                         ConduitHaptics.selectionClick();
-                        setState(() {
-                          if (value == true) {
-                            picker.selected.add(option.id);
-                          } else {
-                            picker.selected.remove(option.id);
-                          }
-                        });
+                        toggle();
                       },
                     );
                   },
@@ -917,33 +1043,27 @@ class _FolderProjectSettingsSheetState
     );
   }
 
-  Widget _sectionTitle(String text, ConduitThemeExtension theme) => Padding(
-    padding: const EdgeInsets.only(bottom: Spacing.sm),
-    child: Text(
-      text,
-      style: theme.bodyMedium?.copyWith(
-        color: theme.textPrimary,
-        fontWeight: FontWeight.w600,
-      ),
-    ),
-  );
-
   Widget _hint(String text, ConduitThemeExtension theme) => Padding(
-    padding: const EdgeInsets.only(bottom: Spacing.sm),
+    padding: context.usesCupertinoChrome
+        ? const EdgeInsets.all(Spacing.md)
+        : const EdgeInsets.only(bottom: Spacing.sm),
     child: Text(
       text,
       style: theme.bodySmall?.copyWith(color: theme.textSecondary),
     ),
   );
 
-  Widget _addButton(String key, String text, VoidCallback onPressed) => Align(
-    alignment: AlignmentDirectional.centerStart,
-    child: ConduitButton(
-      key: ValueKey(key),
-      text: text,
-      isSecondary: true,
-      isCompact: true,
-      onPressed: _saving ? null : onPressed,
+  Widget _addButton(String key, String text, VoidCallback onPressed) => Padding(
+    padding: const EdgeInsets.only(top: Spacing.sm),
+    child: Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: ConduitButton(
+        key: ValueKey(key),
+        text: text,
+        isSecondary: true,
+        isCompact: true,
+        onPressed: _saving ? null : onPressed,
+      ),
     ),
   );
 
@@ -974,7 +1094,9 @@ class _FolderProjectSettingsSheetState
   }) {
     return Padding(
       key: ValueKey(keyId),
-      padding: const EdgeInsets.only(bottom: Spacing.xs),
+      padding: context.usesCupertinoChrome
+          ? const EdgeInsetsDirectional.only(start: Spacing.md, end: Spacing.xs)
+          : EdgeInsets.zero,
       child: Row(
         children: [
           Expanded(
@@ -983,10 +1105,27 @@ class _FolderProjectSettingsSheetState
               children: [
                 MiddleEllipsisText(title),
                 if (unavailable)
-                  Text(
-                    l10n.folderProjectNotAvailable,
+                  Row(
                     key: ValueKey('$keyId-unavailable'),
-                    style: theme.bodySmall?.copyWith(color: theme.error),
+                    children: [
+                      Icon(
+                        UiUtils.platformIcon(
+                          ios: CupertinoIcons.exclamationmark_triangle,
+                          android: Icons.warning_amber_rounded,
+                        ),
+                        size: IconSize.xs,
+                        color: theme.warning,
+                      ),
+                      const SizedBox(width: Spacing.xs),
+                      Flexible(
+                        child: Text(
+                          l10n.folderProjectNotAvailable,
+                          style: theme.bodySmall?.copyWith(
+                            color: theme.warning,
+                          ),
+                        ),
+                      ),
+                    ],
                   )
                 else if (subtitle != null)
                   Text(
@@ -1001,16 +1140,26 @@ class _FolderProjectSettingsSheetState
             ),
           ),
           if (onUp != null)
-            IconButton(
+            ConduitIconButton(
               key: ValueKey('$keyId-up'),
               tooltip: l10n.folderProjectMoveUp(title),
-              icon: const Icon(Icons.arrow_upward),
+              icon: UiUtils.platformIcon(
+                ios: CupertinoIcons.arrow_up,
+                android: Icons.arrow_upward,
+              ),
+              iconColor: theme.iconSecondary,
+              isCompact: true,
               onPressed: _saving ? null : onUp,
             ),
-          IconButton(
+          ConduitIconButton(
             key: ValueKey('$keyId-remove'),
             tooltip: l10n.folderProjectRemove(title),
-            icon: const Icon(Icons.close),
+            icon: UiUtils.platformIcon(
+              ios: CupertinoIcons.xmark,
+              android: Icons.close,
+            ),
+            iconColor: theme.iconSecondary,
+            isCompact: true,
             onPressed: _saving ? null : onRemove,
           ),
         ],

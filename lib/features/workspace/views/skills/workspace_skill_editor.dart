@@ -397,6 +397,9 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   Future<void> _manageAccess() async {
     final l10n = AppLocalizations.of(context)!;
     final capabilities = _capabilities;
+    final summary = widget.summary;
+    // An existing skill saves from the sheet, which stays open with the error
+    // when the save fails. A new one keeps the grants for its first save.
     final grants = await WorkspaceAccessGrantSheet.show(
       context,
       initialGrants: _grants,
@@ -404,31 +407,33 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
       allowUserGrants: capabilities.allowUserGrants,
       allowGroupGrants: capabilities.allowGroupGrants,
       readOnly: !_writeAccess,
+      resourceName: summary?.name,
+      onSave: summary != null && _writeAccess
+          ? (grants, _) async {
+              final saved = await WorkspaceEditorOperationRunner.stay<void>(
+                session: _session,
+                scope: 'workspace/skills',
+                operationLabel: 'skill access update',
+                editorMounted: () => mounted,
+                operation: () => ref
+                    .read(workspaceSkillsProvider.notifier)
+                    .updateAccess(summary.id, grants),
+                onSuccess: (_) {
+                  setState(() => _grants = grants);
+                  _showSnack(l10n.workspaceSkillSaved);
+                },
+              );
+              return saved
+                  ? const WorkspaceAccessSaveOutcome.saved()
+                  : WorkspaceAccessSaveOutcome.failed(
+                      l10n.workspaceSkillSaveFailed,
+                    );
+            }
+          : null,
     );
-    if (grants == null || !mounted) return;
-    final summary = widget.summary;
-    // In create mode (or without write access) the grants are held locally and
-    // persisted with the first save.
-    if (summary == null || !_writeAccess) {
-      setState(() => _grants = grants);
-      if (summary == null) _session.markDirty();
-      return;
-    }
-    await WorkspaceEditorOperationRunner.stay<void>(
-      session: _session,
-      scope: 'workspace/skills',
-      operationLabel: 'skill access update',
-      editorMounted: () => mounted,
-      operation: () => ref
-          .read(workspaceSkillsProvider.notifier)
-          .updateAccess(summary.id, grants),
-      onSuccess: (_) {
-        setState(() => _grants = grants);
-        _showSnack(l10n.workspaceSkillSaved);
-      },
-      onFailure: (_) =>
-          _showSnack(l10n.workspaceSkillSaveFailed, isError: true),
-    );
+    if (grants == null || !mounted || summary != null) return;
+    setState(() => _grants = grants);
+    _session.markDirty();
   }
 
   /// Markdown import: reads a `.md` file, parses front-matter, and prefills the
@@ -713,15 +718,11 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   }
 
   Widget _accessTile(AppLocalizations l10n) {
-    final principals = workspaceSharedPrincipals(_grants);
-    final isPublic = workspaceGrantsArePublic(_grants);
     return WorkspaceResourceTile(
       key: const Key('workspace-skill-access'),
-      icon: isPublic ? Icons.public : Icons.lock_outline,
+      icon: workspaceAccessSummaryIcon(_grants),
       title: l10n.workspaceSkillManageAccess,
-      subtitle: isPublic
-          ? l10n.workspaceAccessVisibilityLabel
-          : l10n.workspaceModelSelectCount(principals.length),
+      subtitle: workspaceAccessSummary(l10n, _grants),
       onTap: _manageAccess,
     );
   }

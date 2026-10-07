@@ -238,15 +238,11 @@ final class WorkspaceToolAccessTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final principals = workspaceSharedPrincipals(grants);
-    final isPublic = workspaceGrantsArePublic(grants);
     return WorkspaceResourceTile(
       key: const Key('workspace-tool-access'),
-      icon: isPublic ? Icons.public : Icons.lock_outline,
+      icon: workspaceAccessSummaryIcon(grants),
       title: l10n.workspaceToolManageAccess,
-      subtitle: isPublic
-          ? l10n.workspaceAccessVisibilityLabel
-          : l10n.workspaceModelSelectCount(principals.length),
+      subtitle: workspaceAccessSummary(l10n, grants),
       onTap: onTap,
     );
   }

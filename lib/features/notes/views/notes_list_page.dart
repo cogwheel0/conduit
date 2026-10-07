@@ -13,6 +13,8 @@ import 'package:intl/intl.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/notes/utils/note_access.dart';
 import 'package:conduit_core/models/note.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 
@@ -429,7 +431,15 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
     final sidebarTheme = context.sidebarTheme;
     final l10n = AppLocalizations.of(context)!;
 
-    final timeFormat = DateFormat.jm();
+    final timeFormat = MediaQuery.alwaysUse24HourFormatOf(context)
+        ? DateFormat.Hm()
+        : DateFormat.jm();
+    final accountId = ref.watch(
+      currentUserProvider2.select((user) => user?.id),
+    );
+    final ownerName = noteSharedOwner(note, accountId: accountId)?.name?.trim();
+    final readOnly =
+        noteWriteAccess(note, accountId: accountId) == NoteWriteAccess.denied;
     final dateFormat = DateFormat.MMMd();
     final isToday = _isToday(note.updatedDateTime);
     final timeText = isToday
@@ -530,6 +540,22 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
                                 semanticsLabel: title,
                               ),
                             ),
+                            if (readOnly) ...[
+                              const SizedBox(width: Spacing.xs),
+                              Icon(
+                                Platform.isIOS
+                                    ? CupertinoIcons.lock
+                                    : Icons.lock_outline,
+                                key: ValueKey<String>(
+                                  'note-card-read-only-${note.id}',
+                                ),
+                                color: sidebarTheme.foreground.withValues(
+                                  alpha: 0.5,
+                                ),
+                                size: 14,
+                                semanticLabel: l10n.readOnly,
+                              ),
+                            ],
                             if (note.isPinned) ...[
                               const SizedBox(width: Spacing.xs),
                               Icon(
@@ -577,8 +603,8 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
-                            if (note.user != null &&
-                                note.user!.name != null) ...[
+                            // The owner is named only on someone else's note.
+                            if (ownerName != null) ...[
                               const SizedBox(width: Spacing.sm),
                               Text(
                                 '·',
@@ -591,7 +617,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
                               const SizedBox(width: Spacing.sm),
                               Flexible(
                                 child: Text(
-                                  note.user!.name!,
+                                  l10n.sharedFolderOwner(ownerName),
                                   style: AppTypography.labelMediumStyle
                                       .copyWith(
                                         color: sidebarTheme.foreground

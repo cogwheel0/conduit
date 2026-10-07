@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:conduit/features/chat/widgets/chat_share_sheet.dart';
@@ -6,10 +7,12 @@ import 'package:conduit/features/workspace/providers/workspace_capabilities_prov
 import 'package:conduit/features/workspace/widgets/resource_sharing_sheet.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/sharing/models/resource_access.dart';
+import 'package:conduit_core/features/sharing/providers/principal_lookup.dart';
 import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -67,6 +70,9 @@ final class _Server implements HttpClientAdapter {
   List<Map<String, dynamic>> grants = [_row('user', 'bob', 'read')];
   bool writeAccess = true;
 
+  /// Names the users route knows.
+  Map<String, String> userNames = {'bob': 'Bob Builder'};
+
   /// Rows the server keeps of what it receives, to model filtering.
   List<Map<String, dynamic>> Function(List<Map<String, dynamic>> given)? filter;
 
@@ -97,6 +103,24 @@ final class _Server implements HttpClientAdapter {
       body = _detail('x');
     } else if (path.contains('/chats/shared/')) {
       body = grants;
+    } else if (path.startsWith('/api/v1/users/') && path.endsWith('/info')) {
+      final id = path.split('/')[4];
+      final name = userNames[id];
+      if (name == null) {
+        return ResponseBody.fromString(
+          jsonEncode({'detail': 'not found'}),
+          400,
+          headers: {
+            Headers.contentTypeHeader: [Headers.jsonContentType],
+          },
+        );
+      }
+      body = {
+        'id': id,
+        'name': name,
+        'email': '$id@example.com',
+        'role': 'user',
+      };
     } else {
       body = _detail(path.split('/').last);
     }
@@ -116,9 +140,10 @@ final class _Server implements HttpClientAdapter {
     for (final r in requests)
       if (r.method == 'POST') r.path,
   ];
+  /// Reads of the resource's access, not of people's names.
   List<String> get reads => [
     for (final r in requests)
-      if (r.method == 'GET') r.path,
+      if (r.method == 'GET' && !r.path.startsWith('/api/v1/users/')) r.path,
   ];
 }
 
@@ -143,11 +168,28 @@ void main() {
     required Future<void> Function(BuildContext context, WidgetRef ref) onOpen,
     WorkspaceCapabilities capabilities = WorkspaceCapabilities.all,
     WorkspacePrincipalDirectory? directory,
+    bool namesFromServer = false,
   }) async {
     final container = ProviderContainer(
       overrides: [
         if (directory != null)
           workspacePrincipalDirectoryProvider.overrideWithValue(directory),
+        // Names come from a fixed lookup unless a test reads them from the
+        // server, so the access routes are all the server sees.
+        if (!namesFromServer)
+          workspacePrincipalLookupProvider.overrideWithValue(
+            WorkspacePrincipalLookup(
+              fetchUser: (id) async => switch (id) {
+                'bob' => const WorkspacePrincipalPreview(
+                  id: 'bob',
+                  type: WorkspacePrincipalType.user,
+                  name: 'Bob',
+                ),
+                _ => null,
+              },
+              fetchGroups: () async => const [],
+            ),
+          ),
         apiServiceProvider.overrideWithValue(api),
         isAuthenticatedProvider2.overrideWithValue(true),
         authTokenProvider3.overrideWithValue('token'),
@@ -206,7 +248,17 @@ void main() {
     await openSheet(tester);
   }
 
-  Finder bobWrite() => find.byKey(const Key('workspace-access-write-user-bob'));
+  Future<void> makeBobEditor(WidgetTester tester) async {
+    await tester.tap(find.byKey(const Key('workspace-access-level-user-bob')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('workspace-access-edit-user-bob')));
+    await tester.pumpAndSettle();
+  }
+
+  Finder bobLevel(String label) => find.descendant(
+    of: find.byKey(const Key('workspace-access-level-user-bob')),
+    matching: find.text('$label ▾'),
+  );
 
   testWidgets('opening and closing the sheet sends no write', (tester) async {
     await openNote(tester);
@@ -224,8 +276,7 @@ void main() {
   ) async {
     await openNote(tester);
 
-    await tester.tap(bobWrite());
-    await tester.pump();
+    await makeBobEditor(tester);
     await tester.tap(find.byKey(const Key('workspace-access-save')));
     await tester.pumpAndSettle();
 
@@ -253,8 +304,7 @@ void main() {
     );
     await openSheet(tester);
 
-    await tester.tap(bobWrite());
-    await tester.pump();
+    await makeBobEditor(tester);
     await tester.tap(find.byKey(const Key('workspace-access-save')));
     await tester.pumpAndSettle();
 
@@ -275,6 +325,12 @@ void main() {
 
     expect(find.byKey(const Key('workspace-access-list')), findsOneWidget);
     expect(find.byKey(const Key('workspace-access-save')), findsNothing);
+    expect(
+      find.text(
+        'Only the owner and people who can edit can change who has access.',
+      ),
+      findsOneWidget,
+    );
     expect(server.posts, isEmpty);
   });
 
@@ -292,31 +348,123 @@ void main() {
       ),
     );
 
-    final tile = find.byKey(const Key('workspace-access-public'));
-    final toggle = tester.widget<Switch>(
-      find.descendant(of: tile, matching: find.byType(Switch)),
+    await tester.tap(find.byKey(const Key('workspace-access-general')));
+    await tester.pumpAndSettle();
+    final everyone = tester.widget<PopupMenuItem<int>>(
+      find.ancestor(
+        of: find.text('Everyone on this server').last,
+        matching: find.byType(PopupMenuItem<int>),
+      ),
     );
-    expect(toggle.onChanged, isNull);
+    expect(everyone.enabled, isFalse);
   });
 
-  testWidgets('the server may keep less than was asked and the sheet says so', (
-    tester,
-  ) async {
+  testWidgets('the server may keep less than was asked: the sheet stays on '
+      'its answer and names who was dropped', (tester) async {
     server.filter = (given) =>
         given.where((r) => r['principal_type'] != 'user').toList();
-    await openNote(tester);
+    ResourceAccessSnapshot? saved;
+    await pumpOpener(
+      tester,
+      onOpen: (context, ref) async {
+        saved = await ResourceSharingSheet.show(
+          context,
+          ref,
+          kind: ResourceKind.note,
+          resourceId: 'n1',
+        );
+      },
+    );
+    await openSheet(tester);
 
-    await tester.tap(bobWrite());
-    await tester.pump();
+    await makeBobEditor(tester);
     await tester.tap(find.byKey(const Key('workspace-access-save')));
-    // Step rather than settle: the message is a snackbar that times out.
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text("Saved, but Bob couldn't be given access."),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('workspace-access-list')), findsOneWidget);
+    expect(
+      find.byKey(const Key('workspace-access-principal-user-bob')),
+      findsNothing,
+    );
+
+    // The save happened, so closing the sheet reports it.
+    await tester.tap(find.byType(SheetCloseButton));
+    await tester.pumpAndSettle();
+    expect(saved?.rawGrants, isEmpty);
+  });
+
+  testWidgets('people are named by the server, and an unknown one is not '
+      'shown by id', (tester) async {
+    server.grants = [
+      _row('user', 'bob', 'read'),
+      _row('user', 'ghost', 'read'),
+    ];
+    await pumpOpener(
+      tester,
+      namesFromServer: true,
+      onOpen: (context, ref) => ResourceSharingSheet.show(
+        context,
+        ref,
+        kind: ResourceKind.note,
+        resourceId: 'n1',
+        resourceName: 'Trip plan',
+      ),
+    );
+    await tester.tap(find.text('open'));
+    // Step rather than settle: Bob's picture keeps loading in a test.
     for (var i = 0; i < 10; i++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
+
+    expect(find.text('Trip plan'), findsOneWidget);
+    expect(find.text('Bob Builder'), findsOneWidget);
+    expect(find.text('bob@example.com'), findsOneWidget);
+    expect(find.text('Unknown person'), findsOneWidget);
+    expect(find.textContaining('ghost'), findsNothing);
+    final lookups = [
+      for (final r in server.requests)
+        if (r.path.startsWith('/api/v1/users/')) r.path,
+    ];
     expect(
-      find.text('Saved. The server kept only part of the access you chose.'),
-      findsOneWidget,
+      lookups,
+      unorderedEquals(['/api/v1/users/bob/info', '/api/v1/users/ghost/info']),
     );
+  });
+
+  testWidgets('loading and a failed load keep the header and its close '
+      'button', (tester) async {
+    final failing = _FailingServer();
+    api.dio.httpClientAdapter = failing;
+    await pumpOpener(
+      tester,
+      onOpen: (context, ref) => ResourceSharingSheet.show(
+        context,
+        ref,
+        kind: ResourceKind.folder,
+        resourceId: 'f1',
+        resourceName: 'Projects',
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('Share'), findsOneWidget);
+    expect(find.text('Projects'), findsOneWidget);
+    expect(find.byType(SheetCloseButton), findsOneWidget);
+
+    failing.fail.complete();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('resource-sharing-error')), findsOneWidget);
+    expect(find.byKey(const Key('resource-sharing-retry')), findsOneWidget);
+    expect(find.text('Share'), findsOneWidget);
+    await tester.tap(find.byType(SheetCloseButton));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('resource-sharing-error')), findsNothing);
   });
 
   testWidgets(
@@ -333,8 +481,7 @@ void main() {
         ),
       );
       await openSheet(tester);
-      await tester.tap(bobWrite());
-      await tester.pump();
+      await makeBobEditor(tester);
       server.requests.clear();
 
       final apiBefore = container.read(apiServiceProvider);
@@ -350,7 +497,7 @@ void main() {
       )!;
       expect(find.text(l10n.resourceSharingSessionChanged), findsOneWidget);
       // The form is still A's, with the edit the user made.
-      expect(tester.widget<AdaptiveSwitch>(bobWrite()).value, isTrue);
+      expect(bobLevel(l10n.workspaceAccessCanEdit), findsOneWidget);
     },
   );
 
@@ -487,6 +634,12 @@ void main() {
           expectClear(tester, row, 'matching row');
 
           await tester.tap(row);
+          await tester.pump();
+          final add = inPicker(
+            find.byKey(const Key('workspace-principal-add')),
+          );
+          expectClear(tester, add, 'Add button');
+          await tester.tap(add);
           await tester.pumpAndSettle();
 
           // The grant sheet is back, with the person added, the keyboard
@@ -553,28 +706,52 @@ void main() {
       await openSheet(tester);
     }
 
-    Finder removeBob() =>
-        find.byKey(const Key('workspace-access-remove-user-bob'));
+    Future<void> remove(WidgetTester tester, String id) async {
+      await tester.tap(find.byKey(Key('workspace-access-level-user-$id')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(Key('workspace-access-remove-user-$id')));
+      await tester.pumpAndSettle();
+    }
 
-    Finder option(String label) => find.descendant(
-      of: find.byKey(const Key('workspace-access-audience')),
-      matching: find.text(label),
+    const labels = {
+      ResourceAudience.private: 'Only people added',
+      ResourceAudience.public: 'Everyone on this server',
+      ResourceAudience.open: 'Anyone with the link',
+    };
+
+    ResourceAudience shown(WidgetTester tester) => labels.entries
+        .singleWhere(
+          (entry) => find
+              .descendant(
+                of: find.byKey(const Key('workspace-access-general')),
+                matching: find.text(entry.value),
+              )
+              .evaluate()
+              .isNotEmpty,
+        )
+        .key;
+
+    Finder menuItem(ResourceAudience audience) => find.ancestor(
+      of: find.text(labels[audience]!).last,
+      matching: find.byType(PopupMenuItem<int>),
     );
 
-    ResourceAudience shown(WidgetTester tester) => tester
-        .widget<SegmentedButton<ResourceAudience>>(
-          find.byType(SegmentedButton<ResourceAudience>),
-        )
-        .selected
-        .single;
+    Future<bool> enabled(WidgetTester tester, ResourceAudience audience) async {
+      await tester.tap(find.byKey(const Key('workspace-access-general')));
+      await tester.pumpAndSettle();
+      final item = tester.widget<PopupMenuItem<int>>(menuItem(audience));
+      // Close the menu again.
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+      return item.enabled;
+    }
 
-    bool enabled(WidgetTester tester, ResourceAudience audience) => tester
-        .widget<SegmentedButton<ResourceAudience>>(
-          find.byType(SegmentedButton<ResourceAudience>),
-        )
-        .segments
-        .singleWhere((segment) => segment.value == audience)
-        .enabled;
+    Future<void> pick(WidgetTester tester, ResourceAudience audience) async {
+      await tester.tap(find.byKey(const Key('workspace-access-general')));
+      await tester.pumpAndSettle();
+      await tester.tap(menuItem(audience));
+      await tester.pumpAndSettle();
+    }
 
     Future<List<Map<String, dynamic>>> save(WidgetTester tester) async {
       await tester.tap(find.byKey(const Key('workspace-access-save')));
@@ -596,10 +773,14 @@ void main() {
 
         expect(shown(tester), ResourceAudience.open);
         expect(find.text('Anyone with the link can view it.'), findsOneWidget);
-        expect(enabled(tester, ResourceAudience.open), isTrue);
+        expect(await enabled(tester, ResourceAudience.open), isTrue);
+        // Open is already set, so no "cannot share by link" notice.
+        expect(
+          find.text("You don't have permission to share by link."),
+          findsNothing,
+        );
 
-        await tester.tap(removeBob());
-        await tester.pump();
+        await remove(tester, 'bob');
 
         expect(await save(tester), [anyoneRead()]);
       },
@@ -614,8 +795,7 @@ void main() {
       await openChat(tester, shareOpenly: false);
       expect(shown(tester), ResourceAudience.private);
 
-      await tester.tap(removeBob());
-      await tester.pump();
+      await remove(tester, 'bob');
 
       expect(await save(tester), [_row('anyone', '*', 'write')]);
     });
@@ -644,14 +824,25 @@ void main() {
           ),
         );
 
-        Finder writeSwitch(String id) =>
-            find.byKey(Key('workspace-access-write-user-$id'));
-        expect(removeBob(), findsOneWidget);
-        expect(writeSwitch('bob'), findsNothing);
-        expect(writeSwitch('eve'), findsNothing);
+        Future<void> expectNoCanEdit(String id) async {
+          await tester.tap(find.byKey(Key('workspace-access-level-user-$id')));
+          await tester.pumpAndSettle();
+          expect(
+            find.byKey(Key('workspace-access-edit-user-$id')),
+            findsNothing,
+          );
+          expect(
+            find.byKey(Key('workspace-access-remove-user-$id')),
+            findsOneWidget,
+          );
+          await tester.tapAt(const Offset(5, 5));
+          await tester.pumpAndSettle();
+        }
 
-        await tester.tap(find.byKey(Key('workspace-access-remove-user-eve')));
-        await tester.pump();
+        await expectNoCanEdit('bob');
+        await expectNoCanEdit('eve');
+
+        await remove(tester, 'eve');
         await tester.tap(find.byKey(const Key('workspace-access-add')));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(EditableText), 'Car');
@@ -660,12 +851,14 @@ void main() {
         await tester.tap(
           find.byKey(const Key('workspace-principal-user-carol')),
         );
+        await tester.pump();
+        await tester.tap(find.byKey(const Key('workspace-principal-add')));
         await tester.pumpAndSettle();
         expect(
           find.byKey(const Key('workspace-access-principal-user-carol')),
           findsOneWidget,
         );
-        expect(writeSwitch('carol'), findsNothing);
+        await expectNoCanEdit('carol');
 
         expect(await save(tester), [
           _row('user', 'bob', 'read'),
@@ -688,8 +881,7 @@ void main() {
         await openChat(tester, shareOpenly: false);
         expect(shown(tester), ResourceAudience.open);
 
-        await tester.tap(option('Private'));
-        await tester.pump();
+        await pick(tester, ResourceAudience.private);
         expect(shown(tester), ResourceAudience.private);
 
         expect(await save(tester), [_row('user', 'bob', 'read')]);
@@ -702,8 +894,7 @@ void main() {
       server.grants = [anyoneRead()];
       await openChat(tester);
 
-      await tester.tap(option('Public'));
-      await tester.pump();
+      await pick(tester, ResourceAudience.public);
 
       expect(await save(tester), [everyoneRead()]);
     });
@@ -715,8 +906,7 @@ void main() {
       await openChat(tester);
       expect(shown(tester), ResourceAudience.private);
 
-      await tester.tap(option('Open'));
-      await tester.pump();
+      await pick(tester, ResourceAudience.open);
 
       expect(await save(tester), [_row('user', 'bob', 'read'), anyoneRead()]);
     });
@@ -727,14 +917,33 @@ void main() {
       server.grants = [_row('user', 'bob', 'read')];
       await openChat(tester, shareOpenly: false, sharePublicly: false);
 
-      expect(enabled(tester, ResourceAudience.private), isTrue);
-      expect(enabled(tester, ResourceAudience.public), isFalse);
-      expect(enabled(tester, ResourceAudience.open), isFalse);
-      await tester.tap(option('Open'));
-      await tester.pump();
+      expect(await enabled(tester, ResourceAudience.private), isTrue);
+      expect(await enabled(tester, ResourceAudience.public), isFalse);
+      expect(await enabled(tester, ResourceAudience.open), isFalse);
+      // Each choice it may not make says why.
+      expect(
+        find.text('You do not have permission to share this publicly.'),
+        findsOneWidget,
+      );
+      expect(
+        find.text("You don't have permission to share by link."),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const Key('workspace-access-general')));
+      await tester.pumpAndSettle();
+      await tester.tap(menuItem(ResourceAudience.open), warnIfMissed: false);
+      await tester.pumpAndSettle();
 
       expect(shown(tester), ResourceAudience.private);
-      expect(await save(tester), [_row('user', 'bob', 'read')]);
+      // Nothing changed, so there is nothing to save.
+      expect(
+        tester
+            .widget<ConduitButton>(
+              find.byKey(const Key('workspace-access-save')),
+            )
+            .onPressed,
+        isNull,
+      );
     });
 
     testWidgets('a folder offers no public choice and a note keeps its own '
@@ -751,15 +960,16 @@ void main() {
       await openSheet(tester);
 
       expect(find.byKey(const Key('workspace-access-list')), findsOneWidget);
-      expect(find.byKey(const Key('workspace-access-audience')), findsNothing);
-      expect(find.byKey(const Key('workspace-access-public')), findsNothing);
+      expect(find.byKey(const Key('workspace-access-general')), findsNothing);
     });
 
     testWidgets('a note has no Open choice', (tester) async {
       await openNote(tester);
 
-      expect(find.byKey(const Key('workspace-access-audience')), findsNothing);
-      expect(find.byKey(const Key('workspace-access-public')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('workspace-access-general')));
+      await tester.pumpAndSettle();
+      expect(find.text('Everyone on this server'), findsOneWidget);
+      expect(find.text('Anyone with the link'), findsNothing);
     });
   });
 
@@ -806,4 +1016,29 @@ void main() {
       },
     );
   });
+}
+
+/// Answers every request with a server error once [fail] completes, so the
+/// loading state can be seen before it.
+final class _FailingServer implements HttpClientAdapter {
+  final fail = Completer<void>();
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<List<int>>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    await fail.future;
+    return ResponseBody.fromString(
+      jsonEncode({'detail': 'boom'}),
+      500,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }

@@ -59,6 +59,14 @@ final _pickerSearchField = find.descendant(
   matching: find.byType(EditableText),
 );
 
+/// The Groups segment of the picker's People / Groups switch.
+final _groupsTab = find.descendant(
+  of: find.byKey(const Key('workspace-principal-tabs')),
+  matching: find.text('Groups'),
+);
+
+final _pickerAdd = find.byKey(const Key('workspace-principal-add'));
+
 final _sheetSearchField = find.descendant(
   of: find.byType(ChannelMembersSheet),
   matching: find.byType(EditableText),
@@ -168,14 +176,33 @@ void main() {
       userId: 'user-1',
     );
 
-    final own = tester.widget<IconButton>(
+    // Your own row says so and offers no remove.
+    expect(
       find.byKey(const Key('channel-member-remove-user-1')),
+      findsNothing,
     );
-    check(own.onPressed).isNull();
+    expect(find.byKey(const Key('channel-member-self-user-1')), findsWidgets);
+    // People are told apart by email, not by their server role.
+    expect(find.text('p3@example.com'), findsWidgets);
+
+    // Removing asks first; backing out sends nothing.
+    await tester.tap(find.byKey(const Key('channel-member-remove-user-3')));
+    await tester.pumpAndSettle();
+    expect(find.text('Remove Person 003?'), findsOneWidget);
+    expect(
+      find.text("They'll no longer see this channel or its messages."),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    check(harness.mutations).isEmpty();
 
     await tester.tap(find.byKey(const Key('channel-member-remove-user-3')));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Remove'));
+    await tester.pumpAndSettle();
 
+    expect(find.text('Person 003 removed'), findsOneWidget);
     check(harness.mutations).length.equals(1);
     check(harness.mutations.single.path)
         .endsWith('/channel-1/update/members/remove');
@@ -201,6 +228,8 @@ void main() {
     );
 
     await tester.tap(find.byKey(const Key('channel-member-remove-user-3')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Remove'));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('channel-members-error')), findsWidgets);
@@ -228,16 +257,46 @@ void main() {
     await tester.tap(find.byKey(const Key('channel-add-members-pick')));
     await tester.pumpAndSettle();
 
-    // Only groups: no tab strip, no search field, groups already listed.
-    expect(
-      find.byKey(const Key('workspace-principal-tab-users')),
-      findsNothing,
-    );
-    expect(_pickerSearchField, findsNothing);
+    // Only groups: no People / Groups switch, groups already listed and
+    // searchable.
+    expect(find.byKey(const Key('workspace-principal-tabs')), findsNothing);
+    expect(_pickerSearchField, findsOneWidget);
     expect(
       find.byKey(const Key('workspace-principal-group-group-1')),
       findsWidgets,
     );
+  });
+
+  testWidgets('people already in the channel are shown as members in the '
+      'picker and cannot be picked again', (tester) async {
+    await _Harness.open(
+      tester,
+      directory: _people(1, 5),
+      channel: _groupChannel(owner: 'user-1'),
+      userId: 'user-1',
+      searchable: [..._people(2, 2), ..._people(6, 6)],
+    );
+
+    await tester.tap(find.byKey(const Key('channel-members-add')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('channel-add-members-pick')));
+    await tester.pumpAndSettle();
+    await tester.enterText(_pickerSearchField, 'Person');
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Already a member'), findsOneWidget);
+    final member = tester.widget<AdaptiveCheckbox>(
+      find.byKey(const Key('workspace-principal-check-user-user-2')),
+    );
+    check(member.value).equals(true);
+    check(member.onChanged).isNull();
+    await tester.tap(find.byKey(const Key('workspace-principal-user-user-2')));
+    await tester.pump();
+    expect(find.text('Add'), findsWidgets);
+    await tester.tap(find.byKey(const Key('workspace-principal-user-user-6')));
+    await tester.pump();
+    expect(find.text('Add (1)'), findsOneWidget);
   });
 
   testWidgets('the sheet closes when the account changes underneath it', (
@@ -321,21 +380,22 @@ Future<void> _addPeopleAndGroup(WidgetTester tester) async {
   await tester.tap(find.byKey(const Key('channel-members-add')));
   await tester.pumpAndSettle();
 
-  // A person, found by searching.
+  // A person, found by searching, and a group from the groups tab, picked
+  // together.
   await tester.tap(find.byKey(const Key('channel-add-members-pick')));
   await tester.pumpAndSettle();
   await tester.enterText(_pickerSearchField, 'Person 009');
   await tester.pump(const Duration(milliseconds: 350));
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const Key('workspace-principal-user-user-9')));
+  await tester.pump();
+  await tester.tap(_groupsTab);
   await tester.pumpAndSettle();
-
-  // A group, from the groups tab.
-  await tester.tap(find.byKey(const Key('channel-add-members-pick')));
-  await tester.pumpAndSettle();
-  await tester.tap(find.byKey(const Key('workspace-principal-tab-groups')));
+  await tester.enterText(_pickerSearchField, '');
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const Key('workspace-principal-group-group-1')));
+  await tester.pump();
+  await tester.tap(_pickerAdd);
   await tester.pumpAndSettle();
 
   expect(
@@ -364,6 +424,7 @@ Future<void> _addPeopleAndGroup(WidgetTester tester) async {
   refuse = false;
   await tester.tap(find.byKey(const Key('channel-add-members-confirm')));
   await tester.pumpAndSettle();
+  expect(find.text('Members added'), findsOneWidget);
 
   check(harness.mutations).length.equals(2);
   check(harness.mutations.last.path).endsWith('/channel-1/update/members/add');
@@ -507,13 +568,15 @@ Future<void> _addWithKeyboard(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 350));
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const Key('workspace-principal-user-user-9')));
+  await tester.pump();
+  await tester.tap(_groupsTab);
   await tester.pumpAndSettle();
-
-  await tester.tap(pick);
-  await tester.pumpAndSettle();
-  await tester.tap(find.byKey(const Key('workspace-principal-tab-groups')));
+  await tester.enterText(_pickerSearchField, '');
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const Key('workspace-principal-group-group-1')));
+  await tester.pump();
+  _expectReachable(tester, _pickerAdd, keyboardTop);
+  await tester.tap(_pickerAdd);
   await tester.pumpAndSettle();
 
   expect(find.byType(WorkspacePrincipalPicker), findsNothing);

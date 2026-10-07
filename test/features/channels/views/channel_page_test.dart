@@ -543,9 +543,17 @@ void main() {
     // The page's own load is an ordinary read.
     check(api.channelReadSnapshots).deepEquals([null]);
 
+    // The members button names itself for VoiceOver and TalkBack.
+    final semantics = tester.ensureSemantics();
+    expect(find.bySemanticsLabel(RegExp(r'^Members \(\d+\)$')), findsWidgets);
+    semantics.dispose();
+
     await tester.tap(find.byIcon(Icons.people_outline));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('channel-member-remove-user-3')));
+    await tester.pumpAndSettle();
+    // Removing asks first.
+    await tester.tap(find.text('Remove'));
     await tester.pumpAndSettle();
 
     check(api.removals.map((r) => r.userIds)).deepEquals([

@@ -22,18 +22,26 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// resource id from then on. Opening or closing the sheet writes nothing; the
 /// only write is the Save button, which sends the edited grants, reads the
 /// server's answer back, and keeps the form open with a message if the save
-/// is refused.
+/// is refused or the server kept only part of it.
 class ResourceSharingSheet extends ConsumerStatefulWidget {
   const ResourceSharingSheet({
     super.key,
     required this.controller,
     this.onSaved,
+    this.resourceName,
+    this.owner,
   });
 
   final ResourceAccessController controller;
 
   /// Called with the server's answer after each successful save.
   final void Function(ResourceAccessSnapshot fresh)? onSaved;
+
+  /// The chat, folder or note's name, shown under the title when known.
+  final String? resourceName;
+
+  /// Who owns the resource, shown at the top of the list when known.
+  final WorkspaceAccessOwner? owner;
 
   /// Opens the session for [resourceId] now and shows the sheet.
   ///
@@ -45,6 +53,8 @@ class ResourceSharingSheet extends ConsumerStatefulWidget {
     WidgetRef ref, {
     required ResourceKind kind,
     required String resourceId,
+    String? resourceName,
+    WorkspaceAccessOwner? owner,
   }) {
     final controller = ResourceAccessController.open(
       ref,
@@ -52,21 +62,30 @@ class ResourceSharingSheet extends ConsumerStatefulWidget {
       resourceId: resourceId,
     );
     if (controller == null) return Future.value();
-    return showWith(context, controller);
+    return showWith(
+      context,
+      controller,
+      resourceName: resourceName,
+      owner: owner,
+    );
   }
 
   /// Shows the sheet for a controller opened earlier, such as when a share
   /// flow began before a native sheet took over the screen.
   static Future<ResourceAccessSnapshot?> showWith(
     BuildContext context,
-    ResourceAccessController controller,
-  ) async {
+    ResourceAccessController controller, {
+    String? resourceName,
+    WorkspaceAccessOwner? owner,
+  }) async {
     ResourceAccessSnapshot? saved;
     await ThemedSheets.showCustom<void>(
       context: context,
       isScrollControlled: true,
       builder: (_) => ResourceSharingSheet(
         controller: controller,
+        resourceName: resourceName,
+        owner: owner,
         onSaved: (fresh) => saved = fresh,
       ),
     );
@@ -79,10 +98,13 @@ class ResourceSharingSheet extends ConsumerStatefulWidget {
 }
 
 class _ResourceSharingSheetState extends ConsumerState<ResourceSharingSheet> {
+  /// The loading and error states keep roughly the height of a short access
+  /// list, so the sheet does not jump when the list arrives.
+  static const _placeholderHeight = 220.0;
+
   ResourceAccessSnapshot? _snapshot;
   ResourceAccessException? _loadFailure;
   Object? _loadError;
-  Map<String, String> _names = const {};
 
   @override
   void initState() {
@@ -99,31 +121,10 @@ class _ResourceSharingSheetState extends ConsumerState<ResourceSharingSheet> {
       final snapshot = await widget.controller.load();
       if (!mounted) return;
       setState(() => _snapshot = snapshot);
-      unawaited(_resolveGroupNames(snapshot));
     } on ResourceAccessException catch (error) {
       if (mounted) setState(() => _loadFailure = error);
     } catch (error) {
       if (mounted) setState(() => _loadError = error);
-    }
-  }
-
-  /// Existing group grants carry only an id; the directory knows the names.
-  Future<void> _resolveGroupNames(ResourceAccessSnapshot snapshot) async {
-    final hasGroups = snapshot.editableGrants.any(
-      (grant) => grant.principalType == WorkspacePrincipalType.group,
-    );
-    final directory = ref.read(workspacePrincipalDirectoryProvider);
-    if (!hasGroups || directory == null) return;
-    try {
-      final groups = await directory.loadGroups();
-      if (!mounted || !widget.controller.isCurrent) return;
-      setState(
-        () => _names = {
-          for (final group in groups) 'group:${group.id}': group.name,
-        },
-      );
-    } catch (_) {
-      // Ids remain readable; names are a courtesy.
     }
   }
 
@@ -137,15 +138,17 @@ class _ResourceSharingSheetState extends ConsumerState<ResourceSharingSheet> {
     };
   }
 
-  /// Saves the edited grants. Returns the message to show when the save did
-  /// not happen, so the sheet keeps the form.
-  Future<String?> _save(
+  /// Saves the edited grants and compares the server's answer with what was
+  /// sent: anything it did not keep keeps the sheet open on that answer.
+  Future<WorkspaceAccessSaveOutcome> _save(
     List<WorkspaceAccessGrantInput> grants,
     ResourceAudience? audience,
   ) async {
     final l10n = AppLocalizations.of(context)!;
     final base = _snapshot;
-    if (base == null) return l10n.resourceSharingSaveFailed;
+    if (base == null) {
+      return WorkspaceAccessSaveOutcome.failed(l10n.resourceSharingSaveFailed);
+    }
     try {
       final fresh = await widget.controller.save(
         base,
@@ -153,22 +156,33 @@ class _ResourceSharingSheetState extends ConsumerState<ResourceSharingSheet> {
         audience: audience,
       );
       widget.onSaved?.call(fresh);
+      // A later save starts from the server's answer.
+      if (mounted) setState(() => _snapshot = fresh);
+      final kept = workspaceGrantKeys(fresh.editableGrants);
+      final keptAll =
+          kept.containsAll(workspaceGrantKeys(grants)) &&
+          (audience == null || fresh.audience == audience);
+      if (!keptAll) {
+        return WorkspaceAccessSaveOutcome.partial(
+          keptGrants: fresh.editableGrants,
+          keptAudience: fresh.audience,
+          message: l10n.resourceSharingFiltered,
+        );
+      }
       if (mounted) {
-        final kept = fresh.editableGrants.length;
-        final asked = grants.length;
         AdaptiveSnackBar.show(
           context,
-          message: kept < asked
-              ? l10n.resourceSharingFiltered
-              : l10n.resourceSharingSaved,
+          message: l10n.resourceSharingSaved,
           type: AdaptiveSnackBarType.success,
         );
       }
-      return null;
+      return const WorkspaceAccessSaveOutcome.saved();
     } on ResourceAccessException catch (error) {
-      return _failureMessage(l10n, error.failure);
+      return WorkspaceAccessSaveOutcome.failed(
+        _failureMessage(l10n, error.failure),
+      );
     } catch (_) {
-      return l10n.resourceSharingSaveFailed;
+      return WorkspaceAccessSaveOutcome.failed(l10n.resourceSharingSaveFailed);
     }
   }
 
@@ -197,9 +211,8 @@ class _ResourceSharingSheetState extends ConsumerState<ResourceSharingSheet> {
         // recipients who edit.
         allowWriteGrants: widget.controller.kind != ResourceKind.chat,
         readOnly: !snapshot.canEdit,
-        principalNames: _names,
-        // Only a chat has the Open audience; a folder offers no public choice
-        // and a note follows its own public flag.
+        // Only a chat has "Anyone with the link"; a folder offers no general
+        // access and a note follows its own public flag.
         audience: widget.controller.kind == ResourceKind.chat
             ? WorkspaceAudienceChoice(
                 initial: snapshot.audience,
@@ -207,42 +220,66 @@ class _ResourceSharingSheetState extends ConsumerState<ResourceSharingSheet> {
               )
             : null,
         showVisibility: widget.controller.kind != ResourceKind.folder,
+        resourceName: widget.resourceName,
+        owner: widget.owner,
         onSave: _save,
       );
     }
 
     final failure = _loadFailure;
     final theme = context.conduitTheme;
+    final failed = failure != null || _loadError != null;
     return ConduitModalSheetSurface(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: Spacing.lg),
-        child: failure != null || _loadError != null
-            ? Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    failure == null
-                        ? l10n.resourceSharingLoadFailed
-                        : _failureMessage(l10n, failure.failure),
-                    key: const Key('resource-sharing-error'),
-                    style: theme.bodyMedium?.copyWith(color: theme.error),
-                  ),
-                  if (failure?.failure !=
-                          ResourceAccessFailure.sessionChanged &&
-                      failure?.failure != ResourceAccessFailure.denied) ...[
-                    const SizedBox(height: Spacing.md),
-                    ConduitButton(
-                      key: const Key('resource-sharing-retry'),
-                      text: l10n.retry,
-                      isSecondary: true,
-                      isFullWidth: true,
-                      onPressed: _load,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          WorkspaceAccessSheetHeader(
+            subtitle: widget.resourceName,
+            onClose: () => Navigator.of(context).maybePop(),
+          ),
+          ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: _placeholderHeight),
+            child: Center(
+              child: !failed
+                  ? ConduitLoading.inline(context: context)
+                  : Padding(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: Spacing.lg,
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            failure == null
+                                ? l10n.resourceSharingLoadFailed
+                                : _failureMessage(l10n, failure.failure),
+                            key: const Key('resource-sharing-error'),
+                            textAlign: TextAlign.center,
+                            style: theme.bodyMedium?.copyWith(
+                              color: theme.error,
+                            ),
+                          ),
+                          if (failure?.failure !=
+                                  ResourceAccessFailure.sessionChanged &&
+                              failure?.failure !=
+                                  ResourceAccessFailure.denied) ...[
+                            const SizedBox(height: Spacing.md),
+                            ConduitButton(
+                              key: const Key('resource-sharing-retry'),
+                              text: l10n.retry,
+                              isSecondary: true,
+                              isFullWidth: true,
+                              onPressed: _load,
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
-                  ],
-                ],
-              )
-            : Center(child: ConduitLoading.inline()),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -15,6 +15,8 @@ import 'package:conduit_core/database/mappers/note_mapper.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/notes/providers/notes_providers.dart';
 import 'package:conduit_core/features/notes/utils/note_persistence.dart';
+import 'package:conduit_core/features/sharing/providers/principal_lookup.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -131,9 +133,11 @@ class _DetailApi extends ApiService {
 Map<String, dynamic> _noteJson({
   required bool writeAccess,
   String owner = 'creator',
+  String? ownerName,
 }) => {
   'id': 'note-1',
   'user_id': owner,
+  if (ownerName != null) 'user': {'id': owner, 'name': ownerName},
   'title': 'Shared note',
   'write_access': writeAccess,
   'data': {
@@ -186,8 +190,9 @@ void main() {
 
   Future<ProviderContainer> pumpEditor(
     WidgetTester tester,
-    _DetailApi api,
-  ) async {
+    _DetailApi api, {
+    Map<String, String> userNames = const {},
+  }) async {
     final container = ProviderContainer(
       // A provider that errors would otherwise schedule a retry timer.
       retry: (_, _) => null,
@@ -205,6 +210,20 @@ void main() {
           (ref) async => WorkspaceCapabilities.all,
         ),
         syncEngineProvider.overrideWith(_QuietSyncEngine.new),
+        // People are named from a fixed list, never the network.
+        workspacePrincipalLookupProvider.overrideWithValue(
+          WorkspacePrincipalLookup(
+            fetchUser: (id) async => switch (userNames[id]) {
+              final String name => WorkspacePrincipalPreview(
+                id: id,
+                type: WorkspacePrincipalType.user,
+                name: name,
+              ),
+              null => null,
+            },
+            fetchGroups: () async => const [],
+          ),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -281,6 +300,41 @@ void main() {
       expect(api.updates, 0);
     },
   );
+
+  testWidgets('a read-only note names who shared it, with a lock', (
+    tester,
+  ) async {
+    final note = _noteJson(writeAccess: false, ownerName: 'Casey');
+    final api = _DetailApi(detail: note);
+    await storeLocally(note);
+    await pumpEditor(tester, api);
+
+    expect(
+      find.text(l10n(tester).libraryNoteSharedBy('Casey')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('note-access-notice')),
+        matching: find.byIcon(Icons.lock_outline),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('the owner of a read-only note is looked up when the note does '
+      'not name them', (tester) async {
+    final api = _DetailApi(detail: _noteJson(writeAccess: false));
+    await storeLocally(_noteJson(writeAccess: false));
+    await pumpEditor(tester, api, userNames: {'creator': 'Robin'});
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      find.text(l10n(tester).libraryNoteSharedBy('Robin')),
+      findsOneWidget,
+    );
+  });
 
   testWidgets('access revoked before save keeps the draft and never resends', (
     tester,

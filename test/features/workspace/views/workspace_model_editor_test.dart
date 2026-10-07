@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/model.dart';
@@ -307,6 +308,48 @@ void main() {
     check(find.text('other-page').evaluate()).length.equals(1);
   });
 
+  testWidgets('an existing model saves access from the sheet, which stays '
+      'open with the error when the save fails', (tester) async {
+    final fake = _AccessFakeWorkspaceModels();
+    await tester.pumpWidget(
+      _harness(
+        models: fake,
+        mode: WorkspaceRouteMode.edit,
+        resourceId: 'model-1',
+        detail: _writableModel(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _scrollTo(tester, const Key('workspace-model-access'));
+    check(find.text('Only you').evaluate()).isNotEmpty();
+    await tester.tap(find.byKey(const Key('workspace-model-access')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('workspace-access-general')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Everyone on this server').last);
+    await tester.pumpAndSettle();
+
+    fake.failNext = true;
+    await tester.tap(find.byKey(const Key('workspace-access-save')));
+    await tester.pumpAndSettle();
+    check(fake.accessSaves).length.equals(1);
+    // Still open, with the edit and the reason.
+    check(
+      find.byKey(const Key('workspace-access-save-error')).evaluate(),
+    ).length.equals(1);
+    check(
+      find.byKey(const Key('workspace-access-list')).evaluate(),
+    ).isNotEmpty();
+
+    await tester.tap(find.byKey(const Key('workspace-access-save')));
+    await tester.pumpAndSettle();
+    check(fake.accessSaves).length.equals(2);
+    check(fake.accessSaves.last.single.principalId).equals('*');
+    check(find.byKey(const Key('workspace-access-list')).evaluate()).isEmpty();
+    check(find.text('Everyone on this server').evaluate()).isNotEmpty();
+  });
+
   testWidgets('create-mode access grants are retained until first save', (
     tester,
   ) async {
@@ -319,15 +362,16 @@ void main() {
     await _scrollTo(tester, const Key('workspace-model-access'));
     await tester.tap(find.byKey(const Key('workspace-model-access')));
     await tester.pumpAndSettle();
-    final publicSwitch = find.descendant(
-      of: find.byKey(const Key('workspace-access-public')),
-      matching: find.byType(Switch),
-    );
-    check(publicSwitch.evaluate()).length.equals(1);
-    await tester.tap(publicSwitch);
-    await tester.pump();
+    // A new model's access is chosen now and saved with the model: the sheet
+    // says Done rather than Save.
+    check(find.text('Done').evaluate()).length.equals(1);
+    await tester.tap(find.byKey(const Key('workspace-access-general')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Everyone on this server').last);
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('workspace-access-save')));
     await tester.pumpAndSettle();
+    check(find.text('Everyone on this server').evaluate()).isNotEmpty();
 
     await _scrollTo(tester, const Key('workspace-model-id'), delta: -300);
     await tester.enterText(
@@ -843,6 +887,25 @@ class _FakeWorkspaceModels extends WorkspaceModels {
 
   @override
   Future<void> refresh() async {}
+}
+
+class _AccessFakeWorkspaceModels extends _FakeWorkspaceModels {
+  final accessSaves = <List<WorkspaceAccessGrantInput>>[];
+  bool failNext = false;
+
+  @override
+  Future<WorkspaceModelDetail> updateAccess(
+    String id,
+    String name,
+    List<WorkspaceAccessGrantInput> grants,
+  ) async {
+    accessSaves.add(grants);
+    if (failNext) {
+      failNext = false;
+      throw StateError('refused');
+    }
+    return WorkspaceModelSummary(id: id, name: name, userId: 'owner');
+  }
 }
 
 class _InvalidatingFakeWorkspaceModels extends _FakeWorkspaceModels {

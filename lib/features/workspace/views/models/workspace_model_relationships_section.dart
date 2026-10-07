@@ -127,16 +127,11 @@ final class WorkspaceModelRelationshipsSection extends StatelessWidget {
 
   Widget _accessTile(AppLocalizations l10n, {bool grouped = false}) {
     final accessGrants = controller.draft.normalizedAccessGrants;
-    final isPublic = workspaceGrantsArePublic(accessGrants);
     return WorkspaceResourceTile(
       key: const Key('workspace-model-access'),
-      icon: isPublic ? Icons.public : Icons.lock_outline,
+      icon: workspaceAccessSummaryIcon(accessGrants),
       title: l10n.workspaceModelManageAccess,
-      subtitle: isPublic
-          ? l10n.workspaceAccessVisibilityLabel
-          : l10n.workspaceModelSelectCount(
-              workspaceSharedPrincipals(accessGrants).length,
-            ),
+      subtitle: workspaceAccessSummary(l10n, accessGrants),
       onTap: onManageAccess,
       grouped: grouped,
     );

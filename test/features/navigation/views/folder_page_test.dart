@@ -322,7 +322,7 @@ void main() {
     FlutterError.onError = originalFlutterErrorOnError;
   });
 
-  group('folder Share settings', () {
+  group('folder Share folder', () {
     Future<void> openFolderMenu(
       WidgetTester tester, {
       required Folder folder,
@@ -355,11 +355,11 @@ void main() {
         folder: const Folder(id: 'work', name: 'Work'),
       );
 
-      expect(find.text('Share settings'), findsOneWidget);
+      expect(find.text('Share folder'), findsOneWidget);
       expect(find.text('Edit Folder'), findsOneWidget);
     });
 
-    testWidgets('a write recipient gets Share settings and no owner actions', (
+    testWidgets('a write recipient gets Share folder and no owner actions', (
       tester,
     ) async {
       await openFolderMenu(
@@ -372,7 +372,7 @@ void main() {
         ),
       );
 
-      expect(find.text('Share settings'), findsOneWidget);
+      expect(find.text('Share folder'), findsOneWidget);
       expect(find.text('Edit Folder'), findsNothing);
       expect(find.text('System Prompt'), findsNothing);
     });
@@ -392,7 +392,7 @@ void main() {
         find.byKey(const ValueKey<String>('folder-page-overflow-button')),
         findsNothing,
       );
-      expect(find.text('Share settings'), findsNothing);
+      expect(find.text('Share folder'), findsNothing);
     });
   });
 
@@ -1178,6 +1178,8 @@ void main() {
       required String option,
     }) async {
       await tester.ensureVisible(key(opener));
+      // Lay the scrolled list out before tapping where the button now is.
+      await tester.pump();
       await tester.tap(key(opener));
       await settle(tester);
       expect(key('folder-project-option-$option'), findsOneWidget);
@@ -1185,7 +1187,7 @@ void main() {
       await tester.pump();
       expect(
         tester
-            .widget<CheckboxListTile>(key('folder-project-option-$option'))
+            .widget<AdaptiveCheckbox>(key('folder-project-check-$option'))
             .value,
         isTrue,
       );
@@ -1195,11 +1197,13 @@ void main() {
 
     // What the folder menu offers with Advanced off: the owner's own actions
     // stay owner-only, and the project editor goes to anyone who can write.
+    // Project settings edits the system prompt here, so it has no separate
+    // item.
     final menuCases = <({String name, String? permission, List<String> items})>[
       (
         name: 'an owner',
         permission: null,
-        items: ['Edit Folder', 'System Prompt', 'Project settings'],
+        items: ['Edit Folder', 'Project settings'],
       ),
       (name: 'a write grant', permission: 'write', items: ['Project settings']),
       (name: 'a read grant', permission: 'read', items: []),
@@ -1989,6 +1993,37 @@ void main() {
       });
     });
 
+    testWidgets('a picker is titled for what it adds and goes back to the '
+        'form', (tester) async {
+      await open(tester, project(permission: 'write'));
+      await openSheet(tester);
+
+      await tester.ensureVisible(key('folder-project-add-model'));
+      await tester.pump();
+      await tester.tap(key('folder-project-add-model'));
+      await settle(tester);
+      expect(
+        find.descendant(
+          of: find.byType(FolderProjectSettingsSheet),
+          matching: find.text('Add model'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Project settings'), findsNothing);
+      // Nothing checked yet: nothing to add.
+      expect(
+        tester
+            .widget<ConduitButton>(key('folder-project-picker-add'))
+            .onPressed,
+        isNull,
+      );
+
+      await tester.tap(key('folder-project-picker-cancel'));
+      await settle(tester);
+      expect(key('folder-project-form'), findsOneWidget);
+      expect(find.text('Project settings'), findsWidgets);
+    });
+
     testWidgets('Cancel sends nothing', (tester) async {
       await open(tester, project(permission: 'write'));
       await openSheet(tester);
@@ -1997,6 +2032,20 @@ void main() {
       await tester.pump();
       await tester.ensureVisible(key('folder-project-cancel'));
       await tester.tap(key('folder-project-cancel'));
+      await settle(tester);
+
+      // An edit is never dropped without asking; Keep editing keeps it.
+      expect(find.text('Discard changes?'), findsOneWidget);
+      await tester.tap(find.text('Keep editing'));
+      await settle(tester);
+      expect(key('folder-project-model-1'), findsNothing);
+      expect(key('folder-project-save'), findsOneWidget);
+
+      // The back gesture asks the same; Discard closes without saving.
+      await tester.binding.handlePopRoute();
+      await settle(tester);
+      expect(find.text('Discard changes?'), findsOneWidget);
+      await tester.tap(find.text('Discard'));
       await settle(tester);
 
       expect(key('folder-project-save'), findsNothing);

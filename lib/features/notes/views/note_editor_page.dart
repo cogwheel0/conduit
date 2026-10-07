@@ -36,6 +36,9 @@ import 'package:conduit_core/features/notes/services/note_ai_actions.dart';
 import 'package:conduit_core/features/notes/services/note_attachments_controller.dart';
 import 'package:conduit_core/features/notes/services/note_dictation.dart';
 import 'package:conduit_core/features/notes/utils/note_access.dart';
+import 'package:conduit_core/features/sharing/providers/principal_lookup.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart'
+    show WorkspacePrincipalType;
 import 'package:conduit_core/features/notes/utils/note_persistence.dart';
 
 import '../utils/note_context_actions.dart';
@@ -208,6 +211,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   /// The server refused to show the note (403), which is not a missing note.
   bool _loadForbidden = false;
+
+  /// The owner of a note shared read-only with this account, looked up by id
+  /// when the note itself does not name them. [_ownerLookupFor] is the owner
+  /// id asked about, so each owner is looked up once.
+  String? _ownerLookupFor;
+  String? _resolvedOwnerName;
 
   /// The account changed after the page opened, so nothing it loads or saves
   /// belongs to the page any more.
@@ -1162,6 +1171,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // The Share action depends on this; watching rebuilds the menu when the
     // account's permissions arrive or change.
     ref.watch(workspaceCapabilitiesProvider);
+    // The read-only banner names the note's owner once the account's lookup
+    // exists; watching retries the lookup when it arrives.
+    ref.watch(workspacePrincipalLookupProvider);
     // Check if notes feature is enabled - redirect to chat if disabled
     final notesEnabled = ref.watch(notesFeatureEnabledProvider);
     if (!notesEnabled) {
@@ -2217,9 +2229,49 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     if (_writeRefused) return l10n.noteAccessRevokedNotice;
     return switch (noteWriteAccess(note, accountId: _openUserId)) {
       NoteWriteAccess.allowed => null,
-      NoteWriteAccess.denied => l10n.noteReadOnlyNotice,
+      NoteWriteAccess.denied => switch (_sharedOwnerName(note)) {
+        final String owner => l10n.libraryNoteSharedBy(owner),
+        null => l10n.noteReadOnlyNotice,
+      },
       NoteWriteAccess.unknown => l10n.noteAccessUnverifiedNotice,
     };
+  }
+
+  /// The name of whoever shared [note] with this account, when known. A note
+  /// that does not carry its owner's name has it looked up once, through the
+  /// lookup of the account the page opened under.
+  String? _sharedOwnerName(Note note) {
+    final named = noteSharedOwner(note, accountId: _openUserId)?.name?.trim();
+    if (named != null && named.isNotEmpty) return named;
+    final ownerId = note.userId;
+    if (ownerId == null || ownerId.isEmpty || ownerId == _openUserId) {
+      return null;
+    }
+    if (_ownerLookupFor == ownerId) return _resolvedOwnerName;
+    // Until the account's lookup exists (a cold start or a deep link), try
+    // again on a later build rather than marking the owner as looked up.
+    final lookup = ref.read(workspacePrincipalLookupProvider);
+    if (lookup == null || !_isOpenSessionCurrent) return null;
+    _ownerLookupFor = ownerId;
+    _resolvedOwnerName = null;
+    unawaited(() async {
+      await lookup.resolve([(type: WorkspacePrincipalType.user, id: ownerId)]);
+      // A name read for another account is never shown here.
+      if (!mounted ||
+          _ownerLookupFor != ownerId ||
+          !identical(ref.read(workspacePrincipalLookupProvider), lookup) ||
+          !_isOpenSessionCurrent) {
+        return;
+      }
+      final name = lookup
+          .cached(WorkspacePrincipalType.user, ownerId)
+          ?.name
+          .trim();
+      if (name != null && name.isNotEmpty) {
+        setState(() => _resolvedOwnerName = name);
+      }
+    }());
+    return null;
   }
 
   /// Saves what is on screen as a new note the user owns, through the same
@@ -2266,9 +2318,24 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                notice,
-                style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Platform.isIOS ? CupertinoIcons.lock : Icons.lock_outline,
+                    size: IconSize.small,
+                    color: theme.iconSecondary,
+                  ),
+                  const SizedBox(width: Spacing.sm),
+                  Expanded(
+                    child: Text(
+                      notice,
+                      style: theme.bodySmall?.copyWith(
+                        color: theme.textSecondary,
+                      ),
+                    ),
+                  ),
+                ],
               ),
               if (_writeRefused && _hasChanges) ...[
                 const SizedBox(height: Spacing.sm),
