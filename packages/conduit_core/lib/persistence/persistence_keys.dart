@@ -50,6 +50,11 @@ final class PreferenceKeys {
   /// surviving Direct profiles hidden and unusable across restarts until the
   /// logout fence is cleared.
   static const String incompleteAppDataClear = 'incomplete_app_data_clear_v1';
+
+  /// Set when a full sign-out could not delete every Open WebUI account
+  /// database. The next start deletes them before any can open.
+  static const String pendingAccountDatabaseWipe =
+      'pending_account_database_wipe_v1';
   static const String appIntentInvocationLedger =
       'app_intent_invocation_ledger_v1';
   static const String themeMode = 'theme_mode';

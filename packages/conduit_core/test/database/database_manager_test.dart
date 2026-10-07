@@ -706,6 +706,54 @@ void main() {
     });
   });
 
+  group('deleteAllServerDatabases', () {
+    test(
+      'deletes every server database, open or not, and nothing else',
+      () async {
+        final open = manager.openFor(_server('alpha'));
+        await open.customSelect('SELECT 1').get();
+        final alpha = fileFor(DatabaseManager.fileNameFor('alpha'));
+        // Never opened in this run, e.g. an account the registry lost.
+        final beta = fileFor(DatabaseManager.fileNameFor('beta'));
+        final directLocal = fileFor('direct_local_v1');
+        final unrelated = File(p.join(tempDir.path, 'server_notes.txt'));
+        for (final file in [
+          beta,
+          File('${beta.path}-journal'),
+          File('${beta.path}-wal'),
+          File('${beta.path}-shm'),
+          directLocal,
+          File('${directLocal.path}-wal'),
+          unrelated,
+        ]) {
+          file.writeAsStringSync('data');
+        }
+
+        final sweep = manager.deleteAllServerDatabases();
+        // Nothing may open over files that are being deleted, including a
+        // server this manager never opened.
+        check(
+          manager.openForServerIdIfReady('beta'),
+        ).isA<DatabaseOpenDeferred>();
+        check(() => manager.openFor(_server('beta'))).throws<StateError>();
+        await sweep;
+
+        check(alpha.existsSync()).isFalse();
+        check(beta.existsSync()).isFalse();
+        check(File('${beta.path}-journal').existsSync()).isFalse();
+        check(File('${beta.path}-wal').existsSync()).isFalse();
+        check(File('${beta.path}-shm').existsSync()).isFalse();
+        check(directLocal.existsSync()).isTrue();
+        check(File('${directLocal.path}-wal').existsSync()).isTrue();
+        check(unrelated.existsSync()).isTrue();
+        await _waitForClosed(open);
+        check(
+          manager.openForServerIdIfReady('alpha'),
+        ).isA<DatabaseOpenReady>();
+      },
+    );
+  });
+
   group('fileNameFor', () {
     test('encodes server ids without filename collisions', () {
       final slash = DatabaseManager.fileNameFor('server/a');

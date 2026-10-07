@@ -127,10 +127,8 @@ final class SignOutCoordinator {
       }
     }
 
-    // Every saved account goes, not just the active one. Their databases are
-    // no longer deleted when a session ends, so list them now, while the
-    // registry still names them, and end their sessions on the server too.
-    final accountIds = await _savedAccountIds();
+    // Every saved account goes, not just the active one: end their sessions
+    // on the server too, listed now while the registry still names them.
     final inactiveSessions = await _ref
         .read(authStateManagerProvider.notifier)
         .inactiveAccountSessions();
@@ -152,7 +150,7 @@ final class SignOutCoordinator {
           // admission barrier and may still lose auth ownership.
           await _ref.read(directLocalDatabasePurgeProvider)();
           directLocalPurgeCompleted = true;
-          await _purgeAccountDatabases(accountIds);
+          await _purgeAccountDatabases();
           unawaited(
             _ref
                 .read(authStateManagerProvider.notifier)
@@ -204,37 +202,42 @@ final class SignOutCoordinator {
 }
 
 extension on SignOutCoordinator {
-  Future<Set<String>> _savedAccountIds() async {
-    try {
-      final registry = await _ref
-          .read(optimizedStorageServiceProvider)
-          .getOpenWebUiRegistryStrict();
-      return {for (final account in registry.accounts) account.id};
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'sign-out-account-list-failed',
-        scope: 'auth/sign-out',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      final active = PreferencesStore.getString(PreferenceKeys.activeServerId);
-      return {if (active != null && active.isNotEmpty) active};
-    }
-  }
-
-  Future<void> _purgeAccountDatabases(Set<String> accountIds) async {
-    final purge = _ref.read(openWebUiDatabasePurgeProvider);
-    for (final accountId in accountIds) {
+  /// Deletes every account's database. Ending a session no longer deletes
+  /// one, so this is what removes them: all of them, whether or not the
+  /// account registry can still name them. If that keeps failing, the next
+  /// start finishes the job before any database opens.
+  Future<void> _purgeAccountDatabases() async {
+    const attempts = 3;
+    for (var attempt = 1; attempt <= attempts; attempt++) {
       try {
-        await purge(accountId);
+        await _ref.read(openWebUiDatabaseSweepProvider)();
+        return;
       } catch (error, stackTrace) {
         DebugLogger.error(
           'sign-out-account-database-purge-failed',
           scope: 'auth/sign-out',
           error: error,
           stackTrace: stackTrace,
+          data: {'attempt': attempt},
         );
+        if (attempt < attempts) {
+          await Future<void>.delayed(Duration(milliseconds: 50 * attempt));
+        }
       }
+    }
+    try {
+      await PreferencesStore.putChecked(
+        PreferenceKeys.pendingAccountDatabaseWipe,
+        true,
+        bypassAppDataClearBarrier: true,
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'sign-out-pending-database-wipe-failed',
+        scope: 'auth/sign-out',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 }

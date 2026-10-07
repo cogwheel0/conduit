@@ -81,6 +81,7 @@ class DatabaseManager {
       <String, _FailedCloseRetryOperation>{};
   final Map<String, Future<void>> _pendingDeletions = <String, Future<void>>{};
   final Map<String, String> _deletingFileOwners = <String, String>{};
+  Future<void>? _serverDatabasesDeletion;
 
   /// Sync, lazy-open accessor for [server]'s database.
   AppDatabase openFor(ServerConfig server) => openForServerId(server.id);
@@ -97,6 +98,10 @@ class DatabaseManager {
 
   /// Server-id form of [openForIfReady].
   DatabaseOpenAttempt openForServerIdIfReady(String serverId) {
+    final sweep = _serverDatabasesDeletion;
+    if (sweep != null) {
+      return DatabaseOpenDeferred(sweep);
+    }
     final deletion = _pendingDeletions[serverId];
     if (deletion != null) {
       return DatabaseOpenDeferred(deletion);
@@ -123,6 +128,9 @@ class DatabaseManager {
   /// overlapping close so non-reactive code cannot create a second executor
   /// for the same SQLite file.
   AppDatabase openForServerId(String serverId) {
+    if (_serverDatabasesDeletion != null) {
+      throw StateError('Every server database is being deleted.');
+    }
     final fileName = _databaseFileName(serverId);
     final deletingOwner = _deletingFileOwners[fileName];
     if (deletingOwner != null) {
@@ -452,6 +460,52 @@ class DatabaseManager {
     );
   }
 
+  /// Deletes the database of every server, open or not: each [fileNameFor]
+  /// file in the database directory with its rollback-journal, `-wal` and
+  /// `-shm` siblings. Nothing else there is touched, the direct-local
+  /// database included. No database opens until this has finished.
+  ///
+  /// It needs no list of servers, so a full sign-out also removes databases
+  /// whose accounts can no longer be read or were already forgotten.
+  Future<void> deleteAllServerDatabases() {
+    final running = _serverDatabasesDeletion;
+    if (running != null) return running;
+    late final Future<void> sweep;
+    sweep = _deleteAllServerDatabases().whenComplete(() {
+      if (identical(_serverDatabasesDeletion, sweep)) {
+        _serverDatabasesDeletion = null;
+      }
+    });
+    _serverDatabasesDeletion = sweep;
+    return sweep;
+  }
+
+  Future<void> _deleteAllServerDatabases() async {
+    // Databases this manager opened go through deleteFor, so their executors
+    // have released the files before they are unlinked.
+    for (final serverId in _fileOwners.values.toSet()) {
+      await deleteFor(serverId);
+    }
+    final directory = await _databaseDirectory();
+    if (!await directory.exists()) return;
+    final files = await directory
+        .list(followLinks: false)
+        .where(
+          (entity) =>
+              entity is File &&
+              _serverDatabaseFile.hasMatch(p.basename(entity.path)),
+        )
+        .toList();
+    for (final file in files) {
+      if (await file.exists()) await file.delete();
+    }
+    DebugLogger.log(
+      'deleted-all',
+      scope: 'db/manager',
+      data: {'files': files.length},
+    );
+  }
+
   Future<void> _retryFailedClose(
     String serverId,
     _FailedDatabaseClose failure,
@@ -663,6 +717,11 @@ class DatabaseManager {
     final encoded = base64Url.encode(utf8.encode(serverId)).replaceAll('=', '');
     return 'server_$encoded';
   }
+
+  /// A [fileNameFor] database file or one of its SQLite siblings.
+  static final RegExp _serverDatabaseFile = RegExp(
+    r'^server_[A-Za-z0-9_-]+\.sqlite(-journal|-wal|-shm)?$',
+  );
 }
 
 /// Result of a non-blocking [DatabaseManager.openForServerIdIfReady] request.

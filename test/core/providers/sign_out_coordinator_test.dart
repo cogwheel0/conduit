@@ -8,8 +8,10 @@ import 'package:conduit_core/database/database_manager.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/database_opener.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/host_ports.dart';
+import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/secure_credential_storage.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
@@ -17,6 +19,7 @@ import 'package:conduit_core/features/direct_connections/providers/direct_mcp_pr
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:drift/drift.dart' show QueryExecutor;
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -68,6 +71,40 @@ final class _EmptyHermesConfig extends HermesConfigController {
   HermesConfig build() => const HermesConfig();
 }
 
+/// Storage whose account registry, and everything else, cannot be read.
+final class _UnreadableStorage implements OptimizedStorageService {
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('storage is unreadable');
+}
+
+/// Opens databases in [directory] the way drift_flutter names them.
+final class _DirectoryDatabaseOpener implements DatabaseOpenerPort {
+  const _DirectoryDatabaseOpener(this.directory);
+
+  final Directory directory;
+
+  @override
+  QueryExecutor open(String fileName) =>
+      NativeDatabase(File(p.join(directory.path, '$fileName.sqlite')));
+
+  @override
+  Future<Directory> databaseDirectory() async => directory;
+}
+
+Directory _tempDatabaseDirectory() {
+  final directory = Directory.systemTemp.createTempSync('conduit_sign_out_db');
+  addTearDown(() {
+    if (directory.existsSync()) directory.deleteSync(recursive: true);
+  });
+  return directory;
+}
+
+/// Writes a database file for [accountId] where the account manager looks.
+File _accountDatabaseFile(Directory directory, String accountId) => File(
+  p.join(directory.path, '${DatabaseManager.fileNameFor(accountId)}.sqlite'),
+)..writeAsStringSync('chats of $accountId');
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -90,6 +127,7 @@ void main() {
         directLocalDatabasePurgeProvider.overrideWithValue(() async {
           purgeCalls++;
         }),
+        openWebUiDatabaseSweepProvider.overrideWithValue(() async {}),
       ],
     );
     addTearDown(container.dispose);
@@ -133,6 +171,7 @@ void main() {
           directLocalDatabasePurgeProvider.overrideWithValue(() async {
             purgeCalls++;
           }),
+          openWebUiDatabaseSweepProvider.overrideWithValue(() async {}),
         ],
       );
       addTearDown(container.dispose);
@@ -157,6 +196,7 @@ void main() {
       overrides: [
         authStateManagerProvider.overrideWith(_WipingAuthStateManager.new),
         directLocalDatabasePurgeProvider.overrideWithValue(() async {}),
+        openWebUiDatabaseSweepProvider.overrideWithValue(() async {}),
       ],
     );
     addTearDown(container.dispose);
@@ -219,6 +259,7 @@ void main() {
         directConnectionProfilesProvider.overrideWith(_EmptyDirectProfiles.new),
         hermesConfigProvider.overrideWith(_EmptyHermesConfig.new),
         directLocalDatabasePurgeProvider.overrideWithValue(() async {}),
+        openWebUiDatabaseSweepProvider.overrideWithValue(() async {}),
       ],
     );
     addTearDown(container.dispose);
@@ -243,6 +284,7 @@ void main() {
         directConnectionProfilesProvider.overrideWith(_EmptyDirectProfiles.new),
         hermesConfigProvider.overrideWith(_EmptyHermesConfig.new),
         directLocalDatabasePurgeProvider.overrideWithValue(() async {}),
+        openWebUiDatabaseSweepProvider.overrideWithValue(() async {}),
         signOutResetTargetsProvider.overrideWithValue([registered]),
       ],
     );
@@ -326,6 +368,121 @@ void main() {
       ).throws<StateError>();
     },
   );
+
+  test(
+    'a full sign-out deletes every account database without the registry',
+    () async {
+      final directory = _tempDatabaseDirectory();
+      final active = _accountDatabaseFile(directory, 'active');
+      final inactive = _accountDatabaseFile(directory, 'inactive');
+      final directLocal = File(
+        p.join(directory.path, '$kDirectLocalDatabaseFileName.sqlite'),
+      )..writeAsStringSync('device chats');
+      await PreferencesStore.put(PreferenceKeys.activeServerId, 'active');
+      final container = ProviderContainer(
+        overrides: [
+          authStateManagerProvider.overrideWith(_ClearedAuthStateManager.new),
+          directConnectionProfilesProvider.overrideWith(
+            _EmptyDirectProfiles.new,
+          ),
+          hermesConfigProvider.overrideWith(_EmptyHermesConfig.new),
+          directLocalDatabasePurgeProvider.overrideWithValue(() async {}),
+          optimizedStorageServiceProvider.overrideWithValue(
+            _UnreadableStorage(),
+          ),
+          databaseOpenerProvider.overrideWithValue(
+            _DirectoryDatabaseOpener(directory),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(authStateManagerProvider.future);
+      await container.read(directConnectionProfilesProvider.future);
+      container.read(hermesConfigProvider);
+
+      await container
+          .read(signOutCoordinatorProvider)
+          .signOut(keepServerDetails: true);
+
+      check(active.existsSync()).isFalse();
+      check(inactive.existsSync()).isFalse();
+      check(directLocal.existsSync()).isTrue();
+      check(
+        PreferencesStore.getBool(PreferenceKeys.pendingAccountDatabaseWipe),
+      ).isNull();
+    },
+  );
+
+  test(
+    'account databases that cannot be deleted are left to the next start',
+    () async {
+      var attempts = 0;
+      final container = ProviderContainer(
+        overrides: [
+          authStateManagerProvider.overrideWith(_ClearedAuthStateManager.new),
+          directConnectionProfilesProvider.overrideWith(
+            _EmptyDirectProfiles.new,
+          ),
+          hermesConfigProvider.overrideWith(_EmptyHermesConfig.new),
+          directLocalDatabasePurgeProvider.overrideWithValue(() async {}),
+          openWebUiDatabaseSweepProvider.overrideWithValue(() async {
+            attempts++;
+            throw const FileSystemException('busy');
+          }),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(authStateManagerProvider.future);
+      await container.read(directConnectionProfilesProvider.future);
+      container.read(hermesConfigProvider);
+
+      final result = await container
+          .read(signOutCoordinatorProvider)
+          .signOut(keepServerDetails: true);
+
+      check(result).equals(SignOutRequestResult.completed);
+      check(attempts).equals(3);
+      check(
+        PreferencesStore.getBool(PreferenceKeys.pendingAccountDatabaseWipe),
+      ).equals(true);
+    },
+  );
+
+  test('the next start deletes them before any database opens', () async {
+    final directory = _tempDatabaseDirectory();
+    final leftover = _accountDatabaseFile(directory, 'signed-out');
+    final directLocal = File(
+      p.join(directory.path, '$kDirectLocalDatabaseFileName.sqlite'),
+    )..writeAsStringSync('device chats');
+    await PreferencesStore.put(PreferenceKeys.pendingAccountDatabaseWipe, true);
+    final container = ProviderContainer(
+      overrides: [
+        databaseOpenerProvider.overrideWithValue(
+          _DirectoryDatabaseOpener(directory),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final manager = container.read(databaseManagerProvider);
+    final attempt = manager.openForServerIdIfReady('signed-out');
+    check(attempt).isA<DatabaseOpenDeferred>();
+    await (attempt as DatabaseOpenDeferred).retryAfter;
+    for (var i = 0; i < 20; i++) {
+      if (!PreferencesStore.containsKey(
+        PreferenceKeys.pendingAccountDatabaseWipe,
+      )) {
+        break;
+      }
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    check(leftover.existsSync()).isFalse();
+    check(directLocal.existsSync()).isTrue();
+    check(
+      PreferencesStore.containsKey(PreferenceKeys.pendingAccountDatabaseWipe),
+    ).isFalse();
+  });
 
   test('direct-local purge reopens an empty on-device chat store', () async {
     final tempDir = Directory.systemTemp.createTempSync(
