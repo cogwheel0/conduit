@@ -531,7 +531,8 @@ final class HermesConnectionController extends ChangeNotifier {
 
   HermesConnectionValidationIssue? _validate(HermesConfig saved) {
     final trimmedUrl = url.text.trim();
-    if (HermesConfig.connectionOrigin(trimmedUrl) == null) {
+    if (HermesConfig.connectionOrigin(trimmedUrl) == null ||
+        trimmedUrl.length > kMaxHermesBaseUrlCharacters) {
       return HermesConnectionValidationIssue.invalidUrl;
     }
     final draft = buildDraft(saved).config;

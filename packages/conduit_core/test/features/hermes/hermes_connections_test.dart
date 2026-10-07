@@ -574,6 +574,33 @@ void main() {
       check(await storedRefreshToken()).equals('refresh-2');
     });
 
+    test('a server URL too long to reload is refused', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+        _profile(_b, 'Beta', 'https://beta.example'),
+      ], active: _a);
+      final container = await _ready(
+        _Secrets({'hermes_api_key_v1:$_a': 'alpha-key'}),
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(hermesConfigProvider.notifier);
+      final document = PreferencesStore.getString(
+        PreferenceKeys.hermesConnections,
+      );
+      final tooLong = 'https://beta.example/${'a' * 2100}';
+
+      await check(
+        controller.saveConnection(connectionId: _b, baseUrl: tooLong),
+      ).throws<ArgumentError>();
+      await check(
+        controller.createConnection(baseUrl: tooLong, apiKey: 'key'),
+      ).throws<ArgumentError>();
+
+      check(
+        PreferencesStore.getString(PreferenceKeys.hermesConnections),
+      ).equals(document);
+    });
+
     test('a rename of the active connection keeps its session', () async {
       _seedConnections([
         _profile(_a, 'Alpha', 'https://alpha.example'),

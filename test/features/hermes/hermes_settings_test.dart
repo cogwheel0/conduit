@@ -36,6 +36,14 @@ void main() {
     ).isTrue();
   });
 
+  test('a server URL too long to save is invalid', () {
+    final controller = _configuredController(_FakeHermesConnectionGateway());
+    addTearDown(controller.dispose);
+    controller.url.text = 'https://hermes.example/${'a' * 2100}';
+
+    check(controller.draftIsUsable(const HermesConfig())).isFalse();
+  });
+
   test('custom access headers reach the server in Responses mode', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() => server.close(force: true));

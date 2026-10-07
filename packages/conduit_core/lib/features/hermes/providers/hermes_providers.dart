@@ -595,7 +595,8 @@ class HermesConfigController extends Notifier<HermesConfig> {
   }) {
     final trimmedUrl = baseUrl.trim();
     final nextOrigin = connectionOrigin(trimmedUrl);
-    if (trimmedUrl.isNotEmpty && nextOrigin == null) {
+    if ((trimmedUrl.isNotEmpty && nextOrigin == null) ||
+        trimmedUrl.length > kMaxHermesBaseUrlCharacters) {
       return Future<void>.error(
         ArgumentError.value(baseUrl, 'baseUrl', 'Use a valid http(s) URL'),
       );
@@ -651,7 +652,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
   }) async {
     final trimmedUrl = baseUrl.trim();
     final nextOrigin = connectionOrigin(trimmedUrl);
-    if (nextOrigin == null) {
+    if (nextOrigin == null || trimmedUrl.length > kMaxHermesBaseUrlCharacters) {
       throw ArgumentError.value(baseUrl, 'baseUrl', 'Use a valid http(s) URL');
     }
     String? created;
