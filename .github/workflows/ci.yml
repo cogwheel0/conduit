@@ -24,81 +24,171 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-          submodules: recursive
-      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
-        with:
-          channel: 'stable'
-          cache: true
+      # Building needs only the path dependencies under third_party/;
+      # openwebui-src/ and hermes-src/ are reference sources, a few hundred
+      # MB that no step reads. They fetch while Flutter installs.
+      - parallel:
+          - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+            with:
+              channel: 'stable'
+              cache: true
+          - name: Fetch third_party submodules
+            run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
       # One `pub get` at the workspace root resolves every member.
       - run: flutter pub get
       # Every workspace member with codegen, not only this job's own: a
       # package is analyzed against the generated code of what it imports.
-      - name: Generate code
-        shell: bash
-        run: |
-          for dir in . packages/* apps/*; do
-            if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
-              echo "::group::build_runner in $dir"
-              (cd "$dir" && dart run build_runner build)
-              echo "::endgroup::"
-            fi
-          done
-      # Errors fail the job; warnings and infos do not yet. The app carries
-      # riverpod_lint findings from before this workflow existed (main has
-      # the same ones), which want their own clean-up. The packages below are
-      # clean and stay held to --fatal-infos.
-      - run: flutter analyze --no-fatal-warnings --no-fatal-infos
-      # Compiling and loading each test file separately was most of this
-      # step; the runner groups the files into a few entrypoints.
-      - run: dart run tool/run_test_shards.dart
-        timeout-minutes: 30
+      # Each member keeps its own build cache, and the app never waited on
+      # the packages' output, so the app and the packages generate side by
+      # side.
+      - parallel:
+          - name: Generate code (app)
+            run: dart run build_runner build
+          - name: Generate code (packages)
+            shell: bash
+            run: |
+              for dir in packages/* apps/*; do
+                if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+                  echo "::group::build_runner in $dir"
+                  (cd "$dir" && dart run build_runner build)
+                  echo "::endgroup::"
+                fi
+              done
+      # Analysis and the Dart tests each need only the generated code, so
+      # they run side by side; the job fails once both finish if either
+      # failed. The analyzer skips the test runner's temporary
+      # test/.shards_*/ entrypoints, as it does every dot-directory.
+      - parallel:
+          # Errors fail the job; warnings and infos do not yet. The app
+          # carries riverpod_lint findings from before this workflow existed
+          # (main has the same ones), which want their own clean-up. The
+          # packages below are clean and stay held to --fatal-infos.
+          - run: flutter analyze --no-fatal-warnings --no-fatal-infos
+          # Compiling and loading each test file separately was most of this
+          # step; the runner groups the files into a few entrypoints.
+          - run: dart run tool/run_test_shards.dart
+            timeout-minutes: 30
+
+  # The Android build gets a runner of its own: sharing one with the
+  # analyzer and the Dart tests slowed all three, and it would also share
+  # their build/ and .dart_tool/ files.
+  android:
+    name: Android native tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      # Only the third_party/ submodules, as in the mobile job.
+      - parallel:
+          - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+            with:
+              channel: 'stable'
+              cache: true
+          - name: Fetch third_party submodules
+            run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
+          # `basic` is the action's MIT-licensed cache provider; the default
+          # one is a proprietary component under separate terms of use.
+          # Caches are written from main only, and read everywhere.
+          - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6
+            with:
+              cache-provider: basic
+      - run: flutter pub get
+      # The app compiles against its own generated code and that of the
+      # packages it imports, so both generate, side by side as in the mobile
+      # job.
+      - parallel:
+          - name: Generate code (app)
+            run: dart run build_runner build
+          - name: Generate code (packages)
+            shell: bash
+            run: |
+              for dir in packages/* apps/*; do
+                if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+                  echo "::group::build_runner in $dir"
+                  (cd "$dir" && dart run build_runner build)
+                  echo "::endgroup::"
+                fi
+              done
       - name: Android native tests
         run: |
           flutter build apk --debug --target-platform android-arm64
           cd android
           ./gradlew :app:testDebugUnitTest -Ptarget-platform=android-arm64
 
-  # Each workspace member analyzes and tests on its own, which is what proves
-  # the pub workspace actually works per package.
+  # Each workspace member analyzes and tests from its own directory, which
+  # is what proves the pub workspace actually works per package. They share
+  # one job so setup and codegen run once; one failing does not stop the
+  # others.
   packages:
     name: Dart packages
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        package:
-          - packages/conduit_core
-          - packages/conduit_ddgs
-          - packages/conduit_markdown
-          - packages/conduit_theme
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-          submodules: recursive
-      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
-        with:
-          channel: 'stable'
-          cache: true
+      # Only the third_party/ submodules, as in the mobile job.
+      - parallel:
+          - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+            with:
+              channel: 'stable'
+              cache: true
+          - name: Fetch third_party submodules
+            run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
       - run: flutter pub get
-      # Every workspace member with codegen, not only this job's own: a
-      # package is analyzed against the generated code of what it imports.
+      # Every package with codegen, not only the one being checked: a package
+      # is analyzed against the generated code of what it imports. No package
+      # imports the app, so the app's codegen is left to the mobile job.
       - name: Generate code
         shell: bash
         run: |
-          for dir in . packages/* apps/*; do
+          for dir in packages/* apps/*; do
             if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
               echo "::group::build_runner in $dir"
               (cd "$dir" && dart run build_runner build)
               echo "::endgroup::"
             fi
           done
-      - name: Analyze
-        working-directory: ${{ matrix.package }}
-        run: dart analyze --fatal-infos
-      - name: Test
-        working-directory: ${{ matrix.package }}
+        id: codegen
+      # The tests run in the background while the analyzer goes through the
+      # packages one at a time: analyzers started together race to build
+      # the analyzer plugin they share under ~/.dartServer, and crash.
+      - name: Test conduit_core
+        working-directory: packages/conduit_core
         run: dart test
+        background: true
+      - name: Test conduit_ddgs
+        working-directory: packages/conduit_ddgs
+        run: dart test
+        background: true
+      - name: Test conduit_markdown
+        working-directory: packages/conduit_markdown
+        run: dart test
+        background: true
+      - name: Test conduit_theme
+        working-directory: packages/conduit_theme
+        run: dart test
+        background: true
+      # Every package is analyzed even when an earlier one fails, as long as
+      # the code generated.
+      - name: Analyze conduit_core
+        if: ${{ !cancelled() && steps.codegen.outcome == 'success' }}
+        working-directory: packages/conduit_core
+        run: dart analyze --fatal-infos
+      - name: Analyze conduit_ddgs
+        if: ${{ !cancelled() && steps.codegen.outcome == 'success' }}
+        working-directory: packages/conduit_ddgs
+        run: dart analyze --fatal-infos
+      - name: Analyze conduit_markdown
+        if: ${{ !cancelled() && steps.codegen.outcome == 'success' }}
+        working-directory: packages/conduit_markdown
+        run: dart analyze --fatal-infos
+      - name: Analyze conduit_theme
+        if: ${{ !cancelled() && steps.codegen.outcome == 'success' }}
+        working-directory: packages/conduit_theme
+        run: dart analyze --fatal-infos
+      - name: Wait for the tests
+        wait-all:
 
   # The web-safe packages must survive dart2js, and must not be
   # able to reach dio, drift or conduit_core. Both are cheap to check and
@@ -110,11 +200,14 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-          submodules: recursive
-      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
-        with:
-          channel: 'stable'
-          cache: true
+      # Only the third_party/ submodules, as in the mobile job.
+      - parallel:
+          - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+            with:
+              channel: 'stable'
+              cache: true
+          - name: Fetch third_party submodules
+            run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
       - run: flutter pub get
       - name: Check package boundaries
         run: dart run tool/check_package_boundaries.dart
@@ -134,11 +227,14 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-          submodules: recursive
-      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
-        with:
-          channel: 'stable'
-          cache: true
+      # Only the third_party/ submodules, as in the mobile job.
+      - parallel:
+          - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+            with:
+              channel: 'stable'
+              cache: true
+          - name: Fetch third_party submodules
+            run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
       - run: flutter pub get
       - name: Verify ARB descriptions
         run: dart run tool/verify_arb_descriptions.dart
