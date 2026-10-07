@@ -347,8 +347,16 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     _certifiedIdentity = null;
     _pendingIdentity = null;
     _cleanServerId = null;
-    _purgeRequired = false;
-    ref.read(openWebUiDatabaseAccessProvider.notifier).reenterBootstrap();
+    // A purge still deleting files keeps them closed, and decides what comes
+    // next when it finishes; reopening for bootstrap now would let a re-login
+    // open the database it is deleting.
+    _purgeRequired = _purgeRunning;
+    final access = ref.read(openWebUiDatabaseAccessProvider.notifier);
+    if (_purgeRunning) {
+      access.beginPurge();
+    } else {
+      access.reenterBootstrap();
+    }
     ref.read(openWebUiCertifiedDatabaseServerProvider.notifier).clear();
     _clearOpenWebUiVisibleState();
     ref.invalidate(appDatabaseProvider);

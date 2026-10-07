@@ -2120,6 +2120,47 @@ void main() {
       },
     );
 
+    test('a session ending mid-purge keeps the files closed', () async {
+      final releasePurge = Completer<void>();
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (serverId) async {
+          purged.add(serverId);
+          await releasePurge.future;
+        },
+      );
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+
+      // Another user on the open account: its database is purged.
+      harness.auth.publish(_authenticated('token-b', _userB));
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(purged).deepEquals([_server.id]);
+
+      // The session ends while the files are still being deleted.
+      harness.auth.publish(
+        const AuthState(status: AuthStatus.unauthenticated),
+      );
+      await Future<void>.delayed(Duration.zero);
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.purging);
+
+      // Signing back in waits for the purge, then opens a fresh database.
+      harness.auth.publish(_authenticated('token-b2', _userB));
+      releasePurge.complete();
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+        await isolation.settled;
+      }
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_server.id);
+    });
+
     test(
       'signing out of the account still open deletes only its data',
       () async {
