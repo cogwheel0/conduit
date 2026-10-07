@@ -1848,19 +1848,6 @@ class OptimizedStorageService {
         stored.mtlsPrivateKeyPassword == next.mtlsPrivateKeyPassword;
   }
 
-  /// [_hasSameServerSessionOwnershipIdentity] for a route edited from
-  /// [before] to [after]: the same origin URL and mTLS client identity.
-  bool _sameRouteSessionOwner(
-    OpenWebUiEndpoint before,
-    OpenWebUiEndpoint after,
-  ) {
-    return _normalizedServerIdentityUrl(before.url) ==
-            _normalizedServerIdentityUrl(after.url) &&
-        before.mtlsCertificateChainPem == after.mtlsCertificateChainPem &&
-        before.mtlsPrivateKeyPem == after.mtlsPrivateKeyPem &&
-        before.mtlsPrivateKeyPassword == after.mtlsPrivateKeyPassword;
-  }
-
   String _normalizedServerIdentityUrl(String value) =>
       openWebUiServerIdentityUrl(value);
 
@@ -2502,7 +2489,7 @@ class OptimizedStorageService {
     final keepsCookies = {
       for (final endpoint in server.endpoints)
         if (stored.endpoint(endpoint.id) case final before?
-            when _sameRouteSessionOwner(before, endpoint))
+            when before.sameSessionOwner(endpoint))
           endpoint.id,
     };
     final next = OpenWebUiRegistry(

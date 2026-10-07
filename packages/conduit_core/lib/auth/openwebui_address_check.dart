@@ -1,4 +1,5 @@
 import '../models/openwebui_registry.dart';
+import '../models/server_config.dart';
 import 'token_validator.dart';
 
 /// What checking a new address for a saved Open WebUI server found.
@@ -38,7 +39,9 @@ typedef OpenWebUiAddressCheckResult = ({
 /// its addresses answers first, the active account's and the others' alike,
 /// so the address has to prove itself with one of their tokens: the active
 /// account's live one first, else one kept for another account. [userAt]
-/// asks the new address whose token it is, and throws when it refuses it.
+/// asks the new address whose token it is, and throws when it refuses it;
+/// it is told whose token it sends, so it can pass that account's own proxy
+/// cookie (see [keptAddressSessionHeaders]).
 /// One stale token decides nothing: an expired one is not sent, and a
 /// refused one gives way to the next account's. Only a token that names its
 /// own user there proves the address.
@@ -55,7 +58,7 @@ Future<OpenWebUiAddressCheckResult> checkOpenWebUiAddress({
   required Future<String?> Function(String accountId) keptTokenFor,
   required Set<String> accountsWithSession,
   required Future<bool> Function(Uri address) confirmSendingSession,
-  required Future<String> Function(String token) userAt,
+  required Future<String> Function(String accountId, String token) userAt,
 }) async {
   final candidate = Uri.tryParse(address);
   final routes = registry.server(serverId)?.endpoints ?? const [];
@@ -87,7 +90,7 @@ Future<OpenWebUiAddressCheckResult> checkOpenWebUiAddress({
     }
     final String user;
     try {
-      user = await userAt(token);
+      user = await userAt(account.id, token);
     } catch (_) {
       // The server may have ended this session; another may still prove it.
       continue;
@@ -105,6 +108,47 @@ Future<OpenWebUiAddressCheckResult> checkOpenWebUiAddress({
         ? OpenWebUiAddressCheck.differentServer
         : OpenWebUiAddressCheck.nothingToProtect,
   );
+}
+
+/// The session headers -- a reverse proxy's cookie -- that the first of
+/// [accountIds] on [serverId] keeps for its address [endpointId], so checking
+/// an edit of that address passes its proxy as the app already does, rather
+/// than signing in to the proxy again.
+///
+/// Only while [draft] still reaches the address as stored: the same URL and
+/// client certificate. Once either changes, the cookie was issued to
+/// something else and nothing is returned; so too when [draft] already
+/// carries a cookie of its own, from a proxy sign-in just made.
+Map<String, String> keptAddressSessionHeaders({
+  required OpenWebUiRegistry registry,
+  required String serverId,
+  required String? endpointId,
+  required ServerConfig draft,
+  required Iterable<String> accountIds,
+}) {
+  final stored = endpointId == null
+      ? null
+      : registry.server(serverId)?.endpoint(endpointId);
+  if (stored == null ||
+      draft.customHeaders.keys.any(isCapturedSessionHeader) ||
+      !stored.sameSessionOwner(
+        OpenWebUiEndpoint(
+          id: stored.id,
+          url: draft.url,
+          mtlsCertificateChainPem: draft.mtlsCertificateChainPem,
+          mtlsPrivateKeyPem: draft.mtlsPrivateKeyPem,
+          mtlsPrivateKeyPassword: draft.mtlsPrivateKeyPassword,
+        ),
+      )) {
+    return const <String, String>{};
+  }
+  for (final accountId in accountIds) {
+    final account = registry.account(accountId);
+    if (account == null || account.serverId != serverId) continue;
+    final kept = account.capturedHeaders[stored.id];
+    if (kept != null && kept.isNotEmpty) return kept;
+  }
+  return const <String, String>{};
 }
 
 OpenWebUiAddressCheckResult _found(

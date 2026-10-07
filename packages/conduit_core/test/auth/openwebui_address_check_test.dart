@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/openwebui_address_check.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:test/test.dart';
 
 final _registry = OpenWebUiRegistry(
@@ -44,6 +45,7 @@ void main() {
     Set<String> sessions = const {},
     Map<String, String> usersByToken = const {},
     List<String>? asked,
+    List<String>? askedFor,
     bool agrees = true,
     List<Uri>? confirmations,
   }) => checkOpenWebUiAddress(
@@ -58,8 +60,9 @@ void main() {
       confirmations?.add(address);
       return agrees;
     },
-    userAt: (token) async {
+    userAt: (accountId, token) async {
       asked?.add(token);
+      askedFor?.add(accountId);
       final user = usersByToken[token];
       if (user == null) throw StateError('401');
       return user;
@@ -84,13 +87,18 @@ void main() {
 
   test('a server whose accounts are all inactive is checked with a token '
       'kept for one of them', () async {
+    final askedFor = <String>[];
+
     final found = await check0(
       activeAccountId: 'cy',
       liveToken: 'live-cy',
       kept: {'bob': 'kept-bob'},
       usersByToken: {'kept-bob': 'user-bob'},
+      askedFor: askedFor,
     );
 
+    // Told whose token it sends, so it can pass that account's own cookie.
+    check(askedFor).deepEquals(['bob']);
     check(found.result).equals(OpenWebUiAddressCheck.sameServer);
     // Bob's token proved it, so a proxy cookie captured on the way is his.
     check(found.provedBy).equals('bob');
@@ -208,4 +216,88 @@ void main() {
       check(found.result).equals(OpenWebUiAddressCheck.nothingToProtect);
     },
   );
+
+  group('editing an address that sits behind a proxy', () {
+    const proxyUrl = 'https://chat.example.com';
+    final registry = OpenWebUiRegistry(
+      servers: [
+        OpenWebUiServer(
+          id: 'home',
+          name: 'Home',
+          endpoints: [
+            OpenWebUiEndpoint(id: 'lan', url: 'http://10.0.0.2:3000'),
+            OpenWebUiEndpoint(id: 'proxy', url: proxyUrl),
+          ],
+        ),
+        OpenWebUiServer(
+          id: 'work',
+          name: 'Work',
+          endpoints: [
+            OpenWebUiEndpoint(id: 'www', url: 'https://work.example'),
+          ],
+        ),
+      ],
+      accounts: [
+        OpenWebUiAccount(id: 'ada', serverId: 'home'),
+        OpenWebUiAccount(
+          id: 'bob',
+          serverId: 'home',
+          capturedHeaders: const {
+            'proxy': {'Cookie': 'session=bob'},
+          },
+        ),
+        OpenWebUiAccount(
+          id: 'cy',
+          serverId: 'work',
+          capturedHeaders: const {
+            'proxy': {'Cookie': 'session=cy'},
+          },
+        ),
+      ],
+    );
+    ServerConfig draft(String url) =>
+        ServerConfig(id: 'draft', name: 'Home', url: url);
+    Map<String, String> kept(
+      ServerConfig draft, {
+      String? endpointId = 'proxy',
+      List<String> accountIds = const ['ada', 'bob'],
+    }) => keptAddressSessionHeaders(
+      registry: registry,
+      serverId: 'home',
+      endpointId: endpointId,
+      draft: draft,
+      accountIds: accountIds,
+    );
+
+    test('passes it with the first kept cookie while the address stays', () {
+      check(kept(draft(proxyUrl))).deepEquals({'Cookie': 'session=bob'});
+      check(kept(draft('$proxyUrl/'))).deepEquals({'Cookie': 'session=bob'});
+      check(kept(draft(proxyUrl), accountIds: ['ada'])).isEmpty();
+    });
+
+    test('keeps the cookie off once the address reaches somewhere else', () {
+      check(kept(draft('https://elsewhere.example.com'))).isEmpty();
+      check(kept(draft('$proxyUrl/other'))).isEmpty();
+      check(
+        kept(
+          draft(proxyUrl).copyWith(
+            mtlsCertificateChainPem: 'chain',
+            mtlsPrivateKeyPem: 'key',
+          ),
+        ),
+      ).isEmpty();
+    });
+
+    test('never lends a cookie to a new address, over a fresh one, or from '
+        'another server\'s account', () {
+      check(kept(draft(proxyUrl), endpointId: null)).isEmpty();
+      check(
+        kept(
+          draft(proxyUrl)
+              .copyWith(customHeaders: const {'Cookie': 'session=fresh'}),
+        ),
+      ).isEmpty();
+      check(kept(draft(proxyUrl), accountIds: ['cy'])).isEmpty();
+    });
+  });
 }

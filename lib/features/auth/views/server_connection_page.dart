@@ -404,9 +404,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           confirmText: l10n.accountsAddressConfirmAction,
         );
       },
-      userAt: (token) async {
+      userAt: (accountId, token) async {
+        // Each account's token travels with its own proxy cookie only.
         final probe = ApiService(
-          serverConfig: verified,
+          serverConfig: _withKeptCookie(verified, registry, [accountId]),
           workerManager: container.read(workerManagerProvider),
           authToken: token,
         );
@@ -486,6 +487,39 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       context.pop();
     }
     return true;
+  }
+
+  /// [draft] with the proxy cookie kept on the address being edited, the
+  /// active account's when it is on the server, else another account's.
+  /// Unchanged while adding an address, or once [draft] reaches somewhere
+  /// else ([keptAddressSessionHeaders]).
+  Future<ServerConfig> _withKeptAddressCookie(ServerConfig draft) async {
+    final serverId = widget.routesOfServerId;
+    if (serverId == null || widget.endpointId == null) return draft;
+    final storage = ref.read(optimizedStorageServiceProvider);
+    final registry = await storage.getOpenWebUiRegistryStrict();
+    final activeId = await storage.getActiveServerId();
+    return _withKeptCookie(draft, registry, [
+      ?activeId,
+      for (final account in registry.accountsOn(serverId)) account.id,
+    ]);
+  }
+
+  ServerConfig _withKeptCookie(
+    ServerConfig draft,
+    OpenWebUiRegistry registry,
+    Iterable<String> accountIds,
+  ) {
+    final kept = keptAddressSessionHeaders(
+      registry: registry,
+      serverId: widget.routesOfServerId!,
+      endpointId: widget.endpointId,
+      draft: draft,
+      accountIds: accountIds,
+    );
+    return kept.isEmpty
+        ? draft
+        : draft.copyWith(customHeaders: {...draft.customHeaders, ...kept});
   }
 
   Future<void> _prefillFromSavedServer() async {
@@ -620,6 +654,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     });
 
     ApiService? connectionApi;
+    var checkHeaders = const <String, String>{};
     try {
       final rawUrl = _urlController.text.trim();
       String url = _validateAndFormatUrl(rawUrl);
@@ -642,9 +677,16 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         mtlsPrivateKeyPassword: _normalizedMtlsPrivateKeyPassword,
       );
 
+      // An edit that still reaches the address as stored passes its proxy
+      // with the cookie the server's accounts keep there. A fresh proxy
+      // sign-in below starts from tempConfig, without it.
+      final checkConfig = await _withKeptAddressCookie(tempConfig);
+      if (!mounted) return;
+      checkHeaders = checkConfig.customHeaders;
+
       final workerManager = ref.read(workerManagerProvider);
       final api = ApiService(
-        serverConfig: tempConfig,
+        serverConfig: checkConfig,
         workerManager: workerManager,
       );
       connectionApi = api;
@@ -725,7 +767,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       );
       if (mounted) {
         setState(() {
-          _connectionError = _formatConnectionError(e);
+          _connectionError = _formatConnectionError(
+            e,
+            sensitiveValues: [..._customHeaders.values, ...checkHeaders.values],
+          );
         });
         ConduitHaptics.error();
       }

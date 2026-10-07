@@ -90,6 +90,16 @@ final class OpenWebUiEndpoint {
       mtlsPrivateKeyLabel == other.mtlsPrivateKeyLabel &&
       mtlsPrivateKeyPassword == other.mtlsPrivateKeyPassword;
 
+  /// Whether a session issued to [other] -- a proxy cookie -- was issued to
+  /// this route too: the same origin URL and client identity. Headers, the
+  /// self-signed policy and the label do not change whom a session is for.
+  bool sameSessionOwner(OpenWebUiEndpoint other) =>
+      openWebUiServerIdentityUrl(url) ==
+          openWebUiServerIdentityUrl(other.url) &&
+      mtlsCertificateChainPem == other.mtlsCertificateChainPem &&
+      mtlsPrivateKeyPem == other.mtlsPrivateKeyPem &&
+      mtlsPrivateKeyPassword == other.mtlsPrivateKeyPassword;
+
   /// This endpoint with [other]'s connection settings and its own id/label.
   OpenWebUiEndpoint withConnectionOf(OpenWebUiEndpoint other) =>
       OpenWebUiEndpoint(
