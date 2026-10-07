@@ -1,7 +1,8 @@
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
+import 'package:flutter/widgets.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -147,17 +148,17 @@ class _AccountRow extends ConsumerWidget {
                 size: IconSize.medium,
               ),
             ),
-          IconButton(
+          AdaptiveButton.icon(
             key: Key('accounts-sign-out-${entry.id}'),
-            tooltip: l10n.accountsSignOutOf(name),
-            icon: Icon(
-              UiUtils.platformIcon(
-                ios: CupertinoIcons.square_arrow_left,
-                android: Icons.logout,
-              ),
-              color: theme.error,
-              size: IconSize.medium,
+            semanticLabel: l10n.accountsSignOutOf(name),
+            icon: UiUtils.platformIcon(
+              ios: CupertinoIcons.square_arrow_left,
+              android: Icons.logout,
             ),
+            iconColor: theme.error,
+            style: AdaptiveButtonStyle.plain,
+            // A row of a scrolling list: no native view per row.
+            useNative: false,
             onPressed: () => signOutOfSavedAccount(context, ref, entry),
           ),
         ],
