@@ -186,9 +186,8 @@ void main() {
 
   Future<ProviderContainer> pumpEditor(
     WidgetTester tester,
-    _DetailApi api, {
-    bool advanced = false,
-  }) async {
+    _DetailApi api,
+  ) async {
     final container = ProviderContainer(
       // A provider that errors would otherwise schedule a retry timer.
       retry: (_, _) => null,
@@ -200,9 +199,8 @@ void main() {
         currentUserProvider2.overrideWith((ref) => ref.watch(_currentUser)),
         connectivityStatusProvider.overrideWithValue(ConnectivityStatus.online),
         isOnlineProvider.overrideWithValue(true),
-        appSettingsProvider.overrideWithValue(
-          AppSettings(advancedFeaturesEnabled: advanced),
-        ),
+        // Advanced stays off: nothing here depends on it.
+        appSettingsProvider.overrideWithValue(const AppSettings()),
         workspaceCapabilitiesProvider.overrideWith(
           (ref) async => WorkspaceCapabilities.all,
         ),
@@ -497,12 +495,12 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('is offered with Advanced on and opens the access sheet', (
+    testWidgets('is offered with Advanced off and opens the access sheet', (
       tester,
     ) async {
       final api = _DetailApi(detail: _noteJson(writeAccess: true));
       await storeLocally(_noteJson(writeAccess: true));
-      await pumpEditor(tester, api, advanced: true);
+      await pumpEditor(tester, api);
 
       await openOverflow(tester);
       await tester.tap(find.text(l10n(tester).noteShare));
@@ -512,28 +510,10 @@ void main() {
       expect(find.byKey(const Key('workspace-access-list')), findsOneWidget);
     });
 
-    testWidgets('is hidden with Advanced off while editing still works', (
-      tester,
-    ) async {
-      final api = _DetailApi(detail: _noteJson(writeAccess: true));
-      await storeLocally(_noteJson(writeAccess: true));
-      await pumpEditor(tester, api);
-
-      await openOverflow(tester);
-
-      expect(find.text(l10n(tester).noteShare), findsNothing);
-      expect(
-        tester.widget<FleatherEditor>(find.byType(FleatherEditor)).readOnly,
-        isFalse,
-      );
-    });
-
-    testWidgets('is hidden on a read-only note even with Advanced on', (
-      tester,
-    ) async {
+    testWidgets('is hidden on a read-only note', (tester) async {
       final api = _DetailApi(detail: _noteJson(writeAccess: false));
       await storeLocally(_noteJson(writeAccess: false));
-      await pumpEditor(tester, api, advanced: true);
+      await pumpEditor(tester, api);
 
       await openOverflow(tester);
 

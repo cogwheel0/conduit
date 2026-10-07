@@ -117,15 +117,14 @@ void main() {
   });
 
   group('who may open it', () {
-    testWidgets('Advanced off explains itself and sends nothing', (
-      tester,
-    ) async {
-      final session = await pumpCalendar(tester, settings: const AppSettings());
+    testWidgets('anyone the server allows, with Advanced off', (tester) async {
+      final session = await pumpCalendar(tester);
 
-      expect(find.byKey(const Key('calendar-needs-advanced')), findsOneWidget);
-      expect(session.wire.requests, isEmpty);
-      // Turning Advanced off hides the screen; the events stay where they are.
-      expect(session.wire.events, hasLength(1));
+      expect(
+        session.container.read(appSettingsProvider).advancedFeaturesEnabled,
+        isFalse,
+      );
+      expect(find.byKey(const Key('calendar-range')), findsOneWidget);
     });
 
     testWidgets('a server or account without the calendar sees why', (

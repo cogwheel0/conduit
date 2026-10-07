@@ -21,7 +21,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show scheduledTasksEntryVisibleProvider;
 import 'package:conduit_core/features/calendar/providers/calendar_providers.dart'
-    show calendarEntryVisibleProvider;
+    show calendarAvailableProvider;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatDataControlsEntryVisibleProvider;
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
@@ -325,6 +325,8 @@ class ProfilePage extends ConsumerWidget {
   }) {
     final l10n = AppLocalizations.of(context)!;
     final canManageWorkspace = canManageAnyWorkspaceSection(ref);
+    // The calendar is there whenever the server and account allow it.
+    final showCalendar = ref.watch(calendarAvailableProvider);
     // Personal connections need the Advanced disclosure and the server's own
     // rule for who may keep them; either one missing hides the entry.
     final showPersonalConnections = ref.watch(
@@ -333,8 +335,6 @@ class ProfilePage extends ConsumerWidget {
     // Scheduled tasks follow the same rule: Advanced reveals them, and the
     // server and account decide whether they exist at all.
     final showScheduledTasks = ref.watch(scheduledTasksEntryVisibleProvider);
-    // The calendar follows the same rule.
-    final showCalendar = ref.watch(calendarEntryVisibleProvider);
     // Data controls follow the same rule: Advanced reveals them, and a signed
     // in Open WebUI account decides whether there is anything to act on.
     final showChatDataControls = ref.watch(
@@ -430,6 +430,17 @@ class ProfilePage extends ConsumerWidget {
         title: l10n.directConnectionsTitle,
         onTap: () => context.pushNamed(RouteNames.directConnections),
       ),
+      if (showCalendar)
+        _buildAccountOption(
+          context,
+          key: const Key('calendar-entry'),
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.calendar,
+            android: Icons.calendar_month_outlined,
+          ),
+          title: l10n.calendarTitle,
+          onTap: () => context.pushNamed(RouteNames.calendar),
+        ),
       if (showPersonalConnections)
         _buildAccountOption(
           context,
@@ -451,17 +462,6 @@ class ProfilePage extends ConsumerWidget {
           ),
           title: l10n.scheduledTasksTitle,
           onTap: () => context.pushNamed(RouteNames.scheduledTasks),
-        ),
-      if (showCalendar)
-        _buildAccountOption(
-          context,
-          key: const Key('calendar-entry'),
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.calendar,
-            android: Icons.calendar_month_outlined,
-          ),
-          title: l10n.calendarTitle,
-          onTap: () => context.pushNamed(RouteNames.calendar),
         ),
       if (showChatDataControls)
         _buildAccountOption(

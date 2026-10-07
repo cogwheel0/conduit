@@ -11,7 +11,6 @@ import 'package:conduit_core/features/calendar/calendar_time.dart';
 import 'package:conduit_core/features/calendar/models/calendar_models.dart';
 import 'package:conduit_core/features/calendar/providers/calendar_providers.dart';
 import 'package:conduit_core/models/conversation.dart';
-import 'package:conduit_core/services/settings_service.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/services/navigation_service.dart';
@@ -25,11 +24,8 @@ import 'calendar_event_editor.dart';
 import 'calendar_event_sheet.dart';
 import 'calendar_format.dart';
 
-/// Wraps a calendar screen with the rule every entry point shares: the Advanced
-/// disclosure is on and the server and account allow the calendar.
-///
-/// Advanced only reveals the screen. Turning it off hides the entry and leaves
-/// every calendar and event on the server as it was.
+/// Wraps a calendar screen with the rule every entry point shares: the server
+/// and account allow the calendar.
 class CalendarGate extends ConsumerWidget {
   const CalendarGate({super.key, required this.child});
 
@@ -38,18 +34,6 @@ class CalendarGate extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
-    final advanced = ref.watch(
-      appSettingsProvider.select(
-        (settings) => settings.advancedFeaturesEnabled,
-      ),
-    );
-    if (!advanced) {
-      return UtilityPageScaffold.settings(
-        key: const Key('calendar-needs-advanced'),
-        title: l10n.calendarTitle,
-        children: [Text(l10n.calendarNeedsAdvanced)],
-      );
-    }
     if (!ref.watch(calendarAvailableProvider)) {
       return UtilityPageScaffold.settings(
         key: const Key('calendar-unavailable'),

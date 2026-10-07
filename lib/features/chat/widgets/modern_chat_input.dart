@@ -3519,7 +3519,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     // A chosen code interpreter stays in view, and can be turned off here,
-    // whether or not Advanced is on.
+    // even when it can no longer run.
     if (codeInterpreterOffer?.selected == true &&
         !isHermesComposer &&
         !isDirectComposer) {

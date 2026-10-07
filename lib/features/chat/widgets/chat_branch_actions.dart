@@ -236,7 +236,7 @@ Future<void> showChatBranchSheet(
 /// label opens the full list. Each step continues the chat from that version
 /// with its own replies.
 ///
-/// Nothing is shown unless the Advanced branch controls are on and the stored
+/// Nothing is shown unless the branch controls are offered and the stored
 /// graph really holds more than one version, so a message with no real
 /// alternatives (or one the server never stored) offers nothing.
 class ChatBranchSwitcher extends ConsumerStatefulWidget {

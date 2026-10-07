@@ -5,7 +5,6 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/notes/utils/note_access.dart';
 import 'package:conduit_core/features/sharing/models/resource_access.dart';
 import 'package:conduit_core/models/note.dart';
-import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/features/notes/providers/notes_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -17,11 +16,10 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// Whether the note's access sheet is offered: an Advanced control for a
-/// server note the account may edit, when the server lets it share notes.
-/// Reading and read-only enforcement do not depend on this.
+/// Whether the note's access sheet is offered: for a server note the account
+/// may edit, when the server lets it share notes. Reading and read-only
+/// enforcement do not depend on this.
 bool canShareNote(WidgetRef ref, Note note) {
-  if (!ref.read(appSettingsProvider).advancedFeaturesEnabled) return false;
   // A `local:` note is not on the server yet, so it has no access to edit.
   if (note.id.startsWith('local:')) return false;
   final access = noteWriteAccess(

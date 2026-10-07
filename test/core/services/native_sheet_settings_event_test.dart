@@ -14,7 +14,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show scheduledTasksEntryVisibleProvider;
 import 'package:conduit_core/features/calendar/providers/calendar_providers.dart'
-    show calendarEntryVisibleProvider;
+    show calendarAvailableProvider;
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
@@ -225,7 +225,7 @@ void main() {
               },
             ),
           ],
-          overrides: [calendarEntryVisibleProvider.overrideWithValue(visible)],
+          overrides: [calendarAvailableProvider.overrideWithValue(visible)],
         );
 
         NativeSheetBridge.instance.onControlChanged(
@@ -236,8 +236,8 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Advanced, the server or the account can change while the sheet is
-        // open; a row that went stale must not navigate.
+        // The server or the account can change while the sheet is open; a
+        // row that went stale must not navigate.
         expect(opened, visible ? 1 : 0);
         if (visible) expect(extra, isA<NativeSheetNavigationOrigin>());
       },

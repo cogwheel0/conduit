@@ -28,7 +28,6 @@ import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/sync/id_remapper.dart' show RemapEvent;
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -250,13 +249,10 @@ bool _canDrainRoute(dynamic read) {
 }
 
 /// Whether a draft may be queued now: a response is running on a conversation
-/// that takes queued turns, and Advanced is on. Existing drafts stay visible
-/// and manageable whatever this says.
+/// that takes queued turns. Existing drafts stay visible and manageable
+/// whatever this says.
 final chatDraftQueueOfferProvider = Provider<bool>((ref) {
-  final advanced = ref.watch(
-    appSettingsProvider.select((settings) => settings.advancedFeaturesEnabled),
-  );
-  if (!advanced || !ref.watch(chatMainAnswerActiveProvider)) return false;
+  if (!ref.watch(chatMainAnswerActiveProvider)) return false;
   return _queueableRoute(ref.watch);
 });
 

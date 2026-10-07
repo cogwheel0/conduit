@@ -520,7 +520,8 @@ void main() {
             role: 'user',
           ),
         ),
-        appSettingsProvider.overrideWith(() => _AdvancedSettings()),
+        // Advanced stays off: removing a member does not depend on it.
+        appSettingsProvider.overrideWith(_Settings.new),
         socketServiceProvider.overrideWithValue(null),
       ],
     );
@@ -558,9 +559,9 @@ void main() {
   });
 }
 
-class _AdvancedSettings extends AppSettingsNotifier {
+class _Settings extends AppSettingsNotifier {
   @override
-  AppSettings build() => const AppSettings(advancedFeaturesEnabled: true);
+  AppSettings build() => const AppSettings();
 }
 
 Map<String, dynamic> _channelJson(String name) => {

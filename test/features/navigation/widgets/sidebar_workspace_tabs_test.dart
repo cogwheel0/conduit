@@ -3,7 +3,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show scheduledTasksEntryVisibleProvider;
 import 'package:conduit_core/features/calendar/providers/calendar_providers.dart'
-    show calendarEntryVisibleProvider;
+    show calendarAvailableProvider;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatDataControlsEntryVisibleProvider;
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
@@ -593,7 +593,7 @@ void main() {
             apiServiceProvider.overrideWithValue(null),
             hermesOnlyModeProvider.overrideWithValue(false),
             accountProfileProvider.overrideWith(_ServerAccountProfile.new),
-            calendarEntryVisibleProvider.overrideWithValue(visible),
+            calendarAvailableProvider.overrideWithValue(visible),
             sidebarNativeProfilePresenterProvider.overrideWithValue((
               config,
             ) async {

@@ -7186,8 +7186,6 @@
   "@calendarTitle": {"description": "Title of the Settings page and entry for the account's Open WebUI calendar."},
   "calendarDescription": "Your Open WebUI calendar. Events live on the server and are shown in this device's time zone.",
   "@calendarDescription": {"description": "Explains on the calendar page where events are kept and which time zone they are shown in."},
-  "calendarNeedsAdvanced": "Turn on Advanced in Settings to use the calendar. Events already on the server are not affected.",
-  "@calendarNeedsAdvanced": {"description": "Shown on the calendar page when the Advanced setting is off."},
   "calendarUnavailable": "The calendar is not available for this account on this server.",
   "@calendarUnavailable": {"description": "Shown when the server has the calendar off or the account may not use it."},
   "calendarTimezoneNote": "Times are shown in this device's time zone. Repeating events are expanded by the server in your account's time zone.",

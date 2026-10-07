@@ -5225,7 +5225,6 @@
   "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarTitle": "カレンダー",
   "calendarDescription": "Open WebUI のカレンダーです。予定はサーバー上にあり、このデバイスのタイムゾーンで表示されます。",
-  "calendarNeedsAdvanced": "カレンダーを使用するには、設定で「詳細設定」をオンにしてください。サーバー上の予定には影響しません。",
   "calendarUnavailable": "このサーバーでは、このアカウントでカレンダーを利用できません。",
   "calendarTimezoneNote": "時刻はこのデバイスのタイムゾーンで表示されます。繰り返しの予定は、サーバーがアカウントのタイムゾーンで展開します。",
   "calendarRangeLabel": "{start} – {end}",

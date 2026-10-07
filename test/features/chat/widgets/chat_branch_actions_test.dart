@@ -240,7 +240,6 @@ void main() {
   Future<ProviderContainer> open(
     WidgetTester tester, {
     String currentId = 'a3',
-    bool advanced = true,
     bool native = false,
     bool canImport = true,
     // Builds the database, API and auth epoch from factories, so invalidating
@@ -299,9 +298,8 @@ void main() {
         ],
         currentUserProvider2.overrideWithValue(_me),
         isOnlineProvider.overrideWithValue(true),
-        appSettingsProvider.overrideWithValue(
-          AppSettings(advancedFeaturesEnabled: advanced),
-        ),
+        // Advanced stays off: the branch controls do not depend on it.
+        appSettingsProvider.overrideWithValue(const AppSettings()),
         userPermissionsProvider.overrideWith(
           (ref) async => <String, dynamic>{
             'chat': <String, dynamic>{'import': canImport},
@@ -367,7 +365,8 @@ void main() {
 
   group('continuing from an alternative response', () {
     testWidgets(
-      'a user previews a version, continues explicitly, and sees its replies',
+      'with Advanced off, a user previews a version, continues explicitly, '
+      'and sees its replies',
       (tester) async {
         final c = await open(tester);
         expect(visibleIds(c), ['u1', 'a2', 'u2', 'a3']);
@@ -417,27 +416,6 @@ void main() {
       expect(await storedLeaf(tester, 'c1'), 'a3');
       expect(visibleIds(c), ['u1', 'a2', 'u2', 'a3']);
     });
-
-    testWidgets(
-      'with Advanced off the pager still previews and offers no branch controls',
-      (tester) async {
-        final c = await open(tester, currentId: 'a4', advanced: false);
-
-        // The saved branch is the one shown, with its alternative in the pager.
-        expect(visibleIds(c), ['u1', 'a1', 'u3', 'a4']);
-        await tester.tap(pagerButton(_en.previousLabel).first);
-        await tester.pumpAndSettle();
-        expect(find.textContaining('text of a2'), findsOneWidget);
-        expect(action(_en.chatBranchContinueFromResponse), findsNothing);
-        expect(action(_en.chatBranchForkChat), findsNothing);
-        expect(
-          find.byKey(const ValueKey('chat-branch-switcher')),
-          findsNothing,
-        );
-        expect(visibleIds(c), ['u1', 'a1', 'u3', 'a4']);
-        expect(await storedLeaf(tester, 'c1'), 'a4');
-      },
-    );
 
     testWidgets('a version with no stored id stays preview-only', (
       tester,
@@ -699,9 +677,8 @@ void main() {
       await settle(tester);
     }
 
-    testWidgets('sends the shown message once and opens the new chat', (
-      tester,
-    ) async {
+    testWidgets('with Advanced off, sends the shown message once and opens '
+        'the new chat', (tester) async {
       api.forkEnvelope = forkEnvelope();
       final c = await open(tester);
 
@@ -733,13 +710,6 @@ void main() {
       expect(api.forks, hasLength(1));
       expect(api.clones, 0);
       expect(c.read(activeConversationProvider)!.id, 'c1');
-    });
-
-    testWidgets('is not offered with Advanced off', (tester) async {
-      await open(tester, advanced: false);
-
-      expect(action(_en.chatBranchForkChat), findsNothing);
-      expect(find.text(_en.chatBranchForkChat), findsNothing);
     });
 
     testWidgets('is not offered to an account that may not import chats', (

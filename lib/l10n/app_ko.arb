@@ -3478,7 +3478,6 @@
   "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarTitle": "캘린더",
   "calendarDescription": "Open WebUI 캘린더입니다. 일정은 서버에 저장되며 이 기기의 시간대로 표시됩니다.",
-  "calendarNeedsAdvanced": "캘린더를 사용하려면 설정에서 고급 기능을 켜세요. 서버에 이미 있는 일정에는 영향이 없습니다.",
   "calendarUnavailable": "이 서버에서는 이 계정으로 캘린더를 사용할 수 없습니다.",
   "calendarTimezoneNote": "시간은 이 기기의 시간대로 표시됩니다. 반복 일정은 서버가 계정의 시간대를 기준으로 펼칩니다.",
   "calendarRangeLabel": "{start} – {end}",

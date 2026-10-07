@@ -2191,8 +2191,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         (!isChatStreaming || currentStreamingMessageCompleted);
 
     // Branch actions need a real message id. The providers below are what make
-    // them Advanced-only and exclusive to the user's own durable chat, so the
-    // widget adds no gate of its own. A version being previewed earns
+    // them exclusive to the user's own durable chat, so the widget adds no
+    // gate of its own. A version being previewed earns
     // "continue" only when its id is a stored same-role alternative of this
     // response, so a version without a reliable id stays preview-only (and
     // offers no fork either: it is not a message to fork at).

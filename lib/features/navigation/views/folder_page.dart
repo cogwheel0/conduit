@@ -173,12 +173,9 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     Folder? folder,
   ) {
     final tintColor = context.conduitTheme.textPrimary;
-    final advanced = ref.watch(
-      appSettingsProvider.select((s) => s.advancedFeaturesEnabled),
-    );
     final menuItems = folder == null
         ? const <AdaptivePopupMenuEntry>[]
-        : _buildFolderToolbarMenuItems(folder, l10n, advanced: advanced);
+        : _buildFolderToolbarMenuItems(folder, l10n);
     final hasOverflowMenu = menuItems.isNotEmpty;
     final maxModelWidth = resolveConduitAdaptiveLeadingPillWidth(
       context,
@@ -207,7 +204,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     // The menu holds only what this account may do: Edit Folder / System
     // Prompt for the owner, Share settings for anyone who may edit access,
     // and Project settings for anyone who can write (an owner or a write
-    // grant) once Advanced is on.
+    // grant).
     final nativeMenuAction = folder == null || menuItems.isEmpty
         ? null
         : buildConduitNativeToolbarMenuAction<String>(
@@ -324,15 +321,10 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     ref.read(temporaryChatEnabledProvider.notifier).set(!current);
   }
 
-  /// Share settings is an Advanced control for a folder whose access the
-  /// account may edit: its own, or one shared with a write grant, when the
-  /// server lets it share folders. Reading a shared folder never needs it.
+  /// Share settings is offered for a folder whose access the account may
+  /// edit: its own, or one shared with a write grant, when the server lets it
+  /// share folders. Reading a shared folder never needs it.
   bool _canShareFolder(Folder folder) {
-    if (!ref.watch(
-      appSettingsProvider.select((s) => s.advancedFeaturesEnabled),
-    )) {
-      return false;
-    }
     if (folder.shared && !folder.canWrite) return false;
     return ref
             .watch(workspaceCapabilitiesProvider)
@@ -345,9 +337,8 @@ class _FolderPageState extends ConsumerState<FolderPage> {
 
   List<AdaptivePopupMenuEntry> _buildFolderToolbarMenuItems(
     Folder folder,
-    AppLocalizations l10n, {
-    required bool advanced,
-  }) => [
+    AppLocalizations l10n,
+  ) => [
     // Edit Folder / System Prompt are owner operations.
     if (!folder.shared) ...[
       AdaptivePopupMenuItem<String>(
@@ -376,7 +367,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
           materialIcon: Icons.group_outlined,
         ),
       ),
-    if (advanced && folder.canWrite)
+    if (folder.canWrite)
       AdaptivePopupMenuItem<String>(
         value: 'project-settings',
         label: l10n.folderProjectSettings,

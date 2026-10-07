@@ -34,8 +34,6 @@ const calendarTestServer = ServerConfig(
   isActive: true,
 );
 
-const advancedSettings = AppSettings(advancedFeaturesEnabled: true);
-
 /// The shell the chat, folder and channel pages live in, as in the app.
 const calendarShellKey = Key('calendar-shell');
 const calendarChatKey = Key('calendar-chat');
@@ -456,7 +454,6 @@ Future<CalendarSession> pumpCalendar(
   WidgetTester tester, {
   String location = Routes.calendar,
   String shellLocation = Routes.chat,
-  AppSettings settings = advancedSettings,
   Map<String, dynamic> permissions = const {
     'features': {'calendar': true, 'automations': true},
   },
@@ -525,7 +522,8 @@ Future<CalendarSession> pumpCalendar(
 
   final container = ProviderContainer(
     overrides: [
-      appSettingsProvider.overrideWith(() => _Settings(settings)),
+      // Advanced stays off: the calendar does not depend on it.
+      appSettingsProvider.overrideWith(() => _Settings(const AppSettings())),
       apiServiceProvider.overrideWithValue(api),
       optimizedStorageServiceProvider.overrideWithValue(_Storage()),
       currentUserProvider2.overrideWithValue(

@@ -481,9 +481,9 @@ void main() {
       check(s.tray.map((f) => f.fileName)).deepEquals(['a.txt']);
     });
 
-    test('is offered only while a response runs, under Advanced, on a stored '
-        'Open WebUI chat', () async {
-      final s = await _Session.start();
+    test('is offered only while a response runs on a stored Open WebUI chat, '
+        'with Advanced off', () async {
+      final s = await _Session.start(advanced: false);
       bool offered() => s.container.read(chatDraftQueueOfferProvider);
 
       check(offered()).isTrue();
@@ -494,12 +494,6 @@ void main() {
       final running = _runningTurn();
       s.container.read(chatMessagesProvider.notifier).setMessages(running);
       check(offered()).isTrue();
-
-      (s.container.read(appSettingsProvider.notifier) as _Settings)
-          .setAdvanced(false);
-      check(offered()).isFalse();
-      (s.container.read(appSettingsProvider.notifier) as _Settings)
-          .setAdvanced(true);
 
       s.container.read(temporaryChatEnabledProvider.notifier).set(true);
       check(offered()).isFalse();
@@ -891,23 +885,6 @@ void main() {
 
       check(s.queue.removeDraft(second.id)).isTrue();
       check(s.parked).isEmpty();
-    });
-
-    test('pending drafts stay manageable and drain with Advanced off',
-        () async {
-      final s = await _Session.start();
-      final draft = s.queue.enqueue('first')!;
-
-      (s.container.read(appSettingsProvider.notifier) as _Settings)
-          .setAdvanced(false);
-
-      check(s.container.read(chatDraftQueueOfferProvider)).isFalse();
-      check(s.active!.drafts.single.id).equals(draft.id);
-      check(s.queue.editDraft(draft.id, 'still mine')).isTrue();
-
-      s.finishResponse();
-      await s.until(() => s.active == null);
-      check((await s.sentUserRows()).single.content).equals('still mine');
     });
 
     test('a draft being sent can be neither edited nor removed', () async {

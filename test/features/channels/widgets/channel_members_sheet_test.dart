@@ -138,7 +138,6 @@ void main() {
       tester,
       directory: _people(1, 5),
       channel: _groupChannel(owner: 'someone-else'),
-      advanced: true,
     );
 
     expect(find.byKey(const Key('channel-member-user-2')), findsWidgets);
@@ -147,19 +146,17 @@ void main() {
     check(harness.mutations).isEmpty();
   });
 
-  testWidgets('a manager with Advanced off sees the list without controls', (
+  testWidgets('a manager with Advanced off is offered Add and Remove', (
     tester,
   ) async {
     await _Harness.open(
       tester,
       directory: _people(1, 5),
       channel: _groupChannel(),
-      advanced: false,
     );
 
-    expect(find.byKey(const Key('channel-member-user-2')), findsWidgets);
-    expect(find.byKey(const Key('channel-members-add')), findsNothing);
-    expect(find.byKey(const Key('channel-member-remove-user-2')), findsNothing);
+    expect(find.byKey(const Key('channel-members-add')), findsOneWidget);
+    expect(find.byKey(const Key('channel-member-remove-user-2')), findsOneWidget);
   });
 
   testWidgets('removing a member sends the remove and shows the refreshed '
@@ -168,7 +165,6 @@ void main() {
       tester,
       directory: _people(1, 5),
       channel: _groupChannel(owner: 'user-1'),
-      advanced: true,
       userId: 'user-1',
     );
 
@@ -198,7 +194,6 @@ void main() {
       tester,
       directory: _people(1, 5),
       channel: _groupChannel(owner: 'user-1'),
-      advanced: true,
       userId: 'user-1',
       handler: (h, request) => request.method == 'POST'
           ? _json({'detail': 'no'}, statusCode: 403)
@@ -219,7 +214,6 @@ void main() {
       tester,
       directory: _people(1, 5),
       channel: _groupChannel(owner: 'user-1'),
-      advanced: true,
       userId: 'user-1',
       permissions: const {
         'access_grants': {'allow_users': false},
@@ -311,7 +305,6 @@ Future<void> _addPeopleAndGroup(WidgetTester tester) async {
     tester,
     directory: _people(1, 5),
     channel: _groupChannel(owner: 'user-1'),
-    advanced: true,
     userId: 'user-1',
     searchable: _people(6, 9),
     groups: const [
@@ -488,7 +481,6 @@ Future<void> _addWithKeyboard(WidgetTester tester) async {
     tester,
     directory: _people(1, 5),
     channel: _groupChannel(owner: 'user-1'),
-    advanced: true,
     userId: 'user-1',
     searchable: _people(6, 9),
     groups: const [
@@ -572,13 +564,10 @@ class _SessionNotifier extends Notifier<_Session> {
   void set(_Session value) => state = value;
 }
 
+// Advanced stays off: membership management does not depend on it.
 class _FakeSettings extends AppSettingsNotifier {
-  _FakeSettings(this.advanced);
-
-  final bool advanced;
-
   @override
-  AppSettings build() => AppSettings(advancedFeaturesEnabled: advanced);
+  AppSettings build() => const AppSettings();
 }
 
 typedef _Handler = FutureOr<ResponseBody> Function(
@@ -610,7 +599,6 @@ class _Harness {
     WidgetTester tester, {
     required List<Map<String, dynamic>> directory,
     Map<String, dynamic>? channel,
-    bool advanced = false,
     String userId = 'user-a',
     Map<String, dynamic> permissions = const {},
     List<Map<String, dynamic>> searchable = const [],
@@ -644,7 +632,7 @@ class _Harness {
           (ref) => ref.watch(session.select((s) => s.epoch)),
         ),
         userPermissionsProvider.overrideWith((ref) async => permissions),
-        appSettingsProvider.overrideWith(() => _FakeSettings(advanced)),
+        appSettingsProvider.overrideWith(_FakeSettings.new),
       ],
     );
     addTearDown(container.dispose);

@@ -4,7 +4,6 @@ import 'package:conduit_core/features/sharing/models/resource_access.dart';
 import 'package:conduit_core/features/sharing/providers/resource_access_controller.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/features/workspace/widgets/resource_sharing_sheet.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
@@ -22,16 +21,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 
-/// Opens the Audience session for [conversation] when the Advanced control is
-/// on, or returns null. The key is the chat's own id: the link's `share_id`
-/// names a snapshot, and the grants hang off the chat.
+/// Opens the Audience session for [conversation], or returns null when there
+/// is no signed-in session to open it in. The key is the chat's own id: the
+/// link's `share_id` names a snapshot, and the grants hang off the chat.
 ResourceAccessController? _openAudience(
   dynamic ref,
   Conversation conversation,
 ) {
-  if (!(ref.read(appSettingsProvider).advancedFeaturesEnabled as bool)) {
-    return null;
-  }
   return ResourceAccessController.open(
     ref,
     kind: ResourceKind.chat,

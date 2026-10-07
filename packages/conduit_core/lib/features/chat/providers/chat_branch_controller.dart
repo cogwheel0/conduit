@@ -1,7 +1,7 @@
 part of 'chat_providers.dart';
 
-/// Whether the Advanced branch controls (continue from an alternative, step
-/// through edited messages, fork at a message) are offered for the active chat.
+/// Whether the branch controls (continue from an alternative, step through
+/// edited messages, fork at a message) are offered for the active chat.
 ///
 /// Saved branches and the everyday response pager work whether or not this is
 /// true; it only decides what the user is offered to change. Hidden for Hermes,
@@ -9,11 +9,6 @@ part of 'chat_providers.dart';
 /// memory, and for another user's chat.
 final chatBranchControlsProvider = Provider<bool>((ref) {
   if (ref.watch(reviewerModeProvider)) return false;
-  if (!ref.watch(
-    appSettingsProvider.select((s) => s.advancedFeaturesEnabled),
-  )) {
-    return false;
-  }
   if (ref.watch(apiServiceProvider) == null) return false;
   final conversation = ref.watch(activeConversationProvider);
   if (conversation == null) return false;
@@ -62,8 +57,8 @@ final openWebUiChatImportAllowedProvider = FutureProvider<bool>((ref) async {
 
 /// What the fork action can do for the active chat right now.
 enum ChatForkAvailability {
-  /// Not offered: Advanced is off, the chat is not the user's own durable Open
-  /// WebUI chat, or the account may not import chats.
+  /// Not offered: the chat is not the user's own durable Open WebUI chat, or
+  /// the account may not import chats.
   hidden,
 
   /// Offered, but the device is offline.

@@ -329,9 +329,9 @@ void main() {
   const queueLabel = 'Queue';
   final stop = find.byKey(const ValueKey('primary-btn-stop'));
 
-  testWidgets('Queue holds the typed message behind the response and leaves '
-      'Stop and Send alone', (tester) async {
-    final rig = await _pump(tester);
+  testWidgets('with Advanced off, Queue holds the typed message behind the '
+      'response and leaves Stop and Send alone', (tester) async {
+    final rig = await _pump(tester, advanced: false);
 
     await rig.type('next question');
     expect(find.text(queueLabel), findsOneWidget);
@@ -375,39 +375,6 @@ void main() {
     await tester.pump();
 
     expect(rig.sent, ['ordinary']);
-    expect(rig.drafts, isEmpty);
-  });
-
-  testWidgets('with Advanced off nothing new is queued, pending drafts stay '
-      'visible and manageable, and Enter sends as it always did',
-      (tester) async {
-    final rig = await _pump(tester);
-    await rig.type('already queued');
-    await tester.tap(find.text(queueLabel));
-    await tester.pump();
-    expect(rig.drafts, hasLength(1));
-
-    (rig.container.read(appSettingsProvider.notifier) as _Settings)
-        .setAdvanced(false);
-    await tester.pump();
-
-    expect(find.byKey(const Key('chat-draft-queue-row')), findsOneWidget);
-    await rig.type('typed with advanced off');
-    expect(find.text(queueLabel), findsNothing);
-    expect(stop, findsOneWidget);
-
-    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-    await tester.pump();
-    expect(rig.sent, ['typed with advanced off']);
-    expect(rig.drafts.map((d) => d.text), ['already queued']);
-
-    // The pending draft can still be managed.
-    await tester.tap(find.byKey(const Key('chat-draft-queue-row')));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(Key('chat-draft-delete-${rig.drafts.single.id}')),
-    );
-    await tester.pumpAndSettle();
     expect(rig.drafts, isEmpty);
   });
 

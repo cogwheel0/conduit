@@ -3706,7 +3706,6 @@
   "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarTitle": "Kalender",
   "calendarDescription": "Dein Open-WebUI-Kalender. Termine liegen auf dem Server und werden in der Zeitzone dieses Geräts angezeigt.",
-  "calendarNeedsAdvanced": "Aktiviere „Erweitert“ in den Einstellungen, um den Kalender zu nutzen. Termine, die bereits auf dem Server liegen, sind nicht betroffen.",
   "calendarUnavailable": "Der Kalender ist für dieses Konto auf diesem Server nicht verfügbar.",
   "calendarTimezoneNote": "Die Zeiten werden in der Zeitzone dieses Geräts angezeigt. Wiederkehrende Termine werden vom Server in der Zeitzone deines Kontos aufgelöst.",
   "calendarRangeLabel": "{start} – {end}",

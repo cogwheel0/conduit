@@ -3706,7 +3706,6 @@
   "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarTitle": "Agenda",
   "calendarDescription": "Je Open WebUI-agenda. Afspraken staan op de server en worden getoond in de tijdzone van dit apparaat.",
-  "calendarNeedsAdvanced": "Schakel Geavanceerd in bij Instellingen om de agenda te gebruiken. Afspraken die al op de server staan, blijven ongewijzigd.",
   "calendarUnavailable": "De agenda is niet beschikbaar voor dit account op deze server.",
   "calendarTimezoneNote": "Tijden worden getoond in de tijdzone van dit apparaat. Terugkerende afspraken worden door de server uitgewerkt in de tijdzone van je account.",
   "calendarRangeLabel": "{start} – {end}",

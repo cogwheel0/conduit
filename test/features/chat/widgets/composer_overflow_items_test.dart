@@ -432,9 +432,10 @@ void main() {
       }
 
       testWidgets(
-        'the panel row selects it, and the panel and composer show it',
+        'with Advanced off, the panel row selects it, and the panel and '
+        'composer show it',
         (tester) async {
-          final container = await pump(tester, block: null);
+          final container = await pump(tester, block: null, advanced: false);
           await openPanel(tester);
 
           expect(find.text('Code interpreter'), findsOneWidget);
@@ -448,17 +449,10 @@ void main() {
         },
       );
 
-      testWidgets('with Advanced off it is not offered', (tester) async {
-        await pump(tester, block: null, advanced: false);
-        await openPanel(tester);
-
-        expect(find.text('Code interpreter'), findsNothing);
-      });
-
-      testWidgets('a chosen interpreter stays in view with Advanced off', (
+      testWidgets('a chosen interpreter stays in view and turns off there', (
         tester,
       ) async {
-        final container = await pump(tester, block: null, advanced: false);
+        final container = await pump(tester, block: null);
         container.read(codeInterpreterEnabledProvider.notifier).set(true);
         await tester.pump();
 
@@ -490,6 +484,19 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(container.read(codeInterpreterEnabledProvider), isFalse);
+      });
+
+      testWidgets('a browser-engine server is explained only with Advanced on', (
+        tester,
+      ) async {
+        await pump(
+          tester,
+          block: CodeInterpreterBlock.unsupportedEngine,
+          advanced: false,
+        );
+        await openPanel(tester);
+
+        expect(find.text('Code interpreter'), findsNothing);
       });
 
       testWidgets('Hermes never shows it', (tester) async {

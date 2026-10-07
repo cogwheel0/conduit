@@ -17,8 +17,8 @@ import 'package:conduit/shared/widgets/themed_sheets.dart';
 
 /// The one-line summary of the messages queued behind the running response.
 ///
-/// It stays visible whatever the Advanced setting says: drafts that exist can
-/// always be seen, edited, removed or sent from the sheet it opens.
+/// It stays visible whether or not a new draft can be queued: drafts that
+/// exist can always be seen, edited, removed or sent from the sheet it opens.
 class ChatDraftQueueRow extends ConsumerWidget {
   const ChatDraftQueueRow({super.key});
 

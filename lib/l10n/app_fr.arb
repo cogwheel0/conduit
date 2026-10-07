@@ -3706,7 +3706,6 @@
   "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarTitle": "Calendrier",
   "calendarDescription": "Votre calendrier Open WebUI. Les événements sont stockés sur le serveur et affichés dans le fuseau horaire de cet appareil.",
-  "calendarNeedsAdvanced": "Activez Avancé dans les Réglages pour utiliser le calendrier. Les événements déjà présents sur le serveur ne sont pas affectés.",
   "calendarUnavailable": "Le calendrier n'est pas disponible pour ce compte sur ce serveur.",
   "calendarTimezoneNote": "Les heures sont affichées dans le fuseau horaire de cet appareil. Les événements récurrents sont développés par le serveur dans le fuseau horaire de votre compte.",
   "calendarRangeLabel": "{start} – {end}",

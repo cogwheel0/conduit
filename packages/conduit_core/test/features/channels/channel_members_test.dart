@@ -53,7 +53,7 @@ List<Map<String, dynamic>> _people(int from, int to) => [
 void main() {
   group('browsing', () {
     test('every page is reachable by an ordinary member, listed by name, '
-        'with neither Advanced nor management', () async {
+        'without management', () async {
       final harness = await _Harness.open(directory: _people(1, 65));
       final controller = harness.controller();
       await harness.settled();
@@ -229,7 +229,6 @@ void main() {
       final harness = await _Harness.open(
         directory: _people(1, 65),
         channel: _groupChannel(),
-        advanced: true,
       );
       final controller = harness.controller();
       await harness.settled();
@@ -254,7 +253,6 @@ void main() {
       harness = await _Harness.open(
         directory: _people(1, 5),
         channel: _groupChannel(),
-        advanced: true,
         handler: (request) =>
             request.method == 'POST' ? removal.future : harness.serve(request),
       );
@@ -287,16 +285,14 @@ void main() {
             bool manage,
             Map<String, dynamic> channel,
             String role,
-            bool advanced,
             Object permissions,
             void Function(_Harness harness)? afterOpen,
           })
         >{
-          'owner of a group channel, Advanced on': (
+          'owner of a group channel, with Advanced off': (
             manage: true,
             channel: _groupChannel(),
             role: 'user',
-            advanced: true,
             permissions: const <String, dynamic>{},
             afterOpen: null,
           ),
@@ -304,31 +300,13 @@ void main() {
             manage: true,
             channel: _groupChannel(owner: 'someone-else'),
             role: 'admin',
-            advanced: true,
             permissions: const <String, dynamic>{},
             afterOpen: null,
-          ),
-          'Advanced off': (
-            manage: false,
-            channel: _groupChannel(),
-            role: 'user',
-            advanced: false,
-            permissions: const <String, dynamic>{},
-            afterOpen: null,
-          ),
-          'Advanced turned off after the list opened': (
-            manage: false,
-            channel: _groupChannel(),
-            role: 'user',
-            advanced: true,
-            permissions: const <String, dynamic>{},
-            afterOpen: (harness) => harness.setAdvanced(false),
           ),
           'direct message channel': (
             manage: false,
             channel: _groupChannel(type: 'dm'),
             role: 'user',
-            advanced: true,
             permissions: const <String, dynamic>{},
             afterOpen: null,
           ),
@@ -336,7 +314,6 @@ void main() {
             manage: false,
             channel: _groupChannel(type: null),
             role: 'user',
-            advanced: true,
             permissions: const <String, dynamic>{},
             afterOpen: null,
           ),
@@ -344,7 +321,6 @@ void main() {
             manage: false,
             channel: _groupChannel(manager: false),
             role: 'user',
-            advanced: true,
             permissions: const <String, dynamic>{},
             afterOpen: null,
           ),
@@ -352,7 +328,6 @@ void main() {
             manage: false,
             channel: _groupChannel(owner: 'someone-else'),
             role: 'user',
-            advanced: true,
             permissions: const <String, dynamic>{},
             afterOpen: null,
           ),
@@ -360,7 +335,6 @@ void main() {
             manage: false,
             channel: _groupChannel(),
             role: 'user',
-            advanced: true,
             permissions: const <String, dynamic>{
               'features': {'channels': false},
             },
@@ -370,7 +344,6 @@ void main() {
             manage: false,
             channel: _groupChannel(),
             role: 'user',
-            advanced: true,
             permissions: StateError('permissions unavailable'),
             afterOpen: null,
           ),
@@ -378,7 +351,6 @@ void main() {
             manage: false,
             channel: _groupChannel(),
             role: 'user',
-            advanced: true,
             permissions: const <String, dynamic>{},
             afterOpen: (harness) =>
                 harness.activate(_groupChannel(id: 'channel-2')),
@@ -394,7 +366,6 @@ void main() {
             directory: _people(1, 5),
             channel: c.channel,
             role: c.role,
-            advanced: c.advanced,
             permissions: c.permissions,
           );
           final controller = harness.controller();
@@ -420,7 +391,6 @@ void main() {
       final harness = await _Harness.open(
         directory: _people(1, 5),
         channel: _groupChannel(),
-        advanced: true,
       );
       final controller = harness.controller();
       await harness.settled();
@@ -442,7 +412,6 @@ void main() {
       final harness = await _Harness.open(
         directory: _people(1, 5),
         channel: _groupChannel(owner: 'user-a'),
-        advanced: true,
       );
       final controller = harness.controller();
       await harness.settled();
@@ -460,7 +429,6 @@ void main() {
         harness = await _Harness.open(
           directory: _people(1, 5),
           channel: _groupChannel(),
-          advanced: true,
           handler: (request) => request.method == 'POST' && deny
               ? _json({'detail': 'no'}, statusCode: 403)
               : harness.serve(request),
@@ -485,7 +453,6 @@ void main() {
       final harness = await _Harness.open(
         directory: _people(1, 5),
         channel: _groupChannel(),
-        advanced: true,
         permissions: const <String, dynamic>{
           'access_grants': {'allow_users': false},
         },
@@ -513,7 +480,6 @@ void main() {
       harness = await _Harness.open(
         directory: _people(1, 5),
         channel: _groupChannel(),
-        advanced: true,
         handler: (request) =>
             request.method == 'POST' ? removal.future : harness.serve(request),
       );
@@ -557,23 +523,6 @@ final _sessionProvider = NotifierProvider<_SessionNotifier, _Session>(
   _SessionNotifier.new,
 );
 
-class _AdvancedNotifier extends Notifier<bool> {
-  @override
-  bool build() => false;
-
-  void set(bool value) => state = value;
-}
-
-final _advancedProvider = NotifierProvider<_AdvancedNotifier, bool>(
-  _AdvancedNotifier.new,
-);
-
-class _FakeSettings extends AppSettingsNotifier {
-  @override
-  AppSettings build() =>
-      AppSettings(advancedFeaturesEnabled: ref.watch(_advancedProvider));
-}
-
 typedef _Handler = FutureOr<ResponseBody> Function(RequestOptions request);
 
 class _Harness {
@@ -597,7 +546,6 @@ class _Harness {
     required List<Map<String, dynamic>> directory,
     Map<String, dynamic>? channel,
     String role = 'user',
-    bool advanced = false,
     Object permissions = const <String, dynamic>{},
     _Handler? handler,
   }) async {
@@ -639,12 +587,12 @@ class _Harness {
           if (permissions is Map<String, dynamic>) return permissions;
           throw permissions;
         }),
-        appSettingsProvider.overrideWith(_FakeSettings.new),
+        // Advanced stays off: membership management does not depend on it.
+        appSettingsProvider.overrideWithValue(const AppSettings()),
       ],
     );
     addTearDown(container.dispose);
     await container.read(activeServerProvider.future);
-    container.read(_advancedProvider.notifier).set(advanced);
     if (channel != null) {
       container
           .read(activeChannelProvider.notifier)
@@ -691,9 +639,6 @@ class _Harness {
         .read(_sessionProvider.notifier)
         .set(_Session(session.userId, token, session.epoch));
   }
-
-  void setAdvanced(bool value) =>
-      container.read(_advancedProvider.notifier).set(value);
 
   void activate(Map<String, dynamic> channel) => container
       .read(activeChannelProvider.notifier)

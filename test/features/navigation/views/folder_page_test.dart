@@ -326,11 +326,9 @@ void main() {
     Future<void> openFolderMenu(
       WidgetTester tester, {
       required Folder folder,
-      bool advanced = true,
     }) async {
       final container = _createContainer(
         folders: [folder],
-        settings: AppSettings(advancedFeaturesEnabled: advanced),
         extraOverrides: [
           workspaceCapabilitiesProvider.overrideWith(
             (ref) async => WorkspaceCapabilities.all,
@@ -349,7 +347,7 @@ void main() {
       }
     }
 
-    testWidgets('is in the owner menu with Advanced on, beside Edit Folder', (
+    testWidgets('is in the owner menu with Advanced off, beside Edit Folder', (
       tester,
     ) async {
       await openFolderMenu(
@@ -358,19 +356,6 @@ void main() {
       );
 
       expect(find.text('Share settings'), findsOneWidget);
-      expect(find.text('Edit Folder'), findsOneWidget);
-    });
-
-    testWidgets('is hidden with Advanced off and the owner menu is unchanged', (
-      tester,
-    ) async {
-      await openFolderMenu(
-        tester,
-        folder: const Folder(id: 'work', name: 'Work'),
-        advanced: false,
-      );
-
-      expect(find.text('Share settings'), findsNothing);
       expect(find.text('Edit Folder'), findsOneWidget);
     });
 
@@ -677,6 +662,11 @@ void main() {
       conversations: [conversation],
       isAuthenticated: true,
       database: db,
+      extraOverrides: [
+        // The composer's interpreter offer asks the server, which this fake
+        // does not stand in for; only the context menu is under test.
+        codeInterpreterOfferProvider.overrideWithValue(null),
+      ],
     );
     addTearDown(container.dispose);
 
@@ -1044,7 +1034,6 @@ void main() {
     Future<void> open(
       WidgetTester tester,
       Map<String, dynamic> raw, {
-      bool advanced = true,
       bool native = false,
       bool liveFolders = false,
       String role = 'admin',
@@ -1089,7 +1078,6 @@ void main() {
         isAuthenticated: true,
         database: db,
         folders: [Folder.fromJson(raw)],
-        settings: AppSettings(advancedFeaturesEnabled: advanced),
         selectedModel: modelA,
         availableModels: const [modelA, modelB],
         extraOverrides: [
@@ -1205,50 +1193,20 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    // What the folder menu offers: the owner's own actions stay owner-only, and
-    // the project editor goes to anyone who can write once Advanced is on.
-    final menuCases =
-        <
-          ({String name, String? permission, bool advanced, List<String> items})
-        >[
-          (
-            name: 'an owner with Advanced off',
-            permission: null,
-            advanced: false,
-            items: ['Edit Folder', 'System Prompt'],
-          ),
-          (
-            name: 'an owner with Advanced on',
-            permission: null,
-            advanced: true,
-            items: ['Edit Folder', 'System Prompt', 'Project settings'],
-          ),
-          (
-            name: 'a write grant with Advanced on',
-            permission: 'write',
-            advanced: true,
-            items: ['Project settings'],
-          ),
-          (
-            name: 'a write grant with Advanced off',
-            permission: 'write',
-            advanced: false,
-            items: [],
-          ),
-          (
-            name: 'a read grant with Advanced on',
-            permission: 'read',
-            advanced: true,
-            items: [],
-          ),
-        ];
+    // What the folder menu offers with Advanced off: the owner's own actions
+    // stay owner-only, and the project editor goes to anyone who can write.
+    final menuCases = <({String name, String? permission, List<String> items})>[
+      (
+        name: 'an owner',
+        permission: null,
+        items: ['Edit Folder', 'System Prompt', 'Project settings'],
+      ),
+      (name: 'a write grant', permission: 'write', items: ['Project settings']),
+      (name: 'a read grant', permission: 'read', items: []),
+    ];
     for (final menuCase in menuCases) {
       testWidgets('the folder menu for ${menuCase.name}', (tester) async {
-        await open(
-          tester,
-          project(permission: menuCase.permission),
-          advanced: menuCase.advanced,
-        );
+        await open(tester, project(permission: menuCase.permission));
 
         if (menuCase.items.isEmpty) {
           expect(overflow(), findsNothing);
@@ -1680,7 +1638,6 @@ void main() {
             'model_ids': ['retired', 'm-b'],
           },
         ),
-        advanced: false,
         liveFolders: true,
       );
       await settle(tester);
@@ -1701,7 +1658,6 @@ void main() {
             'model_ids': ['retired'],
           },
         ),
-        advanced: false,
         liveFolders: true,
         overrides: [
           // The user's own default, which the draft falls back to.
@@ -1745,7 +1701,6 @@ void main() {
               'model_ids': ['m-a', 'm-b'],
             },
           ),
-          advanced: false,
           liveFolders: true,
           overrides: overrides,
         );
@@ -1788,7 +1743,6 @@ void main() {
               'model_ids': ['m-a', 'm-b', 'm-a'],
             },
           ),
-          advanced: false,
           liveFolders: true,
           overrides: [isOnlineProvider.overrideWithValue(true)],
         );

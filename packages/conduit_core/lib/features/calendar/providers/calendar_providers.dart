@@ -15,7 +15,6 @@ import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
-import 'package:conduit_core/services/settings_service.dart';
 
 part 'calendar_providers.g.dart';
 
@@ -166,7 +165,9 @@ bool calendarPermitted({
 }
 
 /// Whether the signed-in account can use the calendar right now, for surfaces
-/// deciding whether to show it. False while the inputs load.
+/// deciding whether to show it. False while the inputs load. Flutter Settings
+/// and the native iOS sheet both read this, so they cannot disagree about when
+/// the entry exists.
 ///
 /// This only reads [userPermissionsProvider] and [backendConfigProvider]. The
 /// operations recheck the same rule themselves.
@@ -185,17 +186,6 @@ final calendarAvailableProvider = Provider<bool>((ref) {
     user: user,
     permissions: permissions,
   );
-});
-
-/// Whether Settings offers the calendar: the Advanced disclosure is on and the
-/// server and account allow it. Flutter Settings and the native iOS sheet both
-/// read this, so they cannot disagree about when the entry exists. Turning
-/// Advanced off hides the entry only; the events the server holds stay.
-final calendarEntryVisibleProvider = Provider<bool>((ref) {
-  return ref.watch(
-        appSettingsProvider.select((s) => s.advancedFeaturesEnabled),
-      ) &&
-      ref.watch(calendarAvailableProvider);
 });
 
 /// The zone the calendar shows and edits in: the device's, which the user chose

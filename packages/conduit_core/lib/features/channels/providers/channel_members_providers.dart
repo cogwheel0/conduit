@@ -14,7 +14,6 @@ import 'package:conduit_core/models/channel.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
-import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 /// Reads a provider; satisfied by both `Ref.read` and `WidgetRef.read`.
@@ -206,11 +205,10 @@ ChannelMemberManagement resolveChannelMemberManagement({
   required String channelId,
   required Channel? channel,
   required User? user,
-  required bool advancedEnabled,
   required bool channelsEnabled,
   required Map<String, dynamic>? permissions,
 }) {
-  if (!advancedEnabled || !channelsEnabled) return ChannelMemberManagement.none;
+  if (!channelsEnabled) return ChannelMemberManagement.none;
   if (user == null || channel == null || channel.id != channelId) {
     return ChannelMemberManagement.none;
   }
@@ -250,11 +248,6 @@ final channelMemberManagementProvider = Provider.autoDispose
         channelId: owner.channelId,
         channel: ref.watch(activeChannelProvider),
         user: ref.watch(currentUserProvider2),
-        advancedEnabled: ref.watch(
-          appSettingsProvider.select(
-            (settings) => settings.advancedFeaturesEnabled,
-          ),
-        ),
         channelsEnabled: ref.watch(channelsFeatureEnabledProvider),
         permissions: ref.watch(userPermissionsProvider).asData?.value,
       );
@@ -627,7 +620,6 @@ class ChannelMembersController extends Notifier<ChannelMembersState> {
       channelId: _owner.channelId,
       channel: ref.read(activeChannelProvider),
       user: ref.read(currentUserProvider2),
-      advancedEnabled: ref.read(appSettingsProvider).advancedFeaturesEnabled,
       channelsEnabled: ref.read(channelsFeatureEnabledProvider),
       permissions: permissions,
     );

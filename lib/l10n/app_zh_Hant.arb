@@ -3706,7 +3706,6 @@
   "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarTitle": "行事曆",
   "calendarDescription": "您的 Open WebUI 行事曆。活動儲存在伺服器上，並以此裝置的時區顯示。",
-  "calendarNeedsAdvanced": "請在「設定」中開啟「進階」，以使用行事曆。伺服器上現有的活動不受影響。",
   "calendarUnavailable": "在此伺服器上，此帳戶無法使用行事曆。",
   "calendarTimezoneNote": "時間以此裝置的時區顯示。重複活動由伺服器依您帳戶的時區展開。",
   "calendarRangeLabel": "{start} – {end}",

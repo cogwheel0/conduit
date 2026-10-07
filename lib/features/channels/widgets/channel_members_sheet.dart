@@ -444,7 +444,7 @@ class _ChannelAddMembersSheetState
     ref.listen(channelMembersControllerProvider(_owner), (_, next) {
       if (next.phase == ChannelMembersPhase.ownerChanged) _close();
     });
-    // Management ended (Advanced turned off, permission withdrawn): keep the
+    // Management ended (permission withdrawn, Channels turned off): keep the
     // picks on screen but stop offering to send them.
     final canPickAny = management.allowUsers || management.allowGroups;
 

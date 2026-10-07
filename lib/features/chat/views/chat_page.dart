@@ -3332,8 +3332,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             onRegenerate: () => _regenerateMessage(messageId),
           );
           // An edited message keeps each version as a sibling in the stored
-          // graph. Advanced offers a way to continue from another one; the row
-          // is left exactly as it was when there is nothing to choose between.
+          // graph. The branch controls offer a way to continue from another
+          // one; the row is left exactly as it was when there is nothing to
+          // choose between.
           if (!userMessageMayHaveVersions(latestMessage) ||
               !rowRef.watch(chatBranchControlsProvider)) {
             return bubble;

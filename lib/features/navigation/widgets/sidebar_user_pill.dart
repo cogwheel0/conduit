@@ -31,7 +31,7 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show scheduledTasksEntryVisibleProvider;
 import 'package:conduit_core/features/calendar/providers/calendar_providers.dart'
-    show calendarEntryVisibleProvider;
+    show calendarAvailableProvider;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatDataControlsEntryVisibleProvider;
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
@@ -461,7 +461,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               personalConnectionsEntryVisibleProvider,
             ),
             showScheduledTasks: ref.read(scheduledTasksEntryVisibleProvider),
-            showCalendar: ref.read(calendarEntryVisibleProvider),
+            showCalendar: ref.read(calendarAvailableProvider),
             showChatDataControls: ref.read(
               chatDataControlsEntryVisibleProvider,
             ),
@@ -619,6 +619,15 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         actionValue: true,
       ),
       buildDirectConnectionsNativeSheetItem(title: l10n.directConnectionsTitle),
+      if (showCalendar)
+        NativeSheetItemConfig(
+          id: NativeSheetRoutes.calendar,
+          title: l10n.calendarTitle,
+          sfSymbol: 'calendar',
+          dismissOnSelect: true,
+          actionId: NativeSheetRoutes.calendar,
+          actionValue: true,
+        ),
       if (showPersonalConnections)
         NativeSheetItemConfig(
           id: NativeSheetRoutes.personalConnections,
@@ -635,15 +644,6 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
           sfSymbol: 'clock',
           dismissOnSelect: true,
           actionId: NativeSheetRoutes.scheduledTasks,
-          actionValue: true,
-        ),
-      if (showCalendar)
-        NativeSheetItemConfig(
-          id: NativeSheetRoutes.calendar,
-          title: l10n.calendarTitle,
-          sfSymbol: 'calendar',
-          dismissOnSelect: true,
-          actionId: NativeSheetRoutes.calendar,
           actionValue: true,
         ),
       if (showChatDataControls)

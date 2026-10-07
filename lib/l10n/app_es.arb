@@ -3706,7 +3706,6 @@
   "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarTitle": "Calendario",
   "calendarDescription": "Tu calendario de Open WebUI. Los eventos están en el servidor y se muestran en la zona horaria de este dispositivo.",
-  "calendarNeedsAdvanced": "Activa Avanzado en Ajustes para usar el calendario. Los eventos que ya están en el servidor no se ven afectados.",
   "calendarUnavailable": "El calendario no está disponible para esta cuenta en este servidor.",
   "calendarTimezoneNote": "Las horas se muestran en la zona horaria de este dispositivo. El servidor expande los eventos repetidos en la zona horaria de tu cuenta.",
   "calendarRangeLabel": "{start} – {end}",

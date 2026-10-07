@@ -75,7 +75,7 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show scheduledTasksEntryVisibleProvider;
 import 'package:conduit_core/features/calendar/providers/calendar_providers.dart'
-    show calendarEntryVisibleProvider;
+    show calendarAvailableProvider;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatDataControlsEntryVisibleProvider;
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
@@ -663,9 +663,9 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
 
       if (event.id == NativeSheetRoutes.calendar) {
         // As for Scheduled tasks: the sheet was built before this arrived, so
-        // a row that went stale (Advanced turned off, the account or its
-        // permission changed) must not navigate.
-        if (!ref.read(calendarEntryVisibleProvider)) return;
+        // a row that went stale (the account or its permission changed) must
+        // not navigate.
+        if (!ref.read(calendarAvailableProvider)) return;
         final request = calendarNativeSheetNavigationRequest;
         unawaited(
           NavigationService.router.pushNamed<void>(

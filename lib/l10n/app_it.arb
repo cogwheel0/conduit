@@ -3706,7 +3706,6 @@
   "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarTitle": "Calendario",
   "calendarDescription": "Il tuo calendario Open WebUI. Gli eventi risiedono sul server e sono mostrati nel fuso orario di questo dispositivo.",
-  "calendarNeedsAdvanced": "Attiva Avanzate in Impostazioni per usare il calendario. Gli eventi già presenti sul server non sono interessati.",
   "calendarUnavailable": "Il calendario non è disponibile per questo account su questo server.",
   "calendarTimezoneNote": "Gli orari sono mostrati nel fuso orario di questo dispositivo. Gli eventi ricorrenti vengono espansi dal server nel fuso orario del tuo account.",
   "calendarRangeLabel": "{start} – {end}",

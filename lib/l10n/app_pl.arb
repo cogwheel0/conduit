@@ -7053,7 +7053,6 @@
   "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarTitle": "Kalendarz",
   "calendarDescription": "Twój kalendarz Open WebUI. Wydarzenia są przechowywane na serwerze i wyświetlane w strefie czasowej tego urządzenia.",
-  "calendarNeedsAdvanced": "Włącz opcję Zaawansowane w Ustawieniach, aby korzystać z kalendarza. Wydarzenia już znajdujące się na serwerze nie są naruszone.",
   "calendarUnavailable": "Kalendarz nie jest dostępny dla tego konta na tym serwerze.",
   "calendarTimezoneNote": "Godziny są wyświetlane w strefie czasowej tego urządzenia. Wydarzenia cykliczne serwer rozwija w strefie czasowej Twojego konta.",
   "calendarRangeLabel": "{start} – {end}",

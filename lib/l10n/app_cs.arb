@@ -5540,7 +5540,6 @@
   "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarTitle": "Kalendář",
   "calendarDescription": "Váš kalendář Open WebUI. Události jsou uloženy na serveru a zobrazují se v časovém pásmu tohoto zařízení.",
-  "calendarNeedsAdvanced": "Chcete-li používat kalendář, zapněte v Nastavení režim Pokročilé. Události, které už jsou na serveru, to neovlivní.",
   "calendarUnavailable": "Kalendář není pro tento účet na tomto serveru k dispozici.",
   "calendarTimezoneNote": "Časy se zobrazují v časovém pásmu tohoto zařízení. Opakující se události server rozbaluje v časovém pásmu vašeho účtu.",
   "calendarRangeLabel": "{start} – {end}",

@@ -52,27 +52,23 @@ final codeInterpreterBlockProvider = Provider<CodeInterpreterBlock?>((ref) {
 
 /// What the composer shows for the interpreter, or null for nothing.
 ///
-/// The action is an Advanced addition. It appears with Advanced on when the
-/// interpreter is usable, or to explain that a server runs Python in the
-/// browser. A selection already made stays visible with Advanced off so the
-/// user can turn it off, and [block] says why it will not run, if it will not.
-/// Turns that never reach an Open WebUI server get no offer.
+/// The action is offered whenever the interpreter is usable. With Advanced on
+/// it also appears, disabled, to explain that a server runs Python in the
+/// browser. A selection already made stays visible so the user can turn it
+/// off, and [block] says why it will not run, if it will not. Turns that never
+/// reach an Open WebUI server get no offer.
 typedef CodeInterpreterOffer = ({bool selected, CodeInterpreterBlock? block});
 
 final codeInterpreterOfferProvider = Provider<CodeInterpreterOffer?>((ref) {
   final selected = ref.watch(codeInterpreterEnabledProvider);
+  final block = ref.watch(codeInterpreterBlockProvider);
+  if (block == CodeInterpreterBlock.notOpenWebUi) return null;
+  if (selected || block == null) return (selected: selected, block: block);
+  if (block != CodeInterpreterBlock.unsupportedEngine) return null;
   final advanced = ref.watch(
     appSettingsProvider.select((settings) => settings.advancedFeaturesEnabled),
   );
-  // Nothing to show, so nothing about the server or account is read.
-  if (!selected && !advanced) return null;
-
-  final block = ref.watch(codeInterpreterBlockProvider);
-  if (block == CodeInterpreterBlock.notOpenWebUi) return null;
-  if (selected) return (selected: true, block: block);
-  return block == null || block == CodeInterpreterBlock.unsupportedEngine
-      ? (selected: false, block: block)
-      : null;
+  return advanced ? (selected: false, block: block) : null;
 });
 
 /// Why Open WebUI's code interpreter cannot run a turn.

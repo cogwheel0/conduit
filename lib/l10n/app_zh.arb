@@ -3706,7 +3706,6 @@
   "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarTitle": "日历",
   "calendarDescription": "您的 Open WebUI 日历。日程保存在服务器上，并按此设备的时区显示。",
-  "calendarNeedsAdvanced": "请在“设置”中开启“高级”，以使用日历。服务器上已有的日程不受影响。",
   "calendarUnavailable": "在此服务器上，此账户无法使用日历。",
   "calendarTimezoneNote": "时间按此设备的时区显示。重复日程由服务器按您账户的时区展开。",
   "calendarRangeLabel": "{start} – {end}",

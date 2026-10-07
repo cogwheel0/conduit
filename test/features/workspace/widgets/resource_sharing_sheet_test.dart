@@ -142,7 +142,6 @@ void main() {
     WidgetTester tester, {
     required Future<void> Function(BuildContext context, WidgetRef ref) onOpen,
     WorkspaceCapabilities capabilities = WorkspaceCapabilities.all,
-    bool advanced = true,
     WorkspacePrincipalDirectory? directory,
   }) async {
     final container = ProviderContainer(
@@ -155,9 +154,8 @@ void main() {
         currentUserProvider2.overrideWith((ref) => ref.watch(_currentUser)),
         activeServerProvider.overrideWith((ref) async => _server),
         workspaceCapabilitiesProvider.overrideWith((ref) async => capabilities),
-        appSettingsProvider.overrideWithValue(
-          AppSettings(advancedFeaturesEnabled: advanced),
-        ),
+        // Advanced stays off: sharing and the chat audience do not need it.
+        appSettingsProvider.overrideWithValue(const AppSettings()),
       ],
     );
     addTearDown(container.dispose);
@@ -774,13 +772,9 @@ void main() {
       shareId: 'share-link-9',
     );
 
-    Future<void> openChatShare(
-      WidgetTester tester, {
-      bool advanced = true,
-    }) async {
+    Future<void> openChatShare(WidgetTester tester) async {
       await pumpOpener(
         tester,
-        advanced: advanced,
         onOpen: (context, ref) => showModalBottomSheet<void>(
           context: context,
           isScrollControlled: true,
@@ -793,14 +787,9 @@ void main() {
       await openSheet(tester);
     }
 
-    testWidgets('is hidden while Advanced is off', (tester) async {
-      await openChatShare(tester, advanced: false);
-
-      expect(find.byKey(const Key('chat-share-audience')), findsNothing);
-    });
-
     testWidgets(
-      'edits access by the chat id while the link keeps its share id',
+      'edits access by the chat id while the link keeps its share id, with '
+      'Advanced off',
       (tester) async {
         await openChatShare(tester);
 
